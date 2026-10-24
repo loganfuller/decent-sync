@@ -60,9 +60,13 @@ lists, shown or hidden at each Location, and written back to them (Taking in
 a tablet's baskets and tools, below). Ticket
 [#140](https://github.com/loganfuller/decent-sync/issues/140) adds Recipes,
 DYE2's recipes, each belonging to one Location and in one of its Recipe
-Slots or none: taken in from DYE2's recipes, and each Location's slotted
-Recipes written to its tablets under their slot numbers, naming what they
-use by each tablet's own ids (Taking in a tablet's recipes, below); ticket
+Slots or none: taken in from DYE2's recipes, and each Location's Recipes
+written to its tablets, naming what they use by each tablet's own ids
+(Taking in a tablet's recipes, below), which ticket
+[#216](https://github.com/loganfuller/decent-sync/issues/216) has written
+under one record id each, the same on every tablet there, with their slots
+as DYE2's `stripSlot`, five to a Location, every Recipe not Archived on
+every tablet there; ticket
 [#143](https://github.com/loganfuller/decent-sync/issues/143) has the
 management interface create and edit them, move them between slots, and
 Archive and restore them, and ticket
@@ -73,11 +77,11 @@ Shot to the Recipe its Machine had loaded and the Basket DYE2 recorded
 (`SHOTS.md`, Links to the Library), and lets an Admin hard-delete a Recipe
 no Shot was pulled with, and a Basket or Tool no Shot or Recipe names (Hard
 deletes, below). Ticket [#148](https://github.com/loganfuller/decent-sync/issues/148)
-has a Machine joining a Location take on its Recipes in their slots, the
-slots it leaves empty emptied, and drop its own recipes, baskets and tools
-unless the Location has none of their kind yet, its Workflow losing a
-Basket the Location does not show and a Loaded Recipe of another Location,
-cleared from DYE2's selection too (Joining a Location, below). It
+has a Machine joining a Location take on its Recipes, and drop its own
+recipes, baskets and tools unless the Location has none of their kind yet,
+its Workflow losing a Basket the Location does not show and a Loaded Recipe
+of another Location, whose `recipeId` is cleared from it (Joining a
+Location, below). It
 follows ADR-0003, ADR-0005, ADR-0006, ADR-0008, ADR-0016, ADR-0018,
 ADR-0019, ADR-0020 and ADR-0021.
 
@@ -135,8 +139,8 @@ A tablet holds only what its Machine's Location offers (ADR-0008):
   shown where a tablet created it, or entered one of its name, until it is
   hidden there or shown elsewhere (Taking in a tablet's baskets and tools,
   below);
-- a **Recipe** of its own while it is in one of its Recipe Slots, which an
-  Archived Recipe never is (Taking in a tablet's recipes, below).
+- a **Recipe** of its own, in one of its Recipe Slots or none, unless it is
+  Archived (Taking in a tablet's recipes, below).
 
 So a Bean with batches is offered only where they are: once its last batch
 at a Location is finished, it is no longer offered there. Archived items are
@@ -264,12 +268,14 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
 - `basket_locations` and `tool_locations`: whether each is shown at a
   Location, a field of its own kept as `profile_locations` keeps a
   Profile's.
-- `recipes`: each Recipe, by its global id, with the Location it belongs to,
-  its Recipe Slot there or none, a positive whole number unique among the
-  Location's slotted Recipes, with no upper limit; its content in the
-  Library's terms (Taking in a tablet's recipes, below); whether it is
-  Archived, when it has no slot; when it joined the Library; and its fields'
-  latest edits.
+- `recipes`: each Recipe, by its global id, with the Location it belongs to;
+  its record id (`record_id`), the id of its record in DYE2's recipes on
+  every tablet at that Location, which never changes, unique among the
+  Location's Recipes not Archived (a partial unique index); its Recipe Slot
+  there or none, 1 to 5 (a check constraint), unique among the Location's
+  Recipes; its content in the Library's terms (Taking in a tablet's recipes,
+  below); whether it is Archived, when it has no slot; when it joined the
+  Library; and its fields' latest edits.
 - `tablet_baskets` and `tablet_tools`: each tablet's map of its records in
   DYE2's lists, by DYE2's id, with the record as the tablet last had it, when
   the plugin first read it (`record_updated_at`), the latest decision of its
@@ -280,11 +286,11 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   whether a report has listed it since the server's write created it
   (`listed`).
 - `tablet_recipes`: each tablet's map of its records in DYE2's recipes, by
-  DYE2's id, its Recipe Slot there, kept as `tablet_baskets` keeps a
-  Basket's, its fields named by their paths in the record, but for the
-  showing it has seen, as a Recipe is no Location's to show.
-- `tablet_removed_recipes`: the record a tablet held in a Recipe Slot when
-  the server removed it there, kept until a report lists that slot again.
+  DYE2's id, its Recipe's record id for a Recipe of the tablet's Location,
+  kept as `tablet_baskets` keeps a Basket's, its fields named by their paths
+  in the record, but for the showing it has seen, as a Recipe is no
+  Location's to show, and for `before_write`, as recipe records keep no
+  stale-save rule.
 - `tablet_unrecognised_lists`: each of DYE2's lists a tablet holds in a shape
   that is not recognised, which nothing is written to or taken in from, and
   since when.
@@ -557,23 +563,30 @@ tablets, below).
   ratio is kept only while its yield is its dose times it, to a tenth of a
   gram, as DYE2's editor keeps it, and cleared by an edit that breaks that;
   a Tool's attributes go with the Tool when an edit drops it, or clears the
-  Tools. A Recipe's
-  slot is its Location's state, not its content: it is created in a slot
-  chosen, the lowest one free (`next`), no Recipe's, its own included, or
-  none, and moved to another, or
-  taken out of its slot, each a version of its own setting `slot` at the
-  Location, as a tablet taking one out of its slot is. A Recipe in the slot
-  chosen takes the moved one's old slot, or none for a new one or one that
-  had none, so it keeps its id and history and is written there. Slots are
-  decided under the Location's lock, as a tablet's report decides them, so
-  two never take one slot, through any instance. Archiving one takes it out
-  of its slot first, so it is removed from every tablet's list, and a
-  restored one is kept at its Location in no slot. An Archived one is not
-  put in a slot. Each change locks the Location, then the Recipe's row, as a
-  tablet's report does, and commits with a `NOTIFY` naming the Location, so
-  a Recipe moved is removed from its old slot on each tablet there and
-  written in its new one (`recipeWrites` in `holdings.ts`). An Admin
-  hard-deletes one no Shot was pulled with (Hard deletes, below).
+  Tools. A Recipe
+  created there gets a new record id, a UUID, as a copy does. Its slot is
+  its Location's state, not its content: one of the Location's five, the
+  buttons of Streamline's DYE strip (`RECIPE_SLOTS` in `protocol/`). It is
+  created in a slot chosen, the lowest one free (`next`), no Recipe's, its
+  own included, or none, as for `next` where every slot holds a Recipe; and
+  moved to another, or taken out of its slot, each a version of its own
+  setting `slot` at the Location, as a tablet's move is. A Recipe in the
+  slot chosen takes the moved one's old slot, or none for a new one or one
+  that had none; moving one to `next` where every slot holds a Recipe is
+  refused (409). Slots are decided under the Location's lock, as a tablet's
+  report decides them, so two never take one slot, through any instance.
+  Archiving one takes it out of its slot first, and removes it from every
+  tablet's list; a restored one is kept at its Location in no slot, and
+  written to every tablet there again, under its record id, or a new one
+  where another Recipe there has taken that id since, as one a tablet saved
+  under a slot's number. An Archived one is not put in a slot (409). Each
+  change locks the Location, then the Recipe's row, as a tablet's report
+  does, and commits with a `NOTIFY` naming the Location, so each tablet
+  there is written the move: only the records' `stripSlot` changes, the
+  Recipe's and that of the Recipe that held its new slot, each keeping its
+  record id and history (`recipeWrites` in `holdings.ts`), so a Machine
+  with it loaded keeps it loaded. An Admin hard-deletes one no Shot was
+  pulled with (Hard deletes, below).
 - **Copying a Recipe.** A Recipe is copied to another Location than its own
   (never its own, where the slot chosen could be the Recipe's, which the copy
   would take from it, 400) as a new Recipe there (`POST /api/recipes/:id/copies`), a starting point
@@ -589,9 +602,10 @@ tablets, below).
   keeping the Bean, offered there, as a Bean set alone does. An item a hard
   delete left the Recipe naming is left out of the copy (`withoutDeleted`),
   as tablets are written none. Its steam, hot water and flush settings are
-  the Recipe's. It goes in the slot chosen, the Recipe there
-  taken out of it and kept there, or the lowest free one, or none, under
-  that Location's lock, as a new Recipe does. Its history starts with the copy: its first
+  the Recipe's. It gets a new record id, and goes in the slot chosen, the
+  Recipe there taken out of it and kept there, or the lowest free one, or
+  none, as where every slot there holds a Recipe, under that Location's
+  lock, as a new Recipe does. Its history starts with the copy: its first
   version names the Recipe it was copied from and that Recipe's Location
   then (`copied_from_id` and `copied_from_location_id` on `item_versions`),
   the Recipe by its id alone, so the note outlives its hard delete.
@@ -629,11 +643,10 @@ it, and from every tablet that holds it, the one thing the server deletes
 from tablets. A Bean goes with its batches, as Decaid refuses to delete a
 bean that has any. Decaid's bundled Profiles are never deleted (409): every
 tablet has them, and Decaid refuses to delete one; they are hidden at
-Locations or Archived instead. A Recipe goes from its slot, so from every
-tablet's DYE2 recipes at its Location, and from each Machine's Loaded
-Recipe history; a Workflow still naming it is cleared of it, as of a
-Recipe taken out of its slot (`WORKFLOW-AND-STATE.md`, Following the
-Recipe).
+Locations or Archived instead. A Recipe goes from every tablet's DYE2
+recipes at its Location, and from each Machine's Loaded Recipe history; a
+Workflow still naming it has its `recipeId` cleared, as for a Recipe
+Archived (`WORKFLOW-AND-STATE.md`, Following the Recipe).
 
 - **Named by a Shot.** A Shot names its batch and Grinder by their ids on the
   tablet that pulled it (`shots.bean_batch_id` and `shots.grinder_id`, from
@@ -677,8 +690,8 @@ Recipe).
   again on the same connection, until the Shots have been sent. A
   Shot the plugin finds only later, from its index once it has reloaded, can
   come too late to keep it. Baskets and Tools are kept on tablets the same
-  way, by the ids a Shot recorded; a Recipe's record is not, as no Shot
-  names its id there, its slot.
+  way, by the ids a Shot recorded; a Recipe's record is not, as a Shot
+  names a Recipe only by being linked to it, which the server judges.
 - **Named by a Recipe.** A Basket a Recipe names (`basketId`), or a Tool
   among its `toolIds`, Archived Recipes included, is not deleted (409): take
   it out of the Recipe, or Archive it, instead. Recipes are read under the
@@ -1068,21 +1081,27 @@ Location's tablets' lists.
 ## Taking in a tablet's recipes
 
 DYE2 keeps its recipes whole in one list under one key of Decaid's store,
-`recipes` under `dye2.reaplugin`, each under its Recipe Slot's number as its
-id (ADR-0005), and Streamline's DYE strip saves a barista's changes into the
-recipe it applied. The plugin reports them as the `dye2Recipes` collection,
-as it reports baskets and tools (Taking in a tablet's baskets and tools,
-above), after them, as a recipe names them, and they are taken in under the
-same locks, the Location's lock, under which its slots are decided, taken
-for every report (`takeInRecipes` in `recipes.ts`, planned by the pure
-`planRecipeIntake` and mapped by the pure module `recipe-intake.ts`). A
-Recipe belongs to one Location and has a slot there, or none. Recipes are
-never matched (ADR-0018).
+`recipes` under `dye2.reaplugin`, each under an opaque id, and its Recipe
+Slot in its `stripSlot`, 1 to 5 or null (ADR-0005). DYE2 keeps any number
+of recipes, its Select Recipe page listing and applying them all, up to
+five of them on Streamline's DYE strip. Its editor gives a new recipe a
+UUID, and its `save-recipe`, which Streamline's strip calls from its
+long-press menu, an id `recipe-…`; a recipe saved before DYE2 v0.1.25 has
+its slot's number. The plugin reports them as the `dye2Recipes`
+collection, as it reports baskets and tools (Taking in a tablet's baskets
+and tools, above), after them, as a recipe names them, and they are taken
+in under the same locks, the Location's lock, under which its record ids
+and slots are decided, taken for every report (`takeInRecipes` in
+`recipes.ts`, planned by the pure `planRecipeIntake` and mapped by the
+pure module `recipe-intake.ts`). A Recipe belongs to one Location, has one
+record id there (`recipes.record_id`), the id of its record on every
+tablet there, which never changes, and has a slot there, or none. Recipes
+are never matched (ADR-0018).
 
 - **Unrecognised shapes.** A list whose records are not each an object with
-  an id that is a slot number (`isSlotId` in `protocol/`: a positive whole
-  number written without a sign or leading zeros) is in a shape that is not
-  recognised, and is treated as such a list of baskets or tools is.
+  an id (`isRecordId` in `protocol/`) no other record holds is in a shape
+  that is not recognised, and is treated as such a list of baskets or tools
+  is.
 - **Content.** A Recipe's content is in the Library's terms: `name`,
   `beverage`, `beanId`, `beanBatchId`, `profileId` (Decaid's id),
   `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
@@ -1113,9 +1132,11 @@ never matched (ADR-0018).
   field of it in `dashboardVariables`, as `steamTempC`, one the record holds
   none of holding none (`RECIPE_SETTINGS` in `protocol/`). A steam
   temperature below 135 °C (`STEAM_ON_FROM`), as DYE2's editor saves "Off"
-  as 0 and DYE2 records a Machine's steam turned off, is no edit, and the
-  Recipe's is written back over it (`steamOffPaths`): steam on and off is
-  each Machine's own (`WORKFLOW-AND-STATE.md`, The Loaded Recipe). The steam
+  as 0, is no edit, and the Recipe's is written back over it
+  (`steamOffPaths`): steam on and off is each Machine's own, and DYE2 saves
+  no steam setting from a Workflow whose steam is off
+  (`WORKFLOW-AND-STATE.md`, The Loaded Recipe). A steam time of 0 is a
+  value. The steam
   and hot water modes (`steamMode`, `hotWaterMode`) are DYE2's display
   choice, which value its stepper shows: fields of the content, taken in as
   any is and written to every tablet, but applied to nothing, as a DE1
@@ -1126,11 +1147,12 @@ never matched (ADR-0018).
   the Recipe's. A Bean picked with no batch, or with one of another Bean,
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
-  batch where the Bean has none there. A batch picked on a Machine is never
-  recorded into the recipe: where the Recipe holds one, DYE2 clears its
-  selection on it instead, which unloads the Recipe; where it holds none,
-  DYE2 takes the first one picked as the one it was applied with, and the
-  Recipe stays loaded without it (`WORKFLOW-AND-STATE.md`).
+  batch where the Bean has none there. DYE2 never saves a batch picked on a
+  Machine into the recipe, so Decent Sync records it: a batch of the
+  Recipe's Bean picked on a Machine with the Recipe loaded becomes the
+  Recipe's, a Recipe naming no Bean taking the batch's Bean too, while a
+  batch of another Bean stays that Machine's own, the Recipe still loaded
+  (ADR-0022, `WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
 - **Its Grinder** is one of its Location's: a record naming another, or one
@@ -1138,64 +1160,84 @@ never matched (ADR-0018).
   were never written to it, stay the Recipe's whatever the tablet's record
   names, each where it was, and so does its Basket while the tablet's record
   names none.
-- **Edits.** A record in a slot the map holds as a Recipe's is that
-  Recipe's, even where the Recipe has left that slot since, moved to another,
-  taken out of its slot or Archived, as in the management interface: when
-  the record carries its global id, or none where the map's record of it
-  carried none either, a save there is still its edit,
-  so an edit made on a tablet not yet written the change is kept, on that
-  Recipe and never on another put in the slot since, and the writer then
-  moves the record to its slot or removes it. This reads the spec's "saved
-  in a slot" as the record's Recipe where the record names one. One carrying another item's global id, as a backup restored,
+- **Edits.** Records are decided by their ids, as a recipe's id is the same
+  on every tablet at its Recipe's Location (`planRecipeIntake`). A record
+  the map holds stays that Recipe's: one that differs from the record known
+  is an edit of each field of its content it changed, timed when the plugin
+  first read it, merged per field (Edits, above), with no stale-save rule
+  for recipe records (`before_write`), which Baskets and Tools keep, as
+  DYE2's editor saves only the fields changed over a fresh read
+  (decentespresso/dye2#28) and its dashboard only its own edits over a
+  fresh read of the Workflow (decentespresso/dye2#31). What DYE2 saved from
+  the Workflow of a Machine with the Recipe loaded that is no edit is
+  written back over (`recordedByDye2`, `WORKFLOW-AND-STATE.md`, Following
+  the Recipe). One carrying another item's global id, as a backup restored,
   or of another Location's Recipe, as before the writer removes it after a
-  move, is written over, no edit of it; so is a write's answer of one. One that differs from the record
-  known is an edit of each field of its content it changed, timed when the
-  plugin first read it, merged per field (Edits, above), but for a field set
-  back to its value before the server's latest write to it, as for baskets
-  and tools (`before_write`). DYE2's editor now saves only the fields changed
-  over a fresh read (decentespresso/dye2#28), but recipe records keep the
-  rule until its dashboard reads the Workflow again before each send
-  (decentespresso/dye2#31, #186): the Loaded Recipe's rule for a stale copy
-  reads the same `before_write` (`WORKFLOW-AND-STATE.md`, Stale values). A record the server creates in a slot it
-  removed another record from, as one whose Recipe left the slot or whose
-  Machine left the Location, takes each field that record held otherwise as
-  what the tablet held there just before the write (`tablet_removed_recipes`,
-  `heldBeforeReplaced`), whether its answer shows it or, after a lost answer,
-  the tablet's next report: DYE2 saves a page's fields over the record in the
-  slot, keeping its global id, so a page opened on the earlier recipe would
-  otherwise have its every field taken as an edit of the new Recipe. A field
-  both hold is left out, so a later write of it guards against a stale save
-  as any write does. A record in a slot the map does not hold is in
-  the slot of the Location's Recipe there, if any: carrying that Recipe's
-  global id, it is its record, as after a lost answer; otherwise it was saved
-  in that slot on the tablet before it held the Recipe, and each field of its
-  content that differs from the Recipe's is an edit of it, merged with
-  Conflicts as an edit made without seeing the Recipe's. A record in a slot
-  the Location leaves empty is a new Recipe there.
+  move, is written over, no edit of it; so is a write's answer of one. A
+  record the map does not hold under the record id of one of the
+  Location's Recipes not Archived is that Recipe's: carrying its global id,
+  it is its record, as after a lost answer; otherwise it was saved under
+  that id on the tablet before it held the Recipe, as a slot-number id
+  saved there before DYE2 v0.1.25, and each field of its content that
+  differs from the Recipe's is an edit of it, merged with Conflicts as an
+  edit made without seeing the Recipe's. Any other record is a new Recipe
+  at the Location, under its own id as its record id, as one DYE2's editor
+  or `save-recipe` made.
+- **Slots.** A record's `stripSlot` is its Recipe's slot at its Location, not
+  its content (`recipeSlotOf` in `protocol/`: a whole number from 1 to 5,
+  any other value none). A record the map holds whose `stripSlot` differs
+  from the record known moves its Recipe there, or out of its slot for
+  none, as DYE2's editor moves a recipe on the strip, and Streamline's
+  "Replace <name>" takes one off it; a new Recipe from a tablet takes its
+  record's slot the same way (`slotMove` in `recipe-intake.ts`, `moveSlots`
+  in `recipes.ts`). The Recipe that held that slot at the Location leaves
+  it, kept in none, as DYE2's `takeSlot` does
+  (`dye2:dye2-plugin/src/utils/dev-api.ts`). A move is made only where the
+  Recipe is still in the slot the record known was in, so one made on a
+  tablet that had not seen a move made elsewhere, as in the management
+  interface, is not, and the Recipe's slot is written back. Each slot a
+  move changes is a version of its own, from the tablet, timed as the
+  record moved, and slots left are emptied first, so no two Recipes are
+  ever in one.
+- **A recipe named before its record arrives.** Once the tablet's map holds
+  a record under an id it held none of, the Shots that tablet reported
+  naming that id are linked to its Recipe (`linkRecipeShots` in
+  `shots/links.ts`), and a Workflow of the tablet's naming it loads it
+  (`recipeMapped`), as for a recipe `save-recipe` made and named at once,
+  whose record reaches the server after the Workflow naming it
+  (`WORKFLOW-AND-STATE.md`, The Loaded Recipe).
 - **Gone from the list.** A record the map holds that a report listed before
   was removed on the tablet, which neither DYE2 nor Streamline does today:
-  its Recipe is taken out of that slot at the tablet's Location, if it is
-  still in it there, and kept unslotted (ADR-0019), a version of its own,
-  `{ slot: null }` at that Location, timed when the server learns of it. A
-  record the server's write created that no report listed before it went was
-  lost to another app's rewrite, and is written again.
+  its Recipe is taken out of the slot the record known was in, at the
+  tablet's Location, if it is still in it there, and kept (ADR-0019), a
+  version of its own, `{ slot: null }` at that Location, timed when the
+  server learns of it. A record the server's write created that no report
+  listed before it went was lost to another app's rewrite, and is written
+  again.
 - **Joining.** A report that is part of joining takes nothing of the
   tablet's in, as for any kind (Joining a Location, below): a record of a
-  Recipe the map holds is written over, or removed if its Location does not
-  have it in that slot; the rest are left out, removed from the list, and not
-  kept. A Location with no Recipes in its slots takes the joining tablet's in
-  their slots. The Workflow's Loaded Recipe is cleared as the tablet joins
-  another Location, DYE2's selection with it (Joining a Location, below).
+  Recipe the map holds is written over, or removed if it is not one of the
+  Location's; the rest are left out, removed from the list, and not kept. A
+  Location with no Recipes but Archived ones takes the joining tablet's in,
+  with their ids and slots. The Workflow's Loaded Recipe of another
+  Location is unloaded as the tablet joins, its `recipeId` cleared (Joining
+  a Location, below).
 
-**Writing.** Each sharing tablet holds its Location's slotted Recipes, in
-slot order, under their slot numbers (`recipeWrites` in `holdings.ts`); one
-of a Recipe taken out of its slot, or another Location's, or in another slot
-than its Recipe's now, is removed first, so its slot is free. Each record
+**Writing.** Each sharing tablet holds every Recipe of its Location that is
+not Archived, in a slot or not, each under its record id, with its slot in
+`stripSlot`, null for none, so one in no slot is still found and applied
+from DYE2's Select Recipe page (`recipeWrites` in `holdings.ts`); a record
+of a Recipe Archived, or of another Location's, is removed first, so its id
+is free. The list keeps the order the tablet holds it in, each new record
+added at its end. Each record
 written (`recipeRecord` in `recipe-intake.ts`) holds:
 
 - the Recipe's content, naming its Bean, Bean Batch, Grinder, Basket and
   Tools by the tablet's own ids, each left out where the tablet holds no
   record of it, and its Profile by Decaid's id;
+- its Recipe Slot in `stripSlot`, null for none, as Streamline places
+  recipes on its strip by it as soon as any record holds the key
+  (`recipeStripCells` in `streamline-js:src/modules/dye-selection.js`);
 - each steam, hot water and flush setting it holds in DYE2's field of it in
   `dashboardVariables`, blank where it holds none, so applying the record
   leaves the Machine's own, and its steam and hot water modes, a hot water
@@ -1210,11 +1252,11 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   holds none of them, so DYE2 and Streamline apply it the same way, once
   Streamline's strip applies those settings
   (decentespresso/streamline-js#154), and so the settings DYE2 copies there
-  as it records are the ones the server writes; with the field flags
+  as it saves are the ones the server writes; with the field flags
   (`extras.dye`) DYE2's editor saves into the tablet's record of it there,
-  which the server does not derive (`withHeldFieldFlags`); no Recipe id,
-  as DYE2's selection names the Recipe in the Workflow once a recipe is
-  applied and selected (ADR-0022, decentespresso/dye2#20);
+  which the server does not derive (`withHeldFieldFlags`); and no
+  `recipeId`, which the app applying the record sets to its id in the
+  Workflow (ADR-0022);
 - the full Profile in `profileSnapshot`, as the Library holds it, so it
   applies where the Profile is hidden, or the tablet lacks it, and in the
   embedded `workflow` at the Recipe's brew temperature, its first step at it
@@ -1223,8 +1265,8 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   moves the snapshot so as it applies it, and Streamline's strip applies the
   embedded one as it is (decentespresso/dye2#26);
 - its brew temperature in `dashboardVariables.brewC`, its Profile's first
-  step's where the Recipe holds none, as DYE2 records a brew temperature
-  only into a record holding one;
+  step's where the Recipe holds none, as DYE2 saves a brew temperature only
+  into a record holding one;
 - a blank barista and drinker;
 - its global id in its own field (`decentSyncId`), as a Basket's.
 
@@ -1232,18 +1274,23 @@ A record is written where any of that differs from what it holds, as when an
 item it names is created on the tablet, renamed, or its Profile edited, or
 a save left its embedded Workflow behind its dial.
 
-So a recipe saved in DYE2 in a slot on one tablet is written to that slot on
-every tablet at its Location, and to no other Location's; an edit on any
-tablet, in DYE2's editor or recorded by DYE2, reaches every
-tablet there; and a recipe gone from a tablet's list empties its slot on the
-others. DYE2 records into the recipe it has selected the
-change a barista made in the Workflow of a Machine with it loaded, its dose,
-yield, grind setting, RPM, Basket, brew temperature and steam, hot water and
-flush settings, each where the record holds one, and a steam, hot water or
-flush setting it holds none of once it moves, as the Machine's edit of its
-Loaded Recipe; the Workflow's own change is no edit, but what DYE2 records
-stale, or as steam turned off, is written back (`recordedByDye2`,
-`WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
+So a recipe saved in DYE2 on one tablet is written under its id, in its
+slot, to every tablet at its Location, and to no other Location's; an edit
+on any tablet, in DYE2's editor or saved by DYE2 from the Workflow, reaches
+every tablet there; a recipe moved to another slot on one moves on the
+others, and a recipe gone from a tablet's list leaves its slot on the
+others, still on them. Every change of the Workflow of a Machine with a
+Recipe loaded is saved into it (ADR-0022): the plugin has DYE2 save it
+(`record`), which writes the dose, yield, grind setting, RPM, Basket,
+brew temperature and steam, hot water and flush settings into the record,
+each where the record holds one, and a steam, hot water or flush setting it
+holds none of once it moves, which reaches the server as the tablet's
+change of the record, the Machine's edit of its Loaded Recipe; and the
+server records itself, from the Workflow, a grinder, a batch of the
+Recipe's Bean, and a dose, yield, grind setting, RPM or Basket the Recipe
+holds none of. What DYE2 saves that is no edit, as the Workflow left
+behind a write of the server's still to land, is written back
+(`recordedByDye2`, `WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
 sets the Recipe's value its tablet's own latest edit set already is no edit
 (`withoutOwnEdits`), so the same edit reaching the server twice is one. Recipes are read through the REST API (below), and managed in the
 management interface (Editing in the management interface, above).
@@ -1286,20 +1333,24 @@ each update also writing the item's content where the record differs from it
    every sharing tablet, whether or not DYE2 is installed there, so
    installing DYE2 later finds them ready, but never one the tablet holds in
    a shape that is not recognised.
-7. Each record of a Recipe the tablet holds that is not in its Recipe's slot
-   at the Location, removed from DYE2's recipes (`remove`); then each Recipe
-   in the Location's slots, in slot order, that the tablet lacks in its slot,
-   created there, or whose record differs from what it is to hold, written
-   (Taking in a tablet's recipes, above). Recipes come last, as they name the
-   items above by the tablet's ids.
+7. Each record of a Recipe the tablet holds that is not of one of the
+   Location's Recipes not Archived under its record id, as one Archived or
+   another Location's, removed from DYE2's recipes (`remove`); then each
+   Recipe of the Location not Archived, in slot order, then the rest as they
+   joined, the order the writes are planned in, that the tablet lacks,
+   created under its record id, or whose record differs from what it is to
+   hold, its slot included, written (Taking in a tablet's recipes, above).
+   Recipes come last, as they name the items above by the tablet's ids.
 8. Its Workflow's Loaded Recipe (`loadedRecipeDue`, `WORKFLOW-AND-STATE.md`,
-   Following the Recipe): the Recipe's fields its Workflow holds otherwise,
-   as an edit made anywhere, once the Recipe's record and the Basket and
-   batch it names are written; or DYE2's selection of the Recipe cleared,
-   where it is not the Machine's Loaded Recipe, as one taken out of its
-   slot or Archived. The clear of the Recipe a Machine had loaded as it
-   was made capture-only is written to it too, which is written nothing
-   else; one loaded while it is capture-only stays.
+   Following the Recipe): each of the Recipe's parts that changed since its
+   Workflow last took it and that the Workflow holds otherwise, as an edit
+   made anywhere, once the Recipe's record and the Basket and batch it
+   names are written; or the Workflow's `recipeId` cleared, where the
+   Recipe it names is not the Machine's Loaded Recipe, as one Archived or of
+   a Location the Machine left. Either expects the Workflow still to name
+   the tablet's record id of the Recipe. The clear of the Recipe a Machine
+   had loaded as it was made capture-only is written to it too, which is
+   written nothing else; one loaded while it is capture-only stays.
 
 Every record the tablet holds whose content differs from its item's, offered
 at the Location or not, is written the item's content, in the same update as
@@ -1398,7 +1449,7 @@ A refusal, an answer that cannot be recorded, no answer within 300 s, or an
 item due again with the same fields it was last written, expecting the record
 to hold the same values, found due at every
 look since and with its record not gone from the tablet meanwhile, removed
-or found to be another item's, as a Recipe moved to another slot and back
+or found to be another item's, as a Recipe Archived and restored
 is, and, for a write creating its record, no report of the tablet's lists
 taken in since, which would show the tablet lacks it, as when another app
 rewriting a DYE2 list lost it, which writing again would not
@@ -1536,10 +1587,10 @@ tablet's list of batches to show it does not.
   (`requestCollections`) and writes nothing more to the tablet until a
   report of that list arrives, taken in, or unavailable or set aside, which
   ends the wait all the same, so the change is kept, as an edit of the
-  Recipe moved or of the Basket or Tool hidden, before the removal is asked
-  again with the record as changed: an edit saved on a tablet just before
-  Staff move a Recipe, take it out of its slot, Archive it, or hide a Basket
-  or Tool there, is not lost with the record. Such a refusal is not kept
+  Recipe Archived or of the Basket or Tool hidden, before the removal is
+  asked again with the record as changed: an edit saved on a tablet just
+  before Staff Archive a Recipe, or hide a Basket or Tool there, is not lost
+  with the record. Such a refusal is not kept
   with the tablet's refusals: the removal shows as waiting meanwhile. A record of one an Admin hard-deleted is
   removed the same way, but a basket or tool a Shot it queued since it
   loaded, or has yet to read and send, names, which it keeps as it keeps a
@@ -1548,20 +1599,32 @@ tablet's list of batches to show it does not.
   write another app's rewrite of the list lost at the same moment shows up
   there (ADR-0005); the server then writes it again.
 - To write a Recipe, it reads DYE2's recipes as it reads baskets and tools,
-  which must be in a shape it recognises, each id a slot number. A write
-  names the record's fields by their paths, a field of its
-  `dashboardVariables` as `dashboardVariables.dose`. To create one in the
-  slot its `fields.id` names, a record there carrying the global id, made by
-  a write whose answer was lost, is the answer; a record there without one,
-  saved in that slot before the tablet reported it, becomes the Recipe's,
-  only the global id written to it (`linked`), and the server takes each
-  field it holds otherwise as an edit of the Recipe, merged with Conflicts;
-  a record there carrying another item's global id is left, and the write
-  refused, as the server removes it first; otherwise it adds a record with
-  the write's fields and `capturedAt`. To update one, it sets each path the
-  record still holds as the server expects. Whenever it posts DYE2's recipes
-  back, it puts them in slot order, as every tablet at a Location holds
-  them: DYE2 adds a recipe saved in a new slot at the end. Once Decaid has
+  which must be in a shape it recognises. A write names the record's fields
+  by their paths, a field of its `dashboardVariables` as
+  `dashboardVariables.dose`. To create one under the record id its
+  `fields.id` names (`writeRecipe` in `plugin/src/library-writes.ts`), a
+  record of that id carrying the global id, made by a write whose answer
+  was lost, is the answer; one without a global id, saved under that id
+  before the tablet reported it, becomes the Recipe's, only the global id
+  written to it (`linked`), and the server takes each field it holds
+  otherwise as an edit of the Recipe, merged with Conflicts; one carrying
+  another item's global id is left, and the write refused (409), as the
+  server removes it first; otherwise it adds a record with the write's
+  fields and `capturedAt` at the end of the list, a recipe in no slot
+  holding `stripSlot` null rather than none, as Streamline places recipes by
+  their ids while no record holds the key. To update one, it sets each path
+  the record still holds as the server expects. A write putting a record in
+  a Recipe Slot clears `stripSlot` on any other record in that slot in the
+  same post, as DYE2's `takeSlot` does (`dye2:dye2-plugin/src/utils/dev-api.ts`),
+  so one record holds each slot on every tablet: DYE2 de-duplicates slots
+  only once, as it loads, and Streamline places the first record it finds
+  for a slot. It posts the list back in the order the tablet holds it.
+  Before it posts a list that removes the record the Workflow's `recipeId`
+  names, or gives its id to another item's record, it clears that field in
+  the Workflow first (`vacatedIds` in `plugin/src/loaded-recipe-rules.ts`,
+  `LoadedRecipeWrites.beforePost`), and posts nothing if Decaid does not
+  clear it, so the Workflow never names another Recipe than it applied.
+  Once Decaid has
   taken a post of DYE2's recipes, whether a write, a removal, a set-aside or
   a delete made it, the plugin pushes `{"what":"workflow"}` on its `changed`
   endpoint, so Streamline's dashboard re-reads them (ticket #168,
@@ -1681,17 +1744,20 @@ each Machine's own until #173.
 
 The settings are written into, and taken in from, DYE2's fields of a
 recipe record, and each held one into the record's embedded Workflow
-(Taking in a tablet's recipes, above). A change of one that DYE2 records
-into the selected recipe is an edit of the Loaded Recipe, under its
-stale-value rules, and reaches every Machine with it loaded through the
+(Taking in a tablet's recipes, above). A change of one on a Machine with a
+Recipe loaded, which the plugin has DYE2 save into the Recipe's record, is
+an edit of the Loaded Recipe, but for one DYE2 saved that is no edit
+(`recordedByDye2`), and reaches every Machine with it loaded through the
 Loaded Recipe write. A change with no Recipe loaded is stored with the
 Workflow as any change is, but is no edit and reaches no other Machine, and
 a Machine joining a Location keeps its own until it loads a Recipe.
 
 Steam on and off stays each Machine's own: a Workflow's steam temperature
 below 135 °C (`STEAM_ON_FROM`) is its steam turned off, as Decaid judges it,
-which never changes a Recipe, and the plugin writes no steam temperature
-into a Workflow whose steam is off (ADR-0022, Steam on and off). So a steam
+which never changes a Recipe, as DYE2 saves no steam setting from a
+Workflow whose steam is off, and the plugin writes no steam temperature
+into a Workflow whose steam is off (ADR-0022, Steam on and off). A steam
+time of 0 is a value, Streamline's "no timer". So a steam
 edit made on one Machine reaches another whose steam is off without turning
 it on.
 
@@ -1706,7 +1772,8 @@ carrying a steam temperature of 135 °C or more, written into the Workflow
 or left out of one whose steam is off, the plugin sets `last-steam-temp` to
 it, where that key holds a number (`keepStreamlineSteamTemperature` in
 `plugin/src/streamline.ts`), until Streamline turns steam back on at the
-selected recipe's (decentespresso/streamline-js#156, ADR-0021).
+steam temperature of the recipe the Workflow names
+(decentespresso/streamline-js#156, ADR-0021).
 
 `server/test/recipe-settings.test.ts` covers this through Seam 1, with the
 built plugin running the simulated DYE2, whose tablet writes a Workflow's
@@ -1749,11 +1816,10 @@ it.
   afresh, its Workflow first (Writing to tablets, above). Once they are
   taken in there, the tablet is written what the Location offers, its shown
   Profiles, Baskets and Tools, the batches at it and their Beans, its
-  Grinders, and its Recipes in their slots, and what it does not offer is
-  archived or hidden on the tablet, never deleted, but for a Basket, Tool
-  or recipe, removed from DYE2's list: so the slots the Location leaves
-  empty are emptied, and another Location's Recipes leave its list (Taking
-  in a tablet's recipes, above). Its
+  Grinders, and its Recipes, in their slots or none, and what it does not
+  offer is archived or hidden on the tablet, never deleted, but for a
+  Basket, Tool or recipe, removed from DYE2's list: so another Location's
+  Recipes leave its list (Taking in a tablet's recipes, above). Its
   Workflow's steam, hot water and flush settings stay its own until it
   loads a Recipe (Steam, hot water and flush settings, above).
 - **Its Workflow's grinder, batch and Basket.** The Workflow taken in as
@@ -1769,8 +1835,7 @@ it.
   `grinderBurrs`, and the batch's `beanBatchId`, `coffeeName` and
   `coffeeRoaster`, as Decaid's `clearGrinder` and `clearBeanBatch` clear
   them (v0.9.0 added the burrs), and `extras.basketId` and
-  `extras.basketName`, as Streamline's `clearDyeWorkflowContext` clears
-  them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH`, `WORKFLOW_BASKET` in
+  `extras.basketName`, as DYE2 writes them (`WORKFLOW_GRINDER`, `WORKFLOW_BATCH`, `WORKFLOW_BASKET` in
   `protocol/`); the profile, dose, yield, grinder setting, RPM and steam,
   hot water and flush settings stay. A grinder, batch or Basket the map does not hold, one of the
   tablet's own, is cleared if the Library leaves it out, or will, as the
@@ -1807,20 +1872,20 @@ it.
   write, to a Location that offers the grinder, batch or Basket is not
   called back: the Workflow's next join there finds it cleared already.
 - **Its Loaded Recipe.** A Workflow naming a Recipe that is not one of the
-  Location's in its slots, as one of the Location the Machine left, is
-  not its Loaded Recipe there, and the server has the plugin clear it from
-  DYE2's selection, which DYE2 then clears from the Workflow
-  (`WORKFLOW-AND-STATE.md`, Unloads the server decides). DYE2 keeps its selection through its recipe's
-  removal from the list, and would record the Workflow's changes into the
-  recipe the writer then puts in that slot, or have the plugin load it. So
-  before the plugin posts a list that removes the recipe in a slot DYE2 has
-  selected, or replaces it with another Recipe's record, as the writer
-  removes a joining tablet's own recipes or another Location's Recipes and
-  writes the Location's in their slots, it clears DYE2's selection, which
-  DYE2 stores cleared (`vacatedSlots`, ADR-0022). A
-  Machine turned back to sharing at the Location it was capture-only at
-  has the recipe DYE2 has selected there loaded, where its slot holds one
-  of the Location's Recipes, as the Location offers it.
+  Location's, as one of the Location the Machine left, is not its Loaded
+  Recipe there, and the server has the plugin clear its `recipeId`, while
+  the Workflow still names it (`WORKFLOW-AND-STATE.md`, Unloads the server
+  decides). A Workflow naming a Recipe the tablet's map held already never
+  loads another Recipe the map gives that id later, as the new Location's
+  may have the same slot-number ids. And before the plugin posts a list
+  that removes the record the Workflow names, or gives its id to another
+  Recipe's record, as the writer removes a joining tablet's own recipes or
+  another Location's Recipes and writes the Location's, it clears the
+  Workflow's `recipeId` first (`vacatedIds`, ADR-0022), so the Workflow
+  never names a Recipe it did not apply. A Machine turned back to sharing at
+  the Location it was capture-only at has the recipe its Workflow names
+  loaded, where it is one of the Location's Recipes, as the Location
+  offers it.
 - **Its recipes, baskets and tools** are judged as any record the tablet
   holds (below, and Taking in a tablet's baskets and tools, and Taking in
   a tablet's recipes, above), what joining does with each decided by the
@@ -1852,8 +1917,9 @@ it.
     Machine joins it, takes the joining tablet's own items of that kind:
     its Beans if it offers no Bean, its batches if no batch, its Grinders if no
     Grinder, its Profiles if it shows no user's Profile, its Baskets if it
-    shows no Basket, its Tools if no Tool, and its recipes in their slots
-    if it has no Recipe in a slot, each a new Recipe there; a Basket or
+    shows no Basket, its Tools if no Tool, and its recipes, with their ids
+    and slots, if it has no Recipe but Archived ones, each a new Recipe
+    there, loaded where the Workflow names it; a Basket or
     Tool matched by name to one the Library has is shown there. They join
     the Library there as any new record does (Taking in a tablet's beans,
     and those after it). Those archived or hidden on the tablet are left
@@ -2010,20 +2076,23 @@ Every endpoint requires the account session; Staff read them as Admins do.
   it sets `slot` at its Location, null out of any. Staff read them as Admins
   do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
-  Recipe at the Location, in `slot`, a whole number from 1 to 2147483647
-  (PostgreSQL's `integer`), `next` for the
-  lowest free, or null (the default) for none, and returns `{ recipe }` with
-  201. `PATCH /api/recipes/:id`, with `{ content }`, each field to change,
-  null to clear it, edits one. `PUT /api/recipes/:id/slot`, with `{ slot }`
-  as for a new one, moves it, the Recipe in that slot taking its old one, or
-  takes it out of its slot (null). `PUT /api/recipes/:id/archived`, with `{
-  archived }`, Archives it, out of its slot, or restores it, in none. Each
+  Recipe at the Location under a new record id, in `slot`, a whole number
+  from 1 to 5 (`RECIPE_SLOTS`), `next` for the lowest free, or none where
+  every slot holds a Recipe, or null (the default) for none, and returns `{
+  recipe }` with 201. `PATCH /api/recipes/:id`, with `{ content }`, each
+  field to change, null to clear it, edits one. `PUT /api/recipes/:id/slot`,
+  with `{ slot }` as for a new one, moves it, the Recipe in that slot taking
+  its old one, or takes it out of its slot (null); `next` where every slot
+  holds a Recipe is refused (409). `PUT /api/recipes/:id/archived`, with `{
+  archived }`, Archives it, out of its slot, or restores it, in none, under
+  a new record id where another Recipe there has taken its own. Each
   returns `{ recipe }`. 400 for a field that is not one a Recipe takes, as
   its steam and hot water modes, a value DYE2 would not save, as a steam,
   hot water or flush setting out of its editor's range, an item the Library does not have, or
   `toolAttributes` naming a Tool the Recipe does not use; 409 for another
   Location's Grinder, an Archived item, putting an Archived Recipe in a
-  slot, or a Recipe whose Location no longer exists; 404 for no such Recipe
+  slot, moving one to `next` with no slot free, or a Recipe whose Location
+  no longer exists; 404 for no such Recipe
   or Location; 403 for Staff at a Location they do not work at.
 - `GET /api/beans/:id/history`, `GET /api/bean-batches/:id/history`,
   `GET /api/grinders/:id/history` and `GET /api/profiles/:id/history` return

@@ -11,6 +11,41 @@ section).
 
 ## Unreleased
 
+### Update DYE2 and Streamline on every tablet
+
+This release follows DYE2 v0.1.26
+([ADR-0017](docs/adr/0017-supported-versions.md)). A Machine that follows
+Recipes needs DYE2 v0.1.26 or later and, where Streamline is its skin,
+streamline-js from `main` at `cec5664` or later, as Streamline v0.2.18, its
+latest release, cannot apply a recipe that holds a grinder or Basket. Decaid
+installs the latest DYE2 and Streamline releases on every tablet within 12
+hours, so DYE2 is likely there already; Streamline needs that build installed
+until a release contains `ea04f83`.
+
+### The migration keeps the database
+
+The server's migration (`server/prisma/migrations/20261024000000_recipe_record_ids/migration.sql`)
+runs as it starts, and keeps every Recipe, its history and its Shots' links.
+Each Recipe takes a record id, the id of its record on every tablet at its
+Location from now on: a Recipe in a slot keeps its slot's number, the id its
+records have on the tablets now, and one in no slot is given a new one. A
+Location has five Recipe Slots now, so a Recipe in slot 6 or higher leaves its
+slot and stays at its Location. Every Recipe of a Location that is not
+Archived is written to each of its tablets, those in no slot included, which
+DYE2's Select Recipe page lists. What the rules this release drops kept is
+dropped with them: each Loaded Recipe's record of what its load write replaced,
+each tablet's recipe values from before the server's writes, the recipe records
+removed from a slot, and whether each Shot's Workflow named a selection.
+
+### Apply each Machine's recipe again
+
+DYE2 v0.1.26 keeps no selection: it clears the field it wrote its selection
+into, and names a recipe in the Workflow only as one is applied. The migration
+also forgets which recipe each tablet's Workflow last named. So each Machine's
+Loaded Recipe unloads at its next Workflow, and it has none until a barista
+applies a recipe again, from Streamline's strip or DYE2's dashboard or Select
+Recipe page. Shots pulled meanwhile are linked to no Recipe.
+
 ## 1.0.0
 
 ### Start the server on an empty database

@@ -95,7 +95,7 @@ const EDITED: Readonly<Record<string, string>> = {
   ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting])),
 };
 
-/** The path of a recipe record holding its steam temperature, which DYE2 records and saves as 0 for steam off. */
+/** The path of a recipe record holding its steam temperature, which DYE2's editor saves as 0 for steam off. */
 const STEAM_TEMPERATURE_PATH = `${DV}.${RECIPE_SETTINGS.steamTemperature.dye2}`;
 
 /** The paths a barista edits, which are taken in as edits of the Recipe: but those DYE2 derives, the barista and drinker, and the server's own field. */
@@ -216,8 +216,9 @@ export interface IntakeContext {
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
  * - its steam temperature, but one below STEAM_ON_FROM, which is steam
- *   off, as DYE2's editor saves "Off" as 0 and DYE2 records a Machine's
- *   steam turned off: steam on and off is each Machine's own (`steamOffPaths`);
+ *   off, as DYE2's editor saves "Off" as 0: steam on and off is each
+ *   Machine's own (`steamOffPaths`), and DYE2 saves none of the steam
+ *   settings from a Workflow whose steam is off;
  * - and the rest of its dial and settings as they are, one the record holds
  *   none of holding none.
  *
@@ -322,9 +323,8 @@ export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext
 /**
  * The paths of a tablet's changes of its record (`changed`, its paths with
  * their values) that turn steam off, which is no edit of the Recipe: a steam
- * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off" and
- * DYE2 records as a Machine's steam is turned off. The Recipe's is written
- * back over it (ADR-0022).
+ * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off". The
+ * Recipe's is written back over it (ADR-0022).
  */
 export function steamOffPaths(changed: Readonly<Record<string, unknown>>): string[] {
   const value = changed[STEAM_TEMPERATURE_PATH];

@@ -68,8 +68,8 @@ captured without being written to tablets.
 
 [Milestone 3](https://github.com/loganfuller/decent-sync/issues/134) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/3)) shares
-each Location's DYE2 recipes, baskets and tools as Recipes, in their Recipe
-Slots, Baskets and Tools, and follows each Machine's Loaded Recipe, which its
+each Location's DYE2 recipes, baskets and tools as Recipes, each in one of
+its five Recipe Slots or none, Baskets and Tools, and follows each Machine's Loaded Recipe, which its
 Workflow follows and which follows the changes made on it, its steam, hot
 water and flush settings included. Each Shot is linked to its Recipe and
 Basket.
@@ -404,12 +404,15 @@ changing a profile's steps hides it there. A Machine with no Location is only
 captured: its tablet is written nothing, and its library stays out of the
 Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
 
-Recipes are shared through DYE2 and follow the recipe DYE2 has selected on each
-tablet ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)),
-so a Machine that follows Recipes needs DYE2 built from `main` at `2cf631c` or
-later, and streamline-js from `main` at `c006dac` or later where Streamline is
-its skin. These untagged builds are the minimums until tagged releases contain
-them ([ADR-0017](docs/adr/0017-supported-versions.md)).
+Recipes are shared through DYE2's storage, and a Machine's Loaded Recipe is
+the recipe DYE2 and Streamline name in its Workflow as a barista applies one,
+into which the plugin has DYE2 save each change made on the Machine
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)). So
+a Machine that follows Recipes needs DYE2 v0.1.26 or later, and streamline-js
+from `main` at `cec5664` or later where Streamline is its skin. That untagged
+build is Streamline's minimum until a tagged release contains `ea04f83`, which
+lets its DYE strip apply a recipe holding a grinder or Basket
+([ADR-0017](docs/adr/0017-supported-versions.md)).
 
 | Setting | |
 |---|---|

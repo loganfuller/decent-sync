@@ -1202,7 +1202,7 @@ async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeft
  * carries the global id in its own field, and the list is posted back only
  * where it changed. A Recipe Slot the record is put in (RECIPE_SLOT_FIELD)
  * is taken from any other record in it, as DYE2's editor takes one
- * (`takeSlot` in dye2:dye2-plugin/src/pages/recipe-edit.ts at v0.1.26), so
+ * (`takeSlot` in dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.26), so
  * one record holds each slot. The answer is timed now, as DYE2's records
  * carry no edit time.
  */

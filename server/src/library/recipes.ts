@@ -341,7 +341,7 @@ export async function takeInRecipes(
 /**
  * Carries out the tablet's moves of its Recipes at its Location, each as
  * DYE2's editor moves a recipe on the strip (`takeSlot` in
- * dye2:dye2-plugin/src/pages/recipe-edit.ts at v0.1.26): a Recipe moved out
+ * dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.26): a Recipe moved out
  * of the slot its record known was in leaves it, and one moved into a slot
  * takes it from the Recipe there, which leaves it. A move is made only
  * where the Recipe is still in the slot the tablet knew it in (`from`), so
