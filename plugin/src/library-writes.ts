@@ -49,7 +49,7 @@ import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
-import { type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
+import { type Answered, type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
@@ -151,8 +151,8 @@ export interface ListPosted {
   loaded?: LoadedRecipeWrites;
   /** Told of each `PUT /workflow` Decaid took, with the Workflow read before it and the one Decaid answered (`Skins.workflowWritten`). It must not throw. */
   workflowWritten: Skins["workflowWritten"];
-  /** For a write into the Workflow, told of each Workflow Decaid answers it with (`LoadedRecipeWrites.ownWrite`). It must not throw. */
-  answered?: (workflow: Record<string, unknown>) => void;
+  /** For a write into the Workflow, told of each Workflow Decaid answers it with, and the body it answered (`LoadedRecipeWrites.ownWrite`). It must not throw. */
+  answered?: Answered;
 }
 
 /** Whether a Shot this plugin queued since it loaded, or has yet to send, names one of a kind's records (`LibraryWrites.namedByShot`). */
@@ -696,10 +696,11 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
     }),
   );
   if (Object.keys(fields).length === 0) return written(write, workflowContext(workflow), [], new Date().toISOString());
-  const answer = await request("PUT", "/workflow", workflowPatch(fields));
+  const body = workflowPatch(fields);
+  const answer = await request("PUT", "/workflow", body);
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(updated)) return refused(write, answer.status, answer.text);
-  posted.answered?.(updated);
+  posted.answered?.(updated, body);
   posted.workflowWritten(workflow, updated);
   return written(write, workflowContext(updated), Object.keys(fields), new Date().toISOString());
 }
@@ -736,10 +737,11 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
     const workflow = current.ok ? parsed(current.text) : undefined;
     if (!isObject(workflow)) return refused(write, current.status, current.text);
     if (recordId === null || dye2RecipeIdOf(workflow) !== recordId) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
-    const answer = await request("PUT", "/workflow", clearRecipe());
+    const body = clearRecipe();
+    const answer = await request("PUT", "/workflow", body);
     const updated = answer.ok ? parsed(answer.text) : undefined;
     if (!isObject(updated)) return refused(write, answer.status, answer.text);
-    posted.answered?.(updated);
+    posted.answered?.(updated, body);
     posted.workflowWritten(workflow, updated);
     return written(write, loadedRecipeParts(updated), [DYE2_RECIPE_FIELD], new Date().toISOString());
   }
@@ -758,9 +760,9 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
       return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     }
     let updated: Record<string, unknown> | undefined;
-    const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow) => {
+    const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow, body) => {
       updated = workflow;
-      posted.answered?.(workflow);
+      posted.answered?.(workflow, body);
     });
     if (answer.ok && updated !== undefined) {
       posted.workflowWritten(workflow, updated);

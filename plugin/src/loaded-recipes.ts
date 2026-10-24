@@ -1,4 +1,15 @@
-import { DYE2_NAMESPACE, MACHINE_SETTING_PARTS, RECIPE_SETTINGS, RECIPE_SETTING_NAMES, dye2Fingerprint, dye2RecipeIdOf, dye2Records, sameValue } from "@decent-sync/protocol";
+import {
+  DYE2_NAMESPACE,
+  LOADED_RECIPE_PARTS,
+  MACHINE_SETTING_PARTS,
+  RECIPE_SETTINGS,
+  RECIPE_SETTING_NAMES,
+  dye2Fingerprint,
+  dye2RecipeIdOf,
+  dye2Records,
+  sameValue,
+  workflowValueAt,
+} from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
 import { Dye2Pushes, type Dye2State, type Transports, readDye2State, recordIntoRecipe } from "./dye2.js";
 import type { LibraryAccess } from "./library-writes.js";
@@ -37,12 +48,13 @@ export interface LoadedRecipeWrites {
   /**
    * Runs a write of the plugin's into the Workflow (`work`), the changes
    * Decaid reports meanwhile held back until it is done, and taken as its
-   * echo rather than saved into the Loaded Recipe. `work` tells
-   * `answered` of each Workflow Decaid answers it with. A change reported
-   * after the write's own, as a barista's in the moment around it, is
-   * decided on once the write is done.
+   * echo rather than saved into the Loaded Recipe. `work` tells `answered`
+   * of each Workflow Decaid answers it with, and the body of the `PUT
+   * /workflow` it answered. A change made around the write that it did not
+   * make, as a barista's, which Decaid's answer may hold already, is decided
+   * on once the write is done.
    */
-  ownWrite<T>(work: (answered: (workflow: Record<string, unknown>) => void) => Promise<T>): Promise<T>;
+  ownWrite<T>(work: (answered: Answered) => Promise<T>): Promise<T>;
   /**
    * Before a post of DYE2's recipes from `before` to `after`: where the
    * Workflow names a record the post removes, or gives to another Recipe's
@@ -73,10 +85,25 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   private captureOnly = false;
   /** How many writes of the plugin's into the Workflow are under way (`ownWrite`). */
   private writing = 0;
-  /** Whether Decaid reported a change of the Workflow during the writes under way, and the latest Workflow it answered them with. */
-  private duringWrite: { reported: boolean; answered: Record<string, unknown> | undefined } = { reported: false, answered: undefined };
-  /** Whether a save into the Loaded Recipe is waiting its turn: one more change needs none of its own, as DYE2 saves the Workflow as it is then. */
-  private saveQueued = false;
+  /**
+   * During the writes under way: whether Decaid reported a change of the
+   * Workflow, the latest Workflow it answered them with, the Workflow the
+   * plugin last knew before them, and the fields they set.
+   */
+  private duringWrite: { reported: boolean; answered: Record<string, unknown> | undefined; before: Record<string, unknown> | undefined; written: Set<string> } = {
+    reported: false,
+    answered: undefined,
+    before: undefined,
+    written: new Set(),
+  };
+  /** How many loads the plugin has decided on, so a save asked for before one is not made after it. */
+  private loads = 0;
+  /**
+   * The save into the Loaded Recipe waiting its turn, with the Recipe, load
+   * and profile of the change that asked for it: one more change of the same
+   * needs none of its own, as DYE2 saves the Workflow as it is then.
+   */
+  private queuedSave: SaveFor | null = null;
   private chain: Promise<void> = Promise.resolve();
   private pollTimer: number | undefined;
   private stopped = false;
@@ -141,26 +168,40 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.writing === 0) this.decide(this.latest, false);
   }
 
-  async ownWrite<T>(work: (answered: (workflow: Record<string, unknown>) => void) => Promise<T>): Promise<T> {
-    if (this.writing === 0) this.duringWrite = { reported: false, answered: undefined };
+  async ownWrite<T>(work: (answered: Answered) => Promise<T>): Promise<T> {
+    if (this.writing === 0) this.duringWrite = { reported: false, answered: undefined, before: this.latest, written: new Set() };
     this.writing++;
     this.changes.hold();
     try {
-      return await work((workflow) => {
+      return await work((workflow, body) => {
         this.duringWrite.answered = workflow;
+        for (const path of fieldPaths(body)) this.duringWrite.written.add(path);
       });
     } finally {
       this.writing--;
-      if (this.writing === 0) {
-        const { reported, answered } = this.duringWrite;
-        // Decaid reports a write's change ahead of answering it: one reported since, the Workflow holding other than the
-        // write left, is another's, as a barista's.
-        const another = reported && answered !== undefined && this.latest !== undefined && !sameValue(this.latest, answered);
-        if (!reported && answered !== undefined) this.latest = answered;
-        this.decide(answered ?? this.latest, another);
-      }
+      if (this.writing === 0) this.wrote();
       this.changes.release();
     }
+  }
+
+  /**
+   * Once the plugin's writes into the Workflow are done: a change made
+   * around them that they did not make is decided on as any other, so a
+   * barista's is saved into the Loaded Recipe. Decaid reports a write's
+   * change ahead of answering it, so one reported after the answer, the
+   * Workflow holding other than it, is another's; and Decaid merges each
+   * write into the Workflow as it holds it then, so a part of the Recipe's
+   * the writes did not set that differs from the Workflow the plugin knew
+   * before them was changed meanwhile. A change of profile is judged from
+   * that Workflow too, but where the writes set the profile themselves.
+   */
+  private wrote(): void {
+    const { reported, answered, before, written } = this.duringWrite;
+    if (!reported && answered !== undefined) this.latest = answered;
+    const latest = this.latest;
+    const after = latest !== undefined && answered !== undefined && !sameValue(latest, answered);
+    const around = latest !== undefined && before !== undefined && changedBesides(before, latest, written);
+    this.decide(written.has("profile") ? (answered ?? before) : before, (reported && after) || around);
   }
 
   async beforePost(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<void> {
@@ -170,10 +211,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       const workflow = await workflowNow();
       const named = dye2RecipeIdOf(workflow);
       if (named === null || !vacated.has(named)) return;
-      const answer = await request("PUT", "/workflow", clearRecipe());
+      const body = clearRecipe();
+      const answer = await request("PUT", "/workflow", body);
       const updated = answer.ok ? parsed(answer.text) : undefined;
       if (!isObject(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
-      answered(updated);
+      answered(updated, body);
       this.workflowWritten(workflow, updated);
     });
   }
@@ -199,6 +241,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (globalId !== this.loaded) {
       const first = this.loaded === undefined;
       this.loaded = globalId;
+      this.loads++;
       if (globalId !== null && !first && this.sharing()) {
         void this.library.run(() => this.loadRecipe(globalId)).catch((error: unknown) => this.failed(error));
       }
@@ -206,7 +249,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     }
     if (!changed || globalId === null || !this.sharing()) return;
     if (previous !== undefined && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
-    this.saveSoon();
+    this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
   }
 
   /** Whether the Machine shares and DYE2 is there, so the plugin writes into the Workflow and saves into its recipes. */
@@ -215,19 +258,30 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /**
-   * Saves the latest Workflow into the Loaded Recipe, in `library`'s turn,
-   * holding the Workflow's changes back until DYE2 has, and its recipes are
-   * reported where it wrote. One save waiting its turn covers the changes
-   * after it. A save that fails is tried again at the next change.
+   * Saves the Workflow into the Loaded Recipe the change asking for it was
+   * made on (`save`), in `library`'s turn, holding the Workflow's changes
+   * back until DYE2 has, and its recipes are reported where it wrote. One
+   * save waiting its turn covers the changes of the same Recipe, load and
+   * profile after it. As DYE2 saves into the recipe the live Workflow names,
+   * the save is made only while that Workflow, read just before, still
+   * names that Recipe on that profile, and no load was decided on since: a
+   * recipe applied meanwhile, whose load write is still to come, or a
+   * change of profile, which DYE2 clears the recipe on, is not saved into
+   * it. A save that fails is tried again at the next change.
    */
-  private saveSoon(): void {
-    if (this.saveQueued) return;
-    this.saveQueued = true;
+  private saveSoon(save: SaveFor): void {
+    const queued = this.queuedSave;
+    if (queued !== null && queued.globalId === save.globalId && queued.load === save.load && queued.fingerprint === save.fingerprint) return;
+    this.queuedSave = save;
     this.changes.hold();
     void this.library
       .run(async () => {
-        this.saveQueued = false;
-        if (this.stopped || this.loaded === null || !this.sharing()) return;
+        if (this.queuedSave === save) this.queuedSave = null;
+        if (this.stopped || this.loaded !== save.globalId || this.loads !== save.load || !this.sharing()) return;
+        const workflow = await workflowNow();
+        const recordId = dye2RecipeIdOf(workflow);
+        const named = recordId === null ? undefined : this.records?.get(recordId)?.globalId;
+        if (named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint) return;
         if ((await recordIntoRecipe()) === "saved") await this.reportRecipes();
         this.failing = false;
       })
@@ -351,20 +405,20 @@ export class LoadedRecipes implements LoadedRecipeWrites {
  * made as two, the recipe cleared, then the write with the recipe named
  * again, which DYE2 takes as a new apply of it on the new profile (interim,
  * until decentespresso/dye2#38); where Decaid refuses the second, the
- * recipe is named again alone. Each Workflow Decaid answers with is told of
- * (`answered`). Resolves with Decaid's answer to the write. Throws if Decaid
- * does not answer.
+ * recipe is named again alone. Each Workflow Decaid answers with is told of,
+ * with the body it answered (`answered`). Resolves with Decaid's answer to
+ * the write. Throws if Decaid does not answer.
  */
 export async function putNamingRecipe(
   workflow: Record<string, unknown>,
   write: Record<string, unknown>,
   recordId: string,
-  answered: (workflow: Record<string, unknown>) => void,
+  answered: Answered,
 ): Promise<Answer> {
   const put = async (body: Record<string, unknown>) => {
     const answer = await request("PUT", "/workflow", body);
     const updated = answer.ok ? parsed(answer.text) : undefined;
-    if (isObject(updated)) answered(updated);
+    if (isObject(updated)) answered(updated, body);
     return answer;
   };
   if (!changesProfile(workflow, write)) return put(write);
@@ -373,6 +427,38 @@ export async function putNamingRecipe(
   const answer = await put(withRecipe(write, recordId));
   if (!answer.ok) await put(withRecipe({}, recordId));
   return answer;
+}
+
+/** Told of each Workflow Decaid answers a write of the plugin's with, and the body of the `PUT /workflow` it answered. */
+export type Answered = (workflow: Record<string, unknown>, body: Record<string, unknown>) => void;
+
+/** A save into the Loaded Recipe, for the Recipe, the load and the profile, by DYE2's fingerprint, of the change asking for it. */
+interface SaveFor {
+  globalId: string;
+  load: number;
+  fingerprint: string | null;
+}
+
+/** The fields a body of `PUT /workflow` sets, by their paths: a profile whole, as Decaid takes one. */
+function fieldPaths(body: Record<string, unknown>, prefix = ""): string[] {
+  return Object.entries(body).flatMap(([key, value]) => {
+    const path = prefix === "" ? key : `${prefix}.${key}`;
+    return isObject(value) && path !== "profile" ? fieldPaths(value, path) : [path];
+  });
+}
+
+/** The fields of a Workflow that follow its Loaded Recipe (LOADED_RECIPE_PARTS), by their paths. */
+const PART_FIELDS: readonly string[] = Object.values(LOADED_RECIPE_PARTS).flat();
+
+/**
+ * Whether a field of a Workflow that follows its Loaded Recipe holds
+ * otherwise in `after` than in `before`, of those the plugin's writes
+ * between them did not set (`written`, by their paths): the brew
+ * temperature but where they set the profile.
+ */
+function changedBesides(before: Record<string, unknown>, after: Record<string, unknown>, written: ReadonlySet<string>): boolean {
+  const set = (field: string) => [...written].some((path) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`));
+  return PART_FIELDS.some((field) => field !== "profile" && !set(field) && !sameValue(workflowValueAt(before, field), workflowValueAt(after, field)));
 }
 
 /** The Workflow as Decaid holds it now. Throws if Decaid does not answer with one. */
