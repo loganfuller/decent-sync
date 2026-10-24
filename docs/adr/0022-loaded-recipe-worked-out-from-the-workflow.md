@@ -80,6 +80,7 @@ And these gaps are accepted until fixed upstream:
 - A recipe applied again from a stale copy while it is loaded, as a strip button tapped on a Streamline dashboard that has not re-read its recipes, is a change of the Workflow, not a load, so the copy's values are saved into the Recipe. Streamline reads its recipes again on focus, on becoming visible and on the plugin's push after each post of them (ADR-0005), so this is rare.
 - DYE2 reads the flush temperature and flow from the machine's settings, which Streamline's settings page writes without touching the Workflow. So flush temperature and flow set there reach the Recipe only at that Machine's next Workflow change, and Streamline's settings restore puts its saved flush temperature and flow back on the machine each time its settings page opens, which DYE2 then saves into the Recipe (decentespresso/streamline-js#154).
 - Applying a recipe that holds a steam temperature turns steam on: from DYE2's dashboard now, and from Streamline's strip after decentespresso/streamline-js#154. That is the apply, not a Recipe edit.
+- DYE2's editor saving a steam temperature of "Off" into the recipe a Machine has loaded applies the recipe there again (`reapplyIfSelected`), turning that Machine's steam off. The save is no edit, so the Recipe keeps its steam temperature and the other Machines theirs, but that Machine's steam stays off until a barista turns it on, as the server writes no steam temperature into a Workflow whose steam is off.
 
 ## Rejected
 
