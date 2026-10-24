@@ -117,7 +117,8 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
       [OTHER_BEANS_BATCH, "55555555-5555-4555-8555-555555555555"],
     ]),
   };
-  const local = (kind: string, itemId: string) => ({ [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1" })[`${kind}:${itemId}`];
+  const locals: Record<string, string> = { [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1" };
+  const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
 
   it("is a Grinder of the Location, and a batch of the Recipe's Bean, changed on the Machine, but not a batch of another Bean or a value cleared", () => {
     const target = recipeParts(CONTENT, local);
@@ -156,7 +157,8 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
 });
 
 describe("The parts of its Loaded Recipe a Workflow is due", () => {
-  const local = (kind: string, itemId: string) => ({ [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1", [`beanBatch:${NEXT_BAG}`]: "b2" })[`${kind}:${itemId}`];
+  const locals: Record<string, string> = { [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1", [`beanBatch:${NEXT_BAG}`]: "b2" };
+  const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
 
   it("are those the Recipe holds that the Workflow holds otherwise, once, on a load", () => {
     const target = recipeParts({ ...CONTENT, dose: 18.5 }, local);
