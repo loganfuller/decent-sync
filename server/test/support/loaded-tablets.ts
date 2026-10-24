@@ -1,5 +1,5 @@
-import { dye2GlobalIdOf, dye2SelectionOf } from "@decent-sync/protocol";
-import { dye2List } from "./simulated-dye2.js";
+import { dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2List, dye2RecipeIdOf } from "./simulated-dye2.js";
 import { type DecaidApi, NO_DYE2_LISTS, SimulatedTablet, type SimulatedTabletOptions, derivedDe1Pro, settingsFor } from "./simulated-tablet.js";
 
 // Simulated tablets as most Seam 1 tests load them: `syncingTablet()` sets
@@ -70,15 +70,19 @@ export function localTime(written: unknown): number {
   return new Date(String(written).slice(0, 23)).getTime();
 }
 
+/** The record id of the recipe the tablet's Workflow names as the one being dialled in (`context.extras.dye.recipeId`, as DYE2's `recipeIdOf` reads it), null for none. */
+export function recipeIdInWorkflow(tablet: SimulatedTablet): string | null {
+  return dye2RecipeIdOf(tablet.workflow());
+}
+
 /**
- * The Recipe the tablet's Workflow names as DYE2's selection
- * (DYE2_SELECTION_FIELD), as the server reads it: the global id of DYE2's
- * recipe in the slot it names, or null for none, a favourite, or a recipe
- * carrying no global id.
+ * The Recipe the tablet's Workflow names by its `recipeId`, through the
+ * tablet's DYE2 recipes: the global id of the record with that id, or null
+ * for none, a record not on the tablet, or one carrying no global id.
  */
-export function selectedInWorkflow(tablet: SimulatedTablet): string | null {
-  const { slot } = dye2SelectionOf(tablet.workflow());
+export function recipeNamedInWorkflow(tablet: SimulatedTablet): string | null {
+  const id = recipeIdInWorkflow(tablet);
   const records = dye2List(tablet, "recipes");
-  const record: unknown = slot === null || !Array.isArray(records) ? undefined : records.find((entry: unknown) => (entry as { id?: unknown } | null)?.id === slot);
+  const record: unknown = id === null || !Array.isArray(records) ? undefined : records.find((entry: unknown) => (entry as { id?: unknown } | null)?.id === id);
   return record === undefined ? null : dye2GlobalIdOf(record);
 }

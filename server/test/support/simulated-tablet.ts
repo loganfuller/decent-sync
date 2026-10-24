@@ -88,14 +88,15 @@ import { opened } from "./test-scope.js";
 //   open hears each push of that plugin on that endpoint, as `data` events,
 //   whichever load of it makes it, until the tablet unloads. Only DYE2's are
 //   simulated.
-// - `dye2` runs DYE2 `main` beside the plugin (`SimulatedDye2` in
+// - `dye2` runs DYE2 v0.1.26 beside the plugin (`SimulatedDye2` in
 //   simulated-dye2.ts), as Decaid runs another plugin: `GET /plugins` lists
 //   the plugin and DYE2, `/plugins/dye2.reaplugin/{endpoint}` is DYE2's
-//   (404 while it is not loaded), and DYE2 is told of each change of the
-//   Workflow and each Shot stored, and keeps its selection under its key
-//   `selection` in Decaid's store. Its timers are the tablet's (`schedule`,
-//   `readClock`). Without it `GET /plugins` lists the plugin alone, and
-//   DYE2's endpoints answer 404, as Decaid's do for a plugin not loaded.
+//   (404 while it is not loaded), and DYE2 loads as the tablet starts, is
+//   told of each change of the Workflow and each Shot stored, and keeps its
+//   storage, its mirrored selection and migration flags among it, under its
+//   keys in Decaid's store. Without it `GET /plugins` lists the plugin
+//   alone, and DYE2's endpoints answer 404, as Decaid's do for a plugin not
+//   loaded.
 // - `host.storage` is Decaid's plugin storage, given only to a plugin whose
 //   manifest declares `pluginStorage`: it answers a read with a `storageRead`
 //   event of `{ key, value }`, `value` null for a key never written, and a
@@ -603,7 +604,7 @@ export interface SimulatedTabletOptions {
    */
   stallUpload?: (frame: unknown) => boolean;
   /**
-   * DYE2 `main` running on the tablet beside the plugin, as Decaid runs
+   * DYE2 v0.1.26 running on the tablet beside the plugin, as Decaid runs
    * another plugin (simulated-dye2.ts): its HTTP endpoints, its socket and
    * its entry in `GET /plugins`. Pass the same one to a later load of the
    * same tablet, as DYE2 outlives the plugin's reloads. Without it Decaid
@@ -1113,16 +1114,6 @@ export class SimulatedTablet {
   /** The tablet's clock, which `timeScale` speeds, in milliseconds. */
   readClock(): number {
     return this.now();
-  }
-
-  /**
-   * Runs the callback after that many milliseconds of the tablet's clock,
-   * as Decaid's timers do for another plugin, such as DYE2, unless the
-   * function returned is called first or the tablet unloads.
-   */
-  schedule(callback: () => void, delayMs: number): () => void {
-    const id = this.setTimer(callback, delayMs);
-    return () => this.clearTimer(id);
   }
 
   /**
