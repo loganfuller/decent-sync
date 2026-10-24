@@ -203,8 +203,9 @@ export interface IntakeContext {
  * content now (empty for a new one):
  *
  * - its Bean and Bean Batch, by the tablet's map: the batch the record
- *   holds with its Bean, as DYE2's editor saves one picked with it; or, for
- *   a record holding none, or one of another Bean, the Recipe's kept where
+ *   holds with its Bean, as DYE2's editor saves one picked with it, or with
+ *   none, as its `save-recipe` saves one from the Workflow; or, for a record
+ *   holding none, or one of another Bean, the Recipe's kept where
  *   it is of that Bean, and otherwise that Bean's batch most recently added
  *   at the Location, or none (ADR-0005);
  * - its Profile, by `profileId`, or else the Library Profile its
@@ -230,10 +231,12 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   const changed = new Set(fields);
   for (const [path, field] of Object.entries(EDITED)) if (changed.has(path)) values[field] = view[path] ?? null;
   if (changed.has("beanId") || changed.has("beanBatchId")) {
-    const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : null;
-    if (changed.has("beanId")) values.beanId = beanId;
     // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27).
     const picked = typeof view.beanBatchId === "string" ? (ids.item("beanBatch", view.beanBatchId) ?? null) : null;
+    // A record naming a batch and no Bean, as DYE2's `save-recipe` saves one from the Workflow, names the batch's Bean.
+    const fromBatch = typeof view.beanId !== "string" && picked !== null ? (context.batchBeans.get(picked) ?? null) : null;
+    const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : fromBatch;
+    if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
     const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
     if (picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId) values.beanBatchId = picked;
     else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);

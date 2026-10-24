@@ -161,6 +161,17 @@ describe("DYE2's recipes as Recipes", () => {
     expect(readReportedRecipes([slot1, { ...slot2, id: "1" }], [READ, READ])).toEqual([]);
   });
 
+  it("takes the Bean of the batch a record names with no Bean, as DYE2's save-recipe saves one from the Workflow", () => {
+    // As recorded, with the Workflow's batch the Ethiopia's (save-recipe.json saved one naming none).
+    const saved = { ...dye2Keys().recipes.find((record) => String(record.id).startsWith("recipe-"))!, beanBatchId: LOCAL.ethiopiaBatch, beanName: "Fixture Ethiopia" };
+    expect(saved).not.toHaveProperty("beanId");
+    expect(recipeContent(recipeView(saved), intake())).toMatchObject({ beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.ethiopiaBatch });
+    // One naming a Bean keeps it, and a batch of another Bean is not its.
+    const named = recipeContent(recipeView({ ...saved, beanId: LOCAL.brazil }), intake());
+    expect(named).toMatchObject({ beanId: GLOBAL.brazil });
+    expect(named).not.toHaveProperty("beanBatchId");
+  });
+
   it("takes a record's content in in the Library's terms, through the tablet's map, ignoring what DYE2 derives and the barista", () => {
     const content = recipeContent(recipeView(slot1), intake());
     expect(content).toEqual(slot1Content);
