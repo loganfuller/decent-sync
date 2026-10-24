@@ -592,7 +592,7 @@ export interface SimulatedTabletOptions {
    * Workflow change, as a DE1 does (`UnifiedDe1.setFlushTemperature` writes
    * its MMR, which `GET /machine/settings` reads back), so DYE2 reads them
    * there. True by default; Decaid's simulated machine, which the recordings
-   * of fixtures/decaid/dye2-2cf631c/ were made on, keeps none
+   * of fixtures/decaid/dye2-v0.1.26/ were made on, keeps none
    * (`MockDe1.setFlushTemperature` does nothing), so replays of them set it
    * false.
    */

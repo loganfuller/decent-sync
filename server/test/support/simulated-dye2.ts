@@ -152,6 +152,15 @@ export function dye2PagesRecording(file: "tools" | "baskets"): Record<string, Dy
   return readJson(pagesFixtures, file);
 }
 
+/** DYE2's baskets and tools as its baskets and equipment pages left them at 2cf631c, the lists their last saves posted (fixtures/decaid/dye2-2cf631c/). */
+export function dye2PagesKeys(): { baskets: Record_[]; equipment: Record_[] } {
+  const last = (file: "tools" | "baskets") => {
+    const steps = Object.values(dye2PagesRecording(file));
+    return steps.at(-1)!.filter(({ request }) => request.method === "POST").at(-1)!.request.body as Record_[];
+  };
+  return { baskets: last("baskets"), equipment: last("tools") };
+}
+
 /** What Decaid's store answered a key never written, a POST, a read, a DELETE and a DELETE of a key it no longer held. */
 export function dye2StoreExchanges(): Dye2Exchange[] {
   return dye2Recording("store");

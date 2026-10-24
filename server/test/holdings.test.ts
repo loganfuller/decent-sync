@@ -14,7 +14,7 @@ import {
   writeKey,
 } from "../src/library/holdings.js";
 import { equipmentContent } from "../src/library/equipment-intake.js";
-import { dye2Keys } from "./support/simulated-dye2.js";
+import { dye2PagesKeys } from "./support/simulated-dye2.js";
 
 // What a tablet should hold for its Location (ADR-0008), through the pure
 // module's interface: the writes, in order, that bring a tablet's Beans,
@@ -410,9 +410,9 @@ describe("batchesAwaitingBeans", () => {
 });
 
 describe("Baskets and Tools a Location shows", () => {
-  // DYE2's records as it saved them (fixtures/decaid/dye2-2cf631c/keys.json).
-  const [basket18, basket20] = dye2Keys().baskets as [Record<string, unknown>, Record<string, unknown>];
-  const [wdt] = dye2Keys().equipment as [Record<string, unknown>];
+  // DYE2's records as its baskets and equipment pages saved them (fixtures/decaid/dye2-2cf631c/).
+  const [basket18, basket20] = dye2PagesKeys().baskets as [Record<string, unknown>, Record<string, unknown>];
+  const [wdt] = dye2PagesKeys().equipment as [Record<string, unknown>];
   const BASKETS = ["2f9c1e4a-6b3d-4c8e-9a1f-5d7b3c9e1a2f", "8e1a3c5b-7d9f-4b2e-8c4a-6f1d3b5e7a9c"] as const;
   const TOOL = "4c6e8a1b-3d5f-4a7c-9e2b-1f3d5a7c9e1b";
   const shownItem = (id: string, record: Record<string, unknown>): ShownEquipment => ({ id, content: equipmentContent(record), decidedAt: DECIDED, contentDecidedAt: EDITED });

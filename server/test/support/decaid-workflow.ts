@@ -132,7 +132,7 @@ function changedParts(previous: Json, updated: Json): Record<"steamSettings" | "
  * temperature. Decaid's simulated machine keeps neither
  * (`MockDe1.setFlushTimeout` and `setFlushTemperature` do nothing), and
  * answers 10 and 25 whatever was written, as recorded
- * (dye2-2cf631c/machine-settings.json).
+ * (dye2-v0.1.26/save-recipe.json, its README's `save-recipe`).
  */
 export function machineSettingsWritten(previous: Json, updated: Json, keepsFlush: boolean): Json {
   const parts = changedParts(previous, updated);
