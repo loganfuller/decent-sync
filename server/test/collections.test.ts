@@ -242,10 +242,10 @@ describe("Library, settings and paired devices", () => {
     const plugins = async () => (await collection(machine, "plugins"))!.value as Record<string, unknown>[];
     expect(await plugins()).toEqual([dye2.listing(), expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true })]);
     expect((await collection(machine, "skins"))!.value).toEqual(skinsIn(served));
-    // The test tablet's: DYE2's release, and Streamline's build of main served.
+    // The test tablet's: DYE2's release, and Streamline's release served, though its build of main is the default.
     expect(await tabletVersions(machine)).toEqual({
       dye2: { status: "installed", version: "0.1.26", loaded: true, branch: null },
-      streamline: { status: "active", version: "0.2.18", build: "main" },
+      streamline: { status: "active", version: "0.2.18", build: "release" },
     });
     await allAcknowledged(tablet);
     await polls(tablet, 3);

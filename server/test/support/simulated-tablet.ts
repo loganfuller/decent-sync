@@ -218,8 +218,9 @@ export class Refusal {
  * `GET /machine/calibration` (de1handler.dart) holding the value its Shot
  * recorded (`workflow.machine.flowCalibration` in shot-espresso.json). So is
  * its sensor calibration (`sensorCalibration`). Its Skins are those Decaid's
- * Linux release answered serving Streamline's build of `main`, as the test
- * tablet's app settings name it (`skinsAt("servedMain")`).
+ * Linux release answered with Streamline's build of `main` the default and
+ * its release served, as the test tablet's app settings name them
+ * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`).
  */
 export function de1ProOnDecaid090(): DecaidApi {
   return {
@@ -238,7 +239,7 @@ export function de1ProOnDecaid090(): DecaidApi {
     "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
     "/machine/calibration": { flowMultiplier: 1.1 },
     ...sensorCalibration(),
-    ...skinsAt("servedMain"),
+    ...skinsAt("defaultSwitched"),
     "/devices": readFixture("devices.json"),
     "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
     "/sensors": readFixture("sensors.json"),

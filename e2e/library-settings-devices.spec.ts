@@ -133,9 +133,9 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await page.goto(`/machines/${id}`);
   await expect(page.getByText("As last reported by its Tablet.")).toBeVisible();
   await expect(page.getByText("As reported by the latest accepted connection.")).toHaveCount(0);
-  // DYE2's release, and Streamline's build of main served, as on the test tablet.
+  // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
   await expect(field(page, "DYE2")).toHaveText("0.1.26");
-  await expect(field(page, "Streamline")).toHaveText("0.2.18 (main build)");
+  await expect(field(page, "Streamline")).toHaveText("0.2.18 (release)");
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
   dye2.disable();
@@ -147,15 +147,18 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
     await baseExpect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: 2_000 });
   });
 
-  // DYE2 is installed from its dist branch, which builds main, and the Machine then goes offline.
+  // DYE2 is installed from its dist branch and Decaid serves Streamline's build of main, both builds of main, and the
+  // Machine then goes offline.
   await dye2.install("branch");
+  tablet.serve({ ...served, ...skinsAt("servedMain") });
   await expect.poll(async () => (await reported()).dye2!.branch).toBe("dist");
+  await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", build: "main" });
   await tablet.unload();
   await afterDetailsPolls(page, async () => {
     await baseExpect(field(page, "Status")).toHaveText("Offline", { timeout: 2_000 });
     await baseExpect(field(page, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: 2_000 });
   });
-  await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)");
+  await expect(field(page, "Streamline")).toHaveText("0.2.18 (main build)");
 });
 
 test("a Machine whose tablet has reported nothing says so", async ({ page }) => {
