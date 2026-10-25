@@ -22,6 +22,7 @@ import { MachineEvents } from "./machine-events.js";
 import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
+import { SettingsAccess, SettingsEdits } from "./settings-edits.js";
 import { ShotCapture } from "./shots.js";
 import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
@@ -110,7 +111,9 @@ type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" |
  * The server writes the Library items its Location shares to the tablet: it
  * asks for one write at a time, and the plugin carries each out through
  * Decaid's API, between its reads of the lists it writes to, and answers it
- * through the outbox (library-writes.ts).
+ * through the outbox (library-writes.ts). It carries out the Settings Edits
+ * the server asks for the same way, in a queue of their own beside the reads
+ * of the settings collections (settings-edits.ts).
  */
 export class SyncConnection {
   /** The open handle, or undefined while disconnected. */
@@ -157,6 +160,8 @@ export class SyncConnection {
   private readonly collections: CollectionCapture;
   /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
   private readonly writes: LibraryWrites;
+  /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
+  private readonly settingsEdits: SettingsEdits;
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
   private readonly shot = new ShotGate();
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
@@ -218,7 +223,9 @@ export class SyncConnection {
       () => this.collections.readMachineSettings(),
       (state) => this.shot.state(state),
     );
-    this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
+    const settingsAccess = new SettingsAccess();
+    this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
+    this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, (name, reading, always) => this.collections.reportSettings(name, reading, always), log);
     this.writes = new LibraryWrites(
       library,
       this.outbox,
@@ -474,6 +481,11 @@ export class SyncConnection {
       case "leaveOut":
         // Answered as a write is, through the outbox.
         void this.writes.leaveOut(message);
+        break;
+      case "settingsEdit":
+        // Answered through the outbox, behind the report of what it read back. A connection that drops meanwhile
+        // leaves the answer to the next one, which any instance records.
+        void this.settingsEdits.apply(message);
         break;
       case "heartbeat":
         // Its arrival is what counts.

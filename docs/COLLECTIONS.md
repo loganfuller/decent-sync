@@ -105,8 +105,9 @@ step (`onStep`), and an edit of more than one sensor's calibration, as an edit
 names one target. A number may have no more decimal places than its step, and
 must be a whole multiple of it, counted in the step's least decimal place on
 the number's decimal digits rather than by floating-point arithmetic, so a
-step of 0.05 takes 0.35 and refuses 0.33, however large the number. Nothing
-makes edits yet.
+step of 0.05 takes 0.35 and refuses 0.33, however large the number. The
+server checks every Settings Edit with it, and the plugin again before it
+writes (Settings Edits, below).
 
 The Machine page's Settings card groups the Machine Settings (`General`, the
 `machineSettings`; `Advanced`; `Flow calibration`; `Sensor calibration`) and
@@ -117,6 +118,92 @@ are in a tooltip on an info icon beside its value, which opens on hover,
 focus or a tap, as is when each section was reported; a section not reported, or unavailable when last read, says so in
 plain sight. A field Decaid reports that no definition covers is shown
 read-only under Decaid's name, after the others.
+
+## Settings Edits
+
+A Settings Edit (ADR-0023) is one write of a settings collection's fields,
+made in the management interface and carried out at once by the plugin on
+the Tablet whose connection holds the Machine. Nothing holds what a setting
+should be afterwards: the setting is whatever the Tablet next reports, and a
+change made on the Tablet later stands. Ticket
+[#224](https://github.com/loganfuller/decent-sync/issues/224) edits the
+`machineSettings` (the fan threshold and steam purge mode), the one
+collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
+
+- **Made through REST.** `POST /api/machines/:id/settings-edits` takes `{
+  collection, fields, expected }`: each field it sets with its new value, and
+  `expected`, each of those fields' raw value in the report the page showed,
+  as the API sent it, never the rounded value the card displays. It is
+  refused at once, with nothing kept: 400 where `validateSettingsEdit`
+  refuses a field (but for an Admin's field), where `expected` does not name
+  exactly the fields set, or for a collection not edited yet; 403 for an
+  Admin's field asked by Staff, or Staff editing a Machine at no Location
+  they work at; 409 while the Machine is offline, as its status judges it,
+  or while its connection's tablet reports another machine's hardware, which
+  nothing is written to (ADR-0004). An Admin edits any Machine with an
+  entry, a Capture-only one or one at no Location included, as Settings
+  Edits are no Library writes. It answers `{ settingsEdit }` with its outcome
+  pending (null). `GET /api/machines/:id/settings-edits/:editId` reads one,
+  which the page reads until it has an outcome. Both are marked for Staff.
+  An edit's account is named to Admins, and to Staff by its id only.
+- **Kept and sent** (`server/src/settings-edits/`, ADR-0016). An edit is a row
+  of `settings_edits`, inserted with the Machine's row locked, which also
+  judges it online, naming the connection (`connected_session_id`) and tablet
+  holding it then, and announced with `NOTIFY settings_edits` in the same
+  transaction. The instance holding that connection claims it with the row
+  locked again, while the connection still holds the Machine, by setting
+  when it was sent, then sends it as `settingsEdit`, with the time it has
+  left of `SETTINGS_EDIT_MS` by PostgreSQL's clock. A connection looks for its
+  edits once welcomed, and every connection after its instance listens anew,
+  so one made meanwhile is still sent. A later connection, even from the
+  same tablet, sends nothing made for an earlier one.
+- **Carried out** (`plugin/src/settings-edits.ts`), one at a time in the order
+  received, in a queue of its own (`SettingsAccess`) beside the reads of the
+  settings collections, apart from the Library's writes and their reads: so
+  an edit never waits for a Library write's answer, and a poll started before
+  an edit cannot report a value older than the edit's read-back after its
+  answer. For each edit the plugin:
+  1. checks the fields against their definitions again, writing none without
+     one;
+  2. reads `GET /machine/state`, going ahead only while the state is `idle`,
+     `schedIdle`, `sleeping` or `needsWater` (`SETTINGS_EDIT_STATES`), and
+     refusing it as `machineBusy`, naming the state, otherwise, or with
+     Decaid's answer where the read fails, as with a 500 naming
+     `DeviceNotConnectedException` while no machine is connected;
+  3. reads the collection, reports it if it changed, and refuses the edit as
+     `changedSince`, with the fields' current values, if any field no longer
+     holds its expected value (`sameValue`);
+  4. writes only the edit's fields through `POST /machine/settings`;
+  5. whether Decaid took the write or not, reads the collection again and
+     queues it as a `collection` delivery, then queues its answer,
+     `settingsEdited`, behind it: `written` with the values read back, or
+     refused by `decaid` with Decaid's status and its `error` or `message`,
+     and the values read back, as Decaid writes the fields one at a time. The
+     read counts for the machine settings' 60 s interval.
+  A Shot started between the state's read and the write is an accepted gap.
+- **Answered.** Whichever instance the answer reaches, on the connection it
+  was sent on or a later one, records it for the edit of that Machine still
+  unanswered, by PostgreSQL's clock, and acknowledges it. A pure module
+  (`server/src/settings-edits/outcome.ts`) decides the outcome: `applied`
+  where every field read back is within half its step of the value sent (a
+  step of 1 for a whole number; the same JSON for a choice or on or off
+  value), `adjusted` naming each field the Machine stored otherwise and what
+  it holds, or `refused` with the plugin's reason, and for Decaid's refusal
+  the fields the read-back shows changed from what the edit expected.
+- **The Settings card.** A section the account may change a field of has an
+  Edit button, which opens an inline form offering only those fields, each
+  with its notes, and the others in their place, read-only. While the Machine
+  is offline, Edit is disabled with the reason. Saving sends only the fields
+  changed. The section then shows the edit as pending, reads it every second
+  until it has an outcome, shows the outcome in place, and loads the reports
+  again, so its values come from the latest one.
+
+`server/test/settings-edits.test.ts` covers this through Seam 1, with the
+built plugin on two instances sharing PostgreSQL,
+`server/test/settings-edit-outcome.test.ts` the outcome module, and
+`e2e/settings-edits.spec.ts` the management interface. The 60 s limit and
+edits not confirmed, the log of Settings Edits and the other sections come
+in later tickets of milestone 4.
 
 ## Plugin
 

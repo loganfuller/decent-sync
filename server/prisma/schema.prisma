@@ -50,6 +50,7 @@ model Account {
   passwordReset PasswordReset?
   itemVersions  ItemVersion[]
   conflicts     Conflict[]
+  settingsEdits SettingsEdit[]
 
   @@map("accounts")
 }
@@ -264,6 +265,7 @@ model Machine {
   conflicts          Conflict[]
   takeover           Takeover?
   loadedRecipes      LoadedRecipe[]
+  settingsEdits      SettingsEdit[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -722,6 +724,78 @@ model SetAsideDelivery {
   /// Finds the Shots and Steam Records set aside, which indexes leave out.
   @@index([machineId, recordId])
   @@map("set_aside_deliveries")
+}
+
+/// What came of a Settings Edit, as decided from its answer
+/// (server/src/settings-edits/outcome.ts).
+enum SettingsEditOutcome {
+  /// Every field read back is within half its step of the value sent.
+  APPLIED
+  /// The Machine stored another value than the edit asked for in a field.
+  ADJUSTED
+  /// The plugin did not write it, or Decaid refused (`SettingsEditRefusal`).
+  REFUSED
+
+  @@map("settings_edit_outcome")
+}
+
+/// Why a Settings Edit was refused, as the plugin answered (`SETTINGS_EDITED_REFUSALS`).
+enum SettingsEditRefusal {
+  /// The machine was running something, named in `machineState`.
+  MACHINE_BUSY
+  /// A field it sets had changed since the report it was made over.
+  CHANGED_SINCE
+  /// The plugin got it too late to write it in time.
+  EXPIRED
+  /// Decaid refused, did not answer, or was not asked: `decaidStatus` and `decaidMessage`.
+  DECAID
+
+  @@map("settings_edit_refusal")
+}
+
+/// A Settings Edit (ADR-0023): one write of a Machine's settings or its
+/// Tablet's, made by an account in the management interface while the
+/// Machine was online, sent only on the connection that held it as it was
+/// made, and answered by the plugin, which reads the collection back after
+/// writing. Nothing holds what the setting should be afterwards. Inserted
+/// with the Machine's row locked, which also judges it online, and claimed
+/// by the instance holding that connection, which sets `sentAt` with the
+/// row locked again. See server/src/settings-edits/.
+model SettingsEdit {
+  id            String               @id @default(uuid(7)) @db.Uuid
+  machineId     String               @map("machine_id") @db.Uuid
+  machine       Machine              @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// The connection that held the Machine as it was made (`connected_session_id`), and its tablet.
+  sessionId     String               @map("session_id") @db.Uuid
+  tabletId      String               @map("tablet_id") @db.Uuid
+  /// Who made it.
+  accountId     String?              @map("account_id") @db.Uuid
+  account       Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// One of EDITABLE_SETTINGS_COLLECTIONS.
+  collection    String
+  /// Each field it sets, by its path, with its new value; and each field's
+  /// value in the report it was made over, as the tablet sent it.
+  fields        Json                 @db.JsonB
+  expected      Json                 @db.JsonB
+  /// By PostgreSQL's clock: when it was made, sent and answered.
+  madeAt        DateTime             @default(dbgenerated("transaction_timestamp()")) @map("made_at") @db.Timestamptz(3)
+  sentAt        DateTime?            @map("sent_at") @db.Timestamptz(3)
+  answeredAt    DateTime?            @map("answered_at") @db.Timestamptz(3)
+  /// Null until answered.
+  outcome       SettingsEditOutcome?
+  refusal       SettingsEditRefusal?
+  /// For MACHINE_BUSY: the machine's state, as Decaid named it.
+  machineState  String?              @map("machine_state")
+  /// For DECAID: its HTTP status, or null where it did not answer or was not asked, and what it answered or why.
+  decaidStatus  Int?                 @map("decaid_status")
+  decaidMessage String?              @map("decaid_message")
+  /// The edit's fields as the plugin read them: back after the write, or, for CHANGED_SINCE, as the tablet held them.
+  readBack      Json?                @map("read_back") @db.JsonB
+
+  @@index([machineId, madeAt])
+  /// Finds the edits a connection has yet to send.
+  @@index([sessionId])
+  @@map("settings_edits")
 }
 
 /// A Bean in the Library (ADR-0003): a coffee as sold by a roaster, shared

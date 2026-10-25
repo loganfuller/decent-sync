@@ -102,6 +102,8 @@ const STAFF = [
   "GET /api/machines/:id/tablet-versions",
   "GET /api/machines/:id/set-aside-deliveries",
   "GET /api/machines/:id/sharing-status",
+  "POST /api/machines/:id/settings-edits",
+  "GET /api/machines/:id/settings-edits/:editId",
   "GET /api/pending-machines",
   "GET /api/pending-machines/:id",
   "GET /api/shots",

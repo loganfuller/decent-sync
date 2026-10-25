@@ -316,6 +316,37 @@ export interface Collection extends CollectionSummary {
   value: unknown;
 }
 
+/** Why a Settings Edit was refused, and what the Tablet said of it. */
+export type SettingsEditRefusal =
+  | { reason: "machineBusy"; state: string | null }
+  /** The edit's fields as the Tablet held them, changed since the report it was made over. */
+  | { reason: "changedSince"; current: Record<string, unknown> | null }
+  | { reason: "expired" }
+  /** Decaid's status, null where it did not answer or was not asked, its message, and the fields it changed before refusing. */
+  | { reason: "decaid"; status: number | null; message: string | null; changed: string[] };
+
+/** A Settings Edit (ADR-0023): a change of a Machine's settings made here, sent to its Tablet at once, and what came of it. */
+export interface SettingsEdit {
+  id: string;
+  machineId: string;
+  collection: string;
+  /** Each field it sets with its new value, and each field's value in the report it was made over. */
+  fields: Record<string, unknown>;
+  expected: Record<string, unknown>;
+  /** Who made it: named to Admins, and to Staff by its id only. */
+  account: { id: string; name: string | null } | null;
+  madeAt: string;
+  sentAt: string | null;
+  answeredAt: string | null;
+  /** Null while it awaits the Machine's answer. */
+  outcome: "applied" | "adjusted" | "refused" | null;
+  /** For `adjusted`: each field the Machine stored otherwise, with what it holds, if it was read back. */
+  adjusted: { field: string; holds?: unknown }[];
+  refusal: SettingsEditRefusal | null;
+  /** The edit's fields as read back after its write, or as the Tablet held them when it was refused as changed since. */
+  readBack: Record<string, unknown> | null;
+}
+
 /** A device paired with a Machine's tablet. */
 export interface PairedDevice {
   /** Decaid's id for it, such as a Bluetooth address. */
