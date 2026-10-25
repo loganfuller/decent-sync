@@ -320,6 +320,32 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await loads(machine, null);
   });
 
+  it("makes no unload where a Shot begins while its read of the Workflow is answered", async () => {
+    let slow = false;
+    let reading = false;
+    // 1.5 s at the tablet's pace, within the page's 3 s.
+    const { machine, tablet, brazil } = await lab("Shot read", 49301, {
+      apiDelayMs: (method, path) => {
+        if (!slow || method !== "GET" || path !== "/workflow") return 0;
+        reading = true;
+        return 1_500;
+      },
+    });
+    await selectRecipeInDye2(tablet, BRAZIL);
+    await loads(machine, brazil);
+    await expect.poll(() => surfaces(tablet)).toHaveLength(1);
+
+    slow = true;
+    const tapped = tap(tablet);
+    await expect.poll(() => reading, { interval: 5 }).toBe(true);
+    tablet.reportState("espresso", "pouring");
+    expect((await tapped).status).toBe(303);
+    slow = false;
+    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the Machine is pulling a Shot, so the unload is not made$/);
+    expect(recipeIdInWorkflow(tablet)).toBe(BRAZIL);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(brazil);
+  });
+
   it("goes back to returnTo for any other view, as the settings card's Open button opens, clearing nothing; answers 204 without a page to go back to, and nothing but GET", async () => {
     const { machine, tablet, brazil } = await lab("Views", 49251);
     await selectRecipeInDye2(tablet, BRAZIL);
