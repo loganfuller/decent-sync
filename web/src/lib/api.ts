@@ -338,8 +338,14 @@ export interface SettingsEdit {
   madeAt: string;
   sentAt: string | null;
   answeredAt: string | null;
-  /** Null while it awaits the Machine's answer. */
-  outcome: "applied" | "adjusted" | "refused" | null;
+  /**
+   * Null while it awaits the Machine's answer; `notConfirmed` once the
+   * Machine has not answered within a minute, or its connection closed
+   * first, until an answer arriving later replaces it.
+   */
+  outcome: "applied" | "adjusted" | "refused" | "notConfirmed" | null;
+  /** Whether its outcome came from an answer that arrived after it was marked not confirmed. */
+  late: boolean;
   /** For `adjusted`: each field the Machine stored otherwise, with what it holds, if it was read back. */
   adjusted: { field: string; holds?: unknown }[];
   refusal: SettingsEditRefusal | null;

@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
+import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SYNC_PATH } from "@decent-sync/protocol";
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
@@ -32,8 +32,8 @@ import { opened } from "./test-scope.js";
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
 //   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
 //   without measurements, or `null`; `holdSteamReads` holds either,
-//   `holdWorkflowReads` reads of the Workflow, and `holdShotReads` reads
-//   of each Shot. The
+//   `holdWorkflowReads` reads of the Workflow, `holdShotReads` reads
+//   of each Shot, and `holdRequests` any request to a route. The
 //   library's lists leave out archived and hidden records unless asked for
 //   them, the bean batches leaving out those of archived beans too, and send
 //   an ETag, answering 304 to it in If-None-Match. A key of
@@ -69,7 +69,8 @@ import { opened } from "./test-scope.js";
 //   profile at `/profiles/{id}`, whose id it derives from the profile's
 //   content as Decaid does; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
-//   zone: set `process.env.TZ` to put the tablet in another one.
+//   zone: set `process.env.TZ` to put the tablet in another one. Its clock is
+//   the test's, unless `setPluginClockOffset` corrects it.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -127,9 +128,10 @@ import { opened } from "./test-scope.js";
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
 //   reach the plugin's timeouts and backoff quickly. The server keeps real
-//   time, though. The heartbeat interval in its `welcome` is slowed by the
-//   same factor, so a sped-up plugin still heartbeats, and expects the
-//   server's answers, at the server's pace. And from the moment a connection
+//   time, though. The heartbeat interval in its `welcome`, and the time a
+//   `settingsEdit` has left, are slowed by the same factor, so a sped-up
+//   plugin still heartbeats, expects the server's answers and counts down an
+//   edit's time at the server's pace. And from the moment a connection
 //   starts to open until the server's first answer, the tablet's clock runs
 //   at real time: the server's work on an upgrade and a hello takes real time
 //   however fast the tablet runs, and a sped-up connect deadline would
@@ -681,6 +683,12 @@ type TransportEvent = Record<string, unknown> & { type: string };
 /** The reads of Steam Records a test can hold: of every id, and of the newest. */
 export type HeldSteamRead = "/steams/ids" | "/steams/latest";
 
+/** Requests to one route held by `holdRequests`: how many have arrived so far, and their release. */
+export interface HeldRequests {
+  readonly arrived: number;
+  release(): void;
+}
+
 interface TransportRecord {
   handle: string;
   socket: WebSocket | LocalSocket;
@@ -761,6 +769,8 @@ export class SimulatedTablet {
   private workflowReadsHeld: Promise<void> | undefined;
   /** The reads of each Shot held, as they are requested, until the promise settles. */
   private shotReadsHeld: Promise<void> | undefined;
+  /** Requests held by `holdRequests`, by their method and route, until released. */
+  private readonly requestsHeld = new Map<string, { held: Promise<void>; arrived: number }>();
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -797,6 +807,8 @@ export class SimulatedTablet {
   private readonly apiDelayMs: (method: string, path: string) => number;
   private readonly answerOnArrival: boolean;
   private readonly decaidClockOffsetMs: number;
+  /** How far the plugin's own clock, as its `Date` reads it, is from the test's (`setPluginClockOffset`). */
+  private pluginClockOffsetMs = 0;
   private readonly keepsFlushSettings: boolean;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
@@ -878,6 +890,7 @@ export class SimulatedTablet {
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
       clearTimeout: (id: number) => this.clearTimer(id),
+      Date: pluginDate(() => this.pluginClockOffsetMs),
     });
     this.plugin.onLoad(options.settings);
     // PluginManager sends the current Workflow once the plugin has loaded.
@@ -1023,6 +1036,32 @@ export class SimulatedTablet {
     return () => {
       if (this.shotReadsHeld === held) this.shotReadsHeld = undefined;
       release();
+    };
+  }
+
+  /**
+   * Holds the plugin's requests with this method to this route (without its
+   * query) until released, as a slow Decaid does, such as one writing a
+   * machine's settings one register at a time: each is taken, a write
+   * carried out, and answered from what Decaid holds then, only once
+   * released. A request still held when Decaid's fetch times out, 30 s from
+   * when it was made by the tablet's clock, fails as that fetch does.
+   * Holding a route again holds the requests made after, while those held
+   * before wait for their own release.
+   */
+  holdRequests(method: string, route: string): HeldRequests {
+    let release!: () => void;
+    const hold = { held: new Promise<void>((resolve) => (release = resolve)), arrived: 0 };
+    const key = `${method} ${route}`;
+    this.requestsHeld.set(key, hold);
+    return {
+      get arrived() {
+        return hold.arrived;
+      },
+      release: () => {
+        if (this.requestsHeld.get(key) === hold) this.requestsHeld.delete(key);
+        release();
+      },
     };
   }
 
@@ -1203,6 +1242,16 @@ export class SimulatedTablet {
     const own = { ...this.manifest, loaded: !this.unloaded, autoLoad: true, source: null, pendingUpdate: null };
     const dye2 = this.dye2?.listing();
     return dye2 ? [dye2, own] : [own];
+  }
+
+  /**
+   * Moves the plugin's own clock, as its `Date` reads it, this far from the
+   * test's from now on, as when the tablet corrects its clock: back where
+   * negative. Its timers keep their pace, as Decaid's are Dart's, on a
+   * monotonic clock.
+   */
+  setPluginClockOffset(offsetMs: number): void {
+    this.pluginClockOffsetMs = offsetMs;
   }
 
   /** The tablet's clock, which `timeScale` speeds, in milliseconds. */
@@ -1453,9 +1502,21 @@ export class SimulatedTablet {
     // Answered or not, a request failing is not seen before its delay is over.
     arrived?.catch(() => {});
     const { method = "GET" } = (init ?? {}) as { method?: string };
-    const delayMs = this.apiDelayMs(method.toUpperCase(), String(input).slice(`${API_ORIGIN}/api/v1`.length));
+    const path = String(input).slice(`${API_ORIGIN}/api/v1`.length);
+    const delayMs = this.apiDelayMs(method.toUpperCase(), path);
+    const hold = this.requestsHeld.get(`${method.toUpperCase()} ${path.split("?")[0]}`);
+    if (hold) hold.arrived++;
     await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(delayMs, FETCH_TIMEOUT_MS)));
     if (delayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
+    if (hold) {
+      let timer = 0;
+      const timedOut = await Promise.race([
+        hold.held.then(() => false),
+        new Promise<boolean>((resolve) => (timer = this.setTimer(() => resolve(true), FETCH_TIMEOUT_MS - delayMs))),
+      ]);
+      this.clearTimer(timer);
+      if (timedOut) throw new Error("Fetch timed out");
+    }
     return arrived ?? this.request(input, init);
   }
 
@@ -1911,11 +1972,22 @@ export class SimulatedTablet {
     return { handle: record.handle, ...(remote.protocol ? { protocol: remote.protocol } : {}) };
   }
 
-  /** Scales the heartbeat interval in a `welcome` up by `timeScale`, which the plugin's timers then scale back down. */
+  /**
+   * Scales the heartbeat interval in a `welcome`, and the time a
+   * `settingsEdit` has left to start its write, before the plugin's 15 s
+   * margin, up by `timeScale`, which the plugin's timers then scale back
+   * down, so it counts both at the server's pace.
+   */
   private atServerPace(text: string): string {
     if (this.timeScale === 1) return text;
     try {
-      const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown };
+      const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown; timeLeftMs?: unknown };
+      if (message.type === "settingsEdit" && typeof message.timeLeftMs === "number") {
+        // The plugin takes its 15 s margin off what it is told, so the margin is left as it is: the edit's time to start
+        // its write is what is scaled.
+        const toStart = (message.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS) * this.timeScale;
+        return JSON.stringify({ ...message, timeLeftMs: Math.max(0, Math.round(toStart + SETTINGS_EDIT_WRITE_MARGIN_MS)) });
+      }
       if (message.type !== "welcome" || typeof message.heartbeatIntervalMs !== "number") return text;
       return JSON.stringify({ ...message, heartbeatIntervalMs: Math.round(message.heartbeatIntervalMs * this.timeScale) });
     } catch {
@@ -2090,6 +2162,8 @@ interface PluginScope {
   fetch: (input: unknown, init?: unknown) => Promise<unknown>;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
+  /** The plugin's `Date`, the global one by default. */
+  Date?: DateConstructor;
 }
 
 /** The route of Decaid's store API for that key of that namespace, as `api` serves it. */
@@ -2113,6 +2187,16 @@ function storeKey(route: string): { namespace: string; key: string } | undefined
   return { namespace: decodeURIComponent(namespace), key: decodeURIComponent(key) };
 }
 
+/** A `Date` reading the test's clock moved by `offsetMs()`, as read when it is asked for the time. */
+function pluginDate(offsetMs: () => number): DateConstructor {
+  const now = () => Date.now() + offsetMs();
+  return new Proxy(Date, {
+    construct: (target, args, newTarget) => Reflect.construct(target, args.length > 0 ? args : [now()], newTarget),
+    apply: () => new Date(now()).toString(),
+    get: (target, property, receiver) => (property === "now" ? now : Reflect.get(target, property, receiver)),
+  });
+}
+
 /** Evaluates plugin.js the way Decaid's plugin manager does. */
 export function loadPlugin(source: string, manifestId: string, scope: PluginScope): BuiltPlugin {
   const factory = new Function(
@@ -2120,13 +2204,14 @@ export function loadPlugin(source: string, manifestId: string, scope: PluginScop
     "fetch",
     "setTimeout",
     "clearTimeout",
+    "Date",
     `${source}
     if (typeof createPlugin !== "function") {
       throw new Error("Plugin must export a 'createPlugin' function. Got: " + typeof createPlugin);
     }
     return createPlugin(host);`,
   ) as (...args: unknown[]) => BuiltPlugin;
-  const plugin = factory(scope.host, scope.fetch, scope.setTimeout, scope.clearTimeout);
+  const plugin = factory(scope.host, scope.fetch, scope.setTimeout, scope.clearTimeout, scope.Date ?? Date);
   if (!plugin || typeof plugin !== "object") {
     throw new Error(`createPlugin did not return an object, got: ${typeof plugin}`);
   }

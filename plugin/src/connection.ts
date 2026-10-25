@@ -282,6 +282,7 @@ export class SyncConnection {
     this.steams.stop();
     this.collections.stop();
     this.loadedRecipes.stop();
+    this.settingsEdits.stop();
     this.shot.stop();
     this.tabletId.stop();
     // Sends the writes still waiting their turn, such as of a delivery just acknowledged.
@@ -483,9 +484,10 @@ export class SyncConnection {
         void this.writes.leaveOut(message);
         break;
       case "settingsEdit":
-        // Answered through the outbox, behind the report of what it read back. A connection that drops meanwhile
-        // leaves the answer to the next one, which any instance records.
-        void this.settingsEdits.apply(message);
+        // Answered through the outbox, behind the report of what it read back. One whose connection drops before its
+        // write is refused as expired; a write under way finishes, and the next connection takes its answer, which any
+        // instance records.
+        void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
         break;
       case "heartbeat":
         // Its arrival is what counts.

@@ -153,16 +153,30 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   transaction. The instance holding that connection claims it with the row
   locked again, while the connection still holds the Machine, by setting
   when it was sent, then sends it as `settingsEdit`, with the time it has
-  left of `SETTINGS_EDIT_MS` by PostgreSQL's clock. A connection looks for its
-  edits once welcomed, and every connection after its instance listens anew,
-  so one made meanwhile is still sent. A later connection, even from the
-  same tablet, sends nothing made for an earlier one.
+  left of `SETTINGS_EDIT_MS` (60 s) by PostgreSQL's clock. Each is sent as
+  soon as it is made, without waiting for earlier answers. A connection looks
+  for its edits once welcomed, and every connection after its instance listens
+  anew, so one made meanwhile is still sent, unless it has no time left. A
+  later connection, even from the same tablet, sends nothing made for an
+  earlier one.
 - **Carried out** (`plugin/src/settings-edits.ts`), one at a time in the order
   received, in a queue of its own (`SettingsAccess`) beside the reads of the
   settings collections, apart from the Library's writes and their reads: so
   an edit never waits for a Library write's answer, and a poll started before
   an edit cannot report a value older than the edit's read-back after its
-  answer. For each edit the plugin:
+  answer. An edit is never queued for later: the plugin counts down its
+  `timeLeftMs` from when it arrives, both by a host timer, which a correction
+  of the tablet's clock does not move, and by that clock, which counts time
+  the tablet spent asleep, and refuses it as `expired` once the connection
+  that sent it has closed, or where it would start the write with less than
+  `SETTINGS_EDIT_WRITE_MARGIN_MS` (15 s) left, judged as the edit's turn comes
+  and again just before the write. So a write it starts has time to finish
+  within the 60 s, and none is started after the 60 s, nor once the plugin
+  knows its connection closed. A write started in time can still finish later,
+  as Decaid writes fields one at a time. It keeps no edit across an unload:
+  one waiting its turn, or under way, as the plugin unloads is dropped
+  unanswered, and no write is started after it. For each edit the
+  plugin:
   1. checks the fields against their definitions again, writing none without
      one;
   2. reads `GET /machine/state`, going ahead only while the state is `idle`,
@@ -184,9 +198,27 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
      after the answer rather than replacing it, so the answer never overtakes
      the read-back it reports.
   A Shot started between the state's read and the write is an accepted gap.
+- **Not confirmed.** An edit still unanswered is `notConfirmed` once 60 s
+  have passed since it was made, or once its connection no longer holds the
+  Machine: it closed and was released, or a newer connection replaced it, as
+  in a reconnect or a Tablet swap. Every instance judges it the same way from
+  the database, by PostgreSQL's clock, whenever the edit is read; nothing
+  marks it. A connection gone unheard, as when its instance crashed, counts
+  only once the 60 s are up, as a plugin whose heartbeats the database is
+  merely slow to record could still start the write. Two gaps are accepted.
+  Where the server replaces a connection, or releases it as its instance
+  shuts down, the plugin hears of it only afterwards, at most at its next
+  heartbeat, so a write it starts meanwhile is answered late and replaces the
+  mark. And an answer recorded just as the 60 s run out, whose commit lands
+  after them, can show the edit not confirmed for that moment and then on
+  time.
 - **Answered.** Whichever instance the answer reaches, on the connection it
   was sent on or a later one, records it for the edit of that Machine still
-  unanswered, by PostgreSQL's clock, and acknowledges it. A pure module
+  unanswered, by PostgreSQL's clock, and acknowledges it. An answer arriving
+  once the edit was not confirmed replaces the mark with what came of it,
+  marked `late`, but for an `expired` refusal, which leaves it not confirmed.
+  An `expired` refusal arriving before then, of an edit with too little time
+  left for its write, is shown as refused. A pure module
   (`server/src/settings-edits/outcome.ts`) decides the outcome: `applied`
   where every field read back is within half its step of the value sent (a
   step of 1 for a whole number; the same JSON for a choice or on or off
@@ -201,16 +233,20 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
   made on the Tablet meanwhile refuses the edit as changed since, and a field
-  left as it opened is never sent. The section then shows the edit as pending, reads it every second
-  until it has an outcome, shows the outcome in place, and loads the reports
-  again, so its values come from the latest one.
+  left as it opened is never sent. The section then shows the edit as
+  pending, reads it every second until it has an outcome, shows the outcome
+  in place, and loads the reports again, so its values come from the latest
+  one. An edit not confirmed is shown so, and read every 5 s until a late
+  answer replaces the mark, shown as answered late.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
-built plugin on two instances sharing PostgreSQL,
-`server/test/settings-edit-outcome.test.ts` the outcome module, and
-`e2e/settings-edits.spec.ts` the management interface. The 60 s limit and
-edits not confirmed, the log of Settings Edits and the other sections come
-in later tickets of milestone 4.
+built plugin on two instances sharing PostgreSQL, and
+`server/test/settings-edit-deadline.test.ts` the 60 s limit, edits not
+confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
+instance, with Decaid slowed by `holdRequests`;
+`server/test/settings-edit-outcome.test.ts` covers the outcome module, and
+`e2e/settings-edits.spec.ts` the management interface. The log of Settings
+Edits and the other sections come in later tickets of milestone 4.
 
 ## Plugin
 

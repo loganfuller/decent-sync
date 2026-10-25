@@ -7,8 +7,9 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 // Settings Edits of a Machine's settings on its page (ticket #224): the
 // Settings card's General section's Edit form, for an Admin and for Staff,
 // disabled while the Machine is offline, and an edit shown as pending, then
-// applied or refused. A simulated tablet running the built plugin takes the
-// writes as Decaid v0.9.0 does; hardware ids are made up.
+// applied or refused, or not confirmed until a late answer replaces the mark
+// (#225). A simulated tablet running the built plugin takes the writes as
+// Decaid v0.9.0 does; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -157,12 +158,43 @@ test("an edit the Machine answered before the server answered its making still s
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
 });
 
-/** A tablet connected with the token, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletOf(token: string, serial: string): Promise<SimulatedTablet> {
+test("an edit whose Tablet's connection drops during its write is shown not confirmed, then applied, answered late", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Lakeview");
+  // At real time, so Decaid's write is held for less than its 30 s fetch timeout.
+  const tablet = await tabletOf(token, "22501", 1);
+  await reported(page, machine.id);
+  await page.goto(`/machines/${machine.id}`);
+
+  const general = page.getByRole("region", { name: "General", exact: true });
+  await general.getByRole("button", { name: "Edit General" }).click();
+  const form = general.getByRole("form", { name: "Edit General" });
+  await form.getByLabel("Fan threshold (°C)").fill("40");
+  const write = tablet.holdRequests("POST", "/machine/settings");
+  await form.getByRole("button", { name: "Save" }).click();
+  const status = general.getByRole("status");
+  await expect(status).toContainText("Pending");
+  await expect.poll(() => write.arrived).toBe(1);
+
+  // The connection drops while Decaid writes: the edit is no longer awaited.
+  tablet.dropConnections();
+  await expect(status).toContainText("Not confirmed");
+  await expect(status).toContainText("Fan threshold: 40 °C. The section shows the values last reported.");
+  await status.getByRole("button", { name: "About Not confirmed" }).hover();
+  await expect(page.getByRole("tooltip")).toContainText("The Machine didn't answer within a minute, or its connection closed first.");
+
+  // The write finishes, and its answer reaches the server on the Tablet's next connection.
+  write.release();
+  await expect(status).toContainText("Applied, answered late");
+  await expect(status).toContainText("Fan threshold: 40 °C.");
+  await expect(general.getByRole("definition").first()).toHaveText("40 °C");
+});
+
+/** A tablet connected with the token, polling every 5 s of its time, which runs `timeScale` times faster. */
+async function tabletOf(token: string, serial: string, timeScale = 50): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
     api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [] },
-    timeScale: 50,
+    timeScale,
   });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);

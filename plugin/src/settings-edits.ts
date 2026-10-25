@@ -2,6 +2,7 @@ import {
   type EditableSettingsCollection,
   MAX_REFUSAL_LENGTH,
   SETTINGS_EDIT_STATES,
+  SETTINGS_EDIT_WRITE_MARGIN_MS,
   type SettingsEdit,
   type SettingsEdited,
   isEditableSettingsCollection,
@@ -52,18 +53,27 @@ export type SettingsReport = (name: EditableSettingsCollection, reading: Reading
 /**
  * Carries out the server's Settings Edits one at a time, in the order they
  * arrive, within the reads of the settings collections, and answers each
- * through the outbox. For each it reads the machine's state, going ahead
- * only while the machine runs nothing (SETTINGS_EDIT_STATES); reads the
- * collection, going ahead only while every field the edit sets still holds
- * the value it expected; checks the fields against their definitions,
- * writing none without one; and writes only those fields. Whether Decaid
- * took the write or not, it reads the collection again and queues it as a
- * report before the answer, so the server takes in the read-back first.
- * Decaid's settings writes apply fields one at a time, so the read-back
- * decides what each field holds. A Shot started between the state's read
- * and the write is an accepted gap (#220).
+ * through the outbox. An edit is never queued for later (ADR-0023): one
+ * whose connection has closed, or that would start its write with less than
+ * SETTINGS_EDIT_WRITE_MARGIN_MS of the time it had left as it arrived, is
+ * refused as `expired`, so a write is never started after the 60 s, nor once
+ * the plugin has heard its connection closed; one started as the server
+ * replaces the connection, before the plugin hears of it, is answered late.
+ * One still waiting its turn as the plugin
+ * unloads is dropped, unanswered. For each it reads the machine's state,
+ * going ahead only while the machine runs nothing (SETTINGS_EDIT_STATES);
+ * reads the collection, going ahead only while every field the edit sets
+ * still holds the value it expected; checks the fields against their
+ * definitions, writing none without one; and writes only those fields.
+ * Whether Decaid took the write or not, it reads the collection again and
+ * queues it as a report before the answer, so the server takes in the
+ * read-back first. Decaid's settings writes apply fields one at a time, so
+ * the read-back decides what each field holds. A Shot started between the
+ * state's read and the write is an accepted gap (#220).
  */
 export class SettingsEdits {
+  private stopped = false;
+
   constructor(
     private readonly access: SettingsAccess,
     private readonly outbox: Outbox,
@@ -71,21 +81,45 @@ export class SettingsEdits {
     private readonly log: (message: string) => void,
   ) {}
 
-  /** Carries out an edit once the reads and edits before it are done, and queues its answer. It never rejects. */
-  apply(edit: SettingsEdit): Promise<void> {
+  /**
+   * Carries out an edit once the reads and edits before it are done, and
+   * queues its answer. `connected` says whether the connection it arrived
+   * on is still open. It never rejects.
+   */
+  apply(edit: SettingsEdit, connected: () => boolean): Promise<void> {
+    // Counted down from now, as the server counted it down to when it sent the edit, both by a host timer, which a
+    // correction of the tablet's clock does not move, and by that clock, which counts time the tablet spent asleep.
+    const startBy = edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
+    const writeBy = Date.now() + startBy;
+    let outOfTime = startBy < 0;
+    const timer = setTimeout(() => (outOfTime = true), Math.max(0, startBy));
+    const tooLate = () => outOfTime || !connected() || Date.now() > writeBy;
     return this.access.run(async () => {
-      let answer: SettingsEdited;
       try {
-        answer = await this.carryOut(edit);
-      } catch (error) {
-        answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+        if (this.stopped) return;
+        let answer: SettingsEdited | undefined;
+        try {
+          answer = await this.carryOut(edit, tooLate);
+        } catch (error) {
+          answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+        }
+        if (answer === undefined || this.stopped) return;
+        if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
+        this.outbox.enqueue(answer);
+      } finally {
+        clearTimeout(timer);
       }
-      if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
-      this.outbox.enqueue(answer);
     });
   }
 
-  private async carryOut(edit: SettingsEdit): Promise<SettingsEdited> {
+  /** Drops the edits still waiting their turn, and starts no write after this, as the plugin unloads. */
+  stop(): void {
+    this.stopped = true;
+  }
+
+  /** The edit's answer, or undefined where the plugin unloaded before its write. */
+  private async carryOut(edit: SettingsEdit, tooLate: () => boolean): Promise<SettingsEdited | undefined> {
+    if (tooLate()) return expired(edit);
     if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
     // The server checked them as it took the edit; never is a field without a definition written.
     const refusals = validateSettingsEdit(edit, "admin");
@@ -106,6 +140,9 @@ export class SettingsEdits {
       return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
     }
 
+    // Nothing is written once the plugin unloads, or too late to finish in time.
+    if (this.stopped) return undefined;
+    if (tooLate()) return expired(edit);
     let written: Answer | undefined;
     let failure = "";
     try {
@@ -133,6 +170,10 @@ async function readObject(route: string): Promise<{ ok: true; value: Record<stri
 /** The edit's fields as a read holds them; a field it does not hold is left out. */
 function edited(edit: SettingsEdit, value: Record<string, unknown>): Record<string, unknown> {
   return Object.fromEntries(Object.keys(edit.fields).filter((field) => field in value).map((field) => [field, value[field]]));
+}
+
+function expired(edit: SettingsEdit): SettingsEdited {
+  return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "expired" };
 }
 
 function refusedByDecaid(edit: SettingsEdit, status: number | null, message: string): SettingsEdited {
@@ -165,6 +206,8 @@ function describeRefusal(answer: SettingsEdited): string {
       return `the machine is ${answer.state}`;
     case "changedSince":
       return "a setting changed on the tablet since the report it was made over";
+    case "expired":
+      return "it came too late to write in time, or its connection closed";
     case "decaid":
       return `${answer.status === null ? "" : `Decaid answered ${answer.status}: `}${answer.message}`;
     default:

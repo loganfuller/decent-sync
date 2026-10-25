@@ -730,8 +730,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    */
   private async settingsEdited(session: Session, answer: SettingsEdited): Promise<void> {
     try {
-      const outcome = await this.settingsEdits.recordAnswer(session.machine!.id, answer);
-      if (outcome === "refused") this.logger.log(`The tablet of ${this.describe(session)} refused Settings Edit ${answer.id}: ${describeSettingsRefusal(answer)}`);
+      const recorded = await this.settingsEdits.recordAnswer(session.machine!.id, answer);
+      const late = recorded?.late ? ", after it was marked not confirmed" : "";
+      if (recorded?.outcome === "refused") this.logger.log(`The tablet of ${this.describe(session)} refused Settings Edit ${answer.id}${late}: ${describeSettingsRefusal(answer)}`);
+      else if (recorded?.late) this.logger.log(`The tablet of ${this.describe(session)} answered Settings Edit ${answer.id}${late}: ${recorded.outcome}`);
     } catch (error) {
       const failure = repeatingFailure(error);
       if (!failure) throw error;
@@ -944,7 +946,7 @@ function describeSettingsRefusal(answer: SettingsEdited): string {
     case "decaid":
       return `${answer.status === null || answer.status === undefined ? "Decaid did not answer or was not asked" : `Decaid answered ${answer.status}`}, ${quoted((answer.message ?? "").slice(0, 200))}`;
     default:
-      return "it came too late";
+      return "it came too late to write in time, or its connection closed";
   }
 }
 

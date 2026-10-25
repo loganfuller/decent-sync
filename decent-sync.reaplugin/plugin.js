@@ -664,6 +664,7 @@ var __decentSync = (() => {
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
   var SHOT_STATE = "espresso";
   var PULLING_SHOT = "The Machine was pulling a Shot; ask again";
+  var SETTINGS_EDIT_WRITE_MARGIN_MS = 15e3;
   var SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWater"];
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
@@ -3598,21 +3599,43 @@ var __decentSync = (() => {
       __publicField(this, "outbox", outbox);
       __publicField(this, "report", report);
       __publicField(this, "log", log);
+      __publicField(this, "stopped", false);
     }
-    /** Carries out an edit once the reads and edits before it are done, and queues its answer. It never rejects. */
-    apply(edit) {
+    /**
+     * Carries out an edit once the reads and edits before it are done, and
+     * queues its answer. `connected` says whether the connection it arrived
+     * on is still open. It never rejects.
+     */
+    apply(edit, connected) {
+      const startBy = edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
+      const writeBy = Date.now() + startBy;
+      let outOfTime = startBy < 0;
+      const timer = setTimeout(() => outOfTime = true, Math.max(0, startBy));
+      const tooLate = () => outOfTime || !connected() || Date.now() > writeBy;
       return this.access.run(async () => {
-        let answer;
         try {
-          answer = await this.carryOut(edit);
-        } catch (error) {
-          answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+          if (this.stopped) return;
+          let answer;
+          try {
+            answer = await this.carryOut(edit, tooLate);
+          } catch (error) {
+            answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+          }
+          if (answer === void 0 || this.stopped) return;
+          if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
+          this.outbox.enqueue(answer);
+        } finally {
+          clearTimeout(timer);
         }
-        if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
-        this.outbox.enqueue(answer);
       });
     }
-    async carryOut(edit) {
+    /** Drops the edits still waiting their turn, and starts no write after this, as the plugin unloads. */
+    stop() {
+      this.stopped = true;
+    }
+    /** The edit's answer, or undefined where the plugin unloaded before its write. */
+    async carryOut(edit, tooLate) {
+      if (tooLate()) return expired(edit);
       if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
       const refusals = validateSettingsEdit(edit, "admin");
       if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
@@ -3630,6 +3653,8 @@ var __decentSync = (() => {
       if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
         return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
       }
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired(edit);
       let written2;
       let failure = "";
       try {
@@ -3653,6 +3678,9 @@ var __decentSync = (() => {
   function edited(edit, value) {
     return Object.fromEntries(Object.keys(edit.fields).filter((field) => field in value).map((field) => [field, value[field]]));
   }
+  function expired(edit) {
+    return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "expired" };
+  }
   function refusedByDecaid(edit, status, message) {
     return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "decaid", status, message: message.slice(0, MAX_REFUSAL_LENGTH) };
   }
@@ -3673,6 +3701,8 @@ var __decentSync = (() => {
         return `the machine is ${answer.state}`;
       case "changedSince":
         return "a setting changed on the tablet since the report it was made over";
+      case "expired":
+        return "it came too late to write in time, or its connection closed";
       case "decaid":
         return `${answer.status === null ? "" : `Decaid answered ${answer.status}: `}${answer.message}`;
       default:
@@ -4279,6 +4309,7 @@ var __decentSync = (() => {
       this.steams.stop();
       this.collections.stop();
       this.loadedRecipes.stop();
+      this.settingsEdits.stop();
       this.shot.stop();
       this.tabletId.stop();
       this.storage.stop();
@@ -4458,7 +4489,7 @@ var __decentSync = (() => {
           void this.writes.leaveOut(message);
           break;
         case "settingsEdit":
-          void this.settingsEdits.apply(message);
+          void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
           break;
         case "heartbeat":
           break;
