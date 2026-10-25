@@ -130,7 +130,8 @@ function offers(field: EditableSettingsField, input: string | boolean): boolean 
 function valueOf(field: EditableSettingsField, input: string | boolean): unknown {
   if (field.kind === "onOff") return input === true;
   if (field.kind === "choice") return field.choices?.find((choice) => String(choice.value) === input)?.value ?? input;
-  if (field.kind === "timeOfDay") return timeOfDayMinutes(input) ?? Number.NaN;
+  // A time input may give whole minutes with their zero seconds, as 23:30:00.
+  if (field.kind === "timeOfDay") return timeOfDayMinutes(typeof input === "string" ? input.replace(/^(\d\d:\d\d):00(\.0+)?$/, "$1") : input) ?? Number.NaN;
   return typeof input === "string" && input.trim() !== "" ? Number(input) : Number.NaN;
 }
 

@@ -442,6 +442,8 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
 
     await form.getByRole("switch", { name: "Night mode", exact: true }).click();
     await sleep.fill("23:30");
+    // A time input may hold whole minutes with their zero seconds.
+    await form.getByLabel("Night mode morning time (UTC+5:30)").fill("06:15:00");
     await form.getByRole("combobox", { name: "Charging mode" }).click();
     await ravisPage.getByRole("option", { name: "Charge up to 80%" }).click();
     await form.getByRole("button", { name: "Save" }).click();
@@ -452,7 +454,7 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     await expect(field(tabletSettings, "Charging mode")).toHaveText("Charge up to 80%");
   });
   // Sent as minutes after midnight, as Decaid keeps them, and only the fields changed.
-  baseExpect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 420, chargingMode: "balanced" });
+  baseExpect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 375, chargingMode: "balanced" });
   baseExpect(settingsWrites()).toHaveLength(1);
 
   await page.goto(`/machines/${machine.id}`);
