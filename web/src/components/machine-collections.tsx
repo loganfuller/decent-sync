@@ -1,5 +1,6 @@
 import { PencilIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { useIsAdmin } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
@@ -224,6 +225,7 @@ function SettingsSection({
 }) {
   const title = SETTINGS[name];
   const offered = useOfferedFields(name, collection, machine);
+  const isAdmin = useIsAdmin();
   const utcOffsetMinutes = collection?.utcOffsetMinutes ?? null;
   const rows = collection ? settingRows(name, collection.value, utcOffsetMinutes) : [];
   const scheduleLists = collection && isObject(collection.value) ? wakeScheduleLists(name, collection.value) : [];
@@ -271,7 +273,7 @@ function SettingsSection({
             label={`${title}, read-only`}
             rows={rows
               .filter((row) => !editing.some((field) => field.path === row.path))
-              .map((row) => (adminsOnly(name, row.path) ? { ...row, about: ONLY_AN_ADMIN } : row))}
+              .map((row) => (!isAdmin && adminsOnly(name, row.path) ? { ...row, about: ONLY_AN_ADMIN } : row))}
           />
         </SettingsForm>
       ) : (

@@ -39,6 +39,8 @@ const ROUTES: Readonly<Record<Exclude<EditableSettingsCollection, "sensorCalibra
  * which Decaid reads and writes with no machine connected to the tablet: an
  * edit of one goes ahead where the machine's state can't be read for want
  * of one, a 500 naming `DeviceNotConnectedException` (`machineMissing`).
+ * The presence settings are named ready for their edits (#231); until then
+ * an edit of them is refused as not written by this plugin.
  */
 const WITHOUT_MACHINE: ReadonlySet<SettingsCollectionName> = new Set(["appSettings", "presenceSettings"]);
 

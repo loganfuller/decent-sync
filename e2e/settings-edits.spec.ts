@@ -382,6 +382,8 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   const pressure = form.getByLabel("Pressure sensor multiplier");
   await expect(pressure).toHaveValue("1.0234375");
   await expect(form.getByLabel("Sensor calibration, read-only").getByRole("term")).toHaveText(["Flow sensor multiplier", "Temperature sensor offset"]);
+  // An Admin's, so nothing says only an Admin can change them.
+  await expect(form.getByLabel("Sensor calibration, read-only").getByRole("button", { name: /^About / })).toHaveCount(0);
   await pressure.fill("1.02");
 
   // The warning comes first, and going back makes no edit.

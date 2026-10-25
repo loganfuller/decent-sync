@@ -329,7 +329,9 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   otherwise "An account", as the Library's history shows Staff), its section,
   each field's value in the report it was made over and the value asked for,
   and its outcome, a late answer marked so. It loads every 30 s, and again as
-  an edit made on the page is answered.
+  an edit made on the page is answered. A time of day there is the Tablet's
+  own, written without its offset, as an edit does not keep the offset it
+  was made in.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL,
