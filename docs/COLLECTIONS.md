@@ -475,8 +475,8 @@ as the machine connected, and the refill kit setting it last wrote (`auto` as
 the machine connects), each until written through Decaid.
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
-`flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths), which scales
-the flow the machine reports, and which each Shot records as
+`flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths),
+which scales the flow the machine reports, and which each Shot records as
 `workflow.machine.flowCalibration`. The Machine page shows the settings
 fields, other than the sensor calibrations (below), to five decimal places
 at most, so a change of a thousandth shows.
