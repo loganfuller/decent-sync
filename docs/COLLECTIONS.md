@@ -100,19 +100,21 @@ settings page at `cec5664`, and Decaid's own limits where it has none.
 `validateSettingsEdit`, a pure function, decides whether an edit's fields and
 values are allowed by the definitions and to the account making it. It
 refuses an unknown or read-only field, an Admin's field for Staff, a value not
-of the field's kind, a choice not offered, a value out of range, and one off
-its step (`onStep`): a number may have no more decimal places than its step,
-and must be a whole multiple of it, compared in the step's least decimal
-place rather than by floating-point division, so a step of 0.05 takes 0.35
-and refuses 0.33. Nothing makes edits yet.
+of the field's kind, a choice not offered, a value out of range, one off its
+step (`onStep`), and an edit of more than one sensor's calibration, as an edit
+names one target. A number may have no more decimal places than its step, and
+must be a whole multiple of it, counted in the step's least decimal place on
+the number's decimal digits rather than by floating-point arithmetic, so a
+step of 0.05 takes 0.35 and refuses 0.33, however large the number. Nothing
+makes edits yet.
 
 The Machine page's Settings card groups the Machine Settings (`General`, the
 `machineSettings`; `Advanced`; `Flow calibration`; `Sensor calibration`) and
 the Tablet Settings (`appSettings`). Each field is shown by its label, with
 its unit or its choice's label, and a reported value outside its range or
 choices is shown as it is. What sets a read-only field, and a field's notes,
-are in a tooltip on an info icon beside its value, as is when each section was
-reported; a section not reported, or unavailable when last read, says so in
+are in a tooltip on an info icon beside its value, which opens on hover,
+focus or a tap, as is when each section was reported; a section not reported, or unavailable when last read, says so in
 plain sight. A field Decaid reports that no definition covers is shown
 read-only under Decaid's name, after the others.
 

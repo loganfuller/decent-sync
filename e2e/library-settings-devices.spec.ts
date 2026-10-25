@@ -86,6 +86,12 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["USB charger", "Off", "Set by the Tablet's charging mode"],
   ];
   await expectShown(general, shown);
+  // A tap as iOS Safari makes one, which neither hovers nor focuses the icon, opens its tooltip, and a tap elsewhere closes it.
+  await page.mouse.move(0, 0);
+  await tap(general.getByRole("button", { name: "About Fan threshold", exact: true }));
+  await expect(page.getByRole("tooltip")).toHaveText(RESETS + PUT_BACK);
+  await tap(general.getByRole("heading", { name: "General" }));
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expectShown(machineSettings.getByRole("region", { name: "Advanced", exact: true }), [
     ["Idle temperature", "98 °C", PUT_BACK],
     ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
@@ -221,6 +227,12 @@ async function expectTip(scope: Locator, subject: string, text: string | RegExp)
   await expect(page.getByRole("tooltip")).toHaveText(text);
   await page.keyboard.press("Escape");
   await expect(page.getByRole("tooltip")).toHaveCount(0);
+}
+
+/** The events of a tap on a touchscreen, sent to the element alone: a touch's pointer events and a click, without the hover and focus Playwright's own tap brings. */
+async function tap(element: Locator) {
+  for (const type of ["pointerdown", "pointerup"]) await element.dispatchEvent(type, { pointerType: "touch", isPrimary: true, bubbles: true });
+  await element.dispatchEvent("click");
 }
 
 /** A table's rows below its header. */

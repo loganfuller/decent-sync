@@ -325,31 +325,43 @@ function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[]
   const unknown = Object.keys(reported)
     .filter((path) => !settingsField(name, path))
     .sort((a, b) => a.localeCompare(b, "en"))
-    .map((path) => ({ term: path, text: settingText(reported[path]), about: "Not known to Decent Sync, so shown as Decaid names it, read-only", notes: [] }));
+    .map((path) => ({ term: path, text: valueText(reported[path]), about: "Not known to Decent Sync, so shown as Decaid names it, read-only", notes: [] }));
   return [...known, ...unknown];
 }
 
 /**
- * A field's value as its definition shows it: a choice by its label, on or
- * off, a time of day as hours and minutes, and a number with its unit. A
- * value that is none of these, such as a choice not offered, is shown as it
- * is. A number is shown to five decimal places at most: the machine keeps
- * each sensor's calibration in signed Q16.16, steps of 1/65536, so any two it
- * can hold still differ when shown, and Decaid sends 2.500000000000001 for a
- * flow multiplier of 2.5.
+ * A field's value as its definition shows it: a choice by its label, a time
+ * of day as hours and minutes, and a number with its unit. A value that is
+ * none of these, such as a choice not offered, is shown as it is
+ * (`valueText`).
  */
 function fieldText(field: SettingsField, value: unknown): string {
   if (field.kind === "choice" && "choices" in field) {
     const choice = field.choices?.find((offered) => offered.value === value);
     if (choice) return choice.label;
   }
-  if (field.kind === "onOff" && typeof value === "boolean") return value ? "On" : "Off";
   if (field.kind === "timeOfDay" && typeof value === "number" && Number.isInteger(value) && value >= 0 && value < 24 * 60) {
     return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
   }
-  if (typeof value === "number") {
-    const number = String(Number(value.toFixed(5)));
-    return field.unit ? `${number} ${field.unit}` : number;
+  if (typeof value === "number" && field.unit) return `${valueText(value)} ${field.unit}`;
+  return valueText(value);
+}
+
+/**
+ * A settings value written out: on or off, and a number to five decimal
+ * places at most, parts of a list or object too. The machine keeps each
+ * sensor's calibration in signed Q16.16, steps of 1/65536, so any two it can
+ * hold still differ when shown, and Decaid sends 2.500000000000001 for a flow
+ * multiplier of 2.5.
+ */
+function valueText(value: unknown): string {
+  if (typeof value === "number") return String(Number(value.toFixed(5)));
+  if (typeof value === "boolean") return value ? "On" : "Off";
+  if (Array.isArray(value)) return value.length > 0 ? value.map(valueText).join(", ") : "None";
+  if (isObject(value)) {
+    return Object.entries(value)
+      .map(([key, part]) => `${key}: ${valueText(part)}`)
+      .join(", ");
   }
   return settingText(value);
 }

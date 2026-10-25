@@ -52,7 +52,9 @@ describe("validateSettingsEdit", () => {
     ]);
     // The ends of a range are in it.
     expect(validateSettingsEdit({ collection: "machineCalibration", fields: { flowMultiplier: 2 } }, "admin")).toEqual([]);
-    expect(validateSettingsEdit({ collection: "sensorCalibration", fields: { flow: 0.75, pressure: 1.33, temperature: -10 } }, "admin")).toEqual([]);
+    for (const [target, value] of [["flow", 0.75], ["pressure", 1.33], ["temperature", -10]] as const) {
+      expect(validateSettingsEdit({ collection: "sensorCalibration", fields: { [target]: value } }, "admin")).toEqual([]);
+    }
   });
 
   it("refuses a value off a 0.05 step, checked in hundredths", () => {
@@ -110,6 +112,10 @@ describe("validateSettingsEdit", () => {
   it("refuses an edit of no settings collection, or of nothing", () => {
     expect(validateSettingsEdit({ collection: "beans", fields: { name: "x" } }, "admin")).toEqual([{ reason: "unknownCollection" }]);
     expect(validateSettingsEdit({ collection: "machineSettings", fields: {} }, "admin")).toEqual([{ reason: "noFields" }]);
+  });
+
+  it("refuses an edit of more than one sensor's calibration", () => {
+    expect(validateSettingsEdit({ collection: "sensorCalibration", fields: { flow: 1.05, pressure: 1.1 } }, "admin")).toEqual([{ reason: "severalTargets" }]);
   });
 });
 

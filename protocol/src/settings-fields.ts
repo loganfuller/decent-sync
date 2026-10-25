@@ -270,6 +270,8 @@ export function settingsField(collection: SettingsCollectionName, path: string):
  *
  * - `unknownCollection`: the edit names no settings collection;
  * - `noFields`: it sets nothing;
+ * - `severalTargets`: it sets more than one sensor's calibration, where an
+ *   edit names one target, which the plugin sets from one read of it;
  * - `unknown`: no definition covers the field;
  * - `readOnly`: the field is shown but never edited;
  * - `notAllowed`: the field is an Admin's to change, and the account is Staff;
@@ -281,6 +283,7 @@ export function settingsField(collection: SettingsCollectionName, path: string):
 export type SettingsEditRefusalReason =
   | "unknownCollection"
   | "noFields"
+  | "severalTargets"
   | "unknown"
   | "readOnly"
   | "notAllowed"
@@ -311,6 +314,7 @@ export function validateSettingsEdit(edit: SettingsEditFields, role: SettingsRol
   if (!isSettingsCollectionName(edit.collection)) return [{ reason: "unknownCollection" }];
   const paths = Object.keys(edit.fields);
   if (paths.length === 0) return [{ reason: "noFields" }];
+  if (edit.collection === "sensorCalibration" && paths.length > 1) return [{ reason: "severalTargets" }];
   const refusals: SettingsEditRefusal[] = [];
   for (const path of paths) {
     const reason = fieldRefusal(settingsField(edit.collection, path), edit.fields[path], role);

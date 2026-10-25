@@ -1,17 +1,31 @@
 import { InfoIcon } from "lucide-react";
-import type { ReactNode } from "react";
+import { type ReactNode, useState } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
  * A small info icon whose tooltip holds what explains the value beside it,
- * kept out of the page until asked for. The icon is a button, so the tooltip
- * opens on keyboard focus too, and `label` names it for screen readers.
+ * kept out of the page until asked for. It opens on hover, on keyboard focus
+ * and on a tap or click: Radix opens a tooltip on neither a tap nor a click,
+ * and closes it on a click, which would leave a touchscreen no way to read
+ * it. A tap elsewhere, Escape or moving away closes it. The icon is a button,
+ * and `label` names it for screen readers.
  */
 export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  const [open, setOpen] = useState(false);
   return (
-    <Tooltip>
+    <Tooltip open={open} onOpenChange={setOpen}>
       <TooltipTrigger asChild>
-        <button type="button" aria-label={label} className="inline-flex align-middle text-muted-foreground hover:text-foreground">
+        <button
+          type="button"
+          aria-label={label}
+          className="inline-flex align-middle text-muted-foreground hover:text-foreground"
+          // Each prevented, so Radix's own handler, which closes the tooltip, is skipped.
+          onPointerDown={(event) => event.preventDefault()}
+          onClick={(event) => {
+            event.preventDefault();
+            setOpen(true);
+          }}
+        >
           <InfoIcon className="size-3.5" />
         </button>
       </TooltipTrigger>
