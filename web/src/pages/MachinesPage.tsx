@@ -17,7 +17,7 @@ import { TokenNotice } from "@/components/TokenNotice";
 import { CardTitleWithInfo, InfoTip, PageTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type IssuedToken, type Machine, type PendingMachine } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
@@ -92,11 +92,9 @@ export function MachinesPage() {
         <Card className="max-w-xl">
           <CardHeader>
             <CardTitleWithInfo title="New Machine">
-              <p>
-                Its hardware is recorded from the first connection with its token. It is at its Location from now; correct
-                when it arrived on its page to credit earlier Shots there.
-              </p>
+              <p>Its hardware is recorded from the first connection with its token.</p>
             </CardTitleWithInfo>
+            <CardDescription>It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.</CardDescription>
           </CardHeader>
           <CardContent>
             <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />

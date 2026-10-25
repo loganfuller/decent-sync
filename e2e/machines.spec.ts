@@ -51,7 +51,9 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
   await expect(page.getByText("No Machines yet.")).toBeVisible();
   await expectTip(page.getByRole("main"), "Machines", /^The machines that sync with this server\./);
-  await expectTip(page.getByRole("main"), "New Machine", /^Its hardware is recorded from the first connection with its token\./);
+  await expectTip(page.getByRole("main"), "New Machine", "Its hardware is recorded from the first connection with its token.");
+  // What to do once its earlier Shots arrive stays on the page.
+  await expect(page.getByText("It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.")).toBeVisible();
 
   const form = page.getByRole("form", { name: "New Machine" });
   await form.getByLabel("Name").fill("Lab");
