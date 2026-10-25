@@ -58,6 +58,13 @@ export class MachineEvents implements WorkflowChanges {
   private heldReport = false;
   /** A change reported while held, which `release` sends. */
   private heldChange = false;
+  /**
+   * When Decaid reported the Workflow first naming the recipe it names now
+   * (`dye2RecipeIdOf`), where that was while held: the time `release` sends
+   * it with, rather than that of a later report meanwhile, as of the
+   * plugin's own write, so a Shot pulled with the recipe is pulled with it.
+   */
+  private heldNamedAt: string | undefined;
   /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
   private resent: string | undefined;
   /** The state and substate last queued, so repeated state updates send nothing. */
@@ -88,6 +95,7 @@ export class MachineEvents implements WorkflowChanges {
     this.reportedAt = now();
     this.observe(workflow);
     if (this.holds > 0) {
+      if (previous === undefined || dye2RecipeIdOf(previous) !== dye2RecipeIdOf(workflow)) this.heldNamedAt = this.reportedAt;
       this.heldChange = true;
       this.heldReport = true;
     } else this.queueWorkflow(workflow);
@@ -101,8 +109,9 @@ export class MachineEvents implements WorkflowChanges {
 
   /**
    * Once no write is under way, sends the latest Workflow, observed when
-   * Decaid reported it, or now for a resend alone, if it changed while held:
-   * that holds the plugin's own writes, and any change a barista made
+   * Decaid reported it, or when it first named the recipe it names where
+   * that changed while held, or now for a resend alone, if it changed while
+   * held: that holds the plugin's own writes, and any change a barista made
    * meanwhile.
    */
   release(): void {
@@ -112,10 +121,11 @@ export class MachineEvents implements WorkflowChanges {
       this.heldChange = false;
       const resend = this.heldResend && !this.heldReport;
       // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it.
-      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt);
+      const id = this.queueWorkflow(this.workflow, resend ? now() : (this.heldNamedAt ?? this.reportedAt));
       if (resend) this.resent = id;
       this.heldResend = false;
       this.heldReport = false;
+      this.heldNamedAt = undefined;
     }
   }
 

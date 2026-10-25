@@ -378,7 +378,11 @@ through `plugin/src/dye2.ts`, and writes what the pure
   the plugin's writes into it, or a save into the Loaded Recipe, is under
   way, a count shared with the Library's writes into the Workflow, as a
   joining tablet's clear (`LIBRARY.md`, Joining a Location), and sends the
-  latest once none is. Changes of the machine's state are not held. A
+  latest once none is, observed when Decaid reported it, or, where the
+  recipe it names changed while held, when Decaid first reported it naming
+  that recipe, so a later report meanwhile, as of the plugin's own write,
+  does not leave a Shot pulled with the recipe taken for one before it was
+  loaded (#235). Changes of the machine's state are not held. A
   welcome's resend of the Workflow asked for while held is the Workflow
   released, which the next welcome replaces unless it was ever sent, but
   where a change was held too: replacing that would lose the change. A held
