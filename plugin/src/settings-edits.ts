@@ -4,6 +4,7 @@ import {
   SETTINGS_EDIT_STATES,
   SETTINGS_EDIT_WRITE_MARGIN_MS,
   type SettingsEdit,
+  type SettingsCollectionName,
   type SettingsEdited,
   isEditableSettingsCollection,
   sameValue,
@@ -12,6 +13,7 @@ import {
 } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
 import { type Answer, request } from "./decaid.js";
+import { machineMissing } from "./loaded-recipes.js";
 import type { Outbox } from "./outbox.js";
 import { absoluteSet } from "./sensor-calibration.js";
 
@@ -29,7 +31,18 @@ const ROUTES: Readonly<Record<Exclude<EditableSettingsCollection, "sensorCalibra
   machineSettings: "/machine/settings",
   advancedSettings: "/machine/settings/advanced",
   machineCalibration: "/machine/calibration",
+  appSettings: "/settings",
 };
+
+/**
+ * The Tablet Settings, Decaid's own settings and its presence settings,
+ * which Decaid reads and writes with no machine connected to the tablet: an
+ * edit of one goes ahead where the machine's state can't be read for want
+ * of one, a 500 naming `DeviceNotConnectedException` (`machineMissing`).
+ * The presence settings are named ready for their edits (#231); until then
+ * an edit of them is refused as not written by this plugin.
+ */
+const WITHOUT_MACHINE: ReadonlySet<SettingsCollectionName> = new Set(["appSettings", "presenceSettings"]);
 
 /**
  * Reads of the settings collections and Settings Edits, one at a time, in
@@ -76,7 +89,8 @@ export interface SettingsReports {
  * replaces the connection, before the plugin hears of it, is answered late.
  * One still waiting its turn as the plugin
  * unloads is dropped, unanswered. For each it reads the machine's state,
- * going ahead only while the machine runs nothing (SETTINGS_EDIT_STATES);
+ * going ahead only while the machine runs nothing (SETTINGS_EDIT_STATES),
+ * or, for the Tablet Settings, while no machine is connected (`WITHOUT_MACHINE`);
  * reads the collection, going ahead only while every field the edit sets
  * still holds the value it expected; checks the fields against their
  * definitions, writing none without one; and writes only those fields.
@@ -141,11 +155,14 @@ export class SettingsEdits {
     const refusals = validateSettingsEdit(edit, "admin");
     if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
     const state = await request("GET", "/machine/state");
-    if (!state.ok) return refusedByDecaid(edit, state.status, decaidMessage(state));
-    const machineState = stateOf(state.text);
-    if (machineState === null) return refusedByDecaid(edit, state.status, "Decaid's answer names no machine state");
-    if (!(SETTINGS_EDIT_STATES as readonly string[]).includes(machineState)) {
-      return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
+    if (state.ok) {
+      const machineState = stateOf(state.text);
+      if (machineState === null) return refusedByDecaid(edit, state.status, "Decaid's answer names no machine state");
+      if (!(SETTINGS_EDIT_STATES as readonly string[]).includes(machineState)) {
+        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
+      }
+    } else if (!(WITHOUT_MACHINE.has(edit.collection) && machineMissing(state))) {
+      return refusedByDecaid(edit, state.status, decaidMessage(state));
     }
 
     if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);

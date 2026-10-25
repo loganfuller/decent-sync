@@ -104,6 +104,7 @@ describe("validateSettingsEdit", () => {
       { reason: "invalid", field: "weightFlowMultiplier" },
       { reason: "invalid", field: "nightModeSleepTime" },
     ]);
+    expect(settingsRefusalText("appSettings", { reason: "invalid", field: "nightModeSleepTime" })).toBe("Night mode sleep time must be a time of day");
     expect(validateSettingsEdit({ collection: "machineSettings", fields: { fan: 42.9 } }, "staff")).toEqual([{ reason: "invalid", field: "fan" }]);
     expect(validateSettingsEdit({ collection: "machineCalibration", fields: { flowMultiplier: Number.NaN } }, "admin")).toEqual([
       { reason: "invalid", field: "flowMultiplier" },

@@ -52,6 +52,12 @@ export function fromZonedInput(value: string, timeZone: string): string | undefi
 
 const DAY = 24 * 60 * 60 * 1000;
 
+/** The zone's UTC offset at the time, in whole minutes east of UTC, such as -240 for Toronto in summer. */
+export function zoneOffsetMinutes(timeZone: string, time: number): number {
+  // Adding 0 makes UTC's -0 a plain 0.
+  return Math.round(offset(time, timeZone) / 60_000) + 0;
+}
+
 /** How far the zone's clocks are ahead of UTC at the time, in milliseconds. */
 function offset(time: number, timeZone: string): number {
   const wall = wallClock(time, timeZone);

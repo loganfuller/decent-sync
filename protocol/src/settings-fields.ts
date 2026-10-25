@@ -29,10 +29,11 @@ export function isSettingsCollectionName(name: string): name is SettingsCollecti
 /**
  * The settings collections a Settings Edit changes, which the plugin writes
  * through Decaid's routes: the machine's settings, its advanced settings,
- * its flow calibration and its sensors' calibration so far. The server refuses
- * an edit of any other, and the management interface offers none.
+ * its flow calibration, its sensors' calibration and Decaid's own settings
+ * so far. The server refuses an edit of any other, and the management
+ * interface offers none.
  */
-export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration"] as const satisfies readonly SettingsCollectionName[];
+export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings"] as const satisfies readonly SettingsCollectionName[];
 
 export type EditableSettingsCollection = (typeof EDITABLE_SETTINGS_COLLECTIONS)[number];
 
@@ -376,7 +377,7 @@ export function settingsRefusalText(collection: string, refusal: SettingsEditRef
       return `Only an Admin can change ${name}`;
     case "invalid":
       if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
-      return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
+      return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : editable?.kind === "timeOfDay" ? "a time of day" : "a whole number"}`;
     case "notOffered":
       return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
     case "outOfRange":

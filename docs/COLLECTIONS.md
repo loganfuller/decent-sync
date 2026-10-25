@@ -161,8 +161,10 @@ change made on the Tablet later stands. Ticket
 voltage, and the refill kit) and the `machineCalibration` (the flow
 multiplier), all an Admin's, and
 [#228](https://github.com/loganfuller/decent-sync/issues/228) sets a
-sensor's calibration (`sensorCalibration`), an Admin's too: the collections
-in `EDITABLE_SETTINGS_COLLECTIONS` so far.
+sensor's calibration (`sensorCalibration`), an Admin's too, and
+[#230](https://github.com/loganfuller/decent-sync/issues/230) the Tablet
+Settings (`appSettings`), Staff's but for gateway mode, an Admin's: the
+collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
 
 - **Made through REST.** `POST /api/machines/:id/settings-edits` takes `{
   collection, fields, expected }`: each field it sets with its new value, and
@@ -224,14 +226,17 @@ in `EDITABLE_SETTINGS_COLLECTIONS` so far.
      `schedIdle`, `sleeping` or `needsWater` (`SETTINGS_EDIT_STATES`), and
      refusing it as `machineBusy`, naming the state, otherwise, or with
      Decaid's answer where the read fails, as with a 500 naming
-     `DeviceNotConnectedException` while no machine is connected;
+     `DeviceNotConnectedException` while no machine is connected. Decaid
+     reads and writes the Tablet Settings without a machine, so an edit of
+     `appSettings` goes ahead on that 500;
   3. reads the collection, reports it if it changed, and refuses the edit as
      `changedSince`, with the fields' current values, if any field no longer
      holds its expected value (`sameValue`);
   4. writes only the edit's fields through the collection's route: `POST
-     /machine/settings`, `/machine/settings/advanced` or
-     `/machine/calibration`. Decaid writes each field to the machine in
-     turn, so a refusal part-way leaves the fields before it written. A
+     /machine/settings`, `/machine/settings/advanced`,
+     `/machine/calibration` or `/settings`. Decaid writes each field in
+     turn, so a refusal part-way leaves the fields before it written, as
+     `/settings` does as it refuses a value with 400 and its `message`. A
      scaled register's value is truncated (`_writeMMRScaled`), so a flow
      multiplier of 1.001 is stored as 1.000 and reads as `adjusted`; the
      heater voltage and refill kit read back as Decaid holds them (below);
@@ -301,7 +306,15 @@ in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   calibration has an Edit button of its own, which opens a form for that
   target alone, and saving it first asks, in an `AlertDialog`, to go ahead
   past a warning modelled on Streamline's: bad calibration settings might
-  make the Machine unusable. Saving sends only the fields
+  make the Machine unusable. Night mode's times are edited in time inputs
+  in the Tablet's own time, each labelled with the offset reported beside
+  the section, such as `Night mode sleep time (UTC−4)`, and sent as minutes
+  after midnight, as Decaid keeps them. Where that offset differs from the
+  offset of the Machine's Location's time zone now (`differingZoneOffset`
+  in `web/src/lib/tablet-time.ts`), the form warns that the times are the
+  Tablet's own; a Machine with no Location gets no warning. A field Staff
+  are not offered as an Admin's, such as gateway mode, keeps its place
+  read-only, saying so. Saving sends only the fields
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
   made on the Tablet meanwhile refuses the edit as changed since, and a field
@@ -316,13 +329,16 @@ in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   otherwise "An account", as the Library's history shows Staff), its section,
   each field's value in the report it was made over and the value asked for,
   and its outcome, a late answer marked so. It loads every 30 s, and again as
-  an edit made on the page is answered.
+  an edit made on the page is answered. A time of day there is the Tablet's
+  own, written without its offset, as an edit does not keep the offset it
+  was made in.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL,
 `server/test/advanced-settings-edits.test.ts` the advanced settings and the
 flow multiplier, `server/test/sensor-calibration-edits.test.ts` the sensor
-calibration, and
+calibration, `server/test/tablet-settings-edits.test.ts` the Tablet
+Settings, and
 `server/test/settings-edit-deadline.test.ts` the 60 s limit, edits not
 confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
 instance, with Decaid slowed by `holdRequests`;

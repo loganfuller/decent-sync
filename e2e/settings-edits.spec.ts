@@ -1,9 +1,10 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { field, rows } from "./support/locators.js";
 import { DETAILS_POLL_MS } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Settings Edits of a Machine's settings on its page (ticket #224): the
 // Settings card's General section's Edit form, for an Admin and for Staff,
@@ -11,9 +12,12 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 // applied or refused, or not confirmed until a late answer replaces the mark
 // (#225), and the Settings Edits card listing each edit, for an Admin and
 // for Staff (#226), the Advanced and Flow calibration sections' forms, an
-// Admin's only (#227), and each sensor's calibration set behind a warning,
-// an Admin's only too (#228). A simulated tablet running the built plugin
-// takes the writes as Decaid v0.9.0 does; hardware ids are made up.
+// Admin's only (#227), each sensor's calibration set behind a warning, an
+// Admin's only too (#228), and the Tablet Settings' form, Staff's but for
+// gateway mode, with night mode's times in the Tablet's own time and a
+// warning where its offset differs from its Location's (#230). A simulated
+// tablet running the built plugin takes the writes as Decaid v0.9.0 does;
+// hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -165,7 +169,7 @@ test("an edit the Machine answered before the server answered its making still s
 test("an edit whose Tablet's connection drops during its write is shown not confirmed, then applied, answered late", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Lakeview");
   // At real time, so Decaid's write is held for less than its 30 s fetch timeout.
-  const tablet = await tabletOf(token, "22501", 1);
+  const tablet = await tabletOf(token, "22501", { timeScale: 1 });
   await reported(page, machine.id);
   await page.goto(`/machines/${machine.id}`);
 
@@ -197,7 +201,7 @@ test("the Settings Edits card lists each edit newest first, naming accounts to a
   const harbour = await createLocation(page, "Harbour");
   const { machine, token } = await createMachine(page, "Harbour bar", harbour.id);
   // At real time, so Decaid's held requests stay within its 30 s fetch timeout and the edits' time left.
-  const tablet = await tabletOf(token, "22601", 1);
+  const tablet = await tabletOf(token, "22601", { timeScale: 1 });
   await reported(page, machine.id);
 
   // An Admin's edit, applied.
@@ -378,6 +382,8 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   const pressure = form.getByLabel("Pressure sensor multiplier");
   await expect(pressure).toHaveValue("1.0234375");
   await expect(form.getByLabel("Sensor calibration, read-only").getByRole("term")).toHaveText(["Flow sensor multiplier", "Temperature sensor offset"]);
+  // An Admin's, so nothing says only an Admin can change them.
+  await expect(form.getByLabel("Sensor calibration, read-only").getByRole("button", { name: /^About / })).toHaveCount(0);
   await pressure.fill("1.02");
 
   // The warning comes first, and going back makes no edit.
@@ -410,6 +416,89 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   ]);
 });
 
+test("Staff at the Machine's Location change its Tablet Settings, night mode's times in the Tablet's time, and are offered no gateway mode, which an Admin changes", async ({ page, browser }) => {
+  // Kolkata, five and a half hours east of UTC, as its Tablet is.
+  const riverside = await createLocation(page, "Riverside", "Asia/Kolkata");
+  const { machine, token } = await createMachine(page, "Riverside bar", riverside.id);
+  const tablet = await tabletOf(token, "23001", { utcOffsetMinutes: 330 });
+  await reported(page, machine.id);
+  const settingsWrites = () => tablet.writes.filter((write) => write === "POST /settings");
+
+  await asStaff(page, browser, "ravi@example.com", riverside.id, async (ravisPage) => {
+    await ravisPage.goto(`/machines/${machine.id}`);
+    const tabletSettings = ravisPage.getByRole("region", { name: "Tablet Settings", exact: true });
+    await tabletSettings.getByRole("button", { name: "Edit Tablet Settings" }).click();
+    const form = tabletSettings.getByRole("form", { name: "Edit Tablet Settings" });
+    // Every field Staff may change, but not gateway mode, which keeps its place read-only, saying why.
+    await expect(form.getByRole("combobox", { name: "Charging mode" })).toHaveText("Charge up to 55%");
+    await expect(form.getByRole("combobox", { name: "Gateway mode" })).toHaveCount(0);
+    const readOnly = form.getByLabel("Tablet Settings, read-only");
+    await expect(readOnly.getByRole("term").first()).toHaveText("Gateway mode");
+    await expectTip(readOnly, "Gateway mode", "Only an Admin can change it");
+    await expect(form.getByRole("switch", { name: "Keep the Tablet's screen on" })).toBeChecked();
+    // Night mode's times in the Tablet's own time, labelled with its offset, which is its Location's: no warning.
+    const sleep = form.getByLabel("Night mode sleep time (UTC+5:30)");
+    await expect(sleep).toHaveValue("22:00");
+    await expect(form.getByLabel("Night mode morning time (UTC+5:30)")).toHaveValue("07:00");
+    await expect(form.getByText("The Tablet's time zone differs from its Location's")).toHaveCount(0);
+
+    await form.getByRole("switch", { name: "Night mode", exact: true }).click();
+    await sleep.fill("23:30");
+    // A time input may hold whole minutes with their zero seconds.
+    await form.getByLabel("Night mode morning time (UTC+5:30)").fill("06:15:00");
+    await form.getByRole("combobox", { name: "Charging mode" }).click();
+    await ravisPage.getByRole("option", { name: "Charge up to 80%" }).click();
+    await form.getByRole("button", { name: "Save" }).click();
+    const status = tabletSettings.getByRole("status");
+    await expect(status).toContainText("Applied");
+    await expect(status).toContainText("Night mode sleep time: 23:30 (UTC+5:30)");
+    await expect(field(tabletSettings, "Night mode sleep time")).toHaveText("23:30 (UTC+5:30)");
+    await expect(field(tabletSettings, "Charging mode")).toHaveText("Charge up to 80%");
+  });
+  // Sent as minutes after midnight, as Decaid keeps them, and only the fields changed.
+  baseExpect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 375, chargingMode: "balanced" });
+  baseExpect(settingsWrites()).toHaveLength(1);
+
+  await page.goto(`/machines/${machine.id}`);
+  const tabletSettings = page.getByRole("region", { name: "Tablet Settings", exact: true });
+  await tabletSettings.getByRole("button", { name: "Edit Tablet Settings" }).click();
+  const form = tabletSettings.getByRole("form", { name: "Edit Tablet Settings" });
+  const gateway = form.getByRole("combobox", { name: "Gateway mode" });
+  await expect(gateway).toHaveText("Tracking");
+  await gateway.click();
+  await page.getByRole("option", { name: "Full" }).click();
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(tabletSettings.getByRole("status")).toContainText("Applied");
+  await expect(tabletSettings.getByRole("status")).toContainText("Gateway mode: Full.");
+  await expect.poll(async () => ((await tablet.callApi("GET", "/settings")).body as { gatewayMode: string }).gatewayMode).toBe("full");
+  baseExpect(settingsWrites()).toHaveLength(2);
+});
+
+test("the Tablet Settings form warns where the Tablet's UTC offset differs from its Location's time zone's, and not for a Machine with no Location", async ({ page }) => {
+  // Kolkata keeps UTC+5:30 all year, and the Tablet is four hours behind UTC.
+  const quayside = await createLocation(page, "Quayside", "Asia/Kolkata");
+  const { machine, token } = await createMachine(page, "Quayside bar", quayside.id);
+  await tabletOf(token, "23002", { utcOffsetMinutes: -240 });
+  await reported(page, machine.id);
+  await page.goto(`/machines/${machine.id}`);
+  let tabletSettings = page.getByRole("region", { name: "Tablet Settings", exact: true });
+  await tabletSettings.getByRole("button", { name: "Edit Tablet Settings" }).click();
+  let form = tabletSettings.getByRole("form", { name: "Edit Tablet Settings" });
+  await expect(form.getByLabel("Night mode sleep time (UTC−4)")).toHaveValue("22:00");
+  const warning = form.getByRole("alert").filter({ hasText: "The Tablet's time zone differs from its Location's" });
+  await expect(warning).toContainText("The Tablet is at UTC−4, and Quayside (Asia/Kolkata) at UTC+5:30 now.");
+
+  const { machine: spare, token: spareToken } = await createMachine(page, "Quayside spare");
+  await tabletOf(spareToken, "23003", { utcOffsetMinutes: -240 });
+  await reported(page, spare.id);
+  await page.goto(`/machines/${spare.id}`);
+  tabletSettings = page.getByRole("region", { name: "Tablet Settings", exact: true });
+  await tabletSettings.getByRole("button", { name: "Edit Tablet Settings" }).click();
+  form = tabletSettings.getByRole("form", { name: "Edit Tablet Settings" });
+  await expect(form.getByLabel("Night mode sleep time (UTC−4)")).toHaveValue("22:00");
+  await expect(form.getByText("The Tablet's time zone differs from its Location's")).toHaveCount(0);
+});
+
 /** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */
 async function makeEdit(page: Page, machineId: string, fields: Record<string, unknown>, expected: Record<string, unknown>): Promise<string> {
   const response = await page.request.post(`/api/machines/${machineId}/settings-edits`, { data: { collection: "machineSettings", fields, expected } });
@@ -430,12 +519,13 @@ async function online(page: Page, machineId: string): Promise<void> {
   await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machineId}`)).json()) as { machine: { online: boolean } }).machine.online).toBe(true);
 }
 
-/** A tablet connected with the token, polling every 5 s of its time, which runs `timeScale` times faster. */
-async function tabletOf(token: string, serial: string, timeScale = 50): Promise<SimulatedTablet> {
+/** A tablet connected with the token, polling every 5 s of its time, which runs `timeScale` times faster, at its UTC offset if one is given. */
+async function tabletOf(token: string, serial: string, { timeScale = 50, utcOffsetMinutes }: { timeScale?: number; utcOffsetMinutes?: number } = {}): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
     api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [] },
     timeScale,
+    utcOffsetMinutes,
   });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);

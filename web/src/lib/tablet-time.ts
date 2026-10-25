@@ -1,3 +1,6 @@
+// Relative, as the module tests import it without the web build's alias.
+import { zoneOffsetMinutes } from "./zoned-time";
+
 // Times in a Tablet's own time, which Decaid keeps without an offset: night
 // mode's times as minutes after midnight, a wake schedule's time as HH:MM,
 // and `keepAwakeUntil` as a local date and time. The Tablet's plugin sends
@@ -48,6 +51,17 @@ export function localTimeText(text: unknown): string | undefined {
 /** A time in the Tablet's own time with its UTC offset, such as "06:30 (UTC−4)", or as it is where the offset is unknown. */
 export function inTabletTime(text: string, utcOffsetMinutes: number | null): string {
   return utcOffsetMinutes === null ? text : `${text} (${utcOffsetText(utcOffsetMinutes)})`;
+}
+
+/**
+ * The time zone's UTC offset at the time, in minutes east of UTC, where it
+ * differs from the Tablet's, as when the Tablet is set to another zone than
+ * its Location's, or has not followed a daylight saving change; undefined
+ * where they agree.
+ */
+export function differingZoneOffset(tabletOffsetMinutes: number, timeZone: string, time: number): number | undefined {
+  const zone = zoneOffsetMinutes(timeZone, time);
+  return zone === tabletOffsetMinutes ? undefined : zone;
 }
 
 function pad(value: number): string {

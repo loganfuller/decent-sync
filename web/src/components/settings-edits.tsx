@@ -20,6 +20,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { type Collection, type Machine, type SettingsEdit, api } from "@/lib/api";
 import { fieldText, isObject, valueText } from "@/lib/settings-text";
+import { differingZoneOffset, timeOfDayMinutes, timeOfDayText, utcOffsetText } from "@/lib/tablet-time";
 import {
   type EditableSettingsField,
   SETTINGS_FIELDS,
@@ -74,25 +75,27 @@ export function labelOf(name: string, path: string): string {
   return (isEditableSettingsCollection(name) ? settingsField(name, path)?.label : undefined) ?? path;
 }
 
-/** A field's value as the Settings card shows it. */
-export function shownValue(name: string, path: string, value: unknown): string {
+/** A field's value as the Settings card shows it, a time in the Tablet's own time labelled with its UTC offset where it is given. */
+export function shownValue(name: string, path: string, value: unknown, utcOffsetMinutes: number | null = null): string {
   const field = isEditableSettingsCollection(name) ? settingsField(name, path) : undefined;
-  return field ? fieldText(field, value) : valueText(value);
+  return field ? fieldText(field, value, utcOffsetMinutes) : valueText(value);
 }
 
 /** Each field's value, as "Label: value", joined. */
-function valuesText(name: string, values: Record<string, unknown>): string {
+function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null): string {
   return Object.entries(values)
-    .map(([path, value]) => `${labelOf(name, path)}: ${shownValue(name, path, value)}`)
+    .map(([path, value]) => `${labelOf(name, path)}: ${shownValue(name, path, value, utcOffsetMinutes)}`)
     .join("; ");
 }
 
-/** What a form holds for each field: a number as typed, a choice by its value as text, or on or off. */
+/** What a form holds for each field: a number as typed, a choice by its value as text, a time of day as HH:MM, or on or off. */
 type Inputs = Record<string, string | boolean>;
 
 function inputOf(name: SettingsCollectionName, field: EditableSettingsField, value: unknown): string | boolean {
   if (field.kind === "onOff") return value === true;
   if (field.kind === "number" && typeof value === "number") return String(toStep(name, field, value));
+  // A reported value that is no time of day opens empty, as a time input shows it.
+  if (field.kind === "timeOfDay") return timeOfDayText(value) ?? "";
   return value === undefined || value === null ? "" : String(value);
 }
 
@@ -119,10 +122,16 @@ function offers(field: EditableSettingsField, input: string | boolean): boolean 
   return field.choices?.some((choice) => String(choice.value) === input) ?? false;
 }
 
-/** The value an input holds, as the edit sends it: NaN for a number that isn't one, which validation refuses. */
+/**
+ * The value an input holds, as the edit sends it: a time of day as minutes
+ * after midnight; NaN for a number or time that isn't one, which validation
+ * refuses.
+ */
 function valueOf(field: EditableSettingsField, input: string | boolean): unknown {
   if (field.kind === "onOff") return input === true;
   if (field.kind === "choice") return field.choices?.find((choice) => String(choice.value) === input)?.value ?? input;
+  // A time input may give whole minutes with their zero seconds, as 23:30:00.
+  if (field.kind === "timeOfDay") return timeOfDayMinutes(typeof input === "string" ? input.replace(/^(\d\d:\d\d):00(\.0+)?$/, "$1") : input) ?? Number.NaN;
   return typeof input === "string" && input.trim() !== "" ? Number(input) : Number.NaN;
 }
 
@@ -134,13 +143,16 @@ function valueOf(field: EditableSettingsField, input: string | boolean): unknown
  * report the page loads while the form is open changes neither, so a change
  * made on the Tablet meanwhile refuses the edit as changed since rather than
  * being overwritten. With `confirm`, saving first asks to go ahead with its
- * warning.
+ * warning. A time of day is edited in the Tablet's own time, labelled with
+ * `utcOffsetMinutes`, the offset reported beside the section, and the form
+ * warns where that differs from the Machine's Location's (`TabletTimeWarning`).
  */
 export function SettingsForm({
   name,
   machine,
   offered,
   reported,
+  utcOffsetMinutes = null,
   label,
   notes,
   confirm,
@@ -153,6 +165,8 @@ export function SettingsForm({
   offered: EditableSettingsField[];
   /** The section's report as Decaid sent it, read once, as the form opens. */
   reported: Record<string, unknown>;
+  /** The Tablet's UTC offset as the report was read, for a section with times in the Tablet's own time; null otherwise. */
+  utcOffsetMinutes?: number | null;
   label: string;
   /** What each note on a field says. */
   notes: (field: EditableSettingsField) => string[];
@@ -211,6 +225,7 @@ export function SettingsForm({
     // field left as reported, out of its range or off its step, against the others.
     <form aria-label={label} className="grid gap-4" noValidate onSubmit={save}>
       {error && <FormError error={Array.isArray(error) ? error.join(". ") : error} />}
+      {offered.some((field) => field.kind === "timeOfDay") && <TabletTimeWarning machine={machine} utcOffsetMinutes={utcOffsetMinutes} />}
       <FieldGroup className="gap-4">
         {offered.map((field) => (
           <SettingInput
@@ -218,6 +233,7 @@ export function SettingsForm({
             id={`${id}-${field.path}`}
             field={field}
             input={inputs[field.path]!}
+            utcOffsetMinutes={utcOffsetMinutes}
             notes={notes(field)}
             onChange={(input) => setInputs((current) => ({ ...current, [field.path]: input }))}
           />
@@ -237,7 +253,7 @@ export function SettingsForm({
           <AlertDialogContent>
             <AlertDialogHeader>
               <AlertDialogTitle>{confirm.title}</AlertDialogTitle>
-              <AlertDialogDescription>{confirming && `${valuesText(name, confirming.fields)}. `}{confirm.description}</AlertDialogDescription>
+              <AlertDialogDescription>{confirming && `${valuesText(name, confirming.fields, utcOffsetMinutes)}. `}{confirm.description}</AlertDialogDescription>
             </AlertDialogHeader>
             <AlertDialogFooter>
               <AlertDialogCancel>Cancel</AlertDialogCancel>
@@ -250,21 +266,46 @@ export function SettingsForm({
   );
 }
 
-/** One field's input, by its kind: a number, a choice, or on or off. */
+/**
+ * Where the Tablet's UTC offset differs from its Machine's Location's time
+ * zone's now, a warning that the times are the Tablet's own: a Tablet set to
+ * the wrong time zone wakes or sleeps the Machine at the wrong hour. A
+ * Machine with no Location, or a Tablet whose offset is unknown, gets none.
+ */
+export function TabletTimeWarning({ machine, utcOffsetMinutes }: { machine: Machine; utcOffsetMinutes: number | null }) {
+  const location = machine.location;
+  const zone = location && utcOffsetMinutes !== null ? differingZoneOffset(utcOffsetMinutes, location.timeZone, Date.now()) : undefined;
+  if (!location || utcOffsetMinutes === null || zone === undefined) return null;
+  return (
+    <Alert>
+      <AlertTitle>The Tablet's time zone differs from its Location's</AlertTitle>
+      <AlertDescription>
+        The Tablet is at {utcOffsetText(utcOffsetMinutes)}, and {location.name} ({location.timeZone}) at {utcOffsetText(zone)} now. The
+        times here are the Tablet's own, and it acts on them in its time.
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+/** One field's input, by its kind: a number, a choice, a time of day in the Tablet's own time, or on or off. */
 function SettingInput({
   id,
   field,
   input,
+  utcOffsetMinutes,
   notes,
   onChange,
 }: {
   id: string;
   field: EditableSettingsField;
   input: string | boolean;
+  utcOffsetMinutes: number | null;
   notes: string[];
   onChange(input: string | boolean): void;
 }) {
-  const label = field.unit ? `${field.label} (${field.unit})` : field.label;
+  // A time of day is labelled with the Tablet's UTC offset, as the Settings card shows it.
+  const qualifier = field.kind === "timeOfDay" ? (utcOffsetMinutes === null ? undefined : utcOffsetText(utcOffsetMinutes)) : field.unit;
+  const label = qualifier ? `${field.label} (${qualifier})` : field.label;
   const description = notes.length > 0 && <FieldDescription>{notes.join(" ")}</FieldDescription>;
   if (field.kind === "onOff") {
     return (
@@ -292,6 +333,8 @@ function SettingInput({
             ))}
           </SelectContent>
         </Select>
+      ) : field.kind === "timeOfDay" ? (
+        <Input id={id} type="time" step={60} required value={String(input)} onChange={(event) => onChange(event.target.value)} />
       ) : (
         <Input
           id={id}
@@ -318,7 +361,18 @@ function SettingInput({
  * made, `onAnswered` reloads the section's values, which come from the
  * latest report, the read-back taken in before the answer.
  */
-export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { machineId: string; edit: SettingsEdit; onAnswered(): Promise<void> | void }) {
+export function SettingsEditStatus({
+  machineId,
+  edit: made,
+  utcOffsetMinutes = null,
+  onAnswered,
+}: {
+  machineId: string;
+  edit: SettingsEdit;
+  /** The Tablet's UTC offset its section's times are labelled with, if they are. */
+  utcOffsetMinutes?: number | null;
+  onAnswered(): Promise<void> | void;
+}) {
   const [edit, setEdit] = useState(made);
   const [error, setError] = useState<string>();
   const outcome = edit.outcome;
@@ -365,7 +419,7 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
       <Alert role="status">
         <AlertTitle>Pending</AlertTitle>
         <AlertDescription>
-          {valuesText(edit.collection, edit.fields)}. Sent to the Machine, waiting for its answer.
+          {valuesText(edit.collection, edit.fields, utcOffsetMinutes)}. Sent to the Machine, waiting for its answer.
           {error && ` ${error}.`}
         </AlertDescription>
       </Alert>
@@ -382,13 +436,13 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
           </InfoTip>
         </AlertTitle>
         <AlertDescription>
-          {valuesText(edit.collection, edit.fields)}. The section shows the values last reported.
+          {valuesText(edit.collection, edit.fields, utcOffsetMinutes)}. The section shows the values last reported.
           {error && ` ${error}.`}
         </AlertDescription>
       </Alert>
     );
   }
-  const { title, description } = outcomeText(edit);
+  const { title, description } = outcomeText(edit, utcOffsetMinutes);
   return (
     <Alert role="status" variant={outcome === "refused" ? "destructive" : "default"}>
       <AlertTitle className="flex items-center gap-1.5">
@@ -400,15 +454,15 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
   );
 }
 
-/** What came of an answered edit, as the section shows it. */
-export function outcomeText(edit: SettingsEdit): { title: string; description: string } {
+/** What came of an answered edit, as the section shows it, its times labelled with `utcOffsetMinutes` where given. */
+export function outcomeText(edit: SettingsEdit, utcOffsetMinutes: number | null = null): { title: string; description: string } {
   const name = edit.collection;
-  if (edit.outcome === "applied") return { title: "Applied", description: `${valuesText(name, edit.readBack ?? edit.fields)}.` };
+  if (edit.outcome === "applied") return { title: "Applied", description: `${valuesText(name, edit.readBack ?? edit.fields, utcOffsetMinutes)}.` };
   if (edit.outcome === "adjusted") {
     const held = edit.adjusted.filter((field) => "holds" in field);
     const unread = edit.adjusted.filter((field) => !("holds" in field)).map((field) => labelOf(name, field.field));
     const parts = [
-      ...(held.length > 0 ? [`The Machine holds another value than was asked for: ${valuesText(name, Object.fromEntries(held.map((field) => [field.field, field.holds])))}.`] : []),
+      ...(held.length > 0 ? [`The Machine holds another value than was asked for: ${valuesText(name, Object.fromEntries(held.map((field) => [field.field, field.holds])), utcOffsetMinutes)}.`] : []),
       ...(unread.length > 0 ? [`Decaid took the change, but it could not be read back: ${unread.join(", ")}.`] : []),
     ];
     return { title: held.length > 0 ? "Stored otherwise" : "Not read back", description: parts.join(" ") };
@@ -420,14 +474,14 @@ export function outcomeText(edit: SettingsEdit): { title: string; description: s
     case "changedSince":
       return {
         title: "Not changed",
-        description: `It was changed on the Tablet since the values shown.${refusal.current ? ` It holds ${valuesText(name, refusal.current)}.` : ""}`,
+        description: `It was changed on the Tablet since the values shown.${refusal.current ? ` It holds ${valuesText(name, refusal.current, utcOffsetMinutes)}.` : ""}`,
       };
     case "expired":
       return { title: "Not changed", description: "The Tablet got the edit too late to make it." };
     case "decaid": {
       const said = refusal.status === null ? (refusal.message ?? "Decaid did not answer") : `Decaid refused it (${refusal.status}): ${refusal.message ?? "no reason given"}`;
       const changed = Object.fromEntries(refusal.changed.map((field) => [field, edit.readBack?.[field]]));
-      return { title: "Not changed", description: `${said}.${refusal.changed.length > 0 ? ` Changed before it refused: ${valuesText(name, changed)}.` : ""}` };
+      return { title: "Not changed", description: `${said}.${refusal.changed.length > 0 ? ` Changed before it refused: ${valuesText(name, changed, utcOffsetMinutes)}.` : ""}` };
     }
     default:
       return { title: "Not changed", description: "The Machine refused it." };
