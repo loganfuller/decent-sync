@@ -249,15 +249,20 @@ Two changes to that URL are needed:
 
 - `fly mpg attach` points it at the cluster's pooler,
   `pgbouncer.<cluster id>.flympg.net`. Use the direct host,
-  `direct.<cluster id>.flympg.net`, instead. The server has not yet been tested
-  through the pooler, and it listens for PostgreSQL notifications, which a
-  pooler drops in transaction mode.
+  `direct.<cluster id>.flympg.net`, instead. The server runs through the
+  pooler only in session mode, as it listens for PostgreSQL notifications,
+  which a pooler drops in transaction mode. Session mode is fly.io's documented
+  default, but a cluster has been found in transaction mode; the mode is under
+  View Pooler Settings on the cluster's Connect tab in fly.io's dashboard. Even
+  in session mode, the pooler cannot carry the timeout below, so the direct
+  host is the one to use. The server needs only a few connections per
+  instance, well within the cluster's limit without a pooler.
 - Managed Postgres's databases are owned by `postgres`, so the migration cannot
   set the database's idle-in-transaction timeout (see above), and Managed
   Postgres refuses role settings too. Send the timeout at connection startup
   instead, by adding `options=-c idle_in_transaction_session_timeout=30s` to
-  the URL, which the direct host accepts. Without it the server warns at
-  startup.
+  the URL. The direct host accepts it; the pooler refuses any connection that
+  sends it. Without it the server warns at startup.
 
 fly.io does not show a secret again. Either set the whole URL yourself, with
 the user's password:
@@ -278,9 +283,11 @@ fly ssh console --app my-decent-sync -q -C 'node -e "const u = new URL(process.e
 ```
 
 Save a `fly.toml` like this one, with your app's name, the region nearest the
-database and the image version to run, then deploy one machine. A new version
-must not run beside the old one, and fly.io deploys to several machines one at
-a time, so skip its default second machine:
+database and the image version to run, then deploy one machine. The server can
+run as several instances on one database
+([ADR-0016](docs/adr/0016-instances-share-only-postgresql.md)), but a new
+version must not run beside the old one, and fly.io deploys to several
+machines one at a time, so skip its default second machine:
 
 ```bash
 fly deploy --ha=false
