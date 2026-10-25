@@ -70,18 +70,36 @@ const UNHANDLED: SettingsAnswer = { status: 500, body: "Internal Server Error", 
 const MACHINE_NOT_CONNECTED: SettingsAnswer = { status: 500, body: { error: "DeviceNotConnectedException: machine not connected" } };
 const ACCEPTED: SettingsAnswer = { status: 202, body: null, text: "" };
 
-/** `parseInt` in decaid:lib/src/models/data/utils.dart: a number, cut toward zero, or a string of digits; Decaid fails on anything else. */
-function parseInt(value: unknown): number {
-  if (typeof value === "number") return Math.trunc(value);
-  if (typeof value === "string" && /^[+-]?\d+$/.test(value)) return Number(value);
-  throw new Unhandled();
+/** Dart's `int.parse` of a string: decimal digits, or hexadecimal after `0x`, with a sign and surrounding whitespace allowed; undefined where it fails. */
+function dartInt(text: string): number | undefined {
+  const match = /^([+-]?)(?:0[xX]([0-9a-fA-F]+)|(\d+))$/.exec(text.trim());
+  if (!match) return undefined;
+  const magnitude = match[2] === undefined ? Number(match[3]) : Number.parseInt(match[2], 16);
+  return match[1] === "-" ? -magnitude : magnitude;
 }
 
-/** `parseDouble` in utils.dart: a number, or a string that reads as one; Decaid fails on anything else. */
+/** `parseInt` in decaid:lib/src/models/data/utils.dart: a number, cut toward zero, or a string `int.parse` reads; Decaid fails on anything else. */
+function parseInt(value: unknown): number {
+  if (typeof value === "number") return Math.trunc(value);
+  const parsed = typeof value === "string" ? dartInt(value) : undefined;
+  if (parsed === undefined) throw new Unhandled();
+  return parsed;
+}
+
+/**
+ * `parseDouble` in utils.dart: a number, or a string `double.tryParse` reads
+ * (a decimal, surrounding whitespace allowed), or else `int.parse` does;
+ * Decaid fails on anything else. `NaN` and `Infinity`, which Dart reads too,
+ * fail the register's write in ways not modelled.
+ */
 function parseDouble(value: unknown): number {
   if (typeof value === "number") return value;
-  if (typeof value === "string" && /^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(value)) return Number(value);
-  throw new Unhandled();
+  if (typeof value !== "string") throw new Unhandled();
+  if (/^[+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?$/.test(value.trim())) return Number(value.trim());
+  if (/^[+-]?(NaN|Infinity)$/.test(value.trim())) throw new Error(`Decaid v0.9.0 fails writing ${value} to a register; the simulated tablet does not model it`);
+  const parsed = dartInt(value);
+  if (parsed === undefined) throw new Unhandled();
+  return parsed;
 }
 
 /** A machine route's body as de1handler.dart reads it, JSON and an object, or Decaid's refusal of it. */
@@ -220,7 +238,12 @@ const Q16_MIN = -32768;
 const Q16_MAX_EXCLUSIVE = 32768;
 
 /** A value as Decaid sends it in a calibration packet, and as the machine holds it: in signed Q16.16, rounded (`_encodeQ16_16Signed`). */
-const q16 = (value: number) => Math.round(value * Q16) / Q16;
+const q16 = (value: number) => dartRound(value * Q16) / Q16;
+
+/** Dart's `round`: to the nearest whole number, a half away from zero (JavaScript's `Math.round` takes -0.5 to 0). */
+function dartRound(value: number): number {
+  return Math.sign(value) * Math.round(Math.abs(value));
+}
 
 /**
  * Carries out `PUT /machine/calibration/{target}` as Decaid does: a
@@ -244,7 +267,7 @@ export function writeSensorCalibration(write: MachineWrite & { target: string })
   }
   if (!write.machineConnected) return { answer: MACHINE_NOT_CONNECTED };
   // `De1Calibration.validateForWrite`, in the machine's write queue.
-  if (kind === "ratio" && Math.round(reported * Q16) === 0) {
+  if (kind === "ratio" && dartRound(reported * Q16) === 0) {
     return { answer: { status: 400, body: { error: `Invalid argument (de1ReportedValue): must not encode as zero for flow or pressure: ${dartDouble(reported)}` } } };
   }
   if (!isObject(write.current) || typeof write.current.measuredValue !== "number") throw new Error(`The simulated tablet holds no ${write.target} calibration to correct`);

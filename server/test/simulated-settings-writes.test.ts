@@ -125,6 +125,11 @@ describe("The simulated tablet's settings writes", () => {
     expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ fan: 0 });
     expect((await tablet.callApi("POST", "/machine/settings/advanced", { heaterPh1Flow: 2.25, heaterIdleTemp: 96.55, heaterPh2Timeout: 6.99 })).status).toBe(202);
     expect((await tablet.callApi("GET", "/machine/settings/advanced")).body).toMatchObject({ heaterPh1Flow: 2.2, heaterIdleTemp: 96.5, heaterPh2Timeout: 6.9 });
+    // Numbers sent as text are read as Dart's `int.parse` and `double.tryParse` read them.
+    expect((await tablet.callApi("POST", "/machine/settings", { fan: "0x2a", steamPurgeMode: " 1 " })).status).toBe(202);
+    expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ fan: 42, steamPurgeMode: 1 });
+    expect((await tablet.callApi("POST", "/machine/calibration", { flowMultiplier: " 1.25 " })).status).toBe(202);
+    expect((await tablet.callApi("GET", "/machine/calibration")).body).toEqual({ flowMultiplier: 1.25 });
   });
 
   it("leave the fields before one whose write fails applied, the machine's and Decaid's own", async () => {
@@ -187,6 +192,11 @@ describe("The simulated tablet's settings writes", () => {
     expect((await tablet.callApi("PUT", "/machine/calibration/temperature", { de1ReportedValue: 0, measuredValue: -1.25 })).status).toBe(202);
     expect((await tablet.callApi("PUT", "/machine/calibration/temperature", { de1ReportedValue: 93, measuredValue: 93.5 })).status).toBe(202);
     expect(await held("temperature")).toBe(-0.75);
+    // Each value is sent in Q16.16 rounded as Dart rounds, a half away from zero.
+    const half = 1 / 131072;
+    expect((await tablet.callApi("PUT", "/machine/calibration/temperature", { de1ReportedValue: 0, measuredValue: -half })).status).toBe(202);
+    expect(await held("temperature")).toBe(-0.75 - 2 * half);
+    expect((await tablet.callApi("PUT", "/machine/calibration/flow", { de1ReportedValue: -half, measuredValue: -half })).status).toBe(202);
   });
 
   it("answer a deleted wake schedule's change and deletion 404", async () => {
