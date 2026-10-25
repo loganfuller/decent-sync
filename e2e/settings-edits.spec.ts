@@ -325,22 +325,23 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await expect(form.getByRole("combobox", { name: "Heater voltage" })).toHaveText("-1");
   await form.getByRole("button", { name: "Cancel" }).click();
 
-  // Decaid truncates 1.001 to the thousandth below, so the Machine holds 1.
+  // The test DE1Pro held 1.005 as 1.003: Decaid truncates it to 1004, which the DE1's firmware holds as 1003
+  // (calibration-writes.json).
   const calibration = page.getByRole("region", { name: "Flow calibration", exact: true });
   await calibration.getByRole("button", { name: "Edit Flow calibration" }).click();
   const multiplier = calibration.getByRole("form", { name: "Edit Flow calibration" }).getByLabel("Flow multiplier");
   await expect(multiplier).toHaveValue("1.1");
-  await multiplier.fill("1.001");
+  await multiplier.fill("1.005");
   await calibration.getByRole("button", { name: "Save" }).click();
   await expect(calibration.getByRole("status")).toContainText("Stored otherwise");
-  await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow multiplier: 1.");
-  await expect(calibration.getByRole("definition").first()).toHaveText("1");
+  await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow multiplier: 1.003.");
+  await expect(calibration.getByRole("definition").first()).toHaveText("1.003");
   await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
     /\S/,
     "You",
     "Flow calibration",
-    "Flow multiplier: 1.1 to 1.001",
-    "Stored otherwiseThe Machine holds another value than was asked for: Flow multiplier: 1.",
+    "Flow multiplier: 1.1 to 1.005",
+    "Stored otherwiseThe Machine holds another value than was asked for: Flow multiplier: 1.003.",
   ]);
 });
 
