@@ -413,6 +413,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await loads(machine, savedRecipe);
     const versions = async () => (await api.get<{ versions: { fields: Record_; editedAt: string }[] }>(`/recipes/${savedRecipe}/history`)).versions;
     const gained = (await versions()).find((version) => version.fields.grindSetting === 3.1);
+    expect(gained).toBeDefined();
     expect(gained!.editedAt >= dialledAt).toBe(true);
     await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });

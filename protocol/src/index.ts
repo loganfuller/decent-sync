@@ -387,9 +387,10 @@ export interface WorkflowDelivery {
    * Where the plugin held this change back while the Workflow came to name
    * the recipe it names (DYE2_RECIPE_FIELD), as during a write of its own,
    * when Decaid first reported it naming that recipe, by the tablet's clock,
-   * in UTC, before `observedAt`: the Machine has that Recipe loaded from
-   * then, so a Shot pulled with it meanwhile is pulled with it. The
-   * Workflow's other parts are as observed at `observedAt`.
+   * in UTC, at or before `observedAt` by a clock that does not jump back:
+   * the Machine has that Recipe loaded from then, so a Shot pulled with it
+   * meanwhile is pulled with it. The Workflow's other parts are as observed
+   * at `observedAt`.
    */
   recipeNamedAt?: string;
 }
