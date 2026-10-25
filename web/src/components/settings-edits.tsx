@@ -1,5 +1,6 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
 import { useIsAdmin } from "@/auth";
+import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -28,6 +29,9 @@ import {
 
 /** How often a pending edit is read again, until the Machine answers it. */
 const PENDING_POLL_MS = 1_000;
+
+/** How often an edit not confirmed is read again, as an answer may still arrive late, and may never. */
+const NOT_CONFIRMED_POLL_MS = 5_000;
 
 /**
  * The fields of a section the signed-in account may change, each reported
@@ -244,48 +248,53 @@ function SettingInput({
 
 /**
  * The latest edit of a section: pending, read again until the Machine
- * answers it, then what came of it, shown in place. Once it is answered,
- * whether as it is read again or already as it was made, `onAnswered`
- * reloads the section's values, which come from the latest report, the
- * read-back taken in before the answer.
+ * answers it, then what came of it, shown in place. One not confirmed is
+ * read again, less often, until an answer arriving late replaces the mark.
+ * Once it is answered, whether as it is read again or already as it was
+ * made, `onAnswered` reloads the section's values, which come from the
+ * latest report, the read-back taken in before the answer.
  */
 export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { machineId: string; edit: SettingsEdit; onAnswered(): Promise<void> | void }) {
   const [edit, setEdit] = useState(made);
   const [error, setError] = useState<string>();
-  const pending = edit.outcome === null;
+  const outcome = edit.outcome;
+  const awaiting = outcome === null || outcome === "notConfirmed";
   // The edit is read until answered, whatever the page reloads meanwhile.
   const answered = useRef(onAnswered);
   answered.current = onAnswered;
 
   // An edit the Machine answered before the server read it back for its maker comes answered: its reports are loaded at once.
   useEffect(() => {
-    if (made.outcome !== null) void answered.current();
+    if (made.outcome !== null && made.outcome !== "notConfirmed") void answered.current();
   }, [made]);
 
   useEffect(() => {
-    if (!pending) return;
+    if (!awaiting) return;
     let stopped = false;
-    const timer = setInterval(async () => {
-      try {
-        const { settingsEdit } = await api<{ settingsEdit: SettingsEdit }>("GET", `/machines/${encodeURIComponent(machineId)}/settings-edits/${encodeURIComponent(made.id)}`);
-        if (stopped) return;
-        setError(undefined);
-        if (settingsEdit.outcome === null) return;
-        stopped = true;
-        clearInterval(timer);
-        setEdit(settingsEdit);
-        await answered.current();
-      } catch (caught) {
-        if (!stopped) setError(failure(caught, "The edit could not be read"));
-      }
-    }, PENDING_POLL_MS);
+    const timer = setInterval(
+      async () => {
+        try {
+          const { settingsEdit } = await api<{ settingsEdit: SettingsEdit }>("GET", `/machines/${encodeURIComponent(machineId)}/settings-edits/${encodeURIComponent(made.id)}`);
+          if (stopped) return;
+          setError(undefined);
+          if (settingsEdit.outcome === outcome) return;
+          stopped = true;
+          clearInterval(timer);
+          setEdit(settingsEdit);
+          if (settingsEdit.outcome !== null && settingsEdit.outcome !== "notConfirmed") await answered.current();
+        } catch (caught) {
+          if (!stopped) setError(failure(caught, "The edit could not be read"));
+        }
+      },
+      outcome === null ? PENDING_POLL_MS : NOT_CONFIRMED_POLL_MS,
+    );
     return () => {
       stopped = true;
       clearInterval(timer);
     };
-  }, [pending, machineId, made.id]);
+  }, [awaiting, outcome, machineId, made.id]);
 
-  if (pending) {
+  if (outcome === null) {
     return (
       <Alert role="status">
         <AlertTitle>Pending</AlertTitle>
@@ -296,10 +305,30 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
       </Alert>
     );
   }
+  if (outcome === "notConfirmed") {
+    return (
+      <Alert role="status" variant="destructive">
+        <AlertTitle className="flex items-center gap-1.5">
+          Not confirmed
+          <InfoTip label="About Not confirmed">
+            The Machine didn't answer within a minute, or its connection closed first. Its Tablet never starts the write after that, but
+            one already under way may still finish: an answer arriving later is shown here.
+          </InfoTip>
+        </AlertTitle>
+        <AlertDescription>
+          {valuesText(edit.collection, edit.fields)}. The section shows the values last reported.
+          {error && ` ${error}.`}
+        </AlertDescription>
+      </Alert>
+    );
+  }
   const { title, description } = outcomeText(edit);
   return (
-    <Alert role="status" variant={edit.outcome === "refused" ? "destructive" : "default"}>
-      <AlertTitle>{title}</AlertTitle>
+    <Alert role="status" variant={outcome === "refused" ? "destructive" : "default"}>
+      <AlertTitle className="flex items-center gap-1.5">
+        {edit.late ? `${title}, answered late` : title}
+        {edit.late && <InfoTip label="About answered late">The Machine answered after the edit was marked not confirmed.</InfoTip>}
+      </AlertTitle>
       <AlertDescription>{description}</AlertDescription>
     </Alert>
   );

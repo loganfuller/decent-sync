@@ -1380,9 +1380,19 @@ export interface ItemLeftOut {
 /**
  * How long a Settings Edit has to be answered from when it was made, by
  * PostgreSQL's clock (ADR-0023): the time it has left (`timeLeftMs`) counts
- * down from this.
+ * down from this. One unanswered by then, or whose connection stopped
+ * holding its Machine first, is not confirmed; an answer arriving after
+ * that still counts, marked late, but for an `expired` refusal.
  */
 export const SETTINGS_EDIT_MS = 60_000;
+
+/**
+ * The least time a Settings Edit must have left for the plugin to start its
+ * write, so a write it starts has time to finish within SETTINGS_EDIT_MS:
+ * with less, it refuses the edit as `expired`. A write started in time can
+ * still finish later, as Decaid writes fields one at a time.
+ */
+export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
 
 /**
  * Asks the plugin to carry out a Settings Edit made in the management
@@ -1391,14 +1401,16 @@ export const SETTINGS_EDIT_MS = 60_000;
  * connection that held the Machine as it was made. The plugin carries out
  * Settings Edits one at a time, in the order they arrive, in a queue of
  * their own beside its reads of the settings collections, apart from the
- * Library's writes. For each, it reads the machine's state, and goes ahead
- * only while the machine is idle (SETTINGS_EDIT_STATES); reads the
- * collection, and goes ahead only while each field still holds its
- * `expected` value; checks the fields against their definitions again
- * (`validateSettingsEdit`), writing none without one; writes only the
- * edit's fields; and then, whether Decaid took the write or not, reads the
- * collection again and sends it as a `collection` delivery before its
- * answer, `settingsEdited`.
+ * Library's writes, and keeps none across an unload. For each, it refuses
+ * it as `expired` once the connection that sent it has closed, or where it
+ * would start the write with less than SETTINGS_EDIT_WRITE_MARGIN_MS of
+ * `timeLeftMs` left; reads the machine's state, and goes ahead only while
+ * the machine is idle (SETTINGS_EDIT_STATES); reads the collection, and
+ * goes ahead only while each field still holds its `expected` value; checks
+ * the fields against their definitions again (`validateSettingsEdit`),
+ * writing none without one; writes only the edit's fields; and then,
+ * whether Decaid took the write or not, reads the collection again and
+ * sends it as a `collection` delivery before its answer, `settingsEdited`.
  */
 export interface SettingsEdit {
   type: "settingsEdit";
@@ -1414,7 +1426,11 @@ export interface SettingsEdit {
    * each, compared as `sameValue` does.
    */
   expected: Record<string, unknown>;
-  /** How long it has left, in ms, of SETTINGS_EDIT_MS since it was made, as the server sent it. */
+  /**
+   * How long it has left, in ms, of SETTINGS_EDIT_MS since it was made, as
+   * the server sent it: the plugin counts it down from when it arrives, by
+   * its own clock.
+   */
   timeLeftMs: number;
 }
 
@@ -1433,7 +1449,10 @@ export const SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWate
  * - `machineBusy`: the machine was running something, named by its state;
  * - `changedSince`: a field it sets no longer held its expected value, as
  *   one changed on the tablet since the report the edit was made over;
- * - `expired`: the plugin got it too late to write it in time;
+ * - `expired`: the plugin got it too late to write it in time: its
+ *   connection closed, or it had less than SETTINGS_EDIT_WRITE_MARGIN_MS
+ *   left. Nothing was written. Answered after the edit was marked not
+ *   confirmed, it leaves that mark;
  * - `decaid`: Decaid refused a read or the write, or did not answer, or was
  *   not asked, as for a collection or field this plugin does not write.
  */

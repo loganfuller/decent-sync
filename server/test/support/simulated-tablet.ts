@@ -32,8 +32,8 @@ import { opened } from "./test-scope.js";
 //   failing as Decaid's 10 MiB response limit fails it once the list passes
 //   `steamIdsLimitBytes`, and `GET /steams/latest` answers the newest of them
 //   without measurements, or `null`; `holdSteamReads` holds either,
-//   `holdWorkflowReads` reads of the Workflow, and `holdShotReads` reads
-//   of each Shot. The
+//   `holdWorkflowReads` reads of the Workflow, `holdShotReads` reads
+//   of each Shot, and `holdRequests` any request to a route. The
 //   library's lists leave out archived and hidden records unless asked for
 //   them, the bean batches leaving out those of archived beans too, and send
 //   an ETag, answering 304 to it in If-None-Match. A key of
@@ -681,6 +681,12 @@ type TransportEvent = Record<string, unknown> & { type: string };
 /** The reads of Steam Records a test can hold: of every id, and of the newest. */
 export type HeldSteamRead = "/steams/ids" | "/steams/latest";
 
+/** Requests to one route held by `holdRequests`: how many have arrived so far, and their release. */
+export interface HeldRequests {
+  readonly arrived: number;
+  release(): void;
+}
+
 interface TransportRecord {
   handle: string;
   socket: WebSocket | LocalSocket;
@@ -761,6 +767,8 @@ export class SimulatedTablet {
   private workflowReadsHeld: Promise<void> | undefined;
   /** The reads of each Shot held, as they are requested, until the promise settles. */
   private shotReadsHeld: Promise<void> | undefined;
+  /** Requests held by `holdRequests`, by their method and route, until released. */
+  private readonly requestsHeld = new Map<string, { held: Promise<void>; arrived: number }>();
   /** Every frame the plugin sent, parsed, in order. */
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
@@ -1023,6 +1031,32 @@ export class SimulatedTablet {
     return () => {
       if (this.shotReadsHeld === held) this.shotReadsHeld = undefined;
       release();
+    };
+  }
+
+  /**
+   * Holds the plugin's requests with this method to this route (without its
+   * query) until released, as a slow Decaid does, such as one writing a
+   * machine's settings one register at a time: each is taken, a write
+   * carried out, and answered from what Decaid holds then, only once
+   * released. A request still held when Decaid's fetch times out, 30 s from
+   * when it was made by the tablet's clock, fails as that fetch does.
+   * Holding a route again holds the requests made after, while those held
+   * before wait for their own release.
+   */
+  holdRequests(method: string, route: string): HeldRequests {
+    let release!: () => void;
+    const hold = { held: new Promise<void>((resolve) => (release = resolve)), arrived: 0 };
+    const key = `${method} ${route}`;
+    this.requestsHeld.set(key, hold);
+    return {
+      get arrived() {
+        return hold.arrived;
+      },
+      release: () => {
+        if (this.requestsHeld.get(key) === hold) this.requestsHeld.delete(key);
+        release();
+      },
     };
   }
 
@@ -1453,9 +1487,21 @@ export class SimulatedTablet {
     // Answered or not, a request failing is not seen before its delay is over.
     arrived?.catch(() => {});
     const { method = "GET" } = (init ?? {}) as { method?: string };
-    const delayMs = this.apiDelayMs(method.toUpperCase(), String(input).slice(`${API_ORIGIN}/api/v1`.length));
+    const path = String(input).slice(`${API_ORIGIN}/api/v1`.length);
+    const delayMs = this.apiDelayMs(method.toUpperCase(), path);
+    const hold = this.requestsHeld.get(`${method.toUpperCase()} ${path.split("?")[0]}`);
+    if (hold) hold.arrived++;
     await new Promise<void>((resolve) => this.setTimer(resolve, Math.min(delayMs, FETCH_TIMEOUT_MS)));
     if (delayMs >= FETCH_TIMEOUT_MS) throw new Error("Fetch timed out");
+    if (hold) {
+      let timer = 0;
+      const timedOut = await Promise.race([
+        hold.held.then(() => false),
+        new Promise<boolean>((resolve) => (timer = this.setTimer(() => resolve(true), FETCH_TIMEOUT_MS - delayMs))),
+      ]);
+      this.clearTimer(timer);
+      if (timedOut) throw new Error("Fetch timed out");
+    }
     return arrived ?? this.request(input, init);
   }
 

@@ -781,8 +781,13 @@ model SettingsEdit {
   madeAt        DateTime             @default(dbgenerated("transaction_timestamp()")) @map("made_at") @db.Timestamptz(3)
   sentAt        DateTime?            @map("sent_at") @db.Timestamptz(3)
   answeredAt    DateTime?            @map("answered_at") @db.Timestamptz(3)
-  /// Null until answered.
+  /// Null until answered. While it is, the edit is not confirmed once
+  /// SETTINGS_EDIT_MS have passed since it was made, or its connection no
+  /// longer holds the Machine online (settings-edits.service.ts).
   outcome       SettingsEditOutcome?
+  /// Whether its answer came after it was marked not confirmed. A late
+  /// EXPIRED refusal leaves it not confirmed.
+  late          Boolean              @default(false)
   refusal       SettingsEditRefusal?
   /// For MACHINE_BUSY: the machine's state, as Decaid named it.
   machineState  String?              @map("machine_state")

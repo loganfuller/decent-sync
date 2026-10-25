@@ -20,7 +20,7 @@ import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type NewSettingsEdit, settingsEditNotFound } from "./input.js";
-import { type HeldOtherwise, decideOutcome, heldOtherwise } from "./outcome.js";
+import { type DecidedOutcome, type HeldOtherwise, decideOutcome, heldOtherwise } from "./outcome.js";
 
 /** Why a Settings Edit was refused, as the REST API gives it, with what the plugin said of it. */
 export type SettingsEditRefusalView =
@@ -44,8 +44,15 @@ export interface SettingsEditView {
   madeAt: string;
   sentAt: string | null;
   answeredAt: string | null;
-  /** What came of it; null while it awaits its answer. */
-  outcome: "applied" | "adjusted" | "refused" | null;
+  /**
+   * What came of it; null while it awaits its answer. `notConfirmed` once
+   * it is no longer awaited (`SettingsEditsService.get`), until an answer
+   * arriving after that replaces it, but for an `expired` refusal, which
+   * leaves it not confirmed.
+   */
+  outcome: "applied" | "adjusted" | "refused" | "notConfirmed" | null;
+  /** Whether its outcome came from an answer that arrived after it was marked not confirmed. */
+  late: boolean;
   /** For `adjusted`: each field the Machine stored otherwise, with what it holds. */
   adjusted: HeldOtherwise[];
   refusal: SettingsEditRefusalView | null;
@@ -81,6 +88,15 @@ type StoredEdit = Prisma.SettingsEditGetPayload<{ include: typeof withAccount }>
  * (`claim`); a later connection, even from the same tablet, sends nothing
  * made for an earlier one. The plugin's answer is recorded by whichever
  * instance it reaches (`recordAnswer`).
+ *
+ * An edit is never queued (ADR-0023). One unanswered SETTINGS_EDIT_MS after
+ * it was made, by PostgreSQL's clock, or whose connection no longer holds
+ * its Machine online first, is not confirmed: its connection closed, was
+ * replaced, or went unheard, as its instance crashed (`noLongerAwaited`).
+ * Nothing needs to mark it so: every instance judges it the same way from
+ * the database whenever it is read. An answer arriving after that still
+ * counts, marked late, but for an `expired` refusal, which leaves the edit
+ * not confirmed.
  *
  * An Admin edits any field of any Machine with an entry, at any Location or
  * none, sharing or not, as Settings Edits are no Library writes. Staff edit
@@ -147,16 +163,47 @@ export class SettingsEditsService {
   async get(machineId: string, id: string, scope: Scope): Promise<SettingsEditView> {
     const edit = await this.prisma.settingsEdit.findFirst({ where: { id, machineId }, include: withAccount });
     if (!edit) throw settingsEditNotFound();
-    return view(edit, scope);
+    return view(edit, scope, edit.answeredAt === null && (await this.notConfirmed([edit.id])).has(edit.id));
+  }
+
+  /** Those of these edits still unanswered that are no longer awaited, so not confirmed, by PostgreSQL's clock. */
+  private async notConfirmed(ids: string[]): Promise<Set<string>> {
+    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
+      SELECT id FROM settings_edits
+      WHERE id = ANY(${ids}::uuid[]) AND answered_at IS NULL AND ${this.noLongerAwaited()}`;
+    return new Set(rows.map((row) => row.id));
+  }
+
+  /**
+   * Whether a row of `settings_edits` is no longer awaited, as SQL: made
+   * SETTINGS_EDIT_MS ago or longer, or its connection does not hold its
+   * Machine online, as the Machine's status judges it: it was released or
+   * replaced, or has gone unheard for MISSED_HEARTBEATS intervals, as when
+   * its instance crashed. A session never holds its Machine again once it
+   * has stopped, and one gone unheard is closed by its instance, so this
+   * turns false again only where a heartbeat lands just as its instance
+   * closes it for going unheard, and the edit then reads as pending again.
+   */
+  private noLongerAwaited(): Prisma.Sql {
+    const onlineSinceMs = this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
+    return Prisma.sql`(
+      settings_edits.made_at <= now() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
+      OR NOT EXISTS (
+        SELECT 1 FROM machines
+        WHERE machines.id = settings_edits.machine_id AND machines.connected_session_id = settings_edits.session_id
+          AND machines.last_seen_at >= now() - ${onlineSinceMs}::integer * interval '1 millisecond'
+      )
+    )`;
   }
 
   /**
    * The edits made for a connection that it has not sent yet, oldest first,
    * claimed by setting when they were sent, while the connection still holds
    * its Machine, judged under the Machine's row lock; none once it does not.
-   * Each carries the time it has left, by PostgreSQL's clock. A claim whose
-   * transaction began before an edit's, waiting for the lock, sends it as it
-   * was made, not before.
+   * Each carries the time it has left, by PostgreSQL's clock; one with none
+   * left is not sent, as it is not confirmed. A claim whose transaction
+   * began before an edit's, waiting for the lock, sends it as it was made,
+   * not before.
    */
   async claim(connection: { sessionId: string; machineId: string }): Promise<SettingsEdit[]> {
     return this.prisma.$transaction(async (tx) => {
@@ -167,6 +214,7 @@ export class SettingsEditsService {
         WITH claimed AS (
           UPDATE settings_edits SET sent_at = GREATEST(now(), made_at)
           WHERE session_id = ${connection.sessionId}::uuid AND machine_id = ${connection.machineId}::uuid AND sent_at IS NULL
+            AND made_at > now() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
           RETURNING id, collection, fields, expected, made_at, sent_at
         )
         SELECT id, collection, fields, expected,
@@ -178,11 +226,12 @@ export class SettingsEditsService {
 
   /**
    * Records the plugin's answer to one of the Machine's edits, through
-   * whichever connection and instance it reached, and says what came of it;
-   * null for an edit of another Machine, or none, or one already answered.
-   * Only the values of the edit's own fields are kept.
+   * whichever connection and instance it reached, and says what came of it,
+   * and whether it came late, after the edit was no longer awaited; null for
+   * an edit of another Machine, or none, or one already answered. Only the
+   * values of the edit's own fields are kept.
    */
-  async recordAnswer(machineId: string, answer: SettingsEdited): Promise<SettingsEditView["outcome"] | null> {
+  async recordAnswer(machineId: string, answer: SettingsEdited): Promise<{ outcome: DecidedOutcome["outcome"]; late: boolean } | null> {
     const edit = await this.prisma.settingsEdit.findFirst({
       where: { id: answer.id.toLowerCase(), machineId, answeredAt: null },
       select: { id: true, collection: true, fields: true, expected: true },
@@ -193,25 +242,30 @@ export class SettingsEditsService {
     const values = answer.values === undefined ? null : Object.fromEntries(Object.keys(sent.fields).filter((field) => field in answer.values!).map((field) => [field, answer.values![field]]));
     const refusal = decided.outcome === "refused" ? REFUSALS[decided.reason] : null;
     const decaid = decided.outcome === "refused" && decided.reason === "decaid";
-    const updated = await this.prisma.$executeRaw`
+    const [updated] = await this.prisma.$queryRaw<[{ late: boolean }?]>`
       UPDATE settings_edits SET
         answered_at = now(),
+        late = ${this.noLongerAwaited()},
         outcome = ${OUTCOMES[decided.outcome]}::settings_edit_outcome,
         refusal = ${refusal}::settings_edit_refusal,
         machine_state = ${answer.reason === "machineBusy" ? (answer.state ?? null) : null},
         decaid_status = ${decaid ? (answer.status ?? null) : null}::integer,
         decaid_message = ${decaid ? (answer.message ?? null) : null},
         read_back = ${values === null ? null : JSON.stringify(values)}::jsonb
-      WHERE id = ${edit.id}::uuid AND answered_at IS NULL`;
-    return updated > 0 ? decided.outcome : null;
+      WHERE id = ${edit.id}::uuid AND answered_at IS NULL
+      RETURNING late`;
+    return updated ? { outcome: decided.outcome, late: updated.late } : null;
   }
 }
 
-function view(edit: StoredEdit, scope: Scope): SettingsEditView {
+/** The edit as the REST API gives it; `notConfirmed` says whether, still unanswered, it is no longer awaited. */
+function view(edit: StoredEdit, scope: Scope, notConfirmed: boolean): SettingsEditView {
   const fields = asRecord(edit.fields);
   const expected = asRecord(edit.expected);
   const readBack = edit.readBack === null ? null : asRecord(edit.readBack);
-  const outcome = edit.outcome === null ? null : OUTCOME_VIEWS[edit.outcome];
+  // A refusal as too late, arriving once the edit was no longer awaited, leaves it not confirmed.
+  const stillNotConfirmed = notConfirmed || (edit.late && edit.refusal === SettingsEditRefusal.EXPIRED);
+  const outcome = stillNotConfirmed ? "notConfirmed" : edit.outcome === null ? null : OUTCOME_VIEWS[edit.outcome];
   return {
     id: edit.id,
     machineId: edit.machineId,
@@ -224,8 +278,9 @@ function view(edit: StoredEdit, scope: Scope): SettingsEditView {
     sentAt: edit.sentAt?.toISOString() ?? null,
     answeredAt: edit.answeredAt?.toISOString() ?? null,
     outcome,
+    late: edit.late && !stillNotConfirmed,
     adjusted: outcome === "adjusted" ? heldOtherwise({ collection: edit.collection, fields }, readBack) : [],
-    refusal: refusalView(edit, { collection: edit.collection, fields, expected }, readBack),
+    refusal: outcome === "refused" ? refusalView(edit, { collection: edit.collection, fields, expected }, readBack) : null,
     readBack,
   };
 }
