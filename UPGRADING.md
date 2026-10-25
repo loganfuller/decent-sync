@@ -11,6 +11,8 @@ section).
 
 ## Unreleased
 
+## 1.1.0
+
 ### Update DYE2 and Streamline on every tablet
 
 This release follows DYE2 v0.1.26
