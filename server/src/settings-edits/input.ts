@@ -63,7 +63,10 @@ function readSchedule(value: unknown, expected: Record<string, unknown>): WakeSc
   }
   const id = schedule.id;
   if (typeof id !== "string" || id === "" || id.length > MAX_RECORD_ID_LENGTH) throw new BadRequestException(["Name the wake schedule by its id"]);
-  if (expected.id !== id) throw new BadRequestException(["Give the wake schedule as shown, its id included, as the value expected"]);
+  // Decaid always reports a schedule's id, time, days and whether it is on; its keep-awake time only where it has one.
+  if (expected.id !== id || !["time", "daysOfWeek", "enabled"].every((field) => field in expected)) {
+    throw new BadRequestException(["Give the wake schedule as shown, its id included, as the value expected"]);
+  }
   return { action: action as "change" | "delete", id };
 }
 

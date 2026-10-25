@@ -177,9 +177,10 @@ describe("Settings Edits of the presence settings and wake schedules", () => {
     const { keepAwakeFor: _, ...withoutKeepAwake } = WEEKDAY_MORNINGS;
     await refused({ schedule: { action: "add" }, fields: withoutKeepAwake, expected: {} }, /Give a new wake schedule its time/);
     await refused({ schedule: { action: "add", id: "a" }, fields: WEEKDAY_MORNINGS, expected: {} }, /no id until the Tablet gives it one/);
-    await refused({ schedule: { action: "change", id: "a" }, fields: { enabled: false }, expected: { id: "b" } }, /its id included/);
+    await refused({ schedule: { action: "change", id: "a" }, fields: { enabled: false }, expected: { ...WEEKDAY_MORNINGS, id: "b" } }, /its id included/);
+    await refused({ schedule: { action: "delete", id: "a" }, fields: {}, expected: { id: "a" } }, /its id included/);
     await refused({ schedule: { action: "move", id: "a" }, fields: {}, expected: { id: "a" } }, /added, changed or deleted/);
-    await refused({ schedule: { action: "change", id: "a" }, fields: { daysOfWeek: [5, 1] }, expected: { id: "a" } }, /Days must be days of the week/);
+    await refused({ schedule: { action: "change", id: "a" }, fields: { daysOfWeek: [5, 1] }, expected: { ...WEEKDAY_MORNINGS, id: "a" } }, /Days must be days of the week/);
     await refused({ fields: { sleepTimeoutMinutes: 121 }, expected: { sleepTimeoutMinutes: 30 } }, /Sleep timeout must be from 1 to 120/);
     await refused({ fields: { schedules: [] }, expected: { schedules: [] } }, /added, changed and deleted one at a time/);
     expect(writes(tablet)).toEqual([]);
