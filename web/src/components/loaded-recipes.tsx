@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -56,13 +57,12 @@ export function LoadedRecipeCard({ machine }: { machine: Machine }) {
   return (
     <Card role="region" aria-label="Loaded Recipe">
       <CardHeader>
-        <CardTitle>
-          <h2>Loaded Recipe</h2>
-        </CardTitle>
-        <CardDescription>
-          The Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is saved
-          into. Changing the profile there, or applying a favourite, unloads it.
-        </CardDescription>
+        <CardTitleWithInfo title="Loaded Recipe">
+          <p>
+            The Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is saved into.
+            Changing the profile there, or applying a favourite, unloads it.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
         {current ? (

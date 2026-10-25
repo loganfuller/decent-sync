@@ -12,6 +12,7 @@
 import type { Chunk } from "./chunking.js";
 
 export * from "./chunking.js";
+export * from "./settings-fields.js";
 
 /** The protocol version this build of the plugin and server speaks. */
 export const PROTOCOL_VERSION = 1;
@@ -418,7 +419,9 @@ export interface MachineStateDelivery {
  * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys
  *   (`DYE2_LISTS`): its recipes, tools and baskets, taken into the Library
  *   and written to (ADR-0005);
- * - `appSettings`, `machineSettings` and `advancedSettings`;
+ * - `appSettings`, `machineSettings` and `advancedSettings`, whose fields,
+ *   with those of the two calibrations, are defined in settings-fields.ts
+ *   (`SETTINGS_FIELDS`);
  * - `machineCalibration`, the machine's flow calibration;
  * - `sensorCalibration`, the firmware's current flow, pressure and temperature
  *   sensor calibration;
