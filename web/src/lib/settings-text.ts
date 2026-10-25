@@ -42,6 +42,16 @@ export function valueText(value: unknown): string {
   return String(value);
 }
 
+/**
+ * A settings collection's fields by their paths, as its report holds them.
+ * `sensorCalibration` holds each target's current read, whose
+ * `measuredValue` is its calibration (rest_v1.yml).
+ */
+export function reportedFields(name: string, value: Record<string, unknown>): Record<string, unknown> {
+  if (name !== "sensorCalibration") return value;
+  return Object.fromEntries(Object.entries(value).map(([target, read]) => [target, isObject(read) && "measuredValue" in read ? read.measuredValue : read]));
+}
+
 export function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }

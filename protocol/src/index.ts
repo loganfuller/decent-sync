@@ -1411,6 +1411,10 @@ export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
  * writing none without one; writes only the edit's fields; and then,
  * whether Decaid took the write or not, reads the collection again and
  * sends it as a `collection` delivery before its answer, `settingsEdited`.
+ * A `sensorCalibration` edit sets one sensor target's current value, read
+ * and set by target: it reads that target for the check, sets it from that
+ * read's value (an absolute set, as Streamline's), and reads it again after,
+ * sending the collection with it and the other targets as last read.
  */
 export interface SettingsEdit {
   type: "settingsEdit";
@@ -1418,7 +1422,7 @@ export interface SettingsEdit {
   id: string;
   /** The settings collection it changes, one of EDITABLE_SETTINGS_COLLECTIONS. A plugin answers one it does not write as refused by `decaid`, with a null status. */
   collection: string;
-  /** Each field it sets, by its path in the collection, with its new value. */
+  /** Each field it sets, by its path in the collection, with its new value; for `sensorCalibration`, its one target with its `measuredValue`. */
   fields: Record<string, unknown>;
   /**
    * The value each of `fields` held in the report the edit was made over, as

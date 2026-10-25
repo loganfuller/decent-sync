@@ -10,9 +10,10 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 // disabled while the Machine is offline, and an edit shown as pending, then
 // applied or refused, or not confirmed until a late answer replaces the mark
 // (#225), and the Settings Edits card listing each edit, for an Admin and
-// for Staff (#226), and the Advanced and Flow calibration sections' forms,
-// an Admin's only (#227). A simulated tablet running the built plugin takes the writes as
-// Decaid v0.9.0 does; hardware ids are made up.
+// for Staff (#226), the Advanced and Flow calibration sections' forms, an
+// Admin's only (#227), and each sensor's calibration set behind a warning,
+// an Admin's only too (#228). A simulated tablet running the built plugin
+// takes the writes as Decaid v0.9.0 does; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
 const expect = baseExpect.configure({ timeout: 15_000 });
@@ -350,7 +351,63 @@ test("Staff at the Machine's Location have no Edit for its advanced settings or 
     const calibration = kimsPage.getByRole("region", { name: "Flow calibration", exact: true });
     await expect(calibration.getByText("Flow multiplier")).toBeVisible();
     await expect(calibration.getByRole("button", { name: "Edit Flow calibration" })).toHaveCount(0);
+    const sensors = kimsPage.getByRole("region", { name: "Sensor calibration", exact: true });
+    await expect(sensors.getByText("Flow sensor multiplier")).toBeVisible();
+    await expect(sensors.getByRole("button", { name: /^Edit/ })).toHaveCount(0);
   });
+});
+
+test("an Admin sets a sensor's calibration from its own Edit button, past a warning, shown applied in place and in the Settings Edits card", async ({ page }) => {
+  const bench = await createLocation(page, "Sensor bench");
+  const { machine, token } = await createMachine(page, "Sensor bench bar", bench.id);
+  const tablet = await tabletOf(token, "22801");
+  // Read after the machine's settings, on the same full read.
+  await expect
+    .poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/sensorCalibration`)).json()) as { collection: { available: boolean } | null }).collection?.available)
+    .toBe(true);
+  await page.goto(`/machines/${machine.id}`);
+
+  const sensors = page.getByRole("region", { name: "Sensor calibration", exact: true });
+  await expect(sensors.getByRole("term")).toHaveText(["Flow sensor multiplier", "Pressure sensor multiplier", "Temperature sensor offset"]);
+  // One Edit for each sensor, set one at a time, and none for the section.
+  await expect(sensors.getByRole("button", { name: /^Edit / })).toHaveCount(3);
+  await expect(sensors.getByRole("button", { name: "Edit Sensor calibration" })).toHaveCount(0);
+  await sensors.getByRole("button", { name: "Edit Pressure sensor multiplier" }).click();
+  const form = sensors.getByRole("form", { name: "Edit Pressure sensor multiplier" });
+  // The machine holds it in Q16.16, a value off the field's step, so the form opens on it as it is.
+  const pressure = form.getByLabel("Pressure sensor multiplier");
+  await expect(pressure).toHaveValue("1.0234375");
+  await expect(form.getByLabel("Sensor calibration, read-only").getByRole("term")).toHaveText(["Flow sensor multiplier", "Temperature sensor offset"]);
+  await pressure.fill("1.02");
+
+  // The warning comes first, and going back makes no edit.
+  await form.getByRole("button", { name: "Save" }).click();
+  const warning = page.getByRole("alertdialog", { name: "Sensor calibration" });
+  await expect(warning).toContainText("Pressure sensor multiplier: 1.02. Bad calibration settings might make the Machine unusable.");
+  await warning.getByRole("button", { name: "Cancel" }).click();
+  await expect(warning).toBeHidden();
+  await expect(form).toBeVisible();
+  baseExpect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual([]);
+  await form.getByRole("button", { name: "Save" }).click();
+  await warning.getByRole("button", { name: "Go ahead" }).click();
+
+  const status = sensors.getByRole("status");
+  await expect(status).toContainText("Applied");
+  await expect(status).toContainText("Pressure sensor multiplier: 1.02.");
+  await expect(sensors.getByRole("definition").nth(1)).toHaveText("1.02");
+  baseExpect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual(["PUT /machine/calibration/pressure"]);
+  // The machine holds the Q16.16 value nearest 1.02, 1.0199966430664062, which the form opens on the step.
+  await sensors.getByRole("button", { name: "Edit Pressure sensor multiplier" }).click();
+  await expect(form.getByLabel("Pressure sensor multiplier")).toHaveValue("1.02");
+  await form.getByRole("button", { name: "Cancel" }).click();
+
+  await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
+    /\S/,
+    "You",
+    "Sensor calibration",
+    "Pressure sensor multiplier: 1.02344 to 1.02",
+    "Applied",
+  ]);
 });
 
 /** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */

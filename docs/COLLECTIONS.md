@@ -131,13 +131,17 @@ change made on the Tablet later stands. Ticket
 [#227](https://github.com/loganfuller/decent-sync/issues/227) the
 `advancedSettings` (the heater's flows, idle temperature, test time-out and
 voltage, and the refill kit) and the `machineCalibration` (the flow
-multiplier), all an Admin's: the collections in
-`EDITABLE_SETTINGS_COLLECTIONS` so far.
+multiplier), all an Admin's, and
+[#228](https://github.com/loganfuller/decent-sync/issues/228) sets a
+sensor's calibration (`sensorCalibration`), an Admin's too: the collections
+in `EDITABLE_SETTINGS_COLLECTIONS` so far.
 
 - **Made through REST.** `POST /api/machines/:id/settings-edits` takes `{
   collection, fields, expected }`: each field it sets with its new value, and
   `expected`, each of those fields' raw value in the report the page showed,
-  as the API sent it, never the rounded value the card displays. It is
+  as the API sent it, never the rounded value the card displays. An edit of
+  `sensorCalibration` sets one target, such as `{ "pressure": 1.02 }`,
+  expecting its current read's `measuredValue`. It is
   refused at once, with nothing kept: 400 where `validateSettingsEdit`
   refuses a field (but for an Admin's field), where `expected` does not name
   exactly the fields set, or for a collection not edited yet; 403 for an
@@ -213,6 +217,23 @@ multiplier), all an Admin's: the collections in
      after the answer rather than replacing it, so the answer never overtakes
      the read-back it reports.
   A Shot started between the state's read and the write is an accepted gap.
+  A sensor's calibration is read and set by target instead, as
+  `PUT /machine/calibration/{target}` is a correction of the value the
+  sensor holds, not a set: the machine multiplies a ratio by
+  `measuredValue / de1ReportedValue` and adds their difference to an
+  offset. The plugin reads the one target, checks its current value C, the
+  read's `measuredValue`, against `expected` (3), then writes
+  `{ de1ReportedValue: C, measuredValue: X }` for the value X asked for,
+  which lands on X, as Streamline's `absoluteSetCorrection` does
+  (`streamline-js:src/modules/sensor-cal.js`; `absoluteSet` in
+  `plugin/src/sensor-calibration.ts`, with module tests). It refuses a
+  `flow` or `pressure` target whose C encodes as 0 in Q16.16 by `decaid`,
+  with a null status and nothing written, as Decaid would refuse to divide
+  by it (`De1Calibration`). Each read of the target is reported within the
+  collection, beside the other two targets as last read, or with all three
+  read again where the last read of the collection was unavailable, as a
+  partial set is never sent (5). The machine holds the value nearest X in
+  Q16.16, within half the field's step, so the edit reads as `applied`.
 - **Not confirmed.** An edit still unanswered is `notConfirmed` once 60 s
   have passed since it was made, or once its connection no longer holds the
   Machine: it closed and was released, or a newer connection replaced it, as
@@ -246,7 +267,12 @@ multiplier), all an Admin's: the collections in
   is offline, or its Tablet reports another machine's hardware, Edit is
   disabled with the reason. A number reported with the noise of Decaid's
   register scaling, such as a heater flow of 2.3000000000000003, opens in its
-  input on the field's step. Saving sends only the fields
+  input on the field's step, as does a sensor calibration within half a
+  step of Q16.16 of it, such as 1.0199966430664062 for 1.02. Each sensor's
+  calibration has an Edit button of its own, which opens a form for that
+  target alone, and saving it first asks, in an `AlertDialog`, to go ahead
+  past a warning modelled on Streamline's: bad calibration settings might
+  make the Machine unusable. Saving sends only the fields
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
   made on the Tablet meanwhile refuses the edit as changed since, and a field
@@ -266,7 +292,8 @@ multiplier), all an Admin's: the collections in
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL,
 `server/test/advanced-settings-edits.test.ts` the advanced settings and the
-flow multiplier, and
+flow multiplier, `server/test/sensor-calibration-edits.test.ts` the sensor
+calibration, and
 `server/test/settings-edit-deadline.test.ts` the 60 s limit, edits not
 confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
 instance, with Decaid slowed by `holdRequests`;

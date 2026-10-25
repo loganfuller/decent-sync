@@ -170,7 +170,7 @@ var __decentSync = (() => {
   function isSettingsCollectionName(name) {
     return SETTINGS_COLLECTION_NAMES.includes(name);
   }
-  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration"];
+  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration"];
   function isEditableSettingsCollection(name) {
     return EDITABLE_SETTINGS_COLLECTIONS.includes(name);
   }
@@ -1462,17 +1462,17 @@ var __decentSync = (() => {
      * that Workflow too, but where the writes set the profile themselves.
      */
     wrote() {
-      const { reported, answered, before, written: written2 } = this.duringWrite;
-      if (!reported && answered !== void 0) this.latest = answered;
+      const { reported, answered: answered2, before, written: written2 } = this.duringWrite;
+      if (!reported && answered2 !== void 0) this.latest = answered2;
       const latest = this.latest;
-      const after = latest !== void 0 && answered !== void 0 && !sameValue(latest, answered);
+      const after = latest !== void 0 && answered2 !== void 0 && !sameValue(latest, answered2);
       const around = latest !== void 0 && before !== void 0 && changedBesides(before, latest, written2);
-      this.decide(written2.has("profile") ? answered ?? before : before, reported && after || around);
+      this.decide(written2.has("profile") ? answered2 ?? before : before, reported && after || around);
     }
     async beforePost(before, after) {
       const vacated = new Set(vacatedIds(before, after));
       if (vacated.size === 0) return;
-      await this.ownWrite(async (answered) => {
+      await this.ownWrite(async (answered2) => {
         const workflow = await workflowNow();
         const named = dye2RecipeIdOf(workflow);
         if (named === null || !vacated.has(named)) return;
@@ -1480,7 +1480,7 @@ var __decentSync = (() => {
         const answer = await request("PUT", "/workflow", body);
         const updated = answer.ok ? parsed3(answer.text) : void 0;
         if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
-        answered(updated, body);
+        answered2(updated, body);
         this.workflowWritten(workflow, updated);
       });
     }
@@ -1658,7 +1658,7 @@ var __decentSync = (() => {
         if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
         return;
       }
-      const record = await this.ownWrite(async (answered) => {
+      const record = await this.ownWrite(async (answered2) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const recipe = recordId === null ? void 0 : this.records?.get(recordId);
@@ -1666,10 +1666,10 @@ var __decentSync = (() => {
         const context = await this.loadContext(recipe.record);
         let write = loadWrite(workflow, recipe.record, context);
         if (write === null) return recipe.record;
-        let answer = await putNamingRecipe(workflow, write, recordId, answered);
+        let answer = await putNamingRecipe(workflow, write, recordId, answered2);
         if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in write) && machineMissing(answer)) {
           write = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
-          answer = write === null ? void 0 : await putNamingRecipe(workflow, write, recordId, answered);
+          answer = write === null ? void 0 : await putNamingRecipe(workflow, write, recordId, answered2);
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
         const after = answer ? parsed3(answer.text) : void 0;
@@ -1709,11 +1709,11 @@ var __decentSync = (() => {
       return { profile: isObject4(stored) ? steps(stored.profile) : null };
     }
   };
-  async function putNamingRecipe(workflow, write, recordId, answered) {
+  async function putNamingRecipe(workflow, write, recordId, answered2) {
     const put = async (body) => {
       const answer2 = await request("PUT", "/workflow", body);
       const updated = answer2.ok ? parsed3(answer2.text) : void 0;
-      if (isObject4(updated)) answered(updated, body);
+      if (isObject4(updated)) answered2(updated, body);
       return answer2;
     };
     if (!changesProfile(workflow, write)) return put(write);
@@ -2047,8 +2047,8 @@ var __decentSync = (() => {
       }
       return this.afterShot(
         again,
-        () => this.loaded.ownWrite(async (answered) => {
-          const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered }));
+        () => this.loaded.ownWrite(async (answered2) => {
+          const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered: answered2 }));
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
         })
@@ -2603,6 +2603,20 @@ var __decentSync = (() => {
     return Object.fromEntries(Object.entries(fields).filter(([, value]) => value !== null));
   }
 
+  // src/sensor-calibration.ts
+  var SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"];
+  var KINDS = { flow: "ratio", pressure: "ratio", temperature: "offset" };
+  var Q16 = 65536;
+  function absoluteSet(target, current, wanted) {
+    const kind = KINDS[target];
+    if (kind === void 0) return { refused: `The machine has no ${target} sensor to calibrate` };
+    if (typeof current !== "number" || !Number.isFinite(current)) return { refused: `Decaid's answer holds no current calibration of the ${target} sensor` };
+    if (kind === "ratio" && Math.round(Math.abs(current) * Q16) === 0) {
+      return { refused: `The ${target} sensor's calibration is 0, which Decaid can't correct from` };
+    }
+    return { body: { de1ReportedValue: current, measuredValue: wanted } };
+  }
+
   // src/collections.ts
   var SOURCES = [
     ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
@@ -2637,6 +2651,8 @@ var __decentSync = (() => {
       __publicField(this, "firstReads", /* @__PURE__ */ new Map());
       /** For each collection, the latest delivery queued, and the latest queued with a value. */
       __publicField(this, "queued", /* @__PURE__ */ new Map());
+      /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
+      __publicField(this, "sensorCalibration");
       __publicField(this, "wanted");
       /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
       __publicField(this, "recipesWanted", false);
@@ -2770,6 +2786,18 @@ var __decentSync = (() => {
       this.queued.delete(name);
       if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
     }
+    /**
+     * The sensor calibration with one target read again, within
+     * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
+     * place of the target's last, beside the other targets as last read, or,
+     * where the last read was unavailable, every target read again.
+     * Unavailable where the target's read is.
+     */
+    async sensorCalibrationWith(target, read) {
+      if (read.kind !== "value") return { kind: "unavailable" };
+      if (this.sensorCalibration === void 0) return readSensorCalibration();
+      return { kind: "value", value: { ...this.sensorCalibration, [target]: read.value }, etag: null };
+    }
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
       const last = this.last.get(source.name);
@@ -2783,6 +2811,7 @@ var __decentSync = (() => {
     }
     /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
     queueReading(name, reading, full) {
+      if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? reading.value : void 0;
       const last = this.last.get(name);
       const decision = decide(last, reading, full);
       if (decision.next) this.last.set(name, decision.next);
@@ -2816,7 +2845,6 @@ var __decentSync = (() => {
       return { updatedAt: value.map((record) => utcTime(record?.updatedAt)) };
     }
   };
-  var SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"];
   async function readSensorCalibration() {
     const value = {};
     for (const target of SENSOR_CALIBRATION_TARGETS) {
@@ -3596,10 +3624,10 @@ var __decentSync = (() => {
     }
   };
   var SettingsEdits = class {
-    constructor(access, outbox, report, log) {
+    constructor(access, outbox, reports, log) {
       __publicField(this, "access", access);
       __publicField(this, "outbox", outbox);
-      __publicField(this, "report", report);
+      __publicField(this, "reports", reports);
       __publicField(this, "log", log);
       __publicField(this, "stopped", false);
     }
@@ -3648,10 +3676,11 @@ var __decentSync = (() => {
       if (!SETTINGS_EDIT_STATES.includes(machineState)) {
         return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
       }
+      if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);
       const route = ROUTES2[edit.collection];
       const before = await readObject(route);
       if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-      this.report(edit.collection, { kind: "value", value: before.value, etag: null }, false);
+      this.reports.reportSettings(edit.collection, { kind: "value", value: before.value, etag: null }, false);
       if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
         return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
       }
@@ -3665,17 +3694,56 @@ var __decentSync = (() => {
         failure = describe(error);
       }
       const after = await readObject(route).catch(() => void 0);
-      this.report(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
-      const values = after?.ok ? { values: edited(edit, after.value) } : {};
-      if (written2?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };
-      return { ...refusedByDecaid(edit, written2?.status ?? null, written2 ? decaidMessage(written2) : `Decaid did not answer: ${failure}`), ...values };
+      this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+      return answered(edit, written2, failure, after?.ok ? edited(edit, after.value) : void 0);
+    }
+    /**
+     * Sets the one sensor target an edit names (`validateSettingsEdit`) to
+     * its value, from one read of the target: the changed-since check compares
+     * that read's current value C, its `measuredValue`, with what the edit
+     * expected, and the write sends C as `de1ReportedValue` (`absoluteSet`).
+     * Each read of the target is reported within the sensor calibration
+     * (`SettingsReports.sensorCalibrationWith`).
+     */
+    async setSensorCalibration(edit, tooLate) {
+      const target = Object.keys(edit.fields)[0];
+      const route = `/machine/calibration/${target}`;
+      const before = await readObject(route);
+      if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
+      this.reports.reportSettings("sensorCalibration", await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }), false);
+      const current = before.value.measuredValue;
+      if (!sameValue(current, edit.expected[target])) {
+        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: calibrated(target, before.value) };
+      }
+      const correction = absoluteSet(target, current, edit.fields[target]);
+      if ("refused" in correction) return refusedByDecaid(edit, null, correction.refused);
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired(edit);
+      let written2;
+      let failure = "";
+      try {
+        written2 = await request("PUT", route, correction.body);
+      } catch (error) {
+        failure = describe(error);
+      }
+      const after = await readObject(route).catch(() => void 0);
+      this.reports.reportSettings("sensorCalibration", after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }) : { kind: "unavailable" }, true);
+      return answered(edit, written2, failure, after?.ok ? calibrated(target, after.value) : void 0);
     }
   };
+  function answered(edit, written2, failure, readBack) {
+    const values = readBack ? { values: readBack } : {};
+    if (written2?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };
+    return { ...refusedByDecaid(edit, written2?.status ?? null, written2 ? decaidMessage(written2) : `Decaid did not answer: ${failure}`), ...values };
+  }
   async function readObject(route) {
     const answer = await request("GET", route);
     const value = answer.ok ? parsed5(answer.text) : void 0;
     if (isObject6(value)) return { ok: true, value };
     return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
+  }
+  function calibrated(target, read) {
+    return "measuredValue" in read ? { [target]: read.measuredValue } : {};
   }
   function edited(edit, value) {
     return Object.fromEntries(Object.keys(edit.fields).filter((field) => field in value).map((field) => [field, value[field]]));
@@ -4258,7 +4326,7 @@ var __decentSync = (() => {
       );
       const settingsAccess = new SettingsAccess();
       this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
-      this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, (name, reading, always) => this.collections.reportSettings(name, reading, always), log);
+      this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
       this.writes = new LibraryWrites(
         library,
         this.outbox,
