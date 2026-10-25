@@ -95,7 +95,8 @@ export type TakenInList = LibraryList;
  * fields it was last written, found due at every look since, which writing
  * again would not change; an item due again with other fields, as when a second
  * request of its write failed or the Location changed it meanwhile, is
- * written again. *
+ * written again.
+ *
  * The plugin carries out none of the server's changes while its Machine
  * pulls a Shot (ADR-0022): it holds the one asked for until Decaid has
  * stored the Shot, and answers it as asked during one (PULLING_SHOT). What

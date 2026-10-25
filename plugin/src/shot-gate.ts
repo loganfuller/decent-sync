@@ -17,10 +17,15 @@ import { SHOT_STATE } from "@decent-sync/protocol";
 // after the state left it, for an espresso Decaid stores no Shot of, as a
 // cleaning profile's. An unknown state, before the first update, or once
 // no machine is connected, is no Shot, as for Streamline: Decaid sends no
-// update as its machine goes.
+// update as its machine goes, so a read finding no machine ends a Shot, but
+// not while Decaid still reported a state within MACHINE_GONE_AFTER_MS, as a
+// read that fails once would otherwise end a Shot still being pulled.
 
 /** How long after the state leaves espresso a Shot ends, should Decaid store none. */
 export const SHOT_STORED_WITHIN_MS = 10_000;
+
+/** How long after Decaid last reported the machine's state a read finding no machine ends a Shot; Decaid reports it several times a second. */
+export const MACHINE_GONE_AFTER_MS = 3_000;
 
 export class ShotGate {
   private pulling = false;
@@ -31,6 +36,8 @@ export class ShotGate {
   /** Told each time a Shot ends (`onEnd`). */
   private readonly ends = new Set<() => void>();
   private stopped = false;
+  /** When Decaid last reported the machine's state, by the tablet's clock. */
+  private reportedAt = Number.NEGATIVE_INFINITY;
 
   /** Whether a Shot is being pulled, or is yet to be stored. */
   running(): boolean {
@@ -39,6 +46,7 @@ export class ShotGate {
 
   /** Decaid's `stateUpdate`, with the machine's state. */
   state(state: string): void {
+    this.reportedAt = Date.now();
     if (state === SHOT_STATE) {
       this.pulling = true;
       this.clearStoring();
@@ -54,9 +62,9 @@ export class ShotGate {
     if (this.storing !== undefined) this.end();
   }
 
-  /** No machine is connected, so no Shot is pulled. */
+  /** A read found no machine connected, so no Shot is pulled, unless Decaid reported its state just now. */
   machineGone(): void {
-    if (this.running()) this.end();
+    if (this.running() && Date.now() - this.reportedAt >= MACHINE_GONE_AFTER_MS) this.end();
   }
 
   /**

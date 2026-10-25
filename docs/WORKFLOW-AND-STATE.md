@@ -413,7 +413,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   together. Saves into the Loaded Recipe are not held: a change made on the
   Machine during its own Shot is saved at once. An unknown state, before
   the first update or once no machine is connected (the plugin's read of
-  the machine's hardware finds none), is no Shot, as for Streamline.
+  the machine's hardware finds none, and Decaid has reported no state for
+  3 s, as one failed read is no machine gone), is no Shot, as for
+  Streamline.
 - **When Decaid fails.** A read, write or save Decaid fails is logged once
   until one succeeds, and tried again at the next change, push or poll.
 

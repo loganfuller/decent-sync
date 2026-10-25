@@ -1319,7 +1319,7 @@ var __decentSync = (() => {
         this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
       }
       const restored = heldGlobalId(stored);
-      this.loadKept = restored !== null;
+      this.loadKept || (this.loadKept = restored !== null);
       if (this.stopped) return;
       if (this.firstLoads === void 0) {
         this.restoredLoad = restored;
@@ -1327,7 +1327,7 @@ var __decentSync = (() => {
       }
       this.restoredLoad = null;
       if (restored !== null && restored === this.loaded && this.loads === this.firstLoads && this.sharing()) this.load(restored);
-      else void this.keepHeldLoad(null);
+      else if (this.heldLoad === null) void this.keepHeldLoad(null);
     }
     /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */
     async keepHeldLoad(globalId) {
@@ -2874,6 +2874,7 @@ var __decentSync = (() => {
 
   // src/shot-gate.ts
   var SHOT_STORED_WITHIN_MS = 1e4;
+  var MACHINE_GONE_AFTER_MS = 3e3;
   var ShotGate = class {
     constructor() {
       __publicField(this, "pulling", false);
@@ -2884,6 +2885,8 @@ var __decentSync = (() => {
       /** Told each time a Shot ends (`onEnd`). */
       __publicField(this, "ends", /* @__PURE__ */ new Set());
       __publicField(this, "stopped", false);
+      /** When Decaid last reported the machine's state, by the tablet's clock. */
+      __publicField(this, "reportedAt", Number.NEGATIVE_INFINITY);
     }
     /** Whether a Shot is being pulled, or is yet to be stored. */
     running() {
@@ -2891,6 +2894,7 @@ var __decentSync = (() => {
     }
     /** Decaid's `stateUpdate`, with the machine's state. */
     state(state) {
+      this.reportedAt = Date.now();
       if (state === SHOT_STATE) {
         this.pulling = true;
         this.clearStoring();
@@ -2904,9 +2908,9 @@ var __decentSync = (() => {
     shotStored() {
       if (this.storing !== void 0) this.end();
     }
-    /** No machine is connected, so no Shot is pulled. */
+    /** A read found no machine connected, so no Shot is pulled, unless Decaid reported its state just now. */
     machineGone() {
-      if (this.running()) this.end();
+      if (this.running() && Date.now() - this.reportedAt >= MACHINE_GONE_AFTER_MS) this.end();
     }
     /**
      * Resolves once no Shot is being pulled, or after `withinMs`, or as the

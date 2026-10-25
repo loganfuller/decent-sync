@@ -372,7 +372,8 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
     }
     const restored = heldGlobalId(stored);
-    this.loadKept = restored !== null;
+    // A load held while the read was under way is kept already.
+    this.loadKept ||= restored !== null;
     if (this.stopped) return;
     if (this.firstLoads === undefined) {
       this.restoredLoad = restored;
@@ -380,7 +381,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     }
     this.restoredLoad = null;
     if (restored !== null && restored === this.loaded && this.loads === this.firstLoads && this.sharing()) this.load(restored);
-    else void this.keepHeldLoad(null);
+    else if (this.heldLoad === null) void this.keepHeldLoad(null);
   }
 
   /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */

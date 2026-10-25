@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { SHOT_STORED_WITHIN_MS, ShotGate } from "../src/shot-gate.js";
+import { MACHINE_GONE_AFTER_MS, SHOT_STORED_WITHIN_MS, ShotGate } from "../src/shot-gate.js";
 
 // When the plugin takes its Machine to be pulling a Shot, which its writes
 // into the Workflow wait out (ADR-0022): from the machine state espresso
@@ -27,7 +27,7 @@ describe("ShotGate", () => {
     await expect(ended).resolves.toBe(false);
   });
 
-  it("ends a Shot Decaid stores nothing of once SHOT_STORED_WITHIN_MS have passed, and one whose machine goes at once", () => {
+  it("ends a Shot Decaid stores nothing of once SHOT_STORED_WITHIN_MS have passed, and one whose machine goes once Decaid stops reporting its state", () => {
     const gate = new ShotGate();
     gate.state("espresso");
     // A Shot stored before the state left espresso is an earlier one's.
@@ -40,6 +40,10 @@ describe("ShotGate", () => {
     expect(gate.running()).toBe(false);
 
     gate.state("espresso");
+    // A read that fails once, as Decaid still reports the state.
+    gate.machineGone();
+    expect(gate.running()).toBe(true);
+    vi.advanceTimersByTime(MACHINE_GONE_AFTER_MS);
     gate.machineGone();
     expect(gate.running()).toBe(false);
   });
