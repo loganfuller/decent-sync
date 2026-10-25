@@ -53,4 +53,24 @@ describe("A Settings Edit's outcome", () => {
     });
     expect(decideOutcome(both, { outcome: "refused", reason: "decaid" })).toEqual({ outcome: "refused", reason: "decaid", changed: [] });
   });
+  describe("of a wake schedule", () => {
+    const schedule = { id: "a2c4e6f8", time: "06:30", daysOfWeek: [1, 3, 5], enabled: true, keepAwakeFor: 120 };
+    const fields = { time: "06:30", daysOfWeek: [1, 3, 5], enabled: true, keepAwakeFor: null };
+
+    it("is applied where the schedule read back holds each field sent, a keep-awake time of none as null", () => {
+      const added = { collection: "presenceSettings", fields, expected: {}, scheduled: true };
+      expect(decideOutcome(added, { outcome: "written", values: { ...schedule, keepAwakeFor: null } })).toEqual({ outcome: "applied" });
+      const changed = { collection: "presenceSettings", fields: { keepAwakeFor: null }, expected: schedule, scheduled: true };
+      expect(decideOutcome(changed, { outcome: "written", values: { ...schedule, keepAwakeFor: 120 } })).toEqual({ outcome: "adjusted", adjusted: [{ field: "keepAwakeFor", holds: 120 }] });
+      // A delete sets nothing.
+      expect(decideOutcome({ collection: "presenceSettings", fields: {}, expected: schedule, scheduled: true }, { outcome: "written", values: {} })).toEqual({ outcome: "applied" });
+    });
+
+    it("names no field changed before Decaid refused an add, which expected nothing", () => {
+      const added = { collection: "presenceSettings", fields, expected: {}, scheduled: true };
+      expect(decideOutcome(added, { outcome: "refused", reason: "decaid", values: { ...schedule, keepAwakeFor: null } })).toEqual({ outcome: "refused", reason: "decaid", changed: [] });
+      const changed = { collection: "presenceSettings", fields: { enabled: false }, expected: schedule, scheduled: true };
+      expect(decideOutcome(changed, { outcome: "refused", reason: "decaid", values: { ...schedule, keepAwakeFor: 120 } })).toEqual({ outcome: "refused", reason: "decaid", changed: [] });
+    });
+  });
 });

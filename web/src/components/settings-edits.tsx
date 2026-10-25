@@ -20,11 +20,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Switch } from "@/components/ui/switch";
 import { type Collection, type Machine, type SettingsEdit, api } from "@/lib/api";
 import { fieldText, isObject, valueText } from "@/lib/settings-text";
-import { differingZoneOffset, timeOfDayMinutes, timeOfDayText, utcOffsetText } from "@/lib/tablet-time";
+import { differingZoneOffset, inTabletTime, timeOfDayMinutes, timeOfDayText, utcOffsetText } from "@/lib/tablet-time";
 import {
   type EditableSettingsField,
   SETTINGS_FIELDS,
   type SettingsCollectionName,
+  WAKE_SCHEDULE_FIELDS,
   decimalPlaces,
   isEditable,
   isEditableSettingsCollection,
@@ -32,6 +33,7 @@ import {
   settingsField,
   settingsRefusalText,
   validateSettingsEdit,
+  wakeScheduleField,
 } from "@decent-sync/protocol";
 
 // Settings Edits (ADR-0023): a section of the Settings card changed here,
@@ -70,26 +72,58 @@ export function editBlocked(machine: Machine): string | null {
   return null;
 }
 
-/** A field's label, or Decaid's name for one no definition covers. */
-export function labelOf(name: string, path: string): string {
-  return (isEditableSettingsCollection(name) ? settingsField(name, path)?.label : undefined) ?? path;
+/** A field's definition: a wake schedule's (WAKE_SCHEDULE_FIELDS) where `scheduled`, otherwise its collection's; undefined for one no definition covers. */
+function fieldOf(name: string, path: string, scheduled: boolean) {
+  if (scheduled) return wakeScheduleField(path);
+  return isEditableSettingsCollection(name) ? settingsField(name, path) : undefined;
 }
 
-/** A field's value as the Settings card shows it, a time in the Tablet's own time labelled with its UTC offset where it is given. */
-export function shownValue(name: string, path: string, value: unknown, utcOffsetMinutes: number | null = null): string {
-  const field = isEditableSettingsCollection(name) ? settingsField(name, path) : undefined;
+/** A field's label, or Decaid's name for one no definition covers; a wake schedule's where `scheduled`. */
+export function labelOf(name: string, path: string, scheduled = false): string {
+  return fieldOf(name, path, scheduled)?.label ?? path;
+}
+
+/** A field's value as the Settings card shows it, a time in the Tablet's own time labelled with its UTC offset where it is given; a wake schedule's where `scheduled`. */
+export function shownValue(name: string, path: string, value: unknown, utcOffsetMinutes: number | null = null, scheduled = false): string {
+  const field = fieldOf(name, path, scheduled);
   return field ? fieldText(field, value, utcOffsetMinutes) : valueText(value);
 }
 
-/** Each field's value, as "Label: value", joined. */
-function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null): string {
-  return Object.entries(values)
-    .map(([path, value]) => `${labelOf(name, path)}: ${shownValue(name, path, value, utcOffsetMinutes)}`)
-    .join("; ");
+/**
+ * Each field's value, as "Label: value", joined. A wake schedule's, where
+ * `scheduled`, are its fields in their order, leaving out its id.
+ */
+function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null, scheduled = false): string {
+  const paths = scheduled ? WAKE_SCHEDULE_FIELDS.map((field) => field.path).filter((path) => path in values) : Object.keys(values);
+  return paths.map((path) => `${labelOf(name, path, scheduled)}: ${shownValue(name, path, values[path], utcOffsetMinutes, scheduled)}`).join("; ");
+}
+
+/**
+ * What an edit of a wake schedule does to which, the schedule named by its
+ * time as reported: as asked, such as "Change the wake schedule at 06:30
+ * (UTC−4)", or once `done`, such as "Wake schedule at 06:30 (UTC−4)
+ * changed"; undefined for any other edit.
+ */
+export function scheduleSubject(edit: SettingsEdit, utcOffsetMinutes: number | null = null, done = false): string | undefined {
+  if (!edit.schedule) return undefined;
+  const { action } = edit.schedule;
+  if (action === "add") return done ? "Wake schedule added" : "Add a wake schedule";
+  const time = timeOfDayText(timeOfDayMinutes(edit.expected.time));
+  const at = time === undefined ? "" : ` at ${inTabletTime(time, utcOffsetMinutes)}`;
+  if (done) return `Wake schedule${at} ${action === "change" ? "changed" : "deleted"}`;
+  return `${action === "change" ? "Change" : "Delete"} the wake schedule${at}`;
+}
+
+/** What an edit asks for: each field's new value, after what it does to a wake schedule where it is one. */
+function askedText(edit: SettingsEdit, utcOffsetMinutes: number | null): string {
+  const values = valuesText(edit.collection, edit.fields, utcOffsetMinutes, edit.schedule !== null);
+  const subject = scheduleSubject(edit, utcOffsetMinutes);
+  if (subject === undefined) return values;
+  return values === "" ? subject : `${subject}: ${values}`;
 }
 
 /** What a form holds for each field: a number as typed, a choice by its value as text, a time of day as HH:MM, or on or off. */
-type Inputs = Record<string, string | boolean>;
+export type Inputs = Record<string, string | boolean>;
 
 function inputOf(name: SettingsCollectionName, field: EditableSettingsField, value: unknown): string | boolean {
   if (field.kind === "onOff") return value === true;
@@ -156,6 +190,7 @@ export function SettingsForm({
   label,
   notes,
   confirm,
+  warning,
   onCancel,
   onSaved,
   children,
@@ -172,6 +207,8 @@ export function SettingsForm({
   notes: (field: EditableSettingsField) => string[];
   /** A warning to go ahead past before the edit is made. */
   confirm?: { title: string; description: string };
+  /** A warning shown as the form's inputs stand, if any, such as of a Bengle's wake windows as presence is turned on. */
+  warning?: (inputs: Inputs) => ReactNode;
   onCancel(): void;
   onSaved(edit: SettingsEdit): void;
   children?: ReactNode;
@@ -226,6 +263,7 @@ export function SettingsForm({
     <form aria-label={label} className="grid gap-4" noValidate onSubmit={save}>
       {error && <FormError error={Array.isArray(error) ? error.join(". ") : error} />}
       {offered.some((field) => field.kind === "timeOfDay") && <TabletTimeWarning machine={machine} utcOffsetMinutes={utcOffsetMinutes} />}
+      {warning?.(inputs)}
       <FieldGroup className="gap-4">
         {offered.map((field) => (
           <SettingInput
@@ -419,7 +457,7 @@ export function SettingsEditStatus({
       <Alert role="status">
         <AlertTitle>Pending</AlertTitle>
         <AlertDescription>
-          {valuesText(edit.collection, edit.fields, utcOffsetMinutes)}. Sent to the Machine, waiting for its answer.
+          {askedText(edit, utcOffsetMinutes)}. Sent to the Machine, waiting for its answer.
           {error && ` ${error}.`}
         </AlertDescription>
       </Alert>
@@ -436,7 +474,7 @@ export function SettingsEditStatus({
           </InfoTip>
         </AlertTitle>
         <AlertDescription>
-          {valuesText(edit.collection, edit.fields, utcOffsetMinutes)}. The section shows the values last reported.
+          {askedText(edit, utcOffsetMinutes)}. The section shows the values last reported.
           {error && ` ${error}.`}
         </AlertDescription>
       </Alert>
@@ -457,12 +495,21 @@ export function SettingsEditStatus({
 /** What came of an answered edit, as the section shows it, its times labelled with `utcOffsetMinutes` where given. */
 export function outcomeText(edit: SettingsEdit, utcOffsetMinutes: number | null = null): { title: string; description: string } {
   const name = edit.collection;
-  if (edit.outcome === "applied") return { title: "Applied", description: `${valuesText(name, edit.readBack ?? edit.fields, utcOffsetMinutes)}.` };
+  const scheduled = edit.schedule !== null;
+  const subject = scheduleSubject(edit, utcOffsetMinutes, true);
+  if (edit.outcome === "applied") {
+    if (edit.schedule?.action === "delete") return { title: "Applied", description: `${subject}.` };
+    const values = valuesText(name, edit.readBack ?? edit.fields, utcOffsetMinutes, scheduled);
+    return { title: "Applied", description: `${subject === undefined ? values : `${subject}: ${values}`}.` };
+  }
   if (edit.outcome === "adjusted") {
     const held = edit.adjusted.filter((field) => "holds" in field);
-    const unread = edit.adjusted.filter((field) => !("holds" in field)).map((field) => labelOf(name, field.field));
+    const unread = edit.adjusted.filter((field) => !("holds" in field)).map((field) => labelOf(name, field.field, scheduled));
     const parts = [
-      ...(held.length > 0 ? [`The Machine holds another value than was asked for: ${valuesText(name, Object.fromEntries(held.map((field) => [field.field, field.holds])), utcOffsetMinutes)}.`] : []),
+      ...(subject === undefined ? [] : [`${subject}.`]),
+      ...(held.length > 0
+        ? [`The Machine holds another value than was asked for: ${valuesText(name, Object.fromEntries(held.map((field) => [field.field, field.holds])), utcOffsetMinutes, scheduled)}.`]
+        : []),
       ...(unread.length > 0 ? [`Decaid took the change, but it could not be read back: ${unread.join(", ")}.`] : []),
     ];
     return { title: held.length > 0 ? "Stored otherwise" : "Not read back", description: parts.join(" ") };
@@ -472,16 +519,19 @@ export function outcomeText(edit: SettingsEdit, utcOffsetMinutes: number | null 
     case "machineBusy":
       return { title: "Not changed", description: `The Machine was busy${refusal.state ? ` (${refusal.state})` : ""}. Edit it again once it is idle.` };
     case "changedSince":
+      if (scheduled && refusal.current && Object.keys(refusal.current).length === 0) {
+        return { title: "Not changed", description: "The wake schedule was deleted on the Tablet since it was shown." };
+      }
       return {
         title: "Not changed",
-        description: `It was changed on the Tablet since the values shown.${refusal.current ? ` It holds ${valuesText(name, refusal.current, utcOffsetMinutes)}.` : ""}`,
+        description: `${scheduled ? "The wake schedule" : "It"} was changed on the Tablet since the values shown.${refusal.current ? ` It holds ${valuesText(name, refusal.current, utcOffsetMinutes, scheduled)}.` : ""}`,
       };
     case "expired":
       return { title: "Not changed", description: "The Tablet got the edit too late to make it." };
     case "decaid": {
       const said = refusal.status === null ? (refusal.message ?? "Decaid did not answer") : `Decaid refused it (${refusal.status}): ${refusal.message ?? "no reason given"}`;
       const changed = Object.fromEntries(refusal.changed.map((field) => [field, edit.readBack?.[field]]));
-      return { title: "Not changed", description: `${said}.${refusal.changed.length > 0 ? ` Changed before it refused: ${valuesText(name, changed, utcOffsetMinutes)}.` : ""}` };
+      return { title: "Not changed", description: `${said}.${refusal.changed.length > 0 ? ` Changed before it refused: ${valuesText(name, changed, utcOffsetMinutes, scheduled)}.` : ""}` };
     }
     default:
       return { title: "Not changed", description: "The Machine refused it." };

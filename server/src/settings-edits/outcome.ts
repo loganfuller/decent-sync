@@ -19,22 +19,30 @@ export type DecidedOutcome =
   /**
    * The plugin did not write it, or Decaid refused, with the fields the
    * read-back after a Decaid refusal shows changed from what the edit
-   * expected, as Decaid applies its settings fields one at a time.
+   * expected, as Decaid applies its settings fields one at a time; none for
+   * a wake schedule added, which expected nothing.
    */
   | { outcome: "refused"; reason: SettingsEditedRefusal; changed: string[] };
 
-/** What the edit sent: its collection, each field's new value, and what each was expected to hold. */
+/**
+ * What the edit sent: its collection, each field's new value, and what each
+ * was expected to hold; for a wake schedule (`scheduled`), the whole
+ * schedule as reported, or nothing for an add.
+ */
 export interface SentEdit {
   collection: string;
   fields: Record<string, unknown>;
   expected: Record<string, unknown>;
+  scheduled?: boolean;
 }
 
 /** Decides what came of an edit from its answer. */
 export function decideOutcome(edit: SentEdit, answer: Pick<SettingsEdited, "outcome" | "reason" | "values">): DecidedOutcome {
   if (answer.outcome === "refused") {
     const values = answer.values;
-    const changed = answer.reason === "decaid" && values ? Object.keys(edit.fields).filter((field) => field in values && !sameValue(values[field], edit.expected[field])) : [];
+    // A schedule added had no values before it to change from.
+    const before = edit.scheduled && Object.keys(edit.expected).length === 0 ? undefined : edit.expected;
+    const changed = answer.reason === "decaid" && values && before ? Object.keys(edit.fields).filter((field) => field in values && !sameValue(values[field], before[field])) : [];
     return { outcome: "refused", reason: answer.reason ?? "decaid", changed };
   }
   const adjusted = heldOtherwise(edit, answer.values);
@@ -61,6 +69,7 @@ function holdsAsSent(collection: string, path: string, sent: unknown, read: unkn
 }
 
 function stepOf(collection: string, path: string): number | undefined {
+  // A wake schedule's fields have no step: its keep-awake time is a whole number, compared as it is.
   const field = isSettingsCollectionName(collection) ? settingsField(collection, path) : undefined;
   if (!field || !isEditable(field)) return undefined;
   if (field.kind === "number") return field.step;

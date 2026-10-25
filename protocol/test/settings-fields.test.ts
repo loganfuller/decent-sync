@@ -125,6 +125,57 @@ describe("validateSettingsEdit", () => {
     expect(settingsRefusalText("presenceSettings", refusals[0]!)).toBe("Wake schedules are added, changed and deleted one at a time");
   });
 
+  describe("a wake schedule's edit", () => {
+    const schedule = { time: "06:30", daysOfWeek: [1, 3, 5], enabled: true, keepAwakeFor: 120 };
+    const edit = (action: "add" | "change" | "delete", fields: Record<string, unknown>) => ({
+      collection: "presenceSettings",
+      schedule: action === "add" ? { action } : { action, id: "a2c4e6f8" },
+      fields,
+    });
+
+    it("takes Staff's add of every field, a change of some and a delete of none, a keep-awake time of none included", () => {
+      expect(validateSettingsEdit(edit("add", schedule), "staff")).toEqual([]);
+      expect(validateSettingsEdit(edit("add", { ...schedule, daysOfWeek: [], keepAwakeFor: null }), "staff")).toEqual([]);
+      expect(validateSettingsEdit(edit("change", { enabled: false }), "staff")).toEqual([]);
+      expect(validateSettingsEdit(edit("change", { time: "23:59", keepAwakeFor: 720 }), "staff")).toEqual([]);
+      expect(validateSettingsEdit(edit("delete", {}), "staff")).toEqual([]);
+    });
+
+    it("refuses an add missing a field, a change of nothing and a delete that sets something", () => {
+      const { keepAwakeFor: _, ...withoutKeepAwake } = schedule;
+      expect(validateSettingsEdit(edit("add", withoutKeepAwake), "staff")).toEqual([{ reason: "incompleteSchedule" }]);
+      expect(validateSettingsEdit(edit("change", {}), "staff")).toEqual([{ reason: "noFields" }]);
+      expect(validateSettingsEdit(edit("delete", { enabled: false }), "staff")).toEqual([{ reason: "deleteSetsNothing" }]);
+      expect(validateSettingsEdit({ ...edit("delete", {}), collection: "appSettings" }, "admin")).toEqual([{ reason: "notSchedules" }]);
+    });
+
+    it("refuses a time that is not HH:MM, days out of order, repeated or not 1 to 7, and a keep-awake time outside 1 to 720 min", () => {
+      for (const time of ["6:30", "24:00", "06:60", "0630", 390]) {
+        expect(validateSettingsEdit(edit("change", { time }), "staff")).toEqual([{ reason: "invalid", field: "time", schedule: true }]);
+      }
+      for (const daysOfWeek of [[0], [8], [3, 1], [1, 1], [1.5], "1", null]) {
+        expect(validateSettingsEdit(edit("change", { daysOfWeek }), "staff")).toEqual([{ reason: "invalid", field: "daysOfWeek", schedule: true }]);
+      }
+      for (const keepAwakeFor of [0, 721]) {
+        expect(validateSettingsEdit(edit("change", { keepAwakeFor }), "staff")).toEqual([{ reason: "outOfRange", field: "keepAwakeFor", schedule: true }]);
+      }
+      expect(validateSettingsEdit(edit("change", { keepAwakeFor: 30.5, enabled: null, id: "b" }), "staff")).toEqual([
+        { reason: "invalid", field: "keepAwakeFor", schedule: true },
+        { reason: "invalid", field: "enabled", schedule: true },
+        { reason: "unknown", field: "id", schedule: true },
+      ]);
+    });
+
+    it("names a schedule's field by its label in a refusal", () => {
+      const text = (fields: Record<string, unknown>) => settingsRefusalText("presenceSettings", validateSettingsEdit(edit("change", fields), "staff")[0]!);
+      expect(text({ time: "6:30" })).toBe("Time must be a time of day");
+      expect(text({ daysOfWeek: [3, 1] })).toBe("Days must be days of the week, 1 (Monday) to 7 (Sunday), each once and in order");
+      expect(text({ keepAwakeFor: 0 })).toBe("Keeps awake for must be from 1 to 720, or none");
+      expect(text({ keepAwakeFor: "1" })).toBe("Keeps awake for must be a whole number, or none");
+      expect(settingsRefusalText("presenceSettings", { reason: "incompleteSchedule" })).toMatch(/^Give a new wake schedule its time/);
+    });
+  });
+
   it("refuses an edit of no settings collection, or of nothing", () => {
     expect(validateSettingsEdit({ collection: "beans", fields: { name: "x" } }, "admin")).toEqual([{ reason: "unknownCollection" }]);
     expect(validateSettingsEdit({ collection: "machineSettings", fields: {} }, "admin")).toEqual([{ reason: "noFields" }]);

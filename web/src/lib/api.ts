@@ -332,7 +332,13 @@ export interface SettingsEdit {
   id: string;
   machineId: string;
   collection: string;
-  /** Each field it sets with its new value, and each field's value in the report it was made over. */
+  /** For the presence settings, the wake schedule it adds, changes or deletes, if it does: for an add, the new schedule's id once its answer gave it. */
+  schedule: { action: "add" | "change" | "delete"; id: string | null } | null;
+  /**
+   * Each field it sets with its new value, and each field's value in the
+   * report it was made over; for a wake schedule's change or delete, the
+   * whole schedule as reported.
+   */
   fields: Record<string, unknown>;
   expected: Record<string, unknown>;
   /** Who made it: named to Admins, and to Staff by its id only. */

@@ -28,12 +28,21 @@ export function isSettingsCollectionName(name: string): name is SettingsCollecti
 
 /**
  * The settings collections a Settings Edit changes, which the plugin writes
- * through Decaid's routes: the machine's settings, its advanced settings,
- * its flow calibration, its sensors' calibration and Decaid's own settings
- * so far. The server refuses an edit of any other, and the management
- * interface offers none.
+ * through Decaid's routes: every settings collection, the machine's
+ * settings, its advanced settings, its flow calibration, its sensors'
+ * calibration, Decaid's own settings and its presence settings, whose wake
+ * schedules are added, changed and deleted one at a time
+ * (`WakeScheduleEdit`). The server refuses an edit of any other, and the
+ * management interface offers none.
  */
-export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings"] as const satisfies readonly SettingsCollectionName[];
+export const EDITABLE_SETTINGS_COLLECTIONS = [
+  "machineSettings",
+  "advancedSettings",
+  "machineCalibration",
+  "sensorCalibration",
+  "appSettings",
+  "presenceSettings",
+] as const satisfies readonly SettingsCollectionName[];
 
 export type EditableSettingsCollection = (typeof EDITABLE_SETTINGS_COLLECTIONS)[number];
 
@@ -52,6 +61,10 @@ export type SettingsRole = "admin" | "staff";
  * - `onOff`, a boolean;
  * - `choice`, one of its choices' values;
  * - `timeOfDay`, minutes after midnight in the Tablet's own time, 0 to 1439;
+ * - `hoursMinutes`, a time of day in the Tablet's own time written HH:MM, as
+ *   Decaid writes a wake schedule's;
+ * - `weekdays`, ISO days of the week, Monday 1 to Sunday 7, each once and in
+ *   order, as Decaid reports a wake schedule's, where none means every day;
  * - `localTime`, a date and time in the Tablet's own time without an offset,
  *   as Dart's `toIso8601String` writes a local `DateTime`, such as
  *   2026-10-25T08:30:00.000;
@@ -61,7 +74,7 @@ export type SettingsRole = "admin" | "staff";
  *   `keepAwakeFor` in minutes, absent for none. They are added, changed and
  *   deleted one at a time, never set as a field.
  */
-export type SettingsFieldKind = "number" | "wholeNumber" | "onOff" | "choice" | "timeOfDay" | "localTime" | "wakeSchedules";
+export type SettingsFieldKind = "number" | "wholeNumber" | "onOff" | "choice" | "timeOfDay" | "hoursMinutes" | "weekdays" | "localTime" | "wakeSchedules";
 
 export interface SettingsChoice {
   /** As Decaid takes and reports it. */
@@ -101,6 +114,8 @@ export interface EditableSettingsField extends SettingsFieldBase {
   step?: number;
   /** For a `choice`. */
   choices?: readonly SettingsChoice[];
+  /** Whether null is a value too, none, as for a wake schedule's keep-awake time. */
+  orNone?: boolean;
 }
 
 /** A field shown but never edited, with what sets it. */
@@ -294,6 +309,42 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
   ],
 };
 
+/**
+ * A wake schedule's fields, which an edit adding or changing one sets, as
+ * Decaid names them (`WakeSchedule.toJson` in
+ * decaid:lib/src/models/wake_schedule.dart) and its handlers take them
+ * (presence_handler.dart): its time, its days (none for every day, as Decaid
+ * takes an empty list), whether it is on, and how long it keeps the Machine
+ * awake, null for none, which Decaid reports by leaving the field out.
+ * Labelled as the Settings card lists the schedules.
+ */
+export const WAKE_SCHEDULE_FIELDS: readonly EditableSettingsField[] = [
+  { path: "time", label: "Time", kind: "hoursMinutes", editableBy: "staff" },
+  { path: "daysOfWeek", label: "Days", kind: "weekdays", editableBy: "staff" },
+  { path: "enabled", label: "On", kind: "onOff", editableBy: "staff" },
+  // Decaid takes 1 to 720, and 0 or null for none (`_addScheduleHandler`).
+  { path: "keepAwakeFor", label: "Keeps awake for", unit: "min", kind: "wholeNumber", min: 1, max: 720, orNone: true, editableBy: "staff" },
+];
+
+/** The definition of a wake schedule's field, or undefined for one no definition covers. */
+export function wakeScheduleField(path: string): EditableSettingsField | undefined {
+  return WAKE_SCHEDULE_FIELDS.find((field) => field.path === path);
+}
+
+/** What an edit of a wake schedule does to it. */
+export const WAKE_SCHEDULE_ACTIONS = ["add", "change", "delete"] as const;
+
+export type WakeScheduleAction = (typeof WAKE_SCHEDULE_ACTIONS)[number];
+
+/**
+ * The wake schedule an edit of the presence settings adds, changes or
+ * deletes, each on its own (#220), and what it does. A change or a delete
+ * names the schedule by the id Decaid gave it, and expects the whole
+ * schedule as reported; an add expects nothing, and sets every field of
+ * WAKE_SCHEDULE_FIELDS; a delete sets none.
+ */
+export type WakeScheduleEdit = { action: "add" } | { action: "change" | "delete"; id: string };
+
 /** The definition of a collection's field, or undefined for one no definition covers. */
 export function settingsField(collection: SettingsCollectionName, path: string): SettingsField | undefined {
   return SETTINGS_FIELDS[collection].find((field) => field.path === path);
@@ -303,7 +354,12 @@ export function settingsField(collection: SettingsCollectionName, path: string):
  * Why an edit, or one of its fields, is not allowed:
  *
  * - `unknownCollection`: the edit names no settings collection;
- * - `noFields`: it sets nothing;
+ * - `notSchedules`: it names a wake schedule, of a collection other than the
+ *   presence settings;
+ * - `noFields`: it sets nothing, but for a wake schedule's delete;
+ * - `incompleteSchedule`: it adds a wake schedule without setting each of
+ *   its fields;
+ * - `deleteSetsNothing`: it deletes a wake schedule, and sets a field;
  * - `severalTargets`: it sets more than one sensor's calibration, where an
  *   edit names one target, which the plugin sets from one read of it;
  * - `unknown`: no definition covers the field;
@@ -316,7 +372,10 @@ export function settingsField(collection: SettingsCollectionName, path: string):
  */
 export type SettingsEditRefusalReason =
   | "unknownCollection"
+  | "notSchedules"
   | "noFields"
+  | "incompleteSchedule"
+  | "deleteSetsNothing"
   | "severalTargets"
   | "unknown"
   | "readOnly"
@@ -330,11 +389,14 @@ export interface SettingsEditRefusal {
   reason: SettingsEditRefusalReason;
   /** The field refused; absent where the whole edit is. */
   field?: string;
+  /** Whether the field is a wake schedule's (WAKE_SCHEDULE_FIELDS). */
+  schedule?: true;
 }
 
-/** What a Settings Edit sets: its collection, and each field's new value by its path. */
+/** What a Settings Edit sets: its collection, the wake schedule it adds, changes or deletes if it does, and each field's new value by its path. */
 export interface SettingsEditFields {
   collection: string;
+  schedule?: WakeScheduleEdit;
   fields: Record<string, unknown>;
 }
 
@@ -347,6 +409,7 @@ export interface SettingsEditFields {
 export function validateSettingsEdit(edit: SettingsEditFields, role: SettingsRole): SettingsEditRefusal[] {
   if (!isSettingsCollectionName(edit.collection)) return [{ reason: "unknownCollection" }];
   const paths = Object.keys(edit.fields);
+  if (edit.schedule) return validateScheduleEdit(edit.collection, edit.schedule, edit.fields, role);
   if (paths.length === 0) return [{ reason: "noFields" }];
   if (edit.collection === "sensorCalibration" && paths.length > 1) return [{ reason: "severalTargets" }];
   const refusals: SettingsEditRefusal[] = [];
@@ -357,16 +420,42 @@ export function validateSettingsEdit(edit: SettingsEditFields, role: SettingsRol
   return refusals;
 }
 
+/** An edit of a wake schedule's refusals, as `validateSettingsEdit` gives them. */
+function validateScheduleEdit(collection: SettingsCollectionName, schedule: WakeScheduleEdit, fields: Record<string, unknown>, role: SettingsRole): SettingsEditRefusal[] {
+  if (collection !== "presenceSettings") return [{ reason: "notSchedules" }];
+  const paths = Object.keys(fields);
+  if (schedule.action === "delete") return paths.length === 0 ? [] : [{ reason: "deleteSetsNothing" }];
+  if (paths.length === 0) return [{ reason: "noFields" }];
+  if (schedule.action === "add" && WAKE_SCHEDULE_FIELDS.some((field) => !(field.path in fields))) return [{ reason: "incompleteSchedule" }];
+  const refusals: SettingsEditRefusal[] = [];
+  for (const path of paths) {
+    const reason = fieldRefusal(wakeScheduleField(path), fields[path], role);
+    if (reason) refusals.push({ reason, field: path, schedule: true });
+  }
+  return refusals;
+}
+
 /** A refusal of `validateSettingsEdit` as a sentence the management interface shows, naming the field by its label. */
 export function settingsRefusalText(collection: string, refusal: SettingsEditRefusal): string {
-  const field = refusal.field === undefined || !isSettingsCollectionName(collection) ? undefined : settingsField(collection, refusal.field);
+  const field =
+    refusal.field === undefined || !isSettingsCollectionName(collection)
+      ? undefined
+      : refusal.schedule
+        ? wakeScheduleField(refusal.field)
+        : settingsField(collection, refusal.field);
   const name = field?.label ?? refusal.field ?? "";
   const editable = field && isEditable(field) ? field : undefined;
   switch (refusal.reason) {
     case "unknownCollection":
       return `There are no settings named ${collection}`;
+    case "notSchedules":
+      return "Only the presence settings have wake schedules";
     case "noFields":
       return "Change at least one setting";
+    case "incompleteSchedule":
+      return "Give a new wake schedule its time, its days, whether it is on and how long it keeps the Machine awake";
+    case "deleteSetsNothing":
+      return "Deleting a wake schedule changes none of its settings";
     case "severalTargets":
       return "Set one sensor's calibration at a time";
     case "unknown":
@@ -377,13 +466,28 @@ export function settingsRefusalText(collection: string, refusal: SettingsEditRef
       return `Only an Admin can change ${name}`;
     case "invalid":
       if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
-      return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : editable?.kind === "timeOfDay" ? "a time of day" : "a whole number"}`;
+      if (editable?.kind === "weekdays") return `${name} must be days of the week, 1 (Monday) to 7 (Sunday), each once and in order`;
+      return `${name} must be ${kindText(editable)}`;
     case "notOffered":
       return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
     case "outOfRange":
-      return `${name} must be ${rangeText(editable)}`;
+      return `${name} must be ${rangeText(editable)}${editable?.orNone ? ", or none" : ""}`;
     case "offStep":
       return `${name} must be a multiple of ${editable?.step}`;
+  }
+}
+
+function kindText(field: EditableSettingsField | undefined): string {
+  switch (field?.kind) {
+    case "onOff":
+      return "on or off";
+    case "number":
+      return "a number";
+    case "timeOfDay":
+    case "hoursMinutes":
+      return "a time of day";
+    default:
+      return field?.orNone ? "a whole number, or none" : "a whole number";
   }
 }
 
@@ -396,6 +500,7 @@ function fieldRefusal(field: SettingsField | undefined, value: unknown, role: Se
   if (!field) return "unknown";
   if (!isEditable(field)) return "readOnly";
   if (field.editableBy === "admin" && role !== "admin") return "notAllowed";
+  if (value === null && field.orNone) return undefined;
   switch (field.kind) {
     case "onOff":
       return typeof value === "boolean" ? undefined : "invalid";
@@ -405,6 +510,10 @@ function fieldRefusal(field: SettingsField | undefined, value: unknown, role: Se
     case "timeOfDay":
       if (typeof value !== "number" || !Number.isInteger(value)) return "invalid";
       return inRange(field, value) ? undefined : "outOfRange";
+    case "hoursMinutes":
+      return isHoursMinutes(value) ? undefined : "invalid";
+    case "weekdays":
+      return Array.isArray(value) && value.every((day, index) => Number.isInteger(day) && day >= 1 && day <= 7 && (index === 0 || day > value[index - 1])) ? undefined : "invalid";
     // Only shown, as no editable field is one.
     case "localTime":
     // Added, changed and deleted one at a time, never set as a field.
@@ -415,6 +524,12 @@ function fieldRefusal(field: SettingsField | undefined, value: unknown, role: Se
       if (!inRange(field, value)) return "outOfRange";
       return field.step === undefined || onStep(value, field.step) ? undefined : "offStep";
   }
+}
+
+/** Whether a value is a time of day written HH:MM, 00:00 to 23:59, as Decaid writes a wake schedule's. */
+export function isHoursMinutes(value: unknown): value is string {
+  const match = typeof value === "string" ? /^(\d\d):(\d\d)$/.exec(value) : null;
+  return match !== null && Number(match[1]) < 24 && Number(match[2]) < 60;
 }
 
 function inRange(field: EditableSettingsField, value: number): boolean {

@@ -1,5 +1,5 @@
 import type { SettingsField } from "@decent-sync/protocol";
-import { inTabletTime, localTimeText, timeOfDayText } from "@/lib/tablet-time";
+import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText } from "@/lib/tablet-time";
 
 // How the Settings card writes a Machine's or Tablet's settings values.
 
@@ -7,18 +7,37 @@ import { inTabletTime, localTimeText, timeOfDayText } from "@/lib/tablet-time";
  * A field's value as its definition shows it: a choice by its label, a time
  * of day as hours and minutes, a local time as its date and time, each in
  * the Tablet's own time and labelled with its UTC offset where it is known,
- * and a number with its unit. A value that is none of these, such as a
- * choice not offered, is shown as it is (`valueText`).
+ * a wake schedule's days by their names, and a number with its unit. A
+ * value that is none of these, such as a choice not offered, is shown as it
+ * is (`valueText`).
  */
 export function fieldText(field: SettingsField, value: unknown, utcOffsetMinutes: number | null = null): string {
   if (field.kind === "choice" && "choices" in field) {
     const choice = field.choices?.find((offered) => offered.value === value);
     if (choice) return choice.label;
   }
-  const time = field.kind === "timeOfDay" ? timeOfDayText(value) : field.kind === "localTime" ? localTimeText(value) : undefined;
+  const time =
+    field.kind === "timeOfDay"
+      ? timeOfDayText(value)
+      : field.kind === "hoursMinutes"
+        ? timeOfDayText(timeOfDayMinutes(value))
+        : field.kind === "localTime"
+          ? localTimeText(value)
+          : undefined;
   if (time !== undefined) return inTabletTime(time, utcOffsetMinutes);
+  if (field.kind === "weekdays") return daysText(value);
   if (typeof value === "number" && field.unit) return `${valueText(value)} ${field.unit}`;
   return valueText(value);
+}
+
+/** The ISO days of the week, Monday 1 to Sunday 7, as a wake schedule names them. */
+export const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/** A wake schedule's days, as Streamline's settings page names them: none chosen is every day, as Decaid takes it. */
+export function daysText(days: unknown): string {
+  if (!Array.isArray(days)) return valueText(days);
+  if (days.length === 0) return "Every day";
+  return days.map((day: unknown) => (typeof day === "number" && WEEKDAYS[day - 1]) || valueText(day)).join(", ");
 }
 
 /**

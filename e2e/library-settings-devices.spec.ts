@@ -183,13 +183,13 @@ test("the Settings card shows a Tablet's presence settings and wake schedules un
     ["Kept awake until", "Oct 26, 2026, 08:30 (UTC+5:30)", "Set while a wake schedule keeps the Machine awake"],
   ]);
   const schedules = presenceSettings.getByRole("table", { name: "Wake schedules" });
-  await expect(schedules.getByRole("columnheader")).toHaveText(["Time", "Days", "On", "Keeps awake for"]);
+  // An Admin may change them (settings-edits.spec.ts): each schedule has Edit and Delete, and an Add button follows.
+  await expect(schedules.getByRole("columnheader")).toHaveText(["Time", "Days", "On", "Keeps awake for", "Actions"]);
   await expect(rows(presenceSettings)).toHaveText([
-    ["06:30 (UTC+5:30)", "Mon, Wed, Fri", "On", "120 min"],
-    ["21:15 (UTC+5:30)", "Every day", "Off", "None"],
+    ["06:30 (UTC+5:30)", "Mon, Wed, Fri", "On", "120 min", ""],
+    ["21:15 (UTC+5:30)", "Every day", "Off", "None", ""],
   ].map((cells) => cells.join("")));
-  // Presence settings can't be edited yet.
-  await expect(presenceSettings.getByRole("button", { name: /^Edit/ })).toHaveCount(0);
+  await expect(presenceSettings.getByRole("button", { name: "Add", exact: true })).toBeEnabled();
 });
 
 test("the Versions card shows the DYE2 and Streamline on the tablet, follows their changes, and keeps them while the Machine is offline", async ({ page }) => {
