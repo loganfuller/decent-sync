@@ -1,4 +1,4 @@
-import { MAX_HARDWARE_LENGTH, dye2SelectionOf, realHardware, type Hardware } from "@decent-sync/protocol";
+import { MAX_HARDWARE_LENGTH, dye2RecipeIdOf, realHardware, type Hardware } from "@decent-sync/protocol";
 
 /** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
 export function extractShot(record: unknown) {
@@ -7,15 +7,13 @@ export function extractShot(record: unknown) {
   const context = object(workflow.context);
   const profile = object(workflow.profile);
   const annotations = object(shot.annotations);
-  const selection = dye2SelectionOf(workflow);
   return {
     beanBatchId: string(context.beanBatchId),
     grinderId: string(context.grinderId),
     grinderBurrs: string(context.grinderBurrs),
     basketId: shotBasketId(annotations, context),
     toolIds: shotToolIds(annotations, context),
-    recipeSlot: selection.slot,
-    selectionNamed: selection.named,
+    recipeRecordId: dye2RecipeIdOf(workflow),
     coffeeName: string(context.coffeeName),
     coffeeRoaster: string(context.coffeeRoaster),
     profileTitle: string(profile.title),

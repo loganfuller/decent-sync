@@ -1,11 +1,12 @@
 import {
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
+  RECIPE_SLOT_FIELD,
   STEAM_ON_FROM,
   dye2GlobalIdOf,
   dye2Records,
-  isSlotId,
   profileAtBrewTemperature,
+  recipeSlotOf,
   sameValue,
   workflowPatch,
 } from "@decent-sync/protocol";
@@ -29,7 +30,9 @@ import { type FieldEdits, changedFields } from "./merge.js";
 // derives (`title`, `subtitle`, the embedded `workflow`, the names it copies
 // and `profileSnapshot`), and the barista and drinker, which a Recipe never
 // carries, are written but never taken in. A setting the Recipe holds none
-// of is written blank, so applying the record leaves the Machine's own.
+// of is written blank, so applying the record leaves the Machine's own. A
+// record's Recipe Slot (`stripSlot`) is its Location's state, not its
+// content: a tablet's change of it moves the Recipe (`slotMove`).
 
 const DV = "dashboardVariables";
 
@@ -47,6 +50,7 @@ const RECIPE_PATHS = [
   "profileTitle",
   "profileSnapshot",
   "showOnStreamlineDashboard",
+  RECIPE_SLOT_FIELD,
   `${DV}.dose`,
   `${DV}.drink`,
   `${DV}.ratio`,
@@ -91,7 +95,7 @@ const EDITED: Readonly<Record<string, string>> = {
   ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting])),
 };
 
-/** The path of a recipe record holding its steam temperature, which DYE2 records and saves as 0 for steam off. */
+/** The path of a recipe record holding its steam temperature, which DYE2's editor saves as 0 for steam off. */
 const STEAM_TEMPERATURE_PATH = `${DV}.${RECIPE_SETTINGS.steamTemperature.dye2}`;
 
 /** The paths a barista edits, which are taken in as edits of the Recipe: but those DYE2 derives, the barista and drinker, and the server's own field. */
@@ -109,7 +113,7 @@ export const EDITED_PATHS: ReadonlySet<string> = new Set([
 
 /** A recipe's record as a tablet reported it, one Decent Sync can take in. */
 export interface ReportedRecipe {
-  /** Its id on the tablet: its Recipe Slot. */
+  /** Its id on the tablet: its record id, the same on every tablet at its Recipe's Location. */
   localId: string;
   /** The global id its own field carries, if any. */
   globalId: string | null;
@@ -122,15 +126,15 @@ export interface ReportedRecipe {
 /**
  * The records of a reported list of recipes that Decent Sync can take in,
  * each with when the plugin first read it, as it placed it beside the list;
- * none from a list in a shape it does not recognise (`dye2Records`), as one
- * whose ids are not slot numbers. A record without a time is left out.
+ * none from a list in a shape it does not recognise (`dye2Records`). A
+ * record without a time is left out.
  */
 export function readReportedRecipes(value: unknown, updatedAt: readonly (string | null)[] | undefined): ReportedRecipe[] {
-  const records = dye2Records(value, "recipes");
+  const records = dye2Records(value);
   if (records === null) return [];
   return records.flatMap((record, index) => {
     const time = updatedAt?.[index];
-    if (!time || !isSlotId(record.id)) return [];
+    if (!time || typeof record.id !== "string") return [];
     return [{ localId: record.id, globalId: dye2GlobalIdOf(record), updatedAt: new Date(time), record }];
   });
 }
@@ -199,8 +203,9 @@ export interface IntakeContext {
  * content now (empty for a new one):
  *
  * - its Bean and Bean Batch, by the tablet's map: the batch the record
- *   holds with its Bean, as DYE2's editor saves one picked with it; or, for
- *   a record holding none, or one of another Bean, the Recipe's kept where
+ *   holds with its Bean, as DYE2's editor saves one picked with it, or with
+ *   none, as its `save-recipe` saves one from the Workflow; or, for a record
+ *   holding none, or one of another Bean, the Recipe's kept where
  *   it is of that Bean, and otherwise that Bean's batch most recently added
  *   at the Location, or none (ADR-0005);
  * - its Profile, by `profileId`, or else the Library Profile its
@@ -212,8 +217,9 @@ export interface IntakeContext {
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
  * - its steam temperature, but one below STEAM_ON_FROM, which is steam
- *   off, as DYE2's editor saves "Off" as 0 and DYE2 records a Machine's
- *   steam turned off: steam on and off is each Machine's own (`steamOffPaths`);
+ *   off, as DYE2's editor saves "Off" as 0: steam on and off is each
+ *   Machine's own (`steamOffPaths`), and DYE2 saves none of the steam
+ *   settings from a Workflow whose steam is off;
  * - and the rest of its dial and settings as they are, one the record holds
  *   none of holding none.
  *
@@ -225,10 +231,12 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   const changed = new Set(fields);
   for (const [path, field] of Object.entries(EDITED)) if (changed.has(path)) values[field] = view[path] ?? null;
   if (changed.has("beanId") || changed.has("beanBatchId")) {
-    const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : null;
-    if (changed.has("beanId")) values.beanId = beanId;
     // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27).
     const picked = typeof view.beanBatchId === "string" ? (ids.item("beanBatch", view.beanBatchId) ?? null) : null;
+    // A record naming a batch and no Bean, as DYE2's `save-recipe` saves one from the Workflow, names the batch's Bean.
+    const fromBatch = typeof view.beanId !== "string" && picked !== null ? (context.batchBeans.get(picked) ?? null) : null;
+    const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : fromBatch;
+    if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
     const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
     if (picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId) values.beanBatchId = picked;
     else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
@@ -318,9 +326,8 @@ export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext
 /**
  * The paths of a tablet's changes of its record (`changed`, its paths with
  * their values) that turn steam off, which is no edit of the Recipe: a steam
- * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off" and
- * DYE2 records as a Machine's steam is turned off. The Recipe's is written
- * back over it (ADR-0022).
+ * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off". The
+ * Recipe's is written back over it (ADR-0022).
  */
 export function steamOffPaths(changed: Readonly<Record<string, unknown>>): string[] {
   const value = changed[STEAM_TEMPERATURE_PATH];
@@ -330,21 +337,6 @@ export function steamOffPaths(changed: Readonly<Record<string, unknown>>): strin
 /** The paths a barista edited, of those `changed` names (`editedContent` in equipment-intake.ts), that are edits of the Recipe. */
 export function editedPaths(changed: Readonly<Record<string, unknown>>): string[] {
   return Object.keys(changed).filter((path) => EDITED_PATHS.has(path));
-}
-
-/**
- * What `before_write` holds for a Recipe's record the server put in a slot
- * it removed another record from (`removed`, both by their paths): each
- * field the record (`record`) holds otherwise, with the value the removed
- * one held, so a save from a page opened on that one, which DYE2 saves over
- * the record in the slot, takes what it set back as unchanged (ADR-0005). A
- * field both hold is left out: a page saving it saves the record's own
- * value, and a later write of it keeps its value before that write as any
- * other does. Null if they hold the same.
- */
-export function heldBeforeReplaced(removed: RecipeView, record: RecipeView): Record<string, unknown> | null {
-  const differing = Object.keys(changedFields(removed, record));
-  return differing.length === 0 ? null : Object.fromEntries(differing.map((field) => [field, removed[field] ?? null]));
 }
 
 /**
@@ -397,8 +389,10 @@ export interface WriteContext {
 }
 
 /**
- * The record a tablet holds of a Recipe in a slot, by the paths the server
- * writes (`RECIPE_PATHS`): its content, naming its Bean, Bean Batch,
+ * The record a tablet holds of a Recipe in a slot, or none (null), by the
+ * paths the server writes (`RECIPE_PATHS`): its Recipe Slot as
+ * RECIPE_SLOT_FIELD, null for none, as DYE2 holds one, which Streamline
+ * places it on its strip by; its content, naming its Bean, Bean Batch,
  * Grinder, Basket and Tools by the tablet's ids, and its Profile by
  * Decaid's, each left out where the tablet holds no record of it, and the
  * names DYE2 copies from them; its full Profile in `profileSnapshot`, so it
@@ -409,7 +403,7 @@ export interface WriteContext {
  * and `title`, `subtitle` and the embedded `workflow` as DYE2 derives them
  * (`recipeWorkflow`).
  */
-export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number, context: WriteContext, recipeId: string): RecipeView {
+export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: number | null, context: WriteContext, recipeId: string): RecipeView {
   const { ids } = context;
   const id = (key: string) => (typeof content[key] === "string" ? (content[key] as string) : null);
   const local = (kind: Parameters<TabletIds["local"]>[0], itemId: string | null) => (itemId === null ? null : (ids.local(kind, itemId) ?? null));
@@ -443,6 +437,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     profileTitle: profile && typeof profile.title === "string" ? profile.title : null,
     profileSnapshot: profile ?? null,
     showOnStreamlineDashboard: value("showOnDashboard"),
+    [RECIPE_SLOT_FIELD]: slot,
     [`${DV}.dose`]: value("dose"),
     [`${DV}.drink`]: value("yield"),
     [`${DV}.ratio`]: value("ratio"),
@@ -464,7 +459,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     [`${DV}.equipmentCustom`]: custom,
   };
   const name = typeof view.name === "string" ? view.name : "";
-  view.title = name !== "" ? name : `Recipe ${slot}`;
+  view.title = name !== "" ? name : slot === null ? "Recipe" : `Recipe ${slot}`;
   view.subtitle = [view.beanName, view.beverage].find((text) => typeof text === "string" && text !== "") ?? "";
   view.workflow = recipeWorkflow(view);
   return view;
@@ -481,14 +476,16 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
  * DYE2's `buildRecipeWorkflow` builds it (dye2:dye2-plugin/src/utils/dev-api.ts
- * at 2cf631c) from the record's fields: its dose, yield (or its dose times
+ * at v0.1.26) from the record's fields: its dose, yield (or its dose times
  * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
  * barista and drinker, each only where the record holds one; its coffee,
  * roaster and Bean Batch together where it names a Bean, each null where it
  * holds none, so applying it clears a batch the Workflow held; and its full
- * Profile where it names one, at its brew temperature, as Streamline
- * applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26); and each steam, hot water and flush setting the
+ * Profile where it names one with steps, at its brew temperature, as
+ * Streamline applies the profile as it is (`profileAtBrewTemperature`,
+ * decentespresso/dye2#26), none where it holds no full Profile, as a stub
+ * of its id and title would merge into the Workflow's profile and rename its
+ * steps; and each steam, hot water and flush setting the
  * record holds, in partial `steamSettings`, `hotWaterData` and `rinseData`,
  * none where it holds none of them (`recipeMachineSettings`). DYE2's flags
  * of the fields it sets are left out.
@@ -520,7 +517,7 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
     const snapshot = view.profileSnapshot;
     const brewTemperature = at("brewC");
     const shifted = isObject(snapshot) && typeof brewTemperature === "number" ? profileAtBrewTemperature(snapshot, brewTemperature) : null;
-    workflow.profile = isObject(snapshot) && Array.isArray(snapshot.steps) ? (shifted ?? snapshot) : { id: view.profileId, title: view.profileTitle };
+    if (isObject(snapshot) && Array.isArray(snapshot.steps) && snapshot.steps.length > 0) workflow.profile = shifted ?? snapshot;
   }
   const settings = RECIPE_SETTING_NAMES.flatMap((setting) => (present(at(RECIPE_SETTINGS[setting].dye2)) ? [[RECIPE_SETTINGS[setting].workflow, at(RECIPE_SETTINGS[setting].dye2)]] : []));
   return { ...workflow, ...workflowPatch(Object.fromEntries(settings)) };
@@ -552,20 +549,20 @@ export function holdsRecipe(view: Readonly<RecipeView>, written: Readonly<Recipe
 
 /** One thing a report of a tablet's recipes changes. */
 export type RecipeIntakeStep =
-  /** The tablet's record in a slot the map holds as a Recipe's differs from the one known: the barista's edit of that Recipe. */
+  /** The tablet's record the map holds as a Recipe's differs from the one known: the barista's edit of that Recipe. */
   | { kind: "update"; itemId: string; reported: ReportedRecipe }
   /**
-   * The tablet holds the Recipe's record, which is written over, not taken in: the Location's Recipe in its slot as the
-   * server wrote it, which the map did not know, as after a lost answer; or a record of it the map holds that carries
-   * another item's global id, or is of another Location's Recipe.
+   * The tablet holds the Recipe's record, which is written over, not taken in: the Location's Recipe as the server wrote
+   * it, which the map did not know, as after a lost answer; or a record of it the map holds that carries another item's
+   * global id, or is of another Location's Recipe.
    */
   | { kind: "map"; itemId: string; reported: ReportedRecipe }
-  /** A record the map does not hold in a slot of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field with Conflicts. */
+  /** A record the map does not hold under the record id of the Location's Recipe: saved there on the tablet, an edit of that Recipe, merged per field with Conflicts. */
   | { kind: "edit"; itemId: string; reported: ReportedRecipe }
-  /** A record the map does not hold in a slot the Location leaves empty: a new Recipe there. */
+  /** A record the map does not hold, of an id no Recipe of the Location has: a new Recipe there, with that record id. */
   | { kind: "add"; reported: ReportedRecipe }
-  /** A record the map holds, listed before, is gone from the tablet's list: its Recipe is taken out of that slot at the tablet's Location, and kept (ADR-0019). */
-  | { kind: "delete"; itemId: string; localId: string; updatedAt: Date | null }
+  /** A record the map holds, listed before, is gone from the tablet's list: its Recipe is taken out of its slot at the tablet's Location, and kept (ADR-0019). */
+  | { kind: "delete"; itemId: string; localId: string; updatedAt: Date | null; record: Record<string, unknown> }
   /** A record the server's write created is gone before any report listed it: lost to another app rewriting the list, so it is written again. */
   | { kind: "forget"; itemId: string; localId: string };
 
@@ -575,41 +572,32 @@ export interface MappedRecipe {
   localId: string;
   updatedAt: Date | null;
   record: Record<string, unknown>;
-  beforeWrite: Record<string, unknown> | null;
   listed: boolean;
 }
 
 /**
- * What a report of the tablet's recipes changes, decided by slot, as a
- * recipe's id on a tablet is its Recipe Slot (ADR-0005), against the
- * Location's slotted Recipes (`slots`, each Recipe by its slot's id). A
- * record the map holds by its slot stays that Recipe's: one that differs
- * from the record known is the barista's edit of it, but one carrying
- * another item's global id, as one a backup restored, or of another
- * Location's Recipe, is written over. One of the Location's (`own`) no
- * longer in that slot, moved to another, taken out of its slot or Archived
- * since, as in the management interface, is still the Recipe the barista
- * edited there, when the record carries its global id, or none where the
- * map's record of it carried none either: the save is
- * its edit, and the writer then moves the record to its slot or removes it,
- * so an edit made on a tablet not yet written the change is kept, and never
- * taken as an edit of another Recipe put in that slot since. Any other record is in
- * the slot of the Location's Recipe there, if any: the record carrying its
- * global id is its record, as when the answer to its write was lost, and
- * any other was saved in that slot on the tablet, an edit of it; unless the
- * tablet still holds that Recipe in another slot, which is written first.
- * A record in a slot the Location leaves empty is a new Recipe there.
+ * What a report of the tablet's recipes changes, decided by record id, as a
+ * recipe's id is the same on every tablet at its Recipe's Location
+ * (ADR-0005), against the Location's Recipes (`recordIds`, each not
+ * Archived by its record id; `own`, all of them). A record the map holds
+ * stays that Recipe's: one that differs from the record known is the
+ * barista's edit of it, but one carrying another item's global id, as one a
+ * backup restored, or of another Location's Recipe, is written over. A
+ * record the map does not hold under the record id of one of the Location's
+ * Recipes is that Recipe's: the record carrying its global id is its record,
+ * as when the answer to its write was lost, and any other was saved under
+ * that id on the tablet, an edit of it. Any other record is a new Recipe.
  * Recipes are never matched (ADR-0018). Last, each record the map holds
- * whose slot the list no longer holds (`listed`, every id the list holds,
- * read or not): deleted on the tablet if a report listed it before, and
- * otherwise lost to another app rewriting the list, which the map forgets.
+ * that the list no longer holds (`listed`, every id the list holds, read or
+ * not): deleted on the tablet if a report listed it before, and otherwise
+ * lost to another app rewriting the list, which the map forgets.
  */
 export function planRecipeIntake(
   reported: readonly ReportedRecipe[],
   mapped: readonly MappedRecipe[],
-  slots: ReadonlyMap<string, string>,
+  recordIds: ReadonlyMap<string, string>,
   listed: ReadonlySet<string> = new Set(reported.map((record) => record.localId)),
-  own: ReadonlySet<string> = new Set(slots.values()),
+  own: ReadonlySet<string> = new Set(recordIds.values()),
 ): RecipeIntakeStep[] {
   const byLocalId = new Map(mapped.map((record) => [record.localId, record]));
   /** The Recipes the tablet holds a record of that it still lists. */
@@ -617,9 +605,7 @@ export function planRecipeIntake(
   const steps: RecipeIntakeStep[] = [];
   for (const record of reported) {
     const mine = byLocalId.get(record.localId);
-    const slotted = slots.get(record.localId);
-    // That Recipe's record, unless it is a save in a slot the Location's Recipe has left: one unchanged the writer removes.
-    if (mine && (sameValue(mine.record, record.record) || !own.has(mine.itemId) || mine.itemId === slotted)) {
+    if (mine) {
       if (sameValue(mine.record, record.record)) continue;
       // Another Location's Recipe, or a record carrying another item's global id, as one a backup restored, is no edit of
       // it: it is written over.
@@ -627,27 +613,42 @@ export function planRecipeIntake(
       steps.push({ kind: foreign ? "map" : "update", itemId: mine.itemId, reported: record });
       continue;
     }
-    // The Location's Recipe moved, taken out of its slot or Archived since, its record saved in the slot it left: the
-    // barista's edit of it, whatever is in that slot now.
-    // A record with no global id is its only where the map's record of it had none either, as before the server wrote it.
-    if (mine && own.has(mine.itemId) && (record.globalId === mine.itemId || (record.globalId === null && dye2GlobalIdOf(mine.record) === null))) {
-      steps.push({ kind: "update", itemId: mine.itemId, reported: record });
-      continue;
-    }
-    if (slotted === undefined) {
+    const recipe = recordIds.get(record.localId);
+    if (recipe === undefined) {
       steps.push({ kind: "add", reported: record });
-    } else if (!held.has(slotted)) {
-      held.add(slotted);
-      steps.push({ kind: record.globalId === slotted ? "map" : "edit", itemId: slotted, reported: record });
+    } else if (!held.has(recipe)) {
+      held.add(recipe);
+      steps.push({ kind: record.globalId === recipe ? "map" : "edit", itemId: recipe, reported: record });
     }
   }
   for (const record of mapped) {
     if (listed.has(record.localId)) continue;
     steps.push(
       record.listed
-        ? { kind: "delete", itemId: record.itemId, localId: record.localId, updatedAt: record.updatedAt }
+        ? { kind: "delete", itemId: record.itemId, localId: record.localId, updatedAt: record.updatedAt, record: record.record }
         : { kind: "forget", itemId: record.itemId, localId: record.localId },
     );
   }
   return steps;
+}
+
+/** A tablet's move of a Recipe at its Location: out of the Recipe Slot its record known was in (`from`), into another (`to`) or none. */
+export interface SlotMove {
+  itemId: string;
+  from: number | null;
+  to: number | null;
+  /** When the plugin first read the record moved, as its edits are timed. */
+  at: Date;
+}
+
+/**
+ * The tablet's change of a record's Recipe Slot (RECIPE_SLOT_FIELD), from
+ * the record known (`known`, none for a record new to the map) to the one
+ * reported, as DYE2's editor moves a recipe on the strip or takes it off,
+ * which moves its Recipe at its Location; null where it is unchanged.
+ */
+export function slotMove(itemId: string, known: Readonly<Record<string, unknown>> | null, reported: ReportedRecipe): SlotMove | null {
+  const from = known === null ? null : recipeSlotOf(known);
+  const to = recipeSlotOf(reported.record);
+  return from === to ? null : { itemId, from, to, at: reported.updatedAt };
 }

@@ -359,7 +359,6 @@ model Tablet {
   baskets      TabletBasket[]
   tools        TabletTool[]
   recipes      TabletRecipe[]
-  removed      TabletRemovedRecipe[]
   unrecognised TabletUnrecognisedList[]
   itemVersions ItemVersion[]
   conflicts    Conflict[]
@@ -501,19 +500,12 @@ model Shot {
   /// the Basket's link is, so a Tool a Shot used stays named once its record
   /// leaves the tablet; read by hard deletes only.
   libraryToolIds   String[]          @default([]) @map("library_tool_ids")
-  /// The Recipe its Workflow's DYE2 selection named (ADR-0022), by the slot
-  /// of the recipe it named, through its tablet's map, kept while it names
-  /// the same slot; for a Shot whose selection named nothing, the Recipe its
-  /// Machine had loaded latest by its end as it was stored. The Shot is
-  /// linked to it only where its Machine had it loaded as it was pulled
-  /// (server/src/shots/links.ts), which is read, not stored.
+  /// The Recipe its Workflow named (ADR-0022), by the id of its tablet's
+  /// record of it (`context.extras.dye.recipeId`), through that tablet's map,
+  /// kept while it names the same id. The Shot is linked to it only where its
+  /// Machine had it loaded as it was pulled (server/src/shots/links.ts),
+  /// which is read, not stored.
   recipeId         String?           @map("recipe_id") @db.Uuid
-  /// Whether its Workflow's DYE2 selection named an item, a recipe or a
-  /// favourite: one naming nothing, as while the plugin selects the slot
-  /// again after its own write, names the Recipe its Machine had loaded
-  /// latest by its end (`recipeId`), and is linked to it where that was still
-  /// loaded as it ended.
-  selectionNamed   Boolean           @default(false) @map("selection_named")
   coffeeName       String?           @map("coffee_name")
   coffeeRoaster    String?           @map("coffee_roaster")
   profileTitle     String?           @map("profile_title")
@@ -1252,17 +1244,25 @@ model TabletTool {
 }
 
 /// A Recipe (ADR-0005): a named, saved dial-in for a coffee, belonging to
-/// one Location, in one of its Recipe Slots or none. DYE2 keeps the
-/// Location's slotted Recipes in its `recipes` list on each tablet there,
-/// under their slot numbers. Recipes are never matched (ADR-0018).
+/// one Location, in one of its Recipe Slots or none. DYE2 keeps every Recipe
+/// of the Location that is not Archived in its `recipes` list on each tablet
+/// there, under its record id. Recipes are never matched (ADR-0018).
 model Recipe {
   id         String    @id @default(uuid(7)) @db.Uuid
   /// The Location it belongs to: where its first tablet saved it.
   locationId String?   @map("location_id") @db.Uuid
   location   Location? @relation(fields: [locationId], references: [id], onDelete: SetNull)
-  /// Its Recipe Slot at its Location, a positive whole number unique among
-  /// the Location's slotted Recipes, with no upper limit; null for none, as
-  /// once a tablet removed it from its list (ADR-0019).
+  /// The id of its record in DYE2's `recipes` on every tablet at its
+  /// Location, which never changes: DYE2's id for it on the tablet it was
+  /// saved on, its slot's number for one saved before DYE2 v0.1.25, or a new
+  /// UUID for one made in the management interface. Unique among the
+  /// Location's Recipes not Archived (a partial unique index in the
+  /// migration).
+  recordId   String    @map("record_id")
+  /// Its Recipe Slot at its Location, a button of Streamline's DYE strip,
+  /// 1 to 5 (RECIPE_SLOTS in `protocol/`), unique among the Location's
+  /// Recipes; null for none, as for one a tablet took off the strip or
+  /// removed from its list (ADR-0019).
   slot       Int?
   /// What it holds, in the Library's terms (`recipeContent` in
   /// recipe-intake.ts): its name, beverage, Bean, Bean Batch, Profile,
@@ -1301,12 +1301,6 @@ model LoadedRecipe {
   loadedAt   DateTime  @map("loaded_at") @db.Timestamptz(3)
   /// The same way; null while it is the Machine's Loaded Recipe.
   unloadedAt DateTime? @map("unloaded_at") @db.Timestamptz(3)
-  /// What the plugin's write of the load replaced in the Workflow, by part
-  /// (LOADED_RECIPE_PARTS in `protocol/`), each `{ before, written }` as
-  /// `WorkflowDelivery.loadBefore` carries it: a part set back to its
-  /// `before` is stale (ADR-0022). Null once the Machine's first espresso
-  /// since the load was delivered, or for a load the plugin wrote nothing for.
-  loadBefore Json?     @map("load_before") @db.JsonB
 
   @@index([machineId, id])
   @@index([recipeId])
@@ -1316,24 +1310,40 @@ model LoadedRecipe {
   @@map("loaded_recipes")
 }
 
-/// The Loaded Recipe each tablet's Workflow last named (ADR-0022, ticket
-/// #146), with the parts of it that follow the Recipe as the Workflow held
-/// them, reported or as Decaid returned the plugin's write of them, so the
-/// plugin's own write is never read as the tablet's edit. A Recipe's field
-/// that differs from them is written into the Workflow; and a Recipe named
-/// that is not its Machine's Loaded Recipe, as one taken out of its slot, is
-/// cleared from the Workflow. DYE2 records a change of them into the
-/// Recipe's record (#173).
+/// The recipe each tablet's Workflow last named (ADR-0022), by the id of its
+/// record there, and the Recipe that record is, by the tablet's map, null
+/// while the map holds no record of that id yet, as for one DYE2's
+/// `save-recipe` made and named at once: the Recipe is loaded once the map
+/// gains it. With the parts of the Workflow that follow the Recipe as it last
+/// held them, reported or as Decaid returned the plugin's write of them, so
+/// the plugin's own write is never read as the tablet's edit, and the
+/// Recipe's parts as the Workflow last took them: a part of the Recipe that
+/// changed since and that the Workflow holds otherwise is written into it,
+/// and a Recipe named that is not its Machine's Loaded Recipe, as one
+/// Archived, is cleared from the Workflow.
 model TabletLoadedRecipe {
   tabletId      String    @id @map("tablet_id") @db.Uuid
   tablet        Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// The Recipe's global id, as the Workflow names it, whether or not the
-  /// Library has it, so a clear stays due for one deleted.
-  recipeId      String    @map("recipe_id") @db.Uuid
+  /// The id of the tablet's record of the recipe, as the Workflow names it.
+  recordId      String    @map("record_id")
+  /// The Recipe's global id, by the map, whether or not the Library still
+  /// has it, so a clear stays due for one deleted; null while the map holds
+  /// no record of `recordId`.
+  recipeId      String?   @map("recipe_id") @db.Uuid
+  /// When the plugin observed the Workflow first naming `recordId`, by the
+  /// tablet's clock, kept while its later Workflows name it: when a Recipe
+  /// the map gains later is loaded from.
+  namedAt       DateTime  @map("named_at") @db.Timestamptz(3)
   /// Each part, by its name in LOADED_RECIPE_PARTS (`protocol/`), as the
   /// Workflow held it: a number, the grind setting's text, or the tablet's id
   /// for its Basket or Bean Batch; null for none.
   held          Json      @db.JsonB
+  /// Each part of the Recipe as the Workflow last took it, written there or
+  /// held already, as `held` names them: a part of the Recipe that differs
+  /// from it changed since, and is due where the Workflow holds otherwise. A
+  /// part it does not name is due wherever the Workflow holds otherwise, as
+  /// on a load.
+  base          Json      @default("{}") @db.JsonB
 
   @@index([recipeId])
   @@map("tablet_loaded_recipes")
@@ -1346,16 +1356,14 @@ model TabletRecipe {
   tablet          Tablet    @relation(fields: [tabletId], references: [id], onDelete: Cascade)
   recipeId        String    @map("recipe_id") @db.Uuid
   recipe          Recipe    @relation(fields: [recipeId], references: [id], onDelete: Cascade)
-  /// DYE2's id for the record on that tablet: the Recipe Slot it was in there.
+  /// DYE2's id for the record on that tablet: its Recipe's record id, for a
+  /// Recipe of the tablet's Location.
   localId         String    @map("local_id")
   /// The record, as the tablet reported it or the plugin wrote it.
   record          Json      @db.JsonB
   /// When the plugin first read the record's content, placed in UTC, as
   /// `TabletBasket.recordUpdatedAt`.
   recordUpdatedAt DateTime? @map("record_updated_at") @db.Timestamptz(3)
-  /// Each field the server wrote, by its path, as the tablet held it just
-  /// before the server's latest write to it, as `TabletBasket.beforeWrite`.
-  beforeWrite     Json?     @map("before_write") @db.JsonB
   /// Whether a report has listed the record since the server's write that
   /// created it, as `TabletBasket.listed`.
   listed          Boolean   @default(true)
@@ -1366,25 +1374,6 @@ model TabletRecipe {
   @@unique([tabletId, localId])
   @@index([recipeId])
   @@map("tablet_recipes")
-}
-
-/// The record a tablet held in a Recipe Slot of DYE2's `recipes` list when
-/// the server removed it there, as its Recipe left the slot or its Machine
-/// left the Location, kept until a report lists that slot again. A Recipe's
-/// record the server then creates in the slot takes each field it held
-/// otherwise as the tablet's just before that write
-/// (`TabletRecipe.beforeWrite`), so a save from a page opened on the record
-/// removed keeps the new Recipe's fields it did not change (ADR-0005).
-model TabletRemovedRecipe {
-  tabletId String @map("tablet_id") @db.Uuid
-  tablet   Tablet @relation(fields: [tabletId], references: [id], onDelete: Cascade)
-  /// DYE2's id for the record on that tablet: its Recipe Slot.
-  localId  String @map("local_id")
-  /// The record, as the tablet's map last held it.
-  record   Json   @db.JsonB
-
-  @@id([tabletId, localId])
-  @@map("tablet_removed_recipes")
 }
 
 /// One of DYE2's lists that a tablet last reported, or answered a write of,

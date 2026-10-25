@@ -1,0 +1,2771 @@
+{
+  "beans": [
+    {
+      "id": "b006ac6c-e061-44e5-9afe-9e297785257c",
+      "roaster": "Fixture Roasters",
+      "name": "Fixture Brazil",
+      "decaf": false,
+      "country": "Brazil",
+      "processing": "Natural",
+      "archived": false,
+      "createdAt": "2026-10-24T21:00:19.944944",
+      "updatedAt": "2026-10-24T21:00:19.944944"
+    },
+    {
+      "id": "2dec7277-95eb-4c35-9c95-242ced05ef58",
+      "roaster": "Fixture Roasters",
+      "name": "Fixture Ethiopia",
+      "decaf": false,
+      "country": "Ethiopia",
+      "processing": "Washed",
+      "archived": false,
+      "createdAt": "2026-10-24T21:00:19.934936",
+      "updatedAt": "2026-10-24T21:00:19.934936"
+    }
+  ],
+  "beanBatches": [
+    {
+      "id": "f4d73c51-7660-48ca-8deb-4c301443f2ce",
+      "beanId": "b006ac6c-e061-44e5-9afe-9e297785257c",
+      "roastDate": "2026-10-03T00:00:00.000",
+      "weight": 1000,
+      "weightRemaining": 1000,
+      "frozen": false,
+      "archived": false,
+      "createdAt": "2026-10-24T21:00:19.954849",
+      "updatedAt": "2026-10-24T21:00:19.954849"
+    },
+    {
+      "id": "78bfdaaf-0fe9-49f3-9db4-b7d6c1f514d7",
+      "beanId": "2dec7277-95eb-4c35-9c95-242ced05ef58",
+      "roastDate": "2026-10-01T00:00:00.000",
+      "weight": 1000,
+      "weightRemaining": 1000,
+      "frozen": false,
+      "archived": false,
+      "createdAt": "2026-10-24T21:00:19.949893",
+      "updatedAt": "2026-10-24T21:00:19.949893"
+    }
+  ],
+  "grinders": [
+    {
+      "id": "f3d11140-520f-4d6c-a4c9-d79c217dffc8",
+      "model": "Fixture Grinder 83",
+      "burrs": "Fixture 83mm flat",
+      "archived": false,
+      "settingType": "numeric",
+      "settingSmallStep": 0.5,
+      "settingBigStep": 1,
+      "rpmSmallStep": 50,
+      "rpmBigStep": 100,
+      "createdAt": "2026-10-24T21:00:19.963880",
+      "updatedAt": "2026-10-24T21:00:19.963880"
+    },
+    {
+      "id": "5099f7fa-aa07-4989-b578-25893800e507",
+      "model": "Fixture Grinder 64",
+      "burrs": "Fixture 64mm flat",
+      "archived": false,
+      "settingType": "numeric",
+      "settingSmallStep": 0.5,
+      "settingBigStep": 1,
+      "rpmSmallStep": 50,
+      "rpmBigStep": 100,
+      "createdAt": "2026-10-24T21:00:19.958877",
+      "updatedAt": "2026-10-24T21:00:19.958877"
+    }
+  ],
+  "profiles": [
+    {
+      "id": "profile:98fa00c191551b435845",
+      "profile": {
+        "version": "2",
+        "title": "Adaptive v3",
+        "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "Prefill",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": null,
+            "volume": 100,
+            "seconds": 5,
+            "weight": 0,
+            "temperature": 93,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": {
+              "value": 0,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Fill",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 3
+            },
+            "volume": 100,
+            "seconds": 12,
+            "weight": 0,
+            "temperature": 93,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": {
+              "value": 0,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Compressing",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": {
+              "type": "flow",
+              "condition": "under",
+              "value": 3
+            },
+            "volume": 100,
+            "seconds": 12,
+            "weight": 0,
+            "temperature": 88,
+            "sensor": "coffee",
+            "pressure": 3,
+            "limiter": {
+              "value": 0,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Dripping",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 88,
+            "sensor": "coffee",
+            "pressure": 0.1,
+            "limiter": {
+              "value": 0,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Pressurize",
+            "pump": "pressure",
+            "transition": "smooth",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 7.7
+            },
+            "volume": 100,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 88,
+            "sensor": "coffee",
+            "pressure": 11,
+            "limiter": {
+              "value": 3.5,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Extraction start",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 0
+            },
+            "volume": 0,
+            "seconds": 0,
+            "weight": 0,
+            "temperature": 88,
+            "sensor": "coffee",
+            "flow": 1.5,
+            "limiter": {
+              "value": 8.6,
+              "range": 0.6
+            }
+          },
+          {
+            "name": "Extraction",
+            "pump": "flow",
+            "transition": "smooth",
+            "exit": null,
+            "volume": 100,
+            "seconds": 60,
+            "weight": 0,
+            "temperature": 88,
+            "sensor": "coffee",
+            "flow": 3.5,
+            "limiter": {
+              "value": 8.6,
+              "range": 0.6
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 3,
+        "tank_temperature": 0
+      },
+      "metadataHash": "89838196dd39f5fd8d77bdfd789c6260ba8881dcab1d86f6b87754594f34ff96",
+      "compoundHash": "6b56e20d8646c14a6a3c77ffb4a4bc068d5c676787e5d7218e1551e43827e8ae",
+      "parentId": "profile:b73ce54592d667d00b31",
+      "visibility": "visible",
+      "isDefault": true,
+      "createdAt": "2026-10-24T21:00:15.720531",
+      "updatedAt": "2026-10-24T21:00:15.875585",
+      "metadata": {
+        "source": "bundled",
+        "filename": "best_practice_v3.json"
+      }
+    },
+    {
+      "id": "profile:39e939592679fb194706",
+      "profile": {
+        "version": "2",
+        "title": "Classic Italian espresso",
+        "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "preinfusion temp boost",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 2,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "preinfusion",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "forced rise without limit",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 3,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": null
+          },
+          {
+            "name": "rise and hold",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 32,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": {
+              "value": 4.5,
+              "range": 1
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 2,
+        "tank_temperature": 0
+      },
+      "metadataHash": "23bad881ee53339ee1fe1789a38ea9cb60a24b0268e1befe5f39c013bfceb6e7",
+      "compoundHash": "948484caf1d8737b7839a10deeeba53d1a919dab5b05eacb83748290712b5097",
+      "parentId": null,
+      "visibility": "visible",
+      "isDefault": true,
+      "createdAt": "2026-10-24T21:00:15.496377",
+      "updatedAt": "2026-10-24T21:00:15.496377",
+      "metadata": {
+        "source": "bundled",
+        "filename": "Classic_Italian_espresso.json"
+      }
+    }
+  ],
+  "workflow": {
+    "id": "2458adfb-f786-4f9b-9d52-af712d063048",
+    "name": "Workflow",
+    "description": "Description",
+    "profile": {
+      "version": "1.0",
+      "title": "Default",
+      "notes": "Default notes",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Free flow",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 120,
+          "weight": null,
+          "temperature": 90,
+          "sensor": "coffee",
+          "pressure": 7.5,
+          "limiter": null
+        }
+      ],
+      "target_volume": null,
+      "target_weight": null,
+      "target_volume_count_start": 0,
+      "tank_temperature": 0
+    },
+    "context": {
+      "targetDoseWeight": 18,
+      "targetYield": 36
+    },
+    "steamSettings": {
+      "targetTemperature": 150,
+      "duration": 50,
+      "flow": 0.8,
+      "stopAtTemperature": 0
+    },
+    "hotWaterData": {
+      "targetTemperature": 75,
+      "duration": 30,
+      "volume": 50,
+      "flow": 10
+    },
+    "rinseData": {
+      "targetTemperature": 90,
+      "duration": 10,
+      "flow": 6
+    }
+  },
+  "machineSettings": {
+    "fan": 55,
+    "usb": false,
+    "flushTemp": 25,
+    "flushTimeout": 10,
+    "flushFlow": 6,
+    "hotWaterFlow": 10,
+    "steamFlow": 0.8,
+    "tankTemp": 20,
+    "steamPurgeMode": 0
+  },
+  "bundledDye2": [
+    {
+      "id": "dye2.reaplugin",
+      "name": "Streamline/DYE2",
+      "author": "Streamline",
+      "description": "Bean, grinder, and equipment management for Decent Espresso",
+      "version": "0.1.4",
+      "apiVersion": 1,
+      "permissions": [
+        "log",
+        "api",
+        "emit",
+        "pluginStorage"
+      ],
+      "drivers": [],
+      "settings": {},
+      "api": [
+        {
+          "id": "dashboard",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinders",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinder-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bean-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "roasters",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "add-bean",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "profile-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "edit-shot",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-fav-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recipe-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "plotly",
+          "type": "http",
+          "data": {}
+        }
+      ],
+      "loaded": true,
+      "autoLoad": true,
+      "source": null,
+      "pendingUpdate": null
+    }
+  ],
+  "recipes": [
+    {
+      "name": "Fixture Ethiopia Espresso",
+      "beverage": "Fixture Flat White",
+      "barista": "Fixture Barista",
+      "drinker": "Fixture Drinker",
+      "beanId": "2dec7277-95eb-4c35-9c95-242ced05ef58",
+      "beanName": "Fixture Ethiopia",
+      "beanRoaster": "Fixture Roasters",
+      "profileId": "profile:98fa00c191551b435845",
+      "profileTitle": "Adaptive v3",
+      "showOnStreamlineDashboard": true,
+      "id": "1",
+      "capturedAt": "2026-10-20T10:00:01.000Z",
+      "dashboardVariables": {
+        "dose": 18,
+        "drink": 36,
+        "brewC": 92,
+        "steamMode": "time",
+        "steamTimeS": 30,
+        "flushS": 5,
+        "hotWaterMode": "temp",
+        "hotWaterTempC": 85,
+        "grind": 2.5,
+        "rpm": 900,
+        "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "8f9702df-a615-4942-84db-882137fedcce",
+        "basketName": "Fixture 18g Precision",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Ethiopia Espresso",
+      "subtitle": "Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "2.5",
+          "extras": {
+            "rpm": 900,
+            "basketId": "8f9702df-a615-4942-84db-882137fedcce",
+            "basketName": "Fixture 18g Precision",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "baristaName": true,
+              "drinkerName": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
+          },
+          "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeName": "Fixture Ethiopia",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null,
+          "baristaName": "Fixture Barista",
+          "drinkerName": "Fixture Drinker"
+        },
+        "profile": {
+          "version": "2",
+          "title": "Adaptive v3",
+          "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Prefill",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": null,
+              "volume": 100,
+              "seconds": 5,
+              "weight": 0,
+              "temperature": 92,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Fill",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3
+              },
+              "volume": 100,
+              "seconds": 12,
+              "weight": 0,
+              "temperature": 92,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Compressing",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3
+              },
+              "volume": 100,
+              "seconds": 12,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 3,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Dripping",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 0.1,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Pressurize",
+              "pump": "pressure",
+              "transition": "smooth",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.7
+              },
+              "volume": 100,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 11,
+              "limiter": {
+                "value": 3.5,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Extraction start",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 0
+              },
+              "volume": 0,
+              "seconds": 0,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "flow": 1.5,
+              "limiter": {
+                "value": 8.6,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Extraction",
+              "pump": "flow",
+              "transition": "smooth",
+              "exit": null,
+              "volume": 100,
+              "seconds": 60,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "flow": 3.5,
+              "limiter": {
+                "value": 8.6,
+                "range": 0.6
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 3,
+          "tank_temperature": 0
+        },
+        "steamSettings": {
+          "duration": 30
+        },
+        "hotWaterData": {
+          "targetTemperature": 85
+        },
+        "rinseData": {
+          "duration": 5
+        }
+      },
+      "stripSlot": null
+    },
+    {
+      "name": "Fixture Brazil Espresso",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "beanId": "b006ac6c-e061-44e5-9afe-9e297785257c",
+      "beanName": "Fixture Brazil",
+      "beanRoaster": "Fixture Roasters",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "version": "2",
+        "title": "Classic Italian espresso",
+        "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "preinfusion temp boost",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 2,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "preinfusion",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "forced rise without limit",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 3,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": null
+          },
+          {
+            "name": "rise and hold",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 32,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": {
+              "value": 4.5,
+              "range": 1
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 2,
+        "tank_temperature": 0
+      },
+      "showOnStreamlineDashboard": true,
+      "id": "2",
+      "capturedAt": "2026-10-20T10:00:02.000Z",
+      "dashboardVariables": {
+        "dose": 19,
+        "drink": 36,
+        "steamMode": "flow",
+        "steamFlowMls": 1.2,
+        "flushS": 4,
+        "hotWaterMode": "vol",
+        "hotWaterMl": 150,
+        "grind": 3,
+        "rpm": 1100,
+        "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+        "basketName": "Fixture 20g High-flow",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Brazil Espresso",
+      "subtitle": "Fixture Brazil",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 19,
+          "targetYield": 36,
+          "grinderSetting": "3",
+          "extras": {
+            "rpm": 1100,
+            "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+            "basketName": "Fixture 20g High-flow",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
+          },
+          "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeName": "Fixture Brazil",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null
+        },
+        "profile": {
+          "version": "2",
+          "title": "Classic Italian espresso",
+          "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "preinfusion temp boost",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 2,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "preinfusion",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "forced rise without limit",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 3,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": null
+            },
+            {
+              "name": "rise and hold",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 32,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": {
+                "value": 4.5,
+                "range": 1
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 2,
+          "tank_temperature": 0
+        },
+        "steamSettings": {
+          "flow": 1.2
+        },
+        "hotWaterData": {
+          "volume": 150
+        },
+        "rinseData": {
+          "duration": 4
+        }
+      },
+      "stripSlot": 2
+    },
+    {
+      "name": "Fixture Blank Recipe",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "showOnStreamlineDashboard": false,
+      "id": "3",
+      "capturedAt": "2026-10-24T21:01:45.487Z",
+      "dashboardVariables": {
+        "steamMode": "flow",
+        "hotWaterMode": "vol",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Blank Recipe",
+      "subtitle": "",
+      "workflow": {
+        "context": {}
+      },
+      "stripSlot": 3
+    },
+    {
+      "name": "Fixture Old Slot 4 Recipe",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "beanId": "2dec7277-95eb-4c35-9c95-242ced05ef58",
+      "beanName": "Fixture Ethiopia",
+      "beanRoaster": "Fixture Roasters",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "version": "2",
+        "title": "Classic Italian espresso",
+        "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "preinfusion temp boost",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 2,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "preinfusion",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "forced rise without limit",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 3,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": null
+          },
+          {
+            "name": "rise and hold",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 32,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": {
+              "value": 4.5,
+              "range": 1
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 2,
+        "tank_temperature": 0
+      },
+      "showOnStreamlineDashboard": true,
+      "id": "4",
+      "capturedAt": "2026-10-01T10:00:04.000Z",
+      "dashboardVariables": {
+        "dose": 18,
+        "drink": 40,
+        "steamMode": "flow",
+        "hotWaterMode": "vol",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Old Slot 4 Recipe",
+      "subtitle": "Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 40,
+          "coffeeName": "Fixture Ethiopia",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null,
+          "extras": {
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true
+            }
+          }
+        },
+        "profile": {
+          "version": "2",
+          "title": "Classic Italian espresso",
+          "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "preinfusion temp boost",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 2,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "preinfusion",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "forced rise without limit",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 3,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": null
+            },
+            {
+              "name": "rise and hold",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 32,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": {
+                "value": 4.5,
+                "range": 1
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 2,
+          "tank_temperature": 0
+        }
+      },
+      "stripSlot": null
+    },
+    {
+      "name": "Fixture Newer Slot 4 Recipe",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "beanId": "b006ac6c-e061-44e5-9afe-9e297785257c",
+      "beanName": "Fixture Brazil",
+      "beanRoaster": "Fixture Roasters",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "version": "2",
+        "title": "Classic Italian espresso",
+        "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "preinfusion temp boost",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 2,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "preinfusion",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "forced rise without limit",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 3,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": null
+          },
+          {
+            "name": "rise and hold",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 32,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": {
+              "value": 4.5,
+              "range": 1
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 2,
+        "tank_temperature": 0
+      },
+      "showOnStreamlineDashboard": true,
+      "id": "90a15328-ea03-4441-9e9d-f51da927e7e7",
+      "stripSlot": 4,
+      "capturedAt": "2026-10-22T10:00:05.000Z",
+      "dashboardVariables": {
+        "dose": 20,
+        "drink": 40,
+        "steamMode": "flow",
+        "hotWaterMode": "vol",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Newer Slot 4 Recipe",
+      "subtitle": "Fixture Brazil",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 20,
+          "targetYield": 40,
+          "coffeeName": "Fixture Brazil",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null,
+          "extras": {
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true
+            }
+          }
+        },
+        "profile": {
+          "version": "2",
+          "title": "Classic Italian espresso",
+          "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "preinfusion temp boost",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 2,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "preinfusion",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "forced rise without limit",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 3,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": null
+            },
+            {
+              "name": "rise and hold",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 32,
+              "weight": 0,
+              "temperature": 94,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": {
+                "value": 4.5,
+                "range": 1
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 2,
+          "tank_temperature": 0
+        }
+      }
+    },
+    {
+      "name": "Fixture Slot Recipe",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "beanId": "2dec7277-95eb-4c35-9c95-242ced05ef58",
+      "beanName": "Fixture Ethiopia",
+      "beanRoaster": "Fixture Roasters",
+      "profileId": "profile:98fa00c191551b435845",
+      "profileTitle": "Adaptive v3",
+      "showOnStreamlineDashboard": true,
+      "stripSlot": null,
+      "id": "059e25fd-eccf-475c-8927-93af83760e06",
+      "capturedAt": "2026-10-24T21:02:18.545Z",
+      "dashboardVariables": {
+        "dose": 18,
+        "drink": 36,
+        "brewC": 92,
+        "steamMode": "time",
+        "steamTimeS": 30,
+        "steamFlowMls": 0.8,
+        "flushS": 5,
+        "hotWaterMode": "temp",
+        "hotWaterMl": 75,
+        "hotWaterTempC": 85,
+        "grind": 2.5,
+        "rpm": 900,
+        "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "8f9702df-a615-4942-84db-882137fedcce",
+        "basketName": "Fixture 18g Precision",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {},
+        "steamTempC": 0,
+        "steamStopAtTempC": 60,
+        "hotWaterTimeS": 30,
+        "hotWaterFlowMls": 4,
+        "flushTempC": 90,
+        "flushFlowMls": 6
+      },
+      "title": "Fixture Slot Recipe",
+      "subtitle": "Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "2.5",
+          "extras": {
+            "rpm": 900,
+            "basketId": "8f9702df-a615-4942-84db-882137fedcce",
+            "basketName": "Fixture 18g Precision",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
+          },
+          "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeName": "Fixture Ethiopia",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null
+        },
+        "profile": {
+          "version": "2",
+          "title": "Adaptive v3",
+          "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Prefill",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": null,
+              "volume": 100,
+              "seconds": 5,
+              "weight": 0,
+              "temperature": 92,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Fill",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 3
+              },
+              "volume": 100,
+              "seconds": 12,
+              "weight": 0,
+              "temperature": 92,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Compressing",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": {
+                "type": "flow",
+                "condition": "under",
+                "value": 3
+              },
+              "volume": 100,
+              "seconds": 12,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 3,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Dripping",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 0.1,
+              "limiter": {
+                "value": 0,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Pressurize",
+              "pump": "pressure",
+              "transition": "smooth",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 7.7
+              },
+              "volume": 100,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "pressure": 11,
+              "limiter": {
+                "value": 3.5,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Extraction start",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 0
+              },
+              "volume": 0,
+              "seconds": 0,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "flow": 1.5,
+              "limiter": {
+                "value": 8.6,
+                "range": 0.6
+              }
+            },
+            {
+              "name": "Extraction",
+              "pump": "flow",
+              "transition": "smooth",
+              "exit": null,
+              "volume": 100,
+              "seconds": 60,
+              "weight": 0,
+              "temperature": 87,
+              "sensor": "coffee",
+              "flow": 3.5,
+              "limiter": {
+                "value": 8.6,
+                "range": 0.6
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 3,
+          "tank_temperature": 0
+        },
+        "steamSettings": {
+          "targetTemperature": 0,
+          "duration": 30,
+          "flow": 0.8,
+          "stopAtTemperature": 60
+        },
+        "hotWaterData": {
+          "targetTemperature": 85,
+          "duration": 30,
+          "volume": 75,
+          "flow": 4
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 5,
+          "flow": 6
+        }
+      }
+    },
+    {
+      "name": "Fixture Library Recipe",
+      "beverage": "",
+      "barista": "",
+      "drinker": "",
+      "beanId": "b006ac6c-e061-44e5-9afe-9e297785257c",
+      "beanName": "Fixture Brazil",
+      "beanRoaster": "Fixture Roasters",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "version": "2",
+        "title": "Classic Italian espresso",
+        "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+        "author": "Decent",
+        "beverage_type": "espresso",
+        "steps": [
+          {
+            "name": "preinfusion temp boost",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 2,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "preinfusion",
+            "pump": "flow",
+            "transition": "fast",
+            "exit": {
+              "type": "pressure",
+              "condition": "over",
+              "value": 4
+            },
+            "volume": 0,
+            "seconds": 6,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "flow": 8,
+            "limiter": null
+          },
+          {
+            "name": "forced rise without limit",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 3,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": null
+          },
+          {
+            "name": "rise and hold",
+            "pump": "pressure",
+            "transition": "fast",
+            "exit": null,
+            "volume": 0,
+            "seconds": 32,
+            "weight": 0,
+            "temperature": 94,
+            "sensor": "coffee",
+            "pressure": 9,
+            "limiter": {
+              "value": 4.5,
+              "range": 1
+            }
+          }
+        ],
+        "target_volume": 36,
+        "target_weight": 36,
+        "target_volume_count_start": 2,
+        "tank_temperature": 0
+      },
+      "showOnStreamlineDashboard": true,
+      "id": "05fd1e80-61e3-46ef-b202-2cbad5eb7983",
+      "capturedAt": "2026-10-24T21:01:29.078Z",
+      "stripSlot": 1,
+      "dashboardVariables": {
+        "dose": 19.5,
+        "drink": 38,
+        "brewC": 93,
+        "steamMode": "flow",
+        "steamFlowMls": 1.2,
+        "flushS": 4,
+        "hotWaterMode": "vol",
+        "hotWaterMl": 150,
+        "grind": 3.2,
+        "rpm": 1100,
+        "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+        "basketName": "Fixture 20g High-flow",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Library Recipe",
+      "subtitle": "Fixture Brazil",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 19.5,
+          "targetYield": 38,
+          "grinderSetting": "3.2",
+          "extras": {
+            "rpm": 1100,
+            "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+            "basketName": "Fixture 20g High-flow",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
+          },
+          "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeName": "Fixture Brazil",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null
+        },
+        "profile": {
+          "version": "2",
+          "title": "Classic Italian espresso",
+          "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "preinfusion temp boost",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 2,
+              "weight": 0,
+              "temperature": 93,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "preinfusion",
+              "pump": "flow",
+              "transition": "fast",
+              "exit": {
+                "type": "pressure",
+                "condition": "over",
+                "value": 4
+              },
+              "volume": 0,
+              "seconds": 6,
+              "weight": 0,
+              "temperature": 93,
+              "sensor": "coffee",
+              "flow": 8,
+              "limiter": null
+            },
+            {
+              "name": "forced rise without limit",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 3,
+              "weight": 0,
+              "temperature": 93,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": null
+            },
+            {
+              "name": "rise and hold",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 32,
+              "weight": 0,
+              "temperature": 93,
+              "sensor": "coffee",
+              "pressure": 9,
+              "limiter": {
+                "value": 4.5,
+                "range": 1
+              }
+            }
+          ],
+          "target_volume": 36,
+          "target_weight": 36,
+          "target_volume_count_start": 2,
+          "tank_temperature": 0
+        },
+        "steamSettings": {
+          "flow": 1.2
+        },
+        "hotWaterData": {
+          "volume": 150
+        },
+        "rinseData": {
+          "duration": 4
+        }
+      }
+    },
+    {
+      "stripSlot": null,
+      "name": "Fixture Favourite Recipe",
+      "beverage": "",
+      "beanName": "Fixture Brazil",
+      "beanRoaster": "Fixture Roasters",
+      "beanBatchId": null,
+      "profileId": null,
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": null,
+      "barista": null,
+      "drinker": null,
+      "id": "25051ee1-a646-41ba-b325-71efd7947311",
+      "capturedAt": "2026-10-24T21:02:35.999Z",
+      "dashboardVariables": {
+        "dose": 19,
+        "drink": 36,
+        "grind": 3,
+        "rpm": 1100,
+        "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+        "basketName": "Fixture 20g High-flow",
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "title": "Fixture Favourite Recipe",
+      "subtitle": "Fixture Brazil",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 19,
+          "targetYield": 36,
+          "grinderSetting": "3",
+          "extras": {
+            "rpm": 1100,
+            "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+            "basketName": "Fixture 20g High-flow",
+            "dye": {
+              "v": 1,
+              "beanBatchId": null,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true
+            }
+          },
+          "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeName": "Fixture Brazil",
+          "coffeeRoaster": "Fixture Roasters",
+          "beanBatchId": null
+        }
+      }
+    }
+  ],
+  "baskets": [
+    {
+      "name": "Fixture 18g Precision",
+      "size": "double",
+      "notes": "Fixture notes",
+      "diameterMm": 58.5,
+      "id": "8f9702df-a615-4942-84db-882137fedcce",
+      "createdAt": "2026-10-20T09:00:00.000Z"
+    },
+    {
+      "name": "Fixture 20g High-flow",
+      "size": "double",
+      "diameterMm": 58,
+      "id": "9567d681-444c-4492-95cd-29ecbc48870d",
+      "createdAt": "2026-10-20T09:00:01.000Z"
+    }
+  ],
+  "workflowAfterEditor": {
+    "id": "2458adfb-f786-4f9b-9d52-af712d063048",
+    "name": "Workflow",
+    "description": "Description",
+    "profile": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    },
+    "context": {
+      "targetDoseWeight": 19,
+      "targetYield": 36,
+      "grinderId": "5099f7fa-aa07-4989-b578-25893800e507",
+      "grinderModel": "Fixture Grinder 64",
+      "grinderSetting": "3",
+      "coffeeName": "Fixture Brazil",
+      "coffeeRoaster": "Fixture Roasters",
+      "extras": {
+        "rpm": 1100,
+        "basketId": "9567d681-444c-4492-95cd-29ecbc48870d",
+        "basketName": "Fixture 20g High-flow",
+        "dye": {
+          "v": 1,
+          "beanBatchId": null,
+          "coffeeName": true,
+          "coffeeRoaster": true,
+          "grinderId": true,
+          "grinderModel": true,
+          "basketId": true,
+          "basketName": true,
+          "rpm": true,
+          "selection": null
+        }
+      }
+    },
+    "steamSettings": {
+      "targetTemperature": 150,
+      "duration": 50,
+      "flow": 1.2,
+      "stopAtTemperature": 0
+    },
+    "hotWaterData": {
+      "targetTemperature": 75,
+      "duration": 30,
+      "volume": 150,
+      "flow": 10
+    },
+    "rinseData": {
+      "targetTemperature": 90,
+      "duration": 4,
+      "flow": 6
+    }
+  },
+  "profileCopies": {
+    "Adaptive v3/37cb3ea019": {
+      "version": "2",
+      "title": "Adaptive v3",
+      "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Prefill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100,
+          "seconds": 5,
+          "weight": 0,
+          "temperature": 92,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Fill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 92,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Compressing",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 3,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Dripping",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 0.1,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Pressurize",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 7.7
+          },
+          "volume": 100,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 11,
+          "limiter": {
+            "value": 3.5,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction start",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 0
+          },
+          "volume": 0,
+          "seconds": 0,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "flow": 1.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction",
+          "pump": "flow",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100,
+          "seconds": 60,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "flow": 3.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 3,
+      "tank_temperature": 0
+    },
+    "Adaptive v3/adc374508e": {
+      "version": "2",
+      "title": "Adaptive v3",
+      "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Prefill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100,
+          "seconds": 5,
+          "weight": 0,
+          "temperature": 92,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "Fill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 92,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "Compressing",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 3,
+          "limiter": null
+        },
+        {
+          "name": "Dripping",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 0.1,
+          "limiter": null
+        },
+        {
+          "name": "Pressurize",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 7.7
+          },
+          "volume": 100,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "pressure": 11,
+          "limiter": {
+            "value": 3.5,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction start",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 0
+          },
+          "volume": 0,
+          "seconds": 0,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "flow": 1.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction",
+          "pump": "flow",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100,
+          "seconds": 60,
+          "weight": 0,
+          "temperature": 87,
+          "sensor": "coffee",
+          "flow": 3.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 3,
+      "tank_temperature": 0
+    },
+    "Adaptive v3/ae6157d8da": {
+      "version": "2",
+      "title": "Adaptive v3",
+      "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Prefill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100,
+          "seconds": 5,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Fill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Compressing",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 3
+          },
+          "volume": 100,
+          "seconds": 12,
+          "weight": 0,
+          "temperature": 88,
+          "sensor": "coffee",
+          "pressure": 3,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Dripping",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 88,
+          "sensor": "coffee",
+          "pressure": 0.1,
+          "limiter": {
+            "value": 0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Pressurize",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 7.7
+          },
+          "volume": 100,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 88,
+          "sensor": "coffee",
+          "pressure": 11,
+          "limiter": {
+            "value": 3.5,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction start",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 0
+          },
+          "volume": 0,
+          "seconds": 0,
+          "weight": 0,
+          "temperature": 88,
+          "sensor": "coffee",
+          "flow": 1.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction",
+          "pump": "flow",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100,
+          "seconds": 60,
+          "weight": 0,
+          "temperature": 88,
+          "sensor": "coffee",
+          "flow": 3.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 3,
+      "tank_temperature": 0
+    },
+    "Classic Italian espresso/516f010e11": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 93,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    },
+    "Classic Italian espresso/5a6f09130a": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 95,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 95,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 95,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 95,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    },
+    "Classic Italian espresso/8364e45e11": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    },
+    "Classic Italian espresso/9f949d7b58": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 96,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 96,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 96,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 96,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 36,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    },
+    "Classic Italian espresso/b1b0ed3300": {
+      "version": "2",
+      "title": "Classic Italian espresso",
+      "notes": "This will imitate the espresso style of the majority of cafes around the world. It uses a short preinfusion with a flat 9 bar pressure profile.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 2,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4
+          },
+          "volume": 0,
+          "seconds": 6,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "flow": 8,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 3,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0,
+          "seconds": 32,
+          "weight": 0,
+          "temperature": 94,
+          "sensor": "coffee",
+          "pressure": 9,
+          "limiter": {
+            "value": 4.5,
+            "range": 1
+          }
+        }
+      ],
+      "target_volume": 36,
+      "target_weight": 42,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0
+    }
+  }
+}

@@ -375,32 +375,14 @@ export interface WorkflowDelivery {
   observedAt: string;
   workflow: Record<string, unknown>;
   /**
-   * The values the plugin's write of a load of a Recipe replaced (ADR-0022),
-   * on the first Workflow delivery queued after that write, and on any
-   * resend that replaces it: for each part of LOADED_RECIPE_PARTS the write
-   * changed, what the Workflow held just before it (`before`) and what it
-   * wrote (`written`). Where several loads were written before one delivery,
-   * each part keeps its earliest `before`. The server tells a part set back
-   * to its `before` before the Machine's first espresso since the load, as
-   * DYE2's dashboard sends back the Workflow it read as it opened, by them
-   * (interim for decentespresso/dye2#31).
-   */
-  loadBefore?: Record<string, LoadBefore>;
-  /**
-   * True while DYE2 is not there to select anything on the tablet: Decaid
-   * lists no DYE2, or lists it disabled, or not loaded for longer than twice
-   * the plugin's poll interval (ADR-0022). The Workflow's DYE2 selection
-   * (DYE2_SELECTION_FIELD) then names nothing, whatever DYE2 last wrote
-   * there. The plugin sends the Workflow again as this changes, where
-   * DYE2's field there names something.
+   * True while DYE2 is not there to keep the Workflow's recipe on the
+   * tablet: Decaid lists no DYE2, or lists it disabled, or not loaded for
+   * longer than twice the plugin's poll interval (ADR-0022). The recipe the
+   * Workflow names (DYE2_RECIPE_FIELD) then names no Loaded Recipe, whatever
+   * was last written there. The plugin sends the Workflow again as this
+   * changes, where it names a recipe.
    */
   dye2Absent?: boolean;
-}
-
-/** What a part of a Workflow held just before a load's write (`before`), and what the write put there (`written`). */
-export interface LoadBefore {
-  before: unknown;
-  written: unknown;
 }
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
@@ -479,41 +461,52 @@ export function isDye2List(name: string): name is Dye2List {
 
 /**
  * The records of a DYE2 list in a shape the plugin and server recognise:
- * an array of objects, each with an id (`isRecordId`) no other holds, and,
- * in DYE2's `recipes`, each id a Recipe Slot's number (`isSlotId`); null for
- * any other value. A list in another shape is never taken in, nor written
- * to, on that tablet, so DYE2's data is never corrupted (ADR-0005).
+ * an array of objects, each with an id (`isRecordId`) no other holds; null
+ * for any other value. A recipe's id is opaque, as DYE2 gives its own: a
+ * UUID from its editor, `recipe-…` from its `save-recipe`, and a Recipe
+ * Slot's number for a recipe saved before DYE2 v0.1.25. A list in another
+ * shape is never taken in, nor written to, on that tablet, so DYE2's data
+ * is never corrupted (ADR-0005).
  */
-export function dye2Records(value: unknown, key?: (typeof DYE2_LISTS)[Dye2List]): Record<string, unknown>[] | null {
+export function dye2Records(value: unknown): Record<string, unknown>[] | null {
   if (!Array.isArray(value)) return null;
   const ids = new Set<string>();
   for (const record of value) {
     if (!isObject(record) || !isRecordId(record.id) || ids.has(record.id)) return null;
-    if (key === "recipes" && !isSlotId(record.id)) return null;
     ids.add(record.id);
   }
   return value as Record<string, unknown>[];
 }
 
-/** The highest Recipe Slot a recipe's id may name: slots have no limit (ADR-0005), but each must fit the server's whole numbers. */
-export const MAX_SLOT = 2_147_483_647;
+/** How many Recipe Slots each Location has: the buttons of Streamline's DYE strip, as DYE2's `stripSlot` numbers them. */
+export const RECIPE_SLOTS = 5;
+
+/** Whether a value is a Recipe Slot's number: a whole number from 1 to RECIPE_SLOTS. */
+export function isRecipeSlot(value: unknown): value is number {
+  return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
+}
 
 /**
- * Whether a DYE2 recipe's id is a Recipe Slot's number, as DYE2 names its
- * recipes by their slot (`"1"` to `"5"` in its editor), with no upper limit
- * but MAX_SLOT: a positive whole number, written without a sign or leading
- * zeros, so each slot has one id.
+ * The Recipe Slot a DYE2 recipe record is in: its `stripSlot`, the button of
+ * Streamline's DYE strip it is on (`recipeStripCells` in
+ * streamline-js:src/modules/dye-selection.js), shared by every Machine at its
+ * Location; null for none, as for one DYE2 keeps only in its library, which
+ * its Select Recipe page lists and applies all the same.
  */
-export function isSlotId(value: unknown): value is string {
-  return typeof value === "string" && /^[1-9][0-9]{0,9}$/.test(value) && Number(value) <= MAX_SLOT;
+export function recipeSlotOf(record: unknown): number | null {
+  const slot = isObject(record) ? record[RECIPE_SLOT_FIELD] : undefined;
+  return isRecipeSlot(slot) ? slot : null;
 }
+
+/** The field of a DYE2 recipe record holding its Recipe Slot (`recipeSlotOf`). */
+export const RECIPE_SLOT_FIELD = "stripSlot";
 
 /**
  * The steam, hot water and flush settings a Recipe may hold, as DYE2's recipe
  * does (decentespresso/dye2#23): each by its name in a Recipe's content, with
  * DYE2's name for it in a recipe record's `dashboardVariables` and the path
  * of the Workflow field holding it (`MACHINE_MAP` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at 2cf631c), and whether
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26), and whether
  * Decaid keeps it as a whole number (`SteamSettings`, `HotWaterData` and
  * `RinseData` in decaid:lib/src/models/data/workflow.dart). Each is
  * optional: one a Recipe holds none of is the Machine's own, which loading
@@ -776,36 +769,55 @@ export const WORKFLOW_BASKET = ["context.extras.basketId", "context.extras.baske
 export const WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASKET] as const;
 
 /**
- * DYE2's selection, as DYE2 writes it into the Workflow by its path: on each
- * change of which item it has selected, a clear included, `{kind, id}`, a
- * recipe's id its Recipe Slot as text, or null (`syncSelectionMarker` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts, decentespresso/dye2#20).
- * Decaid copies the Workflow onto every Shot pulled with it, offline ones
- * included. The server reads the Machine's Loaded Recipe from it
- * (ADR-0022); nothing of Decent Sync's writes it.
+ * The recipe a tablet's Workflow is dialled in to, as DYE2 and Streamline
+ * write it there by its path: the id of DYE2's record of it, which DYE2's
+ * dashboard, its Select Recipe page and Streamline's DYE strip set as they
+ * apply a recipe, and DYE2 clears (null) once the Workflow's profile moves off
+ * the one it held when the id appeared (`workflowChanged` in
+ * dye2:dye2-plugin/src/plugin.ts at v0.1.26, decentespresso/dye2#36). Decaid
+ * copies the Workflow onto every Shot pulled with it, offline ones included.
+ * The server reads the Machine's Loaded Recipe from it (ADR-0022), and the
+ * plugin clears it, as DYE2 does, to unload one.
  */
-export const DYE2_SELECTION_FIELD = "context.extras.dye.selection";
+export const DYE2_RECIPE_FIELD = "context.extras.dye.recipeId";
+
+/** The id of DYE2's record of the recipe a Workflow names (DYE2_RECIPE_FIELD), as DYE2 reads it (`recipeIdOf`): text, a number as text; null for none. */
+export function dye2RecipeIdOf(workflow: unknown): string | null {
+  const id = workflowValueAt(workflow, DYE2_RECIPE_FIELD);
+  if (typeof id === "number") return Number.isFinite(id) ? String(id) : null;
+  return typeof id === "string" && id !== "" ? id : null;
+}
 
 /**
- * What a Workflow's DYE2 selection (DYE2_SELECTION_FIELD) names: nothing
- * (`named` false), as for a field null or absent; or an item, with the
- * Recipe Slot of a recipe in one (`slot`, as its record's id, `isSlotId`),
- * null for a favourite or a recipe in none.
+ * A profile as DYE2 fingerprints one to tell a change of profile, which
+ * clears the Workflow's DYE2_RECIPE_FIELD (`profileFingerprint` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26): its title, tank
+ * temperature and steps, but each step's temperature, and a step limiter of
+ * value 0, which is none, read as none, as Streamline sends it
+ * (decentespresso/dye2#32). Its target weight and volume are the yield,
+ * which Streamline sends with the profile, so they are left out
+ * (decentespresso/dye2#18). Null for none.
  */
-export function dye2SelectionOf(workflow: unknown): { named: boolean; slot: string | null } {
-  const selection = workflowValueAt(workflow, DYE2_SELECTION_FIELD);
-  if (!isObject(selection) || typeof selection.kind !== "string") return { named: false, slot: null };
-  const id = typeof selection.id === "number" ? String(selection.id) : selection.id;
-  return { named: true, slot: selection.kind === "recipe" && isSlotId(id) ? id : null };
+export function dye2Fingerprint(profile: unknown): string | null {
+  if (!isObject(profile)) return null;
+  const steps = Array.isArray(profile.steps)
+    ? profile.steps.map((step: unknown) => {
+        if (!isObject(step)) return step;
+        const { temperature: _, limiter, ...rest } = step;
+        // Kept unless it is none, or of value 0, as DYE2 reads one (`limiter && Number(limiter.value) !== 0`).
+        return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : undefined) !== 0 ? limiter : null };
+      })
+    : profile.steps;
+  return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps });
 }
 
 /**
  * What the server writes into a tablet's Workflow for the Recipe it has
- * loaded (ADR-0022): the Recipe's fields that differ from what the Workflow
- * last held of them, as an edit of the Recipe made anywhere reaches every
- * Machine that has it loaded, or the clearing of DYE2's selection of it, as
- * the server unloads it. A `write` of this kind carries them, named by the
- * Recipe's global id.
+ * loaded (ADR-0022): the Recipe's fields that changed since the Workflow last
+ * took them, where it holds them otherwise, as an edit of the Recipe made
+ * anywhere reaches every Machine that has it loaded, or the clearing of the
+ * Workflow's DYE2_RECIPE_FIELD, as the server unloads it. A `write` of this
+ * kind carries them, named by the Recipe's global id.
  */
 export const LOADED_RECIPE_KIND = "loadedRecipe";
 
@@ -995,18 +1007,25 @@ export const STEAM_ON_FROM = 135;
  * list back whole. Its answer's `updatedAt` is when the plugin wrote it, as
  * these records carry no edit time.
  *
- * A Recipe lives in DYE2's `recipes` the same way, under its Recipe Slot's
- * number as its id (`isSlotId`), the same on every tablet at its Location.
+ * A Recipe lives in DYE2's `recipes` the same way, under its record id, the
+ * same on every tablet at its Location, which never changes (ADR-0005).
  * `fields` name its record's fields by their path, a field of its
  * `dashboardVariables` as `dashboardVariables.dose`, and so does `expected`.
- * To create one, `fields.id` is its slot: the plugin answers with a record
- * there already carrying the global id, as one whose answer was lost; writes
- * only the global id to a record there without one, saved there before the
- * tablet reported it (`linked`), which the server takes as an edit of the
- * Recipe; refuses a slot holding another item's record; and otherwise adds a
- * record with `fields` and its `capturedAt`. To update one, it sets each of
- * `fields` the record still holds as expected, a null one left out. Either
- * way the global id goes in the record's own field.
+ * To create one, `fields.id` is its record id: the plugin answers with a
+ * record of that id already carrying the global id, as one whose answer was
+ * lost; writes only the global id to one of that id without one, saved there
+ * before the tablet reported it (`linked`), which the server takes as an
+ * edit of the Recipe; refuses an id whose record carries another item's
+ * global id; and otherwise adds a record with `fields` and its `capturedAt`,
+ * at the end of the list. To update one, it sets each of `fields` the
+ * record still holds as expected, a null one left out. Either way the
+ * global id goes in the record's own field. A write setting a record's
+ * RECIPE_SLOT_FIELD to a Recipe Slot clears it (null) on any other record in
+ * that slot, in the same post, as DYE2's editor does (`takeSlot`), so a slot
+ * holds one recipe on every tablet. And before it posts a list that removes
+ * the record the Workflow's DYE2_RECIPE_FIELD names, or gives its id to
+ * another item's record, the plugin clears that field, so the Workflow never
+ * names another Recipe than it applied.
  *
  * A write of WORKFLOW_KIND clears the grinder, batch and Basket of the
  * tablet's Workflow, as its Machine joins a Location that does not offer
@@ -1032,21 +1051,25 @@ export const STEAM_ON_FROM = 135;
  * with `expected` the value the Workflow held of each part's first field as
  * the tablet last reported it, null for none, but for a Profile, which
  * carries none, as a skin overrides parts of the one it loads; or it names
- * DYE2_SELECTION_FIELD alone, null, as the server unloads the Recipe, which
- * the plugin carries out by clearing DYE2's selection of the Recipe's slot,
- * where DYE2 still has it selected, writing nothing into the Workflow
- * itself: its answer's `writtenFields` names that field. Otherwise the
- * plugin writes nothing unless DYE2 still has the Recipe's slot selected, or
- * answers 404, and sets, through
+ * DYE2_RECIPE_FIELD alone, null, as the server unloads the Recipe. Either
+ * way `expected` names the id of the tablet's record of the Recipe at
+ * DYE2_RECIPE_FIELD, and the plugin writes nothing unless the Workflow it
+ * reads first still names it there, so a write never lands in a recipe a
+ * barista applied in the moment between. An unload sets DYE2_RECIPE_FIELD
+ * null, as DYE2 does, and nothing else. Otherwise the plugin sets, through
  * `PUT /workflow` (`workflowPatch`), each part whose first field still holds
- * the value expected, or none, as Streamline clears the batch, Basket and
- * RPM once each Shot is stored, or the value written already, as one DYE2
- * recorded that the server did not hold, or that expects none: a part a
- * barista changed since is kept, which its Workflow change brings to the
- * server. A steam temperature is never written into a Workflow whose steam
- * is off (`steamOff`), as it would turn steam on: the plugin leaves it out,
- * and keeps it as the one Streamline turns steam back on at (ADR-0021).
- * Decaid refuses to change the steam, hot water and flush settings while no
+ * the value expected, or the value written already, as one DYE2 saved that
+ * the server did not hold, or that expects none: a part a barista changed
+ * since, or cleared, is kept, which its Workflow change brings to the
+ * server. A write that changes the profile, as DYE2 fingerprints one
+ * (`dye2Fingerprint`), which DYE2 clears DYE2_RECIPE_FIELD on, is made as two:
+ * DYE2_RECIPE_FIELD cleared, then the write with the Recipe's id set there
+ * again, so DYE2 takes the new profile as the recipe's (interim, until
+ * decentespresso/dye2#38); the Workflow's changes between them are not sent.
+ * A steam temperature is never written into a Workflow whose steam is off
+ * (`steamOff`), as it would turn steam on: the plugin leaves it out, and
+ * keeps it as the one Streamline turns steam back on at (ADR-0021). Decaid
+ * refuses to change the steam, hot water and flush settings while no
  * machine is connected (MACHINE_SETTING_PARTS), so the rest is then written
  * without them. Its answer's `record` is the Workflow's `context`, its
  * steam, hot water and flush settings and its `profile` as Decaid returned
@@ -1436,7 +1459,6 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.id();
       fields.instant("observedAt");
       fields.objectField("workflow");
-      if (object.loadBefore !== undefined) fields.objectField("loadBefore");
       fields.optionalBoolean("dye2Absent");
     });
   }

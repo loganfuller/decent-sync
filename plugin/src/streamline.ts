@@ -11,8 +11,8 @@ import { request } from "./decaid.js";
 // each write of the server's for a Loaded Recipe, carrying a steam
 // temperature sets it there, written into the Workflow or not, as the plugin
 // writes none into a Workflow whose steam is off (ADR-0022), until
-// Streamline turns steam back on at the selected recipe's
-// (decentespresso/streamline-js#156).
+// Streamline turns steam back on at the steam temperature of the recipe the
+// Workflow names (decentespresso/streamline-js#156).
 
 const PATH = "/store/streamline-app/last-steam-temp";
 

@@ -34,19 +34,23 @@ import {
 } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
-// Each Location's Recipes, DYE2's recipes, in its Recipe Slots or none, and
-// each Recipe's page. An Admin, or Staff working at its Location, creates
-// and edits a Recipe there with every field DYE2 has but the barista and the
-// drinker, and its steam and hot water modes, which are only what DYE2's
-// stepper shows, moves it between slots, takes it out of its slot, and
-// Archives and restores it; each change reaches every tablet there. Each
-// steam, hot water and flush setting it does not hold is each Machine's own.
-// Picking a Bean Batch, Profile, Basket or Tool its Location does not offer
-// offers it there, as the form says before saving. A Recipe is copied to a
-// Location as a new Recipe there, offering there what it uses.
+// Each Location's Recipes, DYE2's recipes, in its Recipe Slots or none, each
+// not Archived on every tablet there, and each Recipe's page. An Admin, or
+// Staff working at its Location, creates and edits a Recipe there with every
+// field DYE2 has but the barista and the drinker, and its steam and hot water
+// modes, which are only what DYE2's stepper shows, moves it between slots,
+// takes it out of its slot, and Archives and restores it; each change
+// reaches every tablet there. Each steam, hot water and flush setting it does
+// not hold is each Machine's own. Picking a Bean Batch, Profile, Basket or
+// Tool its Location does not offer offers it there, as the form says before
+// saving. A Recipe is copied to a Location as a new Recipe there, offering
+// there what it uses.
 
-/** The highest Recipe Slot DYE2's recipe editor edits; its dashboard and Streamline's strip show every slot. */
-const EDITABLE_SLOTS = 5;
+/** How many Recipe Slots each Location has: the buttons of Streamline's DYE strip (`RECIPE_SLOTS` in protocol/src/index.ts). */
+const RECIPE_SLOTS = 5;
+
+/** Each Recipe Slot's number, 1 to RECIPE_SLOTS. */
+const SLOTS = Array.from({ length: RECIPE_SLOTS }, (_, index) => index + 1);
 
 /** A Recipe's name as lists show it. */
 function recipeName(recipe: Pick<Recipe, "name">): string {
@@ -58,7 +62,6 @@ function RecipeBadges({ recipe }: { recipe: Recipe }) {
   return (
     <div className="flex flex-wrap gap-1">
       {recipe.archived && <Badge variant="secondary">Archived</Badge>}
-      {recipe.slot !== null && recipe.slot > EDITABLE_SLOTS && <Badge variant="outline">Not editable in DYE2's recipe editor</Badge>}
       {recipe.batchFinished && <Badge variant="destructive">Batch finished here</Badge>}
     </div>
   );
@@ -109,9 +112,11 @@ function ItemLink({ to, children }: { to: string; children: string }) {
 }
 
 /**
- * Each Location's Recipes on its page: its Recipe Slots, in slot order, which
- * every tablet there holds, and its Recipes in no slot, kept there. An Admin,
- * or Staff working there, creates one there.
+ * Each Location's Recipes on its page: its Recipe Slots, the buttons of
+ * Streamline's DYE strip, shared by every Machine there, and its Recipes in
+ * no slot, kept there. Each not Archived is on every tablet there, one in no
+ * slot found in DYE2's Select Recipe page. An Admin, or Staff working there,
+ * creates one there.
  */
 export function LocationRecipesCard({ location, recipes, onChanged }: { location: Location; recipes: Recipe[]; onChanged(): Promise<void> | void }) {
   const mayChange = useMayChangeAt()(location.id);
@@ -124,8 +129,8 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
           <h2>Recipes</h2>
         </CardTitle>
         <CardDescription>
-          Its Recipe Slots, which every tablet here holds in slot order, and the Recipes kept here in no slot. DYE2's recipe editor edits slots 1
-          to {EDITABLE_SLOTS}; its dashboard and Streamline's strip show every slot.
+          Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
+          in no slot. Every Recipe here not Archived is on each tablet here; one in no slot is found in DYE2's Select Recipe page.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">
@@ -443,29 +448,65 @@ function changedContent(initial: FormValues, values: FormValues, tools: Equipmen
 /** How the form puts a new Recipe in a slot: the lowest free one, none, or one chosen. */
 type SlotMode = "next" | "none" | "chosen";
 
-/** The lowest Recipe Slot none of these Recipes is in. */
-function lowestFree(recipes: readonly Pick<Recipe, "slot">[]): number {
+/** The lowest Recipe Slot none of these Recipes is in, or undefined where every one holds a Recipe. */
+function lowestFree(recipes: readonly Pick<Recipe, "slot">[]): number | undefined {
   const taken = new Set(recipes.map((recipe) => recipe.slot));
-  let slot = 1;
-  while (taken.has(slot)) slot++;
-  return slot;
+  return SLOTS.find((slot) => !taken.has(slot));
 }
 
-/** A slot number entered, or undefined for none that is a whole number from 1. */
-function slotEntered(text: string): number | undefined {
-  return /^\d+$/.test(text.trim()) && Number(text) > 0 && Number(text) <= MAX_SLOT ? Number(text) : undefined;
+/** The slot a slot Select chose, or undefined for none chosen yet. */
+function slotChosen(value: string): number | undefined {
+  return SLOTS.find((slot) => String(slot) === value);
 }
 
-/** The highest Recipe Slot the server stores (`MAX_SLOT` in server/src/library/item-input.ts). */
-const MAX_SLOT = 2_147_483_647;
+/** The choice of the next free slot, naming it, or saying that every slot holds a Recipe; just the choice while the Recipes are loading. */
+function nextFreeText(recipes: readonly Pick<Recipe, "slot">[] | undefined): string {
+  if (recipes === undefined) return "The next free slot";
+  return `The next free slot (${lowestFree(recipes) ?? "none: every slot holds a Recipe"})`;
+}
 
-/** What a slot chosen means: the Recipe there leaves it, kept at its Location (`keptAt`, here by default), and above 5 DYE2's editor cannot edit it. */
-function SlotNotes({ slot, there, swappedTo, keptAt = "here" }: { slot: number | undefined; there: Recipe | undefined; swappedTo: number | null; keptAt?: string }) {
+/** A Select of the Recipe Slots, 1 to RECIPE_SLOTS, labelled Slot. */
+function SlotSelect({ id, value, onChange }: { id: string; value: string; onChange(value: string): void }) {
+  return (
+    <div className="grid gap-2">
+      <Label htmlFor={id}>Slot</Label>
+      <Select value={value} onValueChange={onChange}>
+        <SelectTrigger id={id} className="w-full">
+          <SelectValue placeholder="Choose a slot" />
+        </SelectTrigger>
+        <SelectContent>
+          {SLOTS.map((slot) => (
+            <SelectItem key={slot} value={String(slot)}>
+              {slot}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+}
+
+/**
+ * What a slot chosen means: the Recipe there leaves it, kept at its Location
+ * (`keptAt`, here by default); and, for the next free slot where every slot
+ * holds a Recipe (`full`), that the Recipe is kept there in no slot.
+ */
+function SlotNotes({
+  slot,
+  there,
+  swappedTo,
+  keptAt = "here",
+  full = false,
+}: {
+  slot: number | undefined;
+  there: Recipe | undefined;
+  swappedTo: number | null;
+  keptAt?: string;
+  full?: boolean;
+}) {
   const notes: string[] = [];
   if (there) notes.push(`Slot ${slot} holds ${recipeName(there)}, which ${swappedTo === null ? `is taken out of its slot and kept ${keptAt}` : `moves to slot ${swappedTo}`}.`);
-  if (slot !== undefined && slot > EDITABLE_SLOTS) {
-    notes.push(`Slot ${slot} is not editable in DYE2's recipe editor, though DYE2's dashboard and Streamline's strip show it.`);
-  }
+  if (full) notes.push(`Every slot ${keptAt} holds a Recipe, so it is kept ${keptAt} in no slot.`);
   if (notes.length === 0) return null;
   return (
     <ul aria-label="About this slot" className="grid list-disc gap-1 pl-5 text-sm text-muted-foreground">
@@ -512,7 +553,7 @@ function RecipeFormDialog({
           <DialogTitle>{title}</DialogTitle>
           <DialogDescription>
             {recipe ? "Each field changed is an edit made here," : `A Recipe at ${location.name},`} written to every tablet at {location.name}
-            {recipe ? " that holds it." : " once it is in a slot."} A Recipe carries no barista or drinker.
+            {recipe ? " that holds it." : "."} A Recipe carries no barista or drinker.
           </DialogDescription>
         </DialogHeader>
         {open && (
@@ -562,7 +603,7 @@ function RecipeForm({
   const set = <K extends keyof FormValues>(field: K, value: FormValues[K]) => setValues((current) => ({ ...current, [field]: value }));
   const here = location.id;
 
-  const slot = slotMode === "next" ? lowestFree(recipes) : slotMode === "chosen" ? slotEntered(slotText) : undefined;
+  const slot = slotMode === "next" ? lowestFree(recipes) : slotMode === "chosen" ? slotChosen(slotText) : undefined;
   const there = slot === undefined ? undefined : recipes.find((candidate) => candidate.slot === slot);
 
   // What this Location offers of each kind, and the rest, which saving offers here; Archived items, and the batches of
@@ -602,7 +643,7 @@ function RecipeForm({
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    if (slotMode === "chosen" && slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
+    if (slotMode === "chosen" && slot === undefined) return setError("Choose the slot");
     let content: Record<string, unknown>;
     try {
       content = recipe ? changedContent(initial, values, choices?.tools ?? []) : contentOf(values, choices?.tools ?? []);
@@ -865,20 +906,15 @@ function RecipeForm({
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
-                <SelectItem value="next">The next free slot ({lowestFree(recipes)})</SelectItem>
+                <SelectItem value="next">{nextFreeText(recipes)}</SelectItem>
                 <SelectItem value="chosen">A slot of my choosing</SelectItem>
                 <SelectItem value="none">No slot: kept here only</SelectItem>
               </SelectContent>
             </Select>
           </div>
-          {slotMode === "chosen" && (
-            <div className="grid gap-2">
-              <Label htmlFor={`${id}-slot`}>Slot</Label>
-              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
-            </div>
-          )}
+          {slotMode === "chosen" && <SlotSelect id={`${id}-slot`} value={slotText} onChange={setSlotText} />}
           <div className="sm:col-span-2">
-            <SlotNotes slot={slot} there={there} swappedTo={null} />
+            <SlotNotes slot={slot} there={there} swappedTo={null} full={slotMode === "next" && slot === undefined} />
           </div>
         </div>
       )}
@@ -922,22 +958,25 @@ function ChoiceGroup({ label, items }: { label: string; items: [value: string, t
 
 /**
  * Moves a Recipe to a slot at its Location, swapping it with the Recipe
- * there, or to the lowest free slot; the Recipe keeps its id and history.
+ * there, or to the lowest free slot, offered only where one is free; the
+ * Recipe keeps its id and history.
  */
 function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipes: Recipe[]; onMoved(): Promise<void> | void }) {
   const [open, setOpen] = useState(false);
-  const [mode, setMode] = useState<"next" | "chosen">("chosen");
+  const [picked, setPicked] = useState<"next" | "chosen">("chosen");
   const [slotText, setSlotText] = useState("");
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
   const id = useId();
   const free = lowestFree(recipes);
-  const slot = mode === "next" ? free : slotEntered(slotText);
+  // The next free slot is offered only while one is free.
+  const mode = free === undefined ? "chosen" : picked;
+  const slot = mode === "next" ? free : slotChosen(slotText);
   const there = slot === undefined ? undefined : recipes.find((candidate) => candidate.slot === slot && candidate.id !== recipe.id);
 
   async function move(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
+    if (slot === undefined) return setError("Choose the slot");
     setSaving(true);
     setError(undefined);
     try {
@@ -973,22 +1012,17 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
           {error && <FormError error={error} />}
           <div className="grid gap-2">
             <Label htmlFor={`${id}-mode`}>Move it to</Label>
-            <Select value={mode} onValueChange={(value) => setMode(value as "next" | "chosen")}>
+            <Select value={mode} onValueChange={(value) => setPicked(value as "next" | "chosen")}>
               <SelectTrigger id={`${id}-mode`} className="w-full">
                 <SelectValue />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="chosen">A slot of my choosing</SelectItem>
-                <SelectItem value="next">The next free slot ({free})</SelectItem>
+                {free !== undefined && <SelectItem value="next">The next free slot ({free})</SelectItem>}
               </SelectContent>
             </Select>
           </div>
-          {mode === "chosen" && (
-            <div className="grid gap-2">
-              <Label htmlFor={`${id}-slot`}>Slot</Label>
-              <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
-            </div>
-          )}
+          {mode === "chosen" && <SlotSelect id={`${id}-slot`} value={slotText} onChange={setSlotText} />}
           <SlotNotes slot={slot} there={there} swappedTo={recipe.slot} />
           <div>
             <Button type="submit" disabled={saving || slot === recipe.slot}>
@@ -1049,7 +1083,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   const atTarget = (batch: BeanBatchSummary) => batch.locations.some((at) => at.location.id === locationId);
   const batches = (choices?.batches ?? []).filter((batch) => !batch.archived && !archivedBeans.has(batch.bean.id) && atTarget(batch) && batch.id !== recipe.uses.beanBatch?.id);
   const free = targetRecipes ? lowestFree(targetRecipes) : undefined;
-  const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotEntered(slotText) : undefined;
+  const slot = slotMode === "next" ? free : slotMode === "chosen" ? slotChosen(slotText) : undefined;
   const there = slot === undefined ? undefined : targetRecipes?.find((candidate) => candidate.slot === slot);
 
   // A Recipe naming a Bean with no batch takes that Bean's batch most recently added at the Location, or none, keeping
@@ -1116,7 +1150,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
     event.preventDefault();
     setError(undefined);
     if (locationId === "") return setError("Choose the Location to copy it to");
-    if (slotMode === "chosen" && slot === undefined) return setError(`Enter the slot as a whole number from 1 to ${MAX_SLOT}`);
+    if (slotMode === "chosen" && slot === undefined) return setError("Choose the slot");
     setSaving(true);
     try {
       const { recipe: copied } = await api<{ recipe: Recipe }>("POST", `/recipes/${recipe.id}/copies`, {
@@ -1190,19 +1224,20 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="next">The next free slot{free === undefined ? "" : ` (${free})`}</SelectItem>
+                    <SelectItem value="next">{nextFreeText(targetRecipes)}</SelectItem>
                     <SelectItem value="chosen">A slot of my choosing</SelectItem>
                     <SelectItem value="none">No slot: kept there only</SelectItem>
                   </SelectContent>
                 </Select>
               </div>
-              {slotMode === "chosen" && (
-                <div className="grid gap-2">
-                  <Label htmlFor={`${id}-slot`}>Slot</Label>
-                  <Input id={`${id}-slot`} type="number" inputMode="numeric" min={1} max={MAX_SLOT} step={1} value={slotText} onChange={(event) => setSlotText(event.target.value)} />
-                </div>
-              )}
-              <SlotNotes slot={slot} there={there} swappedTo={null} keptAt={`at ${target.name}`} />
+              {slotMode === "chosen" && <SlotSelect id={`${id}-slot`} value={slotText} onChange={setSlotText} />}
+              <SlotNotes
+                slot={slot}
+                there={there}
+                swappedTo={null}
+                keptAt={`at ${target.name}`}
+                full={slotMode === "next" && targetRecipes !== undefined && slot === undefined}
+              />
 
               <div className="grid gap-2">
                 <Label htmlFor={`${id}-grinder`}>Grinder</Label>
@@ -1351,14 +1386,6 @@ export function RecipeDetails({ id }: { id: string }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      {recipe.slot !== null && recipe.slot > EDITABLE_SLOTS && (
-        <Alert>
-          <AlertDescription>
-            Slot {recipe.slot} is not editable in DYE2's recipe editor, which edits slots 1 to {EDITABLE_SLOTS}, though DYE2's dashboard and Streamline's
-            strip show it. Edit it here.
-          </AlertDescription>
-        </Alert>
-      )}
       {recipe.batchFinished && (
         <Alert variant="destructive">
           <AlertDescription>
@@ -1378,7 +1405,7 @@ export function RecipeDetails({ id }: { id: string }) {
                 path={path}
                 name={title}
                 archived={recipe.archived}
-                effect={`taken out of its slot, so removed from every tablet's DYE2 recipes; restored, it is kept at ${location.name} in no slot`}
+                effect={`removed from every tablet's DYE2 recipes and taken out of its slot; restored, it is written to them again, kept at ${location.name} in no slot`}
                 onDone={changed}
               />
             </>
@@ -1484,7 +1511,7 @@ export function RecipeDetails({ id }: { id: string }) {
   );
 }
 
-/** Takes a Recipe out of its slot, kept at its Location, and empties the slot on its tablets. */
+/** Takes a Recipe out of its slot, kept at its Location and on its tablets, and empties the slot there. */
 function TakeOutButton({ recipe, onDone }: { recipe: Recipe; onDone(): void }) {
   const [error, setError] = useState<string>();
   async function takeOut() {
@@ -1502,7 +1529,7 @@ function TakeOutButton({ recipe, onDone }: { recipe: Recipe; onDone(): void }) {
       <ConfirmButton
         label="Take out of its slot"
         title={`Take ${recipeName(recipe)} out of slot ${recipe.slot}?`}
-        description={`Slot ${recipe.slot} is emptied on every tablet at ${recipe.location?.name ?? "its Location"}. The Recipe is kept there in no slot, to put back in one or Archive.`}
+        description={`Slot ${recipe.slot} is emptied on every tablet at ${recipe.location?.name ?? "its Location"}. The Recipe is kept there in no slot, still found in DYE2's Select Recipe page, to put back in one or Archive.`}
         confirmLabel="Take it out"
         onConfirm={() => void takeOut()}
       />

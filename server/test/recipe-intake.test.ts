@@ -1,6 +1,6 @@
 import { GLOBAL_ID_KEY, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { beforeWriteAfter, editedContent, heldBefore } from "../src/library/equipment-intake.js";
+import { editedContent } from "../src/library/equipment-intake.js";
 import {
   EDITED_PATHS,
   type IntakeContext,
@@ -8,7 +8,6 @@ import {
   type MappedRecipe,
   type WriteContext,
   editedPaths,
-  heldBeforeReplaced,
   holdsRecipe,
   libraryValues,
   planRecipeIntake,
@@ -18,6 +17,7 @@ import {
   recipeView,
   recipeWorkflow,
   recordOf,
+  slotMove,
   steamOffPaths,
   tabletIds,
   withHeldFieldFlags,
@@ -29,23 +29,35 @@ import { dye2Keys, dye2Library } from "./support/simulated-dye2.js";
 // record a tablet is to hold of a Recipe, under its own ids, with what DYE2
 // derives regenerated, and the steam, hot water and flush settings it holds,
 // a steam temperature turning steam off no edit; and what a report of a tablet's recipes
-// changes, by slot. Through the pure module's
-// interface. Records are DYE2 2cf631c's, as it saved them
-// (fixtures/decaid/dye2-2cf631c/keys.json), with made-up global ids.
+// changes, by record id, and how a record's Recipe Slot moves its Recipe. Through the pure module's
+// interface. Records are those DYE2 v0.1.26 held at the end of its recording
+// (fixtures/decaid/dye2-v0.1.26/keys.json), recipe `1` with the two Tools DYE2's
+// equipment page made at 2cf631c (dye2-2cf631c/tools.json), as the recording
+// made none, with made-up global ids.
 
 type Record_ = Record<string, unknown>;
 
-const [slot1, slot2, blank] = dye2Keys().recipes as [Record_, Record_, Record_];
+const [recorded1, slot2, blank] = dye2Keys().recipes as [Record_, Record_, Record_];
+/** Recipe `1` with the WDT Tool, a value of its own, and the Puck Screen. */
+const slot1: Record_ = {
+  ...recorded1,
+  dashboardVariables: {
+    ...(recorded1.dashboardVariables as Record_),
+    equipmentIds: ["0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2", "28dc53fe-df8b-4789-9589-49ef5e45d57e"],
+    equipmentNames: ["Fixture WDT Tool", "Fixture Puck Screen"],
+    equipmentCustom: { "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2": [{ key: "Needles", value: "12" }, { key: "Needle size", value: "0.3 mm" }] },
+  },
+};
 const READ = "2026-10-12T20:30:00.000Z";
 
-/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-2cf631c/library.json, keys.json), and made-up global ids for them. */
+/** The recording's tablet's ids for what its recipes name (fixtures/decaid/dye2-v0.1.26/library.json; the Tools', dye2-2cf631c/tools.json), and made-up global ids for them. */
 const LOCAL = {
-  brazil: "1497c30b-e01e-4241-b1b0-a82bdae089d3",
-  ethiopia: "bdae1553-8b0f-4d37-94a1-15d61b543e74",
-  ethiopiaBatch: "6f741a24-ceb9-4ec6-aa51-750c6e9fec26",
-  grinder: "cc95ada6-98db-4495-8b24-a46239ad94a0",
-  basket18: "b09fb95c-7e5d-4be1-a4b8-d89c79523343",
-  basket20: "fa7809d4-1843-4745-8a37-ca6f43025dba",
+  brazil: "b006ac6c-e061-44e5-9afe-9e297785257c",
+  ethiopia: "2dec7277-95eb-4c35-9c95-242ced05ef58",
+  ethiopiaBatch: "78bfdaaf-0fe9-49f3-9db4-b7d6c1f514d7",
+  grinder: "5099f7fa-aa07-4989-b578-25893800e507",
+  basket18: "8f9702df-a615-4942-84db-882137fedcce",
+  basket20: "9567d681-444c-4492-95cd-29ecbc48870d",
   wdtTool: "0ee0a5bb-5e08-4a2b-9bce-3b256693a6d2",
   puckScreen: "28dc53fe-df8b-4789-9589-49ef5e45d57e",
 } as const;
@@ -122,15 +134,15 @@ const slot1Content = {
   beanBatchId: GLOBAL.laterEthiopiaBatch,
   profileId: ADAPTIVE,
   showOnDashboard: true,
-  dose: 18.5,
+  dose: 18,
   yield: 36,
   brewTemperature: 92,
   steamMode: "time",
   hotWaterMode: "temp",
   steamDuration: 30,
-  hotWaterTemperature: 88,
+  hotWaterTemperature: 85,
   flushDuration: 5,
-  grindSetting: 2.7,
+  grindSetting: 2.5,
   rpm: 900,
   grinderId: GLOBAL.grinder,
   basketId: GLOBAL.basket18,
@@ -139,25 +151,38 @@ const slot1Content = {
 };
 
 describe("DYE2's recipes as Recipes", () => {
-  it("reads each record in a slot with the global id its own field carries, and when the plugin first read it", () => {
+  it("reads each record under its id with the global id its own field carries, and when the plugin first read it", () => {
     const carrying = { ...slot2, [GLOBAL_ID_KEY]: GLOBAL.recipe.toUpperCase() };
     expect(readReportedRecipes([slot1, carrying], [null, READ])).toEqual([{ localId: "2", globalId: GLOBAL.recipe, updatedAt: new Date(READ), record: carrying }]);
-    // A list whose ids are not all slot numbers is in a shape that is not recognised, and gives none.
-    expect(readReportedRecipes([slot1, { ...slot2, id: "favourite-2" }], [READ, READ])).toEqual([]);
+    // DYE2's ids are opaque: a UUID from its editor, `recipe-…` from its save-recipe.
+    const saved = { ...slot2, id: "recipe-mh2k9x1abc", stripSlot: null };
+    expect(readReportedRecipes([slot1, saved], [READ, READ]).map((record) => record.localId)).toEqual(["1", "recipe-mh2k9x1abc"]);
+    // A list holding one id twice is in a shape that is not recognised, and gives none.
+    expect(readReportedRecipes([slot1, { ...slot2, id: "1" }], [READ, READ])).toEqual([]);
+  });
+
+  it("takes the Bean of the batch a record names with no Bean, as DYE2's save-recipe saves one from the Workflow", () => {
+    // As recorded, with the Workflow's batch the Ethiopia's (save-recipe.json saved one naming none).
+    const saved = { ...dye2Keys().recipes.find((record) => String(record.id).startsWith("recipe-"))!, beanBatchId: LOCAL.ethiopiaBatch, beanName: "Fixture Ethiopia" };
+    expect(saved).not.toHaveProperty("beanId");
+    expect(recipeContent(recipeView(saved), intake())).toMatchObject({ beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.ethiopiaBatch });
+    // One naming a Bean keeps it, and a batch of another Bean is not its.
+    const named = recipeContent(recipeView({ ...saved, beanId: LOCAL.brazil }), intake());
+    expect(named).toMatchObject({ beanId: GLOBAL.brazil });
+    expect(named).not.toHaveProperty("beanBatchId");
   });
 
   it("takes a record's content in in the Library's terms, through the tablet's map, ignoring what DYE2 derives and the barista", () => {
     const content = recipeContent(recipeView(slot1), intake());
     expect(content).toEqual(slot1Content);
-    // A blank recipe names no Bean, and holds none of the numbers DYE2 saved blank, as it leaves them out (decentespresso/dye2#29).
+    // A blank recipe names no Bean, and holds none of the numbers DYE2 saved blank, as it leaves them out (decentespresso/dye2#29);
+    // its editor took it off Streamline's strip.
     expect(recipeContent(recipeView(blank), intake())).toEqual({
       name: "Fixture Blank Recipe",
       beverage: "",
-      showOnDashboard: true,
+      showOnDashboard: false,
       steamMode: "flow",
       hotWaterMode: "vol",
-      grinderId: GLOBAL.grinder,
-      basketId: GLOBAL.basket18,
       toolIds: [],
       toolAttributes: {},
     });
@@ -169,7 +194,7 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(recipeView(blank), ["profileId"], { profileId: ADAPTIVE }, intake())).toEqual({ profileId: null });
     // A Bean with no batch at the Location gives the Recipe none; a Grinder of another Location, or one the map does not
     // hold, is none of its; and a Tool the map does not hold is left out.
-    expect(recipeContent(recipeView(slot2), intake())).toMatchObject({ beanId: GLOBAL.brazil, basketId: GLOBAL.basket20, toolIds: [GLOBAL.puckScreen] });
+    expect(recipeContent(recipeView(slot2), intake())).toMatchObject({ beanId: GLOBAL.brazil, basketId: GLOBAL.basket20, toolIds: [] });
     expect(recipeContent(recipeView(slot2), intake())).not.toHaveProperty("beanBatchId");
     expect(recipeContent(recipeView(slot1), intake({ grinders: new Set() }))).not.toHaveProperty("grinderId");
     const unmapped = { ...slot1, dashboardVariables: { ...(slot1.dashboardVariables as Record_), equipmentIds: ["tool-of-its-own", LOCAL.wdtTool] } };
@@ -212,7 +237,7 @@ describe("DYE2's recipes as Recipes", () => {
     const byTemperature = recipeView(slot1);
     expect(libraryValues(byTemperature, ["dashboardVariables.hotWaterMl", "dashboardVariables.hotWaterTempC", "dashboardVariables.hotWaterMode"], {}, intake())).toEqual({
       hotWaterMode: "temp",
-      hotWaterTemperature: 88,
+      hotWaterTemperature: 85,
       hotWaterVolume: null,
     });
     // A steam temperature below 135 °C is steam off, as DYE2's editor saves "Off" as 0: no edit, so it is written back.
@@ -264,7 +289,9 @@ describe("DYE2's recipes as Recipes", () => {
       // DYE2 applies it at the Recipe's brew temperature (decentespresso/dye2#26).
       profileSnapshot: adaptive,
       showOnStreamlineDashboard: true,
-      "dashboardVariables.dose": 18.5,
+      // Its Recipe Slot, the button of Streamline's strip it is on.
+      stripSlot: 1,
+      "dashboardVariables.dose": 18,
       "dashboardVariables.drink": 36,
       "dashboardVariables.ratio": null,
       "dashboardVariables.brewC": 92,
@@ -275,14 +302,14 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.steamTimeS": 30,
       "dashboardVariables.steamFlowMls": null,
       "dashboardVariables.steamStopAtTempC": null,
-      "dashboardVariables.hotWaterTempC": 88,
+      "dashboardVariables.hotWaterTempC": 85,
       "dashboardVariables.hotWaterTimeS": null,
       "dashboardVariables.hotWaterMl": null,
       "dashboardVariables.hotWaterFlowMls": null,
       "dashboardVariables.flushTempC": null,
       "dashboardVariables.flushS": 5,
       "dashboardVariables.flushFlowMls": null,
-      "dashboardVariables.grind": 2.7,
+      "dashboardVariables.grind": 2.5,
       "dashboardVariables.rpm": 900,
       "dashboardVariables.grinderId": "other-grinder",
       "dashboardVariables.grinderModel": "Fixture Grinder 64",
@@ -296,9 +323,9 @@ describe("DYE2's recipes as Recipes", () => {
       subtitle: "Fixture Ethiopia",
       workflow: {
         context: {
-          targetDoseWeight: 18.5,
+          targetDoseWeight: 18,
           targetYield: 36,
-          grinderSetting: "2.7",
+          grinderSetting: "2.5",
           grinderId: "other-grinder",
           grinderModel: "Fixture Grinder 64",
           // So a Workflow Streamline applies it to names the Recipe.
@@ -312,7 +339,7 @@ describe("DYE2's recipes as Recipes", () => {
         profile: adaptiveAt92,
         // Only the settings it holds, as partial parts.
         steamSettings: { duration: 30 },
-        hotWaterData: { targetTemperature: 88 },
+        hotWaterData: { targetTemperature: 85 },
         rinseData: { duration: 5 },
       },
     });
@@ -321,20 +348,22 @@ describe("DYE2's recipes as Recipes", () => {
     const recorded = recipeRecord({ ...slot1Content, beanBatchId: GLOBAL.ethiopiaBatch, name: "", hotWaterMode: "vol", hotWaterVolume: 120 }, 4, writing(recordedIds), GLOBAL.recipe);
     expect(recorded.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
     expect((recorded.workflow as { context: Record_ }).context.beanBatchId).toEqual(LOCAL.ethiopiaBatch);
-    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, 88]);
-    expect((recorded.workflow as Record_).hotWaterData).toEqual({ targetTemperature: 88, volume: 120 });
+    expect([recorded.title, recorded["dashboardVariables.hotWaterMl"], recorded["dashboardVariables.hotWaterTempC"]]).toEqual(["Recipe 4", 120, 85]);
+    expect((recorded.workflow as Record_).hotWaterData).toEqual({ targetTemperature: 85, volume: 120 });
   });
 
-  it("builds a recipe's embedded Workflow as DYE2 2cf631c does, from its yield or its dose times its ratio, with a Profile's id and title where it has no steps", () => {
+  it("builds a recipe's embedded Workflow as DYE2 does, from its yield or its dose times its ratio, with no Profile where it holds none whole", () => {
     const keptWorkflow = slot1.workflow as Record_;
-    // DYE2's own, as it saved slot 1, holds the same dial, grinder, Basket, coffee, roaster, batch, people, Profile at
+    // DYE2's own, as recipe 1 holds it, holds the same dial, grinder, Basket, coffee, roaster, batch, people, Profile at
     // the recipe's brew temperature, and settings it holds. It holds its field flags too.
     const view = recipeView(slot1);
     const { context } = keptWorkflow as { context: Record_ };
     const { dye: _flags, ...extras } = context.extras as Record_;
     expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ ...keptWorkflow, context: { ...context, extras } });
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
-    expect(ratio).toMatchObject({ context: { targetDoseWeight: 18.5, targetYield: 40.7 }, profile: { id: ADAPTIVE, title: "Adaptive v3" } });
+    expect(ratio).toMatchObject({ context: { targetDoseWeight: 18, targetYield: 39.6 } });
+    // A stub of its id and title would merge into the Workflow's profile, renaming its steps (`buildRecipeWorkflow` at v0.1.26).
+    expect(ratio).not.toHaveProperty("profile");
     expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
   });
 
@@ -350,8 +379,8 @@ describe("DYE2's recipes as Recipes", () => {
     };
     const kept = withHeldFieldFlags(view, held).workflow as Record_;
     // The settings the Recipe holds, as DYE2 embeds them, none of the tablet's own.
-    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 88, volume: 250 } });
-    expect(kept.hotWaterData).toEqual({ targetTemperature: 88, volume: 250 });
+    expect(kept).toMatchObject({ steamSettings: { duration: 30 }, rinseData: { duration: 5 }, hotWaterData: { targetTemperature: 85, volume: 250 } });
+    expect(kept.hotWaterData).toEqual({ targetTemperature: 85, volume: 250 });
     expect(kept.steamSettings).toEqual({ duration: 30 });
     expect(((kept.context as Record_).extras as Record_).dye).toEqual({ v: 1, coffeeName: true });
     expect((kept.context as Record_).coffeeRoaster).toBe("Fixture Roasters");
@@ -377,34 +406,16 @@ describe("DYE2's recipes as Recipes", () => {
     expect([...EDITED_PATHS]).not.toContain("barista");
   });
 
-  it("takes a recipe's field set back to what the tablet held just before the server's latest write to it as unchanged, as by an editor opened before it", () => {
-    const record: Record_ = { ...slot1, id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe };
-    const dial = (changes: Record_, fields: Record_ = {}) =>
-      recipeView({ ...record, ...fields, dashboardVariables: { ...(record.dashboardVariables as Record_), ...changes } });
-    // The server wrote another tablet's grind setting of 2.6 over the tablet's 2.7, which the tablet reported.
-    const before = heldBefore(recipeView(record), ["dashboardVariables.grind"]);
-    expect(before).toEqual({ "dashboardVariables.grind": 2.7 });
-    const known = dial({ grind: 2.6 });
-    const standing = beforeWriteAfter(before, known, known);
-    // DYE2's editor, loaded before that write, saves a dose of 18.8 with every other field as it loaded them, its capture
-    // time rewritten: only the dose is an edit.
-    const saved = dial({ dose: 18.8 }, { capturedAt: "2026-10-12T21:00:00.000Z" });
-    expect(editedPaths(editedContent(known, saved, standing))).toEqual(["dashboardVariables.dose"]);
-    // A grind setting of another value is an edit as usual, and so is a field the server never wrote set back to an
-    // earlier value of the tablet's.
-    expect(editedPaths(editedContent(known, dial({ dose: 18.8, grind: 2.8 }), standing)).sort()).toEqual(["dashboardVariables.dose", "dashboardVariables.grind"]);
-    expect(editedPaths(editedContent(dial({ grind: 2.6, rpm: 1000 }), dial({ rpm: 900 }), standing))).toEqual(["dashboardVariables.rpm"]);
-  });
-
-  it("takes a record created in a slot the server removed another from as holding before the write each field that one held otherwise", () => {
-    const earlier = recipeView({ ...slot1, id: "1", [GLOBAL_ID_KEY]: GLOBAL.recipe });
-    const created = { ...earlier, name: "Brand new", "dashboardVariables.grind": 3.3, "dashboardVariables.rpm": null };
-    // A field both hold, as the dose, is left out; one only the earlier record held is kept with its value.
-    expect(heldBeforeReplaced(earlier, created)).toEqual({ name: earlier.name, "dashboardVariables.grind": 2.7, "dashboardVariables.rpm": 900 });
-    // A page opened on the earlier record saving its dose of 18.8 over the new one changes only the dose.
-    const saved = { ...earlier, "dashboardVariables.dose": 18.8 };
-    expect(editedPaths(editedContent(created, saved, heldBeforeReplaced(earlier, created)))).toEqual(["dashboardVariables.dose"]);
-    expect(heldBeforeReplaced(earlier, earlier)).toBeNull();
+  it("writes a record's Recipe Slot as its stripSlot, null for none, which is no edit of its content", () => {
+    const inSlot = recipeRecord(slot1Content, 3, writing(recordedIds), GLOBAL.recipe);
+    const inNone = recipeRecord(slot1Content, null, writing(recordedIds), GLOBAL.recipe);
+    expect(recordOf(inSlot).stripSlot).toBe(3);
+    expect(inNone.stripSlot).toBeNull();
+    expect(editedPaths(editedContent(inSlot, inNone, null))).toEqual([]);
+    expect(holdsRecipe(inNone, inSlot)).toBe(true);
+    // A nameless one is called by its slot, or Recipe in none.
+    expect(recipeRecord({}, 4, writing(recordedIds), GLOBAL.recipe).title).toBe("Recipe 4");
+    expect(recipeRecord({}, null, writing(recordedIds), GLOBAL.recipe).title).toBe("Recipe");
   });
 
   it("writes and takes in every steam, hot water and flush setting, and the modes, which choose only what DYE2's editor shows", () => {
@@ -453,70 +464,52 @@ describe("DYE2's recipes as Recipes", () => {
     expect(recipeContent(recipeView(blank), intake())).not.toHaveProperty("flushDuration");
   });
 
-  it("decides a report by slot: an edit of the Recipe in it, a new Recipe in an empty one, and a removal that takes one out", () => {
+  it("decides a report by record id: an edit of the Recipe it is, a new Recipe for an id no Recipe here has, and a removal that takes one out", () => {
     const at = (record: Record_, id = record.id as string) => readReportedRecipes([{ ...record, id }], [READ])[0]!;
-    const known: MappedRecipe = { itemId: GLOBAL.recipe, localId: "1", updatedAt: new Date(READ), record: slot1, beforeWrite: null, listed: true };
+    const known: MappedRecipe = { itemId: GLOBAL.recipe, localId: "1", updatedAt: new Date(READ), record: slot1, listed: true };
     const other = "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb";
-    const slots = new Map([
+    const recordIds = new Map([
       ["1", GLOBAL.recipe],
       ["3", other],
     ]);
-    // The map's record as known changes nothing; changed, it is the barista's edit of its Recipe.
-    expect(planRecipeIntake([at(slot1)], [known], slots)).toEqual([]);
+    // The map's record as known changes nothing; changed, it is the barista's edit of its Recipe, moved to a slot or not.
+    expect(planRecipeIntake([at(slot1)], [known], recordIds)).toEqual([]);
     const edited = at({ ...slot1, name: "Renamed" });
-    expect(planRecipeIntake([edited], [known], slots)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
-    // A record in the slot of a Recipe the map does not hold there: its record if it carries its global id, as after a lost
-    // answer, and otherwise saved there, an edit of it. One in an empty slot is a new Recipe.
+    expect(planRecipeIntake([edited], [known], recordIds)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
+    const moved = at({ ...slot1, stripSlot: 4 });
+    expect(planRecipeIntake([moved], [known], recordIds)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: moved }]);
+    // A record under the record id of a Recipe the map does not hold: its record if it carries its global id, as after a
+    // lost answer, and otherwise saved under it, an edit of it. One of an id no Recipe here has is a new Recipe.
     const carrying = at({ ...blank, [GLOBAL_ID_KEY]: other });
     const saved = at(slot2, "3");
-    const added = at(slot2);
-    expect(planRecipeIntake([carrying], [], slots)).toEqual([{ kind: "map", itemId: other, reported: carrying }]);
-    expect(planRecipeIntake([saved], [], slots)).toEqual([{ kind: "edit", itemId: other, reported: saved }]);
-    expect(planRecipeIntake([added], [], slots)).toEqual([{ kind: "add", reported: added }]);
+    const added = at(slot2, "4b1f0a3e-6c1d-4e7a-9a52-1f0d3c7b2e81");
+    expect(planRecipeIntake([carrying], [], recordIds)).toEqual([{ kind: "map", itemId: other, reported: carrying }]);
+    expect(planRecipeIntake([saved], [], recordIds)).toEqual([{ kind: "edit", itemId: other, reported: saved }]);
+    expect(planRecipeIntake([added], [], recordIds)).toEqual([{ kind: "add", reported: added }]);
     // Gone from the list, a record a report listed before is the tablet's removal; one never listed was a write lost.
-    expect(planRecipeIntake([], [known], slots)).toEqual([{ kind: "delete", itemId: GLOBAL.recipe, localId: "1", updatedAt: new Date(READ) }]);
-    expect(planRecipeIntake([], [{ ...known, listed: false }], slots)).toEqual([{ kind: "forget", itemId: GLOBAL.recipe, localId: "1" }]);
+    expect(planRecipeIntake([], [known], recordIds)).toEqual([{ kind: "delete", itemId: GLOBAL.recipe, localId: "1", updatedAt: new Date(READ), record: slot1 }]);
+    expect(planRecipeIntake([], [{ ...known, listed: false }], recordIds)).toEqual([{ kind: "forget", itemId: GLOBAL.recipe, localId: "1" }]);
     // Listed but unreadable, it is no removal.
-    expect(planRecipeIntake([], [known], slots, new Set(["1"]))).toEqual([]);
-    // A tablet still holding the slot's Recipe in another slot, written first, does not take the slot's new record as its.
+    expect(planRecipeIntake([], [known], recordIds, new Set(["1"]))).toEqual([]);
+    // A tablet holding the Recipe under another id already does not take a new record under its id as its.
     const elsewhere: MappedRecipe = { ...known, itemId: other, localId: "2", record: slot2 };
-    expect(planRecipeIntake([at(slot2), saved], [elsewhere], slots)).toEqual([]);
-    // A save in a slot whose Recipe has left it since, as taken out of it or Archived, is still that Recipe's edit, whether
-    // the slot is empty now or holds another Recipe, never an edit of that one; the writer then removes the record.
-    // Unchanged, it is that Recipe's record still.
-    const left = new Set([GLOBAL.recipe, other]);
-    const unslotted = new Map([["3", other]]);
-    expect(planRecipeIntake([edited], [known], unslotted, undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
-    expect(planRecipeIntake([edited], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
-    expect(planRecipeIntake([at(slot1)], [known], unslotted, undefined, left)).toEqual([]);
-    // A record with no global id over one the map knew to carry its id, as another app's new save there, is no edit of it.
-    const idless = at({ ...slot1, name: "No id" });
-    delete (idless.record as Record_)[GLOBAL_ID_KEY];
-    const unmarked = { ...idless, globalId: null };
-    const carried: MappedRecipe = { ...known, record: { ...slot1, [GLOBAL_ID_KEY]: GLOBAL.recipe } };
-    expect(planRecipeIntake([unmarked], [carried], unslotted, undefined, left)).toEqual([{ kind: "add", reported: unmarked }]);
-    const neverCarried: MappedRecipe = { ...known, record: Object.fromEntries(Object.entries(slot1).filter(([key]) => key !== GLOBAL_ID_KEY)) };
-    expect(planRecipeIntake([unmarked], [neverCarried], unslotted, undefined, left)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: unmarked }]);
-    // A record carrying another item's global id there is no edit of it, and in a slot another Recipe holds now, that one's
-    // as any record saved there.
-    const restoredThere = at({ ...slot1, name: "Restored there", [GLOBAL_ID_KEY]: "cccccccc-cccc-4ccc-8ccc-cccccccccccc" });
-    expect(planRecipeIntake([restoredThere], [known], new Map([["1", other]]), undefined, left)).toEqual([{ kind: "edit", itemId: other, reported: restoredThere }]);
+    expect(planRecipeIntake([at(slot2), saved], [elsewhere], recordIds)).toEqual([]);
     // Another Location's, as before a move, it stays that Recipe's record, but is no edit of it: it is written over. So is
     // one carrying another item's global id, as a backup restored.
-    expect(planRecipeIntake([edited], [known], unslotted, undefined, new Set([other]))).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: edited }]);
+    expect(planRecipeIntake([edited], [known], new Map([["3", other]]), undefined, new Set([other]))).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: edited }]);
     const restored = at({ ...slot1, name: "Restored", [GLOBAL_ID_KEY]: other });
-    expect(planRecipeIntake([restored], [known], slots)).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: restored }]);
-    // Moved to another slot since, as by a swap the tablet has not yet been written, its record saved in the slot it left
-    // is still its edit, whether that slot holds another Recipe now or none; the writer then moves the record.
-    const otherKnown: MappedRecipe = { ...known, itemId: other, localId: "3", record: { ...slot2, id: "3" } };
-    const swapped = new Map([
-      ["1", other],
-      ["3", GLOBAL.recipe],
-    ]);
-    const unchangedOther = at({ ...slot2, id: "3" });
-    expect(planRecipeIntake([edited, unchangedOther], [known, otherKnown], swapped)).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
-    expect(planRecipeIntake([edited], [known], new Map([["4", GLOBAL.recipe]]))).toEqual([{ kind: "update", itemId: GLOBAL.recipe, reported: edited }]);
-    // One carrying another item's global id is not its edit.
-    expect(planRecipeIntake([restored], [known], new Map([["4", GLOBAL.recipe]]))).toEqual([{ kind: "add", reported: restored }]);
+    expect(planRecipeIntake([restored], [known], recordIds)).toEqual([{ kind: "map", itemId: GLOBAL.recipe, reported: restored }]);
+    // An Archived Recipe's record id, which no Recipe here not Archived has, is a new Recipe's.
+    expect(planRecipeIntake([saved], [], new Map([["1", GLOBAL.recipe]]))).toEqual([{ kind: "add", reported: saved }]);
+  });
+
+  it("moves a Recipe as its record's Recipe Slot changes, from the slot the record known was in", () => {
+    const at = (record: Record_) => readReportedRecipes([record], [READ])[0]!;
+    expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 1 }, at({ ...slot1, stripSlot: 4 }))).toEqual({ itemId: GLOBAL.recipe, from: 1, to: 4, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 1 }, at({ ...slot1, stripSlot: null }))).toEqual({ itemId: GLOBAL.recipe, from: 1, to: null, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 2 }, at({ ...slot1, stripSlot: 2, name: "Renamed" }))).toBeNull();
+    // A new record's slot is taken from none; a slot outside 1 to 5 is none.
+    expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 5 }))).toEqual({ itemId: GLOBAL.recipe, from: null, to: 5, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 7 }))).toBeNull();
   });
 });

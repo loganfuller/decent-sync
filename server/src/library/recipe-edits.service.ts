@@ -1,4 +1,4 @@
-import { sameValue } from "@decent-sync/protocol";
+import { RECIPE_SLOTS, sameValue } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -31,10 +31,12 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 // it is a version of its own at the Location, as a tablet taking it out of
 // its slot is (recipes.ts). Slots are decided under the Location's lock, as
 // a tablet's report decides them, so no two Recipes are put in one slot,
-// through any instance. Each change commits with a `NOTIFY` on
+// through any instance. A Location has five, the buttons of Streamline's DYE
+// strip (RECIPE_SLOTS). Each change commits with a `NOTIFY` on
 // `library_changes` naming the Location, so its tablets are written: a
-// Recipe moved is removed from its old slot and written in its new one
-// (`recipeWrites` in holdings.ts), keeping its id and history.
+// Recipe moved is written its new slot (`stripSlot`), the Recipe that was
+// there written its own, and each keeps its record id and history
+// (`recipeWrites` in holdings.ts).
 //
 // Locks are taken as a tablet's report of its recipes takes them: the
 // Location's, then the Recipe's row; then the rows of the items it is set to
@@ -167,6 +169,7 @@ export class RecipeEditsService {
         return true;
       }
       const taken = await freeSlot(tx, recipe.locationId, recipe, slot, source, at);
+      if (taken === null) throw new ConflictException(`All ${RECIPE_SLOTS} Recipe Slots here hold a Recipe: choose one to swap with, or take a Recipe out of its slot first`);
       if (taken === recipe.slot) return false;
       await setSlot(tx, recipe, taken, source, at);
       return true;
@@ -182,7 +185,14 @@ export class RecipeEditsService {
     await this.change(id, accountId, scope, archived ? "Archive a Recipe" : "restore a Recipe", async (tx, recipe, source, at) => {
       if (recipe.archived === archived) return false;
       if (recipe.slot !== null) await setSlot(tx, recipe, null, source, at);
-      await tx.$executeRaw`UPDATE recipes SET archived = ${archived} WHERE id = ${id}::uuid`;
+      // A Recipe restored keeps its record id, unless another of its Location has taken that id since, as one a tablet
+      // saved under a Recipe Slot's number: it is given a new one, which its tablets are written.
+      await tx.$executeRaw`
+        UPDATE recipes AS r SET archived = ${archived},
+          record_id = CASE WHEN NOT ${archived} AND EXISTS (
+            SELECT 1 FROM recipes AS other WHERE other.location_id = r.location_id AND other.record_id = r.record_id AND NOT other.archived AND other.id <> r.id
+          ) THEN gen_random_uuid()::text ELSE r.record_id END
+        WHERE r.id = ${id}::uuid`;
       await recordVersion(tx, { kind: "recipe", id }, null, { archived }, source, at);
       return true;
     });
@@ -221,11 +231,12 @@ export class RecipeEditsService {
 }
 
 /**
- * Inserts a new Recipe at the Location with the values, in the slot chosen,
- * the Recipe there taken out of it, or the lowest free one, or none, as the
- * Location's state; it joins the Library as its first version, which names
- * the Recipe a copy was copied from. Notifies the Location's tablets, under
- * its lock. Returns its id.
+ * Inserts a new Recipe at the Location with the values, under a new record
+ * id, in the slot chosen, the Recipe there taken out of it, or the lowest
+ * free one, or none, as for `next` where none is free, as the Location's
+ * state; it joins the Library as its first version, which names the Recipe a
+ * copy was copied from. Notifies the Location's tablets, under its lock.
+ * Returns its id.
  */
 async function insertRecipe(
   tx: Prisma.TransactionClient,
@@ -238,8 +249,8 @@ async function insertRecipe(
 ): Promise<string> {
   const taken = slot === null ? null : await freeSlot(tx, locationId, null, slot, source, at);
   const [created] = await tx.$queryRaw<[{ id: string }]>`
-    INSERT INTO recipes (id, location_id, slot, content)
-    VALUES (gen_random_uuid(), ${locationId}::uuid, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
+    INSERT INTO recipes (id, location_id, record_id, slot, content)
+    VALUES (gen_random_uuid(), ${locationId}::uuid, gen_random_uuid()::text, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
     RETURNING id::text AS id`;
   await recordJoined(tx, { kind: "recipe", id: created.id }, values, at, source, copiedFrom);
   if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
@@ -429,9 +440,10 @@ async function setUses(
 
 /**
  * The slot a Recipe (null for one being created) is to take at the
- * Location: the one chosen, or the lowest the Location leaves empty. A
- * Recipe in that slot takes the moved one's slot, or none, as a version of
- * its own. Under the Location's lock.
+ * Location: the one chosen, or the lowest the Location leaves empty, or
+ * none (null) where every one holds a Recipe. A Recipe in that slot takes
+ * the moved one's slot, or none, as a version of its own. Under the
+ * Location's lock.
  */
 async function freeSlot(
   tx: Prisma.TransactionClient,
@@ -440,11 +452,12 @@ async function freeSlot(
   choice: number | "next",
   source: EditSource,
   at: Date,
-): Promise<number> {
+): Promise<number | null> {
   const slotted = await tx.$queryRaw<{ id: string; slot: number }[]>`
     SELECT id::text AS id, slot FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL ORDER BY slot`;
   // The next free slot is one no Recipe is in, the moved one's own included.
   const slot = choice === "next" ? lowestFree(slotted.map((recipe) => recipe.slot)) : choice;
+  if (slot === null) return null;
   const there = slotted.find((recipe) => recipe.slot === slot && recipe.id !== moving?.id);
   if (there) {
     // The moved Recipe leaves its slot first, as each slot holds one Recipe.
@@ -456,12 +469,11 @@ async function freeSlot(
   return slot;
 }
 
-/** The lowest Recipe Slot, from 1, that none of these is. */
-function lowestFree(slots: readonly number[]): number {
+/** The lowest Recipe Slot, from 1, that none of these is, or null where they are all taken. */
+function lowestFree(slots: readonly number[]): number | null {
   const taken = new Set(slots);
-  let slot = 1;
-  while (taken.has(slot)) slot++;
-  return slot;
+  for (let slot = 1; slot <= RECIPE_SLOTS; slot++) if (!taken.has(slot)) return slot;
+  return null;
 }
 
 /** Puts the Recipe in the slot, or none, as a version of its own at its Location. */

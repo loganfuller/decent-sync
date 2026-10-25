@@ -633,7 +633,8 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
   basket: equipmentKind("basket", "Basket", { table: "baskets", map: "tablet_baskets", column: "basket_id", shown: "basket_locations" }, { fields: BASKET_FIELDS, defaults: {} }),
   // DYE2's page saves a Tool's attributes, none if none are entered.
   tool: equipmentKind("tool", "Tool", { table: "tools", map: "tablet_tools", column: "tool_id", shown: "tool_locations" }, { fields: TOOL_FIELDS, defaults: { custom: [] } }),
-  // DYE2's recipes (ADR-0005): each belongs to one Location, in one of its slots or none, and names the items it uses.
+  // DYE2's recipes (ADR-0005): each belongs to one Location, under one record id there, in one of its slots or none, and
+  // names the items it uses.
   recipe: {
     name: "Recipe",
     list: LIBRARY_ITEM_KINDS.recipe.list,
@@ -653,11 +654,11 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     editable: { fields: RECIPE_FIELDS, defaults: { showOnDashboard: true, steamMode: "flow", hotWaterMode: "vol" } },
     holdings: { key: "recipes", offered: (tx, tablet, locationId) => offeredRecipes(tx, tablet, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
     plan: (offer, held) => recipeWrites(offer, held),
-    offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND slot IS NOT NULL AND NOT archived LIMIT 1`,
+    offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND NOT archived LIMIT 1`,
     stateLocationsSql: (ids) => Prisma.sql`SELECT location_id::text AS id FROM recipes WHERE id = ANY(${ids}::uuid[]) AND location_id IS NOT NULL`,
-    // A Shot names a Recipe by its slot, through its tablet's map as it is stored, and is linked to it only where its
+    // A Shot names a Recipe by its record id, through its tablet's map as it is stored, and is linked to it only where its
     // Machine had the Recipe loaded (shots/links.ts): a Capture-only Machine's Shots name one it never had. A record of
-    // one a Shot names is never held back on a tablet: its slot there is another Recipe's once it moves.
+    // one a Shot names is never held back on a tablet: only a Shot linked to it names it.
     shotsNameSql: (ids) => shotLinkedToRecipesSql(ids),
     namedAs: "this Recipe",
     undeletable: async () => null,

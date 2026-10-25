@@ -23,7 +23,12 @@ import {
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
-  MAX_SLOT,
+  RECIPE_SLOTS,
+  RECIPE_SLOT_FIELD,
+  DYE2_RECIPE_FIELD,
+  dye2Fingerprint,
+  dye2RecipeIdOf,
+  recipeSlotOf,
   RECIPE_SETTINGS,
   LOADED_RECIPE_PARTS,
   steamOff,
@@ -51,7 +56,7 @@ import {
   isDye2List,
   isLibraryList,
   isRecordId,
-  isSlotId,
+  isRecipeSlot,
   recordGlobalId,
   itemIdRule,
   listKind,
@@ -699,23 +704,33 @@ describe("Library writes", () => {
     }
   });
 
-  it("recognises DYE2's recipes only with each id a Recipe Slot's number", () => {
+  it("recognises DYE2's recipes under any record id, each in a Recipe Slot from 1 to 5 by its stripSlot, or none", () => {
     expect(dye2Key("recipe")).toBe("recipes");
     expect(LIBRARY_ITEM_KINDS.recipe.list).toBe("dye2Recipes");
     // Recipes are written last, as they name the other kinds by the tablet's ids.
     expect(LIBRARY_KINDS.at(-1)).toBe("recipe");
-    const recipes = [{ id: "1", name: "a" }, { id: "7" }, { id: "12" }, { id: String(MAX_SLOT) }];
-    expect(dye2Records(recipes, "recipes")).toBe(recipes);
-    // The same ids in baskets are any record ids.
-    const baskets = [{ id: "bskt-1" }, { id: "0" }];
-    expect(dye2Records(baskets, "baskets")).toBe(baskets);
-    for (const id of ["0", "01", "-1", "1.5", "+1", " 1", "one", "bskt-1", String(MAX_SLOT + 1), "99999999999"]) {
-      expect(isSlotId(id)).toBe(false);
-      expect(dye2Records([{ id: "1" }, { id }], "recipes")).toBeNull();
-      expect(dye2Records([{ id: "1" }, { id }])).not.toBeNull();
-    }
-    for (const id of ["1", "5", "6", "42"]) expect(isSlotId(id)).toBe(true);
-    expect(isSlotId(3)).toBe(false);
+    // A UUID from DYE2's editor, `recipe-…` from its save-recipe, and a slot's number from before DYE2 v0.1.25.
+    const recipes = [{ id: "3f2b8c1e-5d7a-4e9b-8c2d-1a6f0e4b7c93", stripSlot: 1 }, { id: "recipe-mh2k9x1abc", stripSlot: null }, { id: "4" }];
+    expect(dye2Records(recipes)).toBe(recipes);
+    expect(recipes.map(recipeSlotOf)).toEqual([1, null, null]);
+    for (const slot of [0, 6, 1.5, "2", -1, null, undefined]) expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
+    for (const slot of [1, 2, 3, 4, 5]) expect(isRecipeSlot(slot)).toBe(true);
+    expect(RECIPE_SLOTS).toBe(5);
+    expect(RECIPE_SLOT_FIELD).toBe("stripSlot");
+  });
+
+  it("reads the recipe a Workflow names by its record id, as DYE2 does, and fingerprints a profile as DYE2 v0.1.26 does", () => {
+    expect(DYE2_RECIPE_FIELD).toBe("context.extras.dye.recipeId");
+    expect(dye2RecipeIdOf({ context: { extras: { dye: { v: 1, recipeId: "recipe-mh2k9x1abc" } } } })).toBe("recipe-mh2k9x1abc");
+    expect(dye2RecipeIdOf({ context: { extras: { dye: { recipeId: 3 } } } })).toBe("3");
+    for (const id of [null, "", undefined]) expect(dye2RecipeIdOf({ context: { extras: { dye: { recipeId: id } } } })).toBeNull();
+    expect(dye2RecipeIdOf({ context: { extras: { dye: { selection: { kind: "recipe", id: "1" } } } } })).toBeNull();
+    const profile = { title: "Adaptive", tank_temperature: 0, steps: [{ name: "fill", temperature: 93, limiter: { value: 0, range: 0.6 } }, { name: "pour", temperature: 90, limiter: { value: 9, range: 0.6 } }] };
+    const sentByStreamline = { ...profile, steps: [{ ...profile.steps[0], temperature: 92, limiter: null }, { ...profile.steps[1], temperature: 89 }] };
+    expect(dye2Fingerprint(sentByStreamline)).toBe(dye2Fingerprint(profile));
+    expect(dye2Fingerprint({ ...profile, target_weight: 40 })).toBe(dye2Fingerprint(profile));
+    expect(dye2Fingerprint({ ...profile, title: "Other" })).not.toBe(dye2Fingerprint(profile));
+    expect(dye2Fingerprint(null)).toBeNull();
   });
 
   it("names each steam, hot water and flush setting a Recipe may hold by DYE2's name and the Workflow's, a Loaded Recipe part of its own", () => {

@@ -114,11 +114,11 @@ A named, saved dial-in for a coffee, such as the day's recipe for one roast: its
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
-A numbered position for a recipe, shared by every machine at a location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another; one in no slot is kept at its location until someone puts it in one or archives it.
+One of a location's five numbered positions for a recipe, 1 to 5, each a button of Streamline's DYE strip, shared by every machine at that location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another; one in no slot is kept at its location, where any machine can still load it, until someone puts it in one or archives it.
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:
-The recipe a barista last applied on a machine, while they are still dialling it in. It is part of the machine's state: a change to the recipe reaches that machine's workflow at once.
+The recipe a barista last applied on a machine, while they are still dialling it in, until they apply another recipe or a favourite, or change the profile. It is part of the machine's state: a change made on that machine is saved into the recipe, and a change to the recipe reaches that machine's workflow at once.
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:

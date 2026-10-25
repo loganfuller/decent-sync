@@ -2,7 +2,7 @@ import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
-import { type Dye2Key, DYE2_NAMESPACE, dye2List, dye2NeverUsed, dye2Recording, saveInDye2 } from "./support/simulated-dye2.js";
+import { type Dye2Exchange, type Dye2Key, DYE2_NAMESPACE, dye2List, dye2NeverUsed, dye2PagesRecording, saveInDye2 } from "./support/simulated-dye2.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -15,8 +15,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // at its Location only (ADR-0019), and what a Location does not show is
 // removed from its tablets' lists. And for ticket #142, a save from a DYE2
 // page opened before another tablet's change keeps that change (ADR-0005).
-// Through the built plugin in simulated tablets, acting as DYE2 at 2cf631c does
-// with the steps recorded from it (fixtures/decaid/dye2-2cf631c/), on two
+// Through the built plugin in simulated tablets, acting as DYE2's equipment and
+// baskets pages do with the steps recorded from them at 2cf631c, which
+// v0.1.26's pages save as (fixtures/decaid/dye2-2cf631c/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up, from 41001.
 
@@ -123,8 +124,8 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     };
   };
 
-  const baskets = dye2Recording("baskets");
-  const tools = dye2Recording("tools");
+  const baskets = dye2PagesRecording("baskets") as Record<"create18gBasket" | "create20gBasket" | "edit18gBasket", Dye2Exchange[]>;
+  const tools = dye2PagesRecording("tools") as Record<"createWdtTool" | "createPuckScreen" | "createSpareTamper" | "editWdtTool" | "deleteSpareTamper", Dye2Exchange[]>;
   /** Names each item a recorded step saves as the scenario's own, as Baskets and Tools are matched by name across scenarios. */
   const ownNames = (scenario: string) => (item: Record_) => ({ ...item, name: `${scenario} ${String(item.name)}` });
 

@@ -3,22 +3,25 @@ import { describe, expect, it } from "vitest";
 import {
   PARTS,
   type WorkflowParts,
+  dueParts,
+  heldAlready,
   heldByRecord,
   partsWrite,
+  readBase,
   readParts,
   recipeParts,
-  readLoadBefore,
   RECORDED_PARTS,
-  setBackToLoad,
+  valuesFromWorkflow,
   workflowParts,
 } from "../src/library/loaded-recipe-intake.js";
 import type { FieldEdits } from "../src/library/merge.js";
 import { withoutOwnEdits } from "../src/library/recipe-intake.js";
 
 // How the parts of a Workflow that follow its Loaded Recipe map to the
-// Recipe's content, both ways (ADR-0022, tickets #146 and #173): which DYE2
-// records into the Recipe's record, which are stale there, and what is
-// written into a Workflow that has it loaded. Ids are made up.
+// Recipe's content, both ways (ADR-0022, tickets #146, #173 and #216): which
+// DYE2 saves into the Recipe's record, which Decent Sync takes in itself,
+// and what is written into a Workflow that has it loaded, of what changed
+// since it took the Recipe. Ids are made up.
 
 const BATCH = "11111111-1111-4111-8111-111111111111";
 const NEXT_BAG = "22222222-2222-4222-8222-222222222222";
@@ -98,33 +101,89 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
   });
 
-  it("are recorded by DYE2 into the Recipe's record, every one but its Grinder, Bean Batch and Profile, a change of which unloads it", () => {
+  it("are saved by DYE2 into the Recipe's record, every one but its Grinder, Bean Batch and Profile", () => {
     expect(RECORDED_PARTS).toEqual(["dose", "yield", "grind", "rpm", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES]);
     expect(PARTS.filter((part) => !RECORDED_PARTS.includes(part))).toEqual(["profile", "grinder", "batch"]);
   });
 });
 
-describe("A part set back to what a load's write replaced", () => {
-  const loadBefore = { batch: { before: "b3", written: "b1" }, basket: { before: "k2", written: "k1" }, grinder: { before: "g2", written: "g1" } };
+describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () => {
+  const items: Record<string, string> = { "beanBatch:b2": NEXT_BAG, "beanBatch:b3": OTHER_BEANS_BATCH, "basket:k1": BASKET, "grinder:g2": OTHER_GRINDER, "grinder:g9": "99999999-9999-4999-8999-999999999999" };
+  const context = {
+    item: (kind: string, localId: string) => items[`${kind}:${localId}`],
+    grinders: new Set([GRINDER, OTHER_GRINDER]),
+    batchBeans: new Map([
+      [NEXT_BAG, BEAN],
+      [OTHER_BEANS_BATCH, "55555555-5555-4555-8555-555555555555"],
+    ]),
+  };
+  const locals: Record<string, string> = { [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1" };
+  const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
 
-  it("is stale, before the first espresso since, unless the tablet made the field's latest edit itself, or it is the Grinder", () => {
-    expect(setBackToLoad("batch", "b3", loadBefore, new Set())).toBe(true);
-    expect(setBackToLoad("basket", "k2", loadBefore, new Set())).toBe(true);
-    // An undo of the barista's own tweak.
-    expect(setBackToLoad("basket", "k2", loadBefore, new Set(["basketId"]))).toBe(false);
-    // A grinder set back unloads the Recipe.
-    expect(setBackToLoad("grinder", "g2", loadBefore, new Set())).toBe(false);
-    // A part the load did not change, another value, or none known once an espresso started.
-    expect(setBackToLoad("rpm", 900, loadBefore, new Set())).toBe(false);
-    expect(setBackToLoad("batch", "b2", loadBefore, new Set())).toBe(false);
-    expect(setBackToLoad("batch", "b3", null, new Set())).toBe(false);
+  it("is a Grinder of the Location, and a batch of the Recipe's Bean, changed on the Machine, but not a batch of another Bean or a value cleared", () => {
+    const target = recipeParts(CONTENT, local);
+    const changed = { ...HELD, grinder: "g2", batch: "b2" };
+    expect(valuesFromWorkflow(CONTENT, target, HELD, changed, context)).toEqual({ values: { grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG }, parts: ["grinder", "batch"] });
+    // A batch of another Bean, a Grinder of no Location's, a value cleared: the Machine's own.
+    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch: "b3", grinder: "g9", basket: null, dose: null }, context)).toEqual({ values: {}, parts: [] });
+    // A Recipe naming no Bean takes the batch's Bean too.
+    const { beanId: _, beanBatchId: __, ...beanless } = CONTENT;
+    expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), HELD, { ...HELD, batch: "b3" }, context).values).toEqual({
+      beanBatchId: OTHER_BEANS_BATCH,
+      beanId: "55555555-5555-4555-8555-555555555555",
+    });
   });
 
-  it("is a setting too, and is read from a load's values as delivered", () => {
-    expect(setBackToLoad("flushDuration", 4, { flushDuration: { before: 4, written: 5 } }, new Set())).toBe(true);
-    expect(setBackToLoad("flushDuration", 4, { flushDuration: { before: 4, written: 5 } }, new Set(["flushDuration"]))).toBe(false);
-    expect(readLoadBefore({ batch: { before: "b3", written: "b1" }, unknown: { before: 1, written: 2 } })).toEqual({ batch: { before: "b3", written: "b1" } });
-    expect(readLoadBefore({})).toBeNull();
+  it("is a dial value the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting as a number", () => {
+    const { rpm: _, basketId: __, grindSetting: ___, ...bare } = CONTENT;
+    const target = recipeParts(bare, local);
+    const held = { ...HELD, basket: null };
+    const changed = { ...HELD, rpm: 950, basket: "k1", grind: "3.1" };
+    expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({ values: { grindSetting: 3.1, rpm: 950, basketId: BASKET }, parts: ["grind", "rpm", "basket"] });
+    // One the Recipe holds is DYE2's to save; one unchanged is no edit.
+    expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), HELD, { ...HELD, rpm: 950 }, context).values).toEqual({});
+    expect(valuesFromWorkflow(bare, target, HELD, HELD, context).values).toEqual({});
+  });
+
+  it("is, on a load, each of those values the Recipe holds none of, as the Workflow stands, never one it holds", () => {
+    const { rpm: _, basketId: __, grinderId: ___, beanBatchId: ____, ...bare } = CONTENT;
+    const now = { ...HELD, grinder: "g2", batch: "b2" };
+    expect(valuesFromWorkflow(bare, recipeParts(bare, local), null, now, context)).toEqual({
+      values: { rpm: 900, basketId: BASKET, grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG },
+      parts: ["rpm", "basket", "grinder", "batch"],
+    });
+    expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), null, now, context).values).toEqual({});
+  });
+});
+
+describe("The parts of its Loaded Recipe a Workflow is due", () => {
+  const locals: Record<string, string> = { [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1", [`beanBatch:${NEXT_BAG}`]: "b2" };
+  const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
+
+  it("are those the Recipe holds that the Workflow holds otherwise, once, on a load", () => {
+    const target = recipeParts({ ...CONTENT, dose: 18.5 }, local);
+    const base = heldAlready(target, HELD);
+    expect(base).not.toHaveProperty("dose");
+    expect(base).toMatchObject({ grind: "2.7", batch: "b1" });
+    expect(dueParts(target, HELD, base)).toMatchObject({ dose: 18.5, grind: undefined, batch: undefined });
+    // Once the Workflow took it, written or kept, nothing is due again.
+    expect(Object.values(dueParts(target, HELD, { ...base, dose: 18.5 })).every((part) => part === undefined)).toBe(true);
+  });
+
+  it("are not the Machine's own since, a batch of another Bean, a value cleared or steam off, until the Recipe changes them", () => {
+    const target = recipeParts(CONTENT, local);
+    const base = heldAlready(target, HELD);
+    const own = { ...HELD, batch: "b9", dose: null, steamTemperature: 0 };
+    expect(Object.values(dueParts(target, own, base)).every((part) => part === undefined)).toBe(true);
+    // An edit of the Recipe elsewhere is due, over the Machine's own.
+    const edited = recipeParts({ ...CONTENT, beanBatchId: NEXT_BAG, dose: 19 }, local);
+    expect(dueParts(edited, own, base)).toMatchObject({ batch: "b2", dose: 19, steamTemperature: undefined });
+    expect(readBase(JSON.parse(JSON.stringify(base)))).toEqual(base);
+  });
+
+  it("carry the Recipe's brew temperature with a Profile written whole", () => {
+    const target = recipeParts({ ...CONTENT, profileId: "profile:classic", brewTemperature: 92 }, local);
+    expect(dueParts(target, HELD, heldAlready(target, HELD))).toMatchObject({ profile: "profile:classic", brewTemperature: 92 });
   });
 });
 

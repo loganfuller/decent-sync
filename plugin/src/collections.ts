@@ -50,6 +50,9 @@ const SOURCES: readonly Source[] = [
   { name: "sensors", path: "/sensors" },
 ];
 
+/** Where DYE2's recipes are read. */
+const RECIPES = SOURCES.find((source) => source.name === "dye2Recipes")!;
+
 /**
  * The Library lists the server writes to, read only between its writes
  * (`LibraryAccess`): a report of one of them must hold each write that began
@@ -148,14 +151,27 @@ export class CollectionCapture {
 
   /**
    * DYE2's recipes, read again and sent if they changed, while connected: on
-   * each push from DYE2, which pushes after it records into its selected
-   * recipe, so the recording reaches the server then, not only on the poll
-   * (ADR-0022).
+   * each push from DYE2, which pushes after it saves into a recipe, so a save
+   * made other than through the plugin, as Streamline's Save changes,
+   * reaches the server then, not only on the poll (ADR-0022).
    */
   readRecipes(): void {
     if (this.stopped || !this.outbox.connected) return;
     this.recipesWanted = true;
     void this.run();
+  }
+
+  /**
+   * DYE2's recipes, read now and queued if they changed, connected or not,
+   * resolving once queued: as DYE2 saved into the Loaded Recipe a change of
+   * the Workflow the plugin holds back until then, so the server takes in
+   * the edit before the Workflow that brought it (ADR-0022). Made within the
+   * reads and writes of the tablet's lists (`LibraryAccess.run`), as every
+   * read of a list the server writes to is.
+   */
+  async recipesNow(): Promise<void> {
+    if (this.stopped) return;
+    await this.capture(RECIPES, false);
   }
 
   /**

@@ -151,7 +151,7 @@ export class SyncConnection {
   private readonly shots: ShotCapture;
   private readonly steams: SteamCapture;
   private readonly machineEvents: MachineEvents;
-  /** Follows DYE2's selection as the Machine's Loaded Recipe, and records it in the Workflow. */
+  /** Follows the recipe the Workflow names as the Machine's Loaded Recipe, and saves the Workflow's changes into it. */
   private readonly loadedRecipes: LoadedRecipes;
   private readonly collections: CollectionCapture;
   /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
@@ -178,13 +178,14 @@ export class SyncConnection {
     this.shots = new ShotCapture(this.outbox, log);
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     const skins = tellSkins(host, log);
+    const library = new LibraryAccess();
     this.loadedRecipes = new LoadedRecipes(
       {
         hold: () => this.machineEvents.hold(),
         release: () => this.machineEvents.release(),
-        attach: (extra) => this.machineEvents.attach(extra),
         dye2Absent: (absent) => this.machineEvents.dye2Absent(absent),
       },
+      library,
       log,
       {
         // DYE2's socket leaves one transport for a connection to the server.
@@ -203,6 +204,7 @@ export class SyncConnection {
       },
       settings.pollSeconds * 1000,
       () => this.collections.readRecipes(),
+      () => this.collections.recipesNow(),
       skins.workflowWritten,
     );
     this.machineEvents = new MachineEvents(
@@ -210,12 +212,10 @@ export class SyncConnection {
       (workflow) => this.loadedRecipes.observe(workflow),
       () => this.collections.readMachineSettings(),
     );
-    const library = new LibraryAccess();
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
     this.writes = new LibraryWrites(
       library,
       this.outbox,
-      this.machineEvents,
       this.loadedRecipes,
       () => {
         if (this.sentHardware !== null) this.machineAway = true;

@@ -14,7 +14,7 @@ import {
   writeKey,
 } from "../src/library/holdings.js";
 import { equipmentContent } from "../src/library/equipment-intake.js";
-import { dye2Keys } from "./support/simulated-dye2.js";
+import { dye2PagesKeys } from "./support/simulated-dye2.js";
 
 // What a tablet should hold for its Location (ADR-0008), through the pure
 // module's interface: the writes, in order, that bring a tablet's Beans,
@@ -410,9 +410,9 @@ describe("batchesAwaitingBeans", () => {
 });
 
 describe("Baskets and Tools a Location shows", () => {
-  // DYE2's records as it saved them (fixtures/decaid/dye2-2cf631c/keys.json).
-  const [basket18, basket20] = dye2Keys().baskets as [Record<string, unknown>, Record<string, unknown>];
-  const [wdt] = dye2Keys().equipment as [Record<string, unknown>];
+  // DYE2's records as its baskets and equipment pages saved them (fixtures/decaid/dye2-2cf631c/).
+  const [basket18, basket20] = dye2PagesKeys().baskets as [Record<string, unknown>, Record<string, unknown>];
+  const [wdt] = dye2PagesKeys().equipment as [Record<string, unknown>];
   const BASKETS = ["2f9c1e4a-6b3d-4c8e-9a1f-5d7b3c9e1a2f", "8e1a3c5b-7d9f-4b2e-8c4a-6f1d3b5e7a9c"] as const;
   const TOOL = "4c6e8a1b-3d5f-4a7c-9e2b-1f3d5a7c9e1b";
   const shownItem = (id: string, record: Record<string, unknown>): ShownEquipment => ({ id, content: equipmentContent(record), decidedAt: DECIDED, contentDecidedAt: EDITED });
@@ -466,41 +466,65 @@ describe("Baskets and Tools a Location shows", () => {
   });
 });
 
-describe("Recipe Slots a Location has", () => {
+describe("The Recipes a Location has", () => {
   const LAB = ["1b3d5f7a-9c1e-4a3b-8d5f-7a9c1e3b5d7f", "2c4e6a8b-1d3f-4b5c-9e7a-8b1d3f5c7e9a"] as const;
   const UPTOWN = ["3d5f7b9c-2e4a-4c6d-8f9b-9c2e4a6d8f1b", "4e6a8c1d-3f5b-4d7e-9a1c-1d3f5b7e9a2c"] as const;
-  /** The record a tablet is to hold of a Recipe, by the paths the server writes, trimmed to its name. */
-  const slotted = (id: string, slot: number, name: string): OfferedRecipe => ({ id, slot, record: { name }, contentDecidedAt: EDITED });
-  /** The tablet's record of a Recipe in a slot, carrying its global id in its own field. */
-  const heldRecipe = (id: string, slot: number, name: string): HeldRecord => ({
+  /** The record a tablet is to hold of a Recipe, under its record id, by the paths the server writes, trimmed to its name and slot. */
+  const offered = (id: string, recordId: string, name: string, slot: number | null): OfferedRecipe => ({ id, recordId, record: { name, stripSlot: slot }, contentDecidedAt: EDITED });
+  /** The tablet's record of a Recipe under an id, carrying its global id in its own field. */
+  const heldRecipe = (id: string, recordId: string, name: string, slot: number | null): HeldRecord => ({
     itemId: id,
-    localId: String(slot),
-    record: { id: String(slot), name, [GLOBAL_ID_KEY]: id },
-    content: { name },
+    localId: recordId,
+    record: { id: recordId, name, stripSlot: slot, [GLOBAL_ID_KEY]: id },
+    content: { name, stripSlot: slot },
     contentDecidedAt: EDITED,
   });
-  const removed = (id: string, slot: number, name: string) => ({ remove: true, kind: "recipe", globalId: id, localId: String(slot), decidedAt: null, expected: heldRecipe(id, slot, name).record });
-  const created = (id: string, slot: number, name: string) => ({ kind: "recipe", globalId: id, localId: null, fields: { name, id: String(slot) }, decidedAt: null, contentDecidedAt: EDITED });
+  const removed = (id: string, recordId: string, name: string, slot: number | null) => ({
+    remove: true,
+    kind: "recipe",
+    globalId: id,
+    localId: recordId,
+    decidedAt: null,
+    expected: heldRecipe(id, recordId, name, slot).record,
+  });
+  const created = (id: string, recordId: string, name: string, slot: number | null) => ({
+    kind: "recipe",
+    globalId: id,
+    localId: null,
+    fields: { name, stripSlot: slot, id: recordId },
+    decidedAt: null,
+    contentDecidedAt: EDITED,
+  });
 
-  it("writes a tablet joining a Location the Location's Recipes in their slots, removing another Location's first, so the slots it leaves empty are empty", () => {
-    // The tablet held the lab's Recipes in slots 1 and 2; Uptown has its own in slots 2 and 3, and none in slot 1.
+  it("writes a tablet joining a Location the Location's Recipes under their record ids, removing another Location's first, those saved under the same slot number included", () => {
+    // The tablet held the lab's Recipes under "1" and "2"; Uptown has its own under "2", in slot 2, and a new one in no slot.
     const writes = plannedWrites(
-      offer([], [], [], [], { recipes: [slotted(UPTOWN[0], 2, "Uptown Brazil"), slotted(UPTOWN[1], 3, "Uptown Kenya")] }),
-      holding([], [], [], [], { recipes: [heldRecipe(LAB[0], 1, "Lab Ethiopia"), heldRecipe(LAB[1], 2, "Lab Brazil")] }),
+      offer([], [], [], [], { recipes: [offered(UPTOWN[0], "2", "Uptown Brazil", 2), offered(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", null)] }),
+      holding([], [], [], [], { recipes: [heldRecipe(LAB[0], "1", "Lab Ethiopia", 1), heldRecipe(LAB[1], "2", "Lab Brazil", 2)] }),
     );
     expect(writes).toEqual([
-      removed(LAB[0], 1, "Lab Ethiopia"),
-      removed(LAB[1], 2, "Lab Brazil"),
-      created(UPTOWN[0], 2, "Uptown Brazil"),
-      created(UPTOWN[1], 3, "Uptown Kenya"),
+      removed(LAB[0], "1", "Lab Ethiopia", 1),
+      removed(LAB[1], "2", "Lab Brazil", 2),
+      created(UPTOWN[0], "2", "Uptown Brazil", 2),
+      created(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", null),
     ]);
   });
 
-  it("keeps a Recipe the tablet holds in its slot there, and moves one held in another slot, removing it first", () => {
+  it("keeps a Recipe the tablet holds under its record id, writing only its slot where it moved", () => {
     const writes = plannedWrites(
-      offer([], [], [], [], { recipes: [slotted(UPTOWN[0], 2, "Uptown Brazil"), slotted(UPTOWN[1], 3, "Uptown Kenya")] }),
-      holding([], [], [], [], { recipes: [heldRecipe(UPTOWN[0], 2, "Uptown Brazil"), heldRecipe(UPTOWN[1], 1, "Uptown Kenya")] }),
+      offer([], [], [], [], { recipes: [offered(UPTOWN[0], "2", "Uptown Brazil", 2), offered(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", 3)] }),
+      holding([], [], [], [], { recipes: [heldRecipe(UPTOWN[0], "2", "Uptown Brazil", 2), heldRecipe(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", null)] }),
     );
-    expect(writes).toEqual([removed(UPTOWN[1], 1, "Uptown Kenya"), created(UPTOWN[1], 3, "Uptown Kenya")]);
+    expect(writes).toEqual([
+      {
+        kind: "recipe",
+        globalId: UPTOWN[1],
+        localId: "recipe-mh2k9x1abc",
+        fields: { stripSlot: 3 },
+        expected: { stripSlot: null },
+        decidedAt: null,
+        contentDecidedAt: EDITED,
+      },
+    ]);
   });
 });

@@ -60,8 +60,8 @@ export function LoadedRecipeCard({ machine }: { machine: Machine }) {
           <h2>Loaded Recipe</h2>
         </CardTitle>
         <CardDescription>
-          The Recipe its tablet last loaded, in DYE2 or Streamline, or by dialling it in. Changing the profile, grinder or
-          Bean on the machine unloads it.
+          The Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is saved
+          into. Changing the profile there, or applying a favourite, unloads it.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">

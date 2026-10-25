@@ -2,10 +2,13 @@ import { describe, expect, it } from "vitest";
 import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
 import { extractCurves, extractShot, shotHardware, shotVersion } from "../src/shots/extraction.js";
 import { burrsShotFixture, shotFixture } from "./support/shot-fixtures.js";
+import { dye2Recording } from "./support/simulated-dye2.js";
 
 // A scrubbed real tablet record, in the layout of Decaid v0.8.7's Workflow and
 // ShotRecord serializers, which Decaid v0.9.0 still serves as it was stored,
-// and one Decaid v0.9.0 recorded from its simulated machine.
+// one Decaid v0.9.0 recorded from its simulated machine, and one it recorded
+// with a recipe applied on DYE2 v0.1.26's dashboard
+// (fixtures/decaid/dye2-v0.1.26/shot.json, ticket #216).
 describe("Shot extraction", () => {
   it("extracts a real native espresso including curves and tablet-local library names", () => {
     const shot = shotFixture();
@@ -65,8 +68,8 @@ describe("Shot extraction", () => {
       expect(Object.values(extractCurves(shot, shot.measurements))).toEqual([null, null, null, null]);
       expect(shotHardware(shot)).toBeNull();
     }
-    // Every value is null, but the Tools, a list, which is empty, and whether DYE2's selection named anything.
-    expect(extractShot({})).toEqual({ ...Object.fromEntries(Object.keys(extractShot({})).map((key) => [key, null])), toolIds: [], selectionNamed: false });
+    // Every value is null, but the Tools, a list, which is empty.
+    expect(extractShot({})).toEqual({ ...Object.fromEntries(Object.keys(extractShot({})).map((key) => [key, null])), toolIds: [] });
     const fixture = shotFixture();
     const workflow = fixture.workflow as Record<string, unknown>;
     const tooLong = "9".repeat(MAX_HARDWARE_LENGTH + 1);
@@ -82,18 +85,26 @@ describe("Shot extraction", () => {
     }
   });
 
-  it("reads the Basket and Tools DYE2 recorded, its Edit Shot page's over the Workflow's, and the recipe slot DYE2's selection named", () => {
+  it("reads the Basket and Tools DYE2 recorded, its Edit Shot page's over the Workflow's, and the record id of the recipe the Workflow named", () => {
     const shot = shotFixture();
     const workflow = shot.workflow as Record<string, unknown>;
     const context = workflow.context as Record<string, unknown>;
     const pulled = (extras: Record<string, unknown>, annotations: Record<string, unknown> = {}) =>
       extractShot({ ...shot, annotations, workflow: { ...workflow, context: { ...context, extras } } });
 
-    expect(pulled({ basketId: "picked", basketName: "20 g", equipmentIds: ["wdt"], dye: { v: 1, selection: { kind: "recipe", id: "2" } } })).toMatchObject({
+    // As recorded: the Shot pulled with the library recipe applied on DYE2's dashboard names it by its opaque id, and the
+    // Basket the recipe applied.
+    const recorded = dye2Recording<{ dashboard: { shot: { response: { body: Record<string, unknown> } } } }>("shot").dashboard.shot.response.body;
+    expect(extractShot(recorded)).toMatchObject({
+      recipeRecordId: "05fd1e80-61e3-46ef-b202-2cbad5eb7983",
+      basketId: "9567d681-444c-4492-95cd-29ecbc48870d",
+      toolIds: [],
+    });
+
+    expect(pulled({ basketId: "picked", basketName: "20 g", equipmentIds: ["wdt"], dye: { v: 1, selection: null, recipeId: "2" } })).toMatchObject({
       basketId: "picked",
       toolIds: ["wdt"],
-      recipeSlot: "2",
-      selectionNamed: true,
+      recipeRecordId: "2",
     });
     // The Edit Shot page's Basket, and its Tools, single or listed, beside the Workflow's.
     expect(pulled({ basketId: "picked", equipmentIds: ["wdt"] }, { extras: { basketId: "edited", equipmentIds: ["screen", "wdt"] } })).toMatchObject({
@@ -103,16 +114,13 @@ describe("Shot extraction", () => {
     expect(pulled({ basketId: "picked" }, { extras: { equipmentId: "tamper" } })).toMatchObject({ basketId: "picked", toolIds: ["tamper"] });
     // A Basket its page set by name alone is the page's, as DYE2 reads it, with no id.
     expect(pulled({ basketId: "picked" }, { extras: { basketName: "Unlisted" } }).basketId).toBeNull();
-    // A favourite, or a recipe whose id is no slot, names an item but no slot; a selection cleared, or none, names nothing.
-    expect(pulled({ dye: { selection: { kind: "favourite", id: "fav-1" } }, basketId: 7, equipmentIds: [3, ""] })).toMatchObject({
-      recipeSlot: null,
-      selectionNamed: true,
-      basketId: null,
-      toolIds: [],
-    });
-    expect(pulled({ dye: { selection: { kind: "recipe", id: "slot-1" } } })).toMatchObject({ recipeSlot: null, selectionNamed: true });
-    expect(pulled({ dye: { v: 1, selection: null } })).toMatchObject({ recipeSlot: null, selectionNamed: false });
-    expect(pulled({})).toMatchObject({ recipeSlot: null, selectionNamed: false });
+    // Ids that are not text name nothing; a recipe id DYE2 wrote as a number is read as text, as DYE2's `recipeIdOf` reads it.
+    expect(pulled({ dye: { recipeId: 3 }, basketId: 7, equipmentIds: [3, ""] })).toMatchObject({ recipeRecordId: "3", basketId: null, toolIds: [] });
+    // A recipe cleared, or none, names nothing, and so does DYE2's stored selection, which it no longer writes.
+    expect(pulled({ dye: { v: 1, recipeId: null } }).recipeRecordId).toBeNull();
+    expect(pulled({ dye: { recipeId: "" } }).recipeRecordId).toBeNull();
+    expect(pulled({ dye: { selection: { kind: "recipe", id: "2" } } }).recipeRecordId).toBeNull();
+    expect(pulled({}).recipeRecordId).toBeNull();
   });
 
   it("versions by updatedAt alone, retaining Decaid's microseconds, and finds none in other records", () => {

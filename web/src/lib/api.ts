@@ -632,7 +632,7 @@ export interface Recipe {
   name: string | null;
   /** The Location it belongs to. */
   location: Location | null;
-  /** Its Recipe Slot there, or null for none. */
+  /** Its Recipe Slot there, 1 to 5, or null for none. */
   slot: number | null;
   archived: boolean;
   createdAt: string;
@@ -659,7 +659,7 @@ export interface Recipe {
     basket: { id: string; name: string | null } | null;
     tools: { id: string; name: string | null }[];
   };
-  /** In a slot, and naming a Bean Batch that is no longer at its Location: its dial needs the next roast. */
+  /** Not Archived, and naming a Bean Batch that is no longer at its Location: its dial needs the next roast. */
   batchFinished: boolean;
 }
 

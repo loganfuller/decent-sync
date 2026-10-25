@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_SLOT_FIELD } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -8,9 +8,10 @@ import { field, rows } from "./support/locators.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
-// Recipe form, moved between slots, taken out of its slot, Archived and
-// restored; what the form offers at the Location; a Recipe whose batch is
-// finished there flagged; its Conflicts; and what Staff may change; and a
+// Recipe form, offering slots 1 to 5, moved between slots, taken out of its
+// slot, Archived and restored; what the form offers at the Location, and
+// when every slot holds a Recipe; a Recipe whose batch is finished there
+// flagged; its Conflicts; and what Staff may change; and a
 // Recipe copied to another Location (ticket #144); its steam, hot water and
 // flush settings, each held or the Machine's own (ticket #173). Simulated tablets running
 // the built plugin save Profiles, which have no REST create, and make
@@ -30,7 +31,7 @@ test.afterAll(async () => {
   await Promise.all(tablets.map((tablet) => tablet.unload()));
 });
 
-test("Staff create a Recipe in slot 6 at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
+test("Staff create a Recipe in slot 3 of the five at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
   page,
   browser,
 }) => {
@@ -62,16 +63,18 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
     await form.getByLabel("Yield (g)").fill("40");
     await form.getByLabel("Recipe Slot").click();
     await samsPage.getByRole("option", { name: "A slot of my choosing" }).click();
-    await form.getByLabel("Slot", { exact: true }).fill("6");
-    // The form says what saving offers at the lab, and that slot 6 isn't editable in DYE2's recipe editor.
-    await expect(form.getByRole("list", { name: "About this slot" })).toContainText("Slot 6 is not editable in DYE2's recipe editor");
+    // The slots offered are the five buttons of Streamline's DYE strip.
+    await form.getByLabel("Slot", { exact: true }).click();
+    await expect(samsPage.getByRole("option")).toHaveText(["1", "2", "3", "4", "5"]);
+    await samsPage.getByRole("option", { name: "3", exact: true }).click();
+    // The form says what saving offers at the lab.
     const also = form.getByRole("status", { name: "Saving also" });
     await expect(also).toContainText("adds the Bean Batch Guji, roasted 2026-10-01 at Roastery lab");
     await expect(also).toContainText("shows the Profile Uptown Bloom at Roastery lab");
     await form.getByRole("button", { name: "Create" }).click();
 
-    await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toContainText("Not editable in DYE2's recipe editor");
-    await expect(samsPage.getByText("Slot 6 at Roastery lab")).toBeVisible();
+    await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toBeVisible();
+    await expect(samsPage.getByText("Slot 3 at Roastery lab")).toBeVisible();
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
@@ -84,12 +87,11 @@ test("Staff create a Recipe in slot 6 at their Location with a batch from elsewh
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(field(details, "Dose")).toHaveText("18.5 g");
 
-    // The lab's page lists it in slot 6, marked.
+    // The lab's page lists it in slot 3.
     await samsPage.getByRole("link", { name: "← Roastery lab" }).click();
-    const slot6 = rows(samsPage.getByRole("table", { name: "Recipe Slots" })).filter({ hasText: "Lab Guji" });
-    await expect(slot6.getByRole("cell").first()).toHaveText("6");
-    await expect(slot6).toContainText("Not editable in DYE2's recipe editor");
-    await expect(slot6).toContainText("18.5 g → 40 g");
+    const slot3 = rows(samsPage.getByRole("table", { name: "Recipe Slots" })).filter({ hasText: "Lab Guji" });
+    await expect(slot3.getByRole("cell").first()).toHaveText("3");
+    await expect(slot3).toContainText("18.5 g → 40 g");
 
     // At the cafe, where Sam does not work, nothing can be changed.
     await samsPage.goto(`/library/recipes/${elsewhere.id}`);
@@ -114,7 +116,8 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
   await expect(page.getByText("Slot 2 at Slots lab")).toBeVisible();
   await page.getByRole("button", { name: "Move to a slot" }).click();
   const move = page.getByRole("form", { name: "Move the Recipe" });
-  await move.getByLabel("Slot", { exact: true }).fill("4");
+  await move.getByLabel("Slot", { exact: true }).click();
+  await page.getByRole("option", { name: "4", exact: true }).click();
   await expect(move.getByRole("list", { name: "About this slot" })).toContainText("Slot 4 holds Slots Ethiopia, which moves to slot 2.");
   await move.getByRole("button", { name: "Move" }).click();
   await expect(page.getByText("Slot 4 at Slots lab")).toBeVisible();
@@ -146,7 +149,25 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
   await expect(page.getByText("Slot 1 at Slots lab")).toBeVisible();
 });
 
-test("a slotted Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
+test("with every slot holding a Recipe, a new Recipe's next free slot says so and is none, and a move offers only a slot chosen", async ({ page }) => {
+  const lab = await createLocation(page, "Full lab");
+  for (const slot of [1, 2, 3, 4, 5]) await createRecipe(page, lab, slot, { name: `Full ${slot}` });
+  const kept = await createRecipe(page, lab, null, { name: "Full kept" });
+
+  await page.goto(`/locations/${lab.id}`);
+  await page.getByRole("region", { name: "Recipes" }).getByRole("button", { name: "New Recipe" }).click();
+  const form = page.getByRole("form", { name: "New Recipe" });
+  await form.getByLabel("Recipe Slot").click();
+  await page.getByRole("option", { name: "The next free slot (none: every slot holds a Recipe)" }).click();
+  await expect(form.getByRole("list", { name: "About this slot" })).toHaveText("Every slot here holds a Recipe, so it is kept here in no slot.");
+
+  await page.goto(`/library/recipes/${kept.id}`);
+  await page.getByRole("button", { name: "Put in a slot" }).click();
+  await page.getByRole("form", { name: "Move the Recipe" }).getByLabel("Move it to").click();
+  await expect(page.getByRole("option")).toHaveText(["A slot of my choosing"]);
+});
+
+test("a Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
   const lab = await createLocation(page, "Finished lab");
   const batch = await createBatch(page, "Finished Kenya", lab);
   const recipe = await createRecipe(page, lab, 1, { name: "Finished Kenya Espresso", beanBatchId: batch.id });
@@ -170,9 +191,9 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   // Both offline, each tablet's DYE2 editor saves a name of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
   one.loseNetwork();
   two.loseNetwork();
-  await saveName(one, "1", "House Espresso (Brazil)");
+  await saveName(one, 1, "House Espresso (Brazil)");
   await new Promise((resolve) => setTimeout(resolve, 20));
-  await saveName(two, "1", "House Espresso (Kenya)");
+  await saveName(two, 1, "House Espresso (Kenya)");
   one.restoreNetwork();
   await expect.poll(async () => (await view(page, recipe.id)).name).toBe("House Espresso (Brazil)");
   two.restoreNetwork();
@@ -243,7 +264,7 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await expect
     .poll(async () => ((await (await page.request.get("/api/beans")).json()) as { beans: { name: string | null }[] }).beans.some((listed) => listed.name === "Bean-only Sidamo"))
     .toBe(true);
-  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === "1" ? { ...record, beanId: bean.id } : record));
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === 1 ? { ...record, beanId: bean.id } : record));
   baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
   await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { uses: { bean: { name: string } | null } } }).recipe.uses.bean?.name).toBe(
     "Bean-only Sidamo",
@@ -348,7 +369,8 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await page.getByRole("option", { name: "Copy Mazzer" }).click();
   await form.getByLabel("Recipe Slot").click();
   await page.getByRole("option", { name: "A slot of my choosing" }).click();
-  await form.getByLabel("Slot", { exact: true }).fill("1");
+  await form.getByLabel("Slot", { exact: true }).click();
+  await page.getByRole("option", { name: "1", exact: true }).click();
   await expect(form.getByRole("list", { name: "About this slot" })).toContainText("Slot 1 holds Copy Uptown House, which is taken out of its slot and kept at Copy Uptown.");
   await expect(form.getByLabel("Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01 (this Recipe's)");
   // The form says what copying adds and shows at Uptown before saving.
@@ -446,15 +468,15 @@ async function staffAt(page: Page, browser: import("@playwright/test").Browser, 
   return context;
 }
 
-/** The tablet's recipe in a slot, if it holds one there. */
+/** The tablet's recipe in a slot, by its `stripSlot`, if it holds one there. */
 function slotOn(tablet: SimulatedTablet, slot: number): Record_ | undefined {
   const list = dye2List(tablet, "recipes");
-  return Array.isArray(list) ? (list as Record_[]).find((record) => record.id === String(slot)) : undefined;
+  return Array.isArray(list) ? (list as Record_[]).find((record) => record[RECIPE_SLOT_FIELD] === slot) : undefined;
 }
 
 /** Saves the recipe's name in a slot on the tablet as DYE2's editor does: reads the list, changes the record, posts the list back. */
-async function saveName(tablet: SimulatedTablet, slot: string, name: string): Promise<void> {
-  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record.id === slot ? { ...record, name } : record));
+async function saveName(tablet: SimulatedTablet, slot: number, name: string): Promise<void> {
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === slot ? { ...record, name } : record));
   baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
 }
 
