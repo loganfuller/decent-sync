@@ -86,7 +86,7 @@ export function labelOf(name: string, path: string, scheduled = false): string {
 /** A field's value as the Settings card shows it, a time in the Tablet's own time labelled with its UTC offset where it is given; a wake schedule's where `scheduled`. */
 export function shownValue(name: string, path: string, value: unknown, utcOffsetMinutes: number | null = null, scheduled = false): string {
   const field = fieldOf(name, path, scheduled);
-  return field ? fieldText(field, value, utcOffsetMinutes) : valueText(value);
+  return field ? fieldText(name, field, value, utcOffsetMinutes) : valueText(value);
 }
 
 /**

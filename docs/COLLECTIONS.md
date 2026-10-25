@@ -525,8 +525,15 @@ and no other machine setting changed. Other firmware versions are untested.
 The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
 offset, it is 0.0 (`rest_v1.yml`). The machine keeps each in signed Q16.16,
-so the Machine page shows them to five decimal places at most: any two values
-it can hold then still differ when shown.
+seldom on the field's step: the test DE1Pro reports 1.100006103515625,
+1.293609619140625 and −2.899993896484375. So the Machine page shows each
+rounded to its field's step, 0.0001 for a multiplier and 0.01 °C for the
+offset, as Streamline's Sensor Calibration page does, in the Settings card,
+an edit's status and the Settings Edits log alike (ticket
+[#272](https://github.com/loganfuller/decent-sync/issues/272)); its form
+opens on the value as it is. Two values the machine can hold may then look
+the same, and an off-step value can't be set back exactly: the form reaches
+only the nearest step, within 1/65536 of it.
 Decaid answers 500 while no machine was ever connected, 503 if the machine
 disconnects mid-read, and 504 if it doesn't answer in time.
 

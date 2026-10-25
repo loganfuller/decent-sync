@@ -476,7 +476,7 @@ function settingRows(name: SettingsCollectionName, value: unknown, utcOffsetMinu
     .map((field) => ({
       path: field.path,
       term: field.label,
-      text: fieldText(field, reported[field.path], utcOffsetMinutes),
+      text: fieldText(name, field, reported[field.path], utcOffsetMinutes),
       about: isEditable(field) ? undefined : field.setBy,
       notes: (field.notes ?? []).map((note) => NOTES[note]),
     }));
