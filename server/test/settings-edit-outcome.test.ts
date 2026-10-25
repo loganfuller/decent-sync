@@ -20,11 +20,11 @@ describe("A Settings Edit's outcome", () => {
   });
 
   it("is adjusted where the Machine stored another value, naming each such field and what it holds", () => {
-    // Decaid truncates 1.005 to the thousandth below (`_writeMMRScaled`).
+    // Decaid truncates 1.005 to 1004 (`_writeMMRScaled`), which the test DE1Pro held as 1003 (calibration-writes.json).
     const flow = { collection: "machineCalibration", fields: { flowMultiplier: 1.005 }, expected: { flowMultiplier: 1 } };
-    expect(decideOutcome(flow, { outcome: "written", values: { flowMultiplier: 1.004 } })).toEqual({
+    expect(decideOutcome(flow, { outcome: "written", values: { flowMultiplier: 1.0030000000000001 } })).toEqual({
       outcome: "adjusted",
-      adjusted: [{ field: "flowMultiplier", holds: 1.004 }],
+      adjusted: [{ field: "flowMultiplier", holds: 1.0030000000000001 }],
     });
     const purge = { collection: "machineSettings", fields: { fan: 45, steamPurgeMode: 1 }, expected: { fan: 50, steamPurgeMode: 0 } };
     expect(decideOutcome(purge, { outcome: "written", values: { fan: 45, steamPurgeMode: 0 } })).toEqual({

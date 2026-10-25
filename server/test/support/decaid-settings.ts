@@ -9,16 +9,18 @@ import type { DecaidAnswer } from "./decaid-beans.js";
 // field at a time, in the handler's order, with each register's write scale
 // and bounds (`MMRItem` in decaid:lib/src/models/device/impl/de1/de1.models.dart,
 // `_writeMMRScaled` and `_writeMMRInt` in unified_de1.mmr.dart), so a value
-// is stored truncated, and a field whose write fails leaves the ones before
-// it written; a sensor's calibration is a correction of the value it holds
-// (`De1Calibration` and `De1CalibrationCodec`); Decaid's own settings
-// (settings_handler.dart) are applied one field at a time too, refusing the
-// first invalid value with the earlier ones applied; and the presence
-// settings and wake schedules (presence_handler.dart, `WakeSchedule` in
-// decaid:lib/src/models/wake_schedule.dart) need no machine. A request
-// Decaid fails on, as when a field's value is not a number, is answered as
-// shelf answers an uncaught error: 500, `Internal Server Error` as text.
-// Requests Decaid would fail on in ways not recorded throw instead.
+// is stored truncated, the flow multiplier then as a real DE1's firmware
+// holds it (fixtures/decaid/de1pro-v0.9.0/), and a field whose write fails
+// leaves the ones before it written; a sensor's calibration is a correction
+// of the value it holds (`De1Calibration` and `De1CalibrationCodec`);
+// Decaid's own settings (settings_handler.dart) are applied one field at a
+// time too, refusing the first invalid value with the earlier ones applied;
+// and the presence settings and wake schedules (presence_handler.dart,
+// `WakeSchedule` in decaid:lib/src/models/wake_schedule.dart) need no
+// machine. A request Decaid fails on, as when a field's value is not a
+// number, is answered as shelf answers an uncaught error: 500, `Internal
+// Server Error` as text. Requests Decaid would fail on in ways not recorded
+// throw instead.
 
 type Json = Record<string, unknown>;
 
@@ -37,12 +39,13 @@ export interface SettingsAnswer {
  */
 export type FieldWriteFailure = (field: string) => DecaidAnswer | undefined;
 
-/** A DE1 register as `MMRItem` defines it: read as a whole number times `readScale`, written as the value times `writeScale`, truncated, then held to `min` and `max`. */
+/** A DE1 register as `MMRItem` defines it: read as a whole number times `readScale`, written as the value times `writeScale`, truncated, then held to `min` and `max`; `firmware` is what the machine holds of the whole number written, where it is not that number. */
 interface Register {
   readScale?: number;
   writeScale?: number;
   min?: number;
   max?: number;
+  firmware?: (written: number) => number;
 }
 
 const WHOLE: Register = {};
@@ -51,17 +54,31 @@ const TENTHS: Register = { readScale: 0.1, writeScale: 10 };
 /**
  * What a register holds once Decaid writes `value` to it, as `GET` reads it
  * back: `_writeMMRScaled` truncates the value times the write scale toward
- * zero, `_writeMMRInt` clamps it to the register's bounds, and
- * `_readMMRScaled` multiplies what the machine holds by the read scale.
+ * zero, `_writeMMRInt` clamps it to the register's bounds, the machine
+ * holds what its firmware makes of it, and `_readMMRScaled` multiplies that
+ * by the read scale.
  */
 function registerHolds(register: Register, value: number): number {
   const scaled = register.writeScale === undefined ? value : Math.trunc(value * register.writeScale);
   const clamped = register.min !== undefined && register.max !== undefined ? Math.min(Math.max(scaled, register.min), register.max) : scaled;
-  return register.readScale === undefined ? clamped : clamped * register.readScale;
+  const held = register.firmware ? register.firmware(clamped) : clamped;
+  return register.readScale === undefined ? held : held * register.readScale;
+}
+
+/**
+ * What a DE1 holds of a flow multiplier written in thousandths, fitted to
+ * the test DE1Pro's reads on firmware 1358 (`calibration-writes.json` in
+ * fixtures/decaid/de1pro-v0.9.0/): the firmware keeps the float32 of the
+ * thousandths over 1000 and answers that times 1000 in float32, truncated.
+ * So 1004 is held as 1003, and 251 as 250. JavaScript's division and
+ * product of float32 values, each rounded to float32, are the float32 ones.
+ */
+function flowMultiplierFirmware(thousandths: number): number {
+  return Math.trunc(Math.fround(Math.fround(thousandths / 1000) * 1000));
 }
 
 /** The register holding the flow multiplier (`calFlowEst`), which `GET /machine/calibration` reads. */
-const FLOW_MULTIPLIER: Register = { readScale: 0.001, writeScale: 1000, min: 130, max: 2000 };
+const FLOW_MULTIPLIER: Register = { readScale: 0.001, writeScale: 1000, min: 130, max: 2000, firmware: flowMultiplierFirmware };
 
 /** Thrown where Decaid fails on a value, answered as shelf answers an uncaught error. */
 class Unhandled extends Error {}
@@ -203,7 +220,7 @@ export function writeAdvancedSettings(write: MachineWrite): Written {
   );
 }
 
-/** Carries out `POST /machine/calibration` as Decaid does: the flow multiplier, truncated to the thousandth and clamped to 0.13 to 2.0. */
+/** Carries out `POST /machine/calibration` as Decaid does: the flow multiplier, truncated to the thousandth and clamped to 0.13 to 2.0, held as the DE1's firmware holds it. */
 export function writeCalibration(write: MachineWrite): Written {
   return writeFields(write, [{ name: "flowMultiplier", parse: parseDouble, register: FLOW_MULTIPLIER }], () => undefined);
 }

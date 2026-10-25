@@ -256,7 +256,8 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
      turn, so a refusal part-way leaves the fields before it written, as
      `/settings` does as it refuses a value with 400 and its `message`. A
      scaled register's value is truncated (`_writeMMRScaled`), so a flow
-     multiplier of 1.001 is stored as 1.000 and reads as `adjusted`; the
+     multiplier of 1.001 is stored as 1.000 and reads as `adjusted`, and a
+     DE1's firmware holds some flow multipliers lower still (below); the
      heater voltage and refill kit read back as Decaid holds them (below);
   5. whether Decaid took the write or not, reads the collection again and
      queues it as a `collection` delivery, then queues its answer,
@@ -474,11 +475,23 @@ as the machine connected, and the refill kit setting it last wrote (`auto` as
 the machine connects), each until written through Decaid.
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
-`flowMultiplier` (the DE1's `calFlowEst`, kept in thousandths), which scales
-the flow the machine reports, and which each Shot records as
+`flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths),
+which scales the flow the machine reports, and which each Shot records as
 `workflow.machine.flowCalibration`. The Machine page shows the settings
 fields, other than the sensor calibrations (below), to five decimal places
 at most, so a change of a thousandth shows.
+Decaid writes it truncated to the thousandth (`_writeMMRScaled`), which
+writes 12 of the thousandths from 0.13 to 2.0 a thousandth lower, such as
+1.001 as 1.000. The DE1's firmware then holds some lower still: the test
+DE1Pro (firmware 1358) held 1.004 and 1.005 as 1.003, 1.012 and 1.013 as
+1.011, and 0.251 as 0.25
+(`server/test/fixtures/decaid/de1pro-v0.9.0/calibration-writes.json`). Its
+reads fit a register kept as the float32 of the thousandths over 1000 and
+answered as that times 1000 in float32, truncated, as the simulated tablet
+holds it, which holds eight more of those thousandths a thousandth lower
+(0.251, 0.253, 0.502, 0.506, 0.511, 1.004, 1.012 and 1.022) and three of
+Decaid's 12 two lower (1.005, 1.013 and 1.023). An edit to one the Machine
+holds lower is answered Stored otherwise.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
