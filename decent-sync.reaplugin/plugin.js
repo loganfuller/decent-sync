@@ -1566,7 +1566,7 @@ var __decentSync = (() => {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
   }
   function textOf2(value) {
-    return typeof value === "string" && value.trim() !== "" ? value : null;
+    return typeof value === "string" && value !== "" ? value : null;
   }
   function parsed3(text) {
     try {

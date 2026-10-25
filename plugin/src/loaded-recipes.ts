@@ -689,9 +689,9 @@ export function machineMissing(answer: Answer): boolean {
   return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
 }
 
-/** A string that is not blank, else null. */
+/** A string that is not empty, else null, as `||` takes one in Streamline's `recipeLabel`. */
 function textOf(value: unknown): string | null {
-  return typeof value === "string" && value.trim() !== "" ? value : null;
+  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function parsed(text: string): unknown {

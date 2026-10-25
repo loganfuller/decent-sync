@@ -163,9 +163,18 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await expect.poll(() => surfaces(tablet), { timeout: 15_000 }).toEqual([button(`Unload ${name}…`)]);
   });
 
-  it("does not show on a Capture-only Machine, where a tap writes nothing", async () => {
-    const { machine, tablet } = await lab("Capture", 49221);
+  it("hides as a Machine with a Recipe loaded is made capture-only, and does not show there, where a tap writes nothing", async () => {
+    const { machine, tablet, brazil } = await lab("Capture", 49221);
+    await selectRecipeInDye2(tablet, BRAZIL);
+    await loads(machine, brazil);
+    await expect.poll(() => surfaces(tablet)).toHaveLength(1);
+    const pushed = skinPushes(tablet);
     expect((await api.call("PUT", `/machines/${machine.machine.id}/sharing`, { sharing: false })).status).toBe(200);
+    await expect.poll(() => surfaces(tablet), { timeout: 15_000 }).toEqual([]);
+    expect(skinPushes(tablet)).toBe(pushed + 1);
+    // The server unloads it, and clears it from the Workflow.
+    await loads(machine, null);
+    await expect.poll(() => recipeIdInWorkflow(tablet), { timeout: 15_000 }).toBeNull();
     await expect.poll(async () => (await api.get<{ machine: { captureOnly: string[] } }>(`/machines/${machine.machine.id}`)).machine.captureOnly).toEqual(["sharingOff"]);
     await settle();
 
@@ -258,6 +267,32 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await settle();
     expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(ethiopia);
+  });
+
+  it("does not unload a recipe applied while its read of the Workflow is answered, within the page's 3 s", async () => {
+    let slow = false;
+    // Decaid reads the Workflow at once but answers it 1.5 s later at the tablet's pace, within the page's 3 s.
+    const { machine, tablet, brazil } = await lab("Applied", 49281, {
+      answerOnArrival: true,
+      apiDelayMs: (method, path) => (slow && method === "GET" && path === "/workflow" ? 1_500 : 0),
+    });
+    await selectRecipeInDye2(tablet, BRAZIL);
+    await loads(machine, brazil);
+    await expect.poll(() => surfaces(tablet)).toHaveLength(1);
+    const ethiopia = dye2GlobalIdOf(record(tablet, ETHIOPIA))!;
+
+    slow = true;
+    const reads = tablet.requests.filter((route) => route === "/workflow").length;
+    const tapped = tap(tablet);
+    // Another device applies another recipe while Decaid's answer, naming the Brazil's, is on its way.
+    await expect.poll(() => tablet.requests.filter((route) => route === "/workflow").length, { interval: 5 }).toBeGreaterThan(reads);
+    await selectRecipeInDye2(tablet, ETHIOPIA);
+    expect((await tapped).status).toBe(303);
+    slow = false;
+    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the Workflow named another recipe meanwhile, so the unload is not made$/);
+    await loads(machine, ethiopia);
+    await settle();
+    expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
   });
 
   it("goes back to returnTo for any other view, as the settings card's Open button opens, clearing nothing; answers 204 without a page to go back to, and nothing but GET", async () => {
