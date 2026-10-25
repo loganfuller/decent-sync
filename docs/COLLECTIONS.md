@@ -45,7 +45,11 @@ part of what the plugin compares, so a daylight saving change sends both
 collections at the next poll, unchanged but for it. The server keeps it with
 the value (`reported_collections.utc_offset_minutes`), as an unavailable
 report keeps the value, and the REST API serves it beside the value as
-`utcOffsetMinutes`, null for every other collection.
+`utcOffsetMinutes`, null for every other collection. The one offset labels
+every time in the value, so a `keepAwakeUntil` read before a daylight saving
+change, for a keep-awake window ending after it, is shown with the offset
+before the change until the window ends: an accepted gap, as such a window
+must span the change in the night.
 
 ## Collections
 

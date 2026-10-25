@@ -287,6 +287,8 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     { path: "sleepTimeoutMinutes", label: "Sleep timeout", unit: "min", kind: "wholeNumber", min: 1, max: 120, editableBy: "staff" },
     { path: "schedules", label: "Wake schedules", kind: "wakeSchedules", editableBy: "staff" },
     // The end of the keep-awake window of the wake schedule that last woke the Machine, while it lasts (`PresenceController`).
+    // Labelled with the offset as it was read, so a window that ends across a daylight saving change shows its end with
+    // the offset before it until the window ends: an accepted gap.
     { path: "keepAwakeUntil", label: "Kept awake until", kind: "localTime", setBy: "Set while a wake schedule keeps the Machine awake" },
   ],
 };
