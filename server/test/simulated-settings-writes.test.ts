@@ -136,6 +136,8 @@ describe("The simulated tablet's settings writes", () => {
     // A route served as a refusal holds nothing to write to.
     const release = tablet.refuseFor("/machine/settings", new Refusal(504, { error: "BleTimeoutException: MMR read timed out" }));
     await expect(tablet.callApi("POST", "/machine/settings", { fan: 40 })).rejects.toThrow("holds no settings");
+    await tablet.changeSettings({ hotWaterData: { flow: 3 } });
+    expect((await tablet.callApi("GET", "/machine/settings")).status).toBe(504);
     release();
   });
 

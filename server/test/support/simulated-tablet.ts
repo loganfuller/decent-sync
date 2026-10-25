@@ -1701,7 +1701,8 @@ export class SimulatedTablet {
     if (workflow) {
       const settings = this.api["/machine/settings"];
       const written = machineSettingsWritten(current as Record<string, unknown>, workflow, this.keepsFlushSettings);
-      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && Object.keys(written).length > 0) {
+      // While the machine's settings are served as a refusal, only their read fails: the Workflow write still lands, and the refusal stays.
+      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && !(settings instanceof Refusal) && Object.keys(written).length > 0) {
         this.api = { ...this.api, "/machine/settings": { ...settings, ...machineSettingsHeld(written) } };
       }
       this.setWorkflow(workflow);
