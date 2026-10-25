@@ -471,7 +471,6 @@ export async function recordedByDye2(
   tablet: ReportingTablet,
   recipeId: string,
   content: Readonly<Record<string, unknown>>,
-  _fieldEdits: unknown,
   changed: Readonly<Record<string, unknown>>,
 ): Promise<Set<string>> {
   const stale = new Set<string>();

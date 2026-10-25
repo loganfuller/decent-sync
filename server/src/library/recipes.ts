@@ -317,7 +317,7 @@ export async function takeInRecipes(
         // it still to land, is written back over (ADR-0022). A save of DYE2's editor is none of DYE2's saves from the
         // Workflow, which its Workflow does not hold yet: the Recipe's is written into the Workflow then.
         if (!savedInEditor(known.record, record.record)) {
-          for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, recipe.fieldEdits, edits)) delete edits[path];
+          for (const path of await recordedByDye2(tx, tablet, itemId, recipe.content, edits)) delete edits[path];
         }
         const paths = editedPaths(edits);
         if (paths.length > 0) {
@@ -455,7 +455,7 @@ export async function recordRecipeWritten(
       // Recipe's is written back over where it is no edit.
       const saved = savedInEditor(known.record, record);
       const unwritten = Object.fromEntries(Object.entries(editedContent(recipeView(known.record), view, null)).filter(([path]) => !written.has(path)));
-      const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, item.fieldEdits, unwritten) : new Set<string>();
+      const recorded = here && !saved ? await recordedByDye2(tx, tablet, itemId, content, unwritten) : new Set<string>();
       // Steam turned off, taken in as no edit (`libraryValues`), is written back over too.
       const steamOff = steamOffPaths(answered.values).length > 0;
       for (const path of recorded) delete answered.values[path];
