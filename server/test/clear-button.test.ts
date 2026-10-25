@@ -13,8 +13,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // `recipeId: null` into the Workflow, as DYE2 unloads one, and answers 303
 // to Streamline's `returnTo`. The rest of the Workflow stays as it is, the
 // server unloads the Recipe, and later changes are not saved into it. A
-// failed unload, or one that has not begun within the page's 3 s, is never
-// made later. The plugin pushes `{"what":"skin"}` as the button is to show,
+// failed unload, or one not written within the page's 3 s, is never made
+// later, nor one over a recipe applied while it read the Workflow. The plugin pushes `{"what":"skin"}` as the button is to show,
 // hide or change its name. Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, at a tenth of the plugin's usual
@@ -27,8 +27,9 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 /** The plugin's timers run this many times faster than real time, so the Clear button's page waits 300 ms. */
 const TIME_SCALE = 10;
 
-/** The recording's tablet's record id of the Brazil's recipe, in slot 2. */
+/** The recording's tablet's record ids: the Brazil's recipe, in slot 2, and the Ethiopia's, in no slot. */
 const BRAZIL = "2";
+const ETHIOPIA = "1";
 
 /** The dashboard's address, as Streamline sends it as `returnTo`. */
 const RETURN_TO = "http://127.0.0.1:8080/index.html?view=dashboard";
@@ -83,7 +84,11 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
   const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
 
   /** A Location with a Machine whose tablet is the v0.1.26 recording's, its DYE2 loaded, whose recipes the server takes in. */
-  async function lab(scenario: string, serial: number, options: { instance?: TestServer; apiDelayMs?: (method: string, path: string) => number } = {}) {
+  async function lab(
+    scenario: string,
+    serial: number,
+    options: { instance?: TestServer; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean } = {},
+  ) {
     const here: LocationView = await api.createLocation(`${scenario} clear`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} clear 1`, here.id);
     const dye2 = new SimulatedDye2();
@@ -92,9 +97,10 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
       dye2,
       timeScale: TIME_SCALE,
       apiDelayMs: options.apiDelayMs,
+      answerOnArrival: options.answerOnArrival,
     });
     await api.waitForOnline(machine);
-    await expect.poll(() => dye2GlobalIdOf(record(tablet, BRAZIL)), { timeout: 15_000 }).not.toBeNull();
+    await expect.poll(() => [BRAZIL, ETHIOPIA].map((id) => dye2GlobalIdOf(record(tablet, id))), { timeout: 15_000 }).not.toContain(null);
     return { machine, tablet, dye2, brazil: dye2GlobalIdOf(record(tablet, BRAZIL))! };
   }
 
@@ -137,7 +143,7 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await expect.poll(() => surfaces(tablet)).toEqual([button(`Unload ${name}`)]);
   });
 
-  it("names the Loaded Recipe as its record does, cut to Streamline's 40 characters, and changes with it", async () => {
+  it("names the Loaded Recipe as its record does, cut to Streamline's 40 UTF-16 code units, and changes with it", async () => {
     const { machine, tablet, brazil } = await lab("Named", 49211);
     await selectRecipeInDye2(tablet, BRAZIL);
     await loads(machine, brazil);
@@ -151,6 +157,10 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     expect((await api.call("PATCH", `/recipes/${brazil}`, { content: { name: "Brazil \u{1F600}" } })).status).toBe(200);
     await expect.poll(() => surfaces(tablet), { timeout: 15_000 }).toEqual([button("Unload Brazil \u{1F600}")]);
     expect(skinPushes(tablet)).toBe(pushed + 2);
+    // Forty code points, but 41 code units, as Streamline counts them: the emoji goes whole rather than being split.
+    const name = "Brazil Cerrado Mineiro natural 1".padEnd(32, "x");
+    expect((await api.call("PATCH", `/recipes/${brazil}`, { content: { name: `${name}\u{1F600}` } })).status).toBe(200);
+    await expect.poll(() => surfaces(tablet), { timeout: 15_000 }).toEqual([button(`Unload ${name}…`)]);
   });
 
   it("does not show on a Capture-only Machine, where a tap writes nothing", async () => {
@@ -195,7 +205,7 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     expect((await surfaces(tablet)).length).toBe(1);
   });
 
-  it("never makes an unload that has not begun within the page's 3 s, as behind a slow save, after the page returned", async () => {
+  it("never makes an unload not begun within the page's 3 s, as behind a slow save, after the page returned", async () => {
     let slow = false;
     let saving = false;
     // 10 s at the tablet's pace, a second here: the save holds the plugin's turn past the page's 3 s.
@@ -215,7 +225,7 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await expect.poll(() => saving).toBe(true);
     const answer = await tap(tablet);
     expect(answer.status).toBe(303);
-    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the unload had not begun within 3 s, so it is not made$/);
+    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the unload had not been written within 3 s, so it is not made$/);
     // The save lands, and nothing unloads the Recipe after it.
     await expect.poll(async () => (await recipe(brazil)).content.dose, { timeout: 15_000 }).toBe(18.2);
     slow = false;
@@ -223,6 +233,31 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     expect(recipeIdInWorkflow(tablet)).toBe(BRAZIL);
     expect((await loadedRecipe(machine))?.recipe.id).toBe(brazil);
     expect((await surfaces(tablet)).length).toBe(1);
+  });
+
+  it("never makes an unload over a recipe applied while its read of the Workflow was answered, after the page returned", async () => {
+    let slow = false;
+    // Decaid reads the Workflow at once but answers it 10 s later at the tablet's pace, a second here.
+    const { machine, tablet, brazil } = await lab("Stale", 49271, {
+      answerOnArrival: true,
+      apiDelayMs: (method, path) => (slow && method === "GET" && path === "/workflow" ? 10_000 : 0),
+    });
+    await selectRecipeInDye2(tablet, BRAZIL);
+    await loads(machine, brazil);
+    await expect.poll(() => surfaces(tablet)).toHaveLength(1);
+    const ethiopia = dye2GlobalIdOf(record(tablet, ETHIOPIA))!;
+
+    slow = true;
+    const answer = await tap(tablet);
+    expect(answer.status).toBe(303);
+    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the unload had not been written within 3 s, so it is not made$/);
+    // Back on the dashboard, the barista applies another recipe while Decaid's answer, naming the Brazil's, is on its way.
+    await selectRecipeInDye2(tablet, ETHIOPIA);
+    slow = false;
+    await loads(machine, ethiopia);
+    await settle();
+    expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(ethiopia);
   });
 
   it("goes back to returnTo for any other view, as the settings card's Open button opens, clearing nothing; answers 204 without a page to go back to, and nothing but GET", async () => {

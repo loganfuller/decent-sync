@@ -56,7 +56,7 @@ const SKIN_CHANGED = { what: "skin" } as const;
 /** How long the Clear button's page waits for the unload before returning to the dashboard anyway. */
 const UNLOAD_MS = 3_000;
 
-/** The longest text Streamline shows on a header button (`CAPS.text` in streamline-js:src/modules/plugin-surfaces.js). */
+/** The longest text Streamline shows on a header button, in UTF-16 code units (`CAPS.text` in streamline-js:src/modules/plugin-surfaces.js). */
 const TEXT_MAX = 40;
 
 /** What the Clear button needs of the Machine's Loaded Recipe (`LoadedRecipes`). */
@@ -66,7 +66,7 @@ export interface Unloadable {
   /**
    * Unloads the Loaded Recipe as a barista's tap asks, once: resolves with
    * why it did not, or null where it did, or the Machine had none by then.
-   * Given up on, and never made later, where it has not begun within `ms`.
+   * Given up on, and never made later, where it is not written within `ms`.
    */
   unloadNow(ms: number): Promise<string | null>;
 }
@@ -102,17 +102,31 @@ function goBack(returnTo: string): HttpAnswer {
 /** The Clear button for the Loaded Recipe of that name, as a list of surfaces; none where the Machine has none. */
 function clearButton(name: string | null): unknown[] {
   if (name === null) return [];
-  // By code point, so a character outside the Basic Multilingual Plane is never cut in half.
-  const text = Array.from(`Unload ${name}`);
   return [
     {
       id: "clear",
       kind: "header-button",
       label: "Clear",
-      text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1).join("")}…` : text.join(""),
+      text: fitted(`Unload ${name}`),
       action: { type: "open", view: CLEAR_VIEW, presentation: "page" },
     },
   ];
+}
+
+/**
+ * The text cut to Streamline's limit, which it counts in UTF-16 code units
+ * (`cleanText` in streamline-js:src/modules/plugin-surfaces.js), ending in
+ * an ellipsis where it is cut: by whole code points, so Streamline never
+ * cuts a character outside the Basic Multilingual Plane in half.
+ */
+function fitted(text: string): string {
+  if (text.length <= TEXT_MAX) return text;
+  let kept = "";
+  for (const character of text) {
+    if (kept.length + character.length > TEXT_MAX - 1) break;
+    kept += character;
+  }
+  return `${kept}…`;
 }
 
 /**

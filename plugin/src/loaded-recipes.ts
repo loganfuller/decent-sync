@@ -206,26 +206,31 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
    * else of the Workflow changes, and the Workflow delivered after it
    * unloads the Recipe on the server. It is made only while the Recipe
    * loaded at the tap is still loaded, by no later load, and the Workflow,
-   * read just before, still names its record. Resolves with why it was not
-   * made, or null where it was or there was nothing to unload. One not
-   * begun within `ms`, as behind a long write of the plugin's, is never
-   * made: a tap is not replayed later, as it could unload a recipe applied
-   * since. Nor is one that fails tried again.
+   * read just before, still names its record, as does the latest Workflow
+   * Decaid reported while that read was answered: a recipe applied
+   * meanwhile is not unloaded. Resolves with why it was not made, or null
+   * where it was or there was nothing to unload. One not written within
+   * `ms`, as behind a long write of the plugin's or a slow read, is never
+   * written: a tap is not replayed later, once the page has returned, as it
+   * could unload a recipe applied since. Nor is one that fails tried again.
    */
   unloadNow(ms: number): Promise<string | null> {
     const globalId = this.loaded ?? null;
     const load = this.loads;
     if (globalId === null || this.stopped || !this.sharing()) return Promise.resolve(null);
-    let begun = false;
+    let writing = false;
     let expired = false;
     const unload = this.library.run(async () => {
-      if (expired) return null;
-      begun = true;
-      if (this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
+      if (expired || this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
       return this.ownWrite(async (answered) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         if (recordId === null || this.records?.get(recordId)?.globalId !== globalId) return null;
+        // The page returned while Decaid answered the read, or a change Decaid reported meanwhile names another recipe, as one applied
+        // since (`observe` decides on none during the plugin's writes).
+        if (expired) return null;
+        if (this.latest !== undefined && dye2RecipeIdOf(this.latest) !== recordId) return "the Workflow named another recipe meanwhile, so the unload is not made";
+        writing = true;
         const body = clearRecipe();
         const answer = await request("PUT", "/workflow", body);
         const updated = answer.ok ? parsed(answer.text) : undefined;
@@ -238,7 +243,7 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
     return new Promise((resolve) => {
       const timer = setTimeout(() => {
         expired = true;
-        resolve(begun ? `the unload had not finished within ${ms / 1000} s` : `the unload had not begun within ${ms / 1000} s, so it is not made`);
+        resolve(writing ? `the unload had not finished within ${ms / 1000} s` : `the unload had not been written within ${ms / 1000} s, so it is not made`);
       }, ms);
       unload.then(
         (problem) => {

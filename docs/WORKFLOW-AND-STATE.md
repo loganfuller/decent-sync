@@ -369,10 +369,11 @@ through `plugin/src/dye2.ts`, and writes what the pure
   in its turn among the Library's writes and the saves (`LibraryAccess`), so
   never between the two writes of a change of profile: only while no load
   was decided on since the tap, and the Workflow, read just before, still
-  names that Recipe's record. Nothing is restored, and the server unloads
+  names that Recipe's record, as does the latest Workflow Decaid reported
+  while that read was answered. Nothing is restored, and the server unloads
   the Recipe from the Workflow delivered after it, as for any clear. A write
-  Decaid refuses is logged and never tried again, and one not begun within
-  the page's 3 s is never made, unlike the plugin's other clears, as it
+  Decaid refuses is logged and never tried again, and one not written
+  within the page's 3 s is never made, unlike the plugin's other clears, as it
   could unload a recipe applied since; the button still showing tells the
   barista.
 - **DYE2 not there.** On its poll (the plugin's poll interval) the plugin
