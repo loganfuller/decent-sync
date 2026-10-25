@@ -37,11 +37,11 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeZone:
  * written as it reads there, not moved into the browser's time zone.
  */
 export function localTimeText(text: unknown): string | undefined {
-  const match = typeof text === "string" ? /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::\d\d(?:\.\d+)?)?$/.exec(text) : null;
+  const match = typeof text === "string" ? /^(\d{4})-(\d\d)-(\d\d)T(\d\d):(\d\d)(?::(\d\d)(?:\.\d+)?)?$/.exec(text) : null;
   if (!match) return undefined;
-  const [year, month, day, hours, minutes] = match.slice(1).map(Number) as [number, number, number, number, number];
+  const [year, month, day, hours, minutes, seconds] = match.slice(1).map((part) => Number(part ?? 0)) as [number, number, number, number, number, number];
   const date = new Date(Date.UTC(year, month - 1, day));
-  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hours > 23 || minutes > 59) return undefined;
+  if (date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day || hours > 23 || minutes > 59 || seconds > 59) return undefined;
   return `${DATE.format(date)}, ${pad(hours)}:${pad(minutes)}`;
 }
 

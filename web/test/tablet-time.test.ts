@@ -51,7 +51,7 @@ describe("localTimeText", () => {
   });
 
   it("writes nothing for text that is not a local time", () => {
-    for (const text of ["2026-02-30T08:00:00.000", "2026-10-25T24:00:00.000", "2026-10-25T08:30:00.000Z", "2026-10-25", "", null]) {
+    for (const text of ["2026-02-30T08:00:00.000", "2026-10-25T24:00:00.000", "2026-10-25T08:30:99.000", "2026-10-25T08:30:60", "2026-10-25T08:30:00.000Z", "2026-10-25", "", null]) {
       expect(localTimeText(text)).toBeUndefined();
     }
   });
