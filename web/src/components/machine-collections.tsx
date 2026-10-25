@@ -313,10 +313,8 @@ function SettingsSection({
             presence={value}
             utcOffsetMinutes={utcOffsetMinutes}
             mayEdit={schedulesOffered}
-            onSaved={(made) => {
-              setEditing(undefined);
-              setEdit(made);
-            }}
+            // The section's own form, if open, stays open with what was typed in it.
+            onSaved={setEdit}
           />
         ))}
       {children}

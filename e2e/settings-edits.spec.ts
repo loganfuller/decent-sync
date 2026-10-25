@@ -528,7 +528,10 @@ test("Staff change presence, and add, change and delete a wake schedule in the T
     await expect(status).toContainText("Sleep timeout: 45 min.");
     await expect(field(presence, "Sleep timeout")).toHaveText("45 min");
 
-    // Added in the Tablet's own time, labelled with its offset.
+    // Added in the Tablet's own time, labelled with its offset. The section's own form, opened meanwhile, stays open
+    // with what was typed in it.
+    await presence.getByRole("button", { name: "Edit Presence" }).click();
+    await form.getByLabel("Sleep timeout (min)").fill("50");
     const schedules = presence.getByRole("table", { name: "Wake schedules" });
     await expect(schedules).toHaveCount(0);
     await presence.getByRole("button", { name: "Add", exact: true }).click();
@@ -542,6 +545,8 @@ test("Staff change presence, and add, change and delete a wake schedule in the T
     await expect(status).toContainText("Applied");
     await expect(status).toContainText("Wake schedule added: Time: 06:30 (UTC+5:30); Days: Mon, Wed, Fri; On: On; Keeps awake for: 120 min.");
     await expect(rows(schedules).getByRole("cell")).toHaveText(["06:30 (UTC+5:30)", "Mon, Wed, Fri", "On", "120 min", ""]);
+    await expect(form.getByLabel("Sleep timeout (min)")).toHaveValue("50");
+    await form.getByRole("button", { name: "Cancel" }).click();
 
     // Changed: off, every day, and keeping the Machine awake for no set time.
     await presence.getByRole("button", { name: "Edit the wake schedule at 06:30 (UTC+5:30)" }).click();
