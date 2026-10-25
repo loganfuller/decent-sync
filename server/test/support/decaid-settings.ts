@@ -11,15 +11,16 @@ import type { DecaidAnswer } from "./decaid-beans.js";
 // `_writeMMRScaled` and `_writeMMRInt` in unified_de1.mmr.dart), so a value
 // is stored truncated, the flow multiplier then as a real DE1's firmware
 // holds it (fixtures/decaid/de1pro-v0.9.0/), and a field whose write fails
-// leaves the ones before it written; a sensor's calibration is a correction of the value it holds
-// (`De1Calibration` and `De1CalibrationCodec`); Decaid's own settings
-// (settings_handler.dart) are applied one field at a time too, refusing the
-// first invalid value with the earlier ones applied; and the presence
-// settings and wake schedules (presence_handler.dart, `WakeSchedule` in
-// decaid:lib/src/models/wake_schedule.dart) need no machine. A request
-// Decaid fails on, as when a field's value is not a number, is answered as
-// shelf answers an uncaught error: 500, `Internal Server Error` as text.
-// Requests Decaid would fail on in ways not recorded throw instead.
+// leaves the ones before it written; a sensor's calibration is a correction
+// of the value it holds (`De1Calibration` and `De1CalibrationCodec`);
+// Decaid's own settings (settings_handler.dart) are applied one field at a
+// time too, refusing the first invalid value with the earlier ones applied;
+// and the presence settings and wake schedules (presence_handler.dart,
+// `WakeSchedule` in decaid:lib/src/models/wake_schedule.dart) need no
+// machine. A request Decaid fails on, as when a field's value is not a
+// number, is answered as shelf answers an uncaught error: 500, `Internal
+// Server Error` as text. Requests Decaid would fail on in ways not recorded
+// throw instead.
 
 type Json = Record<string, unknown>;
 

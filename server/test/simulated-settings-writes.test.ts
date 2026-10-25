@@ -107,7 +107,7 @@ describe("The simulated tablet's settings writes", () => {
       expect((await tablet.callApi("POST", "/machine/calibration", { flowMultiplier })).status).toBe(202);
       return ((await tablet.callApi("GET", "/machine/calibration")).body as { flowMultiplier: number }).flowMultiplier;
     };
-    // Decaid writes the value times 1000, truncated (`_writeMMRScaled`), which holds 12 of the thousandths from 0.13
+    // Decaid writes the value times 1000, truncated (`_writeMMRScaled`), which writes 12 of the thousandths from 0.13
     // to 2.0 a thousandth lower; the DE1's firmware holds eight more a thousandth lower, and three of Decaid's 12 two
     // lower. Decaid reads the register times 0.001, which gives 0.7000000000000001 for 700: compared in thousandths.
     const lowered: Record<number, number[]> = { 1: [], 2: [] };

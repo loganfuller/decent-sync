@@ -475,7 +475,7 @@ as the machine connected, and the refill kit setting it last wrote (`auto` as
 the machine connects), each until written through Decaid.
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
-`flowMultiplier` (the DE1's `calFlowEst`, kept in thousandths), which scales
+`flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths), which scales
 the flow the machine reports, and which each Shot records as
 `workflow.machine.flowCalibration`. The Machine page shows the settings
 fields, other than the sensor calibrations (below), to five decimal places
@@ -490,8 +490,8 @@ reads fit a register kept as the float32 of the thousandths over 1000 and
 answered as that times 1000 in float32, truncated, as the simulated tablet
 holds it, which holds eight more of those thousandths a thousandth lower
 (0.251, 0.253, 0.502, 0.506, 0.511, 1.004, 1.012 and 1.022) and three of
-Decaid's 12 two lower (1.005, 1.013 and 1.023). An edit to any of them is
-answered Stored otherwise.
+Decaid's 12 two lower (1.005, 1.013 and 1.023). An edit to one the Machine
+holds lower is answered Stored otherwise.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
