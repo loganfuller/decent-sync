@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROTOCOL_VERSION, SYNC_PATH } from "@decent-sync/protocol";
+import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SYNC_PATH } from "@decent-sync/protocol";
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
@@ -1974,15 +1974,19 @@ export class SimulatedTablet {
 
   /**
    * Scales the heartbeat interval in a `welcome`, and the time a
-   * `settingsEdit` has left, up by `timeScale`, which the plugin's timers
-   * then scale back down, so it counts both at the server's pace.
+   * `settingsEdit` has left to start its write, before the plugin's 15 s
+   * margin, up by `timeScale`, which the plugin's timers then scale back
+   * down, so it counts both at the server's pace.
    */
   private atServerPace(text: string): string {
     if (this.timeScale === 1) return text;
     try {
       const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown; timeLeftMs?: unknown };
       if (message.type === "settingsEdit" && typeof message.timeLeftMs === "number") {
-        return JSON.stringify({ ...message, timeLeftMs: Math.round(message.timeLeftMs * this.timeScale) });
+        // The plugin takes its 15 s margin off what it is told, so the margin is left as it is: the edit's time to start
+        // its write is what is scaled.
+        const toStart = (message.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS) * this.timeScale;
+        return JSON.stringify({ ...message, timeLeftMs: Math.max(0, Math.round(toStart + SETTINGS_EDIT_WRITE_MARGIN_MS)) });
       }
       if (message.type !== "welcome" || typeof message.heartbeatIntervalMs !== "number") return text;
       return JSON.stringify({ ...message, heartbeatIntervalMs: Math.round(message.heartbeatIntervalMs * this.timeScale) });

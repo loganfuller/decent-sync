@@ -190,8 +190,9 @@ export class SettingsEditsService {
    * is answered late.
    */
   private noLongerAwaited(): Prisma.Sql {
+    // The time as the statement runs, after any lock it waited for, not as its transaction began.
     return Prisma.sql`(
-      settings_edits.made_at <= now() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
+      settings_edits.made_at <= clock_timestamp() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
       OR NOT EXISTS (
         SELECT 1 FROM machines
         WHERE machines.id = settings_edits.machine_id AND machines.connected_session_id = settings_edits.session_id
@@ -246,7 +247,11 @@ export class SettingsEditsService {
     const values = answer.values === undefined ? null : Object.fromEntries(Object.keys(sent.fields).filter((field) => field in answer.values!).map((field) => [field, answer.values![field]]));
     const refusal = decided.outcome === "refused" ? REFUSALS[decided.reason] : null;
     const decaid = decided.outcome === "refused" && decided.reason === "decaid";
-    const [updated] = await this.prisma.$queryRaw<[{ late: boolean }?]>`
+    const [updated] = await this.prisma.$transaction(async (tx) => {
+      // Whether it is late is judged with the Machine's row held, so a hello or release changing which connection
+      // holds the Machine waits for this answer, and this statement, starting once it has the lock, sees the latest.
+      await tx.$queryRaw`SELECT 1 FROM machines WHERE id = ${machineId}::uuid FOR SHARE`;
+      return tx.$queryRaw<[{ late: boolean }?]>`
       UPDATE settings_edits SET
         answered_at = now(),
         late = ${this.noLongerAwaited()},
@@ -258,6 +263,7 @@ export class SettingsEditsService {
         read_back = ${values === null ? null : JSON.stringify(values)}::jsonb
       WHERE id = ${edit.id}::uuid AND answered_at IS NULL
       RETURNING late`;
+    });
     return updated ? { outcome: decided.outcome, late: updated.late } : null;
   }
 }
