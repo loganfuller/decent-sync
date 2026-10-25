@@ -383,6 +383,15 @@ export interface WorkflowDelivery {
    * changes, where it names a recipe.
    */
   dye2Absent?: boolean;
+  /**
+   * Where the plugin held this change back while the Workflow came to name
+   * the recipe it names (DYE2_RECIPE_FIELD), as during a write of its own,
+   * when Decaid first reported it naming that recipe, by the tablet's clock,
+   * in UTC, before `observedAt`: the Machine has that Recipe loaded from
+   * then, so a Shot pulled with it meanwhile is pulled with it. The
+   * Workflow's other parts are as observed at `observedAt`.
+   */
+  recipeNamedAt?: string;
 }
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
@@ -1460,6 +1469,7 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.instant("observedAt");
       fields.objectField("workflow");
       fields.optionalBoolean("dye2Absent");
+      if (object.recipeNamedAt !== undefined) fields.instant("recipeNamedAt");
     });
   }
   return check<MachineStateDelivery>(object, "machineState", (fields) => {

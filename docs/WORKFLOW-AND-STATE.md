@@ -5,7 +5,7 @@ protocol version 1 with two deliveries, defined and validated in `protocol/`:
 
 | Direction | Message | Fields |
 |---|---|---|
-| Plugin to server | `workflow` | `id` (delivery id), `observedAt`, `workflow` (opaque, as Decaid's `workflowUpdated` event gave it), and from #189 `dye2Absent`, while DYE2 is not there to keep the recipe the Workflow names (The Loaded Recipe, below) |
+| Plugin to server | `workflow` | `id` (delivery id), `observedAt`, `workflow` (opaque, as Decaid's `workflowUpdated` event gave it), from #189 `dye2Absent`, while DYE2 is not there to keep the recipe the Workflow names (The Loaded Recipe, below), and from #235 `recipeNamedAt`, when a change held back first named its recipe (Held back, below) |
 | Plugin to server | `machineState` | `id`, `observedAt`, `state` and `substate` (Decaid's names, such as `espresso` and `preinfusion`) |
 
 Both are acknowledged with `ack` once stored, or set aside because storing
@@ -378,11 +378,14 @@ through `plugin/src/dye2.ts`, and writes what the pure
   the plugin's writes into it, or a save into the Loaded Recipe, is under
   way, a count shared with the Library's writes into the Workflow, as a
   joining tablet's clear (`LIBRARY.md`, Joining a Location), and sends the
-  latest once none is, observed when Decaid reported it, or, where the
-  recipe it names changed while held, when Decaid first reported it naming
-  that recipe, so a later report meanwhile, as of the plugin's own write,
-  does not leave a Shot pulled with the recipe taken for one before it was
-  loaded (#235). Changes of the machine's state are not held. A
+  latest once none is, observed when Decaid last reported it. Where the
+  recipe it names changed while held, the delivery also says when Decaid
+  first reported it naming that recipe (`recipeNamedAt`), which the server
+  loads the Recipe from, so a later report meanwhile, as of the plugin's
+  own write, does not leave a Shot pulled with the recipe taken for one
+  pulled before it was loaded; the Workflow's other parts, as its edits of
+  the Recipe, keep the time of the latest report. Changes of the machine's
+  state are not held. A
   welcome's resend of the Workflow asked for while held is the Workflow
   released, which the next welcome replaces unless it was ever sent, but
   where a change was held too: replacing that would lose the change. A held
@@ -416,8 +419,10 @@ Archived, or is of a Location the Machine left. Each Machine's Loaded
 Recipes are kept in `loaded_recipes`, the Recipe from when to when, its
 current one the entry not unloaded, at most one per Machine. A change of it
 unloads the current one and loads the new one at the time the plugin
-observed the Workflow, by the tablet's clock, which a delivery made offline
-keeps, but never before the Machine's latest entry (`switchLoaded`). The
+observed the Workflow, or first saw it name the recipe where it held the
+change back meanwhile (`recipeNamedAt`), by the tablet's clock, which a
+delivery made offline keeps, but never before the Machine's latest entry
+(`switchLoaded`). The
 Recipe's row is locked after the Location's lock, which a Recipe's slots,
 its edits and its hard delete take before its row; the hard delete removes
 its entries. A Machine made capture-only shows no Loaded Recipe from its

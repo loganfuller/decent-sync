@@ -408,6 +408,15 @@ describe("Workflow and machine state envelopes", () => {
       }
     }
   });
+
+  it("reads when a Workflow held back first named its recipe, where it says, in UTC", () => {
+    const recipeNamedAt = "2026-10-05T14:05:42.101Z";
+    expect(decodePluginMessage(frame({ ...workflow, recipeNamedAt }))).toEqual({ ok: true, message: { ...workflow, recipeNamedAt } });
+    expect(decodePluginMessage(frame({ ...workflow, recipeNamedAt: "2026-10-05T10:05:42.101" }))).toMatchObject({
+      ok: false,
+      problem: "workflow.recipeNamedAt must be a UTC time such as 2026-10-05T14:07:03.341Z",
+    });
+  });
 });
 
 describe("Collection envelopes", () => {

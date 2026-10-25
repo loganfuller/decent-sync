@@ -82,11 +82,11 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
     expect(deliveries.map((delivery) => (delivery.type === "workflow" ? delivery.workflow : delivery.state))).toEqual([dosed(18), "espresso", dosed(19)]);
   });
 
-  it("sends a change held back with the time the Workflow first named the recipe it names, not that of a later report meanwhile, as of the plugin's own write", () => {
+  it("sends a change held back with the time of the latest report, and where it named another recipe, when it first named it, as before the plugin's own write", () => {
     vi.useFakeTimers({ now: Date.parse("2026-11-01T12:00:00Z") });
     try {
       const { machineEvents, deliveries } = events();
-      const observed = () => deliveries.flatMap((delivery) => (delivery.type === "workflow" ? [delivery.observedAt] : []));
+      const times = () => deliveries.flatMap((delivery) => (delivery.type === "workflow" ? [[delivery.observedAt, delivery.recipeNamedAt ?? null]] : []));
       const named = (recipeId: string, dose: number): Workflow => ({ context: { targetDoseWeight: dose, extras: { dye: { v: 1, recipeId } } } });
       machineEvents.workflowUpdated(named("recipe-a", 18));
       machineEvents.hold();
@@ -97,15 +97,16 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
       machineEvents.workflowUpdated(named("recipe-b", 19));
       vi.advanceTimersByTime(1_000);
       machineEvents.release();
-      expect(observed()).toEqual(["2026-11-01T12:00:00.000Z", "2026-11-01T12:00:01.000Z"]);
-      // Naming the same recipe throughout, it keeps the time of the latest report.
+      expect(times()).toEqual([
+        ["2026-11-01T12:00:00.000Z", null],
+        ["2026-11-01T12:00:02.000Z", "2026-11-01T12:00:01.000Z"],
+      ]);
+      // Naming the same recipe throughout, it says nothing of when.
       machineEvents.hold();
       vi.advanceTimersByTime(1_000);
       machineEvents.workflowUpdated(named("recipe-b", 20));
-      vi.advanceTimersByTime(1_000);
-      machineEvents.workflowUpdated(named("recipe-b", 21));
       machineEvents.release();
-      expect(observed().at(-1)).toBe("2026-11-01T12:00:05.000Z");
+      expect(times().at(-1)).toEqual(["2026-11-01T12:00:04.000Z", null]);
     } finally {
       vi.useRealTimers();
     }

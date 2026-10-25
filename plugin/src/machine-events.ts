@@ -60,9 +60,9 @@ export class MachineEvents implements WorkflowChanges {
   private heldChange = false;
   /**
    * When Decaid reported the Workflow first naming the recipe it names now
-   * (`dye2RecipeIdOf`), where that was while held: the time `release` sends
-   * it with, rather than that of a later report meanwhile, as of the
-   * plugin's own write, so a Shot pulled with the recipe is pulled with it.
+   * (`dye2RecipeIdOf`), where that was while held: `release` sends it as the
+   * delivery's `recipeNamedAt`, as a later report meanwhile, such as the
+   * plugin's own write's, gives the delivery its `observedAt`.
    */
   private heldNamedAt: string | undefined;
   /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -109,10 +109,10 @@ export class MachineEvents implements WorkflowChanges {
 
   /**
    * Once no write is under way, sends the latest Workflow, observed when
-   * Decaid reported it, or when it first named the recipe it names where
-   * that changed while held, or now for a resend alone, if it changed while
-   * held: that holds the plugin's own writes, and any change a barista made
-   * meanwhile.
+   * Decaid reported it, or now for a resend alone, if it changed while held:
+   * that holds the plugin's own writes, and any change a barista made
+   * meanwhile. Where the recipe it names changed while held, it says when
+   * Decaid first reported it naming that one (`recipeNamedAt`).
    */
   release(): void {
     this.holds = Math.max(0, this.holds - 1);
@@ -120,8 +120,9 @@ export class MachineEvents implements WorkflowChanges {
     if (this.heldChange && this.workflow) {
       this.heldChange = false;
       const resend = this.heldResend && !this.heldReport;
-      // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it.
-      const id = this.queueWorkflow(this.workflow, resend ? now() : (this.heldNamedAt ?? this.reportedAt));
+      // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it, and when
+      // it first named its recipe, so a Shot pulled with that recipe meanwhile is pulled with it.
+      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt);
       if (resend) this.resent = id;
       this.heldResend = false;
       this.heldReport = false;
@@ -186,8 +187,15 @@ export class MachineEvents implements WorkflowChanges {
   }
 
   /** Queues the Workflow as observed now, returning its delivery's id. */
-  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now()): string {
-    const delivery: WorkflowDelivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...(this.absent ? { dye2Absent: true } : {}) };
+  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now(), recipeNamedAt?: string): string {
+    const delivery: WorkflowDelivery = {
+      type: "workflow",
+      id: this.outbox.nextId(),
+      observedAt,
+      workflow,
+      ...(this.absent ? { dye2Absent: true } : {}),
+      ...(recipeNamedAt !== undefined ? { recipeNamedAt } : {}),
+    };
     this.outbox.enqueue(delivery);
     return delivery.id;
   }

@@ -419,6 +419,7 @@ var __decentSync = (() => {
         fields.instant("observedAt");
         fields.objectField("workflow");
         fields.optionalBoolean("dye2Absent");
+        if (object3.recipeNamedAt !== void 0) fields.instant("recipeNamedAt");
       });
     }
     return check(object3, "machineState", (fields) => {
@@ -2612,9 +2613,9 @@ var __decentSync = (() => {
       __publicField(this, "heldChange", false);
       /**
        * When Decaid reported the Workflow first naming the recipe it names now
-       * (`dye2RecipeIdOf`), where that was while held: the time `release` sends
-       * it with, rather than that of a later report meanwhile, as of the
-       * plugin's own write, so a Shot pulled with the recipe is pulled with it.
+       * (`dye2RecipeIdOf`), where that was while held: `release` sends it as the
+       * delivery's `recipeNamedAt`, as a later report meanwhile, such as the
+       * plugin's own write's, gives the delivery its `observedAt`.
        */
       __publicField(this, "heldNamedAt");
       /** The delivery that sent it again on the latest welcome, which the next welcome's replaces unless it was ever sent. */
@@ -2645,10 +2646,10 @@ var __decentSync = (() => {
     }
     /**
      * Once no write is under way, sends the latest Workflow, observed when
-     * Decaid reported it, or when it first named the recipe it names where
-     * that changed while held, or now for a resend alone, if it changed while
-     * held: that holds the plugin's own writes, and any change a barista made
-     * meanwhile.
+     * Decaid reported it, or now for a resend alone, if it changed while held:
+     * that holds the plugin's own writes, and any change a barista made
+     * meanwhile. Where the recipe it names changed while held, it says when
+     * Decaid first reported it naming that one (`recipeNamedAt`).
      */
     release() {
       this.holds = Math.max(0, this.holds - 1);
@@ -2656,7 +2657,7 @@ var __decentSync = (() => {
       if (this.heldChange && this.workflow) {
         this.heldChange = false;
         const resend = this.heldResend && !this.heldReport;
-        const id = this.queueWorkflow(this.workflow, resend ? now() : this.heldNamedAt ?? this.reportedAt);
+        const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt);
         if (resend) this.resent = id;
         this.heldResend = false;
         this.heldReport = false;
@@ -2715,8 +2716,15 @@ var __decentSync = (() => {
       } else this.resent = this.queueWorkflow(this.workflow);
     }
     /** Queues the Workflow as observed now, returning its delivery's id. */
-    queueWorkflow(workflow, observedAt = now()) {
-      const delivery = { type: "workflow", id: this.outbox.nextId(), observedAt, workflow, ...this.absent ? { dye2Absent: true } : {} };
+    queueWorkflow(workflow, observedAt = now(), recipeNamedAt) {
+      const delivery = {
+        type: "workflow",
+        id: this.outbox.nextId(),
+        observedAt,
+        workflow,
+        ...this.absent ? { dye2Absent: true } : {},
+        ...recipeNamedAt !== void 0 ? { recipeNamedAt } : {}
+      };
       this.outbox.enqueue(delivery);
       return delivery.id;
     }

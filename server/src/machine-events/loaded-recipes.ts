@@ -111,8 +111,10 @@ async function mappedRecipe(tx: Prisma.TransactionClient, tabletId: string, reco
  * on a Capture-only Machine, or while DYE2 is absent
  * (`WorkflowDelivery.dye2Absent`). A Machine's Loaded Recipe that differs
  * from it is unloaded then, and the Recipe the Workflow names is loaded from
- * then (`switchLoaded`). Then the Workflow's parts that follow the Recipe
- * are taken in (`followMachine`).
+ * then (`switchLoaded`), or from when the Workflow first named it where the
+ * plugin held the change back meanwhile (`WorkflowDelivery.recipeNamedAt`).
+ * Then the Workflow's parts that follow the Recipe are taken in, as observed
+ * (`followMachine`).
  */
 export async function takeInLoadedRecipe(
   tx: Prisma.TransactionClient,
@@ -121,16 +123,17 @@ export async function takeInLoadedRecipe(
   observedAt: string,
   entry: CurrentEntry | null,
   joining: boolean,
-  extra: Pick<WorkflowDelivery, "dye2Absent"> = {},
+  extra: Pick<WorkflowDelivery, "dye2Absent" | "recipeNamedAt"> = {},
 ): Promise<void> {
   const recordId = extra.dye2Absent ? null : dye2RecipeIdOf(workflow);
   const named = recordId === null ? null : await mappedRecipe(tx, tablet.tabletId, recordId);
   const recipe = named === null || entry === null ? null : await followedRecipe(tx, named, entry.locationId);
-  const loadedBefore = await switchLoaded(tx, tablet.machineId, recipe?.id ?? null, observedAt);
+  const namedAt = extra.recipeNamedAt ?? observedAt;
+  const loadedBefore = await switchLoaded(tx, tablet.machineId, recipe?.id ?? null, namedAt);
   // Taking part nowhere, as capture-only, only the Recipe the server last had as its Loaded Recipe is cleared: one loaded
   // since stays, as does one loaded on the tablet before it stopped that the server had not heard of yet, as while offline.
   const clearsNowhere = entry !== null || (named !== null && loadedBefore === named);
-  await followMachine(tx, tablet, workflow, observedAt, recordId, named, recipe, loadedBefore === (recipe?.id ?? null) && !joining, joining, clearsNowhere);
+  await followMachine(tx, tablet, workflow, observedAt, namedAt, recordId, named, recipe, loadedBefore === (recipe?.id ?? null) && !joining, joining, clearsNowhere);
 }
 
 /**
@@ -226,6 +229,7 @@ async function followMachine(
   tablet: ReportingTablet,
   workflow: unknown,
   observedAt: string,
+  recipeNamedAt: string,
   recordId: string | null,
   named: string | null,
   recipe: FollowedRecipe | null,
@@ -238,7 +242,7 @@ async function followMachine(
   // A Recipe loaded on a Machine taking part nowhere, as capture-only, which nothing there shares, is left as it is: only
   // the one it had loaded as it stopped is cleared, as it still is while the Workflow names it.
   if (!clears && (known === null || known.recipeId !== named)) return forgetNamed(tx, tablet.tabletId);
-  const namedAt = known !== null && known.recordId === recordId ? known.namedAt : new Date(observedAt);
+  const namedAt = known !== null && known.recordId === recordId ? known.namedAt : new Date(recipeNamedAt);
   const now = workflowParts(workflow, await libraryProfileOf(tx, workflow));
   if (recipe === null) {
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: named, namedAt, held: now, base: {} });
