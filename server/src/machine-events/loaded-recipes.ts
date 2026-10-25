@@ -367,9 +367,9 @@ async function targetParts(tx: Prisma.TransactionClient, tabletId: string, recip
  * Once the tablet's map holds a record under the id its Workflow last named
  * while the map held none, as of a recipe DYE2's `save-recipe` made and
  * named at once, which its report brings after the Workflow: the Recipe is
- * taken in as the Workflow naming it, from when the plugin observed it
- * first naming it (`named_at`), so a Shot pulled meanwhile is pulled with
- * it, under the locks the report holds (the Machine's row, the tablet's,
+ * taken in as the Workflow naming it, loaded from when the plugin observed
+ * it first naming it (`named_at`), so a Shot pulled meanwhile is pulled with
+ * it, its parts as last observed, under the locks the report holds (the Machine's row, the tablet's,
  * then its Location's). A Workflow naming a Recipe the map held already, as
  * one of the Location the Machine left, never loads another the map gives
  * that id later.
@@ -377,11 +377,12 @@ async function targetParts(tx: Prisma.TransactionClient, tabletId: string, recip
 export async function recipeMapped(tx: Prisma.TransactionClient, tablet: ReportingTablet, recordId: string): Promise<void> {
   const known = await namedRecipe(tx, tablet.tabletId);
   if (known === null || known.recordId !== recordId || known.recipeId !== null) return;
-  const [latest] = await tx.$queryRaw<{ workflow: unknown }[]>`
-    SELECT workflow FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
+  const [latest] = await tx.$queryRaw<{ workflow: unknown; observedAt: Date }[]>`
+    SELECT workflow, observed_at AS "observedAt" FROM workflow_events WHERE machine_id = ${tablet.machineId}::uuid ORDER BY id DESC LIMIT 1`;
   if (!latest || dye2RecipeIdOf(latest.workflow) !== recordId) return;
   const entry = await currentEntry(tx, tablet.machineId);
-  await takeInLoadedRecipe(tx, tablet, latest.workflow, known.namedAt.toISOString(), entry, false);
+  // Its parts, as its edits of the Recipe, are as the plugin observed that Workflow.
+  await takeInLoadedRecipe(tx, tablet, latest.workflow, latest.observedAt.toISOString(), entry, false, { recipeNamedAt: known.namedAt.toISOString() });
 }
 
 /**

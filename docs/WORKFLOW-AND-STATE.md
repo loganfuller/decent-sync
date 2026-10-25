@@ -432,7 +432,7 @@ one (below); a change of Location asks for one at once.
 The server keeps, per tablet, what its Workflow last named
 (`tablet_loaded_recipes`): the record id; the Recipe the map holds under it,
 or none while it holds none yet; when the plugin observed the Workflow first
-naming that id (`named_at`), kept while later Workflows name it; the parts
+naming that id (`named_at`, its `recipeNamedAt` where it says), kept while later Workflows name it; the parts
 of the Workflow that follow the Recipe as it last held them (`held`); and
 the Recipe's parts as that Workflow last took them, written there or held
 already (`base`). A Workflow naming nothing forgets it.
@@ -444,8 +444,9 @@ already (`base`). A Workflow naming nothing forgets it.
   record of that id, as the report takes it in as a new Recipe of the
   Location (`LIBRARY.md`, Taking in a tablet's recipes) or an answer
   records it, and the Machine's latest Workflow still names it, the Recipe
-  is taken in as that Workflow naming it, from `named_at`, so it is loaded
-  from then, never before the Machine's latest entry (`recipeMapped`); and
+  is taken in as that Workflow naming it, loaded from `named_at`, never
+  before the Machine's latest entry, and its parts as the plugin observed
+  that Workflow, which times the Recipe's edits from it (`recipeMapped`); and
   the Shots the tablet reported naming that id are linked to it
   (`linkRecipeShots`, `SHOTS.md`). A Workflow naming a record the map held
   already, as one of the Location the Machine left, never takes this path,

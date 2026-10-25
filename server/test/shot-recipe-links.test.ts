@@ -400,12 +400,20 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await streamline.applyRecipe(5);
     expect([recipeIdInWorkflow(tablet), hotWater()]).toEqual([savedId, own]);
     await settle();
+    // Then a change of the dial, which the load gains the Recipe, timed as the plugin observed it, not as the recipe was named.
+    const dialledAt = new Date().toISOString();
+    await tablet.changeSettings({ context: { grinderSetting: "3.1" } });
+    const dialled = (frame: Record_) => frame.type === "workflow" && ((frame.workflow as Record_).context as Record_).grinderSetting === "3.1";
+    await expect.poll(() => tablet.acknowledgedSome(dialled)).toBe(true);
 
     // Taken in, it is loaded, and the load writes its hot water time, which DYE2's save of the next change keeps.
     unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
     await loads(machine, savedRecipe);
+    const versions = async () => (await api.get<{ versions: { fields: Record_; editedAt: string }[] }>(`/recipes/${savedRecipe}/history`)).versions;
+    const gained = (await versions()).find((version) => version.fields.grindSetting === 3.1);
+    expect(gained!.editedAt >= dialledAt).toBe(true);
     await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
