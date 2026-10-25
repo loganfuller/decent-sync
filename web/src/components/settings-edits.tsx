@@ -230,8 +230,9 @@ function SettingInput({
 /**
  * The latest edit of a section: pending, read again until the Machine
  * answers it, then what came of it, shown in place. Once it is answered,
- * `onAnswered` reloads the section's values, which come from the latest
- * report, the read-back taken in before the answer.
+ * whether as it is read again or already as it was made, `onAnswered`
+ * reloads the section's values, which come from the latest report, the
+ * read-back taken in before the answer.
  */
 export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { machineId: string; edit: SettingsEdit; onAnswered(): Promise<void> | void }) {
   const [edit, setEdit] = useState(made);
@@ -240,6 +241,11 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
   // The edit is read until answered, whatever the page reloads meanwhile.
   const answered = useRef(onAnswered);
   answered.current = onAnswered;
+
+  // An edit the Machine answered before the server read it back for its maker comes answered: its reports are loaded at once.
+  useEffect(() => {
+    if (made.outcome !== null) void answered.current();
+  }, [made]);
 
   useEffect(() => {
     if (!pending) return;

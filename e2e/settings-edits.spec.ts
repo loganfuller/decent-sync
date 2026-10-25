@@ -131,6 +131,30 @@ test("an edit made over the report the form opened with is refused as changed si
   baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(0);
 });
 
+test("an edit the Machine answered before the server answered its making still shows the values read back", async ({ page }) => {
+  const annex = await createLocation(page, "Annex");
+  const { machine, token } = await createMachine(page, "Annex bar", annex.id);
+  await tabletOf(token, "22404");
+  await reported(page, machine.id);
+  await page.goto(`/machines/${machine.id}`);
+  const general = page.getByRole("region", { name: "General", exact: true });
+  await expect(general.getByRole("definition").first()).toHaveText("50 °C");
+  await general.getByRole("button", { name: "Edit General" }).click();
+  const form = general.getByRole("form", { name: "Edit General" });
+  await form.getByLabel("Fan threshold (°C)").fill("40");
+  // The server reads the edit back for its answer only once the Machine has answered it, as when the plugin is quick.
+  await page.route(`**/api/machines/${machine.id}/settings-edits`, async (route) => {
+    const response = await route.fetch();
+    const { settingsEdit } = (await response.json()) as { settingsEdit: { id: string } };
+    const read = async () => (await (await page.request.get(`/api/machines/${machine.id}/settings-edits/${settingsEdit.id}`)).json()) as { settingsEdit: { outcome: string | null } };
+    await expect.poll(async () => (await read()).settingsEdit.outcome).toBe("applied");
+    await route.fulfill({ response, json: await read() });
+  });
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(general.getByRole("status")).toContainText("Applied");
+  await expect(general.getByRole("definition").first()).toHaveText("40 °C");
+});
+
 /** A tablet connected with the token, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletOf(token: string, serial: string): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
