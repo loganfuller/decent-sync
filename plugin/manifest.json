@@ -35,6 +35,7 @@
   },
   "api": [
     { "id": "skin", "type": "http", "data": {} },
+    { "id": "ui", "type": "http", "data": {} },
     { "id": "changed", "type": "websocket", "data": {} }
   ]
 }

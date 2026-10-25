@@ -1062,8 +1062,9 @@ var __decentSync = (() => {
   var LoadedRecipes = class {
     constructor(changes, library, log, transports, pollMs, shot, storage, pushed = () => {
     }, reportRecipes = async () => {
-    }, workflowWritten = () => {
-    }) {
+    }, skins = { workflowWritten: () => {
+    }, clearButtonChanged: () => {
+    } }) {
       __publicField(this, "changes", changes);
       __publicField(this, "library", library);
       __publicField(this, "log", log);
@@ -1072,7 +1073,7 @@ var __decentSync = (() => {
       __publicField(this, "storage", storage);
       __publicField(this, "pushed", pushed);
       __publicField(this, "reportRecipes", reportRecipes);
-      __publicField(this, "workflowWritten", workflowWritten);
+      __publicField(this, "skins", skins);
       /** The latest Workflow Decaid reported, or answered a write of the plugin's with. */
       __publicField(this, "latest");
       /**
@@ -1082,6 +1083,10 @@ var __decentSync = (() => {
        * writing nothing for it.
        */
       __publicField(this, "loaded");
+      /** The id on the tablet of the record of the Loaded Recipe, as the plugin last decided on it; null for none. */
+      __publicField(this, "loadedRecordId", null);
+      /** The Loaded Recipe's name the skins were last told of for the Clear button (`clearButtonChanged`), null for none. */
+      __publicField(this, "shownName", null);
       /** The tablet's records that can be a Loaded Recipe, by their ids there, as last read; null until first read. */
       __publicField(this, "records", null);
       __publicField(this, "dye2", "unknown");
@@ -1142,6 +1147,79 @@ var __decentSync = (() => {
     /** Whether the server says the Machine is capture-only: nothing is written into its Workflow, nor saved into its recipes, while it is. */
     setCaptureOnly(captureOnly) {
       this.captureOnly = captureOnly;
+      this.noteClearButton();
+    }
+    /**
+     * The Loaded Recipe's name, as Streamline's DYE strip labels its record
+     * (`recipeLabel` in streamline-js:src/modules/dyeStrip.js); null while the
+     * Machine has none, as while it is capture-only or DYE2 is not there.
+     */
+    loadedName() {
+      if (this.loaded === void 0 || this.loaded === null || this.loadedRecordId === null || !this.sharing()) return null;
+      const recipe = this.records?.get(this.loadedRecordId);
+      if (recipe === void 0 || recipe.globalId !== this.loaded) return null;
+      return textOf2(recipe.record.title) ?? textOf2(recipe.record.name) ?? "Recipe";
+    }
+    /**
+     * Unloads the Loaded Recipe as a barista's tap of the Clear button asks:
+     * writes `recipeId: null` into the Workflow, as DYE2 does, in `library`'s
+     * turn, so it never lands between the two writes of a load or a save's
+     * check and call, and as a write of the plugin's own (`ownWrite`). Nothing
+     * else of the Workflow changes, and the Workflow delivered after it
+     * unloads the Recipe on the server. It is made only while the Recipe
+     * loaded at the tap is still loaded, by no later load, and the Workflow,
+     * read just before, still names its record. Resolves with why it was not
+     * made, or null where it was or there was nothing to unload. One not
+     * begun within `ms`, as behind a long write of the plugin's, is never
+     * made: a tap is not replayed later, as it could unload a recipe applied
+     * since. Nor is one that fails tried again.
+     */
+    unloadNow(ms) {
+      const globalId = this.loaded ?? null;
+      const load = this.loads;
+      if (globalId === null || this.stopped || !this.sharing()) return Promise.resolve(null);
+      let begun = false;
+      let expired = false;
+      const unload = this.library.run(async () => {
+        if (expired) return null;
+        begun = true;
+        if (this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
+        return this.ownWrite(async (answered) => {
+          const workflow = await workflowNow();
+          const recordId = dye2RecipeIdOf(workflow);
+          if (recordId === null || this.records?.get(recordId)?.globalId !== globalId) return null;
+          const body = clearRecipe();
+          const answer = await request("PUT", "/workflow", body);
+          const updated = answer.ok ? parsed3(answer.text) : void 0;
+          if (!isObject4(updated)) return `Decaid answered ${answer.status} clearing the Workflow's recipe: ${answer.text.slice(0, 200)}`;
+          answered(updated, body);
+          this.skins.workflowWritten(workflow, updated);
+          return null;
+        });
+      });
+      return new Promise((resolve) => {
+        const timer = setTimeout(() => {
+          expired = true;
+          resolve(begun ? `the unload had not finished within ${ms / 1e3} s` : `the unload had not begun within ${ms / 1e3} s, so it is not made`);
+        }, ms);
+        unload.then(
+          (problem) => {
+            clearTimeout(timer);
+            resolve(problem);
+          },
+          (error) => {
+            clearTimeout(timer);
+            resolve(error instanceof Error ? error.message : String(error));
+          }
+        );
+      });
+    }
+    /** Tells the skins to read `skin` again where the Clear button is to show, hide or change its name. */
+    noteClearButton() {
+      const name = this.loadedName();
+      if (name === this.shownName) return;
+      this.shownName = name;
+      this.skins.clearButtonChanged();
     }
     /**
      * Decaid's `workflowUpdated`, before the Workflow is queued, so it may be
@@ -1211,7 +1289,7 @@ var __decentSync = (() => {
         const updated = answer.ok ? parsed3(answer.text) : void 0;
         if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
         answered(updated, body);
-        this.workflowWritten(workflow, updated);
+        this.skins.workflowWritten(workflow, updated);
       });
     }
     posted(records) {
@@ -1228,10 +1306,15 @@ var __decentSync = (() => {
      * saves nothing.
      */
     decide(previous, changed) {
+      this.decideOn(previous, changed);
+      this.noteClearButton();
+    }
+    decideOn(previous, changed) {
       const workflow = this.latest;
       if (workflow === void 0 || this.records === null || this.stopped) return;
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
+      this.loadedRecordId = globalId === null ? null : recordId;
       if (globalId !== this.loaded) {
         const first = this.loaded === void 0;
         const restored = first && globalId !== null && globalId === this.restoredLoad;
@@ -1363,6 +1446,7 @@ var __decentSync = (() => {
         this.pushes.keepOpen();
       } else this.notLoadedSince ?? (this.notLoadedSince = Date.now());
       this.changes.dye2Absent(this.unavailable());
+      this.noteClearButton();
       this.sawRecipes(await this.readRecipes());
     }
     /** Whether DYE2 is not there: absent, disabled, or not loaded for longer than twice the poll interval. */
@@ -1403,7 +1487,7 @@ var __decentSync = (() => {
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
         const after = answer ? parsed3(answer.text) : void 0;
-        if (isObject4(after)) this.workflowWritten(workflow, after);
+        if (isObject4(after)) this.skins.workflowWritten(workflow, after);
         return recipe.record;
       });
       if (record === null) return;
@@ -1476,6 +1560,9 @@ var __decentSync = (() => {
   }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
+  }
+  function textOf2(value) {
+    return typeof value === "string" && value.trim() !== "" ? value : null;
   }
   function parsed3(text) {
     try {
@@ -3402,21 +3489,52 @@ var __decentSync = (() => {
 
   // src/skins.ts
   var SKIN_ENDPOINT = "skin";
+  var UI_ENDPOINT = "ui";
+  var CLEAR_VIEW = "clear";
   var CHANGED_ENDPOINT = "changed";
-  var SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } };
   var WORKFLOW_CHANGED = { what: "workflow" };
-  function answerHttp(request2) {
-    if (request2.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
+  var SKIN_CHANGED = { what: "skin" };
+  var UNLOAD_MS = 3e3;
+  var TEXT_MAX = 40;
+  async function answerHttp(request2, unloadable, log) {
+    if (request2.endpoint !== SKIN_ENDPOINT && request2.endpoint !== UI_ENDPOINT) return json(404, { error: "Not found" });
     if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-    return json(200, SKIN_ANSWER);
+    if (request2.endpoint === SKIN_ENDPOINT) return json(200, { version: 1, surfaces: clearButton(unloadable?.loadedName() ?? null), live: { endpoint: CHANGED_ENDPOINT } });
+    const returnTo = request2.query.returnTo;
+    const back = typeof returnTo === "string" && isPageUrl(returnTo) ? returnTo : null;
+    if (request2.query.view !== CLEAR_VIEW) return back === null ? json(404, { error: "Not found" }) : goBack(back);
+    if (unloadable !== void 0) {
+      const problem = await unloadable.unloadNow(UNLOAD_MS).catch((error) => error instanceof Error ? error.message : String(error));
+      if (problem !== null) log(`Could not unload the Loaded Recipe for the Clear button: ${problem}`);
+    }
+    return back === null ? { status: 204, headers: { "Cache-Control": "no-store" }, body: "" } : goBack(back);
+  }
+  function goBack(returnTo) {
+    return { status: 303, headers: { Location: returnTo, "Cache-Control": "no-store" }, body: "" };
+  }
+  function clearButton(name) {
+    if (name === null) return [];
+    const text = Array.from(`Unload ${name}`);
+    return [
+      {
+        id: "clear",
+        kind: "header-button",
+        label: "Clear",
+        text: text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX - 1).join("")}…` : text.join(""),
+        action: { type: "open", view: CLEAR_VIEW, presentation: "page" }
+      }
+    ];
+  }
+  function isPageUrl(url) {
+    return /^[!-~]+$/.test(url) && /^https?:\/\/[^/?#@]+([/?#]|$)/i.test(url);
   }
   function json(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   }
   function tellSkins(host, log) {
-    const push = (what) => {
+    const push = (what, payload = WORKFLOW_CHANGED) => {
       try {
-        host.emit(CHANGED_ENDPOINT, WORKFLOW_CHANGED);
+        host.emit(CHANGED_ENDPOINT, payload);
       } catch (error) {
         log(`Could not tell skins that ${what} changed: ${error instanceof Error ? error.message : String(error)}`);
       }
@@ -3427,7 +3545,8 @@ var __decentSync = (() => {
       },
       workflowWritten: (before, after) => {
         if (!sameValue(before, after)) push("the Workflow");
-      }
+      },
+      clearButtonChanged: () => push("the Loaded Recipe", SKIN_CHANGED)
     };
   }
 
@@ -3806,7 +3925,7 @@ var __decentSync = (() => {
         this.storage,
         () => this.collections.readRecipes(),
         () => this.collections.recipesNow(),
-        skins.workflowWritten
+        skins
       );
       this.machineEvents = new MachineEvents(
         this.outbox,
@@ -3827,6 +3946,10 @@ var __decentSync = (() => {
         this.shot
       );
       this.tabletId = new TabletId(this.storage, log);
+    }
+    /** The Machine's Loaded Recipe, as the Clear button in a skin's top bar shows and unloads it (`skins.ts`). */
+    get unloadable() {
+      return this.loadedRecipes;
     }
     /**
      * Reads back the outbox's deliveries kept by earlier loads, and connects,
@@ -4269,7 +4392,7 @@ var __decentSync = (() => {
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
       },
       // Answered whether or not the plugin connects: a skin asks every loaded plugin.
-      __httpRequestHandler: answerHttp
+      __httpRequestHandler: (request2) => answerHttp(request2, connection?.unloadable, (message) => host.log(message))
     };
   }
   return __toCommonJS(index_exports);

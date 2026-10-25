@@ -23,7 +23,7 @@ import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
-import { tellSkins } from "./skins.js";
+import { type Unloadable, tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
 import { SteamCapture } from "./steams.js";
 import { PluginStorage } from "./storage.js";
@@ -210,7 +210,7 @@ export class SyncConnection {
       this.storage,
       () => this.collections.readRecipes(),
       () => this.collections.recipesNow(),
-      skins.workflowWritten,
+      skins,
     );
     this.machineEvents = new MachineEvents(
       this.outbox,
@@ -231,6 +231,11 @@ export class SyncConnection {
       this.shot,
     );
     this.tabletId = new TabletId(this.storage, log);
+  }
+
+  /** The Machine's Loaded Recipe, as the Clear button in a skin's top bar shows and unloads it (`skins.ts`). */
+  get unloadable(): Unloadable {
+    return this.loadedRecipes;
   }
 
   /**
