@@ -33,7 +33,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // made up.
 
 interface Summary { name: string; available: boolean; reportedAt: string; receivedAt: string | null; items: number | null }
-interface Collection extends Summary { value: unknown }
+interface Collection extends Summary { value: unknown; utcOffsetMinutes: number | null }
 interface Device { id: string; type: string | null; model: string | null; vendor: string | null; state: string | null; firmware: string | null; batteryLevel: number | null }
 interface PairedDevices {
   reportedAt: string | null;
@@ -165,6 +165,7 @@ describe("Library, settings and paired devices", () => {
       dye2Equipment: { available: true, value: [] },
       dye2Baskets: value("/store/dye2.reaplugin/baskets"),
       appSettings: value("/settings"),
+      presenceSettings: value("/presence/settings"),
       machineSettings: value("/machine/settings"),
       advancedSettings: value("/machine/settings/advanced"),
       machineCalibration: value("/machine/calibration"),
@@ -440,6 +441,7 @@ describe("Library, settings and paired devices", () => {
     // The Machine's tablet connects before its machine is on.
     const early = await connect(machine);
     await early.deliver(report("machineSettings", tablet["/machine/settings"]));
+    await early.deliver({ ...report("appSettings", tablet["/settings"]), utcOffsetMinutes: -300 });
     await early.deliver(report("scaleInfo"));
     await early.deliver(report("sensors", tablet["/sensors"]));
     await early.close();
@@ -447,6 +449,8 @@ describe("Library, settings and paired devices", () => {
     await (await connect(visitor, other.url, { model: "DE1Pro", serial: "30302" })).close();
     const mismatched = await connect(visitor, other.url, hardware);
     await mismatched.deliver(report("machineSettings", recalibrated));
+    // The same app settings, read after a daylight saving change.
+    await mismatched.deliver({ ...report("appSettings", tablet["/settings"]), utcOffsetMinutes: -240 });
     await mismatched.deliver(report("scaleInfo", simulated["/scale/info"]));
     await mismatched.deliver(report("sensors", simulated["/sensors"]));
     await mismatched.deliver(report("advancedSettings", tablet["/machine/settings/advanced"]));
@@ -459,11 +463,14 @@ describe("Library, settings and paired devices", () => {
     // The Machine's tablet reports the hardware: its token binds it, and the Machine takes over what was held.
     await (await connect(machine, server.url, hardware)).close();
     expect(await collections(machine)).toEqual({
+      appSettings: { available: true, value: tablet["/settings"] },
       machineSettings: { available: true, value: recalibrated },
       advancedSettings: { available: true, value: tablet["/machine/settings/advanced"] },
       scaleInfo: { available: true, value: simulated["/scale/info"] },
       sensors: { available: false, value: simulated["/sensors"] },
     });
+    // The UTC offset goes with the value it was read with.
+    expect((await collection(machine, "appSettings"))!.utcOffsetMinutes).toBe(-240);
     expect(await summaries(visitor)).toEqual([]);
     expect((await api.pendingMachines()).some((pending) => pending.serial === hardware.serial)).toBe(false);
   });
@@ -719,7 +726,7 @@ describe("Library, settings and paired devices", () => {
         for (const gap of gaps(readTimes(tablet, route))) expect(gap).toBeGreaterThan(55_000);
       }
       // Over at least two minutes, 24 polls of 5 s: at least 10, however late the tablet's timers run.
-      const polled = ["/beans", "/store/dye2.reaplugin/recipes", "/settings", "/devices", "/scale/info", "/sensors", "/steams/latest", "/machine/info"];
+      const polled = ["/beans", "/store/dye2.reaplugin/recipes", "/settings", "/presence/settings", "/devices", "/scale/info", "/sensors", "/steams/latest", "/machine/info"];
       for (const route of polled) {
         expect(readTimes(tablet, route).filter((time) => time > read[0]! && time < read.at(-1)!).length).toBeGreaterThanOrEqual(10);
       }

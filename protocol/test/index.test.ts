@@ -468,6 +468,22 @@ describe("Collection envelopes", () => {
     });
   });
 
+  it("carries the tablet's UTC offset beside a value, in whole minutes within 18 hours of UTC", () => {
+    const presence = { type: "collection", id: "delivery-presence", name: "presenceSettings", available: true, value: { userPresenceEnabled: true } };
+    for (const utcOffsetMinutes of [-240, 0, 330, 840, -1080, 1080]) {
+      const message = { ...presence, utcOffsetMinutes };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    for (const utcOffsetMinutes of [-1081, 1081, 5.5, "-240", null]) {
+      expect(decodePluginMessage(frame({ ...presence, utcOffsetMinutes })).ok).toBe(false);
+    }
+    expect(decodePluginMessage(frame({ ...presence, utcOffsetMinutes: 1500 }))).toMatchObject({
+      ok: false,
+      problem: "collection.utcOffsetMinutes must be from -1080 to 1080",
+    });
+    expect(decodePluginMessage(frame({ ...noScale, utcOffsetMinutes: -240 }))).toMatchObject({ ok: false, problem: "collection.utcOffsetMinutes must be absent" });
+  });
+
   it("requires a value, and not null, while available, and none while unavailable", () => {
     for (const value of [undefined, null]) {
       expect(decodePluginMessage(frame({ ...beans, value }))).toMatchObject({ ok: false, problem: "collection.value must be present and not null" });

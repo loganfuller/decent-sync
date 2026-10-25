@@ -9,6 +9,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/com
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Collection, CollectionSummary, Machine, PairedDevice, PairedDevices, SettingsEdit, WorkflowEvent } from "@/lib/api";
 import { fieldText, isObject, reportedFields, valueText } from "@/lib/settings-text";
+import { inTabletTime, timeOfDayMinutes, timeOfDayText } from "@/lib/tablet-time";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import {
   type EditableSettingsField,
@@ -33,9 +34,10 @@ export const SETTINGS: Record<SettingsCollectionName, string> = {
   machineCalibration: "Flow calibration",
   sensorCalibration: "Sensor calibration",
   appSettings: "Tablet Settings",
+  presenceSettings: "Presence",
 };
 
-/** The collections holding a Machine's Machine Settings; its Tablet's Tablet Settings are in `appSettings`. */
+/** The collections holding a Machine's Machine Settings; its Tablet's Tablet Settings are in `appSettings`, with its presence settings under them. */
 const MACHINE_SETTINGS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration"] as const satisfies readonly SettingsCollectionName[];
 
 /** What the sensor calibration's form warns of before saving, as Streamline's settings page does (`sensorCalWarningModal`). */
@@ -158,7 +160,9 @@ export function SettingsCard({
           </div>
         </section>
         <div className="grid gap-6 md:grid-cols-2">
-          <SettingsSection name="appSettings" collection={settings.appSettings} heading="h3" machine={machine} onReported={onReported} />
+          <SettingsSection name="appSettings" collection={settings.appSettings} heading="h3" machine={machine} onReported={onReported}>
+            <SettingsSection name="presenceSettings" collection={settings.presenceSettings} heading="h4" machine={machine} onReported={onReported} />
+          </SettingsSection>
           <section aria-label="Steam, hot water and rinse" className="grid content-start gap-2">
             <SectionHeading
               heading="h3"
@@ -199,7 +203,9 @@ function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h
  * (`editBlocked`), and the section then shows its latest edit, pending and
  * then what came of it, until another is saved. A sensor's calibration is
  * set one target at a time, each from an Edit button of its own, behind a
- * warning.
+ * warning. Wake schedules are listed after the other fields, and
+ * `children`, such as the presence settings under the Tablet Settings,
+ * come last.
  */
 function SettingsSection({
   name,
@@ -207,16 +213,20 @@ function SettingsSection({
   heading: Heading,
   machine,
   onReported,
+  children,
 }: {
   name: SettingsCollectionName;
   collection: Collection | null;
   heading: "h3" | "h4";
   machine: Machine;
   onReported(): Promise<void> | void;
+  children?: ReactNode;
 }) {
   const title = SETTINGS[name];
   const offered = useOfferedFields(name, collection, machine);
-  const rows = collection ? settingRows(name, collection.value) : [];
+  const utcOffsetMinutes = collection?.utcOffsetMinutes ?? null;
+  const rows = collection ? settingRows(name, collection.value, utcOffsetMinutes) : [];
+  const scheduleLists = collection && isObject(collection.value) ? wakeScheduleLists(name, collection.value) : [];
   const byTarget = name === "sensorCalibration";
   // The fields the open form offers, if one is.
   const [editing, setEditing] = useState<EditableSettingsField[]>();
@@ -270,8 +280,63 @@ function SettingsSection({
           />
         )
       )}
+      {scheduleLists.map(([field, value]) => (
+        <WakeSchedules key={field.path} label={field.label} heading={Heading === "h3" ? "h4" : "h5"} value={value} utcOffsetMinutes={utcOffsetMinutes} />
+      ))}
+      {children}
     </section>
   );
+}
+
+/** The ISO days of the week, Monday 1 to Sunday 7, as a wake schedule names them. */
+const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+
+/**
+ * Decaid's wake schedules as reported (`WakeSchedule.toJson`), in its order:
+ * each one's time in the Tablet's own time, labelled with its UTC offset, its
+ * days, whether it is on, and how long it keeps the Machine awake.
+ */
+function WakeSchedules({ label, heading: Heading, value, utcOffsetMinutes }: { label: string; heading: "h4" | "h5"; value: unknown; utcOffsetMinutes: number | null }) {
+  const schedules = Array.isArray(value) ? value.map((schedule: unknown) => (isObject(schedule) ? schedule : {})) : [];
+  return (
+    <div className="grid gap-1">
+      <Heading className="text-sm font-medium">{label}</Heading>
+      {schedules.length === 0 ? (
+        <p className="text-sm text-muted-foreground">None</p>
+      ) : (
+        <Table aria-label={label}>
+          <TableHeader>
+            <TableRow>
+              <TableHead>Time</TableHead>
+              <TableHead>Days</TableHead>
+              <TableHead>On</TableHead>
+              <TableHead>Keeps awake for</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {schedules.map((schedule, index) => {
+              const time = timeOfDayText(timeOfDayMinutes(schedule.time));
+              return (
+                <TableRow key={typeof schedule.id === "string" ? schedule.id : index}>
+                  <TableCell>{time === undefined ? valueText(schedule.time) : inTabletTime(time, utcOffsetMinutes)}</TableCell>
+                  <TableCell>{daysText(schedule.daysOfWeek)}</TableCell>
+                  <TableCell>{valueText(schedule.enabled)}</TableCell>
+                  <TableCell>{typeof schedule.keepAwakeFor === "number" ? `${valueText(schedule.keepAwakeFor)} min` : valueText(schedule.keepAwakeFor)}</TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      )}
+    </div>
+  );
+}
+
+/** A wake schedule's days, as Streamline's settings page names them: none chosen is every day, as Decaid takes it. */
+function daysText(days: unknown): string {
+  if (!Array.isArray(days)) return valueText(days);
+  if (days.length === 0) return "Every day";
+  return days.map((day: unknown) => (typeof day === "number" && WEEKDAYS[day - 1]) || valueText(day)).join(", ");
 }
 
 /** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip, and any `action` of a row after it. */
@@ -403,21 +468,23 @@ interface SettingRow {
 }
 
 /**
- * A settings collection's fields as shown. Each field a definition covers is
+ * A settings collection's fields as shown, times in the Tablet's own time
+ * labelled with its UTC offset. Each field a definition covers is
  * shown by its label, in the definitions' order, if reported: another Decaid
  * version may send fewer. Any other field Decaid reports is shown under its
  * own name, read-only, alphabetically, as the server stores the collection as
  * jsonb, which does not keep Decaid's order (`reportedFields`).
  */
-function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[] {
+function settingRows(name: SettingsCollectionName, value: unknown, utcOffsetMinutes: number | null): SettingRow[] {
   if (!isObject(value)) return [];
   const reported = reportedFields(name, value);
   const known = SETTINGS_FIELDS[name]
-    .filter((field) => field.path in reported)
+    // Wake schedules are listed apart (`WakeSchedules`).
+    .filter((field) => field.path in reported && field.kind !== "wakeSchedules")
     .map((field) => ({
       path: field.path,
       term: field.label,
-      text: fieldText(field, reported[field.path]),
+      text: fieldText(field, reported[field.path], utcOffsetMinutes),
       about: isEditable(field) ? undefined : field.setBy,
       notes: (field.notes ?? []).map((note) => NOTES[note]),
     }));
@@ -426,6 +493,11 @@ function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[]
     .sort((a, b) => a.localeCompare(b, "en"))
     .map((path) => ({ path, term: path, text: valueText(reported[path]), about: "Not known to Decent Sync, so shown as Decaid names it, read-only", notes: [] }));
   return [...known, ...unknown];
+}
+
+/** The fields of a settings collection that are wake schedules, as reported, with their values. */
+function wakeScheduleLists(name: SettingsCollectionName, value: Record<string, unknown>): [field: SettingsField, value: unknown][] {
+  return SETTINGS_FIELDS[name].filter((field) => field.kind === "wakeSchedules" && field.path in value).map((field) => [field, value[field.path]]);
 }
 
 function settingText(value: unknown): string {

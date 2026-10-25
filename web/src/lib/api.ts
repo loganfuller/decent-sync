@@ -314,6 +314,8 @@ export interface CollectionSummary {
 /** A collection with the latest value reported, as Decaid sent it, which later unavailable reports keep. */
 export interface Collection extends CollectionSummary {
   value: unknown;
+  /** For `appSettings` and `presenceSettings`, the Tablet's UTC offset as the value was read, in minutes east of UTC, which its times are in; otherwise null. */
+  utcOffsetMinutes: number | null;
 }
 
 /** Why a Settings Edit was refused, and what the Tablet said of it. */

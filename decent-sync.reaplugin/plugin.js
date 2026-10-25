@@ -165,7 +165,8 @@ var __decentSync = (() => {
     "advancedSettings",
     "machineCalibration",
     "sensorCalibration",
-    "appSettings"
+    "appSettings",
+    "presenceSettings"
   ];
   function isSettingsCollectionName(name) {
     return SETTINGS_COLLECTION_NAMES.includes(name);
@@ -331,6 +332,17 @@ var __decentSync = (() => {
       { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },
       { path: "preferredScaleId", label: "Preferred scale", setBy: "Managed with the preferred devices" },
       { path: "preferredGrinderDeviceId", label: "Preferred grinder", setBy: "Managed with the preferred devices" }
+    ],
+    // `GET /presence/settings` (presence_handler.dart), labelled as Streamline's presence settings label them.
+    presenceSettings: [
+      { path: "userPresenceEnabled", label: "Presence detection", kind: "onOff", editableBy: "staff" },
+      // Decaid takes 0 to 240 (`normalizeSleepTimeoutPreferenceMinutes`); Streamline's page offers 1 to 120.
+      { path: "sleepTimeoutMinutes", label: "Sleep timeout", unit: "min", kind: "wholeNumber", min: 1, max: 120, editableBy: "staff" },
+      { path: "schedules", label: "Wake schedules", kind: "wakeSchedules", editableBy: "staff" },
+      // The end of the keep-awake window of the wake schedule that last woke the Machine, while it lasts (`PresenceController`).
+      // Labelled with the offset as it was read, so a window that ends across a daylight saving change shows its end with
+      // the offset before it until the window ends: an accepted gap.
+      { path: "keepAwakeUntil", label: "Kept awake until", kind: "localTime", setBy: "Set while a wake schedule keeps the Machine awake" }
     ]
   };
   function settingsField(collection, path) {
@@ -366,6 +378,7 @@ var __decentSync = (() => {
       case "notAllowed":
         return `Only an Admin can change ${name}`;
       case "invalid":
+        if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
         return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
       case "notOffered":
         return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
@@ -392,6 +405,11 @@ var __decentSync = (() => {
       case "timeOfDay":
         if (typeof value !== "number" || !Number.isInteger(value)) return "invalid";
         return inRange(field, value) ? void 0 : "outOfRange";
+      // Only shown, as no editable field is one.
+      case "localTime":
+      // Added, changed and deleted one at a time, never set as a field.
+      case "wakeSchedules":
+        return "invalid";
       case "number":
         if (typeof value !== "number" || !Number.isFinite(value)) return "invalid";
         if (!inRange(field, value)) return "outOfRange";
@@ -492,6 +510,11 @@ var __decentSync = (() => {
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
+  var UTC_OFFSET_COLLECTIONS = ["appSettings", "presenceSettings"];
+  function hasUtcOffset(name) {
+    return UTC_OFFSET_COLLECTIONS.includes(name);
+  }
+  var MAX_UTC_OFFSET_MINUTES = 18 * 60;
   var DYE2_NAMESPACE = "dye2.reaplugin";
   var DYE2_LISTS = { dye2Recipes: "recipes", dye2Equipment: "equipment", dye2Baskets: "baskets" };
   function isDye2List(name) {
@@ -828,6 +851,7 @@ var __decentSync = (() => {
       if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
       else if (options.positive && value <= 0) this.problem(key, "must be positive");
       else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
+      else if (options.within !== void 0 && Math.abs(value) > options.within) this.problem(key, `must be from -${options.within} to ${options.within}`);
     }
     /** One of `values`. */
     oneOf(key, values) {
@@ -2621,6 +2645,7 @@ var __decentSync = (() => {
   var SOURCES = [
     ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
     { name: "appSettings", path: "/settings" },
+    { name: "presenceSettings", path: "/presence/settings" },
     { name: "machineSettings", path: "/machine/settings" },
     { name: "advancedSettings", path: "/machine/settings/advanced" },
     { name: "machineCalibration", path: "/machine/calibration" },
@@ -2809,15 +2834,23 @@ var __decentSync = (() => {
       if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
       return this.queueReading(source.name, reading, full);
     }
-    /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
+    /**
+     * Queues a collection read if it is to be sent: if it changed since the
+     * last one queued, or whatever it holds when `full`. A value of one of the
+     * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
+     * compared with it, so a daylight saving change is sent too. Says whether
+     * a value was queued.
+     */
     queueReading(name, reading, full) {
       if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? reading.value : void 0;
+      const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : void 0;
       const last = this.last.get(name);
-      const decision = decide(last, reading, full);
+      const compared = utcOffsetMinutes === void 0 || reading.kind !== "value" ? reading : { kind: "value", value: [reading.value, utcOffsetMinutes], etag: null };
+      const decision = decide(last, compared, full);
       if (decision.next) this.last.set(name, decision.next);
       if (!decision.send || reading.kind === "notModified") return false;
       const id = this.outbox.nextId();
-      const delivery = reading.kind === "value" ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value) } : { type: "collection", id, name, available: false };
+      const delivery = reading.kind === "value" ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value), ...utcOffsetMinutes === void 0 ? {} : { utcOffsetMinutes } } : { type: "collection", id, name, available: false };
       const earlier = this.queued.get(name);
       if (earlier) {
         if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
@@ -2862,6 +2895,9 @@ var __decentSync = (() => {
     const server = await readCollection("/webui/server/status", null);
     if (server.kind !== "value") return { kind: "unavailable" };
     return { kind: "value", value: { skins: skins.value, default: defaultSkin?.value ?? null, server: server.value }, etag: null };
+  }
+  function utcOffset() {
+    return -(/* @__PURE__ */ new Date()).getTimezoneOffset() + 0;
   }
   function selected(source, reading) {
     if (reading.kind !== "value" || !source.select) return reading;

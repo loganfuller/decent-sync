@@ -6,6 +6,7 @@ import {
   LIBRARY_LISTS,
   SETTINGS_COLLECTION_NAMES,
   dye2Key,
+  hasUtcOffset,
   isDye2List,
   isLibraryList,
   listKind,
@@ -44,6 +45,7 @@ type Source = {
 const SOURCES: readonly Source[] = [
   ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
   { name: "appSettings", path: "/settings" },
+  { name: "presenceSettings", path: "/presence/settings" },
   { name: "machineSettings", path: "/machine/settings" },
   { name: "advancedSettings", path: "/machine/settings/advanced" },
   { name: "machineCalibration", path: "/machine/calibration" },
@@ -93,7 +95,7 @@ const MACHINE_SETTINGS_MS = 60_000;
 const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
 
 /**
- * The tablet's library, settings, paired devices, plugins and Skins, through the outbox.
+ * The tablet's library, settings, presence settings, paired devices, plugins and Skins, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
  * (change-detection.ts), but for the machine's own settings
@@ -316,19 +318,28 @@ export class CollectionCapture {
     return this.queueReading(source.name, reading, full);
   }
 
-  /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
+  /**
+   * Queues a collection read if it is to be sent: if it changed since the
+   * last one queued, or whatever it holds when `full`. A value of one of the
+   * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
+   * compared with it, so a daylight saving change is sent too. Says whether
+   * a value was queued.
+   */
   private queueReading(name: CollectionName, reading: Reading, full: boolean): boolean {
     // Its reads are each an object by target (`readSensorCalibration`).
     if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? (reading.value as Record<string, unknown>) : undefined;
+    const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : undefined;
     const last = this.last.get(name);
-    const decision = decide(last, reading, full);
+    // Decaid sends these no ETag, so their content, offset included, is compared.
+    const compared: Reading = utcOffsetMinutes === undefined || reading.kind !== "value" ? reading : { kind: "value", value: [reading.value, utcOffsetMinutes], etag: null };
+    const decision = decide(last, compared, full);
     if (decision.next) this.last.set(name, decision.next);
     if (!decision.send || reading.kind === "notModified") return false;
 
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
       reading.kind === "value"
-        ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value) }
+        ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value), ...(utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes }) }
         : { type: "collection", id, name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
     // reconnect, except that a value stays ahead of a report that the collection became unavailable:
@@ -396,6 +407,16 @@ async function readSkins(): Promise<Reading> {
   const server = await readCollection("/webui/server/status", null);
   if (server.kind !== "value") return { kind: "unavailable" };
   return { kind: "value", value: { skins: skins.value, default: defaultSkin?.value ?? null, server: server.value }, etag: null };
+}
+
+/**
+ * The tablet's UTC offset now, in minutes east of UTC: the plugin runs in
+ * the tablet's time zone (AI_RUNTIME_NOTES.md). `getTimezoneOffset` counts
+ * the other way, minutes behind UTC.
+ */
+function utcOffset(): number {
+  // Adding 0 makes UTC's -0 a plain 0.
+  return -new Date().getTimezoneOffset() + 0;
 }
 
 function selected(source: Source, reading: Reading): Reading {

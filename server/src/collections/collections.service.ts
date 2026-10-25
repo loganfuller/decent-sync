@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, isCollectionName, isLibraryList, listKind } from "@decent-sync/protocol";
+import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, hasUtcOffset, isCollectionName, isLibraryList, listKind } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
 import { KINDS } from "../library/kinds.js";
@@ -28,6 +28,12 @@ export interface CollectionSummary {
 export interface CollectionView extends CollectionSummary {
   /** The latest value reported, as Decaid sent it, kept while later reports are unavailable; null if none has been. */
   value: Prisma.JsonValue | null;
+  /**
+   * For a collection reported with the tablet's UTC offset
+   * (UTC_OFFSET_COLLECTIONS), the offset as that value was read, in minutes
+   * east of UTC, which its times without an offset are in; otherwise null.
+   */
+  utcOffsetMinutes: number | null;
 }
 
 type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Date | null; items: number | null };
@@ -61,6 +67,10 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
  * rather than written again, so a large one, such as profiles, does not
  * rewrite its TOAST data and WAL on every reconnect. Its report time,
  * received time and item count are recorded as for a changed value.
+ *
+ * The tablet's UTC offset sent beside `appSettings` and `presenceSettings`
+ * (UTC_OFFSET_COLLECTIONS) is kept with their value, which its times
+ * without an offset are read in, as an unavailable report keeps the value.
  */
 @Injectable()
 export class CollectionsService {
@@ -78,6 +88,8 @@ export class CollectionsService {
     if (!isCollectionName(message.name)) return undefined;
     const value = message.available ? JSON.stringify(message.value) : null;
     const items = message.available && Array.isArray(message.value) ? message.value.length : null;
+    // Kept with the value it was read with, and only for a collection whose times it places.
+    const utcOffsetMinutes = message.available && hasUtcOffset(message.name) ? (message.utcOffsetMinutes ?? null) : null;
     // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
     const list = isLibraryList(message.name) && reporter.identity.kind !== "mismatch" ? message.name : null;
     const takesIn = list !== null && message.available;
@@ -86,10 +98,10 @@ export class CollectionsService {
       if (!credit) return undefined;
       const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
       await tx.$executeRaw`
-        INSERT INTO reported_collections (${holder}, name, available, reported_at, value, received_at, items)
+        INSERT INTO reported_collections (${holder}, name, available, reported_at, value, received_at, items, utc_offset_minutes)
         VALUES (
           ${credit.machineId ?? credit.pendingMachineId}::uuid, ${message.name}, ${message.available}::boolean, now(),
-          ${value}::jsonb, CASE WHEN ${message.available}::boolean THEN now() END, ${items}::integer
+          ${value}::jsonb, CASE WHEN ${message.available}::boolean THEN now() END, ${items}::integer, ${utcOffsetMinutes}::integer
         )
         ON CONFLICT (${holder}, name) DO UPDATE SET
           available = EXCLUDED.available,
@@ -100,7 +112,8 @@ export class CollectionsService {
             ELSE EXCLUDED.value
           END,
           received_at = COALESCE(EXCLUDED.received_at, reported_collections.received_at),
-          items = CASE WHEN EXCLUDED.available THEN EXCLUDED.items ELSE reported_collections.items END`;
+          items = CASE WHEN EXCLUDED.available THEN EXCLUDED.items ELSE reported_collections.items END,
+          utc_offset_minutes = CASE WHEN EXCLUDED.available THEN EXCLUDED.utc_offset_minutes ELSE reported_collections.utc_offset_minutes END`;
       if (list === null) return undefined;
       if (!takesIn) return { list, takenInAt: undefined };
       const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
@@ -127,7 +140,7 @@ export class CollectionsService {
     if (!isCollectionName(name)) throw new NotFoundException("No such collection");
     await this.requireMachine(machineId);
     const row = await this.prisma.reportedCollection.findUnique({ where: { machineId_name: { machineId, name } } });
-    return row ? { ...summary(row, name), value: row.value } : null;
+    return row ? { ...summary(row, name), value: row.value, utcOffsetMinutes: row.utcOffsetMinutes } : null;
   }
 
   /** The Machine's paired scale, auxiliary scale, sensors and other paired devices, from the collections that report them. */

@@ -13,13 +13,14 @@ export async function transferPendingCollections(
   hardware: Hardware,
   machineId: string,
 ): Promise<void> {
-  // Every expression reads the Machine's row as it was, so value, items and received_at come from the same report.
+  // Every expression reads the Machine's row as it was, so value, items, the UTC offset and received_at come from the same report.
   await tx.$executeRaw`
     UPDATE reported_collections AS mine SET
       available = CASE WHEN held.reported_at > mine.reported_at THEN held.available ELSE mine.available END,
       reported_at = GREATEST(mine.reported_at, held.reported_at),
       value = CASE WHEN mine.received_at IS NULL OR held.received_at > mine.received_at THEN held.value ELSE mine.value END,
       items = CASE WHEN mine.received_at IS NULL OR held.received_at > mine.received_at THEN held.items ELSE mine.items END,
+      utc_offset_minutes = CASE WHEN mine.received_at IS NULL OR held.received_at > mine.received_at THEN held.utc_offset_minutes ELSE mine.utc_offset_minutes END,
       received_at = GREATEST(mine.received_at, held.received_at)
     FROM reported_collections AS held
     JOIN pending_machines AS pending ON pending.id = held.pending_machine_id

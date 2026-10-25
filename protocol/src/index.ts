@@ -419,9 +419,11 @@ export interface MachineStateDelivery {
  * - `dye2Recipes`, `dye2Equipment` and `dye2Baskets`, DYE2's keys
  *   (`DYE2_LISTS`): its recipes, tools and baskets, taken into the Library
  *   and written to (ADR-0005);
- * - `appSettings`, `machineSettings` and `advancedSettings`, whose fields,
- *   with those of the two calibrations, are defined in settings-fields.ts
- *   (`SETTINGS_FIELDS`);
+ * - `appSettings`, `presenceSettings` (the presence settings with the wake
+ *   schedules), `machineSettings` and `advancedSettings`, whose fields, with
+ *   those of the two calibrations, are defined in settings-fields.ts
+ *   (`SETTINGS_FIELDS`), the first two sent with the tablet's UTC offset
+ *   (`UTC_OFFSET_COLLECTIONS`);
  * - `machineCalibration`, the machine's flow calibration;
  * - `sensorCalibration`, the firmware's current flow, pressure and temperature
  *   sensor calibration;
@@ -441,6 +443,7 @@ export const COLLECTION_NAMES = [
   "dye2Equipment",
   "dye2Baskets",
   "appSettings",
+  "presenceSettings",
   "machineSettings",
   "advancedSettings",
   "machineCalibration",
@@ -457,6 +460,22 @@ export type CollectionName = (typeof COLLECTION_NAMES)[number];
 export function isCollectionName(name: string): name is CollectionName {
   return (COLLECTION_NAMES as readonly string[]).includes(name);
 }
+
+/**
+ * The collections holding times in the tablet's local time without an
+ * offset (night mode's times, the wake schedules' times and
+ * `keepAwakeUntil`), each sent with the tablet's UTC offset as it was read
+ * (`CollectionDelivery.utcOffsetMinutes`), which the management interface
+ * labels them with.
+ */
+export const UTC_OFFSET_COLLECTIONS = ["appSettings", "presenceSettings"] as const satisfies readonly CollectionName[];
+
+export function hasUtcOffset(name: string): boolean {
+  return (UTC_OFFSET_COLLECTIONS as readonly string[]).includes(name);
+}
+
+/** The furthest a UTC offset may be from UTC, in minutes: 18 hours, as ISO 8601 and Java bound it; the zones in use reach 14. */
+export const MAX_UTC_OFFSET_MINUTES = 18 * 60;
 
 
 /** DYE2's namespace in Decaid's store, under which it keeps its lists. */
@@ -614,6 +633,15 @@ export interface CollectionDelivery {
    * list `value`, and as long as it.
    */
   updatedAt?: (string | null)[];
+  /**
+   * For one of the UTC_OFFSET_COLLECTIONS, the tablet's UTC offset as the
+   * value was read, in whole minutes east of UTC: the negative of
+   * `Date.prototype.getTimezoneOffset()`, such as -240 for Toronto in
+   * summer. Part of what decides whether the collection changed, so a
+   * daylight saving change is sent. Only with a `value`, and within
+   * MAX_UTC_OFFSET_MINUTES of 0.
+   */
+  utcOffsetMinutes?: number;
 }
 
 /**
@@ -1722,6 +1750,10 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           const length = Array.isArray(object.value) ? object.value.length : -1;
           fields.instants("updatedAt", length);
         }
+        if (object.utcOffsetMinutes !== undefined) {
+          if (object.available !== true) fields.absent("utcOffsetMinutes");
+          else fields.integer("utcOffsetMinutes", { within: MAX_UTC_OFFSET_MINUTES });
+        }
       });
     case "written":
       return check<ItemWritten>(object, "written", (fields) => {
@@ -1959,11 +1991,12 @@ class FieldChecker {
     }
   }
 
-  integer(key: string, options: { positive?: boolean; nonNegative?: boolean } = {}): void {
+  integer(key: string, options: { positive?: boolean; nonNegative?: boolean; within?: number } = {}): void {
     const value = this.object[key];
     if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
     else if (options.positive && value <= 0) this.problem(key, "must be positive");
     else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
+    else if (options.within !== undefined && Math.abs(value) > options.within) this.problem(key, `must be from -${options.within} to ${options.within}`);
   }
 
   /** One of `values`. */
