@@ -345,6 +345,27 @@ export interface PairedDevices {
   others: PairedDevice[];
 }
 
+/** DYE2 on a Machine's tablet, from Decaid's plugin list as last reported. */
+export type TabletDye2 =
+  | { status: "notReported" }
+  | { status: "notInstalled" }
+  /** Loaded, or installed but disabled or failed to load; `branch` names the branch of a branch install. */
+  | { status: "installed"; version: string | null; loaded: boolean; branch: string | null };
+
+/** Streamline on a Machine's tablet, if it is the Skin Decaid serves, from its Skins as last reported. */
+export type TabletStreamline =
+  | { status: "notReported" }
+  | { status: "notInstalled" }
+  /** Installed, but another Skin is the one served, or none is. */
+  | { status: "notActive"; activeSkin: { name: string | null; version: string | null } | null }
+  /** A release (`streamline.js`) or a build of `main` (`streamline.js-dist`). */
+  | { status: "active"; version: string | null; build: "release" | "main" };
+
+export interface TabletVersions {
+  dye2: TabletDye2;
+  streamline: TabletStreamline;
+}
+
 /** A Shot as the Shots list shows it: what it recorded and how it was credited, without its record or curves. */
 export interface ShotSummary {
   id: string;

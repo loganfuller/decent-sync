@@ -1,0 +1,4133 @@
+{
+  "started": {
+    "exchanges": [],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "description": "Bean, grinder, and equipment management for Decent Espresso",
+            "version": "0.1.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "dashboard",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinders",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinder-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bean-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "roasters",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "add-bean",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profile-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "edit-shot",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-fav-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recipe-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "plotly",
+                "type": "http",
+                "data": {}
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profileGenerated",
+                "type": "websocket",
+                "data": {
+                  "title": {
+                    "type": "string",
+                    "description": "Profile title"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Profile format (legacy-tcl or json-v2)"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Full generated profile text ready to load on the machine"
+                  },
+                  "brewRatio": {
+                    "type": "number",
+                    "description": "Computed brew ratio (e.g. 2.19)"
+                  },
+                  "shotTime": {
+                    "type": "number",
+                    "description": "Estimated shot time in seconds"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "description": "Group head temperature in °C"
+                  },
+                  "stopWeight": {
+                    "type": "number",
+                    "description": "Stop weight in grams"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "description": "Use the dcamp forum inside decaid",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "HTML page with a button that opens the Decent community (dcamp)"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "description": "Examines current machine state and reports estimated time until it's ready for brewing",
+            "version": "1.0.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "api": [
+              {
+                "id": "timeToReady",
+                "type": "websocket",
+                "data": {
+                  "remainingTimeMs": {
+                    "type": "number",
+                    "description": "number of milliseconds estimated until the machine is ready to brew."
+                  },
+                  "heatingRate": {
+                    "type": "number",
+                    "description": "The rade at which the machine is heating up."
+                  },
+                  "status": {
+                    "type": "enum",
+                    "values": [
+                      "reached",
+                      "insufficient_data",
+                      "not_heating",
+                      "heating"
+                    ],
+                    "description": "current plugin heating state"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
+            "version": "0.1.8",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "Returns an HTML page displaying current Decent app and DE1 settings"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "description": "Send POST with shotID to upload in body"
+                }
+              },
+              {
+                "id": "verifyCredentials",
+                "type": "http",
+                "data": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "id": "lastUpload",
+                "type": "http",
+                "data": {
+                  "reaId": {
+                    "type": "string",
+                    "description": "Last Decent shot id"
+                  },
+                  "visId": {
+                    "type": "string",
+                    "description": "Last Visualizer uploaded shot id"
+                  }
+                }
+              },
+              {
+                "id": "import",
+                "type": "http",
+                "data": {
+                  "shareCode": {
+                    "type": "string",
+                    "description": "4-digit share code from visualizer.coffee"
+                  }
+                }
+              },
+              {
+                "id": "backSyncNow",
+                "type": "http",
+                "data": {
+                  "description": "POST to run a Visualizer back-sync immediately"
+                }
+              },
+              {
+                "id": "backSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last back-sync result, applied count, cursor and any error"
+                }
+              },
+              {
+                "id": "forwardSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last forward-sync result and any error"
+                }
+              },
+              {
+                "id": "forwardSyncNow",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string",
+                    "description": "Local shot id to sync to Visualizer"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
+            "version": "0.2.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "description": "POST to upload the latest shot now (from the currently-connected machine)"
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.14",
+            "isBundled": false,
+            "reaMetadata": null
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.14",
+          "isBundled": false,
+          "reaMetadata": null
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "port": 26077,
+          "ip": "localhost"
+        }
+      }
+    }
+  },
+  "dye2Release": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/install/github-release",
+          "body": {
+            "repo": "decentespresso/dye2"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin installed",
+            "id": "dye2.reaplugin",
+            "version": "0.1.26",
+            "loaded": true
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+            "version": "0.1.26",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "dashboard",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinders",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "baskets",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "equipment",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinder-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "basket-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bean-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "roasters",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "add-bean",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profile-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "edit-shot",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-fav-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recipe-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "select-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bc-import",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recent-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "selection",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "record",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "save-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "skin",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "changed",
+                "type": "websocket",
+                "data": {}
+              },
+              {
+                "id": "plotly",
+                "type": "http",
+                "data": {}
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_release",
+              "repo": "decentespresso/dye2",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v0.1.26",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:37.192300",
+              "lastChecked": "2026-10-25T01:51:37.192300",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profileGenerated",
+                "type": "websocket",
+                "data": {
+                  "title": {
+                    "type": "string",
+                    "description": "Profile title"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Profile format (legacy-tcl or json-v2)"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Full generated profile text ready to load on the machine"
+                  },
+                  "brewRatio": {
+                    "type": "number",
+                    "description": "Computed brew ratio (e.g. 2.19)"
+                  },
+                  "shotTime": {
+                    "type": "number",
+                    "description": "Estimated shot time in seconds"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "description": "Group head temperature in °C"
+                  },
+                  "stopWeight": {
+                    "type": "number",
+                    "description": "Stop weight in grams"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "description": "Use the dcamp forum inside decaid",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "HTML page with a button that opens the Decent community (dcamp)"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "description": "Examines current machine state and reports estimated time until it's ready for brewing",
+            "version": "1.0.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "api": [
+              {
+                "id": "timeToReady",
+                "type": "websocket",
+                "data": {
+                  "remainingTimeMs": {
+                    "type": "number",
+                    "description": "number of milliseconds estimated until the machine is ready to brew."
+                  },
+                  "heatingRate": {
+                    "type": "number",
+                    "description": "The rade at which the machine is heating up."
+                  },
+                  "status": {
+                    "type": "enum",
+                    "values": [
+                      "reached",
+                      "insufficient_data",
+                      "not_heating",
+                      "heating"
+                    ],
+                    "description": "current plugin heating state"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
+            "version": "0.1.8",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "Returns an HTML page displaying current Decent app and DE1 settings"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "description": "Send POST with shotID to upload in body"
+                }
+              },
+              {
+                "id": "verifyCredentials",
+                "type": "http",
+                "data": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "id": "lastUpload",
+                "type": "http",
+                "data": {
+                  "reaId": {
+                    "type": "string",
+                    "description": "Last Decent shot id"
+                  },
+                  "visId": {
+                    "type": "string",
+                    "description": "Last Visualizer uploaded shot id"
+                  }
+                }
+              },
+              {
+                "id": "import",
+                "type": "http",
+                "data": {
+                  "shareCode": {
+                    "type": "string",
+                    "description": "4-digit share code from visualizer.coffee"
+                  }
+                }
+              },
+              {
+                "id": "backSyncNow",
+                "type": "http",
+                "data": {
+                  "description": "POST to run a Visualizer back-sync immediately"
+                }
+              },
+              {
+                "id": "backSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last back-sync result, applied count, cursor and any error"
+                }
+              },
+              {
+                "id": "forwardSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last forward-sync result and any error"
+                }
+              },
+              {
+                "id": "forwardSyncNow",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string",
+                    "description": "Local shot id to sync to Visualizer"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
+            "version": "0.2.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "description": "POST to upload the latest shot now (from the currently-connected machine)"
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.18",
+              "lastModified": "2026-10-22T10:09:58Z",
+              "etag": null,
+              "commitHash": "v0.2.18",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:38.897408",
+              "lastChecked": "2026-10-25T01:51:38.897408"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.18",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.18",
+            "lastModified": "2026-10-22T10:09:58Z",
+            "etag": null,
+            "commitHash": "v0.2.18",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-25T01:51:38.897408",
+            "lastChecked": "2026-10-25T01:51:38.897408"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "dye2Disabled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/dye2.reaplugin/disable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin disabled",
+            "id": "dye2.reaplugin"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+            "version": "0.1.26",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "dashboard",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinders",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "baskets",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "equipment",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinder-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "basket-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bean-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "roasters",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "add-bean",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profile-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "edit-shot",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-fav-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recipe-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "select-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bc-import",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recent-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "selection",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "record",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "save-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "skin",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "changed",
+                "type": "websocket",
+                "data": {}
+              },
+              {
+                "id": "plotly",
+                "type": "http",
+                "data": {}
+              }
+            ],
+            "loaded": false,
+            "autoLoad": false,
+            "source": {
+              "kind": "github_release",
+              "repo": "decentespresso/dye2",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v0.1.26",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:37.192300",
+              "lastChecked": "2026-10-25T01:51:37.192300",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profileGenerated",
+                "type": "websocket",
+                "data": {
+                  "title": {
+                    "type": "string",
+                    "description": "Profile title"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Profile format (legacy-tcl or json-v2)"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Full generated profile text ready to load on the machine"
+                  },
+                  "brewRatio": {
+                    "type": "number",
+                    "description": "Computed brew ratio (e.g. 2.19)"
+                  },
+                  "shotTime": {
+                    "type": "number",
+                    "description": "Estimated shot time in seconds"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "description": "Group head temperature in °C"
+                  },
+                  "stopWeight": {
+                    "type": "number",
+                    "description": "Stop weight in grams"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "description": "Use the dcamp forum inside decaid",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "HTML page with a button that opens the Decent community (dcamp)"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "description": "Examines current machine state and reports estimated time until it's ready for brewing",
+            "version": "1.0.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "api": [
+              {
+                "id": "timeToReady",
+                "type": "websocket",
+                "data": {
+                  "remainingTimeMs": {
+                    "type": "number",
+                    "description": "number of milliseconds estimated until the machine is ready to brew."
+                  },
+                  "heatingRate": {
+                    "type": "number",
+                    "description": "The rade at which the machine is heating up."
+                  },
+                  "status": {
+                    "type": "enum",
+                    "values": [
+                      "reached",
+                      "insufficient_data",
+                      "not_heating",
+                      "heating"
+                    ],
+                    "description": "current plugin heating state"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
+            "version": "0.1.8",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "Returns an HTML page displaying current Decent app and DE1 settings"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "description": "Send POST with shotID to upload in body"
+                }
+              },
+              {
+                "id": "verifyCredentials",
+                "type": "http",
+                "data": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "id": "lastUpload",
+                "type": "http",
+                "data": {
+                  "reaId": {
+                    "type": "string",
+                    "description": "Last Decent shot id"
+                  },
+                  "visId": {
+                    "type": "string",
+                    "description": "Last Visualizer uploaded shot id"
+                  }
+                }
+              },
+              {
+                "id": "import",
+                "type": "http",
+                "data": {
+                  "shareCode": {
+                    "type": "string",
+                    "description": "4-digit share code from visualizer.coffee"
+                  }
+                }
+              },
+              {
+                "id": "backSyncNow",
+                "type": "http",
+                "data": {
+                  "description": "POST to run a Visualizer back-sync immediately"
+                }
+              },
+              {
+                "id": "backSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last back-sync result, applied count, cursor and any error"
+                }
+              },
+              {
+                "id": "forwardSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last forward-sync result and any error"
+                }
+              },
+              {
+                "id": "forwardSyncNow",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string",
+                    "description": "Local shot id to sync to Visualizer"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
+            "version": "0.2.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "description": "POST to upload the latest shot now (from the currently-connected machine)"
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:40.426176",
+              "lastChecked": "2026-10-25T01:51:40.426176"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.9",
+              "lastModified": "2026-09-26T08:04:18Z",
+              "etag": null,
+              "commitHash": "v0.3.9",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:41.082405",
+              "lastChecked": "2026-10-25T01:51:41.082405"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:39.679535",
+              "lastChecked": "2026-10-25T01:51:39.679535"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.18",
+              "lastModified": "2026-10-22T10:09:58Z",
+              "etag": null,
+              "commitHash": "v0.2.18",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:38.897408",
+              "lastChecked": "2026-10-25T01:51:38.897408"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "dye2Enabled": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/dye2.reaplugin/enable"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin enabled",
+            "id": "dye2.reaplugin"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+            "version": "0.1.26",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "dashboard",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinders",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "baskets",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "equipment",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinder-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "basket-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bean-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "roasters",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "add-bean",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profile-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "edit-shot",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-fav-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recipe-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "select-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bc-import",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recent-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "selection",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "record",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "save-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "skin",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "changed",
+                "type": "websocket",
+                "data": {}
+              },
+              {
+                "id": "plotly",
+                "type": "http",
+                "data": {}
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_release",
+              "repo": "decentespresso/dye2",
+              "branch": null,
+              "commit": null,
+              "releaseTag": "v0.1.26",
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:37.192300",
+              "lastChecked": "2026-10-25T01:51:37.192300",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profileGenerated",
+                "type": "websocket",
+                "data": {
+                  "title": {
+                    "type": "string",
+                    "description": "Profile title"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Profile format (legacy-tcl or json-v2)"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Full generated profile text ready to load on the machine"
+                  },
+                  "brewRatio": {
+                    "type": "number",
+                    "description": "Computed brew ratio (e.g. 2.19)"
+                  },
+                  "shotTime": {
+                    "type": "number",
+                    "description": "Estimated shot time in seconds"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "description": "Group head temperature in °C"
+                  },
+                  "stopWeight": {
+                    "type": "number",
+                    "description": "Stop weight in grams"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "description": "Use the dcamp forum inside decaid",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "HTML page with a button that opens the Decent community (dcamp)"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "description": "Examines current machine state and reports estimated time until it's ready for brewing",
+            "version": "1.0.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "api": [
+              {
+                "id": "timeToReady",
+                "type": "websocket",
+                "data": {
+                  "remainingTimeMs": {
+                    "type": "number",
+                    "description": "number of milliseconds estimated until the machine is ready to brew."
+                  },
+                  "heatingRate": {
+                    "type": "number",
+                    "description": "The rade at which the machine is heating up."
+                  },
+                  "status": {
+                    "type": "enum",
+                    "values": [
+                      "reached",
+                      "insufficient_data",
+                      "not_heating",
+                      "heating"
+                    ],
+                    "description": "current plugin heating state"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
+            "version": "0.1.8",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "Returns an HTML page displaying current Decent app and DE1 settings"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "description": "Send POST with shotID to upload in body"
+                }
+              },
+              {
+                "id": "verifyCredentials",
+                "type": "http",
+                "data": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "id": "lastUpload",
+                "type": "http",
+                "data": {
+                  "reaId": {
+                    "type": "string",
+                    "description": "Last Decent shot id"
+                  },
+                  "visId": {
+                    "type": "string",
+                    "description": "Last Visualizer uploaded shot id"
+                  }
+                }
+              },
+              {
+                "id": "import",
+                "type": "http",
+                "data": {
+                  "shareCode": {
+                    "type": "string",
+                    "description": "4-digit share code from visualizer.coffee"
+                  }
+                }
+              },
+              {
+                "id": "backSyncNow",
+                "type": "http",
+                "data": {
+                  "description": "POST to run a Visualizer back-sync immediately"
+                }
+              },
+              {
+                "id": "backSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last back-sync result, applied count, cursor and any error"
+                }
+              },
+              {
+                "id": "forwardSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last forward-sync result and any error"
+                }
+              },
+              {
+                "id": "forwardSyncNow",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string",
+                    "description": "Local shot id to sync to Visualizer"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
+            "version": "0.2.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "description": "POST to upload the latest shot now (from the currently-connected machine)"
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "NSX-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@v0.4.3",
+              "lastModified": "2026-09-06T12:33:09Z",
+              "etag": null,
+              "commitHash": "v0.4.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.054367",
+              "lastChecked": "2026-10-25T01:51:43.054367"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:40.426176",
+              "lastChecked": "2026-10-25T01:51:40.426176"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.9",
+              "lastModified": "2026-09-26T08:04:18Z",
+              "etag": null,
+              "commitHash": "v0.3.9",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:41.082405",
+              "lastChecked": "2026-10-25T01:51:41.082405"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:39.679535",
+              "lastChecked": "2026-10-25T01:51:39.679535"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.18",
+              "lastModified": "2026-10-22T10:09:58Z",
+              "etag": null,
+              "commitHash": "v0.2.18",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:38.897408",
+              "lastChecked": "2026-10-25T01:51:38.897408"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "dye2Branch": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/plugins/install/github-branch",
+          "body": {
+            "repo": "decentespresso/dye2",
+            "branch": "dist"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "Plugin installed",
+            "id": "dye2.reaplugin",
+            "version": "0.1.26",
+            "loaded": true
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "dye2.reaplugin",
+            "name": "Streamline/DYE2",
+            "author": "Streamline",
+            "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+            "version": "0.1.26",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.shots",
+              "events.workflow"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "dashboard",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinders",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "baskets",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "equipment",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "grinder-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "basket-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bean-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "roasters",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "add-bean",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profile-picker",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "edit-shot",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "auto-fav-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recipe-edit",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "select-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "bc-import",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "recent-favs",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "selection",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "record",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "save-recipe",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "skin",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "changed",
+                "type": "websocket",
+                "data": {}
+              },
+              {
+                "id": "plotly",
+                "type": "http",
+                "data": {}
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": {
+              "kind": "github_branch",
+              "repo": "decentespresso/dye2",
+              "branch": "dist",
+              "commit": "4362dd1f3049aca016a8262c3bf2d27dbbbb3054",
+              "releaseTag": null,
+              "assetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:44.561119",
+              "lastChecked": "2026-10-25T01:51:44.561119",
+              "lastError": null
+            },
+            "pendingUpdate": null
+          },
+          {
+            "id": "decent-profile.reaplugin",
+            "name": "Decent Profile Generator",
+            "author": "Stephane Ribes and Alwaysdialingin",
+            "description": "Generates optimized espresso profiles based on bean and grind characteristics. Configure settings to match your current beans, then connect to the profileGenerated WebSocket event to receive the computed profile. The UI can also upload the generated profile to your library and load it onto the connected machine. http://localhost:8080/api/v1/plugins/decent-profile.reaplugin/ui",
+            "version": "1.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit"
+            ],
+            "drivers": [],
+            "settings": {
+              "roastDegree": {
+                "type": "string",
+                "label": "Roast degree",
+                "secure": false,
+                "description": "Roast degree. Options: Light Roast, Medium-Light Roast, Medium Roast, Medium-Dark Roast, Dark Roast"
+              },
+              "roastQuality": {
+                "type": "string",
+                "label": "Roast quality",
+                "secure": false,
+                "description": "Roast quality. Options: Underdevelopped, Smoky or overroasted, Outstanding, I have no idea"
+              },
+              "origin": {
+                "type": "string",
+                "label": "Bean origin",
+                "secure": false,
+                "description": "Bean origin. Options: Kenya, Ethiopia, Other Africa, Colombia, Other America, Other"
+              },
+              "highlight": {
+                "type": "string",
+                "label": "Flavours to highlight",
+                "secure": false,
+                "description": "What to highlight. Options: Body / Mouthfeel, Sweetness and acidity, Floral and fruity flavors, Chocolate and nuts flavors, I'm not sure"
+              },
+              "avoid": {
+                "type": "string",
+                "label": "Flavours to avoid",
+                "secure": false,
+                "description": "What to avoid. Options: Sourness or high acidity, Bitterness or astringency, Nothing in particular"
+              },
+              "strength": {
+                "type": "string",
+                "label": "Target strength",
+                "secure": false,
+                "description": "Desired strength. Options: Allongé (4.5 - 5.5% TDS), Low intensity (7.0 - 7.5% TDS), 7.5 - 8.0% TDS, 8.0 - 8.5% TDS, 8.5 - 9.0% TDS, Average intensity (9.0 - 9.5% TDS), 9.5 - 10% TDS, 10.5 - 11.5% TDS, High intensity (11.5 - 12.5% TDS)"
+              },
+              "basket": {
+                "type": "string",
+                "label": "Basket type",
+                "secure": false,
+                "description": "Basket type. Options: High precision double (Decent, VST), Single (Decent 7g, LM Strada 7g), High precision + paper filter below the puck, Reneka Micro-Sieve or IMS Super Fine"
+              },
+              "dose": {
+                "type": "string",
+                "label": "Dose",
+                "secure": false,
+                "description": "Dose. Options: 9 g, 9,5 g, 10 g, 11 g, 12 g, 13 g, 14 g, 15 g, 16 g, 17 g, 18 g, 19 g, 20 g, 21 g, 22 g, 23 g, 24 g"
+              },
+              "puckPrep": {
+                "type": "string",
+                "label": "Puck prep quality",
+                "secure": false,
+                "description": "Puck prep quality. Options: Can be improved, OK, I am not sure"
+              },
+              "profileTitle": {
+                "type": "string",
+                "label": "Profile title",
+                "secure": false,
+                "description": "Profile title used in the output file (default: \"Your Next Decent Profile\")"
+              },
+              "profileFormat": {
+                "type": "string",
+                "label": "Output format",
+                "secure": false,
+                "description": "Output format: legacy-tcl or json-v2 (default: legacy-tcl)"
+              },
+              "layout": {
+                "type": "string",
+                "label": "UI layout",
+                "secure": false,
+                "description": "UI layout. Options: baseline (two-column workspace, Inter font, orange accent) or decent (single-column stacked, green accent). Default: decent"
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "profileGenerated",
+                "type": "websocket",
+                "data": {
+                  "title": {
+                    "type": "string",
+                    "description": "Profile title"
+                  },
+                  "format": {
+                    "type": "string",
+                    "description": "Profile format (legacy-tcl or json-v2)"
+                  },
+                  "profile": {
+                    "type": "string",
+                    "description": "Full generated profile text ready to load on the machine"
+                  },
+                  "brewRatio": {
+                    "type": "number",
+                    "description": "Computed brew ratio (e.g. 2.19)"
+                  },
+                  "shotTime": {
+                    "type": "number",
+                    "description": "Estimated shot time in seconds"
+                  },
+                  "temperature": {
+                    "type": "number",
+                    "description": "Group head temperature in °C"
+                  },
+                  "stopWeight": {
+                    "type": "number",
+                    "description": "Stop weight in grams"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "dcamp.reaplugin",
+            "name": "dcamp",
+            "author": "Decent Espresso",
+            "description": "Use the dcamp forum inside decaid",
+            "version": "0.1.2",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {},
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "HTML page with a button that opens the Decent community (dcamp)"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "time-to-ready.reaplugin",
+            "name": "Time To Ready",
+            "author": "Decent Espresso",
+            "description": "Examines current machine state and reports estimated time until it's ready for brewing",
+            "version": "1.0.4",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "emit",
+              "pluginStorage",
+              "events.machine"
+            ],
+            "drivers": [],
+            "settings": {
+              "Stabilisation": {
+                "type": "number",
+                "label": "Stabilisation time",
+                "description": "Time in minutes after machine has heated up, to be considered truly ready. Only shown here as example"
+              }
+            },
+            "api": [
+              {
+                "id": "timeToReady",
+                "type": "websocket",
+                "data": {
+                  "remainingTimeMs": {
+                    "type": "number",
+                    "description": "number of milliseconds estimated until the machine is ready to brew."
+                  },
+                  "heatingRate": {
+                    "type": "number",
+                    "description": "The rade at which the machine is heating up."
+                  },
+                  "status": {
+                    "type": "enum",
+                    "values": [
+                      "reached",
+                      "insufficient_data",
+                      "not_heating",
+                      "heating"
+                    ],
+                    "description": "current plugin heating state"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "settings.reaplugin",
+            "name": "Settings Viewer",
+            "author": "Decent Espresso",
+            "description": "Displays Decent application and machine settings in an embeddable HTML page. http://localhost:8080/api/v1/plugins/settings.reaplugin/ui",
+            "version": "0.1.8",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api"
+            ],
+            "drivers": [],
+            "settings": {
+              "RefreshInterval": {
+                "type": "number",
+                "label": "Auto-refresh interval",
+                "description": "Auto-refresh interval in seconds (0 to disable)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "ui",
+                "type": "http",
+                "data": {
+                  "body": {
+                    "type": "string",
+                    "description": "Returns an HTML page displaying current Decent app and DE1 settings"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "visualizer.reaplugin",
+            "name": "Visualizer upload",
+            "author": "Decent Espresso",
+            "description": "Uploads shots to Visualizer and syncs your edited shot metadata back",
+            "version": "1.5.11",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "Username": {
+                "type": "string",
+                "label": "Visualizer username",
+                "description": "Visualiser username"
+              },
+              "Password": {
+                "type": "string",
+                "label": "Visualizer password",
+                "secure": true,
+                "description": "Visualiser password"
+              },
+              "AutoUpload": {
+                "type": "boolean",
+                "label": "Upload shots automatically",
+                "description": "Upload shots automatically",
+                "default": true
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "label": "Minimum shot length",
+                "description": "Only upload shots that are longer than the threshold (in seconds)",
+                "default": 5
+              },
+              "BackSync": {
+                "type": "boolean",
+                "label": "Sync edits back from Visualizer",
+                "description": "Sync metadata you edit on Visualizer (notes, TDS, EY, enjoyment, bean/grinder) back onto your local shots. Only your own uploaded shots are touched.",
+                "default": false
+              },
+              "BackSyncIntervalSeconds": {
+                "type": "number",
+                "label": "Back-sync check interval",
+                "description": "How often to check Visualizer for back-sync changes (in seconds, minimum 60)",
+                "default": 300
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string"
+                  },
+                  "description": "Send POST with shotID to upload in body"
+                }
+              },
+              {
+                "id": "verifyCredentials",
+                "type": "http",
+                "data": {
+                  "username": {
+                    "type": "string"
+                  },
+                  "password": {
+                    "type": "string"
+                  }
+                }
+              },
+              {
+                "id": "lastUpload",
+                "type": "http",
+                "data": {
+                  "reaId": {
+                    "type": "string",
+                    "description": "Last Decent shot id"
+                  },
+                  "visId": {
+                    "type": "string",
+                    "description": "Last Visualizer uploaded shot id"
+                  }
+                }
+              },
+              {
+                "id": "import",
+                "type": "http",
+                "data": {
+                  "shareCode": {
+                    "type": "string",
+                    "description": "4-digit share code from visualizer.coffee"
+                  }
+                }
+              },
+              {
+                "id": "backSyncNow",
+                "type": "http",
+                "data": {
+                  "description": "POST to run a Visualizer back-sync immediately"
+                }
+              },
+              {
+                "id": "backSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last back-sync result, applied count, cursor and any error"
+                }
+              },
+              {
+                "id": "forwardSyncStatus",
+                "type": "http",
+                "data": {
+                  "description": "Last forward-sync result and any error"
+                }
+              },
+              {
+                "id": "forwardSyncNow",
+                "type": "http",
+                "data": {
+                  "shotId": {
+                    "type": "string",
+                    "description": "Local shot id to sync to Visualizer"
+                  }
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          },
+          {
+            "id": "shot-upload.reaplugin",
+            "name": "Decent shot upload",
+            "author": "Decent Espresso",
+            "description": "Uploads your espresso shots to your Decent account at decentespresso.com and catches up eligible local shots while the machine is idle. Uses captured machine identity when available and the connected real machine for legacy shots. Off by default: enable Upload shots automatically to opt in.",
+            "version": "0.2.1",
+            "apiVersion": 1,
+            "permissions": [
+              "log",
+              "api",
+              "emit",
+              "pluginStorage",
+              "proxy.decent_api.write",
+              "events.machine",
+              "events.shots"
+            ],
+            "drivers": [],
+            "settings": {
+              "AutoUpload": {
+                "type": "boolean",
+                "description": "Upload shots automatically when they finish (opt-in; off by default)",
+                "default": false
+              },
+              "LengthThreshold": {
+                "type": "number",
+                "description": "Only upload shots longer than this many seconds (skips flushes)",
+                "default": 5
+              }
+            },
+            "api": [
+              {
+                "id": "status",
+                "type": "http",
+                "data": {}
+              },
+              {
+                "id": "upload",
+                "type": "http",
+                "data": {
+                  "description": "POST to upload the latest shot now (from the currently-connected machine)"
+                }
+              }
+            ],
+            "loaded": true,
+            "autoLoad": true,
+            "source": null,
+            "pendingUpdate": null
+          }
+        ]
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "NSX-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@v0.4.3",
+              "lastModified": "2026-09-06T12:33:09Z",
+              "etag": null,
+              "commitHash": "v0.4.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.054367",
+              "lastChecked": "2026-10-25T01:51:43.054367"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:40.426176",
+              "lastChecked": "2026-10-25T01:51:40.426176"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.9",
+              "lastModified": "2026-09-26T08:04:18Z",
+              "etag": null,
+              "commitHash": "v0.3.9",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:41.082405",
+              "lastChecked": "2026-10-25T01:51:41.082405"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:39.679535",
+              "lastChecked": "2026-10-25T01:51:39.679535"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.4.1",
+              "lastModified": "2026-10-14T20:31:49Z",
+              "etag": null,
+              "commitHash": "v0.4.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.906986",
+              "lastChecked": "2026-10-25T01:51:43.906986"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.18",
+              "lastModified": "2026-10-22T10:09:58Z",
+              "etag": null,
+              "commitHash": "v0.2.18",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:38.897408",
+              "lastChecked": "2026-10-25T01:51:38.897408"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "streamlineRelease": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/github-release",
+          "body": {
+            "repo": "decentespresso/streamline-js"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from GitHub release",
+            "repo": "decentespresso/streamline-js"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": false,
+            "reaMetadata": null
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "NSX-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@v0.4.3",
+              "lastModified": "2026-09-06T12:33:09Z",
+              "etag": null,
+              "commitHash": "v0.4.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.054367",
+              "lastChecked": "2026-10-25T01:51:43.054367"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:40.426176",
+              "lastChecked": "2026-10-25T01:51:40.426176"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.9",
+              "lastModified": "2026-09-26T08:04:18Z",
+              "etag": null,
+              "commitHash": "v0.3.9",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:41.082405",
+              "lastChecked": "2026-10-25T01:51:41.082405"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:39.679535",
+              "lastChecked": "2026-10-25T01:51:39.679535"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.4.1",
+              "lastModified": "2026-10-14T20:31:49Z",
+              "etag": null,
+              "commitHash": "v0.4.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.906986",
+              "lastChecked": "2026-10-25T01:51:43.906986"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.18",
+              "lastModified": "Thu, 22 Oct 2026 10:09:59 GMT",
+              "etag": "\"0x8DF3024A1A05C9F\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:49.335589",
+              "lastChecked": "2026-10-25T01:51:49.335589"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.18",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.18",
+            "lastModified": "Thu, 22 Oct 2026 10:09:59 GMT",
+            "etag": "\"0x8DF3024A1A05C9F\"",
+            "commitHash": null,
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-25T01:51:49.335589",
+            "lastChecked": "2026-10-25T01:51:49.335589"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "streamlineMain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/skins/install/github-branch",
+          "body": {
+            "repo": "decentespresso/streamline-js",
+            "branch": "dist"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Skin installed successfully from GitHub branch",
+            "repo": "decentespresso/streamline-js",
+            "branch": "dist"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "body": [
+          {
+            "id": "insight",
+            "name": "Insight",
+            "path": "/root/.local/share/decaid/web-ui/insight",
+            "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+            "version": "0.2.7",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "insight",
+              "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+              "lastModified": "2026-09-05T15:38:01Z",
+              "etag": null,
+              "commitHash": "v0.2.7",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:54.215136",
+              "lastChecked": "2026-10-25T01:51:54.215137"
+            }
+          },
+          {
+            "id": "NSX-skin",
+            "name": "NSX",
+            "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+            "description": "Skin for Decent.app",
+            "version": "v0.4.3",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "NSX-skin",
+              "sourceUrl": "github_release:NilsBruch/NSX@v0.4.3",
+              "lastModified": "2026-09-06T12:33:09Z",
+              "etag": null,
+              "commitHash": "v0.4.3",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.054367",
+              "lastChecked": "2026-10-25T01:51:43.054367"
+            }
+          },
+          {
+            "id": "overdose",
+            "name": "OverDose",
+            "path": "/root/.local/share/decaid/web-ui/overdose",
+            "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+            "version": "0.0.13",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "overdose",
+              "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+              "lastModified": "2026-08-29T21:18:47Z",
+              "etag": null,
+              "commitHash": "v0.0.13",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:40.426176",
+              "lastChecked": "2026-10-25T01:51:40.426176"
+            }
+          },
+          {
+            "id": "streamline.js-dist",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": false,
+            "reaMetadata": {
+              "skinId": "streamline.js-dist",
+              "sourceUrl": "github_branch:decentespresso/streamline-js@dist",
+              "lastModified": null,
+              "etag": "W/\"f3817dcefa9cba9db40fe4f9a086b4ea75df8919a935b676e5b1d0ef5d1a071e\"",
+              "commitHash": "branch:dist",
+              "releaseAssetName": null,
+              "includePrerelease": null,
+              "installedAt": "2026-10-25T01:51:55.895098",
+              "lastChecked": "2026-10-25T01:51:55.895098"
+            }
+          },
+          {
+            "id": "beanie",
+            "name": "Beanie",
+            "path": "/root/.local/share/decaid/web-ui/beanie",
+            "description": "Bean-first dial-in workflow for Decent.app.",
+            "version": "0.3.9",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "beanie",
+              "sourceUrl": "github_release:giladger/Beanie@v0.3.9",
+              "lastModified": "2026-09-26T08:04:18Z",
+              "etag": null,
+              "commitHash": "v0.3.9",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:41.082405",
+              "lastChecked": "2026-10-25T01:51:41.082405"
+            }
+          },
+          {
+            "id": "passione",
+            "name": "Passione",
+            "path": "/root/.local/share/decaid/web-ui/passione",
+            "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+            "version": "0.9.6",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "passione",
+              "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+              "lastModified": "2026-09-11T10:47:47Z",
+              "etag": null,
+              "commitHash": "v0.9.6",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:39.679535",
+              "lastChecked": "2026-10-25T01:51:39.679535"
+            }
+          },
+          {
+            "id": "workflow-skin",
+            "name": "WorkFlow",
+            "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+            "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+            "version": "0.4.1",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "workflow-skin",
+              "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.4.1",
+              "lastModified": "2026-10-14T20:31:49Z",
+              "etag": null,
+              "commitHash": "v0.4.1",
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:43.906986",
+              "lastChecked": "2026-10-25T01:51:43.906986"
+            }
+          },
+          {
+            "id": "streamline.js",
+            "name": "Streamline.js",
+            "path": "/root/.local/share/decaid/web-ui/streamline.js",
+            "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+            "version": "0.2.18",
+            "isBundled": true,
+            "reaMetadata": {
+              "skinId": "streamline.js",
+              "sourceUrl": "github_release:decentespresso/streamline-js@v0.2.18",
+              "lastModified": "Thu, 22 Oct 2026 10:09:59 GMT",
+              "etag": "\"0x8DF3024A1A05C9F\"",
+              "commitHash": null,
+              "releaseAssetName": null,
+              "includePrerelease": false,
+              "installedAt": "2026-10-25T01:51:49.335589",
+              "lastChecked": "2026-10-25T01:51:49.335589"
+            }
+          }
+        ]
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "defaultSwitched": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/webui/skins/default",
+          "body": {
+            "skinId": "streamline.js-dist"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "success": true,
+            "message": "Default skin updated successfully",
+            "skinId": "streamline.js-dist"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js-dist",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.18",
+          "isBundled": false,
+          "reaMetadata": {
+            "skinId": "streamline.js-dist",
+            "sourceUrl": "github_branch:decentespresso/streamline-js@dist",
+            "lastModified": null,
+            "etag": "W/\"f3817dcefa9cba9db40fe4f9a086b4ea75df8919a935b676e5b1d0ef5d1a071e\"",
+            "commitHash": "branch:dist",
+            "releaseAssetName": null,
+            "includePrerelease": null,
+            "installedAt": "2026-10-25T01:51:55.895098",
+            "lastChecked": "2026-10-25T01:51:55.895098"
+          }
+        }
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "servedMain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js-dist"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+          "port": 28576,
+          "ip": "localhost"
+        }
+      }
+    }
+  },
+  "servedOther": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "webUiPath": "/root/.local/share/decaid/web-ui/passione"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": true,
+          "path": "/root/.local/share/decaid/web-ui/passione",
+          "port": 25498,
+          "ip": "localhost"
+        }
+      }
+    }
+  },
+  "serverStopped": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/webui/server/stop"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "message": "WebUI server stopped"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/plugins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/webui/server/status": {
+        "status": 200,
+        "body": {
+          "serving": false,
+          "path": null,
+          "port": null,
+          "ip": null
+        }
+      }
+    }
+  }
+}

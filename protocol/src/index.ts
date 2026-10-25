@@ -412,6 +412,9 @@ export interface MachineStateDelivery {
  * - `machineCalibration`, the machine's flow calibration;
  * - `sensorCalibration`, the firmware's current flow, pressure and temperature
  *   sensor calibration;
+ * - `plugins`, Decaid's plugin list, DYE2 among them;
+ * - `skins`, Decaid's Skins: their list, the default Skin and what the WebUI
+ *   server serves;
  * - `pairedDevices`, the device inventory without devices only discovered nearby;
  * - `scaleInfo`, the connected scale's firmware and battery level;
  * - `sensors`.
@@ -429,6 +432,8 @@ export const COLLECTION_NAMES = [
   "advancedSettings",
   "machineCalibration",
   "sensorCalibration",
+  "plugins",
+  "skins",
   "pairedDevices",
   "scaleInfo",
   "sensors",

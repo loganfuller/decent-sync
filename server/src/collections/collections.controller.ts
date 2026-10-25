@@ -3,8 +3,9 @@ import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { type CollectionSummary, type CollectionView, CollectionsService } from "./collections.service.js";
 import type { PairedDevicesView } from "./paired-devices.js";
+import type { TabletVersionsView } from "./tablet-versions.js";
 
-/** Each Machine's library, settings and paired devices, as its tablet last reported them. Staff read them too. */
+/** Each Machine's library, settings, paired devices, DYE2 and Streamline, as its tablet last reported them. Staff read them too. */
 @AllowStaff()
 @Controller("api/machines")
 export class CollectionsController {
@@ -26,5 +27,11 @@ export class CollectionsController {
   @Get(":id/paired-devices")
   async pairedDevices(@Param("id") id: string): Promise<{ pairedDevices: PairedDevicesView }> {
     return { pairedDevices: await this.collections.pairedDevices(readMachineId(id)) };
+  }
+
+  /** The DYE2 and Streamline on the Machine's tablet, as its tablet last reported them. */
+  @Get(":id/tablet-versions")
+  async tabletVersions(@Param("id") id: string): Promise<{ tabletVersions: TabletVersionsView }> {
+    return { tabletVersions: await this.collections.tabletVersions(readMachineId(id)) };
   }
 }

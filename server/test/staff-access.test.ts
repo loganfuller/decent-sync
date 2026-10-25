@@ -154,6 +154,7 @@ describe("Staff access", () => {
         `/machines/${id}/collections`,
         `/machines/${id}/collections/appSettings`,
         `/machines/${id}/paired-devices`,
+        `/machines/${id}/tablet-versions`,
       ]),
     ];
     for (const path of paths) {

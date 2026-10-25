@@ -40,6 +40,9 @@ import {
   type PairedDevices,
   type PendingMachine,
   type Tablet,
+  type TabletDye2,
+  type TabletStreamline,
+  type TabletVersions,
   type Takeover,
   type TakeoverConnection,
   type WorkflowEvent,
@@ -52,6 +55,8 @@ interface Reports {
   /** Its current Workflow, or null until its tablet reports one. */
   workflow: WorkflowEvent | null;
   pairedDevices: PairedDevices;
+  /** The DYE2 and Streamline on its tablet. */
+  tabletVersions: TabletVersions;
   /** The collections its tablet has reported, without their values. */
   collections: CollectionSummary[];
   settings: Record<keyof typeof SETTINGS, Collection | null>;
@@ -94,15 +99,17 @@ function MachineDetails({ id }: { id: string }) {
   const status = usePolled(loadMachine);
   const loadReports = useCallback(async (): Promise<Reports> => {
     const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
-    const [{ workflow }, { pairedDevices }, { collections }, settings] = await Promise.all([
+    const [{ workflow }, { pairedDevices }, { tabletVersions }, { collections }, settings] = await Promise.all([
       api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
       api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
+      api<{ tabletVersions: TabletVersions }>("GET", `${path}/tablet-versions`),
       api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
       Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
     ]);
     return {
       workflow,
       pairedDevices,
+      tabletVersions,
       collections,
       settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as Reports["settings"],
     };
@@ -261,13 +268,16 @@ function MachineDetails({ id }: { id: string }) {
                 <CardTitle>
                   <h2>Versions</h2>
                 </CardTitle>
-                <CardDescription>As reported by the latest accepted connection.</CardDescription>
+                <CardDescription>As last reported by its Tablet.</CardDescription>
               </CardHeader>
               <CardContent>
                 <Fields label="Versions">
                   <Field term="Firmware">{firmwareText(machine)}</Field>
                   <Field term="Decaid">{machine.decaidVersion ?? "Not reported"}</Field>
                   <Field term="Plugin">{machine.pluginVersion ?? "Not reported"}</Field>
+                  {/* Loaded with what its tablet reported, less often than the Machine's status. */}
+                  <Field term="DYE2">{data ? dye2Text(data.tabletVersions.dye2) : "Loading"}</Field>
+                  <Field term="Streamline">{data ? streamlineText(data.tabletVersions.streamline) : "Loading"}</Field>
                 </Fields>
               </CardContent>
             </Card>
@@ -371,6 +381,33 @@ function firmwareText(machine: Machine): string {
   const binding = bindingOf(machine);
   const own = binding ? sameHardware(reported, binding) : !isRealSerial(reported.serial);
   return own ? firmware : `${firmware}, from ${describeHardware(reported)}, which its token last reported`;
+}
+
+/** DYE2's version, and whether Decaid has it loaded and it is a branch install, as "0.1.24 (branch main, not loaded)". */
+function dye2Text(dye2: TabletDye2): string {
+  if (dye2.status === "notReported") return "Not reported";
+  if (dye2.status === "notInstalled") return "Not installed";
+  // A branch build carries the version committed on the branch, which lags DYE2's tags.
+  const notes = [...(dye2.branch !== null ? [`branch ${dye2.branch}`] : []), ...(dye2.loaded ? [] : ["not loaded"])];
+  const version = dye2.version ?? "Unknown version";
+  return notes.length > 0 ? `${version} (${notes.join(", ")})` : version;
+}
+
+/** Streamline's version and build if it is the Skin Decaid serves, or else the Skin that is, as "0.2.18 (main build)". */
+function streamlineText(streamline: TabletStreamline): string {
+  switch (streamline.status) {
+    case "notReported":
+      return "Not reported";
+    case "notInstalled":
+      return "Not installed";
+    case "notActive": {
+      const active = streamline.activeSkin;
+      const named = active ? [active.name, active.version].filter((part) => part !== null).join(" ") : "";
+      return named === "" ? "Not the active skin" : `Not the active skin (${named})`;
+    }
+    case "active":
+      return `${streamline.version ?? "Unknown version"} (${streamline.build === "main" ? "main build" : "release"})`;
+  }
 }
 
 /**
