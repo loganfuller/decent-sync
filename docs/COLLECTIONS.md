@@ -532,8 +532,9 @@ offset, as Streamline's Sensor Calibration page does, in the Settings card,
 an edit's status and the Settings Edits log alike (ticket
 [#272](https://github.com/loganfuller/decent-sync/issues/272)); its form
 opens on the value as it is. Two values the machine can hold may then look
-the same, and an off-step value can't be set back exactly: the form reaches
-only the nearest step, within 1/65536 of it.
+the same, and an off-step value can't be set back exactly: the form takes
+only values on the field's step, each of which the machine then holds to
+within 1/65536.
 Decaid answers 500 while no machine was ever connected, 503 if the machine
 disconnects mid-read, and 504 if it doesn't answer in time.
 
