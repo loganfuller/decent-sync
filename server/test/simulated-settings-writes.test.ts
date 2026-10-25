@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { type DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
+import { type DecaidApi, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
 
 // The simulated tablet's settings writes against those recorded on Decaid
 // v0.9.0's Linux release (fixtures/decaid/settings-writes-v0.9.0/): a tablet
@@ -130,6 +130,13 @@ describe("The simulated tablet's settings writes", () => {
     expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ fan: 42, steamPurgeMode: 1 });
     expect((await tablet.callApi("POST", "/machine/calibration", { flowMultiplier: " 1.25 " })).status).toBe(202);
     expect((await tablet.callApi("GET", "/machine/calibration")).body).toEqual({ flowMultiplier: 1.25 });
+    // A Workflow's settings Decaid writes to the machine are held the same way.
+    await tablet.changeSettings({ hotWaterData: { flow: 2.55 }, steamSettings: { flow: 1.237 } });
+    expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ hotWaterFlow: 2.5, steamFlow: 1.23 });
+    // A route served as a refusal holds nothing to write to.
+    const release = tablet.refuseFor("/machine/settings", new Refusal(504, { error: "BleTimeoutException: MMR read timed out" }));
+    await expect(tablet.callApi("POST", "/machine/settings", { fan: 40 })).rejects.toThrow("holds no settings");
+    release();
   });
 
   it("leave the fields before one whose write fails applied, the machine's and Decaid's own", async () => {

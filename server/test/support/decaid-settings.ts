@@ -137,9 +137,6 @@ const MACHINE_SETTINGS: readonly MachineField[] = [
   { name: "steamPurgeMode", parse: parseInt, register: WHOLE },
 ];
 
-/** The flush settings a machine that keeps none of them (`MockDe1.setFlushTemperature` and `setFlushTimeout` do nothing) leaves as they were. */
-const FLUSH_KEPT = ["flushTemp", "flushTimeout"];
-
 /** The refill kit settings Decaid takes (`De1RefillKitSettings`): force off, force on, auto. */
 const REFILL_KIT_SETTINGS = [0, 1, 2];
 
@@ -181,11 +178,20 @@ export interface Written {
 
 /**
  * Carries out `POST /machine/settings` as Decaid does: every field read
- * first, then each one given written to its register in turn, on a machine
- * that keeps the flush time and temperature (`keepsFlush`) or not.
+ * first, then each one given written to its register in turn.
  */
-export function writeMachineSettings(write: MachineWrite & { keepsFlush: boolean }): Written {
-  return writeFields(write, MACHINE_SETTINGS, () => undefined, (field) => write.keepsFlush || !FLUSH_KEPT.includes(field));
+export function writeMachineSettings(write: MachineWrite): Written {
+  return writeFields(write, MACHINE_SETTINGS, () => undefined);
+}
+
+/** The machine's settings, by their `GET /machine/settings` names, as its registers hold them once Decaid writes these values to them, as it does a Workflow's. */
+export function machineSettingsHeld(written: Json): Json {
+  return Object.fromEntries(
+    Object.entries(written).map(([name, value]) => {
+      const register = MACHINE_SETTINGS.find((field) => field.name === name)?.register;
+      return [name, register && typeof value === "number" ? registerHolds(register, value) : value];
+    }),
+  );
 }
 
 /** Carries out `POST /machine/settings/advanced` as Decaid does, refusing a refill kit setting it does not know before writing anything. */
@@ -202,8 +208,8 @@ export function writeCalibration(write: MachineWrite): Written {
   return writeFields(write, [{ name: "flowMultiplier", parse: parseDouble, register: FLOW_MULTIPLIER }], () => undefined);
 }
 
-/** Reads every field given, as Decaid does before writing any, skipping one sent as null, then writes each in turn; `kept` says whether the machine keeps a field written. */
-function writeFields(write: MachineWrite, fields: readonly MachineField[], refuse: (parsed: Json) => SettingsAnswer | undefined, kept: (field: string) => boolean = () => true): Written {
+/** Reads every field given, as Decaid does before writing any, skipping one sent as null, then writes each in turn. */
+function writeFields(write: MachineWrite, fields: readonly MachineField[], refuse: (parsed: Json) => SettingsAnswer | undefined): Written {
   const read = machineBody(write.body);
   if ("refused" in read) return read.refused;
   const body = read.json;
@@ -224,7 +230,7 @@ function writeFields(write: MachineWrite, fields: readonly MachineField[], refus
     const failed = write.failWrite?.(field.name);
     if (failed) return { answer: failed, value };
     const given = parsed[field.name] as number | boolean;
-    if (kept(field.name)) value[field.name] = field.register && typeof given === "number" ? registerHolds(field.register, given) : given;
+    value[field.name] = field.register && typeof given === "number" ? registerHolds(field.register, given) : given;
   }
   return { answer: ACCEPTED, value };
 }
@@ -426,7 +432,9 @@ interface WakeSchedule {
 /**
  * What `GET /presence/settings` answers: the presence settings held, but
  * `keepAwakeUntil` null while no machine is connected, as
- * `PresenceController.keepAwakeUntil` is.
+ * `PresenceController.keepAwakeUntil` is. While one is, `keepAwakeUntil` is
+ * what the tablet is served with, null unless a test serves a time: Decaid
+ * works it out from the schedules and its clock, which is not modelled.
  */
 export function presenceSettings(current: unknown, machineConnected: boolean): unknown {
   return isObject(current) && !machineConnected ? { ...current, keepAwakeUntil: null } : current;
@@ -571,7 +579,11 @@ function notCast(field: string): never {
  * The machine's settings once it connects to Decaid again: Decaid writes the
  * fan threshold's default, 55, which the register holds as its most, 50
  * (`_setDe1DefaultsFor` in decaid:lib/src/controllers/de1_controller.defaults.dart),
- * and sets the refill kit to auto (`UnifiedDe1.onConnect`).
+ * and sets the refill kit to auto (`UnifiedDe1.onConnect`). Decaid also
+ * writes the Workflow's steam, hot water and flush settings back to the
+ * machine then, which leaves them as the simulated tablet already holds
+ * them after its Workflow writes, so only a test that changed them some
+ * other way would see a difference.
  */
 export function reconnected(settings: unknown, advanced: unknown): { settings: unknown; advanced: unknown } {
   return {

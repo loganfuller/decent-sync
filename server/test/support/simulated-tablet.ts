@@ -10,7 +10,7 @@ import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateB
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
-import { type FieldWriteFailure, type SettingsAnswer, type Written, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
+import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
@@ -1581,20 +1581,22 @@ export class SimulatedTablet {
     const text = typeof body === "string" ? body : body === undefined ? undefined : JSON.stringify(body);
     const failWrite: FieldWriteFailure = (field) => this.failSettingWrites?.({ route, field });
     const machine = { body: text, machineConnected: this.machineConnected, failWrite };
+    // What a route holds to write to: none while it is served as a refusal, which a write then throws for.
+    const held = (served: string) => (this.api[served] instanceof Refusal ? undefined : this.api[served]);
     const keep = (served: string, { answer, value }: Written) => {
       if (value) this.api = { ...this.api, [served]: value };
       return answer;
     };
-    if (method === "POST" && route === "/machine/settings") return keep(route, writeMachineSettings({ ...machine, current: this.api[route], keepsFlush: this.keepsFlushSettings }));
-    if (method === "POST" && route === "/machine/settings/advanced") return keep(route, writeAdvancedSettings({ ...machine, current: this.api[route] }));
-    if (method === "POST" && route === "/machine/calibration") return keep(route, writeCalibration({ ...machine, current: this.api[route] }));
+    if (method === "POST" && route === "/machine/settings") return keep(route, writeMachineSettings({ ...machine, current: held(route) }));
+    if (method === "POST" && route === "/machine/settings/advanced") return keep(route, writeAdvancedSettings({ ...machine, current: held(route) }));
+    if (method === "POST" && route === "/machine/calibration") return keep(route, writeCalibration({ ...machine, current: held(route) }));
     const target = /^\/machine\/calibration\/([^/]+)$/.exec(route)?.[1];
     if (method === "PUT" && target !== undefined) {
       const served = `/machine/calibration/${decodeURIComponent(target)}`;
-      return keep(served, writeSensorCalibration({ ...machine, target: decodeURIComponent(target), current: this.api[served] }));
+      return keep(served, writeSensorCalibration({ ...machine, target: decodeURIComponent(target), current: held(served) }));
     }
-    if (method === "POST" && route === "/settings") return keep(route, writeAppSettings({ current: this.api[route], body: text, failWrite }));
-    const presenceWrite = writePresence(method, route, text, presence);
+    if (method === "POST" && route === "/settings") return keep(route, writeAppSettings({ current: held(route), body: text, failWrite }));
+    const presenceWrite = writePresence(method, route, text, held("/presence/settings"));
     return presenceWrite && keep("/presence/settings", presenceWrite);
   }
 
@@ -1688,7 +1690,8 @@ export class SimulatedTablet {
    * set, so the plugin hears of its own write while it awaits the answer.
    * The steam, hot water and flush settings it writes to the machine are the
    * machine's settings from then on, as `GET /machine/settings` answers them
-   * (`machineSettingsWritten`), the flush time and temperature only on a
+   * (`machineSettingsWritten`), as the machine's registers hold them
+   * (`machineSettingsHeld`), the flush time and temperature only on a
    * machine that keeps them (`keepsFlushSettings`).
    */
   private writeWorkflow(body: unknown): DecaidAnswer {
@@ -1699,7 +1702,7 @@ export class SimulatedTablet {
       const settings = this.api["/machine/settings"];
       const written = machineSettingsWritten(current as Record<string, unknown>, workflow, this.keepsFlushSettings);
       if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && Object.keys(written).length > 0) {
-        this.api = { ...this.api, "/machine/settings": { ...settings, ...written } };
+        this.api = { ...this.api, "/machine/settings": { ...settings, ...machineSettingsHeld(written) } };
       }
       this.setWorkflow(workflow);
     }
