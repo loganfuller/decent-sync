@@ -541,10 +541,16 @@ holding its spec, tickets and pull requests.
    wake. Specs:
    [#220](https://github.com/loganfuller/decent-sync/issues/220) and, for the
    Live View, [#258](https://github.com/loganfuller/decent-sync/issues/258).
-5. **Analytics.** Broader views across Machines and Locations, and Barista
+5. **[Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5).**
+   Each release runs beside the previous one (ADR-0025), so several server
+   instances upgrade without taking anything offline, and Roux's server runs
+   on two machines deployed blue-green. Built before the Live View, whose
+   messages are the first to need it. Spec:
+   [#277](https://github.com/loganfuller/decent-sync/issues/277).
+6. **Analytics.** Broader views across Machines and Locations, and Barista
    grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
-6. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
+7. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 
 ## License
 
