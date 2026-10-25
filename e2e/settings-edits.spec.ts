@@ -10,7 +10,8 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 // disabled while the Machine is offline, and an edit shown as pending, then
 // applied or refused, or not confirmed until a late answer replaces the mark
 // (#225), and the Settings Edits card listing each edit, for an Admin and
-// for Staff (#226). A simulated tablet running the built plugin takes the writes as
+// for Staff (#226), and the Advanced and Flow calibration sections' forms,
+// an Admin's only (#227). A simulated tablet running the built plugin takes the writes as
 // Decaid v0.9.0 does; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
@@ -263,6 +264,93 @@ test("the Settings Edits card says so while a Machine has none, and lists an edi
   await expect(general.getByRole("status")).toContainText("Applied");
   // Listed without waiting for the card's next poll.
   await expect(rows(card.getByRole("table", { name: "Settings Edits" })).getByRole("cell")).toHaveText([/\S/, "You", "General", "Fan threshold: 50 °C to 45 °C", "Applied"]);
+});
+
+test("an Admin changes a Machine's heater voltage and warmup flow, offered only the two voltages with the restart reminder, and its flow multiplier, which the Machine stores otherwise", async ({ page }) => {
+  const roastery = await createLocation(page, "Roastery");
+  const { machine, token } = await createMachine(page, "Roastery bar", roastery.id);
+  const tablet = await tabletOf(token, "22701");
+  await reported(page, machine.id);
+  await page.goto(`/machines/${machine.id}`);
+
+  const advanced = page.getByRole("region", { name: "Advanced", exact: true });
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  const form = advanced.getByRole("form", { name: "Edit Advanced" });
+  const warmup = form.getByLabel("Heater warmup flow (ml/s)");
+  await expect(warmup).toHaveValue("2");
+  await expect(form.getByLabel("Heater test flow (ml/s)")).toHaveValue("4");
+  await expect(form.getByLabel("Idle temperature (°C)")).toHaveValue("99");
+  await expect(form.getByLabel("Heater test time-out (s)")).toHaveValue("1");
+  await expect(form.getByText("Restart the Machine after changing it for the change to take effect.")).toBeVisible();
+  await expect(form.getByRole("combobox", { name: "Refill kit" })).toHaveText("Auto-Detect");
+  await expect(form.getByText("Resets when the Machine reconnects. Streamline puts back a value set in its settings page when that page next opens.")).toBeVisible();
+  const voltage = form.getByRole("combobox", { name: "Heater voltage" });
+  await expect(voltage).toHaveText("110 V");
+  await voltage.click();
+  await expect(page.getByRole("option")).toHaveText(["110 V", "220 V"]);
+  await page.getByRole("option", { name: "220 V" }).click();
+  await warmup.fill("2.3");
+  await form.getByRole("button", { name: "Save" }).click();
+  const status = advanced.getByRole("status");
+  await expect(status).toContainText("Applied");
+  await expect(status).toContainText("Heater warmup flow: 2.3 ml/s; Heater voltage: 220 V.");
+  await expect.poll(async () => ((await tablet.callApi("GET", "/machine/settings/advanced")).body as { heaterVoltage: number }).heaterVoltage).toBe(230);
+  // The Machine reads it back in tenths as 2.3000000000000003, which the form opens on its step. Changed again, it is
+  // sent expecting the value as reported, not as shown, and the fields left as they opened are not sent.
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  await expect(warmup).toHaveValue("2.3");
+  await warmup.fill("2.4");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(status).toHaveText("AppliedHeater warmup flow: 2.4 ml/s.");
+  // Read back as 2.4000000000000004 and retyped as 2.40, it is no change, and nothing is sent.
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  await warmup.fill("2.40");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toHaveCount(0);
+  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings/advanced")).toHaveLength(2);
+
+  // A barista sets a voltage Decaid holds as unset (-1), which the form shows as it is rather than as no choice.
+  baseExpect((await tablet.callApi("POST", "/machine/settings/advanced", { heaterVoltage: 300 })).status).toBe(202);
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/advancedSettings`)).json()) as { collection: { value: { heaterVoltage: number } } }).collection.value.heaterVoltage).toBe(-1);
+  await page.reload();
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  await expect(form.getByRole("combobox", { name: "Heater voltage" })).toHaveText("-1");
+  await form.getByRole("button", { name: "Cancel" }).click();
+
+  // Decaid truncates 1.001 to the thousandth below, so the Machine holds 1.
+  const calibration = page.getByRole("region", { name: "Flow calibration", exact: true });
+  await calibration.getByRole("button", { name: "Edit Flow calibration" }).click();
+  const multiplier = calibration.getByRole("form", { name: "Edit Flow calibration" }).getByLabel("Flow multiplier");
+  await expect(multiplier).toHaveValue("1.1");
+  await multiplier.fill("1.001");
+  await calibration.getByRole("button", { name: "Save" }).click();
+  await expect(calibration.getByRole("status")).toContainText("Stored otherwise");
+  await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow multiplier: 1.");
+  await expect(calibration.getByRole("definition").first()).toHaveText("1");
+  await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
+    /\S/,
+    "You",
+    "Flow calibration",
+    "Flow multiplier: 1.1 to 1.001",
+    "Stored otherwiseThe Machine holds another value than was asked for: Flow multiplier: 1.",
+  ]);
+});
+
+test("Staff at the Machine's Location have no Edit for its advanced settings or flow calibration", async ({ page, browser }) => {
+  const mill = await createLocation(page, "Mill");
+  const { machine, token } = await createMachine(page, "Mill bar", mill.id);
+  await tabletOf(token, "22702");
+  await reported(page, machine.id);
+  await asStaff(page, browser, "kim@example.com", mill.id, async (kimsPage) => {
+    await kimsPage.goto(`/machines/${machine.id}`);
+    await expect(kimsPage.getByRole("region", { name: "General", exact: true }).getByRole("button", { name: "Edit General" })).toBeVisible();
+    const advanced = kimsPage.getByRole("region", { name: "Advanced", exact: true });
+    await expect(advanced.getByText("Heater voltage")).toBeVisible();
+    await expect(advanced.getByRole("button", { name: "Edit Advanced" })).toHaveCount(0);
+    const calibration = kimsPage.getByRole("region", { name: "Flow calibration", exact: true });
+    await expect(calibration.getByText("Flow multiplier")).toBeVisible();
+    await expect(calibration.getByRole("button", { name: "Edit Flow calibration" })).toHaveCount(0);
+  });
 });
 
 /** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */

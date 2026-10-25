@@ -22,6 +22,8 @@ import type { Outbox } from "./outbox.js";
 /** Where each collection a Settings Edit changes is read and written, in Decaid v0.9.0's API (rest_v1.yml). */
 const ROUTES: Readonly<Record<EditableSettingsCollection, string>> = {
   machineSettings: "/machine/settings",
+  advancedSettings: "/machine/settings/advanced",
+  machineCalibration: "/machine/calibration",
 };
 
 /**

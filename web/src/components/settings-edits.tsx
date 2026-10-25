@@ -14,6 +14,7 @@ import {
   type EditableSettingsField,
   SETTINGS_FIELDS,
   type SettingsCollectionName,
+  decimalPlaces,
   isEditable,
   isEditableSettingsCollection,
   sameValue,
@@ -81,7 +82,24 @@ type Inputs = Record<string, string | boolean>;
 
 function inputOf(field: EditableSettingsField, value: unknown): string | boolean {
   if (field.kind === "onOff") return value === true;
+  if (field.kind === "number" && field.step !== undefined && typeof value === "number") return String(toStep(value, field.step));
   return value === undefined || value === null ? "" : String(value);
+}
+
+/**
+ * A number reported on a field's step, written to as many decimal places as
+ * the step has: Decaid reads a scaled register as a whole number times its
+ * scale, so a heater flow of 2.3 comes as 2.3000000000000003. A number off
+ * the step by more than that is left as it is.
+ */
+function toStep(value: number, step: number): number {
+  const rounded = Number(value.toFixed(decimalPlaces(step)));
+  return Math.abs(rounded - value) < 1e-9 ? rounded : value;
+}
+
+/** Whether a choice's input holds one of its choices. */
+function offers(field: EditableSettingsField, input: string | boolean): boolean {
+  return field.choices?.some((choice) => String(choice.value) === input) ?? false;
 }
 
 /** The value an input holds, as the edit sends it: NaN for a number that isn't one, which validation refuses. */
@@ -139,7 +157,9 @@ export function SettingsForm({
       // An input left as it opened is no change, whatever the value it holds, such as a choice not offered.
       if (inputs[field.path] === inputOf(field, baseline[field.path])) continue;
       const value = valueOf(field, inputs[field.path]!);
-      if (sameValue(value, baseline[field.path])) continue;
+      const reported = baseline[field.path];
+      // A number retyped as reported, such as 2.30 for a heater flow read back as 2.3000000000000003, is no change either.
+      if (sameValue(value, field.kind === "number" && field.step !== undefined && typeof reported === "number" ? toStep(reported, field.step) : reported)) continue;
       fields[field.path] = value;
       expected[field.path] = baseline[field.path] ?? null;
     }
@@ -216,9 +236,10 @@ function SettingInput({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {field.kind === "choice" ? (
-        <Select value={String(input)} onValueChange={onChange}>
+        // A reported value none of the choices holds, such as a heater voltage of -1, is shown as it is until one is chosen.
+        <Select value={offers(field, input) ? String(input) : ""} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
-            <SelectValue />
+            <SelectValue placeholder={String(input)} />
           </SelectTrigger>
           <SelectContent>
             {field.choices?.map((choice) => (
