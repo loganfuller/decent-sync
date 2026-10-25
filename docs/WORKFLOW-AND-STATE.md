@@ -391,6 +391,31 @@ through `plugin/src/dye2.ts`, and writes what the pure
   where a change was held too: replacing that would lose the change. A held
   change is kept in plugin storage only once it is queued: an unload of the
   plugin while one is held loses it.
+- **During a Shot.** Decaid writes a Workflow's profile to the machine the
+  moment it changes, whatever the machine is doing (`WorkflowDeviceSync` in
+  `decaid:lib/src/controllers/workflow_device_sync.dart`), replacing the
+  frames of a Shot still running, sends a Bengle the Workflow's yield as it
+  changes (`BengleSawBridge`), and stores a Shot with the Workflow it holds
+  once the Shot ends (`_persistShotIfNeeded` in
+  `decaid:lib/src/controllers/de1_state_manager.dart`). So from the machine
+  state `espresso` (`SHOT_STATE`, Decaid's `stateUpdate`) until Decaid
+  stores the Shot (`shotStored`), or `SHOT_STORED_WITHIN_MS` (10 s) after
+  the state left `espresso` for one it stores none of, the plugin makes no
+  write into the Workflow (`plugin/src/shot-gate.ts`, ticket #217). A load
+  decided on meanwhile is held, the latest only, and made once the Shot
+  ends, while the Workflow still names its Recipe; it is kept in Decaid's
+  plugin storage (`heldLoad`) until it is made, so a load held as the
+  plugin stops is made once it loads again, where the Workflow still names
+  that Recipe. The server's changes are held too, every kind (`LIBRARY.md`,
+  How the plugin writes), and planned afresh once the Shot ends, so a
+  Recipe edited twice during it is written once, with its latest values,
+  and a write that changes the profile goes out as its two `PUT /workflow`
+  together. Saves into the Loaded Recipe are not held: a change made on the
+  Machine during its own Shot is saved at once. An unknown state, before
+  the first update or once no machine is connected (the plugin's read of
+  the machine's hardware finds none, and Decaid has reported no state for
+  3 s, as one failed read is no machine gone), is no Shot, as for
+  Streamline.
 - **When Decaid fails.** A read, write or save Decaid fails is logged once
   until one succeeds, and tried again at the next change, push or poll.
 
@@ -669,7 +694,7 @@ Recipe each has loaded.
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
-`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/loaded-recipe-intake.test.ts` its pure module,
+`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/loaded-recipe-intake.test.ts` its pure module,
 `plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and

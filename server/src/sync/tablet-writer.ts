@@ -43,9 +43,11 @@ export interface AwaitedWrite {
 /**
  * What a write's answer said: written, refused, or, for a delete the plugin
  * could not judge yet as Shots were still to be sent, deferred: asked again
- * on the same connection a little later.
+ * on the same connection a little later; or, for any change the plugin held
+ * while its Machine pulled a Shot (PULLING_SHOT), again: what is due is
+ * planned afresh at once, so what is written holds what changed meanwhile.
  */
-export type WriteOutcome = "written" | "refused" | "deferred";
+export type WriteOutcome = "written" | "refused" | "deferred" | "again";
 
 /** Why an item written that is still due as it was is skipped, as its sharing status shows it. */
 const STILL_DUE_ONCE_WRITTEN = "Written, but its record still differs as it did: writing it again would change nothing";
@@ -94,6 +96,12 @@ export type TakenInList = LibraryList;
  * again would not change; an item due again with other fields, as when a second
  * request of its write failed or the Location changed it meanwhile, is
  * written again.
+ *
+ * The plugin carries out none of the server's changes while its Machine
+ * pulls a Shot (ADR-0022): it holds the one asked for until Decaid has
+ * stored the Shot, and answers it as asked during one (PULLING_SHOT). What
+ * is due is then planned afresh at once, so a Recipe edited twice during
+ * the Shot is written once, with its latest values.
  */
 export class TabletWriter {
   private running = false;
@@ -377,6 +385,7 @@ export class TabletWriter {
         // Its answer removes it from what the tablet is due, so it is not due again once set aside.
         const outcome = await this.ask({ write: { type: "leaveOut", id: randomUUID(), kind: due.kind, localId: due.localId }, seen: null, contentSeen: null, change });
         if (outcome === "stopped") return;
+        if (outcome === "again") continue;
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer setting aside ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
@@ -393,6 +402,7 @@ export class TabletWriter {
           change,
         });
         if (outcome === "stopped") return;
+        if (outcome === "again") continue;
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the delete of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
@@ -410,6 +420,7 @@ export class TabletWriter {
           change,
         });
         if (outcome === "stopped") return;
+        if (outcome === "again") continue;
         if (outcome === "timedOut") {
           this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the removal of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
         }
@@ -433,6 +444,7 @@ export class TabletWriter {
       const seen = due.decidedAt === null || plannedFor === null ? null : { at: due.decidedAt, locationId: plannedFor };
       const outcome = await this.ask({ write, seen, contentSeen: due.contentDecidedAt, change });
       if (outcome === "stopped") return;
+      if (outcome === "again") continue;
       if (outcome === "timedOut") {
         this.log.warn(`Tablet ${this.tablet.tabletId} did not answer the write of ${item} in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once it changes or the tablet reconnects`);
       }

@@ -23,6 +23,7 @@ import {
   type LibraryWrite,
   type ListUnrecognised,
   MAX_REFUSAL_LENGTH,
+  PULLING_SHOT,
   RECIPE_SLOT_FIELD,
   WORKFLOW_CLEARED,
   WORKFLOW_KIND,
@@ -48,6 +49,7 @@ import {
 import { type Answer, readShot, request } from "./decaid.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
+import type { ShotGate } from "./shot-gate.js";
 import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
 import { type Answered, type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
@@ -306,6 +308,14 @@ export class LibraryAccess {
  * first and finds the change is the plugin's own write, not the tablet's
  * edit (ADR-0003), and it is not saved into the Loaded Recipe
  * (`LoadedRecipeWrites.ownWrite`).
+ *
+ * While the Machine pulls a Shot (`ShotGate`), none is carried out, as a
+ * write into the Workflow, or one of DYE2's recipes that clears it first
+ * (`LoadedRecipeWrites.beforePost`), would reach the Shot (ADR-0022): the
+ * one the server asked for is held until the Shot is stored, or at most
+ * SHOT_WAIT_MS, and answered as asked during a Shot (PULLING_SHOT), so the
+ * server plans afresh then, with whatever changed meanwhile. One whose turn
+ * comes during a Shot is answered so at once, and held when asked again.
  */
 export class LibraryWrites {
   /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took, carrying the Loaded Recipe's part in them. */
@@ -321,6 +331,8 @@ export class LibraryWrites {
     private readonly log: (message: string) => void,
     /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took. */
     skins: Skins,
+    /** Whether the Machine is pulling a Shot, which every change the server asks for waits out. */
+    private readonly shot: ShotGate,
   ) {
     this.posted = Object.assign((key: Dye2Key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten });
     outbox.watch((delivery) => {
@@ -342,7 +354,27 @@ export class LibraryWrites {
 
   /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
   remove(remove: LibraryDelete): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted))));
+    return this.afterShot(
+      () => refused(remove, null, PULLING_SHOT),
+      async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted))),
+    );
+  }
+
+  /**
+   * Carries out one of the server's changes (`work`) once the reads and
+   * writes before it are done, and no Shot is being pulled; while one is,
+   * it is answered with `again` once the Shot ends, or after SHOT_WAIT_MS,
+   * well within the server's wait for an answer.
+   */
+  private async afterShot(again: () => WriteRefused | ItemLeftOut, work: () => Promise<void>): Promise<void> {
+    if (this.shot.running()) {
+      if (!(await this.shot.ended(SHOT_WAIT_MS))) this.outbox.enqueue(again());
+      return;
+    }
+    await this.library.run(async () => {
+      if (this.shot.running()) this.outbox.enqueue(again());
+      else await work();
+    });
   }
 
   /**
@@ -401,7 +433,10 @@ export class LibraryWrites {
 
   /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
   drop(remove: LibraryRemove): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
+    return this.afterShot(
+      () => refused(remove, null, PULLING_SHOT),
+      async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))),
+    );
   }
 
   /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
@@ -412,15 +447,19 @@ export class LibraryWrites {
 
   /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
   leaveOut(leave: LeaveOut): Promise<void> {
-    return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted))));
+    return this.afterShot(
+      () => ({ type: "leftOut", id: leave.id, kind: leave.kind, localId: leave.localId, outcome: "refused", status: null, error: PULLING_SHOT }),
+      async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted))),
+    );
   }
 
   /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
   apply(write: LibraryWrite): Promise<void> {
+    const again = () => refused(write, null, PULLING_SHOT);
     if (!writerOf(write.kind)?.changesWorkflow) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
+      return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
     }
-    return this.library.run(() =>
+    return this.afterShot(again, () =>
       this.loaded.ownWrite(async (answered) => {
         const answer = await carryOut(write, this.log, Object.assign((key: Dye2Key) => this.posted(key), this.posted, { answered }));
         if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
@@ -542,6 +581,13 @@ const SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names th
 
 /** The most Shots still to be read that a delete reads to see whether they name its record. */
 const MAX_SHOTS_READ = 20;
+
+/**
+ * The longest the plugin holds a change the server asked for during a Shot
+ * before answering it with PULLING_SHOT all the same, so the server, which
+ * waits five minutes for an answer, asks again rather than giving up on it.
+ */
+const SHOT_WAIT_MS = 120_000;
 
 /**
  * Sets aside the tablet's record the Library leaves out (`LeaveOut`), as its

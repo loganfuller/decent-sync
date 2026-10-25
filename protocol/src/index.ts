@@ -1283,6 +1283,24 @@ export const RECORD_CHANGED = "The record changed since the plugin last read the
  */
 export const SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
 
+/**
+ * The machine state Decaid reports (`stateUpdate`) while its machine pulls a
+ * Shot, during which it rewrites the frames the machine runs whenever the
+ * Workflow's profile changes (ADR-0022).
+ */
+export const SHOT_STATE = "espresso";
+
+/**
+ * The error of a `writeRefused`, or a `leftOut` refused, answering a change
+ * the plugin held while its Machine pulled a Shot (ADR-0022): it carries out
+ * none of the server's changes from the moment the machine state is
+ * SHOT_STATE until Decaid has stored the Shot, and answers the one it held
+ * so once the Shot is stored, or after a while if it is still being pulled.
+ * The server plans the tablet's changes afresh at once, so what it then
+ * writes holds what changed meanwhile.
+ */
+export const PULLING_SHOT = "The Machine was pulling a Shot; ask again";
+
 export type DeletedKind = LibraryKind;
 
 /**

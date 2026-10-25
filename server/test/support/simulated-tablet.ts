@@ -799,7 +799,7 @@ export class SimulatedTablet {
     return tablet;
   }
 
-  private constructor(options: SimulatedTabletOptions) {
+  private constructor(private readonly options: SimulatedTabletOptions) {
     this.api = options.api ?? de1ProOnDecaid090();
     this.machineConnected = options.machineConnected ?? true;
     this.keepsFlushSettings = options.keepsFlushSettings ?? true;
@@ -1095,6 +1095,18 @@ export class SimulatedTablet {
       this.transports.clear();
       for (const socket of this.unnoticed) socket.terminate();
     }
+  }
+
+  /**
+   * Unloads the plugin and loads it again, as changing its settings or an
+   * update of it does: with the same options, on what this tablet's Decaid
+   * holds now, its plugin storage, its DYE2 and whether its machine is
+   * connected, but for the `options` given. Resolves with the new load's
+   * tablet.
+   */
+  async reload(options: Partial<SimulatedTabletOptions> = {}): Promise<SimulatedTablet> {
+    await this.unload();
+    return SimulatedTablet.load({ ...this.options, api: this.api, storage: this.storage, machineConnected: this.machineConnected, ...options });
   }
 
   /** Sends an emitted payload as Decaid does: through JSON, to the sockets open on the endpoint, none once unloaded. */
