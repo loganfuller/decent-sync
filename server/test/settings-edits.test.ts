@@ -226,6 +226,36 @@ describe("Settings Edits", () => {
     await expect.poll(() => machineSettings(machine)).toMatchObject({ fan: 45, steamPurgeMode: 0 });
   });
 
+  it("sends an edit's read-back before its answer, though the machine's settings are read again while both wait to be sent", async () => {
+    let stalled = false;
+    const { machine, tablet } = await connected("Settings read-back held", cafe, {
+      stallUpload: (frame) => stalled && (frame as Frame).type === "collection" && (frame as Frame).name === "appSettings",
+    });
+    await expect.poll(() => machineSettings(machine)).toMatchObject(AS_REPORTED);
+    // A report of the Tablet Settings waits on the network, and the outbox sends nothing else until it is acknowledged.
+    stalled = true;
+    expect((await tablet.callApi("POST", "/settings", { themeMode: "dark" })).status).toBe(200);
+    await expect.poll(() => (tablet.sent as Frame[]).some((frame) => frame.type === "collection" && frame.name === "appSettings" && (frame.value as { themeMode?: string }).themeMode === "dark")).toBe(true);
+
+    const made = await make(machine, { collection: "machineSettings", fields: { fan: 40 }, expected: { fan: 50 } });
+    await expect.poll(async () => (await readHeld(tablet)).fan).toBe(40);
+    // A barista lowers it again, and the machine's settings are read on their interval, while the edit's read-back and answer wait.
+    expect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
+    const reads = tablet.requests.filter((request) => request === "/machine/settings").length;
+    await expect.poll(() => tablet.requests.filter((request) => request === "/machine/settings").length).toBeGreaterThan(reads);
+    stalled = false;
+    tablet.resumeUpload();
+
+    expect(await answered(machine, made.id)).toMatchObject({ outcome: "applied", readBack: { fan: 40 } });
+    await expect.poll(() => machineSettings(machine)).toMatchObject({ fan: 30 });
+    // The read-back is sent before the answer, and the later read after it.
+    const sent = (tablet.sent as Frame[]).flatMap((frame) => {
+      if (frame.type === "settingsEdited") return ["answer"];
+      return frame.type === "collection" && frame.name === "machineSettings" ? [`fan ${(frame.value as { fan: number }).fan}`] : [];
+    });
+    expect(sent.slice(sent.indexOf("fan 50") + 1)).toEqual(["fan 40", "answer", "fan 30"]);
+  });
+
   it("sends an edit made through the instance not holding the connection, which that instance sends and either records the answer of", async () => {
     const { machine, tablet } = await connected("Settings across instances", cafe);
     const elsewhereApi = api.at(other.url);

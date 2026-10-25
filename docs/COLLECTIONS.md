@@ -179,7 +179,10 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
      `settingsEdited`, behind it: `written` with the values read back, or
      refused by `decaid` with Decaid's status and its `error` or `message`,
      and the values read back, as Decaid writes the fields one at a time. The
-     read counts for the machine settings' 60 s interval.
+     read counts for the machine settings' 60 s interval. A report an edit
+     queues stays where it is: a later report of the collection is queued
+     after the answer rather than replacing it, so the answer never overtakes
+     the read-back it reports.
   A Shot started between the state's read and the write is an accepted gap.
 - **Answered.** Whichever instance the answer reaches, on the connection it
   was sent on or a later one, records it for the edit of that Machine still
@@ -194,7 +197,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   Edit button, which opens an inline form offering only those fields, each
   with its notes, and the others in their place, read-only. While the Machine
   is offline, Edit is disabled with the reason. Saving sends only the fields
-  changed. The section then shows the edit as pending, reads it every second
+  changed, each with `expected` from the report the form opened over: a
+  report the page loads while the form is open changes neither, so a change
+  made on the Tablet meanwhile refuses the edit as changed since. The section then shows the edit as pending, reads it every second
   until it has an outcome, shows the outcome in place, and loads the reports
   again, so its values come from the latest one.
 

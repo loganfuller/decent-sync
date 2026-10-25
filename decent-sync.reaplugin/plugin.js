@@ -2757,12 +2757,16 @@ var __decentSync = (() => {
     /**
      * Queues a report of a settings collection a Settings Edit read, within
      * `SettingsAccess.run`: if it changed since the last one queued, or, when
-     * `always`, whatever it holds, as an edit's read-back is. A read of the
-     * machine's own settings counts for their interval.
+     * `always`, whatever it holds, as an edit's read-back is. The edit's answer
+     * follows it, so it is kept where it is: a later report of the collection
+     * is queued after it rather than superseding it, which would put the answer
+     * ahead of the read-back it reports. A read of the machine's own settings
+     * counts for their interval.
      */
     reportSettings(name, reading, always) {
       if (this.stopped) return;
       this.queueReading(name, reading, always);
+      this.queued.delete(name);
       if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
     }
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */

@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { DETAILS_POLL_MS } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // Settings Edits of a Machine's settings on its page (ticket #224): the
@@ -99,6 +100,37 @@ test("Staff at the Machine's Location change its steam purge mode, Staff elsewhe
   await expect(general.getByText("Settings can be changed only while the Machine is online, and its Tablet connected.")).toBeVisible();
 });
 
+test("an edit made over the report the form opened with is refused as changed since, though the page loaded a newer report meanwhile", async ({ page }) => {
+  const lab = await createLocation(page, "Lab");
+  const { machine, token } = await createMachine(page, "Lab bench", lab.id);
+  const tablet = await tabletOf(token, "22403");
+  await reported(page, machine.id);
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
+  await page.goto(`/machines/${machine.id}`);
+  const general = page.getByRole("region", { name: "General", exact: true });
+  await general.getByRole("button", { name: "Edit General" }).click();
+  const form = general.getByRole("form", { name: "Edit General" });
+  const fan = form.getByLabel("Fan threshold (°C)");
+  await expect(fan).toHaveValue("50");
+  await fan.fill("40");
+
+  // A barista sets 30 on the Tablet, which the page loads with what its tablet reported while the form is open.
+  baseExpect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
+  await expect.poll(async () => (await machineSettings(page, machine.id))?.fan).toBe(30);
+  const loaded = page.waitForResponse((response) => response.url().endsWith(`/machines/${machine.id}/collections/machineSettings`));
+  await page.clock.fastForward(DETAILS_POLL_MS);
+  await loaded;
+
+  // Saved over the report the form opened with, so the barista's change is not overwritten.
+  await form.getByRole("button", { name: "Save" }).click();
+  const status = general.getByRole("status");
+  await expect(status).toContainText("Not changed");
+  await expect(status).toContainText("It was changed on the Tablet since the values shown. It holds Fan threshold: 30 °C.");
+  baseExpect(((await tablet.callApi("GET", "/machine/settings")).body as { fan: number }).fan).toBe(30);
+  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(0);
+});
+
 /** A tablet connected with the token, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletOf(token: string, serial: string): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
@@ -113,9 +145,15 @@ async function tabletOf(token: string, serial: string): Promise<SimulatedTablet>
 
 /** Resolves once the server holds the Machine's settings as its tablet reported them, which its page loads on opening. */
 async function reported(page: Page, machineId: string): Promise<void> {
-  await expect
-    .poll(async () => ((await (await page.request.get(`/api/machines/${machineId}/collections/machineSettings`)).json()) as { collection: { available: boolean } | null }).collection?.available)
-    .toBe(true);
+  await expect.poll(async () => (await machineSettings(page, machineId)) !== undefined).toBe(true);
+}
+
+/** The Machine's settings as the server holds them from its tablet's latest available report, or undefined before one. */
+async function machineSettings(page: Page, machineId: string): Promise<Record<string, unknown> | undefined> {
+  const { collection } = (await (await page.request.get(`/api/machines/${machineId}/collections/machineSettings`)).json()) as {
+    collection: { available: boolean; value: Record<string, unknown> } | null;
+  };
+  return collection?.available ? collection.value : undefined;
 }
 
 /** Runs `work` with a page signed in as a new Staff member working at the Location. */

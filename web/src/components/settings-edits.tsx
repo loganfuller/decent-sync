@@ -79,8 +79,11 @@ function valueOf(field: EditableSettingsField, input: string | boolean): unknown
 /**
  * A section's inline form: an input for each field the account may change,
  * with its notes, then `children`, the section's other fields, read-only.
- * Saving sends only the fields changed, each with the raw value its latest
- * report held as `expected`, never the value as shown.
+ * Saving sends only the fields changed, each with the raw value the report
+ * the form opened over held as `expected`, never the value as shown: a
+ * report the page loads while the form is open changes neither, so a change
+ * made on the Tablet meanwhile refuses the edit as changed since rather than
+ * being overwritten.
  */
 export function SettingsForm({
   name,
@@ -96,7 +99,7 @@ export function SettingsForm({
   name: SettingsCollectionName;
   machine: Machine;
   offered: EditableSettingsField[];
-  /** The section's latest report, as Decaid sent it. */
+  /** The section's report as Decaid sent it, read once, as the form opens. */
   reported: Record<string, unknown>;
   label: string;
   /** What each note on a field says. */
@@ -107,7 +110,8 @@ export function SettingsForm({
 }) {
   const id = useId();
   const isAdmin = useIsAdmin();
-  const [inputs, setInputs] = useState<Inputs>(() => Object.fromEntries(offered.map((field) => [field.path, inputOf(field, reported[field.path])])));
+  const [baseline] = useState(reported);
+  const [inputs, setInputs] = useState<Inputs>(() => Object.fromEntries(offered.map((field) => [field.path, inputOf(field, baseline[field.path])])));
   const [error, setError] = useState<string | string[]>();
   const [saving, setSaving] = useState(false);
 
@@ -118,9 +122,9 @@ export function SettingsForm({
     const expected: Record<string, unknown> = {};
     for (const field of offered) {
       const value = valueOf(field, inputs[field.path]!);
-      if (sameValue(value, reported[field.path])) continue;
+      if (sameValue(value, baseline[field.path])) continue;
       fields[field.path] = value;
-      expected[field.path] = reported[field.path] ?? null;
+      expected[field.path] = baseline[field.path] ?? null;
     }
     if (Object.keys(fields).length === 0) return onCancel();
     const refusals = validateSettingsEdit({ collection: name, fields }, isAdmin ? "admin" : "staff");
