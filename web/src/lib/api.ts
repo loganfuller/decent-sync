@@ -353,6 +353,14 @@ export interface SettingsEdit {
   readBack: Record<string, unknown> | null;
 }
 
+/** A page of a Machine's Settings Edits, newest first. */
+export interface SettingsEditPage {
+  settingsEdits: SettingsEdit[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** A device paired with a Machine's tablet. */
 export interface PairedDevice {
   /** Decaid's id for it, such as a Bluetooth address. */

@@ -1,6 +1,7 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { rows } from "./support/locators.js";
 import { DETAILS_POLL_MS } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
@@ -8,7 +9,8 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 // Settings card's General section's Edit form, for an Admin and for Staff,
 // disabled while the Machine is offline, and an edit shown as pending, then
 // applied or refused, or not confirmed until a late answer replaces the mark
-// (#225). A simulated tablet running the built plugin takes the writes as
+// (#225), and the Settings Edits card listing each edit, for an Admin and
+// for Staff (#226). A simulated tablet running the built plugin takes the writes as
 // Decaid v0.9.0 does; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 // Machine pages poll the server every few seconds.
@@ -188,6 +190,100 @@ test("an edit whose Tablet's connection drops during its write is shown not conf
   await expect(status).toContainText("Fan threshold: 40 °C.");
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
 });
+
+test("the Settings Edits card lists each edit newest first, naming accounts to an Admin, and to Staff their own as theirs and others' as the Library's history does", async ({ page, browser }) => {
+  const harbour = await createLocation(page, "Harbour");
+  const { machine, token } = await createMachine(page, "Harbour bar", harbour.id);
+  // At real time, so Decaid's held requests stay within its 30 s fetch timeout and the edits' time left.
+  const tablet = await tabletOf(token, "22601", 1);
+  await reported(page, machine.id);
+
+  // An Admin's edit, applied.
+  const applied = await makeEdit(page, machine.id, { fan: 40 }, { fan: 50 });
+  await expect.poll(async () => (await editOf(page, machine.id, applied)).outcome).toBe("applied");
+  // Another, whose write is under way as the connection drops: not confirmed, then applied by a late answer.
+  const write = tablet.holdRequests("POST", "/machine/settings");
+  const late = await makeEdit(page, machine.id, { fan: 30 }, { fan: 40 });
+  await expect.poll(() => write.arrived).toBe(1);
+  tablet.dropConnections();
+  await expect.poll(async () => (await editOf(page, machine.id, late)).outcome).toBe("notConfirmed");
+  await online(page, machine.id);
+  write.release();
+  await expect.poll(async () => (await editOf(page, machine.id, late)).late).toBe(true);
+  // And one whose connection drops before its write, which stays not confirmed.
+  const state = tablet.holdRequests("GET", "/machine/state");
+  const notConfirmed = await makeEdit(page, machine.id, { fan: 35 }, { fan: 30 });
+  await expect.poll(() => state.arrived).toBe(1);
+  tablet.dropConnections();
+  await expect.poll(async () => (await editOf(page, machine.id, notConfirmed)).outcome).toBe("notConfirmed");
+  await online(page, machine.id);
+  state.release();
+  await expect.poll(async () => (await editOf(page, machine.id, notConfirmed)).answeredAt).not.toBeNull();
+
+  await asStaff(page, browser, "pat@example.com", harbour.id, async (patsPage) => {
+    // Pat's edit expects a steam purge mode the Machine no longer holds, and is refused as changed since.
+    const refused = await makeEdit(patsPage, machine.id, { steamPurgeMode: 0 }, { steamPurgeMode: 1 });
+    await expect.poll(async () => (await editOf(patsPage, machine.id, refused)).outcome).toBe("refused");
+    await patsPage.goto(`/machines/${machine.id}`);
+    const card = patsPage.getByRole("region", { name: "Settings Edits" });
+    const edits = rows(card.getByRole("table", { name: "Settings Edits" }));
+    await expect(edits).toHaveCount(4);
+    // Pat's own edit is theirs; the Admin's are by an account, unnamed, as the Library's history shows Staff.
+    await expect(edits.nth(0).getByRole("cell")).toHaveText([
+      /\S/,
+      "You",
+      "General",
+      "Steam purge mode: Two Tap Stop to Normal",
+      "Not changedIt was changed on the Tablet since the values shown. It holds Steam purge mode: Normal.",
+    ]);
+    await expect(edits.nth(1).getByRole("cell")).toHaveText([/\S/, "An account", "General", "Fan threshold: 30 °C to 35 °C", "Not confirmed"]);
+    await expect(edits.nth(2).getByRole("cell")).toHaveText([/\S/, "An account", "General", "Fan threshold: 40 °C to 30 °C", "Applied, answered late"]);
+    await expect(edits.nth(3).getByRole("cell")).toHaveText([/\S/, "An account", "General", "Fan threshold: 50 °C to 40 °C", "Applied"]);
+  });
+
+  // An Admin sees Pat's edit by Pat's name, and their own as theirs.
+  await page.goto(`/machines/${machine.id}`);
+  const edits = rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" }));
+  await expect(edits.locator("td:nth-child(2)")).toHaveText(["Staff", "You", "You", "You"]);
+  await expect(edits.locator("td:nth-child(5)")).toHaveText([/^Not changed/, "Not confirmed", "Applied, answered late", "Applied"]);
+});
+
+test("the Settings Edits card says so while a Machine has none, and lists an edit made on the page once it is answered", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Pier");
+  await tabletOf(token, "22602");
+  await reported(page, machine.id);
+  await page.goto(`/machines/${machine.id}`);
+  const card = page.getByRole("region", { name: "Settings Edits" });
+  await expect(card.getByText("None of its settings have been changed here.")).toBeVisible();
+
+  const general = page.getByRole("region", { name: "General", exact: true });
+  await general.getByRole("button", { name: "Edit General" }).click();
+  await general.getByRole("form", { name: "Edit General" }).getByLabel("Fan threshold (°C)").fill("45");
+  await general.getByRole("form", { name: "Edit General" }).getByRole("button", { name: "Save" }).click();
+  await expect(general.getByRole("status")).toContainText("Applied");
+  // Listed without waiting for the card's next poll.
+  await expect(rows(card.getByRole("table", { name: "Settings Edits" })).getByRole("cell")).toHaveText([/\S/, "You", "General", "Fan threshold: 50 °C to 45 °C", "Applied"]);
+});
+
+/** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */
+async function makeEdit(page: Page, machineId: string, fields: Record<string, unknown>, expected: Record<string, unknown>): Promise<string> {
+  const response = await page.request.post(`/api/machines/${machineId}/settings-edits`, { data: { collection: "machineSettings", fields, expected } });
+  baseExpect(response.status(), await response.text()).toBe(201);
+  return ((await response.json()) as { settingsEdit: { id: string } }).settingsEdit.id;
+}
+
+/** One of the Machine's edits, read as the page's account. */
+async function editOf(page: Page, machineId: string, id: string): Promise<{ outcome: string | null; late: boolean; answeredAt: string | null }> {
+  const { settingsEdit } = (await (await page.request.get(`/api/machines/${machineId}/settings-edits/${id}`)).json()) as {
+    settingsEdit: { outcome: string | null; late: boolean; answeredAt: string | null };
+  };
+  return settingsEdit;
+}
+
+/** Resolves once the Machine is online, as its tablet's connection makes it. */
+async function online(page: Page, machineId: string): Promise<void> {
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machineId}`)).json()) as { machine: { online: boolean } }).machine.online).toBe(true);
+}
 
 /** A tablet connected with the token, polling every 5 s of its time, which runs `timeScale` times faster. */
 async function tabletOf(token: string, serial: string, timeScale = 50): Promise<SimulatedTablet> {

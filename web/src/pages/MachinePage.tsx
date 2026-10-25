@@ -23,6 +23,7 @@ import { LoadedRecipeCard } from "@/components/loaded-recipes";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
+import { SettingsEditsCard } from "@/components/settings-edit-log";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -133,6 +134,12 @@ function MachineDetails({ id }: { id: string }) {
   const pending = usePolled(loadPending, DETAILS_POLL_MS);
   const { reload: reloadStatus } = status;
   const { reload: reloadReports } = reports;
+  // Counts the edits answered on this page, so the Settings Edits card loads them again as each is.
+  const [editsAnswered, setEditsAnswered] = useState(0);
+  const answered = useCallback(async () => {
+    setEditsAnswered((count) => count + 1);
+    await reloadReports();
+  }, [reloadReports]);
   const { reload: reloadPending } = pending;
   const reload = useCallback(async () => {
     await Promise.all([reloadStatus(), reloadReports(), reloadPending()]);
@@ -317,7 +324,8 @@ function MachineDetails({ id }: { id: string }) {
             <>
               <MachineWorkflow current={data.workflow} />
               <PairedDevicesCard devices={data.pairedDevices} />
-              <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={reloadReports} />
+              <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={answered} />
+              <SettingsEditsCard machineId={machine.id} answered={editsAnswered} />
               <LibraryCard collections={data.collections} />
             </>
           )}
