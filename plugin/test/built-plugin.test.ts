@@ -23,10 +23,9 @@ describe("the built plugin", () => {
     expect(manifest.permissions).toEqual(["log", "api", "emit", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
   });
 
-  it("declares the endpoints a skin uses, an HTTP skin and ui and a WebSocket changed, each as Decaid reads one", () => {
+  it("declares the endpoints a skin uses, an HTTP skin and a WebSocket changed, each as Decaid reads one", () => {
     expect(declaredEndpoints(manifest)).toEqual([
       { id: "skin", type: "http" },
-      { id: "ui", type: "http" },
       { id: "changed", type: "websocket" },
     ]);
   });

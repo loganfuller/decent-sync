@@ -42,16 +42,12 @@ const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 const BASKETS = `/store/${DYE2_NAMESPACE}/baskets`;
 const PUSH = { what: "workflow" };
 
-/** The pushes that have a skin read the Workflow and DYE2's recipes again, leaving out the Clear button's `{"what":"skin"}` (clear-button.test.ts). */
-const workflowPushes = (tablet: SimulatedTablet) => tablet.pushes("changed").filter((push) => (push as Record_).what !== "skin");
-
 const tablets = new LoadedTablets();
 afterAll(() => tablets.unloadAll());
 
 describe("The plugin's skin endpoint", () => {
   it("answers a GET of skin with no surfaces and its changed endpoint to listen on, and nothing else", async () => {
-    // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin. It follows no Loaded
-    // Recipe, so there is no Clear button (clear-button.test.ts).
+    // Without settings the plugin does not connect, and still answers: a skin asks every loaded plugin.
     const tablet = tablets.load({ settings: {} });
 
     const answer = await tablet.callEndpoint("skin");
@@ -60,7 +56,7 @@ describe("The plugin's skin endpoint", () => {
     expect(JSON.parse(answer.body)).toEqual({ version: 1, surfaces: [], live: { endpoint: "changed" } });
     expect((await tablet.callEndpoint("skin", { method: "POST", body: {} })).status).toBe(405);
     // Decaid answers these itself: one not declared, and the WebSocket endpoint.
-    expect((await tablet.callEndpoint("main")).status).toBe(404);
+    expect((await tablet.callEndpoint("ui")).status).toBe(404);
     expect((await tablet.callEndpoint("changed")).status).toBe(400);
     expect(tablet.pushes("changed")).toEqual([]);
   });
@@ -94,9 +90,9 @@ describe("Telling skins of each write to DYE2's recipes", () => {
 
   /** Asks the plugin, and resolves with its answer and the pushes the request led to. */
   async function pushesFor(request: ServerMessage & { id: string }): Promise<{ answer: Record_; pushes: unknown[] }> {
-    const before = workflowPushes(tablet).length;
+    const before = tablet.pushes("changed").length;
     const answer = await server.ask(request);
-    return { answer, pushes: workflowPushes(tablet).slice(before) };
+    return { answer, pushes: tablet.pushes("changed").slice(before) };
   }
 
   it("pushes once after each write that posts the recipes: a create, an update, a move between slots, one out of its slot, a removal, a set-aside and a hard delete", async () => {
@@ -249,13 +245,13 @@ describe("Telling skins of each write to DYE2's recipes", () => {
     const postsBefore = posts();
     const basket = randomUUID();
     const tool = randomUUID();
-    const before = workflowPushes(tablet).length;
+    const before = tablet.pushes("changed").length;
     expect(await server.ask({ type: "write", id: id(), kind: "basket", globalId: basket, localId: null, fields: { name: "Skin 18 g" } })).toMatchObject({ type: "written" });
     expect(await server.ask({ type: "write", id: id(), kind: "tool", globalId: tool, localId: null, fields: { name: "Skin WDT" } })).toMatchObject({ type: "written" });
     const basketId = String((dye2List(tablet, "baskets") as Record_[]).find((record) => record[GLOBAL_ID_KEY] === basket)?.id);
     expect(await server.ask({ type: "remove", id: id(), kind: "basket", globalId: basket, localId: basketId })).toMatchObject({ type: "removed" });
     expect(posts()).toBe(postsBefore + 3);
-    expect(workflowPushes(tablet).length).toBe(before);
+    expect(tablet.pushes("changed").length).toBe(before);
     expect((await tablet.callApi("GET", BASKETS)).body).toEqual([]);
   });
 
@@ -322,14 +318,12 @@ describe("Telling skins of each write of the server's into the Workflow", () => 
 
   /** Asks the plugin, and resolves with its answer, the pushes the request led to, and the Workflow the tablet held as each was made. */
   async function pushesFor(request: ServerMessage & { id: string }): Promise<{ answer: Record_; pushes: unknown[]; held: Record_[] }> {
-    const before = workflowPushes(tablet).length;
+    const before = tablet.pushes("changed").length;
     const held: Record_[] = [];
-    tablet.onEmit = (_event, payload) => {
-      if ((payload as Record_).what !== "skin") held.push(structuredClone(tablet.workflow()));
-    };
+    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
     try {
       const answer = await server.ask(request);
-      return { answer, pushes: workflowPushes(tablet).slice(before), held };
+      return { answer, pushes: tablet.pushes("changed").slice(before), held };
     } finally {
       tablet.onEmit = undefined;
     }
@@ -505,14 +499,12 @@ describe("Telling skins of each load of a recipe the Workflow names", () => {
 
   /** Runs `work`, and resolves with the pushes made meanwhile and the Workflow the tablet held as each was made. */
   async function pushesDuring(work: () => Promise<void>): Promise<{ pushes: unknown[]; held: Record_[] }> {
-    const before = workflowPushes(tablet).length;
+    const before = tablet.pushes("changed").length;
     const held: Record_[] = [];
-    tablet.onEmit = (_event, payload) => {
-      if ((payload as Record_).what !== "skin") held.push(structuredClone(tablet.workflow()));
-    };
+    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
     try {
       await work();
-      return { pushes: workflowPushes(tablet).slice(before), held };
+      return { pushes: tablet.pushes("changed").slice(before), held };
     } finally {
       tablet.onEmit = undefined;
     }
@@ -535,7 +527,7 @@ describe("Telling skins of each load of a recipe the Workflow names", () => {
     expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 20 }) })]);
 
     // A Loaded Recipe write for the 18 g recipe while the Workflow names the 20 g one is refused, and pushes nothing.
-    const before = workflowPushes(tablet).length;
+    const before = tablet.pushes("changed").length;
     const refused = await server.ask({
       type: "write",
       id: "skin-load-1",
@@ -546,7 +538,7 @@ describe("Telling skins of each load of a recipe the Workflow names", () => {
       expected: { "context.targetYield": 36, [DYE2_RECIPE_FIELD]: TWO },
     });
     expect(refused).toMatchObject({ type: "writeRefused", error: expect.stringContaining("names another recipe") });
-    expect(workflowPushes(tablet).length).toBe(before);
+    expect(tablet.pushes("changed").length).toBe(before);
   });
 
   it("pushes nothing for a load's write Decaid refuses, and once for the next load Decaid takes, of a recipe in no slot", async () => {
@@ -617,7 +609,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     const here = [load(lab[0]!, 46002, server), load(lab[1]!, 46003, other)];
     const cafe = load(cafeMachine, 46004, server);
     await api.waitForOnline(...lab, cafeMachine);
-    const pushes = () => here.map((tablet) => workflowPushes(tablet).length);
+    const pushes = () => here.map((tablet) => tablet.pushes("changed").length);
 
     /** Waits until each tablet at the Location holds `expected`, and has pushed at least `count` times since `before`. */
     const pushedOnEach = async (before: number[], expected: string[], count = 1) => {
@@ -655,7 +647,7 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     const basket = (await api.send<{ basket: { id: string } }>("POST", "/baskets", { locationId: location.id, content: { name: "Skin 20 g" } }, 201)).basket;
     for (const tablet of here) await expect.poll(() => ((dye2List(tablet, "baskets") ?? []) as Record_[]).some((record) => record[GLOBAL_ID_KEY] === basket.id)).toBe(true);
     expect(pushes()).toEqual(before);
-    for (const tablet of here) expect(new Set(workflowPushes(tablet).map((push) => JSON.stringify(push)))).toEqual(new Set([JSON.stringify(PUSH)]));
+    for (const tablet of here) expect(new Set(tablet.pushes("changed").map((push) => JSON.stringify(push)))).toEqual(new Set([JSON.stringify(PUSH)]));
     // No Recipe was ever at the cafe.
     expect(cafe.pushes("changed")).toEqual([]);
   });
