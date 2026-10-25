@@ -6,6 +6,7 @@ import {
   decimalPlaces,
   isEditable,
   onStep,
+  settingsRefusalText,
   validateSettingsEdit,
 } from "../src/index.js";
 
@@ -107,6 +108,20 @@ describe("validateSettingsEdit", () => {
     expect(validateSettingsEdit({ collection: "machineCalibration", fields: { flowMultiplier: Number.NaN } }, "admin")).toEqual([
       { reason: "invalid", field: "flowMultiplier" },
     ]);
+  });
+
+  it("takes the presence settings' fields as Staff's, the sleep timeout from 1 to 120 min", () => {
+    expect(validateSettingsEdit({ collection: "presenceSettings", fields: { userPresenceEnabled: false, sleepTimeoutMinutes: 1 } }, "staff")).toEqual([]);
+    expect(validateSettingsEdit({ collection: "presenceSettings", fields: { sleepTimeoutMinutes: 120 } }, "staff")).toEqual([]);
+    expect(validateSettingsEdit({ collection: "presenceSettings", fields: { sleepTimeoutMinutes: 0 } }, "staff")).toEqual([{ reason: "outOfRange", field: "sleepTimeoutMinutes" }]);
+    expect(validateSettingsEdit({ collection: "presenceSettings", fields: { sleepTimeoutMinutes: 121 } }, "admin")).toEqual([{ reason: "outOfRange", field: "sleepTimeoutMinutes" }]);
+    expect(validateSettingsEdit({ collection: "presenceSettings", fields: { keepAwakeUntil: null } }, "admin")).toEqual([{ reason: "readOnly", field: "keepAwakeUntil" }]);
+  });
+
+  it("refuses the wake schedules set as a field, as they are changed one at a time", () => {
+    const refusals = validateSettingsEdit({ collection: "presenceSettings", fields: { schedules: [] } }, "staff");
+    expect(refusals).toEqual([{ reason: "invalid", field: "schedules" }]);
+    expect(settingsRefusalText("presenceSettings", refusals[0]!)).toBe("Wake schedules are added, changed and deleted one at a time");
   });
 
   it("refuses an edit of no settings collection, or of nothing", () => {

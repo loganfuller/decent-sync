@@ -17,6 +17,7 @@ export const SETTINGS_COLLECTION_NAMES = [
   "machineCalibration",
   "sensorCalibration",
   "appSettings",
+  "presenceSettings",
 ] as const satisfies readonly CollectionName[];
 
 export type SettingsCollectionName = (typeof SETTINGS_COLLECTION_NAMES)[number];
@@ -49,9 +50,17 @@ export type SettingsRole = "admin" | "staff";
  * - `wholeNumber`, within its range;
  * - `onOff`, a boolean;
  * - `choice`, one of its choices' values;
- * - `timeOfDay`, minutes after midnight in the Tablet's own time, 0 to 1439.
+ * - `timeOfDay`, minutes after midnight in the Tablet's own time, 0 to 1439;
+ * - `localTime`, a date and time in the Tablet's own time without an offset,
+ *   as Dart's `toIso8601String` writes a local `DateTime`, such as
+ *   2026-10-25T08:30:00.000;
+ * - `wakeSchedules`, Decaid's wake schedules (`WakeSchedule.toJson`), each
+ *   with its id, its time as HH:MM in the Tablet's own time, its ISO days
+ *   of the week (none means every day), whether it is on, and its
+ *   `keepAwakeFor` in minutes, absent for none. They are added, changed and
+ *   deleted one at a time, never set as a field.
  */
-export type SettingsFieldKind = "number" | "wholeNumber" | "onOff" | "choice" | "timeOfDay";
+export type SettingsFieldKind = "number" | "wholeNumber" | "onOff" | "choice" | "timeOfDay" | "localTime" | "wakeSchedules";
 
 export interface SettingsChoice {
   /** As Decaid takes and reports it. */
@@ -271,6 +280,15 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     { path: "preferredScaleId", label: "Preferred scale", setBy: "Managed with the preferred devices" },
     { path: "preferredGrinderDeviceId", label: "Preferred grinder", setBy: "Managed with the preferred devices" },
   ],
+  // `GET /presence/settings` (presence_handler.dart), labelled as Streamline's presence settings label them.
+  presenceSettings: [
+    { path: "userPresenceEnabled", label: "Presence detection", kind: "onOff", editableBy: "staff" },
+    // Decaid takes 0 to 240 (`normalizeSleepTimeoutPreferenceMinutes`); Streamline's page offers 1 to 120.
+    { path: "sleepTimeoutMinutes", label: "Sleep timeout", unit: "min", kind: "wholeNumber", min: 1, max: 120, editableBy: "staff" },
+    { path: "schedules", label: "Wake schedules", kind: "wakeSchedules", editableBy: "staff" },
+    // The end of the keep-awake window of the wake schedule that last woke the Machine, while it lasts (`PresenceController`).
+    { path: "keepAwakeUntil", label: "Kept awake until", kind: "localTime", setBy: "Set while a wake schedule keeps the Machine awake" },
+  ],
 };
 
 /** The definition of a collection's field, or undefined for one no definition covers. */
@@ -355,6 +373,7 @@ export function settingsRefusalText(collection: string, refusal: SettingsEditRef
     case "notAllowed":
       return `Only an Admin can change ${name}`;
     case "invalid":
+      if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
       return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
     case "notOffered":
       return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
@@ -383,6 +402,11 @@ function fieldRefusal(field: SettingsField | undefined, value: unknown, role: Se
     case "timeOfDay":
       if (typeof value !== "number" || !Number.isInteger(value)) return "invalid";
       return inRange(field, value) ? undefined : "outOfRange";
+    // Only shown, as no editable field is one.
+    case "localTime":
+    // Added, changed and deleted one at a time, never set as a field.
+    case "wakeSchedules":
+      return "invalid";
     case "number":
       if (typeof value !== "number" || !Number.isFinite(value)) return "invalid";
       if (!inRange(field, value)) return "outOfRange";

@@ -1,21 +1,22 @@
 import type { SettingsField } from "@decent-sync/protocol";
+import { inTabletTime, localTimeText, timeOfDayText } from "@/lib/tablet-time";
 
 // How the Settings card writes a Machine's or Tablet's settings values.
 
 /**
  * A field's value as its definition shows it: a choice by its label, a time
- * of day as hours and minutes, and a number with its unit. A value that is
- * none of these, such as a choice not offered, is shown as it is
- * (`valueText`).
+ * of day as hours and minutes, a local time as its date and time, each in
+ * the Tablet's own time and labelled with its UTC offset where it is known,
+ * and a number with its unit. A value that is none of these, such as a
+ * choice not offered, is shown as it is (`valueText`).
  */
-export function fieldText(field: SettingsField, value: unknown): string {
+export function fieldText(field: SettingsField, value: unknown, utcOffsetMinutes: number | null = null): string {
   if (field.kind === "choice" && "choices" in field) {
     const choice = field.choices?.find((offered) => offered.value === value);
     if (choice) return choice.label;
   }
-  if (field.kind === "timeOfDay" && typeof value === "number" && Number.isInteger(value) && value >= 0 && value < 24 * 60) {
-    return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-  }
+  const time = field.kind === "timeOfDay" ? timeOfDayText(value) : field.kind === "localTime" ? localTimeText(value) : undefined;
+  if (time !== undefined) return inTabletTime(time, utcOffsetMinutes);
   if (typeof value === "number" && field.unit) return `${valueText(value)} ${field.unit}`;
   return valueText(value);
 }

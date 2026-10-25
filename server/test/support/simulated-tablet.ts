@@ -634,6 +634,12 @@ export interface SimulatedTabletOptions {
    */
   decaidClockOffsetMs?: number;
   /**
+   * The tablet's UTC offset in minutes east of UTC, as its plugin's `Date`
+   * gives it by `getTimezoneOffset`, until `setPluginUtcOffset` moves it:
+   * the test's own by default.
+   */
+  utcOffsetMinutes?: number;
+  /**
    * The largest `GET /steams/ids` response the plugin's fetch answers: a
    * longer list fails the fetch, as Decaid's 10 MiB limit, the default, fails
    * it on a tablet holding about 268,900 Steam Records.
@@ -809,6 +815,8 @@ export class SimulatedTablet {
   private readonly decaidClockOffsetMs: number;
   /** How far the plugin's own clock, as its `Date` reads it, is from the test's (`setPluginClockOffset`). */
   private pluginClockOffsetMs = 0;
+  /** The tablet's UTC offset in minutes east of UTC, as the plugin's `Date` gives it (`setPluginUtcOffset`); undefined for the test's own. */
+  private pluginUtcOffsetMinutes: number | undefined;
   private readonly keepsFlushSettings: boolean;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
@@ -851,6 +859,7 @@ export class SimulatedTablet {
     this.apiDelayMs = typeof apiDelayMs === "number" ? () => apiDelayMs : apiDelayMs;
     this.answerOnArrival = options.answerOnArrival ?? false;
     this.decaidClockOffsetMs = options.decaidClockOffsetMs ?? 0;
+    this.pluginUtcOffsetMinutes = options.utcOffsetMinutes;
     this.steamIdsLimitBytes = options.steamIdsLimitBytes ?? MAX_FETCH_RESPONSE_BYTES;
     this.uploadBytesPerSecond = options.uploadBytesPerSecond;
     this.stallUpload = options.stallUpload;
@@ -890,7 +899,7 @@ export class SimulatedTablet {
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
       clearTimeout: (id: number) => this.clearTimer(id),
-      Date: pluginDate(() => this.pluginClockOffsetMs),
+      Date: pluginDate(() => this.pluginClockOffsetMs, () => this.pluginUtcOffsetMinutes),
     });
     this.plugin.onLoad(options.settings);
     // PluginManager sends the current Workflow once the plugin has loaded.
@@ -1252,6 +1261,16 @@ export class SimulatedTablet {
    */
   setPluginClockOffset(offsetMs: number): void {
     this.pluginClockOffsetMs = offsetMs;
+  }
+
+  /**
+   * Puts the tablet this many minutes east of UTC from now on, as its
+   * plugin's `Date` gives it by `getTimezoneOffset`, as when its time zone
+   * changes or daylight saving starts or ends. Its other local-time methods
+   * keep the test's own time zone.
+   */
+  setPluginUtcOffset(minutes: number): void {
+    this.pluginUtcOffsetMinutes = minutes;
   }
 
   /** The tablet's clock, which `timeScale` speeds, in milliseconds. */
@@ -2187,11 +2206,20 @@ function storeKey(route: string): { namespace: string; key: string } | undefined
   return { namespace: decodeURIComponent(namespace), key: decodeURIComponent(key) };
 }
 
-/** A `Date` reading the test's clock moved by `offsetMs()`, as read when it is asked for the time. */
-function pluginDate(offsetMs: () => number): DateConstructor {
+/**
+ * A `Date` reading the test's clock moved by `offsetMs()`, as read when it is
+ * asked for the time, whose dates give `utcOffsetMinutes()` east of UTC by
+ * `getTimezoneOffset`, where it is defined.
+ */
+function pluginDate(offsetMs: () => number, utcOffsetMinutes: () => number | undefined): DateConstructor {
   const now = () => Date.now() + offsetMs();
   return new Proxy(Date, {
-    construct: (target, args, newTarget) => Reflect.construct(target, args.length > 0 ? args : [now()], newTarget),
+    construct: (target, args, newTarget) => {
+      const date = Reflect.construct(target, args.length > 0 ? args : [now()], newTarget) as Date;
+      const offset = utcOffsetMinutes();
+      if (offset !== undefined) Object.defineProperty(date, "getTimezoneOffset", { value: () => -offset });
+      return date;
+    },
     apply: () => new Date(now()).toString(),
     get: (target, property, receiver) => (property === "now" ? now : Reflect.get(target, property, receiver)),
   });

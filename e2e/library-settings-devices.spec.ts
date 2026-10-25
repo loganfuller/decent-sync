@@ -50,7 +50,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     "/settings": { ...(simulatedDevices()["/settings"] as Record<string, unknown>), updateChannel: "beta" },
   };
   // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
-  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50 });
+  // The tablet is in Toronto in summer.
+  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50, utcOffsetMinutes: -240 });
   tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   // The page loads what the tablet reported every 30 s, so it opens once the server holds all of it.
@@ -116,7 +117,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     // A field with nothing to explain has no tooltip.
     ["Gateway mode", "Disabled"],
     ["Charging mode", "Charge to 100%"],
-    ["Night mode sleep time", "22:00"],
+    // In the tablet's own time.
+    ["Night mode sleep time", "22:00 (UTC\u22124)"],
     ["Volume flow multiplier", "0.3 s"],
     ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
     ["Default skin", "streamline.js", "Managed with the Tablet's skins"],
@@ -144,6 +146,50 @@ test("the Machine page shows paired devices, settings and the library, and follo
     await baseExpect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
   });
   await expect(field(general, "Fan threshold")).toHaveText(/^55 °C/);
+});
+
+test("the Settings card shows a Tablet's presence settings and wake schedules under its Tablet Settings, its times in its own time", async ({ page }) => {
+  const { machine: { id }, token } = await createMachine(page, "Bar 4");
+  // Derived from Decaid v0.9.0's presence settings as wake schedules were added (settings-writes-v0.9.0/): one on three
+  // weekdays keeping the Machine awake for two hours, which it is until 08:30, and one every day that is off.
+  const presence = {
+    userPresenceEnabled: true,
+    sleepTimeoutMinutes: 30,
+    keepAwakeUntil: "2026-10-26T08:30:00.000",
+    schedules: [
+      { id: "0f0e0d0c-0b0a-4908-8706-050403020100", time: "06:30", daysOfWeek: [1, 3, 5], enabled: true, keepAwakeFor: 120 },
+      { id: "1f1e1d1c-1b1a-4918-9716-151413121110", time: "21:15", daysOfWeek: [], enabled: false },
+    ],
+  };
+  // Hardware of its own, and in Kolkata, five and a half hours east of UTC, while the page is in New York.
+  const served = { ...derivedDe1Pro({ serial: "20004" }), "/presence/settings": presence };
+  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50, utcOffsetMinutes: 330 });
+  tablets.push(tablet);
+  const reported = async () => ((await (await page.request.get(`/api/machines/${id}/collections/presenceSettings`)).json()) as { collection: unknown }).collection;
+  await expect.poll(reported).not.toBeNull();
+
+  await page.goto(`/machines/${id}`);
+  const tabletSettings = page.getByRole("region", { name: "Settings", exact: true }).getByRole("region", { name: "Tablet Settings" });
+  // Night mode's times, as the tablet keeps them, unmoved into the page's time zone.
+  await expectShown(tabletSettings, [
+    ["Night mode sleep time", "22:00 (UTC+5:30)"],
+    ["Night mode morning time", "07:00 (UTC+5:30)"],
+  ]);
+  const presenceSettings = tabletSettings.getByRole("region", { name: "Presence", exact: true });
+  await expectTip(presenceSettings, "Presence", /^Reported at \w{3} \d+, \d{4}/);
+  await expectShown(presenceSettings, [
+    ["Presence detection", "On"],
+    ["Sleep timeout", "30 min"],
+    ["Kept awake until", "Oct 26, 2026, 08:30 (UTC+5:30)", "Set while a wake schedule keeps the Machine awake"],
+  ]);
+  const schedules = presenceSettings.getByRole("table", { name: "Wake schedules" });
+  await expect(schedules.getByRole("columnheader")).toHaveText(["Time", "Days", "On", "Keeps awake for"]);
+  await expect(rows(presenceSettings)).toHaveText([
+    ["06:30 (UTC+5:30)", "Mon, Wed, Fri", "On", "120 min"],
+    ["21:15 (UTC+5:30)", "Every day", "Off", "None"],
+  ].map((cells) => cells.join("")));
+  // Presence settings can't be edited yet.
+  await expect(presenceSettings.getByRole("button", { name: /^Edit/ })).toHaveCount(0);
 });
 
 test("the Versions card shows the DYE2 and Streamline on the tablet, follows their changes, and keeps them while the Machine is offline", async ({ page }) => {
@@ -199,7 +245,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
   await expect(page.getByRole("region", { name: "Paired devices" })).toContainText("Its tablet has not reported its paired devices yet.");
   const settings = page.getByRole("region", { name: "Settings", exact: true });
-  for (const name of ["General", "Advanced", "Flow calibration", "Sensor calibration", "Tablet Settings"]) {
+  for (const name of ["General", "Advanced", "Flow calibration", "Sensor calibration", "Tablet Settings", "Presence"]) {
     await expect(settings.getByRole("region", { name, exact: true })).toContainText("Not reported yet");
   }
   await expect(settings.getByRole("region", { name: "Steam, hot water and rinse" })).toContainText("Its tablet has not reported its Workflow yet.");

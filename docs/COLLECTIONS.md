@@ -5,7 +5,7 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 
 | Direction | Message | Fields |
 |---|---|---|
-| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80) |
+| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80); for one of `UTC_OFFSET_COLLECTIONS`, `utcOffsetMinutes` too (ticket #229) |
 
 It is acknowledged with `ack` once stored, or set aside because storing it
 fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
@@ -31,6 +31,22 @@ unchanged keeps its time, and one whose content changed, or that is new to the
 list, is read now. The plugin keeps these times for one runtime, so after a
 reload a record is first read then. A record without a string id has null.
 
+Decaid keeps night mode's times (`appSettings`), the wake schedules' times
+and `keepAwakeUntil` (`presenceSettings`) in the tablet's own time too, as
+minutes after midnight, `HH:MM` and a local date and time without an offset.
+They are settings, not times to place in UTC, so the value stays as Decaid
+sent it, and beside a value of either collection (`UTC_OFFSET_COLLECTIONS`)
+the plugin sends `utcOffsetMinutes`, the tablet's UTC offset as it read the
+value, in whole minutes east of UTC: the negative of
+`Date.prototype.getTimezoneOffset()`, such as -240 for Toronto in summer, and
+within 18 hours of UTC (ticket
+[#229](https://github.com/loganfuller/decent-sync/issues/229)). The offset is
+part of what the plugin compares, so a daylight saving change sends both
+collections at the next poll, unchanged but for it. The server keeps it with
+the value (`reported_collections.utc_offset_minutes`), as an unavailable
+report keeps the value, and the REST API serves it beside the value as
+`utcOffsetMinutes`, null for every other collection.
+
 ## Collections
 
 Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
@@ -42,7 +58,8 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `grinders` | `GET /grinders?includeArchived=true` | ETag |
 | `profiles` | `GET /profiles?includeHidden=true`, which includes deleted ones too | ETag |
 | `dye2Recipes`, `dye2Equipment`, `dye2Baskets` | `GET /store/dye2.reaplugin/{recipes,equipment,baskets}` | content |
-| `appSettings` | `GET /settings` | content |
+| `appSettings` | `GET /settings` | content, with the UTC offset |
+| `presenceSettings` | `GET /presence/settings`, the wake schedules included | content, with the UTC offset |
 | `machineSettings` | `GET /machine/settings` | content |
 | `advancedSettings` | `GET /machine/settings/advanced` | content |
 | `machineCalibration` | `GET /machine/calibration` | content |
@@ -85,13 +102,13 @@ by Decaid as `discovered` too, so it is left out until it connects or leaves.
 Milestone 4 ([#220](https://github.com/loganfuller/decent-sync/issues/220),
 ADR-0023) makes a Machine's settings editable. Each field of
 `machineSettings`, `advancedSettings`, `machineCalibration`,
-`sensorCalibration` and `appSettings` is defined once, in
+`sensorCalibration`, `appSettings` and `presenceSettings` is defined once, in
 `protocol/src/settings-fields.ts` (`SETTINGS_FIELDS`, ticket
 [#222](https://github.com/loganfuller/decent-sync/issues/222)), for the
 server, the plugin and the management interface: Decaid's name for it (for
 `sensorCalibration`, the target, whose `measuredValue` is the value), its
-label and unit, its kind (number, whole number, on or off, choice, or time of
-day), its range and its step or choices, who may change it (Staff or Admin),
+label and unit, its kind (number, whole number, on or off, choice, time of
+day, a local date and time, or wake schedules), its range and its step or choices, who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: reset when the Machine
 reconnects, put back by Streamline's settings page, or to restart the Machine
 after a change. Labels, units, ranges, steps and choices follow Streamline's
@@ -111,9 +128,16 @@ writes (Settings Edits, below).
 
 The Machine page's Settings card groups the Machine Settings (`General`, the
 `machineSettings`; `Advanced`; `Flow calibration`; `Sensor calibration`) and
-the Tablet Settings (`appSettings`). Each field is shown by its label, with
+the Tablet Settings (`appSettings`), with its `Presence` (`presenceSettings`,
+ticket #229) under them. Each field is shown by its label, with
 its unit or its choice's label, and a reported value outside its range or
-choices is shown as it is. What sets a read-only field, and a field's notes,
+choices is shown as it is. Presence lists the wake schedules in a table, each
+with its time, its days (none chosen is every day, as Decaid takes it),
+whether it is on and how long it keeps the Machine awake. Night mode's
+times, the schedules' times and `keepAwakeUntil` are shown as the tablet
+holds them, in its own time, not moved into the browser's, each labelled with
+the offset reported beside them, such as `06:30 (UTC−4)`
+(`web/src/lib/tablet-time.ts`). What sets a read-only field, and a field's notes,
 are in a tooltip on an info icon beside its value, which opens on hover,
 focus or a tap, as is when each section was reported; a section not reported, or unavailable when last read, says so in
 plain sight. A field Decaid reports that no definition covers is shown

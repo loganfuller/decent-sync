@@ -686,6 +686,10 @@ model ReportedCollection {
   receivedAt       DateTime?       @map("received_at") @db.Timestamptz(3)
   /// How many entries the value lists, if it is a list, so summaries need not read it.
   items            Int?
+  /// For a collection sent with the tablet's UTC offset (UTC_OFFSET_COLLECTIONS
+  /// in protocol/), the offset as that value was read, in minutes east of UTC;
+  /// otherwise null.
+  utcOffsetMinutes Int?            @map("utc_offset_minutes")
 
   @@unique([machineId, name])
   @@unique([pendingMachineId, name])
