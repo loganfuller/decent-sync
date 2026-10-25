@@ -127,8 +127,12 @@ the Tablet whose connection holds the Machine. Nothing holds what a setting
 should be afterwards: the setting is whatever the Tablet next reports, and a
 change made on the Tablet later stands. Ticket
 [#224](https://github.com/loganfuller/decent-sync/issues/224) edits the
-`machineSettings` (the fan threshold and steam purge mode), the one
-collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
+`machineSettings` (the fan threshold and steam purge mode), and
+[#227](https://github.com/loganfuller/decent-sync/issues/227) the
+`advancedSettings` (the heater's flows, idle temperature, test time-out and
+voltage, and the refill kit) and the `machineCalibration` (the flow
+multiplier), all an Admin's: the collections in
+`EDITABLE_SETTINGS_COLLECTIONS` so far.
 
 - **Made through REST.** `POST /api/machines/:id/settings-edits` takes `{
   collection, fields, expected }`: each field it sets with its new value, and
@@ -192,7 +196,12 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   3. reads the collection, reports it if it changed, and refuses the edit as
      `changedSince`, with the fields' current values, if any field no longer
      holds its expected value (`sameValue`);
-  4. writes only the edit's fields through `POST /machine/settings`;
+  4. writes only the edit's fields through the collection's route: `POST
+     /machine/settings`, `/machine/settings/advanced` or
+     `/machine/calibration`. Decaid writes each field to the machine's
+     registers in turn, scaled and truncated (`_writeMMRScaled`), so a flow
+     multiplier of 1.001 is stored as 1.000 and reads as `adjusted`, and a
+     refusal part-way leaves the fields before it written;
   5. whether Decaid took the write or not, reads the collection again and
      queues it as a `collection` delivery, then queues its answer,
      `settingsEdited`, behind it: `written` with the values read back, or
@@ -234,7 +243,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   Edit button, which opens an inline form offering only those fields, each
   with its notes, and the others in their place, read-only. While the Machine
   is offline, or its Tablet reports another machine's hardware, Edit is
-  disabled with the reason. Saving sends only the fields
+  disabled with the reason. A number reported with the noise of Decaid's
+  register scaling, such as a heater flow of 2.3000000000000003, opens in its
+  input on the field's step. Saving sends only the fields
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
   made on the Tablet meanwhile refuses the edit as changed since, and a field
@@ -252,7 +263,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   an edit made on the page is answered.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
-built plugin on two instances sharing PostgreSQL, and
+built plugin on two instances sharing PostgreSQL,
+`server/test/advanced-settings-edits.test.ts` the advanced settings and the
+flow multiplier, and
 `server/test/settings-edit-deadline.test.ts` the 60 s limit, edits not
 confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
 instance, with Decaid slowed by `holdRequests`;

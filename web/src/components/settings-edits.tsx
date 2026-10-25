@@ -14,6 +14,7 @@ import {
   type EditableSettingsField,
   SETTINGS_FIELDS,
   type SettingsCollectionName,
+  decimalPlaces,
   isEditable,
   isEditableSettingsCollection,
   sameValue,
@@ -81,7 +82,19 @@ type Inputs = Record<string, string | boolean>;
 
 function inputOf(field: EditableSettingsField, value: unknown): string | boolean {
   if (field.kind === "onOff") return value === true;
+  if (field.kind === "number" && field.step !== undefined && typeof value === "number") return String(toStep(value, field.step));
   return value === undefined || value === null ? "" : String(value);
+}
+
+/**
+ * A number reported on a field's step, written to as many decimal places as
+ * the step has: Decaid reads a scaled register as a whole number times its
+ * scale, so a heater flow of 2.3 comes as 2.3000000000000003. A number off
+ * the step by more than that is left as it is.
+ */
+function toStep(value: number, step: number): number {
+  const rounded = Number(value.toFixed(decimalPlaces(step)));
+  return Math.abs(rounded - value) < 1e-9 ? rounded : value;
 }
 
 /** The value an input holds, as the edit sends it: NaN for a number that isn't one, which validation refuses. */

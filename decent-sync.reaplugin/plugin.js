@@ -170,7 +170,7 @@ var __decentSync = (() => {
   function isSettingsCollectionName(name) {
     return SETTINGS_COLLECTION_NAMES.includes(name);
   }
-  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings"];
+  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration"];
   function isEditableSettingsCollection(name) {
     return EDITABLE_SETTINGS_COLLECTIONS.includes(name);
   }
@@ -3579,7 +3579,9 @@ var __decentSync = (() => {
 
   // src/settings-edits.ts
   var ROUTES2 = {
-    machineSettings: "/machine/settings"
+    machineSettings: "/machine/settings",
+    advancedSettings: "/machine/settings/advanced",
+    machineCalibration: "/machine/calibration"
   };
   var SettingsAccess = class {
     constructor() {

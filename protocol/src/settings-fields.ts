@@ -27,10 +27,11 @@ export function isSettingsCollectionName(name: string): name is SettingsCollecti
 
 /**
  * The settings collections a Settings Edit changes, which the plugin writes
- * through Decaid's routes: only the machine's settings yet. The server
- * refuses an edit of any other, and the management interface offers none.
+ * through Decaid's routes: the machine's settings, its advanced settings and
+ * its flow calibration yet. The server refuses an edit of any other, and the
+ * management interface offers none.
  */
-export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings"] as const satisfies readonly SettingsCollectionName[];
+export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration"] as const satisfies readonly SettingsCollectionName[];
 
 export type EditableSettingsCollection = (typeof EDITABLE_SETTINGS_COLLECTIONS)[number];
 
