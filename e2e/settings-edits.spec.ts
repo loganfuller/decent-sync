@@ -295,10 +295,13 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await expect(status).toContainText("Applied");
   await expect(status).toContainText("Heater warmup flow: 2.3 ml/s; Heater voltage: 220 V.");
   await expect.poll(async () => ((await tablet.callApi("GET", "/machine/settings/advanced")).body as { heaterVoltage: number }).heaterVoltage).toBe(230);
-  // The Machine reads it back in tenths as 2.3000000000000003, which the form opens on its step.
+  // The Machine reads it back in tenths as 2.3000000000000003, which the form opens on its step. Changed again, it is
+  // sent expecting the value as reported, not as shown, and the fields left as they opened are not sent.
   await advanced.getByRole("button", { name: "Edit Advanced" }).click();
-  await expect(form.getByLabel("Heater warmup flow (ml/s)")).toHaveValue("2.3");
-  await form.getByRole("button", { name: "Cancel" }).click();
+  await expect(warmup).toHaveValue("2.3");
+  await warmup.fill("2.4");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(status).toHaveText("AppliedHeater warmup flow: 2.4 ml/s.");
 
   // Decaid truncates 1.001 to the thousandth below, so the Machine holds 1.
   const calibration = page.getByRole("region", { name: "Flow calibration", exact: true });
