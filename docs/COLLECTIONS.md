@@ -197,14 +197,16 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
      the read-back it reports.
   A Shot started between the state's read and the write is an accepted gap.
 - **Not confirmed.** An edit still unanswered is `notConfirmed` once 60 s
-  have passed since it was made, or its connection no longer holds the
-  Machine online, as the Machine's status judges it: the connection closed,
-  was replaced, as in a Tablet swap, or has gone unheard for three heartbeat
-  intervals, as when its instance crashed. Every instance judges it the same
-  way from the database, by PostgreSQL's clock, whenever the edit is read;
-  nothing marks it. A heartbeat landing just as an instance closes its
-  connection for going unheard can show an edit pending again for a moment;
-  its answer is recorded all the same.
+  have passed since it was made, or once its connection no longer holds the
+  Machine: it closed and was released, or a newer connection replaced it, as
+  in a reconnect or a Tablet swap. Every instance judges it the same way from
+  the database, by PostgreSQL's clock, whenever the edit is read; nothing
+  marks it, and it never turns back. A connection gone unheard, as when its
+  instance crashed, counts only once the 60 s are up, as a plugin whose
+  heartbeats the database is merely slow to record could still start the
+  write. A plugin hears that its connection closed only after the server
+  releases or replaces it, so a write it starts in that moment is answered
+  late.
 - **Answered.** Whichever instance the answer reaches, on the connection it
   was sent on or a later one, records it for the edit of that Machine still
   unanswered, by PostgreSQL's clock, and acknowledges it. An answer arriving

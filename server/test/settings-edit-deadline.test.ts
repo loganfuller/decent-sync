@@ -79,11 +79,46 @@ describe("Settings Edits within 60 s", () => {
   /** Resolves once `ms` have passed since `madeAt`, an edit's time made. */
   const after = (madeAt: string, ms: number) => new Promise((resolve) => setTimeout(resolve, Math.max(0, Date.parse(madeAt) + ms - Date.now())));
 
-  it("marks edits unanswered after 60 s not confirmed, refuses one that would start its write with less than 15 s left as expired, and records a slow write's late answer", async () => {
+  it("marks edits unanswered after 60 s not confirmed, refuses one that would start its write with less than 15 s left as expired, records a slow write's late answer, and leaves an edit of a crashed instance's connection not confirmed", async () => {
     // One tablet's first edit starts its write in time, which Decaid answers after 60 s; its second waits behind it.
-    // The other's only edit reaches its write with 12 s left.
+    // Another's only edit reaches its write with 12 s left. A third's instance crashes while its edit is under way.
     const { machine: slow, tablet: slowTablet } = await connected("Deadline slow write");
     const { machine: tight, tablet: tightTablet } = await connected("Deadline too late to write");
+    const doomed = await startTestServer({ env, sharing: server });
+    try {
+      await crashedAlongside(doomed, () => slowAndTight(slow, slowTablet, tight, tightTablet));
+    } finally {
+      await doomed.stop();
+    }
+  }, 120_000);
+
+  /**
+   * Runs `alongside` while an edit is made for a connection to `doomed`,
+   * which then crashes: once the Machine is no longer heard from, new edits
+   * are refused with 409, and the edit reads as not confirmed once its 60 s
+   * are up, as `alongside` takes them.
+   */
+  async function crashedAlongside(doomed: TestServer, alongside: () => Promise<void>): Promise<void> {
+    const { machine, tablet } = await connected("Deadline crash", doomed);
+    const state = tablet.holdRequests("GET", "/machine/state");
+    // Made through the instance that stays up.
+    const made = await make(machine, FAN_TO_40);
+    await expect.poll(() => state.arrived).toBe(1);
+    await doomed.kill();
+    const running = alongside();
+    // Nothing released the Machine; only the silence of three heartbeat intervals tells.
+    await api.waitForMachine(machine.machine.name, (viewed) => !viewed.online);
+    const refused = await api.call("POST", path(machine), FAN_TO_40);
+    expect(refused.status, await refused.text()).toBe(409);
+    // Unheard, its connection may yet be alive behind a slow database: the edit stays pending until its 60 s are up.
+    expect(await read(machine, made.id)).toMatchObject({ outcome: null });
+    await running;
+    await expect.poll(() => outcomeOf(machine, made.id), { timeout: 20_000 }).toBe("notConfirmed");
+    expect(settingsWrites(tablet)).toEqual([]);
+    state.release();
+  }
+
+  async function slowAndTight(slow: CreatedMachine, slowTablet: SimulatedTablet, tight: CreatedMachine, tightTablet: SimulatedTablet): Promise<void> {
     const holds = (tablet: SimulatedTablet) => ({
       state: tablet.holdRequests("GET", "/machine/state"),
       read: tablet.holdRequests("GET", "/machine/settings"),
@@ -115,7 +150,8 @@ describe("Settings Edits within 60 s", () => {
 
     // 60 s after they were made, neither of the first tablet's edits is answered.
     await expect.poll(() => outcomeOf(slow, first.id), { timeout: 20_000 }).toBe("notConfirmed");
-    expect(await read(slow, second.id)).toMatchObject({ outcome: "notConfirmed", answeredAt: null, late: false, refusal: null });
+    await expect.poll(() => outcomeOf(slow, second.id), { timeout: 5_000 }).toBe("notConfirmed");
+    expect(await read(slow, second.id)).toMatchObject({ answeredAt: null, late: false, refusal: null });
     expect(Date.now() - Date.parse(first.madeAt)).toBeGreaterThanOrEqual(59_000);
 
     // Decaid finishes the write: its answer replaces the mark, marked late.
@@ -126,7 +162,7 @@ describe("Settings Edits within 60 s", () => {
     expect(settingsWrites(slowTablet)).toEqual(["POST /machine/settings"]);
     expect(await held(slowTablet)).toMatchObject({ fan: 40, steamPurgeMode: 0 });
     await expect.poll(() => machineSettings(slow)).toMatchObject({ fan: 40, steamPurgeMode: 0 });
-  }, 120_000);
+  }
 
   it("sends two edits made at once at once, and carries them out in order: the second, expecting a value the first changed, is refused as changed since", async () => {
     const { machine, tablet } = await connected("Deadline two at once");
@@ -201,26 +237,6 @@ describe("Settings Edits within 60 s", () => {
     expect(editsReceived(replaced).map((frame) => frame.id)).toEqual([before.id]);
     expect(settingsWrites(replaced)).toEqual([]);
     expect(await read(machine, before.id)).toMatchObject({ outcome: "notConfirmed" });
-  });
-
-  it("leaves an edit made before the instance holding the connection crashed not confirmed, and refuses new edits with 409 once the Machine is no longer heard from", async () => {
-    const doomed = await startTestServer({ env, sharing: server });
-    try {
-      const { machine, tablet } = await connected("Deadline crash", doomed);
-      const state = tablet.holdRequests("GET", "/machine/state");
-      // Made through the instance that stays up.
-      const made = await make(machine, FAN_TO_40);
-      await expect.poll(() => state.arrived).toBe(1);
-
-      await doomed.kill();
-      // Nothing released the Machine; only the silence of three heartbeat intervals tells.
-      await expect.poll(() => outcomeOf(machine, made.id), { timeout: 15_000 }).toBe("notConfirmed");
-      const response = await api.call("POST", path(machine), FAN_TO_40);
-      expect(response.status, await response.text()).toBe(409);
-      state.release();
-    } finally {
-      await doomed.stop();
-    }
   });
 
   it("sends a connection's unsent edits once its instance listens for them again", async () => {

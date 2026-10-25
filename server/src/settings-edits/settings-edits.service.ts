@@ -91,8 +91,8 @@ type StoredEdit = Prisma.SettingsEditGetPayload<{ include: typeof withAccount }>
  *
  * An edit is never queued (ADR-0023). One unanswered SETTINGS_EDIT_MS after
  * it was made, by PostgreSQL's clock, or whose connection no longer holds
- * its Machine online first, is not confirmed: its connection closed, was
- * replaced, or went unheard, as its instance crashed (`noLongerAwaited`).
+ * its Machine first, as it closed or was replaced, is not confirmed
+ * (`noLongerAwaited`).
  * Nothing needs to mark it so: every instance judges it the same way from
  * the database whenever it is read. An answer arriving after that still
  * counts, marked late, but for an `expired` refusal, which leaves the edit
@@ -176,22 +176,22 @@ export class SettingsEditsService {
 
   /**
    * Whether a row of `settings_edits` is no longer awaited, as SQL: made
-   * SETTINGS_EDIT_MS ago or longer, or its connection does not hold its
-   * Machine online, as the Machine's status judges it: it was released or
-   * replaced, or has gone unheard for MISSED_HEARTBEATS intervals, as when
-   * its instance crashed. A session never holds its Machine again once it
-   * has stopped, and one gone unheard is closed by its instance, so this
-   * turns false again only where a heartbeat lands just as its instance
-   * closes it for going unheard, and the edit then reads as pending again.
+   * SETTINGS_EDIT_MS ago or longer, or its connection no longer holds its
+   * Machine, as it closed and was released, or a newer connection replaced
+   * it. A session never holds its Machine again once it has stopped, so this
+   * only ever turns true. A connection gone unheard, as when its instance
+   * crashed, counts only once the 60 s are up: its plugin, still connected
+   * while the database is merely slow to record its heartbeats, could still
+   * start the write. A plugin hears that its connection closed only after
+   * the server releases or replaces it, so a write it starts in that moment
+   * is answered late.
    */
   private noLongerAwaited(): Prisma.Sql {
-    const onlineSinceMs = this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
     return Prisma.sql`(
       settings_edits.made_at <= now() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
       OR NOT EXISTS (
         SELECT 1 FROM machines
         WHERE machines.id = settings_edits.machine_id AND machines.connected_session_id = settings_edits.session_id
-          AND machines.last_seen_at >= now() - ${onlineSinceMs}::integer * interval '1 millisecond'
       )
     )`;
   }
