@@ -477,7 +477,8 @@ the machine connects), each until written through Decaid.
 `flowMultiplier` (the DE1's `calFlowEst`, kept in thousandths), which scales
 the flow the machine reports, and which each Shot records as
 `workflow.machine.flowCalibration`. The Machine page shows the settings
-fields to five decimal places at most, so a change of a thousandth shows.
+fields, other than the sensor calibrations (below), to five decimal places
+at most, so a change of a thousandth shows.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
