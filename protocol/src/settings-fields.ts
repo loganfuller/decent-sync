@@ -345,22 +345,32 @@ function inRange(field: EditableSettingsField, value: number): boolean {
 
 /**
  * Whether a number is on a step: it has no more decimal places than the step
- * has, and is a whole multiple of it, compared as whole numbers of the
- * step's least decimal place (0.35 is 35 hundredths, seven times a step of
- * 0.05), not by floating-point division, in which 0.35 / 0.05 is
- * 6.999999999999999.
+ * has, and is a whole multiple of it, counted in the step's least decimal
+ * place (0.35 is 35 hundredths, seven times a step of 0.05). The number is
+ * taken as JavaScript writes it most briefly, as JSON carries it, and its
+ * digits are divided exactly, never by floating-point arithmetic: 0.35 / 0.05
+ * is 6.999999999999999, and scaling 90071992547410.11 by 100 loses its last
+ * digit.
  */
 export function onStep(value: number, step: number): boolean {
   const places = decimalPlaces(step);
-  if (decimalPlaces(value) > places) return false;
-  const scale = 10 ** places;
-  // With no more decimal places than the scale takes, each product is within rounding of a whole number.
-  return Math.round(value * scale) % Math.round(step * scale) === 0;
+  const { digits, exponent } = decimalDigits(value);
+  if (exponent < -places) return false;
+  // The step in its own least decimal place is a small whole number, such as 5 for 0.05, so this is exact.
+  const units = Math.round(step * 10 ** places);
+  let remainder = 0;
+  for (const digit of digits + "0".repeat(exponent + places)) remainder = (remainder * 10 + Number(digit)) % units;
+  return remainder === 0;
 }
 
 /** How many decimal places a number has, as JavaScript writes it most briefly: 0.05 has 2, 1.5e-7 has 8. */
 export function decimalPlaces(value: number): number {
+  return Math.max(0, -decimalDigits(value).exponent);
+}
+
+/** A number's magnitude as JavaScript writes it most briefly, as decimal digits times a power of ten: 0.35 is 35 and -2, 1e21 is 1 and 21. */
+function decimalDigits(value: number): { digits: string; exponent: number } {
   const [mantissa = "", exponent = "0"] = String(Math.abs(value)).toLowerCase().split("e");
-  const fraction = mantissa.split(".")[1]?.length ?? 0;
-  return Math.max(0, fraction - Number(exponent));
+  const [whole = "", fraction = ""] = mantissa.split(".");
+  return { digits: whole + fraction, exponent: Number(exponent) - fraction.length };
 }

@@ -127,6 +127,19 @@ describe("onStep", () => {
     expect(onStep(0, 0.05)).toBe(true);
     expect(onStep(12, 0.05)).toBe(true);
   });
+
+  it("stays exact for values too large to scale in floating point", () => {
+    // 90071992547410.11 * 100 rounds to a multiple of 5, yet 11 hundredths are no multiple of 0.05.
+    expect(Math.round(90071992547410.11 * 100) % 5).toBe(0);
+    expect(onStep(90071992547410.11, 0.05)).toBe(false);
+    expect(onStep(90071992547410.1, 0.05)).toBe(true);
+    // Written in exponent notation, and a multiple of every step.
+    expect(onStep(1e21, 0.05)).toBe(true);
+    expect(onStep(1e21, 0.001)).toBe(true);
+    expect(validateSettingsEdit({ collection: "appSettings", fields: { volumeFlowMultiplier: 90071992547410.11 } }, "staff")).toEqual([
+      { reason: "offStep", field: "volumeFlowMultiplier" },
+    ]);
+  });
 });
 
 describe("decimalPlaces", () => {
