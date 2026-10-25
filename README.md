@@ -536,8 +536,9 @@ holding its spec, tickets and pull requests.
    [#134](https://github.com/loganfuller/decent-sync/issues/134).
 4. **[Machine management](https://github.com/loganfuller/decent-sync/milestone/4).**
    Each Machine's Machine Settings and its Tablet's Tablet Settings edited in
-   the management interface, live while its Tablet is connected (ADR-0023), then
-   commands such as sleep and wake. Spec:
+   the management interface, live while its Tablet is connected (ADR-0023), each
+   Machine's Live View on its page (ADR-0024), then commands such as sleep and
+   wake. Spec:
    [#220](https://github.com/loganfuller/decent-sync/issues/220).
 5. **Analytics.** Broader views across Machines and Locations, and Barista
    grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
