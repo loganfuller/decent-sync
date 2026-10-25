@@ -1112,11 +1112,14 @@ var __decentSync = (() => {
       /** The Recipe, by its global id, whose load is held until the Shot being pulled ends, or null for none. */
       __publicField(this, "heldLoad", null);
       /**
-       * Until the load held as the plugin last stopped is read from its storage,
-       * nothing is decided; then that load, by its Recipe's global id, or null,
-       * until the plugin's first decision.
+       * The load held as the plugin last stopped, by its Recipe's global id, or
+       * null for none, once read from its storage, until the plugin's first
+       * decision takes it, or its read does where that decision came first;
+       * undefined until read.
        */
       __publicField(this, "restoredLoad");
+      /** How many loads the plugin had decided on as it first decided, or undefined before. */
+      __publicField(this, "firstLoads");
       /** Whether the plugin's storage may keep a load held for a Shot. */
       __publicField(this, "loadKept", false);
       __publicField(this, "chain", Promise.resolve());
@@ -1226,17 +1229,18 @@ var __decentSync = (() => {
      */
     decide(previous, changed) {
       const workflow = this.latest;
-      if (workflow === void 0 || this.records === null || this.stopped || this.restoredLoad === void 0) return;
+      if (workflow === void 0 || this.records === null || this.stopped) return;
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
       if (globalId !== this.loaded) {
         const first = this.loaded === void 0;
         const restored = first && globalId !== null && globalId === this.restoredLoad;
-        this.restoredLoad = null;
         this.loaded = globalId;
         this.loads++;
+        if (first) this.firstLoads = this.loads;
         if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
-        else if (first) void this.keepHeldLoad(null);
+        else if (first && this.restoredLoad !== void 0) void this.keepHeldLoad(null);
+        if (first && this.restoredLoad !== void 0) this.restoredLoad = null;
         return;
       }
       if (!changed || globalId === null || !this.sharing()) return;
@@ -1299,7 +1303,13 @@ var __decentSync = (() => {
       this.heldLoad = null;
       this.load(globalId);
     }
-    /** Reads the load held for a Shot as the plugin last stopped, then decides on the Workflow; one it cannot read is none. */
+    /**
+     * Reads the load held for a Shot as the plugin last stopped, which the
+     * plugin's first decision makes where the Workflow names its Recipe; one it
+     * cannot read is none. Read after that decision, it is made while the
+     * Recipe it took as loaded is that one and no other load was decided on
+     * since, and otherwise cleared.
+     */
     async restoreLoad() {
       if (this.stopped) return;
       let stored = null;
@@ -1308,9 +1318,16 @@ var __decentSync = (() => {
       } catch (error) {
         this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
       }
-      this.restoredLoad = heldGlobalId(stored);
-      this.loadKept = this.restoredLoad !== null;
-      this.decide(this.latest, false);
+      const restored = heldGlobalId(stored);
+      this.loadKept = restored !== null;
+      if (this.stopped) return;
+      if (this.firstLoads === void 0) {
+        this.restoredLoad = restored;
+        return;
+      }
+      this.restoredLoad = null;
+      if (restored !== null && restored === this.loaded && this.loads === this.firstLoads && this.sharing()) this.load(restored);
+      else void this.keepHeldLoad(null);
     }
     /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */
     async keepHeldLoad(globalId) {
@@ -1368,7 +1385,7 @@ var __decentSync = (() => {
     async loadRecipe(globalId) {
       if (this.stopped || !this.sharing()) return;
       if (this.shot.running()) {
-        this.holdLoad(globalId);
+        if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
         return;
       }
       const record = await this.ownWrite(async (answered) => {
@@ -2696,12 +2713,12 @@ var __decentSync = (() => {
   var MachineEvents = class {
     constructor(outbox, observe = () => {
     }, machineSettingsChanged = () => {
-    }, stateChanged = () => {
+    }, stateReported = () => {
     }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "observe", observe);
       __publicField(this, "machineSettingsChanged", machineSettingsChanged);
-      __publicField(this, "stateChanged", stateChanged);
+      __publicField(this, "stateReported", stateReported);
       /** The latest Workflow Decaid reported, and when. */
       __publicField(this, "workflow");
       __publicField(this, "reportedAt", now());
@@ -2792,10 +2809,11 @@ var __decentSync = (() => {
       const state = reported?.state;
       const substate = reported?.substate;
       if (typeof state !== "string" || state === "" || typeof substate !== "string" || substate === "") return;
-      if (this.state?.state === state && this.state.substate === substate) return;
-      this.state = { state, substate };
-      this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
-      this.stateChanged(state);
+      if (this.state?.state !== state || this.state.substate !== substate) {
+        this.state = { state, substate };
+        this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
+      }
+      this.stateReported(state);
     }
     /**
      * On every welcome, before the outbox sends, the latest Workflow again,

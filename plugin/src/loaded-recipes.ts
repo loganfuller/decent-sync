@@ -119,11 +119,14 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /** The Recipe, by its global id, whose load is held until the Shot being pulled ends, or null for none. */
   private heldLoad: string | null = null;
   /**
-   * Until the load held as the plugin last stopped is read from its storage,
-   * nothing is decided; then that load, by its Recipe's global id, or null,
-   * until the plugin's first decision.
+   * The load held as the plugin last stopped, by its Recipe's global id, or
+   * null for none, once read from its storage, until the plugin's first
+   * decision takes it, or its read does where that decision came first;
+   * undefined until read.
    */
   private restoredLoad: string | null | undefined;
+  /** How many loads the plugin had decided on as it first decided, or undefined before. */
+  private firstLoads: number | undefined;
   /** Whether the plugin's storage may keep a load held for a Shot. */
   private loadKept = false;
   private chain: Promise<void> = Promise.resolve();
@@ -265,18 +268,19 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private decide(previous: Record<string, unknown> | undefined, changed: boolean): void {
     const workflow = this.latest;
-    if (workflow === undefined || this.records === null || this.stopped || this.restoredLoad === undefined) return;
+    if (workflow === undefined || this.records === null || this.stopped) return;
     const recordId = dye2RecipeIdOf(workflow);
     const globalId = (recordId === null ? undefined : this.records.get(recordId))?.globalId ?? null;
     if (globalId !== this.loaded) {
       const first = this.loaded === undefined;
       // But for a load held for a Shot as the plugin last stopped, of the Recipe the Workflow still names.
       const restored = first && globalId !== null && globalId === this.restoredLoad;
-      this.restoredLoad = null;
       this.loaded = globalId;
       this.loads++;
+      if (first) this.firstLoads = this.loads;
       if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
-      else if (first) void this.keepHeldLoad(null);
+      else if (first && this.restoredLoad !== undefined) void this.keepHeldLoad(null);
+      if (first && this.restoredLoad !== undefined) this.restoredLoad = null;
       return;
     }
     if (!changed || globalId === null || !this.sharing()) return;
@@ -352,7 +356,13 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.load(globalId);
   }
 
-  /** Reads the load held for a Shot as the plugin last stopped, then decides on the Workflow; one it cannot read is none. */
+  /**
+   * Reads the load held for a Shot as the plugin last stopped, which the
+   * plugin's first decision makes where the Workflow names its Recipe; one it
+   * cannot read is none. Read after that decision, it is made while the
+   * Recipe it took as loaded is that one and no other load was decided on
+   * since, and otherwise cleared.
+   */
   private async restoreLoad(): Promise<void> {
     if (this.stopped) return;
     let stored: unknown = null;
@@ -361,9 +371,16 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     } catch (error) {
       this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
     }
-    this.restoredLoad = heldGlobalId(stored);
-    this.loadKept = this.restoredLoad !== null;
-    this.decide(this.latest, false);
+    const restored = heldGlobalId(stored);
+    this.loadKept = restored !== null;
+    if (this.stopped) return;
+    if (this.firstLoads === undefined) {
+      this.restoredLoad = restored;
+      return;
+    }
+    this.restoredLoad = null;
+    if (restored !== null && restored === this.loaded && this.loads === this.firstLoads && this.sharing()) this.load(restored);
+    else void this.keepHeldLoad(null);
   }
 
   /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */
@@ -430,9 +447,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private async loadRecipe(globalId: string): Promise<void> {
     if (this.stopped || !this.sharing()) return;
-    // A Shot begun while the load waited its turn.
+    // A Shot begun while the load waited its turn: held, unless another was decided on since.
     if (this.shot.running()) {
-      this.holdLoad(globalId);
+      if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
       return;
     }
     const record = await this.ownWrite(async (answered) => {

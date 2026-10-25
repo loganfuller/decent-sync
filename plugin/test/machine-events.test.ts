@@ -187,3 +187,24 @@ describe("The machine's own settings read again on a Workflow change", () => {
     expect(machineSettings.changes).toBe(2);
   });
 });
+
+describe("The machine's state told to the Shot gate", () => {
+  it("tells of the state in every update, a repeated one included, but queues only a change", () => {
+    let next = 0;
+    const queued: (WorkflowDelivery | MachineStateDelivery)[] = [];
+    const reported: string[] = [];
+    const machineEvents = new MachineEvents(
+      { nextId: () => `delivery-${++next}`, enqueue: (delivery) => queued.push(delivery), supersede: () => true },
+      () => {},
+      () => {},
+      (state) => reported.push(state),
+    );
+    const update = (state: string, substate: string) => machineEvents.stateUpdate({ state: { state, substate } });
+    update("espresso", "pouring");
+    // Repeated, as after the gate was opened on finding no machine.
+    update("espresso", "pouring");
+    update("idle", "idle");
+    expect(reported).toEqual(["espresso", "espresso", "idle"]);
+    expect(queued.map((delivery) => delivery.type === "machineState" && delivery.state)).toEqual(["espresso", "idle"]);
+  });
+});

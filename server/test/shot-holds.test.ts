@@ -89,7 +89,8 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: new SimulatedDye2() });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
-    const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: new SimulatedDye2() });
+    const dye2 = new SimulatedDye2();
+    const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2 });
     await api.waitForOnline(machines.c);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => [dye2GlobalIdOf(record(c, id)), record(c, id)?.beanBatchId ?? null]).flat(), { timeout: 15_000 }).not.toContain(null);
     const one = dye2GlobalIdOf(record(a, ETHIOPIA))!;
@@ -103,7 +104,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     };
     await load(a, machines.a, ETHIOPIA, one);
     await load(c, machines.c, ETHIOPIA, one);
-    return { machines, a, c, one, two, load };
+    return { machines, a, c, one, two, load, dye2 };
   }
 
   /**
@@ -190,6 +191,23 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     expect(recipeIdInWorkflow(reloaded)).toBe(ETHIOPIA);
     reloaded.restoreNetwork();
     await loads(machines.c, one);
+  });
+
+  it("saves a change made on C while the plugin, loaded again, is still reading the load it may have held", async () => {
+    const { c, dye2 } = await lab("Restore", 51031);
+    // At the tablet's own pace, so its storage read waits Decaid's 10 s before it gives up.
+    const reloaded = await c.reload({ timeScale: 1 });
+    const release = reloaded.holdStorageAnswers();
+    try {
+      await expect.poll(() => reloaded.requests.filter((route) => route.endsWith("/dye2.reaplugin/recipes")).length, { timeout: 5_000 }).toBeGreaterThan(0);
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const saves = dye2.recorded.length;
+      await reloaded.changeSettings({ context: { targetDoseWeight: 18.9 } });
+      await expect.poll(() => dye2.recorded.length, { timeout: 5_000 }).toBeGreaterThan(saves);
+      expect(dye2.recorded.at(-1)).toMatchObject({ id: ETHIOPIA, patch: { dose: 18.9 } });
+    } finally {
+      release();
+    }
   });
 });
 

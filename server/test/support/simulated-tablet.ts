@@ -1101,11 +1101,12 @@ export class SimulatedTablet {
    * Unloads the plugin and loads it again, as changing its settings or an
    * update of it does: with the same options, on what this tablet's Decaid
    * holds now, its plugin storage, its DYE2 and whether its machine is
-   * connected. Resolves with the new load's tablet.
+   * connected, but for the `options` given. Resolves with the new load's
+   * tablet.
    */
-  async reload(): Promise<SimulatedTablet> {
+  async reload(options: Partial<SimulatedTabletOptions> = {}): Promise<SimulatedTablet> {
     await this.unload();
-    return SimulatedTablet.load({ ...this.options, api: this.api, storage: this.storage, machineConnected: this.machineConnected });
+    return SimulatedTablet.load({ ...this.options, api: this.api, storage: this.storage, machineConnected: this.machineConnected, ...options });
   }
 
   /** Sends an emitted payload as Decaid does: through JSON, to the sockets open on the endpoint, none once unloaded. */
