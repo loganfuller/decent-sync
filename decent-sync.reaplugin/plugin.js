@@ -1167,9 +1167,10 @@ var __decentSync = (() => {
      * check and call, and as a write of the plugin's own (`ownWrite`). Nothing
      * else of the Workflow changes, and the Workflow delivered after it
      * unloads the Recipe on the server. It is made only while the Recipe
-     * loaded at the tap is still loaded, by no later load, and the Workflow,
-     * read just before, still names its record, as does the latest Workflow
-     * Decaid reported while that read was answered: a recipe applied
+     * loaded at the tap is still loaded, by no later load, on a Machine still
+     * sharing with DYE2 there, and the Workflow, read just before, still
+     * names its record, as does the latest Workflow Decaid reported while
+     * that read was answered: a recipe applied
      * meanwhile is not unloaded. Resolves with why it was not made, or null
      * where it was or there was nothing to unload. One not written within
      * `ms`, as behind a long write of the plugin's or a slow read, is never
@@ -1188,7 +1189,7 @@ var __decentSync = (() => {
           const workflow = await workflowNow();
           const recordId = dye2RecipeIdOf(workflow);
           if (recordId === null || this.records?.get(recordId)?.globalId !== globalId) return null;
-          if (expired) return null;
+          if (expired || this.stopped || !this.sharing()) return null;
           if (this.latest !== void 0 && dye2RecipeIdOf(this.latest) !== recordId) return "the Workflow named another recipe meanwhile, so the unload is not made";
           writing = true;
           const body = clearRecipe();
