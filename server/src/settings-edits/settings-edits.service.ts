@@ -159,19 +159,22 @@ export class SettingsEditsService {
     return this.get(machineId, id, signedIn.scope);
   }
 
-  /** One of the Machine's edits. */
+  /**
+   * One of the Machine's edits. It and whether it is not confirmed are read
+   * from one snapshot, so an answer recorded meanwhile shows in both or
+   * neither.
+   */
   async get(machineId: string, id: string, scope: Scope): Promise<SettingsEditView> {
-    const edit = await this.prisma.settingsEdit.findFirst({ where: { id, machineId }, include: withAccount });
+    const [edit, notConfirmed] = await this.prisma.$transaction(
+      [
+        this.prisma.settingsEdit.findFirst({ where: { id, machineId }, include: withAccount }),
+        this.prisma.$queryRaw<unknown[]>`
+          SELECT 1 FROM settings_edits WHERE id = ${id}::uuid AND answered_at IS NULL AND ${this.noLongerAwaited()}`,
+      ],
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
     if (!edit) throw settingsEditNotFound();
-    return view(edit, scope, edit.answeredAt === null && (await this.notConfirmed([edit.id])).has(edit.id));
-  }
-
-  /** Those of these edits still unanswered that are no longer awaited, so not confirmed, by PostgreSQL's clock. */
-  private async notConfirmed(ids: string[]): Promise<Set<string>> {
-    const rows = await this.prisma.$queryRaw<{ id: string }[]>`
-      SELECT id FROM settings_edits
-      WHERE id = ANY(${ids}::uuid[]) AND answered_at IS NULL AND ${this.noLongerAwaited()}`;
-    return new Set(rows.map((row) => row.id));
+    return view(edit, scope, notConfirmed.length > 0);
   }
 
   /**
@@ -201,9 +204,10 @@ export class SettingsEditsService {
    * claimed by setting when they were sent, while the connection still holds
    * its Machine, judged under the Machine's row lock; none once it does not.
    * Each carries the time it has left, by PostgreSQL's clock; one with none
-   * left is not sent, as it is not confirmed. A claim whose transaction
-   * began before an edit's, waiting for the lock, sends it as it was made,
-   * not before.
+   * left is not sent, as it is not confirmed. Its time is read once the
+   * lock is held (`clock_timestamp()`, not the transaction's `now()`), so a
+   * claim that waited for the lock, perhaps since before the edit was made,
+   * counts the wait against the time left.
    */
   async claim(connection: { sessionId: string; machineId: string }): Promise<SettingsEdit[]> {
     return this.prisma.$transaction(async (tx) => {
@@ -212,9 +216,9 @@ export class SettingsEditsService {
       if (holds.length === 0) return [];
       const claimed = await tx.$queryRaw<{ id: string; collection: string; fields: Record<string, unknown>; expected: Record<string, unknown>; timeLeftMs: number }[]>`
         WITH claimed AS (
-          UPDATE settings_edits SET sent_at = GREATEST(now(), made_at)
+          UPDATE settings_edits SET sent_at = clock_timestamp()
           WHERE session_id = ${connection.sessionId}::uuid AND machine_id = ${connection.machineId}::uuid AND sent_at IS NULL
-            AND made_at > now() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
+            AND made_at > clock_timestamp() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
           RETURNING id, collection, fields, expected, made_at, sent_at
         )
         SELECT id, collection, fields, expected,
