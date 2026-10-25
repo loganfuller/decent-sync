@@ -69,7 +69,8 @@ import { opened } from "./test-scope.js";
 //   profile at `/profiles/{id}`, whose id it derives from the profile's
 //   content as Decaid does; it refuses every other request but a `GET`.
 // - The plugin's local time, as JavaScript reads it, is this process's time
-//   zone: set `process.env.TZ` to put the tablet in another one.
+//   zone: set `process.env.TZ` to put the tablet in another one. Its clock is
+//   the test's, unless `setPluginClockOffset` corrects it.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -127,9 +128,10 @@ import { opened } from "./test-scope.js";
 //   its transports, dropping their later events.
 // - Timers are the host's, so a test can run them faster with `timeScale` to
 //   reach the plugin's timeouts and backoff quickly. The server keeps real
-//   time, though. The heartbeat interval in its `welcome` is slowed by the
-//   same factor, so a sped-up plugin still heartbeats, and expects the
-//   server's answers, at the server's pace. And from the moment a connection
+//   time, though. The heartbeat interval in its `welcome`, and the time a
+//   `settingsEdit` has left, are slowed by the same factor, so a sped-up
+//   plugin still heartbeats, expects the server's answers and counts down an
+//   edit's time at the server's pace. And from the moment a connection
 //   starts to open until the server's first answer, the tablet's clock runs
 //   at real time: the server's work on an upgrade and a hello takes real time
 //   however fast the tablet runs, and a sped-up connect deadline would
@@ -805,6 +807,8 @@ export class SimulatedTablet {
   private readonly apiDelayMs: (method: string, path: string) => number;
   private readonly answerOnArrival: boolean;
   private readonly decaidClockOffsetMs: number;
+  /** How far the plugin's own clock, as its `Date` reads it, is from the test's (`setPluginClockOffset`). */
+  private pluginClockOffsetMs = 0;
   private readonly keepsFlushSettings: boolean;
   private readonly steamIdsLimitBytes: number;
   private readonly uploadBytesPerSecond: number | undefined;
@@ -886,6 +890,7 @@ export class SimulatedTablet {
       fetch: (input: unknown, init?: unknown) => this.fetch(input, init),
       setTimeout: (callback: () => void, delay: number) => this.setTimer(callback, delay),
       clearTimeout: (id: number) => this.clearTimer(id),
+      Date: pluginDate(() => this.pluginClockOffsetMs),
     });
     this.plugin.onLoad(options.settings);
     // PluginManager sends the current Workflow once the plugin has loaded.
@@ -1237,6 +1242,16 @@ export class SimulatedTablet {
     const own = { ...this.manifest, loaded: !this.unloaded, autoLoad: true, source: null, pendingUpdate: null };
     const dye2 = this.dye2?.listing();
     return dye2 ? [dye2, own] : [own];
+  }
+
+  /**
+   * Moves the plugin's own clock, as its `Date` reads it, this far from the
+   * test's from now on, as when the tablet corrects its clock: back where
+   * negative. Its timers keep their pace, as Decaid's are Dart's, on a
+   * monotonic clock.
+   */
+  setPluginClockOffset(offsetMs: number): void {
+    this.pluginClockOffsetMs = offsetMs;
   }
 
   /** The tablet's clock, which `timeScale` speeds, in milliseconds. */
@@ -1957,11 +1972,18 @@ export class SimulatedTablet {
     return { handle: record.handle, ...(remote.protocol ? { protocol: remote.protocol } : {}) };
   }
 
-  /** Scales the heartbeat interval in a `welcome` up by `timeScale`, which the plugin's timers then scale back down. */
+  /**
+   * Scales the heartbeat interval in a `welcome`, and the time a
+   * `settingsEdit` has left, up by `timeScale`, which the plugin's timers
+   * then scale back down, so it counts both at the server's pace.
+   */
   private atServerPace(text: string): string {
     if (this.timeScale === 1) return text;
     try {
-      const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown };
+      const message = JSON.parse(text) as { type?: unknown; heartbeatIntervalMs?: unknown; timeLeftMs?: unknown };
+      if (message.type === "settingsEdit" && typeof message.timeLeftMs === "number") {
+        return JSON.stringify({ ...message, timeLeftMs: Math.round(message.timeLeftMs * this.timeScale) });
+      }
       if (message.type !== "welcome" || typeof message.heartbeatIntervalMs !== "number") return text;
       return JSON.stringify({ ...message, heartbeatIntervalMs: Math.round(message.heartbeatIntervalMs * this.timeScale) });
     } catch {
@@ -2136,6 +2158,8 @@ interface PluginScope {
   fetch: (input: unknown, init?: unknown) => Promise<unknown>;
   setTimeout: (callback: () => void, delay: number) => number;
   clearTimeout: (id: number) => void;
+  /** The plugin's `Date`, the global one by default. */
+  Date?: DateConstructor;
 }
 
 /** The route of Decaid's store API for that key of that namespace, as `api` serves it. */
@@ -2159,6 +2183,16 @@ function storeKey(route: string): { namespace: string; key: string } | undefined
   return { namespace: decodeURIComponent(namespace), key: decodeURIComponent(key) };
 }
 
+/** A `Date` reading the test's clock moved by `offsetMs()`, as read when it is asked for the time. */
+function pluginDate(offsetMs: () => number): DateConstructor {
+  const now = () => Date.now() + offsetMs();
+  return new Proxy(Date, {
+    construct: (target, args, newTarget) => Reflect.construct(target, args.length > 0 ? args : [now()], newTarget),
+    apply: () => new Date(now()).toString(),
+    get: (target, property, receiver) => (property === "now" ? now : Reflect.get(target, property, receiver)),
+  });
+}
+
 /** Evaluates plugin.js the way Decaid's plugin manager does. */
 export function loadPlugin(source: string, manifestId: string, scope: PluginScope): BuiltPlugin {
   const factory = new Function(
@@ -2166,13 +2200,14 @@ export function loadPlugin(source: string, manifestId: string, scope: PluginScop
     "fetch",
     "setTimeout",
     "clearTimeout",
+    "Date",
     `${source}
     if (typeof createPlugin !== "function") {
       throw new Error("Plugin must export a 'createPlugin' function. Got: " + typeof createPlugin);
     }
     return createPlugin(host);`,
   ) as (...args: unknown[]) => BuiltPlugin;
-  const plugin = factory(scope.host, scope.fetch, scope.setTimeout, scope.clearTimeout);
+  const plugin = factory(scope.host, scope.fetch, scope.setTimeout, scope.clearTimeout, scope.Date ?? Date);
   if (!plugin || typeof plugin !== "object") {
     throw new Error(`createPlugin did not return an object, got: ${typeof plugin}`);
   }

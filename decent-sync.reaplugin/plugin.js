@@ -3607,19 +3607,26 @@ var __decentSync = (() => {
      * on is still open. It never rejects.
      */
     apply(edit, connected) {
-      const writeBy = Date.now() + edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
-      const tooLate = () => !connected() || Date.now() > writeBy;
+      const startBy = edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
+      const writeBy = Date.now() + startBy;
+      let outOfTime = startBy < 0;
+      const timer = setTimeout(() => outOfTime = true, Math.max(0, startBy));
+      const tooLate = () => outOfTime || !connected() || Date.now() > writeBy;
       return this.access.run(async () => {
-        if (this.stopped) return;
-        let answer;
         try {
-          answer = await this.carryOut(edit, tooLate);
-        } catch (error) {
-          answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+          if (this.stopped) return;
+          let answer;
+          try {
+            answer = await this.carryOut(edit, tooLate);
+          } catch (error) {
+            answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+          }
+          if (answer === void 0 || this.stopped) return;
+          if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
+          this.outbox.enqueue(answer);
+        } finally {
+          clearTimeout(timer);
         }
-        if (answer === void 0 || this.stopped) return;
-        if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
-        this.outbox.enqueue(answer);
       });
     }
     /** Drops the edits still waiting their turn, and starts no write after this, as the plugin unloads. */

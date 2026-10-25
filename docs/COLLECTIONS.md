@@ -165,7 +165,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   an edit never waits for a Library write's answer, and a poll started before
   an edit cannot report a value older than the edit's read-back after its
   answer. An edit is never queued for later: the plugin counts down its
-  `timeLeftMs` from when it arrives, by the tablet's clock, and refuses it as
+  `timeLeftMs` from when it arrives, both by a host timer, which a correction
+  of the tablet's clock does not move, and by that clock, which counts time
+  the tablet spent asleep, and refuses it as
   `expired` once the connection that sent it has closed, or where it would
   start the write with less than `SETTINGS_EDIT_WRITE_MARGIN_MS` (15 s) left,
   judged as the edit's turn comes and again just before the write. So a write

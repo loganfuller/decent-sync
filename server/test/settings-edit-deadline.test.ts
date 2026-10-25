@@ -81,7 +81,8 @@ describe("Settings Edits within 60 s", () => {
 
   it("marks edits unanswered after 60 s not confirmed, refuses one that would start its write with less than 15 s left as expired, records a slow write's late answer, and leaves an edit of a crashed instance's connection not confirmed", async () => {
     // One tablet's first edit starts its write in time, which Decaid answers after 60 s; its second waits behind it.
-    // Another's only edit reaches its write with 12 s left. A third's instance crashes while its edit is under way.
+    // Another's only edit reaches its write with 12 s left, its tablet's clock set back meanwhile. A third's instance
+    // crashes while its edit is under way.
     const { machine: slow, tablet: slowTablet } = await connected("Deadline slow write");
     const { machine: tight, tablet: tightTablet } = await connected("Deadline too late to write");
     const doomed = await startTestServer({ env, sharing: server });
@@ -141,7 +142,10 @@ describe("Settings Edits within 60 s", () => {
     await after(first.madeAt, 40_000);
     slowHolds.read.release();
     await expect.poll(() => slowHolds.write.arrived).toBe(1);
-    // With 12 s left, the other's would not finish in time: it is refused, before the 60 s, and nothing written.
+    // With 12 s left, the other's would not finish in time: it is refused, before the 60 s, and nothing written,
+    // though its tablet set its clock back 30 s meanwhile, which counts no time against the edit.
+    await after(alone.madeAt, 40_000);
+    tightTablet.setPluginClockOffset(-30_000);
     await after(alone.madeAt, 48_000);
     tightHolds.read.release();
     expect(await answered(tight, alone.id)).toMatchObject({ outcome: "refused", late: false, refusal: { reason: "expired" } });

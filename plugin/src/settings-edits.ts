@@ -85,20 +85,28 @@ export class SettingsEdits {
    * on is still open. It never rejects.
    */
   apply(edit: SettingsEdit, connected: () => boolean): Promise<void> {
-    // Counted down by the tablet's clock from now, as the server counted it down to when it sent the edit.
-    const writeBy = Date.now() + edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
-    const tooLate = () => !connected() || Date.now() > writeBy;
+    // Counted down from now, as the server counted it down to when it sent the edit, both by a host timer, which a
+    // correction of the tablet's clock does not move, and by that clock, which counts time the tablet spent asleep.
+    const startBy = edit.timeLeftMs - SETTINGS_EDIT_WRITE_MARGIN_MS;
+    const writeBy = Date.now() + startBy;
+    let outOfTime = startBy < 0;
+    const timer = setTimeout(() => (outOfTime = true), Math.max(0, startBy));
+    const tooLate = () => outOfTime || !connected() || Date.now() > writeBy;
     return this.access.run(async () => {
-      if (this.stopped) return;
-      let answer: SettingsEdited | undefined;
       try {
-        answer = await this.carryOut(edit, tooLate);
-      } catch (error) {
-        answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+        if (this.stopped) return;
+        let answer: SettingsEdited | undefined;
+        try {
+          answer = await this.carryOut(edit, tooLate);
+        } catch (error) {
+          answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+        }
+        if (answer === undefined || this.stopped) return;
+        if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
+        this.outbox.enqueue(answer);
+      } finally {
+        clearTimeout(timer);
       }
-      if (answer === undefined || this.stopped) return;
-      if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
-      this.outbox.enqueue(answer);
     });
   }
 
