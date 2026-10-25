@@ -2,6 +2,7 @@ import { expect as baseExpect, type Locator, type Page, test } from "@playwright
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { signInAsAdmin } from "./support/seed.js";
+import { expectTip } from "./support/tooltips.js";
 
 // The Library's Beans, Bean Batches, Grinders and Profiles in the
 // management interface. Simulated tablets running the built plugin, at two
@@ -38,6 +39,8 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
   await page.goto("/");
   await page.getByRole("link", { name: "Library", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Beans", level: 1 })).toBeVisible();
+  // What explains a page or a card is in a tooltip beside its title.
+  await expectTip(page.getByRole("main"), "Beans", /^The coffees in the Library\. A Bean entered on a tablet joins the Library/);
   await expect(rows(page.getByRole("table", { name: "Beans" }))).toHaveText([
     ["Guji Hambela", "Roux Bakehouse", "Roastery lab, Uptown", "Roastery lab", ""].join(""),
     ["Washed Heirloom", "Sandbox Coffee Roasters", "Uptown", "Uptown", ""].join(""),
@@ -45,6 +48,8 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
 
   await page.getByRole("link", { name: "Guji Hambela" }).click();
   await expect(page.getByRole("heading", { name: "Guji Hambela", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "In the Library", /^Offered where one of its batches is/);
+  await expectTip(page.getByRole("main"), "Coffee", "As it was created, with the edits made since, on tablets or here.");
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Offered at")).toHaveText("Roastery lab, Uptown");
   await expect(field(library, "Created at")).toHaveText("Roastery lab");
@@ -91,6 +96,7 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   await page.getByRole("link", { name: "Library", exact: true }).click();
   await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Bean Batches" }).click();
   await expect(page.getByRole("heading", { name: "Bean Batches", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Bean Batches", /^The Bean Batches in the Library\./);
   await expect(rows(page.getByRole("table", { name: "Bean Batches" }))).toHaveText([
     ["Batch Guji, roasted 2026-10-01", "Roux Bakehouse", "Batch cafe (no weight entered), Batch lab (180.5 g)", "Batch lab", ""].join(""),
     ["Batch Heirloom, no roast date", "Sandbox Coffee Roasters", "Batch cafe (no weight entered)", "Batch cafe", ""].join(""),
@@ -98,6 +104,8 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
 
   await page.getByRole("link", { name: "Batch Guji, roasted 2026-10-01" }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji, roasted 2026-10-01", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Locations", /^Where it is, from when it was added there until it is finished there/);
+  await expectTip(page.getByRole("main"), "Roast", "As it was created, with the edits made since, on tablets or here.");
   const locations = page.getByRole("table", { name: "Locations" });
   await expect(rows(locations).locator("td:nth-child(-n+2)")).toHaveText(["Batch cafe", "no weight entered", "Batch lab", "180.5 g"]);
   const roast = page.getByLabel("Roast", { exact: true });
@@ -111,6 +119,7 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   // Its Bean's page lists its batches.
   await page.getByRole("link", { name: "Batch Guji", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Batch Guji", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Batches", "Its roasts, the latest first, and the Locations each is at.");
   await expect(field(page.getByLabel("In the Library", { exact: true }), "Offered at")).toHaveText("Batch cafe, Batch lab");
   await expect(rows(page.getByRole("table", { name: "Batches" }))).toHaveText([
     ["Batch Guji, roasted 2026-10-01", "Batch cafe (no weight entered), Batch lab (180.5 g)"].join(""),
@@ -140,6 +149,7 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
   await page.goto("/library/beans");
   await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Profiles" }).click();
   await expect(page.getByRole("heading", { name: "Profiles", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Profiles", /^The programs the machines follow, each shown or hidden at each Location\./);
   const table = page.getByRole("table", { name: "Profiles" });
   const row = (title: string) => rows(table).filter({ has: page.getByRole("link", { name: title, exact: true }) });
   await expect(row("Lab Bloom")).toHaveText(["Lab Bloom", "Decent Sync fixtures", "Nowhere", "Profile lab", ""].join(""));
@@ -151,6 +161,9 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
 
   await row("Lab Bloom Turbo").getByRole("link").click();
   await expect(page.getByRole("heading", { name: "Lab Bloom Turbo", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Profile", "As the tablet that created it recorded it, with the edits made since.");
+  await expectTip(page.getByRole("main"), "Steps", "What the machine follows, which decides the Profile's id: new steps make a new Profile.");
+  await expectTip(page.getByRole("main"), "Locations", /^Where it is shown\. Showing it at a Location writes it to that Location's tablets/);
   await expect(page.getByText(String(turbo.id), { exact: true })).toBeVisible();
   await expect(page.getByRole("switch", { name: "Shown at Profile lab" })).toBeChecked();
   await expect(page.getByRole("switch", { name: "Shown at Profile cafe" })).not.toBeChecked();
@@ -191,6 +204,7 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   await page.goto("/library/beans");
   await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Grinders" }).click();
   await expect(page.getByRole("heading", { name: "Grinders", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Grinders", /^The grinders at each Location\./);
   const table = page.getByRole("table", { name: "Grinders" });
   const row = (model: string) => rows(table).filter({ has: page.getByRole("link", { name: model, exact: true }) });
   await expect(row("E2E EK43")).toHaveText([
@@ -201,6 +215,8 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
 
   await row("E2E EK43").nth(1).getByRole("link").click();
   await expect(page.getByRole("heading", { name: "E2E EK43", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "In the Library", "A Grinder belongs to the Location where it was created, and only that Location's tablets hold it.");
+  await expectTip(page.getByRole("main"), "Grinder", "As it was created, with the edits made since, on its Location's tablets or here.");
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Location")).toHaveText("Grinder lab");
   await expect(field(library, "Offered")).toHaveText("Yes");

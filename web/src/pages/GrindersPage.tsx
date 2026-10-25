@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Link } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewGrinderDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,11 +17,12 @@ export function GrindersPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Grinders</h1>
-        <p className="text-muted-foreground">
-          The grinders at each Location. A Grinder created on a tablet belongs to that tablet's Location and is written to
-          every tablet there, and to no other. Archiving or deleting it on a tablet there Archives it.
-        </p>
+        <PageTitleWithInfo title="Grinders">
+          <p>
+            The grinders at each Location. A Grinder created on a tablet belongs to that tablet's Location and is written to
+            every tablet there, and to no other. Archiving or deleting it on a tablet there Archives it.
+          </p>
+        </PageTitleWithInfo>
         <LibraryNav />
         <div className="mt-2">
           <NewGrinderDialog />

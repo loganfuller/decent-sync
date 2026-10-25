@@ -3,10 +3,11 @@ import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { weightText } from "@/components/bean-batches";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -878,13 +879,12 @@ export function BatchLocationsCard({ batch, onChanged }: { batch: BeanBatch; onC
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          <h2>Locations</h2>
-        </CardTitle>
-        <CardDescription>
-          Where it is, from when it was added there until it is finished there, and the remaining weight entered last at each.
-          Each Location's tablets hold it with that Location's weight; finished there, it is archived on them.
-        </CardDescription>
+        <CardTitleWithInfo title="Locations">
+          <p>
+            Where it is, from when it was added there until it is finished there, and the remaining weight entered last at each.
+            Each Location's tablets hold it with that Location's weight; finished there, it is archived on them.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && <FormError error={error} />}

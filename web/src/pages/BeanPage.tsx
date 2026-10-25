@@ -4,13 +4,14 @@ import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, BEAN_FIELDS, ContentForm, DeleteButton, NewBatchDialog } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Bean } from "@/lib/api";
 
@@ -102,13 +103,12 @@ function BeanDetails({ id }: { id: string }) {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>In the Library</h2>
-            </CardTitle>
-            <CardDescription>
-              Offered where one of its batches is, and, with no batch there yet, where a tablet created it or entered it
-              too.
-            </CardDescription>
+            <CardTitleWithInfo title="In the Library">
+              <p>
+                Offered where one of its batches is, and, with no batch there yet, where a tablet created it or entered it
+                too.
+              </p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent>
             <Fields label="In the Library">
@@ -123,10 +123,9 @@ function BeanDetails({ id }: { id: string }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>Coffee</h2>
-            </CardTitle>
-            <CardDescription>As it was created, with the edits made since, on tablets or here.</CardDescription>
+            <CardTitleWithInfo title="Coffee">
+              <p>As it was created, with the edits made since, on tablets or here.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
             {editing ? (
@@ -170,10 +169,9 @@ function BeanDetails({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            <h2>Batches</h2>
-          </CardTitle>
-          <CardDescription>Its roasts, the latest first, and the Locations each is at.</CardDescription>
+          <CardTitleWithInfo title="Batches">
+            <p>Its roasts, the latest first, and the Locations each is at.</p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent>
           {bean.batches.length === 0 ? (
@@ -206,13 +204,12 @@ function BeanDetails({ id }: { id: string }) {
       {bean.likelyDuplicates.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>Likely duplicates</h2>
-            </CardTitle>
-            <CardDescription>
-              Other Beans with the same roaster and name. Beans are matched only when a tablet first reports them, so these
-              were kept apart.
-            </CardDescription>
+            <CardTitleWithInfo title="Likely duplicates">
+              <p>
+                Other Beans with the same roaster and name. Beans are matched only when a tablet first reports them, so these
+                were kept apart.
+              </p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent>
             <ul aria-label="Likely duplicates" className="grid gap-1 text-sm">

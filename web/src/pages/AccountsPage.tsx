@@ -1,6 +1,7 @@
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/auth";
 import { CopyField } from "@/components/copy-field";
+import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -76,10 +77,11 @@ export function AccountsPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Accounts</h1>
-        <p className="text-muted-foreground">
-          The people who can sign in to this server. Invite someone with a one-time link that you send them yourself.
-        </p>
+        <PageTitleWithInfo title="Accounts">
+          <p>
+            The people who can sign in to this server. Invite someone with a one-time link that you send them yourself.
+          </p>
+        </PageTitleWithInfo>
       </div>
 
       {/* Keyed, so a new link never inherits the last one's "Copied". */}
@@ -120,13 +122,12 @@ export function AccountsPage() {
 
       <Card className="max-w-xl">
         <CardHeader>
-          <CardTitle>
-            <h2>Invite someone</h2>
-          </CardTitle>
-          <CardDescription>
-            Admins can change everything on this server. Staff can see everything except other people's accounts, and
-            can move Machines between the Locations they work at.
-          </CardDescription>
+          <CardTitleWithInfo title="Invite someone">
+            <p>
+              Admins can change everything on this server. Staff can see everything except other people's accounts, and
+              can move Machines between the Locations they work at.
+            </p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent>
           <InviteForm

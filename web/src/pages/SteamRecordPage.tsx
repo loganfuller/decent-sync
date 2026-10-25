@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import type { ListState } from "@/components/record-lists";
 import {
   LocationCredit,
@@ -156,13 +157,12 @@ function SteamRecordDetails({ id }: { id: string }) {
 
       <Card role="region" aria-label="Curves">
         <CardHeader>
-          <CardTitle>
-            <h2>Curves</h2>
-          </CardTitle>
-          <CardDescription>
-            Seconds from the start of the Steam Record. Dashed lines are targets: the milk temperature its Workflow stops
-            steaming at, and those its machine reported.
-          </CardDescription>
+          <CardTitleWithInfo title="Curves">
+            <p>
+              Seconds from the start of the Steam Record. Dashed lines are targets: the milk temperature its Workflow stops
+              steaming at, and those its machine reported.
+            </p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-6">
           {samples.length > 0 ? (

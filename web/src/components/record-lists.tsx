@@ -1,6 +1,7 @@
 import { CalendarIcon } from "lucide-react";
 import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { useLocation, useSearchParams } from "react-router";
+import { InfoTip } from "@/components/info-tip";
 import { describeHardware, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -176,7 +177,7 @@ interface Machines {
 /**
  * The filters every record list has: by Location, by Machine or Pending
  * Machine, and by dates and times, with `children` for a list's own.
- * `description` says how dates are read.
+ * `description` says how dates are read, in a tooltip beside them.
  */
 export function RecordFilters({
   list,
@@ -284,13 +285,17 @@ export function RecordFilters({
       <div className="flex flex-wrap items-end gap-4">
         <DateFilter id={`${id}-from`} label="From" value={params.get("from")} onChange={(from) => list.filter({ from })} />
         <DateFilter id={`${id}-to`} label="To" value={params.get("to")} onChange={(to) => list.filter({ to })} />
+        <div className="flex h-9 items-center">
+          <InfoTip label="About dates and times">
+            <p>{description}</p>
+          </InfoTip>
+        </div>
         {list.filtered && (
           <Button variant="outline" onClick={list.clear}>
             Clear filters
           </Button>
         )}
       </div>
-      <p className="text-sm text-muted-foreground">{description}</p>
     </section>
   );
 }

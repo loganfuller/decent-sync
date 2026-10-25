@@ -5,6 +5,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Deliveries from a Machine's tablet that the server could not store, on the
 // Machine's page, as an Admin. A simulated tablet running the built plugin
@@ -44,6 +45,9 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   const rows = setAside.getByRole("table", { name: "Deliveries set aside" }).getByRole("row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(1).getByRole("cell")).toHaveText([/^\w{3} \d+, \d{4}, /, "Shot", "nul-shot", /^.+ \((?:22P05|22021)\)$/]);
+  // How many were set aside, and that sending them again would fail, stay on the page; what setting one aside means is in a tooltip.
+  await expect(setAside).toContainText("1 delivery from its tablet could not be stored, and would fail the same way if sent again.");
+  await expectTip(setAside, "Deliveries set aside", "Each was set aside as sent, so what the tablet sent after it was still stored.");
   // Stored after it: the Shot pulled on Oct 4.
   await expect(field(page, "Last Shot")).toHaveText(/^Oct 4, 2026, /);
   // Never what it carried.

@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { Link } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { ProfileBadges, profilePath, profileTitle } from "@/components/profiles";
 import { shownAtText } from "@/components/shown-locations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -16,12 +17,13 @@ export function ProfilesPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Profiles</h1>
-        <p className="text-muted-foreground">
-          The programs the machines follow, each shown or hidden at each Location. A Profile created on a tablet joins the
-          Library shown at that tablet's Location only, and is written to every tablet there. Hiding, deleting or changing
-          its steps on a tablet hides it at that tablet's Location only; new steps make a new Profile.
-        </p>
+        <PageTitleWithInfo title="Profiles">
+          <p>
+            The programs the machines follow, each shown or hidden at each Location. A Profile created on a tablet joins the
+            Library shown at that tablet's Location only, and is written to every tablet there. Hiding, deleting or changing
+            its steps on a tablet hides it at that tablet's Location only; new steps make a new Profile.
+          </p>
+        </PageTitleWithInfo>
         <LibraryNav />
       </div>
 

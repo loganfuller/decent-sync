@@ -4,6 +4,7 @@ import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor }
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Steam Records in the management interface, as an Admin whose browser is in
 // Tokyo while the Locations are in the US: times are shown and filtered in
@@ -48,6 +49,7 @@ test("Steam Records from every Location are listed newest first, at their Locati
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Steam Records" }).click();
   await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("main"), "Steam Records", /^Every Steam Record from every Location, newest first\./);
   await expect(column(page, 1)).toHaveText([
     "Feb 11, 2026, 9:00 AM CST",
     "Feb 10, 2026, 6:30 AM MST",
@@ -70,6 +72,7 @@ test("Steam Records from every Location are listed newest first, at their Locati
 test("filters by Location, Machine and date narrow the list, with dates read in each Steam Record's Location's time zone", async ({ page }) => {
   await page.goto("/steam-records");
   await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("region", { name: "Filters" }), "dates and times", /^Dates and times are read in each Steam Record's Location's time zone/);
 
   await choose(page, "Location", "Uptown");
   await expect(column(page, 2)).toHaveText(["Uptown 1", "Uptown 1"]);
@@ -131,6 +134,7 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   const settings = page.getByRole("region", { name: "Steam settings" });
   await expect(field(settings, "Steam temperature")).toHaveText("150 °C");
   await expect(field(settings, "Stops at milk temperature")).toHaveText("60 °C");
+  await expectTip(settings, "Steam settings", "What its Workflow set when it started.");
 
   const curves = page.getByRole("region", { name: "Curves" });
   for (const name of ["Milk temperature", "Steam temperature", "Pressure", "Flow"]) {
@@ -140,6 +144,7 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   }
   // The milk temperature its Workflow stops steaming at.
   await expect(curves.getByRole("figure", { name: "Milk temperature" })).toContainText("Target");
+  await expectTip(curves, "Curves", /^Seconds from the start of the Steam Record\. Dashed lines are targets/);
 
   // Without a milk probe, there is no milk temperature to show, and its Workflow set no stop at one.
   await page.getByRole("link", { name: "← Steam Records" }).click();

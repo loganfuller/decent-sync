@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { signInAsAdmin } from "./support/seed.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Creating and editing Locations, as an Admin whose browser is in Chicago
 // while the server runs in UTC.
@@ -14,6 +15,8 @@ test("creating a Location defaults its time zone to the browser's", async ({ pag
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Locations" }).click();
 
   await expect(page.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Locations", /^The sites where your machines are used\./);
+  await expectTip(page.getByRole("main"), "New Location", "The time zone starts as this browser's.");
   await expect(page.getByText("No Locations yet.")).toBeVisible();
   const form = page.getByRole("form", { name: "New Location" });
   await expect(form.getByLabel("Time zone")).toHaveValue("America/Chicago");

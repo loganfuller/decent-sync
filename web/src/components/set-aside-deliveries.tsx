@@ -1,8 +1,9 @@
 import { useCallback, useState } from "react";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type SetAsideDeliveryPage } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
@@ -47,12 +48,12 @@ export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
   return (
     <Card role="region" aria-label="Deliveries set aside" className="border-destructive">
       <CardHeader>
-        <CardTitle>
-          <h2>Deliveries set aside</h2>
-        </CardTitle>
+        <CardTitleWithInfo title="Deliveries set aside">
+          <p>Each was set aside as sent, so what the tablet sent after it was still stored.</p>
+        </CardTitleWithInfo>
         <CardDescription>
           {page.total === 1 ? "1 delivery" : `${page.total} deliveries`} from its tablet could not be stored, and would fail the
-          same way if sent again. Each was set aside as sent, so what the tablet sent after it was still stored.
+          same way if sent again.
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">

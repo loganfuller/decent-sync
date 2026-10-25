@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Link } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBeanDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -16,13 +17,14 @@ export function BeansPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Beans</h1>
-        <p className="text-muted-foreground">
-          The coffees in the Library. A Bean entered on a tablet joins the Library at that tablet's Location, or becomes
-          the Bean already there with the same roaster and name, and is written to every tablet at that Location. Once it
-          has a batch at a Location, it is offered there while one of its batches is. A Bean created here is offered once a
-          batch of it is added at a Location.
-        </p>
+        <PageTitleWithInfo title="Beans">
+          <p>
+            The coffees in the Library. A Bean entered on a tablet joins the Library at that tablet's Location, or becomes
+            the Bean already there with the same roaster and name, and is written to every tablet at that Location. Once it
+            has a batch at a Location, it is offered there while one of its batches is. A Bean created here is offered once a
+            batch of it is added at a Location.
+          </p>
+        </PageTitleWithInfo>
         <LibraryNav />
         <div className="mt-2">
           <NewBeanDialog />

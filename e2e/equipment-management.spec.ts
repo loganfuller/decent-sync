@@ -5,6 +5,7 @@ import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../s
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Baskets and Tools in the management interface (ticket #139): created at a
 // Location, shown at others, edited, Archived and restored there, which
@@ -32,6 +33,7 @@ test("an Admin creates a Basket at the lab, shows it at a cafe, edits it, Archiv
 
   await page.goto("/library");
   await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Baskets" }).click();
+  await expectTip(page.getByRole("main"), "Baskets", /^DYE2's baskets, one item for each model of basket at every Location/);
   await page.getByRole("button", { name: "New Basket" }).click();
   const dialog = page.getByRole("dialog", { name: "New Basket" });
   await dialog.getByLabel("Shown at").click();
@@ -46,6 +48,8 @@ test("an Admin creates a Basket at the lab, shows it at a cafe, edits it, Archiv
   const basket = page.getByLabel("Basket", { exact: true });
   await expect(field(basket, "Size")).toHaveText("Double");
   await expect(field(basket, "Diameter")).toHaveText("58 mm");
+  await expectTip(page.getByRole("main"), "Basket", "As it was created, with the edits made since, on tablets or here, which reach every tablet that holds it.");
+  await expectTip(page.getByRole("main"), "Locations", /^Where it is shown\. Showing it at a Location writes it to the DYE2 list of each tablet there/);
 
   // Shown at the lab only.
   const shownAt = (name: string) => page.getByRole("switch", { name: `Shown at ${name}` });
@@ -99,6 +103,7 @@ test("a Tool's attributes are edited, and its history lists the edit", async ({ 
   baseExpect(created.status()).toBe(201);
 
   await page.goto("/library/tools");
+  await expectTip(page.getByRole("main"), "Tools", /^Gear such as WDT tools and puck screens, which DYE2 calls equipment/);
   await page.getByRole("link", { name: "Lab WDT Tool" }).click();
   await expect(page.getByRole("heading", { name: "Lab WDT Tool", level: 1 })).toBeVisible();
   const attributes = page.getByRole("table", { name: "Attributes" });

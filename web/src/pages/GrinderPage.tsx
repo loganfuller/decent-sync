@@ -3,13 +3,14 @@ import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, ContentForm, DeleteButton, GRINDER_FIELDS, useMayChangeAt } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { ApiError, api, type Grinder } from "@/lib/api";
 
 /** The content fields a Grinder's page names after its model, in Decaid's order, with how each is shown. */
@@ -104,10 +105,9 @@ function GrinderDetails({ id }: { id: string }) {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>In the Library</h2>
-            </CardTitle>
-            <CardDescription>A Grinder belongs to the Location where it was created, and only that Location's tablets hold it.</CardDescription>
+            <CardTitleWithInfo title="In the Library">
+              <p>A Grinder belongs to the Location where it was created, and only that Location's tablets hold it.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent>
             <Fields label="In the Library">
@@ -122,10 +122,9 @@ function GrinderDetails({ id }: { id: string }) {
 
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>Grinder</h2>
-            </CardTitle>
-            <CardDescription>As it was created, with the edits made since, on its Location's tablets or here.</CardDescription>
+            <CardTitleWithInfo title="Grinder">
+              <p>As it was created, with the edits made since, on its Location's tablets or here.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
             {editing ? (
