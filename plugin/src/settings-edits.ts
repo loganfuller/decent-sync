@@ -6,6 +6,7 @@ import {
   type SettingsEdit,
   type SettingsCollectionName,
   type SettingsEdited,
+  type WakeScheduleEdit,
   isEditableSettingsCollection,
   sameValue,
   settingsRefusalText,
@@ -25,13 +26,15 @@ import { absoluteSet } from "./sensor-calibration.js";
 /**
  * Where each collection a Settings Edit writes fields of is read and
  * written, in Decaid v0.9.0's API (rest_v1.yml). The sensor calibration is
- * read and set by target instead (`setSensorCalibration`).
+ * read and set by target instead (`setSensorCalibration`), and a wake
+ * schedule added, changed or deleted on its own (`editSchedule`).
  */
 const ROUTES: Readonly<Record<Exclude<EditableSettingsCollection, "sensorCalibration">, string>> = {
   machineSettings: "/machine/settings",
   advancedSettings: "/machine/settings/advanced",
   machineCalibration: "/machine/calibration",
   appSettings: "/settings",
+  presenceSettings: "/presence/settings",
 };
 
 /**
@@ -98,7 +101,8 @@ export interface SettingsReports {
  * queues it as a report before the answer, so the server takes in the
  * read-back first. Decaid's settings writes apply fields one at a time, so
  * the read-back decides what each field holds. A sensor's calibration is
- * set by target, one per edit (`setSensorCalibration`). A Shot started
+ * set by target, one per edit (`setSensorCalibration`), and a wake schedule
+ * added, changed or deleted, one per edit (`editSchedule`). A Shot started
  * between the state's read and the write is an accepted gap (#220).
  */
 export class SettingsEdits {
@@ -166,13 +170,12 @@ export class SettingsEdits {
     }
 
     if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);
+    if (edit.schedule) return this.editSchedule(edit, edit.schedule, tooLate);
     const route = ROUTES[edit.collection];
     const before = await readObject(route);
     if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
     this.reports.reportSettings(edit.collection, { kind: "value", value: before.value, etag: null }, false);
-    if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
-      return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
-    }
+    if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) return changedSince(edit, edited(edit, before.value));
 
     // Nothing is written once the plugin unloads, or too late to finish in time.
     if (this.stopped) return undefined;
@@ -229,6 +232,70 @@ export class SettingsEdits {
     this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
     return answered(edit, written, failure, after?.ok ? calibrated(target, after.value) : undefined);
   }
+
+  /**
+   * Adds, changes or deletes the one wake schedule an edit names, through
+   * Decaid's presence routes. A change or a delete goes ahead only while the
+   * presence settings, read and reported first, hold the schedule as the
+   * edit expected it, whole, and is refused as `changedSince` with the
+   * schedule as held, or with none where it is gone; Decaid answering the
+   * write 404 says it went since, and refuses it the same way. An add
+   * expects nothing. Then the presence settings are read again and reported,
+   * and the answer carries the schedule as read back, by the id the edit
+   * names or Decaid gave the new one (`scheduleId`).
+   */
+  private async editSchedule(edit: SettingsEdit, schedule: WakeScheduleEdit, tooLate: () => boolean): Promise<SettingsEdited | undefined> {
+    const route = ROUTES.presenceSettings;
+    if (schedule.action !== "add") {
+      const before = await readObject(route);
+      if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
+      this.reports.reportSettings("presenceSettings", { kind: "value", value: before.value, etag: null }, false);
+      const held = scheduleIn(before.value, schedule.id);
+      if (!sameValue(held, edit.expected)) return changedSince(edit, held ? scheduleValues(held) : {});
+    }
+
+    if (this.stopped) return undefined;
+    if (tooLate()) return expired(edit);
+    let written: Answer | undefined;
+    let failure = "";
+    try {
+      const path = schedule.action === "add" ? "/presence/schedules" : `/presence/schedules/${encodeURIComponent(schedule.id)}`;
+      if (schedule.action === "add") written = await request("POST", path, edit.fields);
+      else if (schedule.action === "change") written = await request("PUT", path, edit.fields);
+      else written = await request("DELETE", path);
+    } catch (error) {
+      failure = describe(error);
+    }
+    const id = schedule.action === "add" ? (written?.ok ? addedId(written.text) : undefined) : schedule.id;
+    const after = await readObject(route).catch(() => undefined);
+    this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+    const held = after?.ok && id !== undefined ? scheduleIn(after.value, id) : undefined;
+    const readBack = after?.ok && id !== undefined ? (held ? scheduleValues(held) : {}) : undefined;
+    if (schedule.action !== "add" && written?.status === 404) return changedSince(edit, readBack);
+    const answer = answered(edit, written, failure, readBack);
+    return answer.outcome === "written" && id !== undefined && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
+  }
+}
+
+/** The wake schedule of the id given in the presence settings Decaid reports, or undefined where it holds none. */
+function scheduleIn(presence: Record<string, unknown>, id: string): Record<string, unknown> | undefined {
+  const schedules = Array.isArray(presence.schedules) ? presence.schedules : [];
+  return schedules.find((schedule): schedule is Record<string, unknown> => isObject(schedule) && schedule.id === id);
+}
+
+/** A wake schedule as an answer carries it: as Decaid reports it, with a `keepAwakeFor` of null for none, which Decaid leaves out. */
+function scheduleValues(schedule: Record<string, unknown>): Record<string, unknown> {
+  return { ...schedule, keepAwakeFor: schedule.keepAwakeFor ?? null };
+}
+
+/** The id Decaid gave the schedule it added, in its answer (`WakeSchedule.toJson`), or undefined where the answer has none. */
+function addedId(text: string): string | undefined {
+  const body = parsed(text);
+  return isObject(body) && typeof body.id === "string" && body.id !== "" ? body.id : undefined;
+}
+
+function changedSince(edit: SettingsEdit, values: Record<string, unknown> | undefined): SettingsEdited {
+  return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", ...(values ? { values } : {}) };
 }
 
 /** An edit's answer once its write was sent: written, or refused by Decaid, with the values read back after it, where read. */

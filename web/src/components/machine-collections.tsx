@@ -8,9 +8,9 @@ import { SettingsEditStatus, SettingsForm, editBlocked, useOfferedFields } from 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { WakeSchedules, WakeWindowWarning } from "@/components/wake-schedules";
 import type { Collection, CollectionSummary, Machine, PairedDevice, PairedDevices, SettingsEdit, WorkflowEvent } from "@/lib/api";
 import { fieldText, isObject, reportedFields, valueText } from "@/lib/settings-text";
-import { inTabletTime, timeOfDayMinutes, timeOfDayText } from "@/lib/tablet-time";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import {
   type EditableSettingsField,
@@ -204,9 +204,9 @@ function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h
  * (`editBlocked`), and the section then shows its latest edit, pending and
  * then what came of it, until another is saved. A sensor's calibration is
  * set one target at a time, each from an Edit button of its own, behind a
- * warning. Wake schedules are listed after the other fields, and
- * `children`, such as the presence settings under the Tablet Settings,
- * come last.
+ * warning. Wake schedules are listed after the other fields, each changed
+ * or deleted, or one added, on its own (`WakeSchedules`), and `children`,
+ * such as the presence settings under the Tablet Settings, come last.
  */
 function SettingsSection({
   name,
@@ -224,11 +224,15 @@ function SettingsSection({
   children?: ReactNode;
 }) {
   const title = SETTINGS[name];
-  const offered = useOfferedFields(name, collection, machine);
+  const offeredFields = useOfferedFields(name, collection, machine);
+  // The wake schedules are edited one at a time, apart from the section's form.
+  const offered = offeredFields.filter((field) => field.kind !== "wakeSchedules");
+  const schedulesOffered = offeredFields.some((field) => field.kind === "wakeSchedules");
   const isAdmin = useIsAdmin();
   const utcOffsetMinutes = collection?.utcOffsetMinutes ?? null;
   const rows = collection ? settingRows(name, collection.value, utcOffsetMinutes) : [];
-  const scheduleLists = collection && isObject(collection.value) ? wakeScheduleLists(name, collection.value) : [];
+  const value = collection && isObject(collection.value) ? collection.value : undefined;
+  const scheduleLists = value ? wakeScheduleLists(name, value) : [];
   const byTarget = name === "sensorCalibration";
   // The fields the open form offers, if one is.
   const [editing, setEditing] = useState<EditableSettingsField[]>();
@@ -249,7 +253,7 @@ function SettingsSection({
         <SectionHeading heading={Heading} title={title} about={collection?.available && reportText(collection)} />
         {offered.length > 0 && !byTarget && !editing && editButton(offered, `Edit ${title}`)}
       </div>
-      {offered.length > 0 && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
+      {(offered.length > 0 || schedulesOffered) && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
       {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} utcOffsetMinutes={utcOffsetMinutes} onAnswered={onReported} />}
       {editing && collection && isObject(collection.value) ? (
@@ -262,6 +266,17 @@ function SettingsSection({
           label={formLabel}
           notes={(field) => (field.notes ?? []).map((note) => NOTES[note])}
           confirm={byTarget ? SENSOR_CALIBRATION_WARNING : undefined}
+          warning={
+            name === "presenceSettings"
+              ? (inputs) => (
+                  <WakeWindowWarning
+                    machine={machine}
+                    schedules={value?.schedules}
+                    presenceOn={typeof inputs.userPresenceEnabled === "boolean" ? inputs.userPresenceEnabled : value?.userPresenceEnabled === true}
+                  />
+                )
+              : undefined
+          }
           onCancel={() => setEditing(undefined)}
           onSaved={(made) => {
             setEditing(undefined);
@@ -288,9 +303,22 @@ function SettingsSection({
           />
         )
       )}
-      {scheduleLists.map(([field, value]) => (
-        <WakeSchedules key={field.path} label={field.label} heading={Heading === "h3" ? "h4" : "h5"} value={value} utcOffsetMinutes={utcOffsetMinutes} />
-      ))}
+      {value &&
+        scheduleLists.map((field) => (
+          <WakeSchedules
+            key={field.path}
+            label={field.label}
+            heading={Heading === "h3" ? "h4" : "h5"}
+            machine={machine}
+            presence={value}
+            utcOffsetMinutes={utcOffsetMinutes}
+            mayEdit={schedulesOffered}
+            onSaved={(made) => {
+              setEditing(undefined);
+              setEdit(made);
+            }}
+          />
+        ))}
       {children}
     </section>
   );
@@ -303,57 +331,6 @@ const ONLY_AN_ADMIN = "Only an Admin can change it";
 function adminsOnly(name: SettingsCollectionName, path: string): boolean {
   const field = settingsField(name, path);
   return field !== undefined && isEditable(field) && field.editableBy === "admin";
-}
-
-/** The ISO days of the week, Monday 1 to Sunday 7, as a wake schedule names them. */
-const WEEKDAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
-
-/**
- * Decaid's wake schedules as reported (`WakeSchedule.toJson`), in its order:
- * each one's time in the Tablet's own time, labelled with its UTC offset, its
- * days, whether it is on, and how long it keeps the Machine awake.
- */
-function WakeSchedules({ label, heading: Heading, value, utcOffsetMinutes }: { label: string; heading: "h4" | "h5"; value: unknown; utcOffsetMinutes: number | null }) {
-  const schedules = Array.isArray(value) ? value.map((schedule: unknown) => (isObject(schedule) ? schedule : {})) : [];
-  return (
-    <div className="grid gap-1">
-      <Heading className="text-sm font-medium">{label}</Heading>
-      {schedules.length === 0 ? (
-        <p className="text-sm text-muted-foreground">None</p>
-      ) : (
-        <Table aria-label={label}>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Time</TableHead>
-              <TableHead>Days</TableHead>
-              <TableHead>On</TableHead>
-              <TableHead>Keeps awake for</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {schedules.map((schedule, index) => {
-              const time = timeOfDayText(timeOfDayMinutes(schedule.time));
-              return (
-                <TableRow key={typeof schedule.id === "string" ? schedule.id : index}>
-                  <TableCell>{time === undefined ? valueText(schedule.time) : inTabletTime(time, utcOffsetMinutes)}</TableCell>
-                  <TableCell>{daysText(schedule.daysOfWeek)}</TableCell>
-                  <TableCell>{valueText(schedule.enabled)}</TableCell>
-                  <TableCell>{typeof schedule.keepAwakeFor === "number" ? `${valueText(schedule.keepAwakeFor)} min` : valueText(schedule.keepAwakeFor)}</TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      )}
-    </div>
-  );
-}
-
-/** A wake schedule's days, as Streamline's settings page names them: none chosen is every day, as Decaid takes it. */
-function daysText(days: unknown): string {
-  if (!Array.isArray(days)) return valueText(days);
-  if (days.length === 0) return "Every day";
-  return days.map((day: unknown) => (typeof day === "number" && WEEKDAYS[day - 1]) || valueText(day)).join(", ");
 }
 
 /** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip, and any `action` of a row after it. */
@@ -512,9 +489,9 @@ function settingRows(name: SettingsCollectionName, value: unknown, utcOffsetMinu
   return [...known, ...unknown];
 }
 
-/** The fields of a settings collection that are wake schedules, as reported, with their values. */
-function wakeScheduleLists(name: SettingsCollectionName, value: Record<string, unknown>): [field: SettingsField, value: unknown][] {
-  return SETTINGS_FIELDS[name].filter((field) => field.kind === "wakeSchedules" && field.path in value).map((field) => [field, value[field.path]]);
+/** The fields of a settings collection that are wake schedules, as reported. */
+function wakeScheduleLists(name: SettingsCollectionName, value: Record<string, unknown>): SettingsField[] {
+  return SETTINGS_FIELDS[name].filter((field) => field.kind === "wakeSchedules" && field.path in value);
 }
 
 function settingText(value: unknown): string {

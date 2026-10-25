@@ -27,138 +27,6 @@ var __decentSync = (() => {
     createPlugin: () => createPlugin
   });
 
-  // ../protocol/src/chunking.ts
-  var MAX_FRAME_BYTES = 256 * 1024;
-  var MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
-  var MAX_CHUNKS = 1024;
-  var ASCII_RUN = /[\x00-\x7f]*/y;
-  var ASCII_STEPS = 32;
-  function utf8Length(text) {
-    const length = text.length;
-    let bytes = length;
-    for (let at = 0; at < length; ) {
-      ASCII_RUN.lastIndex = at;
-      ASCII_RUN.test(text);
-      at = ASCII_RUN.lastIndex;
-      for (let ascii = 0; at < length && ascii < ASCII_STEPS; at++) {
-        const unit = text.charCodeAt(at);
-        if (unit < 128) ascii++;
-        else {
-          ascii = 0;
-          if (unit < 2048) bytes += 1;
-          else {
-            bytes += 2;
-            if (unit >= 55296 && unit <= 56319) {
-              const next = text.charCodeAt(at + 1);
-              if (next >= 56320 && next <= 57343) at++;
-            }
-          }
-        }
-      }
-    }
-    return bytes;
-  }
-  function frames(text, id, maxFrameBytes = MAX_FRAME_BYTES) {
-    if (text.length <= maxFrameBytes) {
-      const bytes = utf8Length(text);
-      if (bytes <= maxFrameBytes) return [{ text, bytes }];
-    }
-    const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));
-    if (room < 8) throw new Error("The frame size leaves no room for a chunk's data");
-    const pieces = [];
-    const aim = room * 0.99;
-    let ratio = 1;
-    for (let start = 0; start < text.length; ) {
-      let length = Math.min(text.length - start, Math.max(1, Math.floor(aim / ratio)));
-      for (; ; ) {
-        length = withoutSplitPair(text, start, length);
-        const piece = JSON.stringify(text.slice(start, start + length));
-        const bytes = utf8Length(piece);
-        if (bytes <= room) {
-          pieces.push({ text: piece, bytes });
-          ratio = bytes / length;
-          start += length;
-          break;
-        }
-        length = Math.max(1, length - (bytes - room), Math.floor(length * aim / bytes));
-      }
-    }
-    return pieces.map((piece, index) => {
-      const envelope = chunkFrame(id, index, pieces.length, "");
-      return { text: chunkFrame(id, index, pieces.length, piece.text), bytes: utf8Length(envelope) + piece.bytes };
-    });
-  }
-  function chunkFrame(id, index, count, encodedData) {
-    return `{"type":"chunk","id":${JSON.stringify(id)},"index":${index},"count":${count},"data":${encodedData}}`;
-  }
-  function withoutSplitPair(text, start, length) {
-    const end = start + length;
-    const splitsPair = end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end));
-    if (!splitsPair) return length;
-    return length > 1 ? length - 1 : 2;
-  }
-  function isHighSurrogate(unit) {
-    return unit >= 55296 && unit <= 56319;
-  }
-  function isLowSurrogate(unit) {
-    return unit >= 56320 && unit <= 57343;
-  }
-  var CHUNK_LIMITS = { maxLength: MAX_CHUNKED_LENGTH, maxChunks: MAX_CHUNKS };
-  var Reassembly = class {
-    constructor() {
-      __publicField(this, "messages", /* @__PURE__ */ new Map());
-      /** Code units held: the messages' ids and their chunks' data. */
-      __publicField(this, "heldLength", 0);
-      /** Chunks the messages have between them, counting those yet to arrive. */
-      __publicField(this, "heldChunks", 0);
-      __publicField(this, "problem");
-    }
-    add(chunk, limits) {
-      if (this.problem === void 0) this.problem = this.problemWith(chunk, limits);
-      if (this.problem !== void 0) {
-        this.messages.clear();
-        this.heldLength = 0;
-        this.heldChunks = 0;
-        return { status: "invalid", problem: this.problem };
-      }
-      let message = this.messages.get(chunk.id);
-      if (message?.parts[chunk.index] !== void 0) return { status: "incomplete" };
-      if (!message) {
-        message = { count: chunk.count, parts: new Array(chunk.count), received: 0, length: chunk.id.length };
-        this.messages.set(chunk.id, message);
-        this.heldLength += chunk.id.length;
-        this.heldChunks += chunk.count;
-      }
-      message.parts[chunk.index] = chunk.data;
-      message.received++;
-      message.length += chunk.data.length;
-      this.heldLength += chunk.data.length;
-      if (message.received < message.count) return { status: "incomplete" };
-      this.messages.delete(chunk.id);
-      this.heldLength -= message.length;
-      this.heldChunks -= message.count;
-      return { status: "complete", text: message.parts.join("") };
-    }
-    /** Why the chunk cannot be added, by field and never by value, or undefined if it can. */
-    problemWith(chunk, limits) {
-      const { index, count, data } = chunk;
-      if (!Number.isInteger(count) || count < 1 || count > limits.maxChunks) {
-        return `chunk.count must be a whole number from 1 to ${limits.maxChunks}`;
-      }
-      if (!Number.isInteger(index) || index < 0 || index >= count) return "chunk.index must be a whole number below chunk.count";
-      const message = this.messages.get(chunk.id);
-      if (message && message.count !== count) return "chunk.count differs from an earlier chunk of the same message";
-      const held = message?.parts[index];
-      if (held !== void 0) return held === data ? void 0 : "chunk.data differs from an earlier copy of the same chunk";
-      const length = data.length + (message ? 0 : chunk.id.length);
-      const chunks = message ? 0 : count;
-      if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks > limits.maxChunks) {
-        return `Chunked messages still incomplete may hold at most ${limits.maxLength} characters, ids included, and ${limits.maxChunks} chunks between them`;
-      }
-      return void 0;
-    }
-  };
-
   // ../protocol/src/settings-fields.ts
   var SETTINGS_COLLECTION_NAMES = [
     "machineSettings",
@@ -171,7 +39,14 @@ var __decentSync = (() => {
   function isSettingsCollectionName(name) {
     return SETTINGS_COLLECTION_NAMES.includes(name);
   }
-  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings"];
+  var EDITABLE_SETTINGS_COLLECTIONS = [
+    "machineSettings",
+    "advancedSettings",
+    "machineCalibration",
+    "sensorCalibration",
+    "appSettings",
+    "presenceSettings"
+  ];
   function isEditableSettingsCollection(name) {
     return EDITABLE_SETTINGS_COLLECTIONS.includes(name);
   }
@@ -345,12 +220,24 @@ var __decentSync = (() => {
       { path: "keepAwakeUntil", label: "Kept awake until", kind: "localTime", setBy: "Set while a wake schedule keeps the Machine awake" }
     ]
   };
+  var WAKE_SCHEDULE_FIELDS = [
+    { path: "time", label: "Time", kind: "hoursMinutes", editableBy: "staff" },
+    { path: "daysOfWeek", label: "Days", kind: "weekdays", editableBy: "staff" },
+    { path: "enabled", label: "On", kind: "onOff", editableBy: "staff" },
+    // Decaid takes 1 to 720, and 0 or null for none (`_addScheduleHandler`).
+    { path: "keepAwakeFor", label: "Keeps awake for", unit: "min", kind: "wholeNumber", min: 1, max: 720, orNone: true, editableBy: "staff" }
+  ];
+  function wakeScheduleField(path) {
+    return WAKE_SCHEDULE_FIELDS.find((field) => field.path === path);
+  }
+  var WAKE_SCHEDULE_ACTIONS = ["add", "change", "delete"];
   function settingsField(collection, path) {
     return SETTINGS_FIELDS[collection].find((field) => field.path === path);
   }
   function validateSettingsEdit(edit, role) {
     if (!isSettingsCollectionName(edit.collection)) return [{ reason: "unknownCollection" }];
     const paths = Object.keys(edit.fields);
+    if (edit.schedule) return validateScheduleEdit(edit.collection, edit.schedule, edit.fields, role);
     if (paths.length === 0) return [{ reason: "noFields" }];
     if (edit.collection === "sensorCalibration" && paths.length > 1) return [{ reason: "severalTargets" }];
     const refusals = [];
@@ -360,15 +247,34 @@ var __decentSync = (() => {
     }
     return refusals;
   }
+  function validateScheduleEdit(collection, schedule, fields, role) {
+    if (collection !== "presenceSettings") return [{ reason: "notSchedules" }];
+    const paths = Object.keys(fields);
+    if (schedule.action === "delete") return paths.length === 0 ? [] : [{ reason: "deleteSetsNothing" }];
+    if (paths.length === 0) return [{ reason: "noFields" }];
+    if (schedule.action === "add" && WAKE_SCHEDULE_FIELDS.some((field) => !(field.path in fields))) return [{ reason: "incompleteSchedule" }];
+    const refusals = [];
+    for (const path of paths) {
+      const reason = fieldRefusal(wakeScheduleField(path), fields[path], role);
+      if (reason) refusals.push({ reason, field: path, schedule: true });
+    }
+    return refusals;
+  }
   function settingsRefusalText(collection, refusal) {
-    const field = refusal.field === void 0 || !isSettingsCollectionName(collection) ? void 0 : settingsField(collection, refusal.field);
+    const field = refusal.field === void 0 || !isSettingsCollectionName(collection) ? void 0 : refusal.schedule ? wakeScheduleField(refusal.field) : settingsField(collection, refusal.field);
     const name = field?.label ?? refusal.field ?? "";
     const editable = field && isEditable(field) ? field : void 0;
     switch (refusal.reason) {
       case "unknownCollection":
         return `There are no settings named ${collection}`;
+      case "notSchedules":
+        return "Only the presence settings have wake schedules";
       case "noFields":
         return "Change at least one setting";
+      case "incompleteSchedule":
+        return "Give a new wake schedule its time, its days, whether it is on and how long it keeps the Machine awake";
+      case "deleteSetsNothing":
+        return "Deleting a wake schedule changes none of its settings";
       case "severalTargets":
         return "Set one sensor's calibration at a time";
       case "unknown":
@@ -379,13 +285,27 @@ var __decentSync = (() => {
         return `Only an Admin can change ${name}`;
       case "invalid":
         if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
-        return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : editable?.kind === "timeOfDay" ? "a time of day" : "a whole number"}`;
+        if (editable?.kind === "weekdays") return `${name} must be days of the week, 1 (Monday) to 7 (Sunday), each once and in order`;
+        return `${name} must be ${kindText(editable)}`;
       case "notOffered":
         return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
       case "outOfRange":
-        return `${name} must be ${rangeText(editable)}`;
+        return `${name} must be ${rangeText(editable)}${editable?.orNone ? ", or none" : ""}`;
       case "offStep":
         return `${name} must be a multiple of ${editable?.step}`;
+    }
+  }
+  function kindText(field) {
+    switch (field?.kind) {
+      case "onOff":
+        return "on or off";
+      case "number":
+        return "a number";
+      case "timeOfDay":
+      case "hoursMinutes":
+        return "a time of day";
+      default:
+        return field?.orNone ? "a whole number, or none" : "a whole number";
     }
   }
   function rangeText(field) {
@@ -396,6 +316,7 @@ var __decentSync = (() => {
     if (!field) return "unknown";
     if (!isEditable(field)) return "readOnly";
     if (field.editableBy === "admin" && role !== "admin") return "notAllowed";
+    if (value === null && field.orNone) return void 0;
     switch (field.kind) {
       case "onOff":
         return typeof value === "boolean" ? void 0 : "invalid";
@@ -405,6 +326,10 @@ var __decentSync = (() => {
       case "timeOfDay":
         if (typeof value !== "number" || !Number.isInteger(value)) return "invalid";
         return inRange(field, value) ? void 0 : "outOfRange";
+      case "hoursMinutes":
+        return isHoursMinutes(value) ? void 0 : "invalid";
+      case "weekdays":
+        return Array.isArray(value) && value.every((day, index) => Number.isInteger(day) && day >= 1 && day <= 7 && (index === 0 || day > value[index - 1])) ? void 0 : "invalid";
       // Only shown, as no editable field is one.
       case "localTime":
       // Added, changed and deleted one at a time, never set as a field.
@@ -415,6 +340,10 @@ var __decentSync = (() => {
         if (!inRange(field, value)) return "outOfRange";
         return field.step === void 0 || onStep(value, field.step) ? void 0 : "offStep";
     }
+  }
+  function isHoursMinutes(value) {
+    const match = typeof value === "string" ? /^(\d\d):(\d\d)$/.exec(value) : null;
+    return match !== null && Number(match[1]) < 24 && Number(match[2]) < 60;
   }
   function inRange(field, value) {
     return (field.min === void 0 || value >= field.min) && (field.max === void 0 || value <= field.max);
@@ -436,6 +365,138 @@ var __decentSync = (() => {
     const [whole = "", fraction = ""] = mantissa.split(".");
     return { digits: whole + fraction, exponent: Number(exponent) - fraction.length };
   }
+
+  // ../protocol/src/chunking.ts
+  var MAX_FRAME_BYTES = 256 * 1024;
+  var MAX_CHUNKED_LENGTH = 16 * 1024 * 1024;
+  var MAX_CHUNKS = 1024;
+  var ASCII_RUN = /[\x00-\x7f]*/y;
+  var ASCII_STEPS = 32;
+  function utf8Length(text) {
+    const length = text.length;
+    let bytes = length;
+    for (let at = 0; at < length; ) {
+      ASCII_RUN.lastIndex = at;
+      ASCII_RUN.test(text);
+      at = ASCII_RUN.lastIndex;
+      for (let ascii = 0; at < length && ascii < ASCII_STEPS; at++) {
+        const unit = text.charCodeAt(at);
+        if (unit < 128) ascii++;
+        else {
+          ascii = 0;
+          if (unit < 2048) bytes += 1;
+          else {
+            bytes += 2;
+            if (unit >= 55296 && unit <= 56319) {
+              const next = text.charCodeAt(at + 1);
+              if (next >= 56320 && next <= 57343) at++;
+            }
+          }
+        }
+      }
+    }
+    return bytes;
+  }
+  function frames(text, id, maxFrameBytes = MAX_FRAME_BYTES) {
+    if (text.length <= maxFrameBytes) {
+      const bytes = utf8Length(text);
+      if (bytes <= maxFrameBytes) return [{ text, bytes }];
+    }
+    const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));
+    if (room < 8) throw new Error("The frame size leaves no room for a chunk's data");
+    const pieces = [];
+    const aim = room * 0.99;
+    let ratio = 1;
+    for (let start = 0; start < text.length; ) {
+      let length = Math.min(text.length - start, Math.max(1, Math.floor(aim / ratio)));
+      for (; ; ) {
+        length = withoutSplitPair(text, start, length);
+        const piece = JSON.stringify(text.slice(start, start + length));
+        const bytes = utf8Length(piece);
+        if (bytes <= room) {
+          pieces.push({ text: piece, bytes });
+          ratio = bytes / length;
+          start += length;
+          break;
+        }
+        length = Math.max(1, length - (bytes - room), Math.floor(length * aim / bytes));
+      }
+    }
+    return pieces.map((piece, index) => {
+      const envelope = chunkFrame(id, index, pieces.length, "");
+      return { text: chunkFrame(id, index, pieces.length, piece.text), bytes: utf8Length(envelope) + piece.bytes };
+    });
+  }
+  function chunkFrame(id, index, count, encodedData) {
+    return `{"type":"chunk","id":${JSON.stringify(id)},"index":${index},"count":${count},"data":${encodedData}}`;
+  }
+  function withoutSplitPair(text, start, length) {
+    const end = start + length;
+    const splitsPair = end < text.length && isHighSurrogate(text.charCodeAt(end - 1)) && isLowSurrogate(text.charCodeAt(end));
+    if (!splitsPair) return length;
+    return length > 1 ? length - 1 : 2;
+  }
+  function isHighSurrogate(unit) {
+    return unit >= 55296 && unit <= 56319;
+  }
+  function isLowSurrogate(unit) {
+    return unit >= 56320 && unit <= 57343;
+  }
+  var CHUNK_LIMITS = { maxLength: MAX_CHUNKED_LENGTH, maxChunks: MAX_CHUNKS };
+  var Reassembly = class {
+    constructor() {
+      __publicField(this, "messages", /* @__PURE__ */ new Map());
+      /** Code units held: the messages' ids and their chunks' data. */
+      __publicField(this, "heldLength", 0);
+      /** Chunks the messages have between them, counting those yet to arrive. */
+      __publicField(this, "heldChunks", 0);
+      __publicField(this, "problem");
+    }
+    add(chunk, limits) {
+      if (this.problem === void 0) this.problem = this.problemWith(chunk, limits);
+      if (this.problem !== void 0) {
+        this.messages.clear();
+        this.heldLength = 0;
+        this.heldChunks = 0;
+        return { status: "invalid", problem: this.problem };
+      }
+      let message = this.messages.get(chunk.id);
+      if (message?.parts[chunk.index] !== void 0) return { status: "incomplete" };
+      if (!message) {
+        message = { count: chunk.count, parts: new Array(chunk.count), received: 0, length: chunk.id.length };
+        this.messages.set(chunk.id, message);
+        this.heldLength += chunk.id.length;
+        this.heldChunks += chunk.count;
+      }
+      message.parts[chunk.index] = chunk.data;
+      message.received++;
+      message.length += chunk.data.length;
+      this.heldLength += chunk.data.length;
+      if (message.received < message.count) return { status: "incomplete" };
+      this.messages.delete(chunk.id);
+      this.heldLength -= message.length;
+      this.heldChunks -= message.count;
+      return { status: "complete", text: message.parts.join("") };
+    }
+    /** Why the chunk cannot be added, by field and never by value, or undefined if it can. */
+    problemWith(chunk, limits) {
+      const { index, count, data } = chunk;
+      if (!Number.isInteger(count) || count < 1 || count > limits.maxChunks) {
+        return `chunk.count must be a whole number from 1 to ${limits.maxChunks}`;
+      }
+      if (!Number.isInteger(index) || index < 0 || index >= count) return "chunk.index must be a whole number below chunk.count";
+      const message = this.messages.get(chunk.id);
+      if (message && message.count !== count) return "chunk.count differs from an earlier chunk of the same message";
+      const held = message?.parts[index];
+      if (held !== void 0) return held === data ? void 0 : "chunk.data differs from an earlier copy of the same chunk";
+      const length = data.length + (message ? 0 : chunk.id.length);
+      const chunks = message ? 0 : count;
+      if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks > limits.maxChunks) {
+        return `Chunked messages still incomplete may hold at most ${limits.maxLength} characters, ids included, and ${limits.maxChunks} chunks between them`;
+      }
+      return void 0;
+    }
+  };
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
@@ -806,6 +867,11 @@ var __decentSync = (() => {
           fields.objectField("fields");
           fields.objectField("expected");
           fields.integer("timeLeftMs", { nonNegative: true });
+          fields.optionalObject("schedule", (schedule) => {
+            schedule.oneOf("action", WAKE_SCHEDULE_ACTIONS);
+            if (isObject(object3.schedule) && object3.schedule.action === "add") schedule.absent("id");
+            else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+          });
         });
       default:
         return invalid("Unknown message type");
@@ -3646,7 +3712,8 @@ var __decentSync = (() => {
     machineSettings: "/machine/settings",
     advancedSettings: "/machine/settings/advanced",
     machineCalibration: "/machine/calibration",
-    appSettings: "/settings"
+    appSettings: "/settings",
+    presenceSettings: "/presence/settings"
   };
   var WITHOUT_MACHINE = /* @__PURE__ */ new Set(["appSettings", "presenceSettings"]);
   var SettingsAccess = class {
@@ -3718,13 +3785,12 @@ var __decentSync = (() => {
         return refusedByDecaid(edit, state.status, decaidMessage(state));
       }
       if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);
+      if (edit.schedule) return this.editSchedule(edit, edit.schedule, tooLate);
       const route = ROUTES2[edit.collection];
       const before = await readObject(route);
       if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
       this.reports.reportSettings(edit.collection, { kind: "value", value: before.value, etag: null }, false);
-      if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
-        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
-      }
+      if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) return changedSince(edit, edited(edit, before.value));
       if (this.stopped) return void 0;
       if (tooLate()) return expired(edit);
       let written2;
@@ -3776,7 +3842,62 @@ var __decentSync = (() => {
       this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
       return answered(edit, written2, failure, after?.ok ? calibrated(target, after.value) : void 0);
     }
+    /**
+     * Adds, changes or deletes the one wake schedule an edit names, through
+     * Decaid's presence routes. A change or a delete goes ahead only while the
+     * presence settings, read and reported first, hold the schedule as the
+     * edit expected it, whole, and is refused as `changedSince` with the
+     * schedule as held, or with none where it is gone; Decaid answering the
+     * write 404 says it went since, and refuses it the same way. An add
+     * expects nothing. Then the presence settings are read again and reported,
+     * and the answer carries the schedule as read back, by the id the edit
+     * names or Decaid gave the new one (`scheduleId`).
+     */
+    async editSchedule(edit, schedule, tooLate) {
+      const route = ROUTES2.presenceSettings;
+      if (schedule.action !== "add") {
+        const before = await readObject(route);
+        if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
+        this.reports.reportSettings("presenceSettings", { kind: "value", value: before.value, etag: null }, false);
+        const held2 = scheduleIn(before.value, schedule.id);
+        if (!sameValue(held2, edit.expected)) return changedSince(edit, held2 ? scheduleValues(held2) : {});
+      }
+      if (this.stopped) return void 0;
+      if (tooLate()) return expired(edit);
+      let written2;
+      let failure = "";
+      try {
+        const path = schedule.action === "add" ? "/presence/schedules" : `/presence/schedules/${encodeURIComponent(schedule.id)}`;
+        if (schedule.action === "add") written2 = await request("POST", path, edit.fields);
+        else if (schedule.action === "change") written2 = await request("PUT", path, edit.fields);
+        else written2 = await request("DELETE", path);
+      } catch (error) {
+        failure = describe(error);
+      }
+      const id = schedule.action === "add" ? written2?.ok ? addedId(written2.text) : void 0 : schedule.id;
+      const after = await readObject(route).catch(() => void 0);
+      this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+      const held = after?.ok && id !== void 0 ? scheduleIn(after.value, id) : void 0;
+      const readBack = after?.ok && id !== void 0 ? held ? scheduleValues(held) : {} : void 0;
+      if (schedule.action !== "add" && written2?.status === 404) return changedSince(edit, readBack);
+      const answer = answered(edit, written2, failure, readBack);
+      return answer.outcome === "written" && id !== void 0 && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
+    }
   };
+  function scheduleIn(presence, id) {
+    const schedules = Array.isArray(presence.schedules) ? presence.schedules : [];
+    return schedules.find((schedule) => isObject6(schedule) && schedule.id === id);
+  }
+  function scheduleValues(schedule) {
+    return { ...schedule, keepAwakeFor: schedule.keepAwakeFor ?? null };
+  }
+  function addedId(text) {
+    const body = parsed5(text);
+    return isObject6(body) && typeof body.id === "string" && body.id !== "" ? body.id : void 0;
+  }
+  function changedSince(edit, values) {
+    return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", ...values ? { values } : {} };
+  }
   function answered(edit, written2, failure, readBack) {
     const values = readBack ? { values: readBack } : {};
     if (written2?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };

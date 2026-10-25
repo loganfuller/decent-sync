@@ -825,6 +825,20 @@ describe("Settings Edits", () => {
     for (const timeLeftMs of [undefined, -1, 1.5]) expect(decodeServerMessage(frame({ ...edit, timeLeftMs })).ok).toBe(false);
   });
 
+  it("reads a wake schedule's edit: an add without an id, and a change or delete naming its schedule", () => {
+    const presence = { ...edit, collection: "presenceSettings", expected: {} };
+    const added: SettingsEdit = { ...presence, schedule: { action: "add" }, fields: { time: "06:30", daysOfWeek: [], enabled: true, keepAwakeFor: null } };
+    const deleted: SettingsEdit = { ...presence, schedule: { action: "delete", id: "a2c4e6f8" }, fields: {}, expected: { id: "a2c4e6f8", time: "06:30", daysOfWeek: [], enabled: true } };
+    for (const message of [added, deleted, { ...deleted, schedule: { action: "change", id: "a2c4e6f8" } }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodeServerMessage(frame({ ...added, schedule: { action: "move" } }))).toMatchObject({ ok: false, problem: expect.stringContaining("settingsEdit.schedule.action must be one of add, change, delete") });
+    expect(decodeServerMessage(frame({ ...added, schedule: { action: "add", id: "a2c4e6f8" } }))).toMatchObject({ ok: false, problem: "settingsEdit.schedule.id must be absent" });
+    expect(decodeServerMessage(frame({ ...deleted, schedule: { action: "delete" } }))).toMatchObject({ ok: false, problem: "settingsEdit.schedule.id must be a string" });
+    expect(decodeServerMessage(frame({ ...deleted, schedule: { action: "delete", id: "" } })).ok).toBe(false);
+    expect(decodeServerMessage(frame({ ...deleted, schedule: "delete" })).ok).toBe(false);
+  });
+
   it("reads its answer: written, with the values read back where they could be, or refused, with why", () => {
     const refusals: SettingsEdited[] = [
       { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: "espresso" },
@@ -845,6 +859,13 @@ describe("Settings Edits", () => {
     expect(decodePluginMessage(frame({ ...refusals[3], status: undefined })).ok).toBe(false);
     expect(decodePluginMessage(frame({ ...refusals[3], message: "a".repeat(MAX_REFUSAL_LENGTH + 1) })).ok).toBe(false);
     expect(decodePluginMessage(frame({ ...written, id: "edit-1" }))).toMatchObject({ ok: false, problem: "settingsEdited.id must be a UUID" });
+  });
+
+  it("reads the id Decaid gave a wake schedule an edit added", () => {
+    const added: SettingsEdited = { ...written, values: { id: "a2c4e6f8", time: "06:30", daysOfWeek: [], enabled: true, keepAwakeFor: null }, scheduleId: "a2c4e6f8" };
+    expect(decodePluginMessage(frame(added))).toEqual({ ok: true, message: added });
+    expect(decodePluginMessage(frame({ ...added, scheduleId: "" })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...added, scheduleId: 7 })).ok).toBe(false);
   });
 });
 

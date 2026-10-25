@@ -6,6 +6,8 @@ import {
   type SettingsEdited,
   type SettingsEditedRefusal,
   type SettingsRole,
+  type WakeScheduleAction,
+  type WakeScheduleEdit,
   isEditableSettingsCollection,
   settingsRefusalText,
   validateSettingsEdit,
@@ -14,13 +16,13 @@ import { type Scope, includesLocation } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
-import { AccountRole, Prisma, SettingsEditOutcome, SettingsEditRefusal } from "../generated/prisma/client.js";
+import { AccountRole, Prisma, SettingsEditOutcome, SettingsEditRefusal, WakeScheduleAction as StoredScheduleAction } from "../generated/prisma/client.js";
 import { machineNotFound } from "../machines/input.js";
 import { lockMachine } from "../machines/machines.service.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { type NewSettingsEdit, settingsEditNotFound } from "./input.js";
-import { type DecidedOutcome, type HeldOtherwise, decideOutcome, heldOtherwise } from "./outcome.js";
+import { type DecidedOutcome, type HeldOtherwise, type SentEdit, decideOutcome, heldOtherwise } from "./outcome.js";
 
 /** Why a Settings Edit was refused, as the REST API gives it, with what the plugin said of it. */
 export type SettingsEditRefusalView =
@@ -35,7 +37,17 @@ export interface SettingsEditView {
   id: string;
   machineId: string;
   collection: string;
-  /** Each field it sets, with its new value, and each field's value in the report it was made over. */
+  /**
+   * For the presence settings, the wake schedule it adds, changes or
+   * deletes, if it does, by the id the Tablet gave it: for an add, the new
+   * schedule's once its answer gave it, null until then.
+   */
+  schedule: { action: WakeScheduleAction; id: string | null } | null;
+  /**
+   * Each field it sets, with its new value, and each field's value in the
+   * report it was made over; for a wake schedule's change or delete, the
+   * whole schedule as reported.
+   */
   fields: Record<string, unknown>;
   expected: Record<string, unknown>;
   /** Who made it: named to Admins, and to Staff by its id only, as other accounts' names are personal information they do not see. */
@@ -56,7 +68,12 @@ export interface SettingsEditView {
   /** For `adjusted`: each field the Machine stored otherwise, with what it holds. */
   adjusted: HeldOtherwise[];
   refusal: SettingsEditRefusalView | null;
-  /** The edit's fields as the plugin read them: back after its write, or as the tablet held them when it was refused as changed since. */
+  /**
+   * The edit's fields as the plugin read them: back after its write, or as
+   * the tablet held them when it was refused as changed since; for a wake
+   * schedule, the whole schedule, or none where the tablet held none of its
+   * id, as once it was deleted, or gone.
+   */
   readBack: Record<string, unknown> | null;
 }
 
@@ -67,6 +84,8 @@ const REFUSALS: Record<SettingsEditedRefusal, SettingsEditRefusal> = {
   expired: SettingsEditRefusal.EXPIRED,
   decaid: SettingsEditRefusal.DECAID,
 };
+const SCHEDULE_ACTIONS: Record<WakeScheduleAction, StoredScheduleAction> = { add: StoredScheduleAction.ADD, change: StoredScheduleAction.CHANGE, delete: StoredScheduleAction.DELETE };
+const SCHEDULE_ACTION_VIEWS = { ADD: "add", CHANGE: "change", DELETE: "delete" } as const satisfies Record<StoredScheduleAction, WakeScheduleAction>;
 const OUTCOME_VIEWS = { APPLIED: "applied", ADJUSTED: "adjusted", REFUSED: "refused" } as const satisfies Record<SettingsEditOutcome, string>;
 const REFUSAL_VIEWS = {
   MACHINE_BUSY: "machineBusy",
@@ -150,6 +169,8 @@ export class SettingsEditsService {
           tabletId: holder.tabletId,
           accountId: signedIn.account.id,
           collection: edit.collection,
+          scheduleAction: edit.schedule ? SCHEDULE_ACTIONS[edit.schedule.action] : null,
+          scheduleId: edit.schedule && edit.schedule.action !== "add" ? edit.schedule.id : null,
           fields: edit.fields as Prisma.InputJsonObject,
           expected: edit.expected as Prisma.InputJsonObject,
         },
@@ -246,17 +267,29 @@ export class SettingsEditsService {
       const holds = await tx.$queryRaw<unknown[]>`
         SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid FOR NO KEY UPDATE`;
       if (holds.length === 0) return [];
-      const claimed = await tx.$queryRaw<{ id: string; collection: string; fields: Record<string, unknown>; expected: Record<string, unknown>; timeLeftMs: number }[]>`
+      const claimed = await tx.$queryRaw<
+        { id: string; collection: string; scheduleAction: StoredScheduleAction | null; scheduleId: string | null; fields: Record<string, unknown>; expected: Record<string, unknown>; timeLeftMs: number }[]
+      >`
         WITH claimed AS (
           UPDATE settings_edits SET sent_at = clock_timestamp()
           WHERE session_id = ${connection.sessionId}::uuid AND machine_id = ${connection.machineId}::uuid AND sent_at IS NULL
             AND made_at > clock_timestamp() - ${SETTINGS_EDIT_MS}::integer * interval '1 millisecond'
-          RETURNING id, collection, fields, expected, made_at, sent_at
+          RETURNING id, collection, schedule_action, schedule_id, fields, expected, made_at, sent_at
         )
-        SELECT id, collection, fields, expected,
+        SELECT id, collection, schedule_action AS "scheduleAction", schedule_id AS "scheduleId", fields, expected,
           GREATEST(0, ${SETTINGS_EDIT_MS}::integer - FLOOR(EXTRACT(EPOCH FROM sent_at - made_at) * 1000))::integer AS "timeLeftMs"
         FROM claimed ORDER BY made_at, id`;
-      return claimed.map(({ id, collection, fields, expected, timeLeftMs }): SettingsEdit => ({ type: "settingsEdit", id, collection, fields, expected, timeLeftMs }));
+      return claimed.map(
+        ({ id, collection, scheduleAction, scheduleId, fields, expected, timeLeftMs }): SettingsEdit => ({
+          type: "settingsEdit",
+          id,
+          collection,
+          ...(scheduleAction === null ? {} : { schedule: scheduleEdit(scheduleAction, scheduleId) }),
+          fields,
+          expected,
+          timeLeftMs,
+        }),
+      );
     });
   }
 
@@ -265,17 +298,24 @@ export class SettingsEditsService {
    * whichever connection and instance it reached, and says what came of it,
    * and whether it came late, after the edit was no longer awaited; null for
    * an edit of another Machine, or none, or one already answered. Only the
-   * values of the edit's own fields are kept.
+   * values of the edit's own fields are kept, but for a wake schedule's,
+   * whose whole schedule is, and the id Decaid gave a schedule added.
    */
   async recordAnswer(machineId: string, answer: SettingsEdited): Promise<{ outcome: DecidedOutcome["outcome"]; late: boolean } | null> {
     const edit = await this.prisma.settingsEdit.findFirst({
       where: { id: answer.id.toLowerCase(), machineId, answeredAt: null },
-      select: { id: true, collection: true, fields: true, expected: true },
+      select: { id: true, collection: true, scheduleAction: true, fields: true, expected: true },
     });
     if (!edit) return null;
-    const sent = { collection: edit.collection, fields: asRecord(edit.fields), expected: asRecord(edit.expected) };
+    const sent = { collection: edit.collection, fields: asRecord(edit.fields), expected: asRecord(edit.expected), scheduled: edit.scheduleAction !== null };
     const decided = decideOutcome(sent, answer);
-    const values = answer.values === undefined ? null : Object.fromEntries(Object.keys(sent.fields).filter((field) => field in answer.values!).map((field) => [field, answer.values![field]]));
+    const values =
+      answer.values === undefined
+        ? null
+        : sent.scheduled
+          ? answer.values
+          : Object.fromEntries(Object.keys(sent.fields).filter((field) => field in answer.values!).map((field) => [field, answer.values![field]]));
+    const addedId = edit.scheduleAction === StoredScheduleAction.ADD && answer.outcome === "written" ? (answer.scheduleId ?? null) : null;
     const refusal = decided.outcome === "refused" ? REFUSALS[decided.reason] : null;
     const decaid = decided.outcome === "refused" && decided.reason === "decaid";
     const [updated] = await this.prisma.$transaction(async (tx) => {
@@ -291,7 +331,8 @@ export class SettingsEditsService {
         machine_state = ${answer.reason === "machineBusy" ? (answer.state ?? null) : null},
         decaid_status = ${decaid ? (answer.status ?? null) : null}::integer,
         decaid_message = ${decaid ? (answer.message ?? null) : null},
-        read_back = ${values === null ? null : JSON.stringify(values)}::jsonb
+        read_back = ${values === null ? null : JSON.stringify(values)}::jsonb,
+        schedule_id = COALESCE(schedule_id, ${addedId})
       WHERE id = ${edit.id}::uuid AND answered_at IS NULL
       RETURNING late`;
     });
@@ -311,6 +352,7 @@ function view(edit: StoredEdit, scope: Scope, notConfirmed: boolean): SettingsEd
     id: edit.id,
     machineId: edit.machineId,
     collection: edit.collection,
+    schedule: edit.scheduleAction === null ? null : { action: SCHEDULE_ACTION_VIEWS[edit.scheduleAction], id: edit.scheduleId },
     fields,
     expected,
     // Other accounts' names are personal information that Staff do not see.
@@ -321,12 +363,12 @@ function view(edit: StoredEdit, scope: Scope, notConfirmed: boolean): SettingsEd
     outcome,
     late: edit.late && !stillNotConfirmed,
     adjusted: outcome === "adjusted" ? heldOtherwise({ collection: edit.collection, fields }, readBack) : [],
-    refusal: outcome === "refused" ? refusalView(edit, { collection: edit.collection, fields, expected }, readBack) : null,
+    refusal: outcome === "refused" ? refusalView(edit, { collection: edit.collection, fields, expected, scheduled: edit.scheduleAction !== null }, readBack) : null,
     readBack,
   };
 }
 
-function refusalView(edit: StoredEdit, sent: { collection: string; fields: Record<string, unknown>; expected: Record<string, unknown> }, readBack: Record<string, unknown> | null): SettingsEditRefusalView | null {
+function refusalView(edit: StoredEdit, sent: SentEdit, readBack: Record<string, unknown> | null): SettingsEditRefusalView | null {
   if (edit.refusal === null) return null;
   const reason = REFUSAL_VIEWS[edit.refusal];
   switch (reason) {
@@ -341,6 +383,11 @@ function refusalView(edit: StoredEdit, sent: { collection: string; fields: Recor
       return { reason, status: edit.decaidStatus, message: edit.decaidMessage, changed: decided.outcome === "refused" ? decided.changed : [] };
     }
   }
+}
+
+/** A stored wake schedule's edit as the plugin is sent it. */
+function scheduleEdit(action: StoredScheduleAction, id: string | null): WakeScheduleEdit {
+  return action === StoredScheduleAction.ADD ? { action: "add" } : { action: SCHEDULE_ACTION_VIEWS[action] as "change" | "delete", id: id ?? "" };
 }
 
 function asRecord(value: Prisma.JsonValue): Record<string, unknown> {

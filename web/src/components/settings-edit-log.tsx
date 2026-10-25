@@ -3,13 +3,14 @@ import { useAuth } from "@/auth";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { SETTINGS } from "@/components/machine-collections";
 import { formatTime } from "@/components/machines";
-import { labelOf, outcomeText, shownValue } from "@/components/settings-edits";
+import { labelOf, outcomeText, scheduleSubject, shownValue } from "@/components/settings-edits";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type SettingsEdit, type SettingsEditPage, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
+import { WAKE_SCHEDULE_FIELDS } from "@decent-sync/protocol";
 
 const PAGE_SIZE = 20;
 
@@ -114,16 +115,32 @@ function MadeBy({ account }: { account: SettingsEdit["account"] }) {
   return <>{account.name ?? "An account"}</>;
 }
 
-/** Each field the edit set, with its value in the report it was made over and the value it asked for. */
+/**
+ * Each field the edit set, with its value in the report it was made over and
+ * the value it asked for; for a wake schedule, what was done to it first,
+ * and a new schedule's fields as asked for.
+ */
 function Change({ edit }: { edit: SettingsEdit }) {
+  const scheduled = edit.schedule !== null;
+  const added = edit.schedule?.action === "add";
+  // A wake schedule's fields in their order, as the server stores an edit's fields as jsonb, which does not keep it.
+  const paths = scheduled ? WAKE_SCHEDULE_FIELDS.map((field) => field.path).filter((path) => path in edit.fields) : Object.keys(edit.fields);
   return (
-    <ul className="grid gap-0.5">
-      {Object.entries(edit.fields).map(([path, value]) => (
-        <li key={path}>
-          {labelOf(edit.collection, path)}: {shownValue(edit.collection, path, edit.expected[path])} to {shownValue(edit.collection, path, value)}
-        </li>
-      ))}
-    </ul>
+    <div className="grid gap-0.5">
+      {scheduled && <span>{scheduleSubject(edit)}</span>}
+      {paths.length > 0 && (
+        <ul className="grid gap-0.5">
+          {paths.map((path) => [path, edit.fields[path]] as const).map(([path, value]) => (
+            <li key={path}>
+              {labelOf(edit.collection, path, scheduled)}:{" "}
+              {added
+                ? shownValue(edit.collection, path, value, null, scheduled)
+                : `${shownValue(edit.collection, path, edit.expected[path], null, scheduled)} to ${shownValue(edit.collection, path, value, null, scheduled)}`}
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
   );
 }
 

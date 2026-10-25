@@ -15,7 +15,10 @@ import { expectTip } from "./support/tooltips.js";
 // Admin's only (#227), each sensor's calibration set behind a warning, an
 // Admin's only too (#228), and the Tablet Settings' form, Staff's but for
 // gateway mode, with night mode's times in the Tablet's own time and a
-// warning where its offset differs from its Location's (#230). A simulated
+// warning where its offset differs from its Location's (#230), and the
+// presence settings' form and each wake schedule added, changed and deleted
+// on its own, with the time zone warning and, on a Bengle, the wake window
+// warning (#231). A simulated
 // tablet running the built plugin takes the writes as Decaid v0.9.0 does;
 // hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -499,6 +502,137 @@ test("the Tablet Settings form warns where the Tablet's UTC offset differs from 
   await expect(form.getByText("The Tablet's time zone differs from its Location's")).toHaveCount(0);
 });
 
+test("Staff change presence, and add, change and delete a wake schedule in the Tablet's own time, each listed with its action", async ({ page, browser }) => {
+  // Kolkata keeps UTC+5:30 all year, as the Tablet does: no time zone warning.
+  const wharf = await createLocation(page, "Wharf", "Asia/Kolkata");
+  const { machine, token } = await createMachine(page, "Wharf bar", wharf.id);
+  const tablet = await tabletOf(token, "23101", { utcOffsetMinutes: 330 });
+  await reported(page, machine.id, "presenceSettings");
+  const presenceWrites = () => tablet.writes.filter((write) => write.includes(" /presence/"));
+  const held = async () => (await tablet.callApi("GET", "/presence/settings")).body as { userPresenceEnabled: boolean; sleepTimeoutMinutes: number; schedules: { id: string }[] };
+
+  await asStaff(page, browser, "noor@example.com", wharf.id, async (noorsPage) => {
+    await noorsPage.goto(`/machines/${machine.id}`);
+    const presence = noorsPage.getByRole("region", { name: "Presence", exact: true });
+    const status = presence.getByRole("status");
+
+    // Presence and its sleep timeout, in the section's own form; the wake schedules and keepAwakeUntil are not in it.
+    await presence.getByRole("button", { name: "Edit Presence" }).click();
+    const form = presence.getByRole("form", { name: "Edit Presence" });
+    await expect(form.getByRole("switch", { name: "Presence detection" })).toBeChecked();
+    await expect(form.getByLabel("Sleep timeout (min)")).toHaveValue("30");
+    await expect(form.getByLabel("Presence, read-only").getByRole("term")).toHaveText(["Kept awake until"]);
+    await form.getByLabel("Sleep timeout (min)").fill("45");
+    await form.getByRole("button", { name: "Save" }).click();
+    await expect(status).toContainText("Applied");
+    await expect(status).toContainText("Sleep timeout: 45 min.");
+    await expect(field(presence, "Sleep timeout")).toHaveText("45 min");
+
+    // Added in the Tablet's own time, labelled with its offset.
+    const schedules = presence.getByRole("table", { name: "Wake schedules" });
+    await expect(schedules).toHaveCount(0);
+    await presence.getByRole("button", { name: "Add", exact: true }).click();
+    const add = presence.getByRole("form", { name: "Add a wake schedule" });
+    await expect(add.getByText("The Tablet's time zone differs from its Location's")).toHaveCount(0);
+    await add.getByLabel("Time (UTC+5:30)").fill("06:30");
+    for (const day of ["Fri", "Mon", "Wed"]) await add.getByRole("checkbox", { name: day }).click();
+    await expect(add.getByRole("switch", { name: "On" })).toBeChecked();
+    await add.getByLabel("Keeps awake for (min)").fill("120");
+    await add.getByRole("button", { name: "Save" }).click();
+    await expect(status).toContainText("Applied");
+    await expect(status).toContainText("Wake schedule added: Time: 06:30 (UTC+5:30); Days: Mon, Wed, Fri; On: On; Keeps awake for: 120 min.");
+    await expect(rows(schedules).getByRole("cell")).toHaveText(["06:30 (UTC+5:30)", "Mon, Wed, Fri", "On", "120 min", ""]);
+
+    // Changed: off, every day, and keeping the Machine awake for no set time.
+    await presence.getByRole("button", { name: "Edit the wake schedule at 06:30 (UTC+5:30)" }).click();
+    const change = presence.getByRole("form", { name: "Edit the wake schedule" });
+    await expect(change.getByLabel("Time (UTC+5:30)")).toHaveValue("06:30");
+    await expect(change.getByRole("checkbox", { name: "Wed" })).toBeChecked();
+    await expect(change.getByLabel("Keeps awake for (min)")).toHaveValue("120");
+    for (const day of ["Mon", "Wed", "Fri"]) await change.getByRole("checkbox", { name: day }).click();
+    await change.getByRole("switch", { name: "On" }).click();
+    await change.getByLabel("Keeps awake for (min)").fill("");
+    await change.getByRole("button", { name: "Save" }).click();
+    await expect(status).toContainText("Applied");
+    await expect(status).toContainText("Wake schedule at 06:30 (UTC+5:30) changed: Time: 06:30 (UTC+5:30); Days: Every day; On: Off; Keeps awake for: None.");
+    await expect(rows(schedules).getByRole("cell")).toHaveText(["06:30 (UTC+5:30)", "Every day", "Off", "None", ""]);
+
+    // Deleted, behind a confirmation.
+    await presence.getByRole("button", { name: "Delete the wake schedule at 06:30 (UTC+5:30)" }).click();
+    const confirm = noorsPage.getByRole("alertdialog", { name: "Delete the wake schedule?" });
+    await expect(confirm).toContainText("The wake schedule at 06:30 (UTC+5:30), Every day, is deleted from the Tablet.");
+    await confirm.getByRole("button", { name: "Delete" }).click();
+    await expect(status).toContainText("Applied");
+    await expect(status).toContainText("Wake schedule at 06:30 (UTC+5:30) deleted.");
+    await expect(schedules).toHaveCount(0);
+
+    // The log names each schedule's action, newest first, its times without an offset.
+    const edits = noorsPage.getByRole("table", { name: "Settings Edits" });
+    await expect(rows(edits)).toHaveCount(4);
+    const logged = [
+      ["Delete the wake schedule at 06:30"],
+      ["Change the wake schedule at 06:30", "Days: Mon, Wed, Fri to Every day", "On: On to Off", "Keeps awake for: 120 min to None"],
+      ["Add a wake schedule", "Time: 06:30", "Days: Mon, Wed, Fri", "On: On", "Keeps awake for: 120 min"],
+      ["Sleep timeout: 30 min to 45 min"],
+    ];
+    for (const [index, change] of logged.entries()) {
+      await expect(rows(edits).nth(index).getByRole("cell")).toHaveText([/.+/, "You", "Presence", change.join(""), "Applied"]);
+    }
+  });
+  baseExpect(await held()).toMatchObject({ userPresenceEnabled: true, sleepTimeoutMinutes: 45, schedules: [] });
+  baseExpect(presenceWrites()).toEqual([
+    "POST /presence/settings",
+    "POST /presence/schedules",
+    baseExpect.stringMatching(/^PUT \/presence\/schedules\//),
+    baseExpect.stringMatching(/^DELETE \/presence\/schedules\//),
+  ]);
+});
+
+test("the wake schedule form warns of a Tablet's time zone differing from its Location's, and on a Bengle with presence on, of more wake windows than it takes", async ({ page }) => {
+  // Kolkata keeps UTC+5:30 all year, and the Tablet is four hours behind UTC.
+  const pier = await createLocation(page, "Pier", "Asia/Kolkata");
+  const { machine, token } = await createMachine(page, "Pier Bengle", pier.id);
+  // Every day from 20:30 and from 21:00, with no keep-awake time, so 240 min past midnight: two windows a day each, 28 in all.
+  const evenings = [
+    { id: "0f0e0d0c-0b0a-4908-8706-050403020100", time: "20:30", daysOfWeek: [], enabled: true },
+    { id: "1f1e1d1c-1b1a-4918-9716-151413121110", time: "21:00", daysOfWeek: [], enabled: true },
+  ];
+  await tabletOf(token, "23102", { utcOffsetMinutes: -240, model: "Bengle", presence: { userPresenceEnabled: true, sleepTimeoutMinutes: 30, keepAwakeUntil: null, schedules: evenings } });
+  await reported(page, machine.id, "presenceSettings");
+  await page.goto(`/machines/${machine.id}`);
+  const presence = page.getByRole("region", { name: "Presence", exact: true });
+  await expect(rows(presence.getByRole("table", { name: "Wake schedules" }))).toHaveCount(2);
+
+  await presence.getByRole("button", { name: "Add", exact: true }).click();
+  const add = presence.getByRole("form", { name: "Add a wake schedule" });
+  await expect(add.getByRole("alert").filter({ hasText: "The Tablet's time zone differs from its Location's" })).toContainText(
+    "The Tablet is at UTC−4, and Pier (Asia/Kolkata) at UTC+5:30 now.",
+  );
+  const windows = add.getByRole("alert").filter({ hasText: "More wake windows than a Bengle takes" });
+  await expect(windows).toHaveCount(0);
+  // Every day from 22:00 for an hour: one window a day more, 35 in all.
+  await add.getByLabel("Time (UTC−4)").fill("22:00");
+  await add.getByLabel("Keeps awake for (min)").fill("60");
+  await expect(windows).toContainText("These wake schedules make 35 wake windows, and the Machine takes at most 32: Decaid leaves out the rest.");
+  await expectTip(windows, "wake windows", /one for each day a schedule runs/);
+  // A schedule that is off makes none.
+  const on = add.getByRole("switch", { name: "On" });
+  await on.click();
+  await expect(windows).toHaveCount(0);
+  await on.click();
+  await expect(windows).toBeVisible();
+  await add.getByRole("button", { name: "Save" }).click();
+  await expect(presence.getByRole("status")).toContainText("Applied");
+
+  // The section's form warns while presence stays on, and not once it is turned off, as Decaid then writes no windows.
+  await presence.getByRole("button", { name: "Edit Presence" }).click();
+  const form = presence.getByRole("form", { name: "Edit Presence" });
+  const presenceWindows = form.getByRole("alert").filter({ hasText: "More wake windows than a Bengle takes" });
+  await expect(presenceWindows).toContainText("These wake schedules make 35 wake windows");
+  await form.getByRole("switch", { name: "Presence detection" }).click();
+  await expect(presenceWindows).toHaveCount(0);
+});
+
 /** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */
 async function makeEdit(page: Page, machineId: string, fields: Record<string, unknown>, expected: Record<string, unknown>): Promise<string> {
   const response = await page.request.post(`/api/machines/${machineId}/settings-edits`, { data: { collection: "machineSettings", fields, expected } });
@@ -519,11 +653,20 @@ async function online(page: Page, machineId: string): Promise<void> {
   await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machineId}`)).json()) as { machine: { online: boolean } }).machine.online).toBe(true);
 }
 
-/** A tablet connected with the token, polling every 5 s of its time, which runs `timeScale` times faster, at its UTC offset if one is given. */
-async function tabletOf(token: string, serial: string, { timeScale = 50, utcOffsetMinutes }: { timeScale?: number; utcOffsetMinutes?: number } = {}): Promise<SimulatedTablet> {
+/**
+ * A tablet connected with the token, polling every 5 s of its time, which
+ * runs `timeScale` times faster, at its UTC offset if one is given, its
+ * machine of the model given, a DE1Pro otherwise, and its Decaid holding the
+ * presence settings given, a new install's otherwise.
+ */
+async function tabletOf(
+  token: string,
+  serial: string,
+  { timeScale = 50, utcOffsetMinutes, model, presence }: { timeScale?: number; utcOffsetMinutes?: number; model?: string; presence?: Record<string, unknown> } = {},
+): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [] },
+    api: { ...derivedDe1Pro({ serial, model }), "/beans": [], "/bean-batches": [], "/grinders": [], ...(presence ? { "/presence/settings": presence } : {}) },
     timeScale,
     utcOffsetMinutes,
   });
@@ -532,14 +675,14 @@ async function tabletOf(token: string, serial: string, { timeScale = 50, utcOffs
   return tablet;
 }
 
-/** Resolves once the server holds the Machine's settings as its tablet reported them, which its page loads on opening. */
-async function reported(page: Page, machineId: string): Promise<void> {
-  await expect.poll(async () => (await machineSettings(page, machineId)) !== undefined).toBe(true);
+/** Resolves once the server holds the Machine's settings, or another settings collection, as its tablet reported them, which its page loads on opening. */
+async function reported(page: Page, machineId: string, name = "machineSettings"): Promise<void> {
+  await expect.poll(async () => (await machineSettings(page, machineId, name)) !== undefined).toBe(true);
 }
 
-/** The Machine's settings as the server holds them from its tablet's latest available report, or undefined before one. */
-async function machineSettings(page: Page, machineId: string): Promise<Record<string, unknown> | undefined> {
-  const { collection } = (await (await page.request.get(`/api/machines/${machineId}/collections/machineSettings`)).json()) as {
+/** The Machine's settings, or another settings collection, as the server holds them from its tablet's latest available report, or undefined before one. */
+async function machineSettings(page: Page, machineId: string, name = "machineSettings"): Promise<Record<string, unknown> | undefined> {
+  const { collection } = (await (await page.request.get(`/api/machines/${machineId}/collections/${name}`)).json()) as {
     collection: { available: boolean; value: Record<string, unknown> } | null;
   };
   return collection?.available ? collection.value : undefined;

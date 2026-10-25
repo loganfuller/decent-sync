@@ -757,6 +757,15 @@ enum SettingsEditRefusal {
   @@map("settings_edit_refusal")
 }
 
+/// What a Settings Edit of the presence settings does to a wake schedule (`WAKE_SCHEDULE_ACTIONS`).
+enum WakeScheduleAction {
+  ADD
+  CHANGE
+  DELETE
+
+  @@map("wake_schedule_action")
+}
+
 /// A Settings Edit (ADR-0023): one write of a Machine's settings or its
 /// Tablet's, made by an account in the management interface while the
 /// Machine was online, sent only on the connection that held it as it was
@@ -777,6 +786,11 @@ model SettingsEdit {
   account       Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
   /// One of EDITABLE_SETTINGS_COLLECTIONS.
   collection    String
+  /// For `presenceSettings`, the wake schedule it adds, changes or deletes, if
+  /// it does, by the id Decaid gave it: for an add, null until its answer
+  /// carries the new schedule's.
+  scheduleAction WakeScheduleAction? @map("schedule_action")
+  scheduleId    String?              @map("schedule_id")
   /// Each field it sets, by its path, with its new value; and each field's
   /// value in the report it was made over, as the tablet sent it.
   fields        Json                 @db.JsonB

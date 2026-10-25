@@ -112,18 +112,26 @@ ADR-0023) makes a Machine's settings editable. Each field of
 server, the plugin and the management interface: Decaid's name for it (for
 `sensorCalibration`, the target, whose `measuredValue` is the value), its
 label and unit, its kind (number, whole number, on or off, choice, time of
-day, a local date and time, or wake schedules), its range and its step or choices, who may change it (Staff or Admin),
+day, a time written HH:MM, days of the week, a local date and time, or wake
+schedules), its range and its step or choices, whether none is a value too,
+who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: reset when the Machine
 reconnects, put back by Streamline's settings page, or to restart the Machine
 after a change. Labels, units, ranges, steps and choices follow Streamline's
-settings page at `cec5664`, and Decaid's own limits where it has none.
+settings page at `cec5664`, and Decaid's own limits where it has none. A
+wake schedule's fields, which an edit adding or changing one sets, are
+defined apart (`WAKE_SCHEDULE_FIELDS`): its time, `HH:MM`; its days, ISO
+weekdays 1 to 7, each once and in order, none for every day; whether it is
+on; and its keep-awake time, 1 to 720 min or null for none.
 
 `validateSettingsEdit`, a pure function, decides whether an edit's fields and
 values are allowed by the definitions and to the account making it. It
 refuses an unknown or read-only field, an Admin's field for Staff, a value not
 of the field's kind, a choice not offered, a value out of range, one off its
 step (`onStep`), and an edit of more than one sensor's calibration, as an edit
-names one target. A number may have no more decimal places than its step, and
+names one target. For a wake schedule's edit, it refuses an add that does not
+set every field, a change that sets none, a delete that sets any, and a
+schedule named for a collection other than `presenceSettings`. A number may have no more decimal places than its step, and
 must be a whole multiple of it, counted in the step's least decimal place on
 the number's decimal digits rather than by floating-point arithmetic, so a
 step of 0.05 takes 0.35 and refuses 0.33, however large the number. The
@@ -163,25 +171,35 @@ multiplier), all an Admin's, and
 [#228](https://github.com/loganfuller/decent-sync/issues/228) sets a
 sensor's calibration (`sensorCalibration`), an Admin's too, and
 [#230](https://github.com/loganfuller/decent-sync/issues/230) the Tablet
-Settings (`appSettings`), Staff's but for gateway mode, an Admin's: the
-collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
+Settings (`appSettings`), Staff's but for gateway mode, an Admin's, and
+[#231](https://github.com/loganfuller/decent-sync/issues/231) the presence
+settings (`presenceSettings`), Staff's: presence and the sleep timeout, and
+each wake schedule added, changed or deleted on its own. That is every
+collection in `EDITABLE_SETTINGS_COLLECTIONS`.
 
 - **Made through REST.** `POST /api/machines/:id/settings-edits` takes `{
   collection, fields, expected }`: each field it sets with its new value, and
   `expected`, each of those fields' raw value in the report the page showed,
   as the API sent it, never the rounded value the card displays. An edit of
   `sensorCalibration` sets one target, such as `{ "pressure": 1.02 }`,
-  expecting its current read's `measuredValue`. It is
+  expecting its current read's `measuredValue`. A wake schedule's edit adds
+  `schedule`: `{ action: "add" }` with every one of its fields, expecting
+  nothing (`{}`); or `{ action: "change" | "delete", id }`, naming the
+  schedule by the id Decaid gave it, with the fields changed, or none for a
+  delete, and expecting the whole schedule as reported, its id included. It is
   refused at once, with nothing kept: 400 where `validateSettingsEdit`
   refuses a field (but for an Admin's field), where `expected` does not name
-  exactly the fields set, or for a collection not edited yet; 403 for an
+  exactly the fields set, or for a wake schedule, is not the schedule named,
+  or not empty for an add; 403 for an
   Admin's field asked by Staff, or Staff editing a Machine at no Location
   they work at; 409 while the Machine is offline, as its status judges it,
   or while its connection's tablet reports another machine's hardware, which
   nothing is written to (ADR-0004). An Admin edits any Machine with an
   entry, a Capture-only one or one at no Location included, as Settings
   Edits are no Library writes. It answers `{ settingsEdit }` with its outcome
-  pending (null). `GET /api/machines/:id/settings-edits/:editId` reads one,
+  pending (null), and for a wake schedule its `schedule`, `{ action, id }`,
+  whose id is null for an add until its answer gives the new schedule's.
+  `GET /api/machines/:id/settings-edits/:editId` reads one,
   which the page reads until it has an outcome, and `GET
   /api/machines/:id/settings-edits` lists the Machine's edits, newest first,
   paged by `limit` and `offset` as the other histories are, as `{
@@ -228,13 +246,13 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
      Decaid's answer where the read fails, as with a 500 naming
      `DeviceNotConnectedException` while no machine is connected. Decaid
      reads and writes the Tablet Settings without a machine, so an edit of
-     `appSettings` goes ahead on that 500;
+     `appSettings` or `presenceSettings` goes ahead on that 500;
   3. reads the collection, reports it if it changed, and refuses the edit as
      `changedSince`, with the fields' current values, if any field no longer
      holds its expected value (`sameValue`);
   4. writes only the edit's fields through the collection's route: `POST
      /machine/settings`, `/machine/settings/advanced`,
-     `/machine/calibration` or `/settings`. Decaid writes each field in
+     `/machine/calibration`, `/settings` or `/presence/settings`. Decaid writes each field in
      turn, so a refusal part-way leaves the fields before it written, as
      `/settings` does as it refuses a value with 400 and its `message`. A
      scaled register's value is truncated (`_writeMMRScaled`), so a flow
@@ -268,6 +286,23 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   reported, so no other read delays the write, and the read-back reads all
   three again, as a partial set is never sent (5). The machine holds the value nearest X in
   Q16.16, within half the field's step, so the edit reads as `applied`.
+  A wake schedule is added, changed or deleted on its own, through Decaid's
+  presence routes. For a change or a delete, the plugin reads `GET
+  /presence/settings`, reports it if it changed, and goes ahead only while it
+  holds the schedule of that id as the edit expected it, whole
+  (`sameValue`); otherwise it refuses the edit as `changedSince` with the
+  schedule as held, or with none (`{}`) where it is gone. Then it sends
+  `POST /presence/schedules` with the fields for an add, `PUT
+  /presence/schedules/{id}` with the fields changed, or `DELETE
+  /presence/schedules/{id}`; a 404, as for a schedule deleted between the
+  read and the write, is refused as `changedSince` too. Decaid takes a
+  keep-awake time of null as none for both. After the write, it reads
+  `/presence/settings` again and reports it, and its answer carries the
+  schedule as read back, by the id the edit named or Decaid gave the new one
+  (`scheduleId`, from the add's 201), with a `keepAwakeFor` of null for none,
+  which Decaid leaves out, or `{}` once deleted. The server keeps that whole
+  schedule as the read-back, and the new id in the edit's
+  `schedule_id`.
 - **Not confirmed.** An edit still unanswered is `notConfirmed` once 60 s
   have passed since it was made, or once its connection no longer holds the
   Machine: it closed and was released, or a newer connection replaced it, as
@@ -294,7 +329,9 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   step of 1 for a whole number; the same JSON for a choice or on or off
   value), `adjusted` naming each field the Machine stored otherwise and what
   it holds, or `refused` with the plugin's reason, and for Decaid's refusal
-  the fields the read-back shows changed from what the edit expected.
+  the fields the read-back shows changed from what the edit expected (none
+  for a wake schedule added, which expected nothing). A delete sets no field,
+  so Decaid taking it is `applied`.
 - **The Settings card.** A section the account may change a field of has an
   Edit button, which opens an inline form offering only those fields, each
   with its notes, and the others in their place, read-only. While the Machine
@@ -314,7 +351,26 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   in `web/src/lib/tablet-time.ts`), the form warns that the times are the
   Tablet's own; a Machine with no Location gets no warning. A field Staff
   are not offered as an Admin's, such as gateway mode, keeps its place
-  read-only, saying so. Saving sends only the fields
+  read-only, saying so. The Presence section's form offers presence and the
+  sleep timeout, and `keepAwakeUntil` stays read-only. Its wake schedules
+  (`web/src/components/wake-schedules.tsx`) each have Edit and Delete, and an
+  Add button follows them, for any account that may change them. Add and
+  Edit open a form of the schedule's time, in a time input in the Tablet's
+  own time labelled with its offset, with the time zone warning; its days, as
+  checkboxes, none for every day; whether it is on; and its keep-awake time,
+  empty for none. An add sends every field, and a change only those changed,
+  expecting the schedule as the form opened over it. Delete asks first, in
+  an `AlertDialog`. On a Bengle, Decaid also writes the presence settings
+  into the Machine's firmware, its enabled schedules as at most 32 wake
+  windows, dropping the rest (`translateWakeSchedules` and
+  `kFirmwareMaxWakeWindows` in
+  `decaid:lib/src/models/firmware_wake_window.dart`). So on a Machine whose
+  model is `Bengle`, while presence is on, the schedule form and the
+  section's form count the windows the schedules make as they would be
+  (`firmwareWakeWindows` in `web/src/lib/wake-windows.ts`, with module
+  tests): one per day a schedule runs, every day where it names none, and
+  another where its keep-awake time, 240 min where it has none, runs past
+  midnight; and warn where they come to more than 32. Saving sends only the fields
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
   made on the Tablet meanwhile refuses the edit as changed since, and a field
@@ -328,24 +384,28 @@ collections in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   made it ("You" for the account's own, the account's name to Admins, and
   otherwise "An account", as the Library's history shows Staff), its section,
   each field's value in the report it was made over and the value asked for,
-  and its outcome, a late answer marked so. It loads every 30 s, and again as
-  an edit made on the page is answered. A time of day there is the Tablet's
-  own, written without its offset, as an edit does not keep the offset it
-  was made in.
+  and its outcome, a late answer marked so. A wake schedule's edit names its
+  action first, as asked, such as "Change the wake schedule at 06:30", then
+  each field changed, or for an add each field it set, in the schedule's
+  order. The section's status names it the same way while pending, and as
+  done, such as "Wake schedule at 06:30 changed", once applied. It loads
+  every 30 s, and again as an edit made on the page is answered. A time of
+  day there is the Tablet's own, written without its offset, as an edit
+  does not keep the offset it was made in.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL,
 `server/test/advanced-settings-edits.test.ts` the advanced settings and the
 flow multiplier, `server/test/sensor-calibration-edits.test.ts` the sensor
 calibration, `server/test/tablet-settings-edits.test.ts` the Tablet
-Settings, and
+Settings, `server/test/presence-settings-edits.test.ts` the presence
+settings and wake schedules, and
 `server/test/settings-edit-deadline.test.ts` the 60 s limit, edits not
 confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
 instance, with Decaid slowed by `holdRequests`;
 `server/test/settings-edit-outcome.test.ts` covers the outcome module, and
 `server/test/settings-edit-log.test.ts` the list, and
-`e2e/settings-edits.spec.ts` the management interface. The other sections
-come in later tickets of milestone 4, their edits listed in the same card.
+`e2e/settings-edits.spec.ts` the management interface.
 
 ## Plugin
 

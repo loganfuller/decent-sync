@@ -10,6 +10,7 @@
 // carries the Machine's token.
 
 import type { Chunk } from "./chunking.js";
+import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.js";
 
 export * from "./chunking.js";
 export * from "./settings-fields.js";
@@ -1433,9 +1434,11 @@ export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
  * it as `expired` once the connection that sent it has closed, or where it
  * would start the write with less than SETTINGS_EDIT_WRITE_MARGIN_MS of
  * `timeLeftMs` left; reads the machine's state, and goes ahead only while
- * the machine is idle (SETTINGS_EDIT_STATES), or, for `appSettings`, while
- * no machine is connected to the tablet; reads the collection, and
- * goes ahead only while each field still holds its `expected` value; checks
+ * the machine is idle (SETTINGS_EDIT_STATES), or, for `appSettings` and
+ * `presenceSettings`, while no machine is connected to the tablet; reads the
+ * collection, and goes ahead only while each field still holds its
+ * `expected` value, or for a wake schedule's change or delete, while the
+ * schedule is still as expected; checks
  * the fields against their definitions again (`validateSettingsEdit`),
  * writing none without one; writes only the edit's fields; and then,
  * whether Decaid took the write or not, reads the collection again and
@@ -1444,7 +1447,11 @@ export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
  * and set by target: it reads that target for the check, sets it from that
  * read's value (an absolute set, as Streamline's), and reads it again after,
  * sending the collection with it and the other targets as last read, or
- * with all three read again where the last read was unavailable.
+ * with all three read again where the last read was unavailable. A wake
+ * schedule's edit (`schedule`) adds one with `POST /presence/schedules`, or
+ * changes or deletes the one it names with `PUT` or `DELETE
+ * /presence/schedules/{id}`; one Decaid answers 404 for is gone, refused as
+ * `changedSince`.
  */
 export interface SettingsEdit {
   type: "settingsEdit";
@@ -1452,12 +1459,22 @@ export interface SettingsEdit {
   id: string;
   /** The settings collection it changes, one of EDITABLE_SETTINGS_COLLECTIONS. A plugin answers one it does not write as refused by `decaid`, with a null status. */
   collection: string;
-  /** Each field it sets, by its path in the collection, with its new value; for `sensorCalibration`, its one target with its `measuredValue`. */
+  /** For `presenceSettings`, the wake schedule it adds, changes or deletes, if it does, rather than setting the collection's fields. */
+  schedule?: WakeScheduleEdit;
+  /**
+   * Each field it sets, by its path in the collection, with its new value;
+   * for `sensorCalibration`, its one target with its `measuredValue`; for a
+   * wake schedule, its fields (WAKE_SCHEDULE_FIELDS), every one for an add,
+   * those changed for a change, and none for a delete.
+   */
   fields: Record<string, unknown>;
   /**
    * The value each of `fields` held in the report the edit was made over, as
    * the plugin sent it: the plugin writes only while the tablet still holds
-   * each, compared as `sameValue` does.
+   * each, compared as `sameValue` does. For a wake schedule's change or
+   * delete, the whole schedule as reported, its id included, which the
+   * plugin changes or deletes only while the tablet holds it so; for an
+   * add, nothing.
    */
   expected: Record<string, unknown>;
   /**
@@ -1516,8 +1533,13 @@ export interface SettingsEdited {
    * applied before refusing, as its settings writes are not atomic; for
    * `changedSince`, as the tablet holds them now. Absent where that read
    * failed, or nothing was read. A field the read did not hold is absent.
+   * For a wake schedule's edit, the whole schedule as read, with its id and
+   * a `keepAwakeFor` of null for none, or empty where the tablet holds no
+   * schedule of its id, as once one is deleted or gone.
    */
   values?: Record<string, unknown>;
+  /** For a wake schedule's add, once written: the id Decaid gave the new schedule. */
+  scheduleId?: string;
   /** For `decaid`: Decaid's HTTP status, or null if Decaid did not answer or was not asked. */
   status?: number | null;
   /** For `decaid`: what Decaid answered (its `error` or `message`), or why it did not answer or was not asked, cut to MAX_REFUSAL_LENGTH. */
@@ -1815,6 +1837,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           fields.string("message", { maxLength: MAX_REFUSAL_LENGTH });
         }
         if (object.values !== undefined) fields.objectField("values");
+        if (object.scheduleId !== undefined) fields.string("scheduleId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
@@ -1918,6 +1941,11 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.objectField("fields");
         fields.objectField("expected");
         fields.integer("timeLeftMs", { nonNegative: true });
+        fields.optionalObject("schedule", (schedule) => {
+          schedule.oneOf("action", WAKE_SCHEDULE_ACTIONS);
+          if (isObject(object.schedule) && object.schedule.action === "add") schedule.absent("id");
+          else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        });
       });
     default:
       return invalid("Unknown message type");
