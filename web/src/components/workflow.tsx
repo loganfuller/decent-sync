@@ -11,8 +11,12 @@ export function workflowFields(workflow: Record<string, unknown>): [string, stri
   const steam = record(workflow.steamSettings);
   const hotWater = record(workflow.hotWaterData);
   const rinse = record(workflow.rinseData);
+  // Decaid's Workflow has no brew temperature: Streamline's Brew tile shows
+  // and sets the profile's first step's, moving every other step with it.
+  const firstStep = Array.isArray(profile?.steps) ? record(profile.steps[0]) : undefined;
   const fields: [string, string | undefined][] = [
     ["Profile", text(profile?.title)],
+    ["Brew temperature", amount(firstStep?.temperature, "°C")],
     ["Dose", amount(context?.targetDoseWeight, "g")],
     ["Yield", amount(context?.targetYield, "g")],
     ["Bean", text(context?.coffeeName)],
