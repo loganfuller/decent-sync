@@ -230,9 +230,10 @@ in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   `flow` or `pressure` target whose C encodes as 0 in Q16.16 by `decaid`,
   with a null status and nothing written, as Decaid would refuse to divide
   by it (`De1Calibration`). Each read of the target is reported within the
-  collection, beside the other two targets as last read, or with all three
-  read again where the last read of the collection was unavailable, as a
-  partial set is never sent (5). The machine holds the value nearest X in
+  collection, beside the other two targets as last read. Where the last read
+  of the collection was unavailable, the read before the write is not
+  reported, so no other read delays the write, and the read-back reads all
+  three again, as a partial set is never sent (5). The machine holds the value nearest X in
   Q16.16, within half the field's step, so the edit reads as `applied`.
 - **Not confirmed.** An edit still unanswered is `notConfirmed` once 60 s
   have passed since it was made, or once its connection no longer holds the

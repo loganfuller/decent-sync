@@ -159,14 +159,27 @@ describe("Settings Edits of a sensor's calibration", () => {
     expect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual(["PUT /machine/calibration/temperature"]);
   });
 
-  it("reads every target again after a write where the last report of the sensor calibration was unavailable", async () => {
+  it("reads every target again after a write where the last report of the sensor calibration was unavailable, but not before it", async () => {
     // The machine does not answer the temperature calibration's read as the tablet connects.
     const { machine, tablet } = await connected("Sensor read-back", {}, (tablet) => tablet.failNextApiReads("/machine/calibration/temperature", 1));
     await expect
       .poll(async () => (await api.get<{ collection: { available: boolean } | null }>(`/machines/${machine.machine.id}/collections/sensorCalibration`)).collection?.available)
       .toBe(false);
 
+    // Each of the machine's reads takes time, and an edit has 45 s to start its write: the other targets are read only
+    // after it, so none of them delays it.
+    const otherReads = tablet.holdRequests("GET", "/machine/calibration/pressure");
+    let readBeforeWrite: number | undefined;
+    tablet.refuseWrites = ({ method, route }) => {
+      if (method === "PUT" && route === "/machine/calibration/flow") {
+        readBeforeWrite = otherReads.arrived;
+        // Held no longer than until the write, well within Decaid's 30 s fetch timeout.
+        otherReads.release();
+      }
+      return undefined;
+    };
     const edit = await answered(machine, (await make(machine, { flow: 1.1 }, { flow: 1 })).id);
+    expect(readBeforeWrite).toBe(0);
     expect(edit).toMatchObject({ outcome: "applied", readBack: { flow: q16(1.1) } });
     // Read only on a full read otherwise, so only the edit's read-back reads all three again.
     await expect.poll(() => reported(machine)).toEqual({ ...STARTING, flow: q16(1.1) });

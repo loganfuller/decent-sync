@@ -57,8 +57,12 @@ export interface SettingsReports {
    * machine's own settings for their interval.
    */
   reportSettings(name: EditableSettingsCollection, reading: Reading, always: boolean): void;
-  /** The sensor calibration with this read of one target in place of its last, the other targets as last read, or all read again. */
-  sensorCalibrationWith(target: string, read: Reading): Promise<Reading>;
+  /**
+   * The sensor calibration with this read of one target in place of its
+   * last, the other targets as last read; where they are not, all read again
+   * when `readAll`, and otherwise undefined.
+   */
+  sensorCalibrationWith(target: string, read: Reading, readAll: boolean): Promise<Reading | undefined>;
 }
 
 /**
@@ -175,14 +179,18 @@ export class SettingsEdits {
    * that read's current value C, its `measuredValue`, with what the edit
    * expected, and the write sends C as `de1ReportedValue` (`absoluteSet`).
    * Each read of the target is reported within the sensor calibration
-   * (`SettingsReports.sensorCalibrationWith`).
+   * (`SettingsReports.sensorCalibrationWith`): the one before the write only
+   * beside the other targets as last read, so no other read delays the
+   * write, and the read-back with all three read again where they were
+   * unavailable.
    */
   private async setSensorCalibration(edit: SettingsEdit, tooLate: () => boolean): Promise<SettingsEdited | undefined> {
     const target = Object.keys(edit.fields)[0]!;
     const route = `/machine/calibration/${target}`;
     const before = await readObject(route);
     if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-    this.reports.reportSettings("sensorCalibration", await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }), false);
+    const checked = await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }, false);
+    if (checked) this.reports.reportSettings("sensorCalibration", checked, false);
     const current = before.value.measuredValue;
     if (!sameValue(current, edit.expected[target])) {
       return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: calibrated(target, before.value) };
@@ -200,7 +208,8 @@ export class SettingsEdits {
       failure = describe(error);
     }
     const after = await readObject(route).catch(() => undefined);
-    this.reports.reportSettings("sensorCalibration", after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }) : { kind: "unavailable" }, true);
+    const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }, true) : undefined;
+    this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
     return answered(edit, written, failure, after?.ok ? calibrated(target, after.value) : undefined);
   }
 }

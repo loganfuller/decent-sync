@@ -2789,13 +2789,15 @@ var __decentSync = (() => {
     /**
      * The sensor calibration with one target read again, within
      * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
-     * place of the target's last, beside the other targets as last read, or,
-     * where the last read was unavailable, every target read again.
-     * Unavailable where the target's read is.
+     * place of the target's last, beside the other targets as last read.
+     * Where the last read was unavailable, every target is read again when
+     * `readAll`, as after the edit's write, and otherwise there is none to
+     * report, so the edit's check spends none of its time on reads. Unavailable
+     * where the target's read is.
      */
-    async sensorCalibrationWith(target, read) {
+    async sensorCalibrationWith(target, read, readAll) {
       if (read.kind !== "value") return { kind: "unavailable" };
-      if (this.sensorCalibration === void 0) return readSensorCalibration();
+      if (this.sensorCalibration === void 0) return readAll ? readSensorCalibration() : void 0;
       return { kind: "value", value: { ...this.sensorCalibration, [target]: read.value }, etag: null };
     }
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
@@ -3703,14 +3705,18 @@ var __decentSync = (() => {
      * that read's current value C, its `measuredValue`, with what the edit
      * expected, and the write sends C as `de1ReportedValue` (`absoluteSet`).
      * Each read of the target is reported within the sensor calibration
-     * (`SettingsReports.sensorCalibrationWith`).
+     * (`SettingsReports.sensorCalibrationWith`): the one before the write only
+     * beside the other targets as last read, so no other read delays the
+     * write, and the read-back with all three read again where they were
+     * unavailable.
      */
     async setSensorCalibration(edit, tooLate) {
       const target = Object.keys(edit.fields)[0];
       const route = `/machine/calibration/${target}`;
       const before = await readObject(route);
       if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-      this.reports.reportSettings("sensorCalibration", await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }), false);
+      const checked = await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }, false);
+      if (checked) this.reports.reportSettings("sensorCalibration", checked, false);
       const current = before.value.measuredValue;
       if (!sameValue(current, edit.expected[target])) {
         return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: calibrated(target, before.value) };
@@ -3727,7 +3733,8 @@ var __decentSync = (() => {
         failure = describe(error);
       }
       const after = await readObject(route).catch(() => void 0);
-      this.reports.reportSettings("sensorCalibration", after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }) : { kind: "unavailable" }, true);
+      const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }, true) : void 0;
+      this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
       return answered(edit, written2, failure, after?.ok ? calibrated(target, after.value) : void 0);
     }
   };

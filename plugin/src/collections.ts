@@ -293,13 +293,15 @@ export class CollectionCapture {
   /**
    * The sensor calibration with one target read again, within
    * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
-   * place of the target's last, beside the other targets as last read, or,
-   * where the last read was unavailable, every target read again.
-   * Unavailable where the target's read is.
+   * place of the target's last, beside the other targets as last read.
+   * Where the last read was unavailable, every target is read again when
+   * `readAll`, as after the edit's write, and otherwise there is none to
+   * report, so the edit's check spends none of its time on reads. Unavailable
+   * where the target's read is.
    */
-  async sensorCalibrationWith(target: string, read: Reading): Promise<Reading> {
+  async sensorCalibrationWith(target: string, read: Reading, readAll: boolean): Promise<Reading | undefined> {
     if (read.kind !== "value") return { kind: "unavailable" };
-    if (this.sensorCalibration === undefined) return readSensorCalibration();
+    if (this.sensorCalibration === undefined) return readAll ? readSensorCalibration() : undefined;
     return { kind: "value", value: { ...this.sensorCalibration, [target]: read.value }, etag: null };
   }
 
