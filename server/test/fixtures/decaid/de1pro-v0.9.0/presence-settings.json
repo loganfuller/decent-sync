@@ -1,0 +1,14 @@
+{
+  "userPresenceEnabled": true,
+  "sleepTimeoutMinutes": 60,
+  "keepAwakeUntil": null,
+  "schedules": [
+    {
+      "id": "181a22d0-d0fb-43dd-92e4-5b4ad416d88b",
+      "time": "01:00",
+      "daysOfWeek": [],
+      "enabled": false,
+      "keepAwakeFor": 40
+    }
+  ]
+}

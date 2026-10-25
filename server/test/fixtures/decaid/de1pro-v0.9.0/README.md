@@ -32,3 +32,41 @@ container's. It answers Decaid's `{"flowMultiplier": …}` (`de1handler.dart`)
 with 1.1, the flow calibration `../de1pro-v0.8.7/shot-espresso.json`
 recorded, and each sensor calibration with derived values in Decaid's shape
 (`sensorCalibration` there).
+
+## Read on 2026-10-25, in the supervised run of #232
+
+The same tablet and build, with DYE2 0.1.26 and Streamline's `dist` build
+`55bd37d` (the deploy of `cec5664`), its DE1Pro on firmware 1358. Read with
+`GET` requests before the run's Settings Edits, and the same again after
+every value was set back:
+
+| File | Endpoint |
+|---|---|
+| `machine-settings.json` | `GET /api/v1/machine/settings` |
+| `machine-settings-advanced.json` | `GET /api/v1/machine/settings/advanced` |
+| `machine-calibration.json` | `GET /api/v1/machine/calibration` |
+| `machine-calibration-flow.json`, `-pressure.json`, `-temperature.json` | `GET /api/v1/machine/calibration/{target}` |
+| `presence-settings.json` | `GET /api/v1/presence/settings` |
+
+These are the real Machine's answers to the routes the simulated tablet
+answers with derived values above. Its sensor calibrations are Q16.16 values,
+such as a pressure multiplier of 1.293609619140625 (84778/65536), none of them
+on the management interface's steps.
+
+`calibration-writes.json` holds what the Machine held after each write of the
+flow multiplier and the pressure sensor's calibration in the run: the value
+wanted, the route, and Decaid's `GET` of the same route afterwards (`read`).
+Each write was a Settings Edit from the management interface, the plugin
+sending `{"flowMultiplier": wanted}`, or the correction `absoluteSet` makes
+(the value read before as `de1ReportedValue`, the one wanted as
+`measuredValue`), but for the last, sent to Decaid directly to set the
+original value back, off the field's step. The first two pressure writes'
+`sent` bodies are the plugin's, by its code, and the last's as it was sent;
+the reads are as Decaid sent them. The DE1 held flow multipliers of 1.005 and
+1.004 as 1.003, where Decaid's truncated write (`_writeMMRScaled`) sends 1004
+for both, and 1.012 and 1.013 as 1.011, and 0.251 as 0.25: the firmware holds
+some values a thousandth lower than the register written. The four after 1.18
+were written to check that. Each pressure write held the Q16.16 value nearest
+the one wanted.
+
+Nothing here is edited: none of these answers holds a hardware id.

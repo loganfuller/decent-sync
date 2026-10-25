@@ -1,0 +1,105 @@
+{
+  "flowMultiplier": [
+    {
+      "wanted": 1.005,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.0030000000000001
+      }
+    },
+    {
+      "wanted": 1.004,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.0030000000000001
+      }
+    },
+    {
+      "wanted": 1.18,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.18
+      }
+    },
+    {
+      "wanted": 1.012,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.0110000000000001
+      }
+    },
+    {
+      "wanted": 1.013,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.0110000000000001
+      }
+    },
+    {
+      "wanted": 0.251,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 0.25
+      }
+    },
+    {
+      "wanted": 1.014,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.014
+      }
+    },
+    {
+      "wanted": 1.2,
+      "route": "POST /api/v1/machine/calibration",
+      "read": {
+        "flowMultiplier": 1.2
+      }
+    }
+  ],
+  "pressure": [
+    {
+      "wanted": 1.29,
+      "route": "PUT /api/v1/machine/calibration/pressure",
+      "sent": {
+        "de1ReportedValue": 1.293609619140625,
+        "measuredValue": 1.29
+      },
+      "read": {
+        "target": "pressure",
+        "source": "current",
+        "de1ReportedValue": 1.0,
+        "measuredValue": 1.2899932861328125
+      }
+    },
+    {
+      "wanted": 1.2936,
+      "route": "PUT /api/v1/machine/calibration/pressure",
+      "sent": {
+        "de1ReportedValue": 1.2899932861328125,
+        "measuredValue": 1.2936
+      },
+      "read": {
+        "target": "pressure",
+        "source": "current",
+        "de1ReportedValue": 1.0,
+        "measuredValue": 1.2935943603515625
+      }
+    },
+    {
+      "wanted": 1.293609619140625,
+      "route": "PUT /api/v1/machine/calibration/pressure",
+      "sent": {
+        "de1ReportedValue": 1.2935943603515625,
+        "measuredValue": 1.293609619140625
+      },
+      "status": 202,
+      "read": {
+        "target": "pressure",
+        "source": "current",
+        "de1ReportedValue": 1.0,
+        "measuredValue": 1.293609619140625
+      }
+    }
+  ]
+}
