@@ -50,6 +50,7 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   await workflow.getByRole("button", { name: "About Workflow", exact: true }).hover();
   await expect(page.getByRole("tooltip")).toHaveText(/^What it is set up to pull next, as its tablet reported at /);
   await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
   const expected: [string, string][] = [
     ["Profile", "Londonium"],
     ["Dose", "18 g"],

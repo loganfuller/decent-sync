@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useRef } from "react";
 import { Link } from "react-router";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { CardTitleWithInfo } from "@/components/info-tip";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type LoadedRecipe, type Machine } from "@/lib/api";

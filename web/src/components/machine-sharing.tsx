@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useId, useState } from "react";
 import { ItemLink, itemPath } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
@@ -14,7 +15,6 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
