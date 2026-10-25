@@ -196,10 +196,12 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
 - **The Settings card.** A section the account may change a field of has an
   Edit button, which opens an inline form offering only those fields, each
   with its notes, and the others in their place, read-only. While the Machine
-  is offline, Edit is disabled with the reason. Saving sends only the fields
+  is offline, or its Tablet reports another machine's hardware, Edit is
+  disabled with the reason. Saving sends only the fields
   changed, each with `expected` from the report the form opened over: a
   report the page loads while the form is open changes neither, so a change
-  made on the Tablet meanwhile refuses the edit as changed since. The section then shows the edit as pending, reads it every second
+  made on the Tablet meanwhile refuses the edit as changed since, and a field
+  left as it opened is never sent. The section then shows the edit as pending, reads it every second
   until it has an outcome, shows the outcome in place, and loads the reports
   again, so its values come from the latest one.
 

@@ -53,9 +53,11 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
   baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
 
-  // A Shot is being pulled: the edit is refused with the Machine's state, and nothing is written.
+  // A Shot is being pulled: the edit is refused with the Machine's state, and nothing is written. The last edit's
+  // status stays while the form is open, until another is saved.
   tablet.reportState("espresso", "pouring");
   await general.getByRole("button", { name: "Edit General" }).click();
+  await expect(status).toContainText("Applied");
   await form.getByRole("combobox", { name: "Steam purge mode" }).click();
   await page.getByRole("option", { name: "Two Tap Stop" }).click();
   await form.getByRole("button", { name: "Save" }).click();

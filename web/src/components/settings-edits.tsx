@@ -43,6 +43,17 @@ export function useOfferedFields(name: SettingsCollectionName, collection: Colle
   return SETTINGS_FIELDS[name].filter(isEditable).filter((field) => field.path in value && (isAdmin || field.editableBy === "staff"));
 }
 
+/**
+ * Why the Machine's settings can't be edited now, or null while they can:
+ * it is offline, or its Tablet reports another machine's hardware, which
+ * nothing is written to (ADR-0004). The server refuses either with 409.
+ */
+export function editBlocked(machine: Machine): string | null {
+  if (!machine.online) return "Settings can be changed only while the Machine is online, and its Tablet connected.";
+  if (machine.identification === "mismatch") return "Its Tablet reports another machine's hardware than this Machine's, so nothing is written to it.";
+  return null;
+}
+
 /** A field's label, or Decaid's name for one no definition covers. */
 function labelOf(name: string, path: string): string {
   return (isEditableSettingsCollection(name) ? settingsField(name, path)?.label : undefined) ?? path;
@@ -121,6 +132,8 @@ export function SettingsForm({
     const fields: Record<string, unknown> = {};
     const expected: Record<string, unknown> = {};
     for (const field of offered) {
+      // An input left as it opened is no change, whatever the value it holds, such as a choice not offered.
+      if (inputs[field.path] === inputOf(field, baseline[field.path])) continue;
       const value = valueOf(field, inputs[field.path]!);
       if (sameValue(value, baseline[field.path])) continue;
       fields[field.path] = value;
@@ -141,7 +154,9 @@ export function SettingsForm({
   }
 
   return (
-    <form aria-label={label} className="grid gap-4" onSubmit={save}>
+    // Checked against the definitions on saving, for the fields changed only: the browser's own checks would hold a
+    // field left as reported, out of its range or off its step, against the others.
+    <form aria-label={label} className="grid gap-4" noValidate onSubmit={save}>
       {error && <FormError error={Array.isArray(error) ? error.join(". ") : error} />}
       <FieldGroup className="gap-4">
         {offered.map((field) => (
@@ -157,7 +172,7 @@ export function SettingsForm({
       </FieldGroup>
       {children}
       <div className="flex gap-2">
-        <Button type="submit" disabled={saving || !machine.online}>
+        <Button type="submit" disabled={saving || editBlocked(machine) !== null}>
           Save
         </Button>
         <Button type="button" variant="outline" onClick={onCancel}>
@@ -295,8 +310,13 @@ function outcomeText(edit: SettingsEdit): { title: string; description: string }
   const name = edit.collection;
   if (edit.outcome === "applied") return { title: "Applied", description: `${valuesText(name, edit.readBack ?? edit.fields)}.` };
   if (edit.outcome === "adjusted") {
-    const held = edit.adjusted.map((field) => `${labelOf(name, field.field)}: ${"holds" in field ? shownValue(name, field.field, field.holds) : "not read back"}`);
-    return { title: "Stored otherwise", description: `The Machine holds another value than was asked for. ${held.join("; ")}.` };
+    const held = edit.adjusted.filter((field) => "holds" in field);
+    const unread = edit.adjusted.filter((field) => !("holds" in field)).map((field) => labelOf(name, field.field));
+    const parts = [
+      ...(held.length > 0 ? [`The Machine holds another value than was asked for: ${valuesText(name, Object.fromEntries(held.map((field) => [field.field, field.holds])))}.`] : []),
+      ...(unread.length > 0 ? [`Decaid took the change, but it could not be read back: ${unread.join(", ")}.`] : []),
+    ];
+    return { title: held.length > 0 ? "Stored otherwise" : "Not read back", description: parts.join(" ") };
   }
   const refusal = edit.refusal;
   switch (refusal?.reason) {

@@ -154,7 +154,9 @@ export class SettingsEditsService {
    * The edits made for a connection that it has not sent yet, oldest first,
    * claimed by setting when they were sent, while the connection still holds
    * its Machine, judged under the Machine's row lock; none once it does not.
-   * Each carries the time it has left, by PostgreSQL's clock.
+   * Each carries the time it has left, by PostgreSQL's clock. A claim whose
+   * transaction began before an edit's, waiting for the lock, sends it as it
+   * was made, not before.
    */
   async claim(connection: { sessionId: string; machineId: string }): Promise<SettingsEdit[]> {
     return this.prisma.$transaction(async (tx) => {
@@ -163,12 +165,12 @@ export class SettingsEditsService {
       if (holds.length === 0) return [];
       const claimed = await tx.$queryRaw<{ id: string; collection: string; fields: Record<string, unknown>; expected: Record<string, unknown>; timeLeftMs: number }[]>`
         WITH claimed AS (
-          UPDATE settings_edits SET sent_at = now()
+          UPDATE settings_edits SET sent_at = GREATEST(now(), made_at)
           WHERE session_id = ${connection.sessionId}::uuid AND machine_id = ${connection.machineId}::uuid AND sent_at IS NULL
-          RETURNING id, collection, fields, expected, made_at
+          RETURNING id, collection, fields, expected, made_at, sent_at
         )
         SELECT id, collection, fields, expected,
-          GREATEST(0, ${SETTINGS_EDIT_MS}::integer - FLOOR(EXTRACT(EPOCH FROM now() - made_at) * 1000))::integer AS "timeLeftMs"
+          GREATEST(0, ${SETTINGS_EDIT_MS}::integer - FLOOR(EXTRACT(EPOCH FROM sent_at - made_at) * 1000))::integer AS "timeLeftMs"
         FROM claimed ORDER BY made_at, id`;
       return claimed.map(({ id, collection, fields, expected, timeLeftMs }): SettingsEdit => ({ type: "settingsEdit", id, collection, fields, expected, timeLeftMs }));
     });

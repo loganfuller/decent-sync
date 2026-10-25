@@ -2,7 +2,7 @@ import { useState } from "react";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
-import { SettingsEditStatus, SettingsForm, useOfferedFields } from "@/components/settings-edits";
+import { SettingsEditStatus, SettingsForm, editBlocked, useOfferedFields } from "@/components/settings-edits";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -186,8 +186,9 @@ function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h
  * One settings collection as last reported: each field its definition
  * covers, in their order, then any other Decaid reports. Where the account
  * may change one of its fields, an Edit button opens its inline form,
- * disabled while the Machine is offline, and the section then shows its
- * latest edit, pending and then what came of it.
+ * disabled while the Machine is offline or its Tablet mismatched
+ * (`editBlocked`), and the section then shows its latest edit, pending and
+ * then what came of it, until another is saved.
  */
 function SettingsSection({
   name,
@@ -207,6 +208,7 @@ function SettingsSection({
   const rows = collection ? settingRows(name, collection.value) : [];
   const [editing, setEditing] = useState(false);
   const [edit, setEdit] = useState<SettingsEdit>();
+  const blocked = editBlocked(machine);
   return (
     <section aria-label={title} className="grid content-start gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
@@ -218,19 +220,15 @@ function SettingsSection({
             variant="outline"
             size="sm"
             aria-label={`Edit ${title}`}
-            disabled={!machine.online}
-            onClick={() => {
-              setEdit(undefined);
-              setEditing(true);
-            }}
+            disabled={blocked !== null}
+            // The latest edit's status stays until another is saved, so one still pending is followed to its outcome.
+            onClick={() => setEditing(true)}
           >
             Edit
           </Button>
         )}
       </div>
-      {offered.length > 0 && !machine.online && !editing && (
-        <p className="text-sm text-muted-foreground">Settings can be changed only while the Machine is online, and its Tablet connected.</p>
-      )}
+      {offered.length > 0 && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
       {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} onAnswered={onReported} />}
       {editing && collection && isObject(collection.value) ? (
