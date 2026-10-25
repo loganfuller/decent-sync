@@ -402,6 +402,8 @@ var __decentSync = (() => {
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var RECORD_CHANGED = "The record changed since the plugin last read the list";
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
+  var SHOT_STATE = "espresso";
+  var PULLING_SHOT = "The Machine was pulling a Shot; ask again";
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -1056,8 +1058,9 @@ var __decentSync = (() => {
 
   // src/loaded-recipes.ts
   var RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
+  var HELD_LOAD_KEY = "heldLoad";
   var LoadedRecipes = class {
-    constructor(changes, library, log, transports, pollMs, pushed = () => {
+    constructor(changes, library, log, transports, pollMs, shot, storage, pushed = () => {
     }, reportRecipes = async () => {
     }, workflowWritten = () => {
     }) {
@@ -1065,6 +1068,8 @@ var __decentSync = (() => {
       __publicField(this, "library", library);
       __publicField(this, "log", log);
       __publicField(this, "pollMs", pollMs);
+      __publicField(this, "shot", shot);
+      __publicField(this, "storage", storage);
       __publicField(this, "pushed", pushed);
       __publicField(this, "reportRecipes", reportRecipes);
       __publicField(this, "workflowWritten", workflowWritten);
@@ -1104,6 +1109,16 @@ var __decentSync = (() => {
        * needs none of its own, as DYE2 saves the Workflow as it is then.
        */
       __publicField(this, "queuedSave", null);
+      /** The Recipe, by its global id, whose load is held until the Shot being pulled ends, or null for none. */
+      __publicField(this, "heldLoad", null);
+      /**
+       * Until the load held as the plugin last stopped is read from its storage,
+       * nothing is decided; then that load, by its Recipe's global id, or null,
+       * until the plugin's first decision.
+       */
+      __publicField(this, "restoredLoad");
+      /** Whether the plugin's storage may keep a load held for a Shot. */
+      __publicField(this, "loadKept", false);
       __publicField(this, "chain", Promise.resolve());
       __publicField(this, "pollTimer");
       __publicField(this, "stopped", false);
@@ -1112,6 +1127,8 @@ var __decentSync = (() => {
       this.pushes = new Dye2Pushes(transports, () => pushed());
     }
     start() {
+      this.shot.onEnd(() => this.releaseLoad());
+      setTimeout(() => void this.restoreLoad(), 0);
       this.poll();
     }
     stop() {
@@ -1199,8 +1216,9 @@ var __decentSync = (() => {
     }
     /**
      * Decides on the latest Workflow, once the recipes are read: one naming a
-     * Recipe the plugin has not loaded loads it (`loadRecipe`), but on the
-     * plugin's first decision, which takes it as loaded; a change of it
+     * Recipe the plugin has not loaded loads it (`load`), but on the
+     * plugin's first decision, which takes it as loaded, unless its load was
+     * held for a Shot as the plugin last stopped; a change of it
      * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
      * for one changing the profile from `previous`, as DYE2 fingerprints one,
      * which DYE2 clears the recipe on. A read of the recipes (`changed` false)
@@ -1208,16 +1226,17 @@ var __decentSync = (() => {
      */
     decide(previous, changed) {
       const workflow = this.latest;
-      if (workflow === void 0 || this.records === null || this.stopped) return;
+      if (workflow === void 0 || this.records === null || this.stopped || this.restoredLoad === void 0) return;
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
       if (globalId !== this.loaded) {
         const first = this.loaded === void 0;
+        const restored = first && globalId !== null && globalId === this.restoredLoad;
+        this.restoredLoad = null;
         this.loaded = globalId;
         this.loads++;
-        if (globalId !== null && !first && this.sharing()) {
-          void this.library.run(() => this.loadRecipe(globalId)).catch((error) => this.failed(error));
-        }
+        if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
+        else if (first) void this.keepHeldLoad(null);
         return;
       }
       if (!changed || globalId === null || !this.sharing()) return;
@@ -1257,6 +1276,51 @@ var __decentSync = (() => {
         if (await recordIntoRecipe() === "saved") await this.reportRecipes();
         this.failing = false;
       }).catch((error) => this.failed(error)).finally(() => this.changes.release());
+    }
+    /** Loads the Recipe in `library`'s turn (`loadRecipe`), or, while a Shot is being pulled, holds its load until the Shot ends. */
+    load(globalId) {
+      if (this.shot.running()) {
+        this.holdLoad(globalId);
+        return;
+      }
+      void this.library.run(() => this.loadRecipe(globalId)).catch((error) => this.failed(error)).finally(() => {
+        if (this.heldLoad === null && !this.stopped) void this.keepHeldLoad(null);
+      });
+    }
+    /** Holds the Recipe's load until the Shot ends, in place of any held before, and keeps it in the plugin's storage. */
+    holdLoad(globalId) {
+      this.heldLoad = globalId;
+      void this.keepHeldLoad(globalId);
+    }
+    /** Once the Shot ends, makes the load held for it. */
+    releaseLoad() {
+      const globalId = this.heldLoad;
+      if (globalId === null || this.stopped) return;
+      this.heldLoad = null;
+      this.load(globalId);
+    }
+    /** Reads the load held for a Shot as the plugin last stopped, then decides on the Workflow; one it cannot read is none. */
+    async restoreLoad() {
+      if (this.stopped) return;
+      let stored = null;
+      try {
+        stored = await this.storage.read(HELD_LOAD_KEY, "a read of the load held for a Shot");
+      } catch (error) {
+        this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
+      }
+      this.restoredLoad = heldGlobalId(stored);
+      this.loadKept = this.restoredLoad !== null;
+      this.decide(this.latest, false);
+    }
+    /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */
+    async keepHeldLoad(globalId) {
+      if (globalId === null && !this.loadKept) return;
+      this.loadKept = globalId !== null;
+      try {
+        await this.storage.write(HELD_LOAD_KEY, JSON.stringify(globalId === null ? {} : { globalId }), "the write of the load held for a Shot");
+      } catch (error) {
+        this.log(`The load held for a Shot could not be kept in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
+      }
     }
     /** Logs a failure once until a later step succeeds. */
     failed(error) {
@@ -1303,6 +1367,10 @@ var __decentSync = (() => {
      */
     async loadRecipe(globalId) {
       if (this.stopped || !this.sharing()) return;
+      if (this.shot.running()) {
+        this.holdLoad(globalId);
+        return;
+      }
       const record = await this.ownWrite(async (answered) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
@@ -1384,6 +1452,10 @@ var __decentSync = (() => {
     const workflow = answer.ok ? parsed3(answer.text) : void 0;
     if (!isObject4(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
     return workflow;
+  }
+  function heldGlobalId(stored) {
+    const held = typeof stored === "string" ? parsed3(stored) : void 0;
+    return isObject4(held) && typeof held.globalId === "string" ? held.globalId : null;
   }
   function machineMissing(answer) {
     return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
@@ -1564,12 +1636,13 @@ var __decentSync = (() => {
     }
   };
   var LibraryWrites = class {
-    constructor(library, outbox, loaded, machineMissing2, log, skins) {
+    constructor(library, outbox, loaded, machineMissing2, log, skins, shot) {
       __publicField(this, "library", library);
       __publicField(this, "outbox", outbox);
       __publicField(this, "loaded", loaded);
       __publicField(this, "machineMissing", machineMissing2);
       __publicField(this, "log", log);
+      __publicField(this, "shot", shot);
       /** Told of each post of one of DYE2's lists and each write into the Workflow Decaid took, carrying the Loaded Recipe's part in them. */
       __publicField(this, "posted");
       /**
@@ -1590,7 +1663,26 @@ var __decentSync = (() => {
     }
     /** Deletes a record of a hard-deleted item once the reads and writes before it are done, and queues its answer. It never rejects. */
     remove(remove) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted))));
+      return this.afterShot(
+        () => refused(remove, null, PULLING_SHOT),
+        async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutDelete(remove, (kind, ids) => this.namedByShot(kind, ids), this.posted)))
+      );
+    }
+    /**
+     * Carries out one of the server's changes (`work`) once the reads and
+     * writes before it are done, and no Shot is being pulled; while one is,
+     * it is answered with `again` once the Shot ends, or after SHOT_WAIT_MS,
+     * well within the server's wait for an answer.
+     */
+    async afterShot(again, work) {
+      if (this.shot.running()) {
+        if (!await this.shot.ended(SHOT_WAIT_MS)) this.outbox.enqueue(again());
+        return;
+      }
+      await this.library.run(async () => {
+        if (this.shot.running()) this.outbox.enqueue(again());
+        else await work();
+      });
     }
     /**
      * Whether a Shot this plugin queued since it loaded, or has yet to read and
@@ -1643,7 +1735,10 @@ var __decentSync = (() => {
     }
     /** Removes a record from one of DYE2's lists once the reads and writes before it are done, and queues its answer. It never rejects. */
     drop(remove) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted))));
+      return this.afterShot(
+        () => refused(remove, null, PULLING_SHOT),
+        async () => this.outbox.enqueue(this.wrote(remove.kind, await carryOutRemove(remove, this.posted)))
+      );
     }
     /** Has the next read of the kind's list reported whatever it holds, if it is one of DYE2's, which the plugin may just have written; returns the answer. */
     wrote(kind, answer) {
@@ -1652,14 +1747,19 @@ var __decentSync = (() => {
     }
     /** Sets aside a record the Library leaves out once the reads and writes before it are done, and queues its answer. It never rejects. */
     leaveOut(leave) {
-      return this.library.run(async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted))));
+      return this.afterShot(
+        () => ({ type: "leftOut", id: leave.id, kind: leave.kind, localId: leave.localId, outcome: "refused", status: null, error: PULLING_SHOT }),
+        async () => this.outbox.enqueue(this.wrote(leave.kind, await setAside(leave, this.posted)))
+      );
     }
     /** Carries out a write once the reads and writes before it are done, and queues its answer. It never rejects. */
     apply(write) {
+      const again = () => refused(write, null, PULLING_SHOT);
       if (!writerOf(write.kind)?.changesWorkflow) {
-        return this.library.run(async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
+        return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
       }
-      return this.library.run(
+      return this.afterShot(
+        again,
         () => this.loaded.ownWrite(async (answered) => {
           const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered }));
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
@@ -1733,6 +1833,7 @@ var __decentSync = (() => {
   }
   var SHOT_NOT_SENT = "A Shot this plugin has queued or has yet to send names the record or one of its batches";
   var MAX_SHOTS_READ = 20;
+  var SHOT_WAIT_MS = 12e4;
   async function setAside(leave, posted) {
     const answer = (outcome, status, error) => ({
       type: "leftOut",
@@ -2595,10 +2696,12 @@ var __decentSync = (() => {
   var MachineEvents = class {
     constructor(outbox, observe = () => {
     }, machineSettingsChanged = () => {
+    }, stateChanged = () => {
     }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "observe", observe);
       __publicField(this, "machineSettingsChanged", machineSettingsChanged);
+      __publicField(this, "stateChanged", stateChanged);
       /** The latest Workflow Decaid reported, and when. */
       __publicField(this, "workflow");
       __publicField(this, "reportedAt", now());
@@ -2692,6 +2795,7 @@ var __decentSync = (() => {
       if (this.state?.state === state && this.state.substate === substate) return;
       this.state = { state, substate };
       this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
+      this.stateChanged(state);
     }
     /**
      * On every welcome, before the outbox sends, the latest Workflow again,
@@ -2749,6 +2853,80 @@ var __decentSync = (() => {
   function object(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
+
+  // src/shot-gate.ts
+  var SHOT_STORED_WITHIN_MS = 1e4;
+  var ShotGate = class {
+    constructor() {
+      __publicField(this, "pulling", false);
+      /** Set from the state leaving espresso until Decaid stores the Shot, or SHOT_STORED_WITHIN_MS have passed. */
+      __publicField(this, "storing");
+      /** Those waiting for the Shot to end (`ended`). */
+      __publicField(this, "waiting", /* @__PURE__ */ new Set());
+      /** Told each time a Shot ends (`onEnd`). */
+      __publicField(this, "ends", /* @__PURE__ */ new Set());
+      __publicField(this, "stopped", false);
+    }
+    /** Whether a Shot is being pulled, or is yet to be stored. */
+    running() {
+      return this.pulling || this.storing !== void 0;
+    }
+    /** Decaid's `stateUpdate`, with the machine's state. */
+    state(state) {
+      if (state === SHOT_STATE) {
+        this.pulling = true;
+        this.clearStoring();
+        return;
+      }
+      if (!this.pulling) return;
+      this.pulling = false;
+      this.storing = setTimeout(() => this.end(), SHOT_STORED_WITHIN_MS);
+    }
+    /** Decaid stored a Shot (`shotStored`). */
+    shotStored() {
+      if (this.storing !== void 0) this.end();
+    }
+    /** No machine is connected, so no Shot is pulled. */
+    machineGone() {
+      if (this.running()) this.end();
+    }
+    /**
+     * Resolves once no Shot is being pulled, or after `withinMs`, or as the
+     * plugin stops: whether it stopped.
+     */
+    ended(withinMs) {
+      if (!this.running() || this.stopped) return Promise.resolve(this.stopped);
+      return new Promise((resolve) => {
+        const done = () => {
+          clearTimeout(timer);
+          this.waiting.delete(done);
+          resolve(this.stopped);
+        };
+        const timer = setTimeout(done, withinMs);
+        this.waiting.add(done);
+      });
+    }
+    /** Calls `listener` each time a Shot ends. */
+    onEnd(listener) {
+      this.ends.add(listener);
+    }
+    stop() {
+      this.stopped = true;
+      this.clearStoring();
+      for (const done of [...this.waiting]) done();
+    }
+    /** The Shot ended: whatever waits for it goes on. */
+    end() {
+      this.pulling = false;
+      this.clearStoring();
+      for (const done of [...this.waiting]) done();
+      for (const listener of this.ends) listener();
+    }
+    clearStoring() {
+      if (this.storing !== void 0) clearTimeout(this.storing);
+      this.storing = void 0;
+    }
+  };
 
   // src/outbox.ts
   var RECORD_NAMES = { shot: "Shot", steam: "Steam Record" };
@@ -3559,6 +3737,8 @@ var __decentSync = (() => {
       __publicField(this, "collections");
       /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
       __publicField(this, "writes");
+      /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
+      __publicField(this, "shot", new ShotGate());
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");
       __publicField(this, "checkingHardware", false);
@@ -3600,6 +3780,8 @@ var __decentSync = (() => {
           close: (handle) => this.closeTransport(handle)
         },
         settings.pollSeconds * 1e3,
+        this.shot,
+        this.storage,
         () => this.collections.readRecipes(),
         () => this.collections.recipesNow(),
         skins.workflowWritten
@@ -3607,7 +3789,8 @@ var __decentSync = (() => {
       this.machineEvents = new MachineEvents(
         this.outbox,
         (workflow) => this.loadedRecipes.observe(workflow),
-        () => this.collections.readMachineSettings()
+        () => this.collections.readMachineSettings(),
+        (state) => this.shot.state(state)
       );
       this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
       this.writes = new LibraryWrites(
@@ -3618,7 +3801,8 @@ var __decentSync = (() => {
           if (this.sentHardware !== null) this.machineAway = true;
         },
         log,
-        skins
+        skins,
+        this.shot
       );
       this.tabletId = new TabletId(this.storage, log);
     }
@@ -3648,6 +3832,7 @@ var __decentSync = (() => {
     }
     shotEvent(type, payload) {
       this.shots.event(type, payload);
+      if (type === "shot") this.shot.shotStored();
     }
     /** Decaid's answer to a command to its plugin storage. */
     storageEvent(name, payload) {
@@ -3660,6 +3845,7 @@ var __decentSync = (() => {
       this.steams.stop();
       this.collections.stop();
       this.loadedRecipes.stop();
+      this.shot.stop();
       this.tabletId.stop();
       this.storage.stop();
       for (const id of this.timers.values()) clearTimeout(id);
@@ -3892,6 +4078,7 @@ var __decentSync = (() => {
         const hardware = await readMachineHardware();
         if (this.stopped) return;
         if (hardware === null) {
+          this.shot.machineGone();
           if (this.welcomed && this.sentHardware !== null) this.machineAway = true;
           return;
         }

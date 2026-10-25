@@ -1489,7 +1489,18 @@ beans, bean batches, grinders and profiles, and DYE2's baskets,
 equipment and recipes), never during one
 (`LibraryAccess`), and
 queues each answer in its outbox, behind
-every report read before the write. So the server takes in each report read
+every report read before the write. It carries out none while its Machine
+pulls a Shot, from the machine state `espresso` until Decaid stores the
+Shot (ticket #217, ADR-0022, `WORKFLOW-AND-STATE.md`, During a Shot), as a
+write into the Workflow, or a post of DYE2's recipes that clears it first,
+would reach the Shot: it holds the write, delete, removal or leave-out the
+server asked for until then, or at most two minutes, well within the
+server's five, and answers it with `PULLING_SHOT` (a `writeRefused`, or a
+`leftOut` refused, of status null), one whose turn comes during a Shot at
+once. The server records nothing for it, and plans what the tablet is due
+afresh at once, so what it then writes holds what changed meanwhile: a
+Recipe edited twice during the Shot is written once, with its latest
+values. So the server takes in each report read
 before a write before that write's answer, and never reads a record the
 plugin wrote as deleted from a report that predates it. A read of the list
 begun before a write could otherwise reach the server after the write's

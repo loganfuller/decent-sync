@@ -19,6 +19,7 @@ import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
 import { LoadedRecipes } from "./loaded-recipes.js";
 import { MachineEvents } from "./machine-events.js";
+import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { ShotCapture } from "./shots.js";
@@ -156,6 +157,8 @@ export class SyncConnection {
   private readonly collections: CollectionCapture;
   /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
   private readonly writes: LibraryWrites;
+  /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
+  private readonly shot = new ShotGate();
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
   private checkingHardware = false;
@@ -203,6 +206,8 @@ export class SyncConnection {
         close: (handle) => this.closeTransport(handle),
       },
       settings.pollSeconds * 1000,
+      this.shot,
+      this.storage,
       () => this.collections.readRecipes(),
       () => this.collections.recipesNow(),
       skins.workflowWritten,
@@ -211,6 +216,7 @@ export class SyncConnection {
       this.outbox,
       (workflow) => this.loadedRecipes.observe(workflow),
       () => this.collections.readMachineSettings(),
+      (state) => this.shot.state(state),
     );
     this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
     this.writes = new LibraryWrites(
@@ -222,6 +228,7 @@ export class SyncConnection {
       },
       log,
       skins,
+      this.shot,
     );
     this.tabletId = new TabletId(this.storage, log);
   }
@@ -253,7 +260,10 @@ export class SyncConnection {
     if (!this.stopped) this.machineEvents.workflowUpdated(payload);
   }
 
-  shotEvent(type: "shot" | "shotUpdated", payload: unknown): void { this.shots.event(type, payload); }
+  shotEvent(type: "shot" | "shotUpdated", payload: unknown): void {
+    this.shots.event(type, payload);
+    if (type === "shot") this.shot.shotStored();
+  }
 
   /** Decaid's answer to a command to its plugin storage. */
   storageEvent(name: string, payload: unknown): void { this.storage.answered(name, payload); }
@@ -265,6 +275,7 @@ export class SyncConnection {
     this.steams.stop();
     this.collections.stop();
     this.loadedRecipes.stop();
+    this.shot.stop();
     this.tabletId.stop();
     // Sends the writes still waiting their turn, such as of a delivery just acknowledged.
     this.storage.stop();
@@ -528,6 +539,7 @@ export class SyncConnection {
       if (this.stopped) return;
       // While no machine is connected there is nothing new to tell the server, but the machine is away.
       if (hardware === null) {
+        this.shot.machineGone();
         if (this.welcomed && this.sentHardware !== null) this.machineAway = true;
         return;
       }

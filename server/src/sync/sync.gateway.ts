@@ -7,6 +7,7 @@ import {
   ANOTHER_ITEMS_RECORD,
   LIBRARY_ITEM_KINDS,
   RECORD_CHANGED,
+  PULLING_SHOT,
   SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
@@ -483,7 +484,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const awaited = awaitedWrite?.write.type === "leaveOut";
     let outcome: WriteOutcome = "refused";
     if (answer.outcome === "refused") {
-      if (awaited) {
+      if (awaited && answer.status === null && answer.error === PULLING_SHOT) outcome = "again";
+      else if (awaited) {
         const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
         this.logger.warn(`The tablet of ${this.describe(session)} did not set aside ${quoted(answer.kind)} ${quoted(answer.localId)}: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
         await recordRefused(this.prisma, session.live!.tabletId, awaitedWrite!.change, answer.status ?? null, answer.error ?? "");
@@ -532,7 +534,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * the tablet's next report shows: it is skipped the same way, but not
    * logged as a refusal. A record that fails to store in a
    * way that would repeat is logged and skipped the same way, so it cannot
-   * stop the tablet's other writes. Any other failure closes the connection
+   * stop the tablet's other writes. A change the plugin held while its
+   * Machine pulled a Shot (PULLING_SHOT) is neither: the writer plans what
+   * is due afresh at once. Any other failure closes the connection
    * with 1011, and the tablet's next connection is written the item again,
    * which the plugin then finds it holds.
    *
@@ -554,7 +558,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     let outcome: WriteOutcome = "refused";
     const awaited = session.writer?.awaited(answer.id);
     const write = awaited?.write;
-    if (answer.type === "removed") {
+    if (write && answer.type === "writeRefused" && answer.status === null && answer.error === PULLING_SHOT) {
+      // Held while the Machine pulled a Shot: planned afresh at once, with whatever changed meanwhile.
+      outcome = "again";
+    } else if (answer.type === "removed") {
       // The tablet holds the record no more, whether or not its removal is still awaited.
       if (session.writer && isDye2Kind(answer.kind)) {
         const tabletId = session.live!.tabletId;

@@ -84,6 +84,8 @@ export class MachineEvents implements WorkflowChanges {
      * plugin loads is compared with nothing.
      */
     private readonly machineSettingsChanged: () => void = () => {},
+    /** Told of each change of the machine's state, once it is queued, so the plugin's writes into the Workflow wait out a Shot (`ShotGate`). */
+    private readonly stateChanged: (state: string) => void = () => {},
   ) {}
 
   /** Decaid's `workflowUpdated`: the whole Workflow, sent on every load and every change. */
@@ -148,6 +150,7 @@ export class MachineEvents implements WorkflowChanges {
     if (this.state?.state === state && this.state.substate === substate) return;
     this.state = { state, substate };
     this.outbox.enqueue({ type: "machineState", id: this.outbox.nextId(), observedAt: now(), state, substate });
+    this.stateChanged(state);
   }
 
   /**

@@ -14,6 +14,8 @@ import { type Answer, request } from "./decaid.js";
 import { Dye2Pushes, type Dye2State, type Transports, readDye2State, recordIntoRecipe } from "./dye2.js";
 import type { LibraryAccess } from "./library-writes.js";
 import type { WorkflowChanges } from "./machine-events.js";
+import type { ShotGate } from "./shot-gate.js";
+import type { PluginStorage } from "./storage.js";
 import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
 import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
@@ -40,8 +42,18 @@ import { keepStreamlineSteamTemperature } from "./streamline.js";
 // (`putNamingRecipe`, interim, until decentespresso/dye2#38). The server
 // unloads one by having the plugin clear the field. On a Capture-only
 // Machine, or while DYE2 is not there, nothing is written or saved.
+//
+// A load decided on while the Machine pulls a Shot is held until the Shot
+// ends (`ShotGate`), as every write of the plugin's into the Workflow is,
+// and only the latest is made then, once the Workflow still names its
+// Recipe. It is kept in Decaid's plugin storage meanwhile (HELD_LOAD_KEY),
+// so a load the plugin holds as it stops is made after it starts again,
+// where the Workflow names that Recipe still. Saves are not held.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
+
+/** The key of the plugin's storage keeping the load held for a Shot: `{ globalId }`, the Recipe's, or `{}` for none, as Decaid stores no null. */
+const HELD_LOAD_KEY = "heldLoad";
 
 /** What the plugin's writes of the Workflow and of DYE2's recipes need of the Loaded Recipe (`LibraryWrites`). */
 export interface LoadedRecipeWrites {
@@ -104,6 +116,16 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * needs none of its own, as DYE2 saves the Workflow as it is then.
    */
   private queuedSave: SaveFor | null = null;
+  /** The Recipe, by its global id, whose load is held until the Shot being pulled ends, or null for none. */
+  private heldLoad: string | null = null;
+  /**
+   * Until the load held as the plugin last stopped is read from its storage,
+   * nothing is decided; then that load, by its Recipe's global id, or null,
+   * until the plugin's first decision.
+   */
+  private restoredLoad: string | null | undefined;
+  /** Whether the plugin's storage may keep a load held for a Shot. */
+  private loadKept = false;
   private chain: Promise<void> = Promise.resolve();
   private pollTimer: number | undefined;
   private stopped = false;
@@ -119,6 +141,10 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     transports: Transports,
     /** How often the plugin reads whether DYE2 is loaded, and its recipes, whatever else happens. */
     private readonly pollMs: number,
+    /** Whether the Machine is pulling a Shot, which a load waits out. */
+    private readonly shot: ShotGate,
+    /** Decaid's plugin storage, which keeps the load held for a Shot across the plugin's loads. */
+    private readonly storage: Pick<PluginStorage, "read" | "write">,
     /** Told of each push from DYE2, so its recipes reach the server then (`CollectionCapture.readRecipes`). */
     private readonly pushed: () => void = () => {},
     /** Reports DYE2's recipes now, from within `library`'s turn, resolving once queued (`CollectionCapture.recipesNow`). */
@@ -130,6 +156,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   start(): void {
+    this.shot.onEnd(() => this.releaseLoad());
+    // From a timer, as Decaid's onLoad must return at once.
+    setTimeout(() => void this.restoreLoad(), 0);
     this.poll();
   }
 
@@ -226,8 +255,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
   /**
    * Decides on the latest Workflow, once the recipes are read: one naming a
-   * Recipe the plugin has not loaded loads it (`loadRecipe`), but on the
-   * plugin's first decision, which takes it as loaded; a change of it
+   * Recipe the plugin has not loaded loads it (`load`), but on the
+   * plugin's first decision, which takes it as loaded, unless its load was
+   * held for a Shot as the plugin last stopped; a change of it
    * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
    * for one changing the profile from `previous`, as DYE2 fingerprints one,
    * which DYE2 clears the recipe on. A read of the recipes (`changed` false)
@@ -235,16 +265,18 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private decide(previous: Record<string, unknown> | undefined, changed: boolean): void {
     const workflow = this.latest;
-    if (workflow === undefined || this.records === null || this.stopped) return;
+    if (workflow === undefined || this.records === null || this.stopped || this.restoredLoad === undefined) return;
     const recordId = dye2RecipeIdOf(workflow);
     const globalId = (recordId === null ? undefined : this.records.get(recordId))?.globalId ?? null;
     if (globalId !== this.loaded) {
       const first = this.loaded === undefined;
+      // But for a load held for a Shot as the plugin last stopped, of the Recipe the Workflow still names.
+      const restored = first && globalId !== null && globalId === this.restoredLoad;
+      this.restoredLoad = null;
       this.loaded = globalId;
       this.loads++;
-      if (globalId !== null && !first && this.sharing()) {
-        void this.library.run(() => this.loadRecipe(globalId)).catch((error: unknown) => this.failed(error));
-      }
+      if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
+      else if (first) void this.keepHeldLoad(null);
       return;
     }
     if (!changed || globalId === null || !this.sharing()) return;
@@ -290,6 +322,59 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       })
       .catch((error: unknown) => this.failed(error))
       .finally(() => this.changes.release());
+  }
+
+  /** Loads the Recipe in `library`'s turn (`loadRecipe`), or, while a Shot is being pulled, holds its load until the Shot ends. */
+  private load(globalId: string): void {
+    if (this.shot.running()) {
+      this.holdLoad(globalId);
+      return;
+    }
+    void this.library
+      .run(() => this.loadRecipe(globalId))
+      .catch((error: unknown) => this.failed(error))
+      .finally(() => {
+        if (this.heldLoad === null && !this.stopped) void this.keepHeldLoad(null);
+      });
+  }
+
+  /** Holds the Recipe's load until the Shot ends, in place of any held before, and keeps it in the plugin's storage. */
+  private holdLoad(globalId: string): void {
+    this.heldLoad = globalId;
+    void this.keepHeldLoad(globalId);
+  }
+
+  /** Once the Shot ends, makes the load held for it. */
+  private releaseLoad(): void {
+    const globalId = this.heldLoad;
+    if (globalId === null || this.stopped) return;
+    this.heldLoad = null;
+    this.load(globalId);
+  }
+
+  /** Reads the load held for a Shot as the plugin last stopped, then decides on the Workflow; one it cannot read is none. */
+  private async restoreLoad(): Promise<void> {
+    if (this.stopped) return;
+    let stored: unknown = null;
+    try {
+      stored = await this.storage.read(HELD_LOAD_KEY, "a read of the load held for a Shot");
+    } catch (error) {
+      this.log(`The load held for a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    this.restoredLoad = heldGlobalId(stored);
+    this.loadKept = this.restoredLoad !== null;
+    this.decide(this.latest, false);
+  }
+
+  /** Keeps the load held for a Shot in the plugin's storage, or none, where it keeps one. */
+  private async keepHeldLoad(globalId: string | null): Promise<void> {
+    if (globalId === null && !this.loadKept) return;
+    this.loadKept = globalId !== null;
+    try {
+      await this.storage.write(HELD_LOAD_KEY, JSON.stringify(globalId === null ? {} : { globalId }), "the write of the load held for a Shot");
+    } catch (error) {
+      this.log(`The load held for a Shot could not be kept in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
+    }
   }
 
   /** Logs a failure once until a later step succeeds. */
@@ -345,6 +430,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private async loadRecipe(globalId: string): Promise<void> {
     if (this.stopped || !this.sharing()) return;
+    // A Shot begun while the load waited its turn.
+    if (this.shot.running()) {
+      this.holdLoad(globalId);
+      return;
+    }
     const record = await this.ownWrite(async (answered) => {
       const workflow = await workflowNow();
       const recordId = dye2RecipeIdOf(workflow);
@@ -470,6 +560,12 @@ async function workflowNow(): Promise<Record<string, unknown>> {
   const workflow = answer.ok ? parsed(answer.text) : undefined;
   if (!isObject(workflow)) throw new Error(`Decaid answered ${answer.status} reading the Workflow`);
   return workflow;
+}
+
+/** The Recipe's global id the plugin's storage keeps as the load held for a Shot (HELD_LOAD_KEY), or null for none. */
+function heldGlobalId(stored: unknown): string | null {
+  const held = typeof stored === "string" ? parsed(stored) : undefined;
+  return isObject(held) && typeof held.globalId === "string" ? held.globalId : null;
 }
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the steam, hot water and flush settings. */
