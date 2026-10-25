@@ -278,7 +278,8 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
           const { settingsEdit } = await api<{ settingsEdit: SettingsEdit }>("GET", `/machines/${encodeURIComponent(machineId)}/settings-edits/${encodeURIComponent(made.id)}`);
           if (stopped) return;
           setError(undefined);
-          if (settingsEdit.outcome === outcome) return;
+          // Read again while nothing changed; a not confirmed edit answered too late stays so, and is read no more.
+          if (settingsEdit.outcome === outcome && settingsEdit.answeredAt === null) return;
           stopped = true;
           clearInterval(timer);
           setEdit(settingsEdit);
