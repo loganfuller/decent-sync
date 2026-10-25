@@ -358,25 +358,6 @@ through `plugin/src/dye2.ts`, and writes what the pure
   not take it: so the Workflow never names a Recipe it did not apply. A
   record given its global id, as one a Location takes in, is the same
   recipe.
-- **The Clear button** (ticket
-  [#203](https://github.com/loganfuller/decent-sync/issues/203), ADR-0022).
-  While the Machine has a Loaded Recipe (`loadedName`: one the plugin has
-  loaded, on a Machine that is not capture-only, with DYE2 there), the
-  plugin offers a Clear button in Streamline's top bar (`plugin/src/skins.ts`,
-  `AI_RUNTIME_NOTES.md`, Skins), and pushes `{"what":"skin"}` as it is to
-  show, hide or change its name. A tap's page has the plugin write
-  `recipeId: null` into the Workflow (`unloadNow`), as one write of its own,
-  in its turn among the Library's writes and the saves (`LibraryAccess`), so
-  never between the two writes of a change of profile: only while no load
-  was decided on since the tap, and the Workflow, read just before, still
-  names that Recipe's record, as does the latest Workflow Decaid reported
-  while that read was answered. Nothing is restored, and the server unloads
-  the Recipe from the Workflow delivered after it, as for any clear. A write
-  Decaid refuses is logged and never tried again, and one not written
-  within the page's 3 s, or tapped during a Shot (`ShotGate`, as Decaid
-  stores the Shot with the Workflow as it holds it then), is never made, unlike the plugin's other clears, as it
-  could unload a recipe applied since; the button still showing tells the
-  barista.
 - **DYE2 not there.** On its poll (the plugin's poll interval) the plugin
   reads `GET /api/v1/plugins`, then DYE2's recipes. The Machine has no
   Loaded Recipe where Decaid's plugins list has no DYE2, or one neither

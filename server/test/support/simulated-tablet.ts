@@ -1215,9 +1215,9 @@ export class SimulatedTablet {
    * `/api/v1/plugins/{id}/{endpoint}`: 404 for an endpoint the manifest does
    * not declare, 403 without `api`, 400 for a WebSocket endpoint, and 500 if
    * the plugin's handler throws or rejects; otherwise its answer, status 200
-   * if it gives none. `query` is the URL's query, decoded, as Decaid passes it.
+   * if it gives none.
    */
-  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; query?: Record<string, string> } = {}): Promise<EndpointAnswer> {
+  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
@@ -1232,7 +1232,7 @@ export class SimulatedTablet {
       method: options.method ?? "GET",
       headers: {},
       body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
-      query: { ...options.query },
+      query: {},
     };
     let answer: Record<string, unknown>;
     try {

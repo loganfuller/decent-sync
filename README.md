@@ -419,12 +419,7 @@ a Machine that follows Recipes needs DYE2 v0.1.26 or later, and streamline-js
 from `main` at `cec5664` or later where Streamline is its skin. That untagged
 build is Streamline's minimum until a tagged release contains `ea04f83`, which
 lets its DYE strip apply a recipe holding a grinder or Basket
-([ADR-0017](docs/adr/0017-supported-versions.md)). While a Machine has a
-Recipe loaded, the plugin adds a **Clear** button to Streamline's top bar,
-which unloads it, so a one-off change, such as hot water at another
-temperature, isn't saved into the Recipe. Streamline shows one plugin button
-there, the first in Decaid's plugin list to offer one; no other plugin does
-today.
+([ADR-0017](docs/adr/0017-supported-versions.md)).
 
 | Setting | |
 |---|---|

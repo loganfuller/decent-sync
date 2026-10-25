@@ -85,6 +85,6 @@ export interface Plugin {
   onLoad(settings: PluginSettings): void;
   onUnload(): void;
   onEvent(event: PluginEvent): void;
-  /** Answers the requests to the plugin's HTTP endpoints, as Decaid's loader finds it on the plugin, awaiting an answer given as a promise. */
-  __httpRequestHandler(request: HttpRequest): Promise<HttpAnswer>;
+  /** Answers the requests to the plugin's HTTP endpoints, as Decaid's loader finds it on the plugin. */
+  __httpRequestHandler(request: HttpRequest): HttpAnswer;
 }

@@ -17,7 +17,7 @@ import type { WorkflowChanges } from "./machine-events.js";
 import type { ShotGate } from "./shot-gate.js";
 import type { PluginStorage } from "./storage.js";
 import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
-import type { Skins, Unloadable } from "./skins.js";
+import type { Skins } from "./skins.js";
 import { keepStreamlineSteamTemperature } from "./streamline.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe its Workflow names
@@ -40,25 +40,17 @@ import { keepStreamlineSteamTemperature } from "./streamline.js";
 // which DYE2 clears the recipe on a moment later. A write of the plugin's
 // that changes the profile is made as two, so DYE2 keeps the recipe
 // (`putNamingRecipe`, interim, until decentespresso/dye2#38). The server
-// unloads one by having the plugin clear the field, and so does a barista's
-// tap of the Clear button in Streamline's top bar (`unloadNow`, skins.ts),
-// which shows while the Machine has a Loaded Recipe. On a Capture-only
-// Machine, or while DYE2 is not there, nothing is written or saved, and
-// there is no Loaded Recipe to unload.
+// unloads one by having the plugin clear the field. On a Capture-only
+// Machine, or while DYE2 is not there, nothing is written or saved.
 //
 // A load decided on while the Machine pulls a Shot is held until the Shot
 // ends (`ShotGate`), as every write of the plugin's into the Workflow is,
 // and only the latest is made then, once the Workflow still names its
 // Recipe. It is kept in Decaid's plugin storage meanwhile (HELD_LOAD_KEY),
 // so a load the plugin holds as it stops is made after it starts again,
-// where the Workflow names that Recipe still. Saves are not held. A tap of
-// the Clear button during a Shot is not made at all, as a tap is never made
-// later.
+// where the Workflow names that Recipe still. Saves are not held.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
-
-/** Why the Clear button's unload is not made during a Shot. */
-const PULLING_SHOT = "the Machine is pulling a Shot, so the unload is not made";
 
 /** The key of the plugin's storage keeping the load held for a Shot: `{ globalId }`, the Recipe's, or `{}` for none, as Decaid stores no null. */
 const HELD_LOAD_KEY = "heldLoad";
@@ -87,7 +79,7 @@ export interface LoadedRecipeWrites {
   posted(records: readonly Record<string, unknown>[]): void;
 }
 
-export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
+export class LoadedRecipes implements LoadedRecipeWrites {
   /** The latest Workflow Decaid reported, or answered a write of the plugin's with. */
   private latest: Record<string, unknown> | undefined;
   /**
@@ -97,10 +89,6 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
    * writing nothing for it.
    */
   private loaded: string | null | undefined;
-  /** The id on the tablet of the record of the Loaded Recipe, as the plugin last decided on it; null for none. */
-  private loadedRecordId: string | null = null;
-  /** The Loaded Recipe's name the skins were last told of for the Clear button (`clearButtonChanged`), null for none. */
-  private shownName: string | null = null;
   /** The tablet's records that can be a Loaded Recipe, by their ids there, as last read; null until first read. */
   private records: Map<string, { globalId: string; record: Record<string, unknown> }> | null = null;
   private dye2: Dye2State | "unknown" = "unknown";
@@ -164,8 +152,8 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
     private readonly pushed: () => void = () => {},
     /** Reports DYE2's recipes now, from within `library`'s turn, resolving once queued (`CollectionCapture.recipesNow`). */
     private readonly reportRecipes: () => Promise<void> = async () => {},
-    /** Told of each write into the Workflow Decaid took, and of each change of the Clear button (`loadedName`). */
-    private readonly skins: Pick<Skins, "workflowWritten" | "clearButtonChanged"> = { workflowWritten: () => {}, clearButtonChanged: () => {} },
+    /** Told of each write into the Workflow Decaid took, with the Workflow read before it and the one Decaid answered (`Skins.workflowWritten`). */
+    private readonly workflowWritten: Skins["workflowWritten"] = () => {},
   ) {
     this.pushes = new Dye2Pushes(transports, () => pushed());
   }
@@ -186,93 +174,6 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
   /** Whether the server says the Machine is capture-only: nothing is written into its Workflow, nor saved into its recipes, while it is. */
   setCaptureOnly(captureOnly: boolean): void {
     this.captureOnly = captureOnly;
-    this.noteClearButton();
-  }
-
-  /**
-   * The Loaded Recipe's name, as Streamline's DYE strip labels its record
-   * (`recipeLabel` in streamline-js:src/modules/dyeStrip.js); null while the
-   * Machine has none, as while it is capture-only or DYE2 is not there.
-   */
-  loadedName(): string | null {
-    if (this.loaded === undefined || this.loaded === null || this.loadedRecordId === null || !this.sharing()) return null;
-    const recipe = this.records?.get(this.loadedRecordId);
-    if (recipe === undefined || recipe.globalId !== this.loaded) return null;
-    return textOf(recipe.record.title) ?? textOf(recipe.record.name) ?? "Recipe";
-  }
-
-  /**
-   * Unloads the Loaded Recipe as a barista's tap of the Clear button asks:
-   * writes `recipeId: null` into the Workflow, as DYE2 does, in `library`'s
-   * turn, so it never lands between the two writes of a load or a save's
-   * check and call, and as a write of the plugin's own (`ownWrite`). Nothing
-   * else of the Workflow changes, and the Workflow delivered after it
-   * unloads the Recipe on the server. It is made only while the Recipe
-   * loaded at the tap is still loaded, by no later load, on a Machine still
-   * sharing with DYE2 there, and the Workflow, read just before, still
-   * names its record, as does the latest Workflow Decaid reported while
-   * that read was answered: a recipe applied meanwhile is not unloaded. Nor
-   * is one made while the Machine pulls a Shot (`ShotGate`), as Decaid
-   * stores the Shot with the Workflow as it holds it then, which would name
-   * no recipe, and holding it until the Shot ends would make it later.
-   * Resolves with why it was not made, or null where it was or there was
-   * nothing to unload. One not written within
-   * `ms`, as behind a long write of the plugin's or a slow read, is never
-   * written: a tap is not replayed later, once the page has returned, as it
-   * could unload a recipe applied since. Nor is one that fails tried again.
-   */
-  unloadNow(ms: number): Promise<string | null> {
-    const globalId = this.loaded ?? null;
-    const load = this.loads;
-    if (globalId === null || this.stopped || !this.sharing()) return Promise.resolve(null);
-    let writing = false;
-    let expired = false;
-    const unload = this.library.run(async () => {
-      if (expired || this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
-      if (this.shot.running()) return PULLING_SHOT;
-      return this.ownWrite(async (answered) => {
-        const workflow = await workflowNow();
-        const recordId = dye2RecipeIdOf(workflow);
-        if (recordId === null || this.records?.get(recordId)?.globalId !== globalId) return null;
-        // The page returned while Decaid answered the read, the Machine stopped sharing or DYE2 went, or a change Decaid reported
-        // meanwhile names another recipe, as one applied since (`observe` decides on none during the plugin's writes).
-        if (expired || this.stopped || !this.sharing()) return null;
-        if (this.latest !== undefined && dye2RecipeIdOf(this.latest) !== recordId) return "the Workflow named another recipe meanwhile, so the unload is not made";
-        if (this.shot.running()) return PULLING_SHOT;
-        writing = true;
-        const body = clearRecipe();
-        const answer = await request("PUT", "/workflow", body);
-        const updated = answer.ok ? parsed(answer.text) : undefined;
-        if (!isObject(updated)) return `Decaid answered ${answer.status} clearing the Workflow's recipe: ${answer.text.slice(0, 200)}`;
-        answered(updated, body);
-        this.skins.workflowWritten(workflow, updated);
-        return null;
-      });
-    });
-    return new Promise((resolve) => {
-      const timer = setTimeout(() => {
-        expired = true;
-        resolve(writing ? `the unload had not finished within ${ms / 1000} s` : `the unload had not been written within ${ms / 1000} s, so it is not made`);
-      }, ms);
-      unload.then(
-        (problem) => {
-          clearTimeout(timer);
-          resolve(problem);
-        },
-        (error: unknown) => {
-          clearTimeout(timer);
-          resolve(error instanceof Error ? error.message : String(error));
-        },
-      );
-    });
-  }
-
-  /** Tells the skins to read `skin` again where the Clear button is to show, hide or change its name. */
-  private noteClearButton(): void {
-    const name = this.loadedName();
-    if (name === this.shownName) return;
-    this.shownName = name;
-    this.skins.clearButtonChanged();
   }
 
   /**
@@ -347,7 +248,7 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
       const updated = answer.ok ? parsed(answer.text) : undefined;
       if (!isObject(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
       answered(updated, body);
-      this.skins.workflowWritten(workflow, updated);
+      this.workflowWritten(workflow, updated);
     });
   }
 
@@ -366,16 +267,10 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
    * saves nothing.
    */
   private decide(previous: Record<string, unknown> | undefined, changed: boolean): void {
-    this.decideOn(previous, changed);
-    this.noteClearButton();
-  }
-
-  private decideOn(previous: Record<string, unknown> | undefined, changed: boolean): void {
     const workflow = this.latest;
     if (workflow === undefined || this.records === null || this.stopped) return;
     const recordId = dye2RecipeIdOf(workflow);
     const globalId = (recordId === null ? undefined : this.records.get(recordId))?.globalId ?? null;
-    this.loadedRecordId = globalId === null ? null : recordId;
     if (globalId !== this.loaded) {
       const first = this.loaded === undefined;
       // But for a load held for a Shot as the plugin last stopped, of the Recipe the Workflow still names.
@@ -530,7 +425,6 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
       this.pushes.keepOpen();
     } else this.notLoadedSince ??= Date.now();
     this.changes.dye2Absent(this.unavailable());
-    this.noteClearButton();
     this.sawRecipes(await this.readRecipes());
   }
 
@@ -575,7 +469,7 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
       }
       if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
       const after = answer ? parsed(answer.text) : undefined;
-      if (isObject(after)) this.skins.workflowWritten(workflow, after);
+      if (isObject(after)) this.workflowWritten(workflow, after);
       return recipe.record;
     });
     if (record === null) return;
@@ -695,11 +589,6 @@ function heldGlobalId(stored: unknown): string | null {
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the steam, hot water and flush settings. */
 export function machineMissing(answer: Answer): boolean {
   return answer.status === 500 && answer.text.includes("DeviceNotConnectedException");
-}
-
-/** A string that is not empty, else null, as `||` takes one in Streamline's `recipeLabel`. */
-function textOf(value: unknown): string | null {
-  return typeof value === "string" && value !== "" ? value : null;
 }
 
 function parsed(text: string): unknown {
