@@ -71,11 +71,12 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Discovered nearby, not paired.
   await expect(devices).not.toContainText("MockBengle");
 
-  // Each field by its label, with its unit and its choice's label; the read-only ones with what sets them, and the notes.
+  // Each field by its label, with its unit and its choice's label; what sets a read-only one, and the notes, in its tooltip,
+  // as is when each section was reported.
   const settings = page.getByRole("region", { name: "Settings", exact: true });
   const machineSettings = settings.getByRole("region", { name: "Machine Settings" });
   const general = machineSettings.getByRole("region", { name: "General", exact: true });
-  await expect(general).toContainText(/^GeneralReported at \w{3} \d+, \d{4}/);
+  await expectTip(general, "General", /^Reported at \w{3} \d+, \d{4}/);
   const shown: [term: string, value: string, ...about: string[]][] = [
     // Above the 50 °C an edit may set, and shown as it is.
     ["Fan threshold", "55 °C", RESETS, PUT_BACK],
@@ -90,13 +91,12 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
     ["Refill kit", "Auto-Detect", RESETS, PUT_BACK],
   ]);
-  await expect(field(machineSettings, "Heater voltage")).not.toContainText(PUT_BACK);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
-  await expect(calibration).toContainText(/^Flow calibrationReported at \w{3} \d+, \d{4}/);
+  await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
   await expectShown(calibration, [["Flow multiplier", "0.596"]]);
   // Its pressure sensor's recalibration shows, to five decimal places.
   const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
-  await expect(sensors).toContainText(/^Sensor calibrationReported at \w{3} \d+, \d{4}/);
+  await expectTip(sensors, "Sensor calibration", /^Reported at \w{3} \d+, \d{4}/);
   await expectShown(sensors, [
     ["Flow sensor multiplier", "1"],
     ["Pressure sensor multiplier", "1.00002"],
@@ -104,8 +104,9 @@ test("the Machine page shows paired devices, settings and the library, and follo
   ]);
   await expect(sensors).not.toContainText("factory");
   const tabletSettings = settings.getByRole("region", { name: "Tablet Settings" });
-  await expect(tabletSettings).toContainText(/^Tablet SettingsReported at \w{3} \d+, \d{4}/);
+  await expectTip(tabletSettings, "Tablet Settings", /^Reported at \w{3} \d+, \d{4}/);
   await expectShown(tabletSettings, [
+    // A field with nothing to explain has no tooltip.
     ["Gateway mode", "Disabled"],
     ["Charging mode", "Charge to 100%"],
     ["Night mode sleep time", "22:00"],
@@ -116,7 +117,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["updateChannel", "beta", "Not known to Decent Sync, so shown as Decaid names it, read-only"],
   ]);
   const workflowSettings = settings.getByRole("region", { name: "Steam, hot water and rinse" });
-  await expect(workflowSettings).toContainText("From its Workflow, as its tablet reported it at");
+  await expectTip(workflowSettings, "Steam, hot water and rinse", /^From its Workflow, as its tablet reported it at /);
   await expect(field(workflowSettings.getByLabel("Steam", { exact: true }), "flow")).toHaveText("2.5");
   await expect(field(workflowSettings.getByLabel("Hot water", { exact: true }), "volume")).toHaveText("100");
   await expect(field(workflowSettings.getByLabel("Rinse", { exact: true }), "targetTemperature")).toHaveText("90");
@@ -204,11 +205,22 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
 const RESETS = "Resets when the Machine reconnects.";
 const PUT_BACK = "Streamline puts back a value set in its settings page when that page next opens.";
 
-/** That each field is shown by its label with its value first, then each line saying what sets it or noting what may become of it. */
+/** That each field is shown by its label with its value, and its tooltip has each line saying what sets it or noting what may become of it, or that it has none. */
 async function expectShown(scope: Locator, shown: [term: string, value: string, ...about: string[]][]) {
   for (const [term, value, ...about] of shown) {
-    await expect(field(scope, term)).toHaveText([value, ...about].join(""));
+    await expect(field(scope, term)).toHaveText(value);
+    if (about.length > 0) await expectTip(scope, term, about.join(""));
+    else await expect(scope.getByRole("button", { name: `About ${term}`, exact: true })).toHaveCount(0);
   }
+}
+
+/** That the tooltip of the info icon about `subject` says `text`; it is closed again afterwards. */
+async function expectTip(scope: Locator, subject: string, text: string | RegExp) {
+  const page = scope.page();
+  await scope.getByRole("button", { name: `About ${subject}`, exact: true }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText(text);
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
 }
 
 /** A table's rows below its header. */

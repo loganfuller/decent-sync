@@ -1,4 +1,5 @@
 import { Field, Fields } from "@/components/fields";
+import { InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -127,7 +128,6 @@ export function SettingsCard({
         <CardTitle>
           <h2>Settings</h2>
         </CardTitle>
-        <CardDescription>As its tablet reported them.</CardDescription>
       </CardHeader>
       <CardContent className="grid gap-6">
         <section aria-label="Machine Settings" className="grid gap-4">
@@ -141,10 +141,12 @@ export function SettingsCard({
         <div className="grid gap-6 md:grid-cols-2">
           <SettingsSection name="appSettings" collection={settings.appSettings} heading="h3" />
           <section aria-label="Steam, hot water and rinse" className="grid content-start gap-2">
-            <h3 className="font-medium">Steam, hot water and rinse</h3>
-            <p className="text-sm text-muted-foreground">
-              {workflow ? `From its Workflow, as its tablet reported it at ${formatTime(workflow.observedAt)}.` : "Its tablet has not reported its Workflow yet."}
-            </p>
+            <SectionHeading
+              heading="h3"
+              title="Steam, hot water and rinse"
+              about={workflow && `From its Workflow, as its tablet reported it at ${formatTime(workflow.observedAt)}.`}
+            />
+            {!workflow && <p className="text-sm text-muted-foreground">Its tablet has not reported its Workflow yet.</p>}
             {parts.map(([title, value]) => {
               const entries = settingEntries(value);
               return entries.length > 0 ? <SettingsList key={title} label={title} title={title} entries={entries} /> : null;
@@ -156,28 +158,47 @@ export function SettingsCard({
   );
 }
 
+/** A section's heading, with what explains it, such as when it was reported, in a tooltip. */
+function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h4"; title: string; about?: string | false | null }) {
+  return (
+    <div className="flex items-center gap-1.5">
+      <Heading className="font-medium">{title}</Heading>
+      {about && (
+        <InfoTip label={`About ${title}`}>
+          <p>{about}</p>
+        </InfoTip>
+      )}
+    </div>
+  );
+}
+
 /** One settings collection as last reported: each field its definition covers, in their order, then any other Decaid reports. */
 function SettingsSection({ name, collection, heading: Heading }: { name: SettingsCollectionName; collection: Collection | null; heading: "h3" | "h4" }) {
   const title = SETTINGS[name];
   return (
     <section aria-label={title} className="grid content-start gap-2">
-      <Heading className="font-medium">{title}</Heading>
-      <p className="text-sm text-muted-foreground">{reportText(collection)}</p>
+      {/* When it was reported only on asking, but a report missing or unavailable in plain sight. */}
+      <SectionHeading heading={Heading} title={title} about={collection?.available && reportText(collection)} />
+      {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
       {collection && (
         <Fields label={title}>
-          {settingRows(name, collection.value).map((row) => (
-            <Field key={row.term} term={row.term}>
-              {row.text}
-              {[row.about, ...row.notes].map(
-                (line) =>
-                  line && (
-                    <span key={line} className="block text-xs text-muted-foreground">
-                      {line}
-                    </span>
-                  ),
-              )}
-            </Field>
-          ))}
+          {settingRows(name, collection.value).map((row) => {
+            const lines = [row.about, ...row.notes].filter((line) => line !== undefined);
+            return (
+              <Field key={row.term} term={row.term}>
+                <span className="inline-flex items-center gap-1.5">
+                  {row.text}
+                  {lines.length > 0 && (
+                    <InfoTip label={`About ${row.term}`}>
+                      {lines.map((line) => (
+                        <p key={line}>{line}</p>
+                      ))}
+                    </InfoTip>
+                  )}
+                </span>
+              </Field>
+            );
+          })}
         </Fields>
       )}
     </section>

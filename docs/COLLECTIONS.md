@@ -110,8 +110,10 @@ The Machine page's Settings card groups the Machine Settings (`General`, the
 `machineSettings`; `Advanced`; `Flow calibration`; `Sensor calibration`) and
 the Tablet Settings (`appSettings`). Each field is shown by its label, with
 its unit or its choice's label, and a reported value outside its range or
-choices is shown as it is. A read-only field says what sets it, and a field
-carries its notes. A field Decaid reports that no definition covers is shown
+choices is shown as it is. What sets a read-only field, and a field's notes,
+are in a tooltip on an info icon beside its value, as is when each section was
+reported; a section not reported, or unavailable when last read, says so in
+plain sight. A field Decaid reports that no definition covers is shown
 read-only under Decaid's name, after the others.
 
 ## Plugin
