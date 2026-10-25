@@ -3,13 +3,14 @@ import { Link, useParams } from "react-router";
 import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, BATCH_FIELDS, BatchLocationsCard, ContentForm, DeleteButton } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, type BeanBatch } from "@/lib/api";
 
 /** The content fields a batch's page names, in Decaid's order, after its roast date, with how each is shown. */
@@ -111,10 +112,9 @@ function BeanBatchDetails({ id }: { id: string }) {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>Roast</h2>
-            </CardTitle>
-            <CardDescription>As it was created, with the edits made since, on tablets or here.</CardDescription>
+            <CardTitleWithInfo title="Roast">
+              <p>As it was created, with the edits made since, on tablets or here.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
             {editing ? (

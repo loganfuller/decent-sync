@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { LibraryNav } from "@/components/bean-batches";
 import { ConflictsTable } from "@/components/conflicts";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { api, type Conflict } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
@@ -13,11 +14,12 @@ export function ConflictsPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Conflicts</h1>
-        <p className="text-muted-foreground">
-          Edits that lost to another edit of the same field, made without seeing it. The later edit stands everywhere; each that lost is kept here
-          until someone uses its value, which makes it a new edit written to every tablet that holds the item, or dismisses it.
-        </p>
+        <PageTitleWithInfo title="Conflicts">
+          <p>
+            Edits that lost to another edit of the same field, made without seeing it. The later edit stands everywhere; each that lost is kept here
+            until someone uses its value, which makes it a new edit written to every tablet that holds the item, or dismisses it.
+          </p>
+        </PageTitleWithInfo>
         <LibraryNav />
       </div>
 

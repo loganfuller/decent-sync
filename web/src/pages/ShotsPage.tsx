@@ -1,5 +1,6 @@
 import { useEffect, useId, useState } from "react";
 import { Link } from "react-router";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
 import { batchName } from "@/components/bean-batches";
@@ -27,11 +28,12 @@ export function ShotsPage() {
     // One column no wider than the page, so a wide table scrolls rather than widening it.
     <section className="grid grid-cols-1 gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Shots</h1>
-        <p className="text-muted-foreground">
-          Every Shot pulled at every Location, newest first. Times are shown in each Shot's Location's time zone, and
-          dates are read in it too; a Shot with no Location uses UTC.
-        </p>
+        <PageTitleWithInfo title="Shots">
+          <p>
+            Every Shot pulled at every Location, newest first. Times are shown in each Shot's Location's time zone, and
+            dates are read in it too; a Shot with no Location uses UTC.
+          </p>
+        </PageTitleWithInfo>
       </div>
 
       <ShotFilters list={list} />

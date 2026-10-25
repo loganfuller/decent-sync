@@ -4,6 +4,7 @@ import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/supp
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Conflicts and each Library item's history in the management interface
 // (ADR-0020). Two simulated tablets running the built plugin at a lab, and
@@ -32,6 +33,7 @@ test("a Conflict made through two tablets is listed and noted on its item, whose
   await page.goto("/library");
   await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Conflicts" }).click();
   await expect(page.getByRole("heading", { name: "Conflicts", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Conflicts", /^Edits that lost to another edit of the same field, made without seeing it\./);
   const row = rows(page.getByRole("table", { name: "Conflicts" })).filter({ hasText: "Roux Used Guji" });
   await expect(row.getByRole("cell").nth(1)).toHaveText("Notes");
   await expect(row.getByRole("cell").nth(2)).toContainText("Peach and jasmine");
@@ -44,6 +46,12 @@ test("a Conflict made through two tablets is listed and noted on its item, whose
   await expect(page.getByRole("heading", { name: "Used Guji", level: 1 })).toBeVisible();
   const open = page.getByRole("region", { name: "Open Conflicts" });
   await expect(rows(open.getByRole("table", { name: "Conflicts" }))).toHaveCount(1);
+  // How many lost stays on the page; what using or dismissing one does is in a tooltip.
+  await expect(open).toContainText("An edit of this Bean lost to another of the same field made without seeing it.");
+  await expectTip(open, "Open Conflicts", "Use a losing value to make it current on every tablet that holds it, or dismiss the Conflict to keep the value now.");
+  // The Shots card above it loads on its own; settled first, it can't move the History card from under the pointer.
+  await expect(page.getByRole("region", { name: "Shots" })).toContainText("No Shots yet.");
+  await expectTip(page.getByRole("main"), "History", /^Each change that was kept, the latest first, with the Machine or account it came from\. Its first is the Bean joining the Library\.$/);
   const history = rows(page.getByRole("table", { name: "History" }));
   await expect(history).toHaveCount(3);
   await expect(history.nth(0)).toContainText("Used lab 2");

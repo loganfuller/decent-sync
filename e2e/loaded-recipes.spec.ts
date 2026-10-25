@@ -5,6 +5,7 @@ import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../s
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Each Machine's Loaded Recipe in the management interface (tickets #145 and
 // #216): a recipe applied in DYE2 on a simulated tablet running the built
@@ -52,6 +53,7 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
 
   await page.goto(`/locations/${location.id}`);
   const machines = page.getByRole("table", { name: "Loaded Recipes here" });
+  await expectTip(page.getByRole("region", { name: "Machines" }), "Machines", "The Machines here now, each flagged if it is capture-only, and the Recipe each has loaded.");
   await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("Fixture Brazil Espresso");
   await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("Slot 2");
   await expect(rows(machines).filter({ hasText: "Bar 2" })).toContainText("None");

@@ -2,13 +2,14 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { formatTime } from "@/components/machines";
 import { ArchiveButton, DeleteButton } from "@/components/library-forms";
 import { ProfileBadges, ProfileLocationsCard, profilePath, profileTitle } from "@/components/profiles";
 import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Profile } from "@/lib/api";
 
@@ -91,10 +92,9 @@ function ProfileDetails({ id }: { id: string }) {
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>Profile</h2>
-            </CardTitle>
-            <CardDescription>As the tablet that created it recorded it, with the edits made since.</CardDescription>
+            <CardTitleWithInfo title="Profile">
+              <p>As the tablet that created it recorded it, with the edits made since.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent>
             <Fields label="Profile">
@@ -145,10 +145,9 @@ function ProfileDetails({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            <h2>Steps</h2>
-          </CardTitle>
-          <CardDescription>What the machine follows, which decides the Profile's id: new steps make a new Profile.</CardDescription>
+          <CardTitleWithInfo title="Steps">
+            <p>What the machine follows, which decides the Profile's id: new steps make a new Profile.</p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent>
           <Table aria-label="Steps">

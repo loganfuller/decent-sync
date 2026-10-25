@@ -16,6 +16,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
+import { expectTip, tap } from "./support/tooltips.js";
 
 // A Machine's paired devices, settings and library, and the DYE2 and
 // Streamline on its tablet, in the management interface. A simulated tablet running the built plugin serves the test
@@ -217,21 +218,6 @@ async function expectShown(scope: Locator, shown: [term: string, value: string, 
     if (about.length > 0) await expectTip(scope, term, about.join(""));
     else await expect(scope.getByRole("button", { name: `About ${term}`, exact: true })).toHaveCount(0);
   }
-}
-
-/** That the tooltip of the info icon about `subject` says `text`; it is closed again afterwards. */
-async function expectTip(scope: Locator, subject: string, text: string | RegExp) {
-  const page = scope.page();
-  await scope.getByRole("button", { name: `About ${subject}`, exact: true }).hover();
-  await expect(page.getByRole("tooltip")).toHaveText(text);
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("tooltip")).toHaveCount(0);
-}
-
-/** The events of a tap on a touchscreen, sent to the element alone: a touch's pointer events and a click, without the hover and focus Playwright's own tap brings. */
-async function tap(element: Locator) {
-  for (const type of ["pointerdown", "pointerup"]) await element.dispatchEvent(type, { pointerType: "touch", isPrimary: true, bubbles: true });
-  await element.dispatchEvent("click");
 }
 
 /** A table's rows below its header. */

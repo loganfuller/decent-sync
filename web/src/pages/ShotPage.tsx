@@ -2,6 +2,7 @@ import { useCallback, useEffect, useId, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import type { ListState } from "@/components/record-lists";
 import {
   LocationCredit,
@@ -219,10 +220,9 @@ function ShotDetails({ id }: { id: string }) {
 
       <Card role="region" aria-label="Curves">
         <CardHeader>
-          <CardTitle>
-            <h2>Curves</h2>
-          </CardTitle>
-          <CardDescription>Seconds from the start of the Shot. Dashed lines are the targets its profile set.</CardDescription>
+          <CardTitleWithInfo title="Curves">
+            <p>Seconds from the start of the Shot. Dashed lines are the targets its profile set.</p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-6">
           {shot.previousShot ? (

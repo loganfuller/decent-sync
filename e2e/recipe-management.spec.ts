@@ -5,6 +5,7 @@ import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settings
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
@@ -51,6 +52,7 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await samsPage.goto(`/locations/${lab.id}`);
     const recipes = samsPage.getByRole("region", { name: "Recipes" });
     await expect(recipes).toContainText("No Recipe is in a slot here yet.");
+    await expectTip(recipes, "Recipes", /^Its Recipe Slots, 1 to 5, the buttons of Streamline's DYE strip.+ Every Recipe here not Archived is on each tablet here\.$/);
     await recipes.getByRole("button", { name: "New Recipe" }).click();
     const form = samsPage.getByRole("form", { name: "New Recipe" });
     await form.getByLabel("Name", { exact: true }).fill("Lab Guji");
@@ -75,6 +77,9 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
 
     await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toBeVisible();
     await expect(samsPage.getByText("Slot 3 at Roastery lab")).toBeVisible();
+    const main = samsPage.getByRole("main");
+    await expectTip(main, "Recipe", "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.");
+    await expectTip(main, "Steam, hot water and flush", "What a Machine loading it takes. A setting it does not hold is left as each Machine has it.");
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
@@ -132,6 +137,8 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
   await expect(page.getByText("In no slot at Slots lab")).toBeVisible();
   await page.getByRole("link", { name: "← Slots lab" }).click();
   await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Slots Brazil/]);
+  // Where a tablet finds one in no slot stays on the page.
+  await expect(page.getByRole("region", { name: "Recipes" })).toContainText("Found on each tablet here in DYE2's Select Recipe page.");
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^2Slots Ethiopia/]);
 
   // Archived and restored, it stays in no slot.

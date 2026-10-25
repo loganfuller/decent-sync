@@ -6,7 +6,7 @@ import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type LoadedRecipe, type Machine } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
@@ -120,10 +120,9 @@ export function LocationMachinesCard({ machines }: { machines: Machine[] }) {
   return (
     <Card role="region" aria-label="Machines">
       <CardHeader>
-        <CardTitle>
-          <h2>Machines</h2>
-        </CardTitle>
-        <CardDescription>The Machines here now, each flagged if it is capture-only, and the Recipe each has loaded.</CardDescription>
+        <CardTitleWithInfo title="Machines">
+          <p>The Machines here now, each flagged if it is capture-only, and the Recipe each has loaded.</p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent>
         {machines.length === 0 ? (

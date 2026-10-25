@@ -1,8 +1,9 @@
 import { type ReactNode, useState } from "react";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { useMayChangeAt } from "@/components/library-forms";
 import { formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type Location, type ProfileAtLocation } from "@/lib/api";
@@ -65,10 +66,9 @@ export function ShownLocationsCard({
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          <h2>Locations</h2>
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardTitleWithInfo title="Locations">
+          <p>{description}</p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && (

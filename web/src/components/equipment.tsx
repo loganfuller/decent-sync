@@ -3,6 +3,7 @@ import { Link, useSearchParams } from "react-router";
 import { LibraryNav } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, BASKET_FIELDS, ContentForm, DeleteButton, NewEquipmentDialog, TOOL_FIELDS } from "@/components/library-forms";
 import { formatTime, useLocations } from "@/components/machines";
@@ -12,7 +13,7 @@ import { ShownLocationsCard, shownAtText } from "@/components/shown-locations";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -109,8 +110,9 @@ export function EquipmentList({ kind, title, description }: { kind: EquipmentKin
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">{title}</h1>
-        <p className="text-muted-foreground">{description}</p>
+        <PageTitleWithInfo title={title}>
+          <p>{description}</p>
+        </PageTitleWithInfo>
         <LibraryNav />
         <div className="mt-2">
           <NewEquipmentDialog kind={kind} />
@@ -331,10 +333,9 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
       <div className="grid gap-4 md:grid-cols-2">
         <Card>
           <CardHeader>
-            <CardTitle>
-              <h2>{name}</h2>
-            </CardTitle>
-            <CardDescription>As it was created, with the edits made since, on tablets or here, which reach every tablet that holds it.</CardDescription>
+            <CardTitleWithInfo title={name}>
+              <p>As it was created, with the edits made since, on tablets or here, which reach every tablet that holds it.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
             {editing ? (

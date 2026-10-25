@@ -1,4 +1,5 @@
 import { Link } from "react-router";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { ListPagination, type ListState, RECORD_FILTERS, RecordFilters, useRecordList } from "@/components/record-lists";
 import { LocationCredit, MachineCredit, OrNone, numberText, recordTime, secondsText } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -19,11 +20,12 @@ export function SteamRecordsPage() {
     // One column no wider than the page, so a wide table scrolls rather than widening it.
     <section className="grid grid-cols-1 gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Steam Records</h1>
-        <p className="text-muted-foreground">
-          Every Steam Record from every Location, newest first. Times are shown in each Steam Record's Location's time
-          zone, and dates are read in it too; a Steam Record with no Location uses UTC.
-        </p>
+        <PageTitleWithInfo title="Steam Records">
+          <p>
+            Every Steam Record from every Location, newest first. Times are shown in each Steam Record's Location's time
+            zone, and dates are read in it too; a Steam Record with no Location uses UTC.
+          </p>
+        </PageTitleWithInfo>
       </div>
 
       <RecordFilters

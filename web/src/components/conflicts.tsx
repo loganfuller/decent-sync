@@ -1,10 +1,11 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { useAuth } from "@/auth";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type Conflict, type EditSource, type ItemKind, type ItemVersion, type Location } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
@@ -312,12 +313,12 @@ export function ItemConflictsCard({ kind, id, onResolved, names }: { kind: ItemK
   return (
     <Card role="region" aria-label="Open Conflicts">
       <CardHeader>
-        <CardTitle>
-          <h2>Open Conflicts</h2>
-        </CardTitle>
+        <CardTitleWithInfo title="Open Conflicts">
+          <p>Use a losing value to make it current on every tablet that holds it, or dismiss the Conflict to keep the value now.</p>
+        </CardTitleWithInfo>
         <CardDescription>
           {conflicts.length === 1 ? "An edit" : `${conflicts.length} edits`} of this {kindName(kind)} lost to another of the same field made
-          without seeing it. Use a losing value to make it current on every tablet that holds it, or dismiss the Conflict to keep the value now.
+          without seeing it.
         </CardDescription>
       </CardHeader>
       <CardContent>
@@ -346,13 +347,12 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          <h2>History</h2>
-        </CardTitle>
-        <CardDescription>
-          Each change that was kept, the latest first, with the Machine or account it came from.{" "}
-          {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
-        </CardDescription>
+        <CardTitleWithInfo title="History">
+          <p>
+            Each change that was kept, the latest first, with the Machine or account it came from.{" "}
+            {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-3">
         {error && (

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { BatchBadges, LibraryNav, atText, batchName } from "@/components/bean-batches";
+import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBatchDialog } from "@/components/library-forms";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -27,13 +28,14 @@ export function BeanBatchesPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Bean Batches</h1>
-        <p className="text-muted-foreground">
-          The Bean Batches in the Library. A batch entered on a tablet is at that tablet's Location, and is written, with its
-          Bean, to every tablet there. Archiving it on a tablet finishes it at that tablet's Location, and the remaining
-          weight entered on a tablet is that Location's. Here, a batch is added at Locations or finished there, its
-          remaining weight set at each.
-        </p>
+        <PageTitleWithInfo title="Bean Batches">
+          <p>
+            The Bean Batches in the Library. A batch entered on a tablet is at that tablet's Location, and is written, with its
+            Bean, to every tablet there. Archiving it on a tablet finishes it at that tablet's Location, and the remaining
+            weight entered on a tablet is that Location's. Here, a batch is added at Locations or finished there, its
+            remaining weight set at each.
+          </p>
+        </PageTitleWithInfo>
         <LibraryNav />
         <div className="mt-2">
           <NewBatchDialog beans={beans} />

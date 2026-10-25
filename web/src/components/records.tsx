@@ -2,10 +2,11 @@ import { ChevronDownIcon } from "lucide-react";
 import type { ReactNode } from "react";
 import { Link } from "react-router";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { describeHardware } from "@/components/machines";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Location } from "@/lib/api";
@@ -103,10 +104,9 @@ export function RecordCard({ title, description, fields, empty }: { title: strin
   return (
     <Card role="region" aria-label={title}>
       <CardHeader>
-        <CardTitle>
-          <h2>{title}</h2>
-        </CardTitle>
-        <CardDescription>{description}</CardDescription>
+        <CardTitleWithInfo title={title}>
+          <p>{description}</p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent>
         {fields.length > 0 ? (

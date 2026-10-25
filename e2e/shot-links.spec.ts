@@ -5,6 +5,7 @@ import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/supp
 import { useFreshServer } from "./support/fresh-server.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Shots linked to the Library (ticket #92): each Library item's page lists
 // the Shots that used it, and the Shots list filters by Bean Batch and by
@@ -55,6 +56,7 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await expect(shots.getByRole("row")).toHaveCount(3);
   await expect(shots.getByRole("row", { name: /Lab group.*Lab EK43 .* 80$/ })).toBeVisible();
   await expect(shots.getByRole("row", { name: /Belmont 1.*Belmont Mythos .* 70$/ })).toBeVisible();
+  await expectTip(page.getByRole("region", { name: "Shots" }), "Shots", "The Shots pulled with this Bean Batch on any Machine, newest first, in each Shot's Location's time zone.");
 
   // Its Shots in the Shots list, filtered by it.
   await page.getByRole("link", { name: "Filter the Shots list by it" }).click();

@@ -1,10 +1,11 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
 import { ShotBatch, ShotGrinder, ShotProfile, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotPage } from "@/lib/api";
 import { LIBRARY_KINDS, type ShotsKind } from "@/lib/library-kinds";
@@ -30,21 +31,17 @@ export function ItemShotsCard({ kind, id }: { kind: ShotsKind; id: string }) {
   return (
     <Card role="region" aria-label="Shots">
       <CardHeader>
-        <CardTitle>
-          <h2>Shots</h2>
-        </CardTitle>
-        <CardDescription>
-          The Shots pulled with this {name} on any Machine, newest first, in each Shot's Location's time zone.
-          {inList && (
-            <>
-              {" "}
-              <Link to={`/shots?${new URLSearchParams({ [filter]: id }).toString()}`} className="underline underline-offset-4">
-                Filter the Shots list by it
-              </Link>
-              .
-            </>
-          )}
-        </CardDescription>
+        <CardTitleWithInfo title="Shots">
+          <p>The Shots pulled with this {name} on any Machine, newest first, in each Shot's Location's time zone.</p>
+        </CardTitleWithInfo>
+        {inList && (
+          <CardDescription>
+            <Link to={`/shots?${new URLSearchParams({ [filter]: id }).toString()}`} className="underline underline-offset-4">
+              Filter the Shots list by it
+            </Link>
+            .
+          </CardDescription>
+        )}
       </CardHeader>
       <CardContent className="grid gap-3">
         {error && (

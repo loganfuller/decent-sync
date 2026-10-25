@@ -2,6 +2,7 @@ import { expect as baseExpect, type Browser, type Page, test } from "@playwright
 import { useFreshServer } from "./support/fresh-server.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { machineRow } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Inviting people: an Admin creates a one-time link and sends it themselves;
 // the Staff member who opens it chooses a name and password, is signed in,
@@ -29,6 +30,8 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" }).click();
   const form = page.getByRole("form", { name: "Invite someone" });
+  await expectTip(page.getByRole("main"), "Accounts", /^The people who can sign in to this server\./);
+  await expectTip(page.getByRole("main"), "Invite someone", /^Admins can change everything on this server\. Staff can see everything except other people's accounts/);
   await form.getByLabel("Email").fill(sam.email);
   await expect(form.getByRole("combobox", { name: "Role" })).toHaveText("Staff");
   await form.getByRole("checkbox", { name: "Uptown" }).check();
@@ -37,6 +40,8 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
 
   const notice = page.getByRole("region", { name: `Invite for ${sam.email}` });
   await expect(notice).toContainText("Staff at Belmont and Uptown");
+  // What to do with the link stays on the page.
+  await expect(notice).toContainText(`Send this link to ${sam.email}.`);
   samsLink = await notice.getByRole("textbox", { name: "Invite link" }).inputValue();
   baseExpect(samsLink.startsWith(`${server.url()}/invite/`)).toBe(true);
   // Ready for the next invite.

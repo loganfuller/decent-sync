@@ -46,3 +46,13 @@ export function CardTitleWithInfo({ title, children }: { title: string; children
     </CardTitle>
   );
 }
+
+/** A page's title, with what explains the page in a tooltip beside it. */
+export function PageTitleWithInfo({ title, children }: { title: string; children: ReactNode }) {
+  return (
+    <div className="flex items-center gap-2">
+      <h1 className="text-2xl font-semibold">{title}</h1>
+      <InfoTip label={`About ${title}`}>{children}</InfoTip>
+    </div>
+  );
+}

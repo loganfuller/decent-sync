@@ -5,6 +5,7 @@ import { batchName } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
 import { ArchiveButton, type Attribute, DeleteButton, FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
@@ -13,7 +14,7 @@ import { OrNone } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
@@ -125,13 +126,12 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
   return (
     <Card role="region" aria-label="Recipes">
       <CardHeader>
-        <CardTitle>
-          <h2>Recipes</h2>
-        </CardTitle>
-        <CardDescription>
-          Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
-          in no slot. Every Recipe here not Archived is on each tablet here; one in no slot is found in DYE2's Select Recipe page.
-        </CardDescription>
+        <CardTitleWithInfo title="Recipes">
+          <p>
+            Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
+            in no slot. Every Recipe here not Archived is on each tablet here.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
         {mayChange && (
@@ -147,6 +147,7 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
         {unslotted.length > 0 && (
           <div className="grid gap-2">
             <h3 className="text-sm font-medium">In no slot</h3>
+            <p className="text-sm text-muted-foreground">Found on each tablet here in DYE2's Select Recipe page.</p>
             <RecipesTable label="Recipes in no slot" recipes={unslotted} slots={false} />
           </div>
         )}
@@ -1425,12 +1426,11 @@ export function RecipeDetails({ id }: { id: string }) {
 
       <Card>
         <CardHeader>
-          <CardTitle>
-            <h2>Recipe</h2>
-          </CardTitle>
-          <CardDescription>
-            Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.
-          </CardDescription>
+          <CardTitleWithInfo title="Recipe">
+            <p>
+              Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.
+            </p>
+          </CardTitleWithInfo>
         </CardHeader>
         <CardContent>
           <Fields label="Recipe">
@@ -1542,10 +1542,9 @@ function RecipeSettingsCard({ content }: { content: Record<string, unknown> }) {
   return (
     <Card>
       <CardHeader>
-        <CardTitle>
-          <h2>Steam, hot water and flush</h2>
-        </CardTitle>
-        <CardDescription>What a Machine loading it takes. A setting it does not hold is left as each Machine has it.</CardDescription>
+        <CardTitleWithInfo title="Steam, hot water and flush">
+          <p>What a Machine loading it takes. A setting it does not hold is left as each Machine has it.</p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6 sm:grid-cols-3">
         {SETTING_GROUPS.map((group) => (

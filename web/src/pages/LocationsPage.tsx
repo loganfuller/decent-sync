@@ -1,10 +1,11 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
+import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { api, type Location } from "@/lib/api";
@@ -57,11 +58,12 @@ export function LocationsPage() {
   return (
     <section className="grid gap-6">
       <div className="grid gap-1">
-        <h1 className="text-2xl font-semibold">Locations</h1>
-        <p className="text-muted-foreground">
-          The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows its
-          Recipes and Machines.
-        </p>
+        <PageTitleWithInfo title="Locations">
+          <p>
+            The sites where your machines are used. Each Location's time zone sets the local times shown for it, and its page shows its
+            Recipes and Machines.
+          </p>
+        </PageTitleWithInfo>
       </div>
 
       <datalist id={TIME_ZONE_LIST}>
@@ -73,10 +75,9 @@ export function LocationsPage() {
       {isAdmin && (
         <Card className="max-w-xl">
           <CardHeader>
-            <CardTitle>
-              <h2>New Location</h2>
-            </CardTitle>
-            <CardDescription>The time zone starts as this browser's.</CardDescription>
+            <CardTitleWithInfo title="New Location">
+              <p>The time zone starts as this browser's.</p>
+            </CardTitleWithInfo>
           </CardHeader>
           <CardContent>
             <LocationForm

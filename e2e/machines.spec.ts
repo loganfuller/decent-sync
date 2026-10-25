@@ -12,6 +12,7 @@ import {
 import { useFreshServer } from "./support/fresh-server.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Machines in the management interface, as an Admin, with Seam 1's simulated
 // tablets running the built plugin against the same server. Hardware ids are
@@ -49,6 +50,10 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Machines" }).click();
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
   await expect(page.getByText("No Machines yet.")).toBeVisible();
+  await expectTip(page.getByRole("main"), "Machines", /^The machines that sync with this server\./);
+  await expectTip(page.getByRole("main"), "New Machine", "Its hardware is recorded from the first connection with its token.");
+  // What to do once its earlier Shots arrive stays on the page.
+  await expect(page.getByText("It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.")).toBeVisible();
 
   const form = page.getByRole("form", { name: "New Machine" });
   await form.getByLabel("Name").fill("Lab");
@@ -168,6 +173,7 @@ test("a mismatch is resolved by dismissing the reported hardware, which refuses 
 
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Machines" }).click();
   await expect(pendingMachine(page, "Dismissed Pending Machines", "DE1Pro serial 10003")).toBeVisible();
+  await expectTip(page.getByRole("main"), "Dismissed Pending Machines", "Hardware an Admin dismissed. Anything received for it is kept and comes back if it gets a machine entry.");
   await expect(page.getByRole("list", { name: "Pending Machines", exact: true })).toHaveCount(0);
   await expect(machineRow(page, "Lab")).toContainText("Refused");
   await expect(machineRow(page, "Lab")).toContainText("Offline");

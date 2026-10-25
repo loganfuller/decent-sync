@@ -4,6 +4,7 @@ import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/supp
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Shots in the management interface, as an Admin whose browser is in Tokyo
 // while the Locations are in the US: times are shown and filtered in each
@@ -57,6 +58,7 @@ test("Shots from every Location are listed newest first, at their Location's tim
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Shots" }).click();
   await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("main"), "Shots", /^Every Shot pulled at every Location, newest first\. Times are shown in each Shot's Location's time zone/);
   await expect(column(page, 1)).toHaveText([
     "Feb 11, 2026, 9:00 AM CST",
     "Feb 10, 2026, 6:30 AM MST",
@@ -82,6 +84,7 @@ test("Shots from every Location are listed newest first, at their Location's tim
 test("filters narrow the list alone and together, with dates read in each Shot's Location's time zone", async ({ page }) => {
   await page.goto("/shots");
   await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("region", { name: "Filters" }), "dates and times", /^Dates and times are read in each Shot's Location's time zone, so 7:00 means 7:00 wherever it was pulled\./);
 
   await choose(page, "Location", "Uptown");
   await expect(rows(page)).toHaveCount(2);
@@ -149,6 +152,8 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Grind setting")).toHaveText("7.5");
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Burrs")).toHaveText("SSP MP");
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
+  await expectTip(curves, "Curves", "Seconds from the start of the Shot. Dashed lines are the targets its profile set.");
+  await expectTip(page.getByRole("region", { name: "Annotations" }), "Annotations", "How it turned out, as recorded on the tablet.");
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
   for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
