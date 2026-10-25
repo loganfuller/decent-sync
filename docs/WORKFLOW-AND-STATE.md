@@ -685,9 +685,11 @@ that takes their hardware over. Staff read them as Admins do.
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
 
 The Machines list shows each Machine's state and last Shot; the Machine page
-also shows its current Workflow, its fields as a Shot's page shows them
-(`web/src/components/workflow.tsx`), loaded every 30 s rather than every 5 s as
-the state is, and its Loaded Recipe with its history, loaded again as the
+also shows its current Workflow, its fields as a Shot's page shows them, the
+brew temperature read from its profile's first step as Streamline's Brew tile
+reads it (`web/src/components/workflow.tsx`, tested in
+`web/test/workflow.test.ts`), loaded every 30 s rather than every 5 s as the
+state is, and its Loaded Recipe with its history, loaded again as the
 Loaded Recipe changes. Each Location's page lists its Machines and the
 Recipe each has loaded.
 

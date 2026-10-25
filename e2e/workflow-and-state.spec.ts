@@ -53,6 +53,8 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   const expected: [string, string][] = [
     ["Profile", "Londonium"],
+    // Its profile's first step's, as Streamline's Brew tile shows it.
+    ["Brew temperature", "89 °C"],
     ["Dose", "18 g"],
     ["Yield", "36 g"],
     ["Bean", "Ethiopia Generic 100g Sample"],
@@ -65,6 +67,7 @@ test("the Machines list and Machine page show the machine state, last Shot and c
     ["Rinse", "90 °C, 5 s"],
   ];
   for (const [term, value] of expected) await expect(field(workflow, term)).toHaveText(value);
+  await expect(workflow.locator("dt")).toHaveText(expected.map(([term]) => term));
 
   // A barista dials in, and the shot ends. The page follows the machine state
   // within seconds, and loads the Workflow less often.
