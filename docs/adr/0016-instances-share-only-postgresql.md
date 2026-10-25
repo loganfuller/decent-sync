@@ -1,3 +1,7 @@
+---
+status: accepted (amended by ADR-0024)
+---
+
 # Server instances share state only through PostgreSQL
 
 Deployments run one server instance for now, but no design may rely on that: an owner may run several instances on one database to survive a lost host or to scale. State that belongs to one WebSocket connection or one request may live in an instance's memory. Anything shared across connections or requests lives in PostgreSQL: which connection holds a Machine, online status, rate-limit counts, invite and reset redemption, and every record. Concurrent decisions are made under PostgreSQL row or advisory locks, never in-process locks, which hold only within one instance. A change other instances must act on, such as a revoked token, is announced with `NOTIFY` inside the transaction that makes it, so it is delivered only if that transaction commits.

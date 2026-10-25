@@ -44,7 +44,7 @@ A change to a machine's or tablet's settings made through the server, as in the 
 _Avoid_: Settings change, command
 
 **Machine State**:
-What a machine is doing at a moment, such as pulling a shot, steaming, purging after steaming, flushing, pouring hot water, heating, idling or sleeping. Purging is the steam wand's purge after steaming, not a flush of the group head or draining the machine for transport.
+What a machine is doing at a moment, such as pulling a shot, steaming, purging after steaming, flushing, pouring hot water, idling or sleeping. Purging is the steam wand's purge after steaming, not a flush of the group head or draining the machine for transport.
 _Avoid_: Status (a machine's status is whether it is online), mode, purge (for a flush)
 
 **Live View**:
@@ -126,7 +126,7 @@ One of a location's five numbered positions for a recipe, 1 to 5, each a button 
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:
-The recipe a barista last applied on a machine, while they are still dialling it in, until they apply another recipe or a favourite, or change the profile. It is part of the machine's state: a change made on that machine is saved into the recipe, and a change to the recipe reaches that machine's workflow at once.
+The recipe a barista last applied on a machine, while they are still dialling it in, until they apply another recipe or a favourite, or change the profile. It belongs to the machine, as its workflow does: a change made on that machine is saved into the recipe, and a change to the recipe reaches that machine's workflow at once.
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:
