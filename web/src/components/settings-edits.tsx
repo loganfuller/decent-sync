@@ -59,12 +59,12 @@ export function editBlocked(machine: Machine): string | null {
 }
 
 /** A field's label, or Decaid's name for one no definition covers. */
-function labelOf(name: string, path: string): string {
+export function labelOf(name: string, path: string): string {
   return (isEditableSettingsCollection(name) ? settingsField(name, path)?.label : undefined) ?? path;
 }
 
 /** A field's value as the Settings card shows it. */
-function shownValue(name: string, path: string, value: unknown): string {
+export function shownValue(name: string, path: string, value: unknown): string {
   const field = isEditableSettingsCollection(name) ? settingsField(name, path) : undefined;
   return field ? fieldText(field, value) : valueText(value);
 }
@@ -337,7 +337,7 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
 }
 
 /** What came of an answered edit, as the section shows it. */
-function outcomeText(edit: SettingsEdit): { title: string; description: string } {
+export function outcomeText(edit: SettingsEdit): { title: string; description: string } {
   const name = edit.collection;
   if (edit.outcome === "applied") return { title: "Applied", description: `${valuesText(name, edit.readBack ?? edit.fields)}.` };
   if (edit.outcome === "adjusted") {

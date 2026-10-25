@@ -75,6 +75,8 @@ const REFUSAL_VIEWS = {
   DECAID: "decaid",
 } as const satisfies Record<SettingsEditRefusal, SettingsEditedRefusal>;
 
+type Page = { limit: number; offset: number };
+
 const withAccount = { account: { select: { name: true } } } as const satisfies Prisma.SettingsEditInclude;
 type StoredEdit = Prisma.SettingsEditGetPayload<{ include: typeof withAccount }>;
 
@@ -175,6 +177,35 @@ export class SettingsEditsService {
     );
     if (!edit) throw settingsEditNotFound();
     return view(edit, scope, notConfirmed.length > 0);
+  }
+
+  /**
+   * A page of the Machine's edits, newest first, with how many it has. They
+   * and which are not confirmed are read from one snapshot, as `get` reads
+   * one edit.
+   */
+  async list(machineId: string, page: Page, scope: Scope): Promise<{ settingsEdits: SettingsEditView[]; total: number } & Page> {
+    const [edits, total, notConfirmed] = await this.prisma.$transaction(
+      async (tx) => {
+        if ((await tx.machine.count({ where: { id: machineId } })) === 0) throw machineNotFound();
+        const edits = await tx.settingsEdit.findMany({
+          where: { machineId },
+          include: withAccount,
+          orderBy: [{ madeAt: "desc" }, { id: "desc" }],
+          take: page.limit,
+          skip: page.offset,
+        });
+        const unanswered = edits.filter((edit) => edit.answeredAt === null).map((edit) => edit.id);
+        const notConfirmed =
+          unanswered.length === 0
+            ? []
+            : await tx.$queryRaw<{ id: string }[]>`
+                SELECT id FROM settings_edits WHERE id = ANY(${unanswered}::uuid[]) AND answered_at IS NULL AND ${this.noLongerAwaited()}`;
+        return [edits, await tx.settingsEdit.count({ where: { machineId } }), new Set(notConfirmed.map((edit) => edit.id))] as const;
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+    return { settingsEdits: edits.map((edit) => view(edit, scope, notConfirmed.has(edit.id))), total, ...page };
   }
 
   /**

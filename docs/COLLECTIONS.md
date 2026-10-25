@@ -144,8 +144,13 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   entry, a Capture-only one or one at no Location included, as Settings
   Edits are no Library writes. It answers `{ settingsEdit }` with its outcome
   pending (null). `GET /api/machines/:id/settings-edits/:editId` reads one,
-  which the page reads until it has an outcome. Both are marked for Staff.
-  An edit's account is named to Admins, and to Staff by its id only.
+  which the page reads until it has an outcome, and `GET
+  /api/machines/:id/settings-edits` lists the Machine's edits, newest first,
+  paged by `limit` and `offset` as the other histories are, as `{
+  settingsEdits, total, limit, offset }`, each judged not confirmed as one
+  read alone is. All three are marked for Staff. An edit's account is named
+  to Admins, and to Staff by its id only, as the Library's history names
+  accounts, their own included.
 - **Kept and sent** (`server/src/settings-edits/`, ADR-0016). An edit is a row
   of `settings_edits`, inserted with the Machine's row locked, which also
   judges it online, naming the connection (`connected_session_id`) and tablet
@@ -238,6 +243,13 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   in place, and loads the reports again, so its values come from the latest
   one. An edit not confirmed is shown so, and read every 5 s until a late
   answer replaces the mark, shown as answered late.
+- **The Settings Edits card** (`web/src/components/settings-edit-log.tsx`)
+  lists the Machine's edits, newest first, 20 a page: when each was made, who
+  made it ("You" for the account's own, the account's name to Admins, and
+  otherwise "An account", as the Library's history shows Staff), its section,
+  each field's value in the report it was made over and the value asked for,
+  and its outcome, a late answer marked so. It loads every 30 s, and again as
+  an edit made on the page is answered.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL, and
@@ -245,8 +257,9 @@ built plugin on two instances sharing PostgreSQL, and
 confirmed, late answers, reconnects, unloads, a Tablet swap and a crashed
 instance, with Decaid slowed by `holdRequests`;
 `server/test/settings-edit-outcome.test.ts` covers the outcome module, and
-`e2e/settings-edits.spec.ts` the management interface. The log of Settings
-Edits and the other sections come in later tickets of milestone 4.
+`server/test/settings-edit-log.test.ts` the list, and
+`e2e/settings-edits.spec.ts` the management interface. The other sections
+come in later tickets of milestone 4, their edits listed in the same card.
 
 ## Plugin
 
