@@ -130,6 +130,39 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
 
   /**
+   * Holds the plugin's reads of DYE2's recipes back, for a tablet given its
+   * `tabletOptions`: from `hold()`, which resolves as the plugin's
+   * collection poll next sends one, that read answered at once, each later
+   * one times out, until `release()`. Each is answered from Decaid's store
+   * as it arrives (`answerOnArrival`), so the poll's read, the last before
+   * the hold, never brings what DYE2 saves once it resolves, as a read
+   * answered after its delay would (#235). The poll's read is told apart by
+   * the plugin's function on the stack (`readCollection`), so timing the
+   * hold adds no request.
+   */
+  function recipeReadsHold() {
+    let held = false;
+    let begin: (() => void) | undefined;
+    const apiDelayMs = (method: string, path: string) => {
+      if (method !== "GET" || path !== RECIPES) return 0;
+      if (begin && new Error().stack?.includes("readCollection")) {
+        begin();
+        begin = undefined;
+        held = true;
+        return 0;
+      }
+      return held ? 30_000 : 0;
+    };
+    return {
+      tabletOptions: { apiDelayMs, answerOnArrival: true },
+      hold: () => new Promise<void>((resolve) => (begin = resolve)),
+      release: () => {
+        held = false;
+      },
+    };
+  }
+
+  /**
    * A Shot the tablet's Decaid saves as one pulled now ends: the fixture's
    * curves, recorded on the Machine of that serial, with the tablet's
    * Workflow as it stands, which Decaid copies onto it, and the changes given.
@@ -296,15 +329,14 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   });
 
   it("takes in a recipe Streamline's strip saves through save-recipe under its id and slot, writes it to every tablet at the Location, and loads it, linking the Shots pulled before its record was taken in", async () => {
-    // The plugin's reads of DYE2's recipes time out while `unread`, so the server is told of the Workflow naming the new
-    // recipe, and of the Shot pulled with it, before its record.
-    let unread = false;
-    const apiDelayMs = (method: string, path: string) => (unread && method === "GET" && path === RECIPES ? 30_000 : 0);
-    const { here, machine, tablet, neverUsed } = await lab("Saved", 49101, { apiDelayMs });
+    // The plugin's reads of DYE2's recipes time out while held, so the server is told of the Workflow naming the new recipe,
+    // and of the Shot pulled with it, before its record.
+    const unread = recipeReadsHold();
+    const { here, machine, tablet, neverUsed } = await lab("Saved", 49101, unread.tabletOptions);
     const streamline = await startStreamline(tablet);
 
     // "Save to recipe 5" on the strip's empty fifth button: DYE2 makes a recipe of the Workflow there and names it in the Workflow.
-    unread = true;
+    await unread.hold();
     const saved = await streamline.saveToRecipe(5);
     expect(saved.status).toBe(200);
     const { id: savedId } = saved.body as { id: string; name: string };
@@ -317,7 +349,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
     // Read again: it joins the Location's Recipes in slot 5, is written to the other tablet under the same id and slot, is the
     // Machine's Loaded Recipe, and the Shot pulled before is linked to it.
-    unread = false;
+    unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
     expect((await recipe(savedRecipe)).slot).toBe(5);
@@ -352,9 +384,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   });
 
   it("writes the settings Streamline's strip leaves out of a recipe made in DYE2's editor and applied before its record was taken in, which the Machine's next change keeps", async () => {
-    let unread = false;
-    const apiDelayMs = (method: string, path: string) => (unread && method === "GET" && path === RECIPES ? 30_000 : 0);
-    const { machine, tablet } = await lab("Made then applied", 49111, { apiDelayMs });
+    const unread = recipeReadsHold();
+    const { machine, tablet } = await lab("Made then applied", 49111, unread.tabletOptions);
     tablet.connectMachine();
     const streamline = await startStreamline(tablet);
     const hotWater = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.hotWaterDuration.workflow);
@@ -363,18 +394,27 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
     // Before the plugin reads it: a new recipe saved in DYE2's editor in slot 5, applied from Streamline's strip, which applies
     // no hot water time (decentespresso/streamline-js#154).
-    unread = true;
+    await unread.hold();
     const { saved } = await (await openDye2RecipeEditor(tablet, { slot: 5 })).set({ name: "Made then applied", hotWaterTimeS: 47 }).save();
     const savedId = String(saved.id);
     await streamline.applyRecipe(5);
     expect([recipeIdInWorkflow(tablet), hotWater()]).toEqual([savedId, own]);
     await settle();
+    // Then a change of the dial, which the load gains the Recipe, timed as the plugin observed it, not as the recipe was named.
+    const dialledAt = new Date().toISOString();
+    await tablet.changeSettings({ context: { grinderSetting: "3.1" } });
+    const dialled = (frame: Record_) => frame.type === "workflow" && ((frame.workflow as Record_).context as Record_).grinderSetting === "3.1";
+    await expect.poll(() => tablet.acknowledgedSome(dialled)).toBe(true);
 
     // Taken in, it is loaded, and the load writes its hot water time, which DYE2's save of the next change keeps.
-    unread = false;
+    unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
     await loads(machine, savedRecipe);
+    const versions = async () => (await api.get<{ versions: { fields: Record_; editedAt: string }[] }>(`/recipes/${savedRecipe}/history`)).versions;
+    const gained = (await versions()).find((version) => version.fields.grindSetting === 3.1);
+    expect(gained).toBeDefined();
+    expect(gained!.editedAt >= dialledAt).toBe(true);
     await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
