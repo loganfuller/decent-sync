@@ -1058,6 +1058,7 @@ var __decentSync = (() => {
 
   // src/loaded-recipes.ts
   var RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
+  var PULLING_SHOT2 = "the Machine is pulling a Shot, so the unload is not made";
   var HELD_LOAD_KEY = "heldLoad";
   var LoadedRecipes = class {
     constructor(changes, library, log, transports, pollMs, shot, storage, pushed = () => {
@@ -1170,9 +1171,12 @@ var __decentSync = (() => {
      * loaded at the tap is still loaded, by no later load, on a Machine still
      * sharing with DYE2 there, and the Workflow, read just before, still
      * names its record, as does the latest Workflow Decaid reported while
-     * that read was answered: a recipe applied
-     * meanwhile is not unloaded. Resolves with why it was not made, or null
-     * where it was or there was nothing to unload. One not written within
+     * that read was answered: a recipe applied meanwhile is not unloaded. Nor
+     * is one made while the Machine pulls a Shot (`ShotGate`), as Decaid
+     * stores the Shot with the Workflow as it holds it then, which would name
+     * no recipe, and holding it until the Shot ends would make it later.
+     * Resolves with why it was not made, or null where it was or there was
+     * nothing to unload. One not written within
      * `ms`, as behind a long write of the plugin's or a slow read, is never
      * written: a tap is not replayed later, once the page has returned, as it
      * could unload a recipe applied since. Nor is one that fails tried again.
@@ -1185,12 +1189,14 @@ var __decentSync = (() => {
       let expired = false;
       const unload = this.library.run(async () => {
         if (expired || this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
+        if (this.shot.running()) return PULLING_SHOT2;
         return this.ownWrite(async (answered) => {
           const workflow = await workflowNow();
           const recordId = dye2RecipeIdOf(workflow);
           if (recordId === null || this.records?.get(recordId)?.globalId !== globalId) return null;
           if (expired || this.stopped || !this.sharing()) return null;
           if (this.latest !== void 0 && dye2RecipeIdOf(this.latest) !== recordId) return "the Workflow named another recipe meanwhile, so the unload is not made";
+          if (this.shot.running()) return PULLING_SHOT2;
           writing = true;
           const body = clearRecipe();
           const answer = await request("PUT", "/workflow", body);

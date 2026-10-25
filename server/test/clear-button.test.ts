@@ -14,11 +14,13 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // to Streamline's `returnTo`. The rest of the Workflow stays as it is, the
 // server unloads the Recipe, and later changes are not saved into it. A
 // failed unload, or one not written within the page's 3 s, is never made
-// later, nor one over a recipe applied while it read the Workflow. The plugin pushes `{"what":"skin"}` as the button is to show,
-// hide or change its name. Through the built plugin in simulated tablets
-// running DYE2 v0.1.26 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
-// server instances sharing one database, at a tenth of the plugin's usual
-// test pace so the page's 3 s are 300 ms. Serials are made up, from 49201.
+// later, nor one over a recipe applied while it read the Workflow, nor one
+// during a Shot (ticket #217). The plugin pushes `{"what":"skin"}` as the
+// button is to show, hide or change its name. Through the built plugin in
+// simulated tablets running DYE2 v0.1.26 as recorded
+// (fixtures/decaid/dye2-v0.1.26/), on two server instances sharing one
+// database, at a tenth of the plugin's usual test pace so the page's 3 s are
+// 300 ms. Serials are made up, from 49201.
 
 type Record_ = Record<string, unknown>;
 
@@ -293,6 +295,29 @@ describe("The Clear button in Streamline's top bar", { timeout: 120_000 }, () =>
     await loads(machine, ethiopia);
     await settle();
     expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
+  });
+
+  it("makes no unload during a Shot, as Decaid stores the Shot with the Workflow, nor once it ends", async () => {
+    const { machine, tablet, brazil } = await lab("Shot", 49291);
+    await selectRecipeInDye2(tablet, BRAZIL);
+    await loads(machine, brazil);
+    await expect.poll(() => surfaces(tablet)).toHaveLength(1);
+
+    tablet.reportState("espresso", "pouring");
+    const answer = await tap(tablet);
+    expect([answer.status, answer.headers.Location]).toEqual([303, RETURN_TO]);
+    await tablet.waitForLog(/^Could not unload the Loaded Recipe for the Clear button: the Machine is pulling a Shot, so the unload is not made$/);
+    expect(recipeIdInWorkflow(tablet)).toBe(BRAZIL);
+    // The Shot ends, 10 s at the tablet's pace after the state leaves espresso where Decaid stores none: the tap is not made then.
+    tablet.reportState("idle", "idle");
+    await settle();
+    expect(recipeIdInWorkflow(tablet)).toBe(BRAZIL);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(brazil);
+    expect((await surfaces(tablet)).length).toBe(1);
+
+    expect((await tap(tablet)).status).toBe(303);
+    expect(recipeIdInWorkflow(tablet)).toBeNull();
+    await loads(machine, null);
   });
 
   it("goes back to returnTo for any other view, as the settings card's Open button opens, clearing nothing; answers 204 without a page to go back to, and nothing but GET", async () => {

@@ -57,6 +57,9 @@ import { keepStreamlineSteamTemperature } from "./streamline.js";
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
+/** Why the Clear button's unload is not made during a Shot. */
+const PULLING_SHOT = "the Machine is pulling a Shot, so the unload is not made";
+
 /** The key of the plugin's storage keeping the load held for a Shot: `{ globalId }`, the Recipe's, or `{}` for none, as Decaid stores no null. */
 const HELD_LOAD_KEY = "heldLoad";
 
@@ -208,9 +211,12 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
    * loaded at the tap is still loaded, by no later load, on a Machine still
    * sharing with DYE2 there, and the Workflow, read just before, still
    * names its record, as does the latest Workflow Decaid reported while
-   * that read was answered: a recipe applied
-   * meanwhile is not unloaded. Resolves with why it was not made, or null
-   * where it was or there was nothing to unload. One not written within
+   * that read was answered: a recipe applied meanwhile is not unloaded. Nor
+   * is one made while the Machine pulls a Shot (`ShotGate`), as Decaid
+   * stores the Shot with the Workflow as it holds it then, which would name
+   * no recipe, and holding it until the Shot ends would make it later.
+   * Resolves with why it was not made, or null where it was or there was
+   * nothing to unload. One not written within
    * `ms`, as behind a long write of the plugin's or a slow read, is never
    * written: a tap is not replayed later, once the page has returned, as it
    * could unload a recipe applied since. Nor is one that fails tried again.
@@ -223,6 +229,7 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
     let expired = false;
     const unload = this.library.run(async () => {
       if (expired || this.stopped || this.loaded !== globalId || this.loads !== load || !this.sharing()) return null;
+      if (this.shot.running()) return PULLING_SHOT;
       return this.ownWrite(async (answered) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
@@ -231,6 +238,7 @@ export class LoadedRecipes implements LoadedRecipeWrites, Unloadable {
         // meanwhile names another recipe, as one applied since (`observe` decides on none during the plugin's writes).
         if (expired || this.stopped || !this.sharing()) return null;
         if (this.latest !== undefined && dye2RecipeIdOf(this.latest) !== recordId) return "the Workflow named another recipe meanwhile, so the unload is not made";
+        if (this.shot.running()) return PULLING_SHOT;
         writing = true;
         const body = clearRecipe();
         const answer = await request("PUT", "/workflow", body);

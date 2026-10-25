@@ -373,7 +373,8 @@ through `plugin/src/dye2.ts`, and writes what the pure
   while that read was answered. Nothing is restored, and the server unloads
   the Recipe from the Workflow delivered after it, as for any clear. A write
   Decaid refuses is logged and never tried again, and one not written
-  within the page's 3 s is never made, unlike the plugin's other clears, as it
+  within the page's 3 s, or tapped during a Shot (`ShotGate`, as Decaid
+  stores the Shot with the Workflow as it holds it then), is never made, unlike the plugin's other clears, as it
   could unload a recipe applied since; the button still showing tells the
   barista.
 - **DYE2 not there.** On its poll (the plugin's poll interval) the plugin
