@@ -61,7 +61,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await page.goto("/machines");
   await page.getByRole("link", { name: "Bar 2", exact: true }).click();
   const devices = page.getByRole("region", { name: "Paired devices" });
-  await expect(devices).toContainText("As its tablet reported them at");
+  await expectTip(devices, "Paired devices", /^As its tablet reported them at .+\.Devices only discovered nearby are left out\./);
   await expect(rows(devices)).toHaveText([
     ["Scale", "Mock Scale", "Connected", "Not reported", "Not reported"],
     ["Sensor", "DebugPort (DecentEspresso)", "Connected", "Not reported", "Not reported"],
@@ -129,12 +129,11 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await expect(field(workflowSettings.getByLabel("Rinse", { exact: true }), "targetTemperature")).toHaveText("90");
 
   const library = page.getByRole("region", { name: "Library" });
-  await expect(rows(library).filter({ hasText: /^Beans/ })).toHaveText(/^Beans2Reported at /);
-  await expect(rows(library).filter({ hasText: /^Profiles/ })).toHaveText(/^Profiles3Reported at /);
+  await expect(rows(library).filter({ hasText: /^Beans/ })).toHaveText(/^Beans2\w{3} \d+, \d{4}/);
+  await expect(rows(library).filter({ hasText: /^Profiles/ })).toHaveText(/^Profiles3\w{3} \d+, \d{4}/);
   // DYE2 has never saved any equipment on this tablet, which the plugin reports as an empty list, as DYE2 reads it.
-  await expect(rows(library).filter({ hasText: /^Tools/ })).toHaveText(/^Tools \(DYE2's equipment\)0Reported at /);
-  await expect(library).toContainText("its DYE2 recipes are only recorded");
-  await expect(library).not.toContainText("Nothing is sent back to the tablet");
+  await expect(rows(library).filter({ hasText: /^Tools/ })).toHaveText(/^Tools \(DYE2's equipment\)0\w{3} \d+, \d{4}/);
+  await expectTip(library, "Library", /its DYE2 recipes are only recorded\.$/);
 
   // The machine and the scale are switched off: the last settings read stay, marked as such, from the page's next load of them.
   tablet.machineConnected = false;
@@ -162,7 +161,7 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
 
   await page.clock.install();
   await page.goto(`/machines/${id}`);
-  await expect(page.getByText("As last reported by its Tablet.")).toBeVisible();
+  await expectTip(page.getByRole("main"), "Versions", "As last reported by its Tablet.");
   await expect(page.getByText("As reported by the latest accepted connection.")).toHaveCount(0);
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
   await expect(field(page, "DYE2")).toHaveText("0.1.26");

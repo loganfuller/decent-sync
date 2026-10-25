@@ -1,5 +1,6 @@
 import { InfoIcon } from "lucide-react";
 import { type ReactNode, useState } from "react";
+import { CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
@@ -33,5 +34,15 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
         <div className="grid gap-1">{children}</div>
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** A card's title, with what explains the card, if anything, in a tooltip beside it. */
+export function CardTitleWithInfo({ title, children }: { title: string; children?: ReactNode }) {
+  return (
+    <CardTitle className="flex items-center gap-1.5">
+      <h2>{title}</h2>
+      {children && <InfoTip label={`About ${title}`}>{children}</InfoTip>}
+    </CardTitle>
   );
 }

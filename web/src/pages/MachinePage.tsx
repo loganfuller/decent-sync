@@ -18,6 +18,7 @@ import {
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { LoadedRecipeCard } from "@/components/loaded-recipes";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
@@ -265,10 +266,9 @@ function MachineDetails({ id }: { id: string }) {
 
             <Card>
               <CardHeader>
-                <CardTitle>
-                  <h2>Versions</h2>
-                </CardTitle>
-                <CardDescription>As last reported by its Tablet.</CardDescription>
+                <CardTitleWithInfo title="Versions">
+                  <p>As last reported by its Tablet.</p>
+                </CardTitleWithInfo>
               </CardHeader>
               <CardContent>
                 <Fields label="Versions">
@@ -285,12 +285,9 @@ function MachineDetails({ id }: { id: string }) {
             {isAdmin && (
               <Card>
                 <CardHeader>
-                  <CardTitle>
-                    <h2>Token</h2>
-                  </CardTitle>
-                  <CardDescription>
-                    Issue a new token if a tablet is lost or its token was shared. The current token stops working.
-                  </CardDescription>
+                  <CardTitleWithInfo title="Token">
+                    <p>Issue a new token if a tablet is lost or its token was shared. The current token stops working.</p>
+                  </CardTitleWithInfo>
                 </CardHeader>
                 <CardContent className="grid gap-3">
                   {actionError && (
@@ -452,13 +449,12 @@ function MachineTablets({ machine }: { machine: Machine }) {
   return (
     <Card role="region" aria-label="Tablets">
       <CardHeader>
-        <CardTitle>
-          <h2>Tablets</h2>
-        </CardTitle>
-        <CardDescription>
-          The tablets its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new
-          one; restoring a Decaid backup can bring back the tablet it came from.
-        </CardDescription>
+        <CardTitleWithInfo title="Tablets">
+          <p>
+            The tablets its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new one;
+            restoring a Decaid backup can bring back the tablet it came from.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
         {machine.tablet ? (
@@ -496,14 +492,10 @@ function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
   return (
     <Card role="region" aria-label="Workflow">
       <CardHeader>
-        <CardTitle>
-          <h2>Workflow</h2>
-        </CardTitle>
-        <CardDescription>
-          {current
-            ? `What it is set up to pull next, as its tablet reported at ${formatTime(current.observedAt)}.`
-            : "What it is set up to pull next. Its tablet has not reported it yet."}
-        </CardDescription>
+        <CardTitleWithInfo title="Workflow">
+          <p>{current ? `What it is set up to pull next, as its tablet reported at ${formatTime(current.observedAt)}.` : "What it is set up to pull next."}</p>
+        </CardTitleWithInfo>
+        {!current && <CardDescription>Its tablet has not reported it yet.</CardDescription>}
       </CardHeader>
       {current && (
         <CardContent>
@@ -549,13 +541,12 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
   return (
     <Card role="region" aria-label="Location">
       <CardHeader>
-        <CardTitle>
-          <h2>Location</h2>
-        </CardTitle>
-        <CardDescription>
-          Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived
-          at a Location have none{isAdmin ? "; correct when it arrived to credit them." : "."}
-        </CardDescription>
+        <CardTitleWithInfo title="Location">
+          <p>
+            Each Shot is credited to the Location the Machine was at when it was pulled. Shots from before it first arrived at a
+            Location have none{isAdmin ? "; correct when it arrived to credit them." : "."}
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
         <Fields label="Location">

@@ -47,7 +47,9 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   await expect(field(page, "Machine state")).toHaveText(/^Espresso: pouring, since \w{3} \d+, \d{4}/);
   await expect(field(page, "Last Shot")).toHaveText("Oct 4, 2026, 2:14:10 PM");
   const workflow = page.getByRole("region", { name: "Workflow" });
-  await expect(workflow).toContainText("What it is set up to pull next, as its tablet reported at");
+  await workflow.getByRole("button", { name: "About Workflow", exact: true }).hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^What it is set up to pull next, as its tablet reported at /);
+  await page.keyboard.press("Escape");
   const expected: [string, string][] = [
     ["Profile", "Londonium"],
     ["Dose", "18 g"],

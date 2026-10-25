@@ -5,6 +5,7 @@ import { CaptureOnlyBadge } from "@/components/machine-sharing";
 import { formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type LoadedRecipe, type Machine } from "@/lib/api";
@@ -56,13 +57,12 @@ export function LoadedRecipeCard({ machine }: { machine: Machine }) {
   return (
     <Card role="region" aria-label="Loaded Recipe">
       <CardHeader>
-        <CardTitle>
-          <h2>Loaded Recipe</h2>
-        </CardTitle>
-        <CardDescription>
-          The Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is saved
-          into. Changing the profile there, or applying a favourite, unloads it.
-        </CardDescription>
+        <CardTitleWithInfo title="Loaded Recipe">
+          <p>
+            The Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is saved into.
+            Changing the profile there, or applying a favourite, unloads it.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
         {current ? (

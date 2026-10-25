@@ -14,7 +14,8 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -78,13 +79,12 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
   return (
     <Card role="region" aria-label="Sharing">
       <CardHeader>
-        <CardTitle>
-          <h2>Sharing</h2>
-        </CardTitle>
-        <CardDescription>
-          A Machine at a Location shares the Library with the Location's other Machines: its Beans, Bean Batches, Grinders,
-          Profiles, Baskets, Tools and Recipes.
-        </CardDescription>
+        <CardTitleWithInfo title="Sharing">
+          <p>
+            A Machine at a Location shares the Library with the Location's other Machines: its Beans, Bean Batches, Grinders,
+            Profiles, Baskets, Tools and Recipes.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-4">
         {error && (
@@ -98,14 +98,18 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
               `Shared at ${location}`
             ) : (
               <div className="grid gap-1">
-                <span className="font-medium">Capture-only</span>
+                <span className="inline-flex items-center gap-1.5 font-medium">
+                  Capture-only
+                  <InfoTip label="About capture-only">
+                    <p>
+                      Its Shots and Steam Records are still recorded, but nothing is written to its tablet, and what its tablet adds or
+                      changes isn't taken into the Library.
+                    </p>
+                  </InfoTip>
+                </span>
                 {machine.captureOnly.map((reason) => (
                   <span key={reason}>{REASONS[reason]}</span>
                 ))}
-                <span className="text-muted-foreground">
-                  Its Shots and Steam Records are still recorded, but nothing is written to its tablet, and what its tablet adds or changes
-                  isn't taken into the Library.
-                </span>
               </div>
             )}
           </Field>
@@ -131,10 +135,12 @@ export function MachineSharingCard({ machine, isAdmin, onChanged }: { machine: M
         )}
         {status && status.refused.length > 0 && (
           <div className="grid gap-2">
-            <h3 className="text-sm font-medium">Changes its tablet refused</h3>
-            <p className="text-sm text-muted-foreground">
-              Everything else still applies. Each is tried again once its item changes again, or its tablet reconnects.
-            </p>
+            <h3 className="inline-flex items-center gap-1.5 text-sm font-medium">
+              Changes its tablet refused
+              <InfoTip label="About changes its tablet refused">
+                <p>Everything else still applies. Each is tried again once its item changes again, or its tablet reconnects.</p>
+              </InfoTip>
+            </h3>
             <Table aria-label="Changes its tablet refused">
               <TableHeader>
                 <TableRow>

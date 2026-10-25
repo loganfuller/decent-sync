@@ -1,5 +1,5 @@
 import { Field, Fields } from "@/components/fields";
-import { InfoTip } from "@/components/info-tip";
+import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -62,10 +62,10 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
   return (
     <Card role="region" aria-label="Paired devices">
       <CardHeader>
-        <CardTitle>
-          <h2>Paired devices</h2>
-        </CardTitle>
-        <CardDescription>{pairedDevicesText(devices)}</CardDescription>
+        <CardTitleWithInfo title="Paired devices">
+          {devices.receivedAt && pairedDevicesAbout(devices).map((line) => <p key={line}>{line}</p>)}
+        </CardTitleWithInfo>
+        {pairedDevicesState(devices) && <CardDescription>{pairedDevicesState(devices)}</CardDescription>}
       </CardHeader>
       {devices.receivedAt && (
         <CardContent>
@@ -210,13 +210,12 @@ export function LibraryCard({ collections }: { collections: CollectionSummary[] 
   return (
     <Card role="region" aria-label="Library">
       <CardHeader>
-        <CardTitle>
-          <h2>Library</h2>
-        </CardTitle>
-        <CardDescription>
-          As its tablet reported it, archived and hidden entries included. Its beans, bean batches, grinders, profiles, baskets and tools are
-          shared with its Location's other tablets while it takes part in the Library; its DYE2 recipes are only recorded.
-        </CardDescription>
+        <CardTitleWithInfo title="Library">
+          <p>
+            As its tablet reported it, archived and hidden entries included. Its beans, bean batches, grinders, profiles, baskets and tools
+            are shared with its Location's other tablets while it takes part in the Library; its DYE2 recipes are only recorded.
+          </p>
+        </CardTitleWithInfo>
       </CardHeader>
       <CardContent>
         <Table aria-label="Library">
@@ -234,7 +233,8 @@ export function LibraryCard({ collections }: { collections: CollectionSummary[] 
                 <TableRow key={name}>
                   <TableCell>{title}</TableCell>
                   <TableCell>{reported?.items ?? "None"}</TableCell>
-                  <TableCell>{reportText(reported ?? null)}</TableCell>
+                  {/* Under its "Reported" heading, a current report needs only its time. */}
+                  <TableCell>{reported?.available ? formatTime(reported.receivedAt ?? reported.reportedAt) : reportText(reported ?? null)}</TableCell>
                 </TableRow>
               );
             })}
@@ -260,14 +260,21 @@ function SettingsList({ label, title, entries }: { label: string; title?: string
   );
 }
 
-/** When the paired devices shown were reported, and whether they are still current. */
-function pairedDevicesText(devices: PairedDevices): string {
+/** What explains the paired devices shown, for their tooltip: when they were reported, while current, and what is left out. */
+function pairedDevicesAbout(devices: PairedDevices): string[] {
+  const notes = [
+    "Devices only discovered nearby are left out.",
+    "A scale reports its firmware and battery level only while connected, and only if it reports them to Decaid.",
+  ];
+  return devices.available && devices.receivedAt ? [`As its tablet reported them at ${formatTime(devices.receivedAt)}.`, ...notes] : notes;
+}
+
+/** That the paired devices shown are missing or may be stale, said in plain sight; null while they are current. */
+function pairedDevicesState(devices: PairedDevices): string | null {
   if (!devices.reportedAt) return "Its tablet has not reported its paired devices yet.";
-  const note =
-    "Devices only discovered nearby are left out. A scale reports its firmware and battery level only while connected, and only if it reports them to Decaid.";
-  if (devices.available && devices.receivedAt) return `As its tablet reported them at ${formatTime(devices.receivedAt)}. ${note}`;
+  if (devices.available && devices.receivedAt) return null;
   const unavailable = `Not available when last read, at ${formatTime(devices.reportedAt)}`;
-  return devices.receivedAt ? `${unavailable}; shown as reported at ${formatTime(devices.receivedAt)}, with their state then. ${note}` : `${unavailable}.`;
+  return devices.receivedAt ? `${unavailable}; shown as reported at ${formatTime(devices.receivedAt)}, with their state then.` : `${unavailable}.`;
 }
 
 /** When a collection was reported, and whether its tablet could read it then. */
