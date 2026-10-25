@@ -38,14 +38,14 @@ test.afterAll(async () => {
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
-  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), a pressure sensor recalibrated
-  // by the least step the machine can hold, a 65536th (signed Q16.16).
+  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and the test DE1Pro's sensor
+  // calibrations (#232), signed Q16.16 values off their fields' steps.
   const served = {
     ...de1ProOnDecaid090(),
     ...simulatedLibrary(),
     ...simulatedDevices(),
     "/machine/calibration": { flowMultiplier: 0.596 },
-    ...sensorCalibration({ pressure: 1 + 1 / 65536 }),
+    ...sensorCalibration({ flow: 1.100006103515625, pressure: 1.293609619140625, temperature: -2.899993896484375 }),
     // And a Tablet Setting no definition covers, as a newer Decaid may report.
     "/settings": { ...(simulatedDevices()["/settings"] as Record<string, unknown>), updateChannel: "beta" },
   };
@@ -102,13 +102,13 @@ test("the Machine page shows paired devices, settings and the library, and follo
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
   await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
   await expectShown(calibration, [["Flow multiplier", "0.596"]]);
-  // Its pressure sensor's recalibration shows, to five decimal places.
+  // Its sensors' calibrations show rounded to their fields' steps, as Streamline shows them (#272).
   const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
   await expectTip(sensors, "Sensor calibration", /^Reported at \w{3} \d+, \d{4}/);
   await expectShown(sensors, [
-    ["Flow sensor multiplier", "1"],
-    ["Pressure sensor multiplier", "1.00002"],
-    ["Temperature sensor offset", "0 °C"],
+    ["Flow sensor multiplier", "1.1"],
+    ["Pressure sensor multiplier", "1.2936"],
+    ["Temperature sensor offset", "-2.9 °C"],
   ]);
   await expect(sensors).not.toContainText("factory");
   const tabletSettings = settings.getByRole("region", { name: "Tablet Settings" });

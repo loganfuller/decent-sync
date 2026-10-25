@@ -1,5 +1,5 @@
 import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, derivedDe1Pro, sensorCalibration, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, rows } from "./support/locators.js";
 import { DETAILS_POLL_MS } from "./support/polling.js";
@@ -364,10 +364,11 @@ test("Staff at the Machine's Location have no Edit for its advanced settings or 
   });
 });
 
-test("an Admin sets a sensor's calibration from its own Edit button, past a warning, shown applied in place and in the Settings Edits card", async ({ page }) => {
+test("an Admin sets a sensor's calibration from its own Edit button, past a warning, shown applied in place and in the Settings Edits card, each to its step", async ({ page }) => {
   const bench = await createLocation(page, "Sensor bench");
   const { machine, token } = await createMachine(page, "Sensor bench bar", bench.id);
-  const tablet = await tabletOf(token, "22801");
+  // The test DE1Pro's calibrations (#232), signed Q16.16 values off their fields' steps.
+  const tablet = await tabletOf(token, "22801", { sensors: { flow: 1.100006103515625, pressure: 1.293609619140625, temperature: -2.899993896484375 } });
   // Read after the machine's settings, on the same full read.
   await expect
     .poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/sensorCalibration`)).json()) as { collection: { available: boolean } | null }).collection?.available)
@@ -376,6 +377,8 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
 
   const sensors = page.getByRole("region", { name: "Sensor calibration", exact: true });
   await expect(sensors.getByRole("term")).toHaveText(["Flow sensor multiplier", "Pressure sensor multiplier", "Temperature sensor offset"]);
+  // Each rounded to its field's step, as Streamline shows them, not to five decimal places (1.29361).
+  await expect(sensors.getByRole("definition")).toHaveText(["1.1", "1.2936", "-2.9 °C"]);
   // One Edit for each sensor, set one at a time, and none for the section.
   await expect(sensors.getByRole("button", { name: /^Edit / })).toHaveCount(3);
   await expect(sensors.getByRole("button", { name: "Edit Sensor calibration" })).toHaveCount(0);
@@ -383,16 +386,17 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   const form = sensors.getByRole("form", { name: "Edit Pressure sensor multiplier" });
   // The machine holds it in Q16.16, a value off the field's step, so the form opens on it as it is.
   const pressure = form.getByLabel("Pressure sensor multiplier");
-  await expect(pressure).toHaveValue("1.0234375");
+  await expect(pressure).toHaveValue("1.293609619140625");
   await expect(form.getByLabel("Sensor calibration, read-only").getByRole("term")).toHaveText(["Flow sensor multiplier", "Temperature sensor offset"]);
   // An Admin's, so nothing says only an Admin can change them.
   await expect(form.getByLabel("Sensor calibration, read-only").getByRole("button", { name: /^About / })).toHaveCount(0);
-  await pressure.fill("1.02");
+  await expect(form.getByLabel("Sensor calibration, read-only").getByRole("definition")).toHaveText(["1.1", "-2.9 °C"]);
+  await pressure.fill("1.29");
 
   // The warning comes first, and going back makes no edit.
   await form.getByRole("button", { name: "Save" }).click();
   const warning = page.getByRole("alertdialog", { name: "Sensor calibration" });
-  await expect(warning).toContainText("Pressure sensor multiplier: 1.02. Bad calibration settings might make the Machine unusable.");
+  await expect(warning).toContainText("Pressure sensor multiplier: 1.29. Bad calibration settings might make the Machine unusable.");
   await warning.getByRole("button", { name: "Cancel" }).click();
   await expect(warning).toBeHidden();
   await expect(form).toBeVisible();
@@ -402,19 +406,20 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
 
   const status = sensors.getByRole("status");
   await expect(status).toContainText("Applied");
-  await expect(status).toContainText("Pressure sensor multiplier: 1.02.");
-  await expect(sensors.getByRole("definition").nth(1)).toHaveText("1.02");
+  // The values read back, the machine holding the Q16.16 value nearest 1.29, 1.2899932861328125, shown as 1.29 and not 1.28999.
+  await expect(status).toContainText("Pressure sensor multiplier: 1.29.");
+  await expect(sensors.getByRole("definition").nth(1)).toHaveText("1.29");
   baseExpect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual(["PUT /machine/calibration/pressure"]);
-  // The machine holds the Q16.16 value nearest 1.02, 1.0199966430664062, which the form opens on the step.
+  // Which the form opens on the step, as it is within half a step of Q16.16 of 1.29.
   await sensors.getByRole("button", { name: "Edit Pressure sensor multiplier" }).click();
-  await expect(form.getByLabel("Pressure sensor multiplier")).toHaveValue("1.02");
+  await expect(form.getByLabel("Pressure sensor multiplier")).toHaveValue("1.29");
   await form.getByRole("button", { name: "Cancel" }).click();
 
   await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
     /\S/,
     "You",
     "Sensor calibration",
-    "Pressure sensor multiplier: 1.02344 to 1.02",
+    "Pressure sensor multiplier: 1.2936 to 1.29",
     "Applied",
   ]);
 });
@@ -667,11 +672,17 @@ async function online(page: Page, machineId: string): Promise<void> {
 async function tabletOf(
   token: string,
   serial: string,
-  { timeScale = 50, utcOffsetMinutes, model, presence }: { timeScale?: number; utcOffsetMinutes?: number; model?: string; presence?: Record<string, unknown> } = {},
+  {
+    timeScale = 50,
+    utcOffsetMinutes,
+    model,
+    presence,
+    sensors,
+  }: { timeScale?: number; utcOffsetMinutes?: number; model?: string; presence?: Record<string, unknown>; sensors?: Parameters<typeof sensorCalibration>[0] } = {},
 ): Promise<SimulatedTablet> {
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial, model }), "/beans": [], "/bean-batches": [], "/grinders": [], ...(presence ? { "/presence/settings": presence } : {}) },
+    api: { ...derivedDe1Pro({ serial, model }), "/beans": [], "/bean-batches": [], "/grinders": [], ...(presence ? { "/presence/settings": presence } : {}), ...(sensors ? sensorCalibration(sensors) : {}) },
     timeScale,
     utcOffsetMinutes,
   });

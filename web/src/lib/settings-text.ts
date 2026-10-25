@@ -1,4 +1,4 @@
-import type { SettingsField } from "@decent-sync/protocol";
+import { type SettingsField, decimalPlaces, isEditable } from "@decent-sync/protocol";
 import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText } from "@/lib/tablet-time";
 
 // How the Settings card writes a Machine's or Tablet's settings values.
@@ -7,11 +7,12 @@ import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText } from "@/
  * A field's value as its definition shows it: a choice by its label, a time
  * of day as hours and minutes, a local time as its date and time, each in
  * the Tablet's own time and labelled with its UTC offset where it is known,
- * a wake schedule's days by their names, and a number with its unit. A
+ * a wake schedule's days by their names, and a number with its unit, a
+ * sensor's calibration rounded to its field's step (`onCalibrationStep`). A
  * value that is none of these, such as a choice not offered, is shown as it
- * is (`valueText`).
+ * is (`valueText`). `name` is the field's settings collection.
  */
-export function fieldText(field: SettingsField, value: unknown, utcOffsetMinutes: number | null = null): string {
+export function fieldText(name: string, field: SettingsField, value: unknown, utcOffsetMinutes: number | null = null): string {
   if (field.kind === "choice" && "choices" in field) {
     const choice = field.choices?.find((offered) => offered.value === value);
     if (choice) return choice.label;
@@ -26,8 +27,24 @@ export function fieldText(field: SettingsField, value: unknown, utcOffsetMinutes
           : undefined;
   if (time !== undefined) return inTabletTime(time, utcOffsetMinutes);
   if (field.kind === "weekdays") return daysText(value);
-  if (typeof value === "number" && field.unit) return `${valueText(value)} ${field.unit}`;
-  return valueText(value);
+  const shown = name === "sensorCalibration" && typeof value === "number" ? onCalibrationStep(field, value) : value;
+  if (typeof shown === "number" && field.unit) return `${valueText(shown)} ${field.unit}`;
+  return valueText(shown);
+}
+
+/**
+ * A sensor's calibration rounded to its field's step, 0.0001 for a
+ * multiplier and 0.01 for the temperature offset, as Streamline's Sensor
+ * Calibration page shows it. The machine holds each in signed Q16.16, steps
+ * of 1/65536, seldom on the field's step: shown to five decimal places, the
+ * test DE1Pro's pressure multiplier of 1.293609619140625 read 1.29361, and
+ * an edit to 1.29, which the machine holds as 1.2899932861328125, read as
+ * applied as 1.28999 (#272). The steps are powers of ten, so rounding to
+ * their decimal places is rounding to the step.
+ */
+function onCalibrationStep(field: SettingsField, value: number): number {
+  if (!isEditable(field) || field.step === undefined) return value;
+  return Number(value.toFixed(decimalPlaces(field.step)));
 }
 
 /** The ISO days of the week, Monday 1 to Sunday 7, as a wake schedule names them. */
@@ -42,10 +59,8 @@ export function daysText(days: unknown): string {
 
 /**
  * A settings value written out: on or off, and a number to five decimal
- * places at most, parts of a list or object too. The machine keeps each
- * sensor's calibration in signed Q16.16, steps of 1/65536, so any two it can
- * hold still differ when shown, and Decaid sends 2.500000000000001 for a flow
- * multiplier of 2.5.
+ * places at most, parts of a list or object too: Decaid sends
+ * 2.500000000000001 for a flow multiplier of 2.5.
  */
 export function valueText(value: unknown): string {
   if (typeof value === "number") return String(Number(value.toFixed(5)));
