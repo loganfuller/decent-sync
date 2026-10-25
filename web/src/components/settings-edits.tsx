@@ -3,6 +3,16 @@ import { useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
 import { Field, FieldDescription, FieldGroup, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
@@ -80,21 +90,28 @@ function valuesText(name: string, values: Record<string, unknown>): string {
 /** What a form holds for each field: a number as typed, a choice by its value as text, or on or off. */
 type Inputs = Record<string, string | boolean>;
 
-function inputOf(field: EditableSettingsField, value: unknown): string | boolean {
+function inputOf(name: SettingsCollectionName, field: EditableSettingsField, value: unknown): string | boolean {
   if (field.kind === "onOff") return value === true;
-  if (field.kind === "number" && field.step !== undefined && typeof value === "number") return String(toStep(value, field.step));
+  if (field.kind === "number" && typeof value === "number") return String(toStep(name, field, value));
   return value === undefined || value === null ? "" : String(value);
 }
 
+/** Half the step of signed Q16.16, in which the machine keeps each sensor's calibration. */
+const Q16_HALF = 0.5 / 65536;
+
 /**
  * A number reported on a field's step, written to as many decimal places as
- * the step has: Decaid reads a scaled register as a whole number times its
- * scale, so a heater flow of 2.3 comes as 2.3000000000000003. A number off
- * the step by more than that is left as it is.
+ * the step has, where it is that step's value as the machine holds it:
+ * Decaid reads a scaled register as a whole number times its scale, so a
+ * heater flow of 2.3 comes as 2.3000000000000003, and the machine holds a
+ * sensor calibration of 1.02 as the nearest Q16.16 value,
+ * 1.0199966430664062. A number off the step by more than that is left as it
+ * is.
  */
-function toStep(value: number, step: number): number {
-  const rounded = Number(value.toFixed(decimalPlaces(step)));
-  return Math.abs(rounded - value) < 1e-9 ? rounded : value;
+function toStep(name: SettingsCollectionName, field: EditableSettingsField, value: number): number {
+  if (field.step === undefined) return value;
+  const rounded = Number(value.toFixed(decimalPlaces(field.step)));
+  return Math.abs(rounded - value) < (name === "sensorCalibration" ? Q16_HALF : 1e-9) ? rounded : value;
 }
 
 /** Whether a choice's input holds one of its choices. */
@@ -116,7 +133,8 @@ function valueOf(field: EditableSettingsField, input: string | boolean): unknown
  * the form opened over held as `expected`, never the value as shown: a
  * report the page loads while the form is open changes neither, so a change
  * made on the Tablet meanwhile refuses the edit as changed since rather than
- * being overwritten.
+ * being overwritten. With `confirm`, saving first asks to go ahead with its
+ * warning.
  */
 export function SettingsForm({
   name,
@@ -125,6 +143,7 @@ export function SettingsForm({
   reported,
   label,
   notes,
+  confirm,
   onCancel,
   onSaved,
   children,
@@ -137,6 +156,8 @@ export function SettingsForm({
   label: string;
   /** What each note on a field says. */
   notes: (field: EditableSettingsField) => string[];
+  /** A warning to go ahead past before the edit is made. */
+  confirm?: { title: string; description: string };
   onCancel(): void;
   onSaved(edit: SettingsEdit): void;
   children?: ReactNode;
@@ -144,28 +165,36 @@ export function SettingsForm({
   const id = useId();
   const isAdmin = useIsAdmin();
   const [baseline] = useState(reported);
-  const [inputs, setInputs] = useState<Inputs>(() => Object.fromEntries(offered.map((field) => [field.path, inputOf(field, baseline[field.path])])));
+  const [inputs, setInputs] = useState<Inputs>(() => Object.fromEntries(offered.map((field) => [field.path, inputOf(name, field, baseline[field.path])])));
   const [error, setError] = useState<string | string[]>();
   const [saving, setSaving] = useState(false);
+  // The edit waiting to go ahead past `confirm`'s warning.
+  const [confirming, setConfirming] = useState<{ fields: Record<string, unknown>; expected: Record<string, unknown> }>();
 
-  async function save(event: FormEvent<HTMLFormElement>) {
+  function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
     const fields: Record<string, unknown> = {};
     const expected: Record<string, unknown> = {};
     for (const field of offered) {
       // An input left as it opened is no change, whatever the value it holds, such as a choice not offered.
-      if (inputs[field.path] === inputOf(field, baseline[field.path])) continue;
+      if (inputs[field.path] === inputOf(name, field, baseline[field.path])) continue;
       const value = valueOf(field, inputs[field.path]!);
       const reported = baseline[field.path];
       // A number retyped as reported, such as 2.30 for a heater flow read back as 2.3000000000000003, is no change either.
-      if (sameValue(value, field.kind === "number" && field.step !== undefined && typeof reported === "number" ? toStep(reported, field.step) : reported)) continue;
+      if (sameValue(value, field.kind === "number" && typeof reported === "number" ? toStep(name, field, reported) : reported)) continue;
       fields[field.path] = value;
       expected[field.path] = baseline[field.path] ?? null;
     }
     if (Object.keys(fields).length === 0) return onCancel();
     const refusals = validateSettingsEdit({ collection: name, fields }, isAdmin ? "admin" : "staff");
     if (refusals.length > 0) return setError(refusals.map((refusal) => settingsRefusalText(name, refusal)));
+    if (confirm) return setConfirming({ fields, expected });
+    void make(fields, expected);
+  }
+
+  async function make(fields: Record<string, unknown>, expected: Record<string, unknown>) {
+    setConfirming(undefined);
     setSaving(true);
     try {
       const { settingsEdit } = await api<{ settingsEdit: SettingsEdit }>("POST", `/machines/${encodeURIComponent(machine.id)}/settings-edits`, { collection: name, fields, expected });
@@ -203,6 +232,20 @@ export function SettingsForm({
           Cancel
         </Button>
       </div>
+      {confirm && (
+        <AlertDialog open={confirming !== undefined} onOpenChange={(open) => !open && setConfirming(undefined)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogTitle>{confirm.title}</AlertDialogTitle>
+              <AlertDialogDescription>{confirming && `${valuesText(name, confirming.fields)}. `}{confirm.description}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel>Cancel</AlertDialogCancel>
+              <AlertDialogAction onClick={() => confirming && void make(confirming.fields, confirming.expected)}>Go ahead</AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
+      )}
     </form>
   );
 }

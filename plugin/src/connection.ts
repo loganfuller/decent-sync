@@ -225,7 +225,7 @@ export class SyncConnection {
     );
     const settingsAccess = new SettingsAccess();
     this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
-    this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, (name, reading, always) => this.collections.reportSettings(name, reading, always), log);
+    this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
     this.writes = new LibraryWrites(
       library,
       this.outbox,

@@ -13,14 +13,19 @@ import {
 import type { Reading } from "./change-detection.js";
 import { type Answer, request } from "./decaid.js";
 import type { Outbox } from "./outbox.js";
+import { absoluteSet } from "./sensor-calibration.js";
 
 // Settings Edits (ADR-0023): one-off writes of a settings collection's
 // fields that the server asks for, made through Decaid's routes, those
 // Streamline's settings page uses. Decaid and the Machine stay the source of
 // truth: nothing is written back later.
 
-/** Where each collection a Settings Edit changes is read and written, in Decaid v0.9.0's API (rest_v1.yml). */
-const ROUTES: Readonly<Record<EditableSettingsCollection, string>> = {
+/**
+ * Where each collection a Settings Edit writes fields of is read and
+ * written, in Decaid v0.9.0's API (rest_v1.yml). The sensor calibration is
+ * read and set by target instead (`setSensorCalibration`).
+ */
+const ROUTES: Readonly<Record<Exclude<EditableSettingsCollection, "sensorCalibration">, string>> = {
   machineSettings: "/machine/settings",
   advancedSettings: "/machine/settings/advanced",
   machineCalibration: "/machine/calibration",
@@ -44,13 +49,21 @@ export class SettingsAccess {
   }
 }
 
-/**
- * Queues a report of a settings collection read within `SettingsAccess.run`:
- * if it changed since the last one queued, or whatever it holds when
- * `always`, and counts a read of the machine's own settings for their
- * interval (`CollectionCapture.reportSettings`).
- */
-export type SettingsReport = (name: EditableSettingsCollection, reading: Reading, always: boolean) => void;
+/** How Settings Edits report what they read, within `SettingsAccess.run` (`CollectionCapture`). */
+export interface SettingsReports {
+  /**
+   * Queues a report of a settings collection: if it changed since the last
+   * one queued, or whatever it holds when `always`, and counts a read of the
+   * machine's own settings for their interval.
+   */
+  reportSettings(name: EditableSettingsCollection, reading: Reading, always: boolean): void;
+  /**
+   * The sensor calibration with this read of one target in place of its
+   * last, the other targets as last read; where they are not, all read again
+   * when `readAll`, and otherwise undefined.
+   */
+  sensorCalibrationWith(target: string, read: Record<string, unknown>, readAll: boolean): Promise<Reading | undefined>;
+}
 
 /**
  * Carries out the server's Settings Edits one at a time, in the order they
@@ -70,8 +83,9 @@ export type SettingsReport = (name: EditableSettingsCollection, reading: Reading
  * Whether Decaid took the write or not, it reads the collection again and
  * queues it as a report before the answer, so the server takes in the
  * read-back first. Decaid's settings writes apply fields one at a time, so
- * the read-back decides what each field holds. A Shot started between the
- * state's read and the write is an accepted gap (#220).
+ * the read-back decides what each field holds. A sensor's calibration is
+ * set by target, one per edit (`setSensorCalibration`). A Shot started
+ * between the state's read and the write is an accepted gap (#220).
  */
 export class SettingsEdits {
   private stopped = false;
@@ -79,7 +93,7 @@ export class SettingsEdits {
   constructor(
     private readonly access: SettingsAccess,
     private readonly outbox: Outbox,
-    private readonly report: SettingsReport,
+    private readonly reports: SettingsReports,
     private readonly log: (message: string) => void,
   ) {}
 
@@ -134,10 +148,11 @@ export class SettingsEdits {
       return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
     }
 
+    if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);
     const route = ROUTES[edit.collection];
     const before = await readObject(route);
     if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-    this.report(edit.collection, { kind: "value", value: before.value, etag: null }, false);
+    this.reports.reportSettings(edit.collection, { kind: "value", value: before.value, etag: null }, false);
     if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
       return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
     }
@@ -154,11 +169,56 @@ export class SettingsEdits {
     }
     // Read back whether or not Decaid took it: a refusal part-way leaves the fields before it written.
     const after = await readObject(route).catch(() => undefined);
-    this.report(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
-    const values = after?.ok ? { values: edited(edit, after.value) } : {};
-    if (written?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };
-    return { ...refusedByDecaid(edit, written?.status ?? null, written ? decaidMessage(written) : `Decaid did not answer: ${failure}`), ...values };
+    this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+    return answered(edit, written, failure, after?.ok ? edited(edit, after.value) : undefined);
   }
+
+  /**
+   * Sets the one sensor target an edit names (`validateSettingsEdit`) to
+   * its value, from one read of the target: the changed-since check compares
+   * that read's current value C, its `measuredValue`, with what the edit
+   * expected, and the write sends C as `de1ReportedValue` (`absoluteSet`).
+   * Each read of the target is reported within the sensor calibration
+   * (`SettingsReports.sensorCalibrationWith`): the one before the write only
+   * beside the other targets as last read, so no other read delays the
+   * write, and the read-back with all three read again where they were
+   * unavailable.
+   */
+  private async setSensorCalibration(edit: SettingsEdit, tooLate: () => boolean): Promise<SettingsEdited | undefined> {
+    const target = Object.keys(edit.fields)[0]!;
+    const route = `/machine/calibration/${target}`;
+    const before = await readObject(route);
+    if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
+    const checked = await this.reports.sensorCalibrationWith(target, before.value, false);
+    if (checked) this.reports.reportSettings("sensorCalibration", checked, false);
+    const current = before.value.measuredValue;
+    if (!sameValue(current, edit.expected[target])) {
+      return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: calibrated(target, before.value) };
+    }
+    const correction = absoluteSet(target, current, edit.fields[target] as number);
+    if ("refused" in correction) return refusedByDecaid(edit, null, correction.refused);
+
+    if (this.stopped) return undefined;
+    if (tooLate()) return expired(edit);
+    let written: Answer | undefined;
+    let failure = "";
+    try {
+      written = await request("PUT", route, correction.body);
+    } catch (error) {
+      failure = describe(error);
+    }
+    const after = await readObject(route).catch(() => undefined);
+    const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, after.value, true) : undefined;
+    this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
+    return answered(edit, written, failure, after?.ok ? calibrated(target, after.value) : undefined);
+  }
+}
+
+/** An edit's answer once its write was sent: written, or refused by Decaid, with the values read back after it, where read. */
+function answered(edit: SettingsEdit, written: Answer | undefined, failure: string, readBack: Record<string, unknown> | undefined): SettingsEdited {
+  const values = readBack ? { values: readBack } : {};
+  if (written?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };
+  return { ...refusedByDecaid(edit, written?.status ?? null, written ? decaidMessage(written) : `Decaid did not answer: ${failure}`), ...values };
 }
 
 /** A collection's read: its value, an object, or Decaid's answer refusing it. Throws if Decaid does not answer. */
@@ -167,6 +227,11 @@ async function readObject(route: string): Promise<{ ok: true; value: Record<stri
   const value = answer.ok ? parsed(answer.text) : undefined;
   if (isObject(value)) return { ok: true, value };
   return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
+}
+
+/** A sensor target's calibration as its read holds it, its `measuredValue`, by target; empty where the read holds none. */
+function calibrated(target: string, read: Record<string, unknown>): Record<string, unknown> {
+  return "measuredValue" in read ? { [target]: read.measuredValue } : {};
 }
 
 /** The edit's fields as a read holds them; a field it does not hold is left out. */

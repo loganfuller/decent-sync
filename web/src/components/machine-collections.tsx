@@ -1,4 +1,5 @@
-import { useState } from "react";
+import { PencilIcon } from "lucide-react";
+import { type ReactNode, useState } from "react";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
@@ -7,9 +8,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { Collection, CollectionSummary, Machine, PairedDevice, PairedDevices, SettingsEdit, WorkflowEvent } from "@/lib/api";
-import { fieldText, isObject, valueText } from "@/lib/settings-text";
+import { fieldText, isObject, reportedFields, valueText } from "@/lib/settings-text";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import {
+  type EditableSettingsField,
   SETTINGS_FIELDS,
   type SettingsCollectionName,
   type SettingsField,
@@ -35,6 +37,13 @@ export const SETTINGS: Record<SettingsCollectionName, string> = {
 
 /** The collections holding a Machine's Machine Settings; its Tablet's Tablet Settings are in `appSettings`. */
 const MACHINE_SETTINGS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration"] as const satisfies readonly SettingsCollectionName[];
+
+/** What the sensor calibration's form warns of before saving, as Streamline's settings page does (`sensorCalWarningModal`). */
+const SENSOR_CALIBRATION_WARNING = {
+  title: "Sensor calibration",
+  description:
+    "Bad calibration settings might make the Machine unusable. Only go ahead if you have been told to, or have read the relevant sections of its manual and know what you are doing.",
+};
 
 /** What each note on a field says. */
 const NOTES: Record<SettingsNote, string> = {
@@ -188,7 +197,9 @@ function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h
  * may change one of its fields, an Edit button opens its inline form,
  * disabled while the Machine is offline or its Tablet mismatched
  * (`editBlocked`), and the section then shows its latest edit, pending and
- * then what came of it, until another is saved.
+ * then what came of it, until another is saved. A sensor's calibration is
+ * set one target at a time, each from an Edit button of its own, behind a
+ * warning.
  */
 function SettingsSection({
   name,
@@ -206,27 +217,25 @@ function SettingsSection({
   const title = SETTINGS[name];
   const offered = useOfferedFields(name, collection, machine);
   const rows = collection ? settingRows(name, collection.value) : [];
-  const [editing, setEditing] = useState(false);
+  const byTarget = name === "sensorCalibration";
+  // The fields the open form offers, if one is.
+  const [editing, setEditing] = useState<EditableSettingsField[]>();
   const [edit, setEdit] = useState<SettingsEdit>();
   const blocked = editBlocked(machine);
+  // The latest edit's status stays until another is saved, so one still pending is followed to its outcome. A target's
+  // button, beside its value, shows only an icon.
+  const editButton = (fields: EditableSettingsField[], label: string) => (
+    <Button type="button" variant="outline" size={byTarget ? "icon-xs" : "sm"} aria-label={label} disabled={blocked !== null} onClick={() => setEditing(fields)}>
+      {byTarget ? <PencilIcon aria-hidden /> : "Edit"}
+    </Button>
+  );
+  const formLabel = byTarget && editing ? `Edit ${editing[0]!.label}` : `Edit ${title}`;
   return (
     <section aria-label={title} className="grid content-start gap-2">
       <div className="flex flex-wrap items-center justify-between gap-2">
         {/* When it was reported only on asking, but a report missing or unavailable in plain sight. */}
         <SectionHeading heading={Heading} title={title} about={collection?.available && reportText(collection)} />
-        {offered.length > 0 && !editing && (
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            aria-label={`Edit ${title}`}
-            disabled={blocked !== null}
-            // The latest edit's status stays until another is saved, so one still pending is followed to its outcome.
-            onClick={() => setEditing(true)}
-          >
-            Edit
-          </Button>
-        )}
+        {offered.length > 0 && !byTarget && !editing && editButton(offered, `Edit ${title}`)}
       </div>
       {offered.length > 0 && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
@@ -235,28 +244,38 @@ function SettingsSection({
         <SettingsForm
           name={name}
           machine={machine}
-          offered={offered}
-          reported={collection.value}
-          label={`Edit ${title}`}
+          offered={editing}
+          reported={reportedFields(name, collection.value)}
+          label={formLabel}
           notes={(field) => (field.notes ?? []).map((note) => NOTES[note])}
-          onCancel={() => setEditing(false)}
+          confirm={byTarget ? SENSOR_CALIBRATION_WARNING : undefined}
+          onCancel={() => setEditing(undefined)}
           onSaved={(made) => {
-            setEditing(false);
+            setEditing(undefined);
             setEdit(made);
           }}
         >
           {/* The fields it does not offer keep their place, read-only. */}
-          <SettingRows label={`${title}, read-only`} rows={rows.filter((row) => !offered.some((field) => field.path === row.path))} />
+          <SettingRows label={`${title}, read-only`} rows={rows.filter((row) => !editing.some((field) => field.path === row.path))} />
         </SettingsForm>
       ) : (
-        collection && <SettingRows label={title} rows={rows} />
+        collection && (
+          <SettingRows
+            label={title}
+            rows={rows}
+            action={(row) => {
+              const field = byTarget ? offered.find((offer) => offer.path === row.path) : undefined;
+              return field && editButton([field], `Edit ${field.label}`);
+            }}
+          />
+        )
       )}
     </section>
   );
 }
 
-/** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip. */
-function SettingRows({ label, rows }: { label: string; rows: SettingRow[] }) {
+/** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip, and any `action` of a row after it. */
+function SettingRows({ label, rows, action }: { label: string; rows: SettingRow[]; action?: (row: SettingRow) => ReactNode }) {
   return (
     <Fields label={label}>
       {rows.map((row) => {
@@ -272,6 +291,7 @@ function SettingRows({ label, rows }: { label: string; rows: SettingRow[] }) {
                   ))}
                 </InfoTip>
               )}
+              {action?.(row)}
             </span>
           </Field>
         );
@@ -387,16 +407,11 @@ interface SettingRow {
  * shown by its label, in the definitions' order, if reported: another Decaid
  * version may send fewer. Any other field Decaid reports is shown under its
  * own name, read-only, alphabetically, as the server stores the collection as
- * jsonb, which does not keep Decaid's order. `sensorCalibration` holds each
- * target's current read, whose `measuredValue` holds its calibration
- * (rest_v1.yml).
+ * jsonb, which does not keep Decaid's order (`reportedFields`).
  */
 function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[] {
   if (!isObject(value)) return [];
-  const reported =
-    name === "sensorCalibration"
-      ? Object.fromEntries(Object.entries(value).map(([target, read]) => [target, isObject(read) && "measuredValue" in read ? read.measuredValue : read]))
-      : value;
+  const reported = reportedFields(name, value);
   const known = SETTINGS_FIELDS[name]
     .filter((field) => field.path in reported)
     .map((field) => ({

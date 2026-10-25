@@ -16,6 +16,7 @@ import { readCollection } from "./decaid.js";
 import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
+import { SENSOR_CALIBRATION_TARGETS } from "./sensor-calibration.js";
 import type { SettingsAccess } from "./settings-edits.js";
 
 type Source = {
@@ -86,7 +87,7 @@ const MACHINE_SETTINGS_MS = 60_000;
 
 /**
  * Collections read only on full reads (`sendAll`): the sensor calibration,
- * six requests the machine answers one at a time on the link the scale also
+ * three requests the machine answers one at a time on the link the scale also
  * uses, which change only through a deliberate calibration.
  */
 const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
@@ -122,6 +123,8 @@ export class CollectionCapture {
   private readonly firstReads = new Map<CollectionName, FirstReads>();
   /** For each collection, the latest delivery queued, and the latest queued with a value. */
   private readonly queued = new Map<CollectionName, { latest: string; value: string | undefined }>();
+  /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
+  private sensorCalibration: Record<string, unknown> | undefined;
   private wanted: "changes" | "full" | undefined;
   /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
   private recipesWanted = false;
@@ -287,6 +290,19 @@ export class CollectionCapture {
     if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
   }
 
+  /**
+   * The sensor calibration with one target read again, within
+   * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
+   * place of the target's last, beside the other targets as last read.
+   * Where the last read was unavailable, every target is read again when
+   * `readAll`, as after the edit's write, and otherwise there is none to
+   * report, so the edit's check spends none of its time on reads.
+   */
+  async sensorCalibrationWith(target: string, read: Record<string, unknown>, readAll: boolean): Promise<Reading | undefined> {
+    if (this.sensorCalibration === undefined) return readAll ? readSensorCalibration() : undefined;
+    return { kind: "value", value: { ...this.sensorCalibration, [target]: read }, etag: null };
+  }
+
   /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
   private async capture(source: Source, full: boolean): Promise<boolean> {
     const last = this.last.get(source.name);
@@ -302,6 +318,8 @@ export class CollectionCapture {
 
   /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
   private queueReading(name: CollectionName, reading: Reading, full: boolean): boolean {
+    // Its reads are each an object by target (`readSensorCalibration`).
+    if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? (reading.value as Record<string, unknown>) : undefined;
     const last = this.last.get(name);
     const decision = decide(last, reading, full);
     if (decision.next) this.last.set(name, decision.next);
@@ -343,9 +361,6 @@ export class CollectionCapture {
     return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
   }
 }
-
-/** The machine's sensors that Decaid reads calibration for (`De1CalibrationTarget`). */
-const SENSOR_CALIBRATION_TARGETS = ["flow", "pressure", "temperature"] as const;
 
 /**
  * The firmware's current calibration of each sensor: Decaid's answer to
