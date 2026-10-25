@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText, utcOffsetText } from "../src/lib/tablet-time";
+import { differingZoneOffset, inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText, utcOffsetText } from "../src/lib/tablet-time";
 
 describe("timeOfDayText", () => {
   it("writes minutes after midnight as hours and minutes", () => {
@@ -61,5 +61,29 @@ describe("inTabletTime", () => {
   it("labels a time with the Tablet's offset, where it is known", () => {
     expect(inTabletTime("06:30", -240)).toBe("06:30 (UTC−4)");
     expect(inTabletTime("06:30", null)).toBe("06:30");
+  });
+});
+
+describe("differingZoneOffset", () => {
+  // Toronto's clocks go back from UTC−4 to UTC−5 at 06:00 UTC on 2026-11-01, 02:00 there.
+  const beforeChange = Date.parse("2026-11-01T05:59:00Z");
+  const afterChange = Date.parse("2026-11-01T06:00:00Z");
+
+  it("finds nothing where the Tablet's offset is the time zone's at the moment, on either side of a daylight saving change", () => {
+    expect(differingZoneOffset(-240, "America/Toronto", beforeChange)).toBeUndefined();
+    expect(differingZoneOffset(-300, "America/Toronto", afterChange)).toBeUndefined();
+  });
+
+  it("gives the time zone's offset where the Tablet has not followed the change, or has moved before it", () => {
+    expect(differingZoneOffset(-240, "America/Toronto", afterChange)).toBe(-300);
+    expect(differingZoneOffset(-300, "America/Toronto", beforeChange)).toBe(-240);
+  });
+
+  it("compares offsets of part of an hour, and a zone at UTC itself", () => {
+    expect(differingZoneOffset(330, "Asia/Kolkata", afterChange)).toBeUndefined();
+    expect(differingZoneOffset(300, "Asia/Kolkata", afterChange)).toBe(330);
+    expect(differingZoneOffset(0, "UTC", afterChange)).toBeUndefined();
+    expect(differingZoneOffset(60, "Europe/London", Date.parse("2026-12-01T12:00:00Z"))).toBe(0);
+    expect(differingZoneOffset(60, "Europe/London", Date.parse("2026-07-01T12:00:00Z"))).toBeUndefined();
   });
 });

@@ -171,7 +171,7 @@ var __decentSync = (() => {
   function isSettingsCollectionName(name) {
     return SETTINGS_COLLECTION_NAMES.includes(name);
   }
-  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration"];
+  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings"];
   function isEditableSettingsCollection(name) {
     return EDITABLE_SETTINGS_COLLECTIONS.includes(name);
   }
@@ -379,7 +379,7 @@ var __decentSync = (() => {
         return `Only an Admin can change ${name}`;
       case "invalid":
         if (editable?.kind === "wakeSchedules") return `${name} are added, changed and deleted one at a time`;
-        return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
+        return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : editable?.kind === "timeOfDay" ? "a time of day" : "a whole number"}`;
       case "notOffered":
         return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
       case "outOfRange":
@@ -3645,8 +3645,10 @@ var __decentSync = (() => {
   var ROUTES2 = {
     machineSettings: "/machine/settings",
     advancedSettings: "/machine/settings/advanced",
-    machineCalibration: "/machine/calibration"
+    machineCalibration: "/machine/calibration",
+    appSettings: "/settings"
   };
+  var WITHOUT_MACHINE = /* @__PURE__ */ new Set(["appSettings", "presenceSettings"]);
   var SettingsAccess = class {
     constructor() {
       __publicField(this, "queue", Promise.resolve());
@@ -3706,11 +3708,14 @@ var __decentSync = (() => {
       const refusals = validateSettingsEdit(edit, "admin");
       if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
       const state = await request("GET", "/machine/state");
-      if (!state.ok) return refusedByDecaid(edit, state.status, decaidMessage(state));
-      const machineState = stateOf(state.text);
-      if (machineState === null) return refusedByDecaid(edit, state.status, "Decaid's answer names no machine state");
-      if (!SETTINGS_EDIT_STATES.includes(machineState)) {
-        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
+      if (state.ok) {
+        const machineState = stateOf(state.text);
+        if (machineState === null) return refusedByDecaid(edit, state.status, "Decaid's answer names no machine state");
+        if (!SETTINGS_EDIT_STATES.includes(machineState)) {
+          return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
+        }
+      } else if (!(WITHOUT_MACHINE.has(edit.collection) && machineMissing(state))) {
+        return refusedByDecaid(edit, state.status, decaidMessage(state));
       }
       if (edit.collection === "sensorCalibration") return this.setSensorCalibration(edit, tooLate);
       const route = ROUTES2[edit.collection];

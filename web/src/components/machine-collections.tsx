@@ -249,13 +249,14 @@ function SettingsSection({
       </div>
       {offered.length > 0 && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
-      {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} onAnswered={onReported} />}
+      {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} utcOffsetMinutes={utcOffsetMinutes} onAnswered={onReported} />}
       {editing && collection && isObject(collection.value) ? (
         <SettingsForm
           name={name}
           machine={machine}
           offered={editing}
           reported={reportedFields(name, collection.value)}
+          utcOffsetMinutes={utcOffsetMinutes}
           label={formLabel}
           notes={(field) => (field.notes ?? []).map((note) => NOTES[note])}
           confirm={byTarget ? SENSOR_CALIBRATION_WARNING : undefined}
@@ -265,8 +266,13 @@ function SettingsSection({
             setEdit(made);
           }}
         >
-          {/* The fields it does not offer keep their place, read-only. */}
-          <SettingRows label={`${title}, read-only`} rows={rows.filter((row) => !editing.some((field) => field.path === row.path))} />
+          {/* The fields it does not offer keep their place, read-only, an Admin's saying so to Staff. */}
+          <SettingRows
+            label={`${title}, read-only`}
+            rows={rows
+              .filter((row) => !editing.some((field) => field.path === row.path))
+              .map((row) => (adminsOnly(name, row.path) ? { ...row, about: ONLY_AN_ADMIN } : row))}
+          />
         </SettingsForm>
       ) : (
         collection && (
@@ -286,6 +292,15 @@ function SettingsSection({
       {children}
     </section>
   );
+}
+
+/** Why Staff are offered no input for a field an Admin may change. */
+const ONLY_AN_ADMIN = "Only an Admin can change it";
+
+/** Whether a field is one only an Admin may change. */
+function adminsOnly(name: SettingsCollectionName, path: string): boolean {
+  const field = settingsField(name, path);
+  return field !== undefined && isEditable(field) && field.editableBy === "admin";
 }
 
 /** The ISO days of the week, Monday 1 to Sunday 7, as a wake schedule names them. */

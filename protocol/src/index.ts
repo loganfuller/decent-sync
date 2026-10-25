@@ -1433,7 +1433,8 @@ export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
  * it as `expired` once the connection that sent it has closed, or where it
  * would start the write with less than SETTINGS_EDIT_WRITE_MARGIN_MS of
  * `timeLeftMs` left; reads the machine's state, and goes ahead only while
- * the machine is idle (SETTINGS_EDIT_STATES); reads the collection, and
+ * the machine is idle (SETTINGS_EDIT_STATES), or, for `appSettings`, while
+ * no machine is connected to the tablet; reads the collection, and
  * goes ahead only while each field still holds its `expected` value; checks
  * the fields against their definitions again (`validateSettingsEdit`),
  * writing none without one; writes only the edit's fields; and then,
