@@ -129,7 +129,7 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
         <CardTitleWithInfo title="Recipes">
           <p>
             Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
-            in no slot. Every Recipe here not Archived is on each tablet here; one in no slot is found in DYE2's Select Recipe page.
+            in no slot. Every Recipe here not Archived is on each tablet here.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -147,6 +147,7 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
         {unslotted.length > 0 && (
           <div className="grid gap-2">
             <h3 className="text-sm font-medium">In no slot</h3>
+            <p className="text-sm text-muted-foreground">Found on each tablet here in DYE2's Select Recipe page.</p>
             <RecipesTable label="Recipes in no slot" recipes={unslotted} slots={false} />
           </div>
         )}
