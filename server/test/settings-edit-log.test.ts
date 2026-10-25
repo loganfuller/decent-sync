@@ -77,8 +77,11 @@ describe("The log of Settings Edits", () => {
     const write = tablet.holdRequests("POST", "/machine/settings");
     const late = await make(machine, { collection: "machineSettings", fields: { fan: 30 }, expected: { fan: 40 } }, kim);
     await expect.poll(() => write.arrived).toBe(1);
+    // Unanswered, it is listed as it reads alone: pending, then not confirmed once its connection has dropped.
+    expect((await list(machine)).settingsEdits[0]).toEqual({ ...(await read(machine, late.id)), outcome: null, answeredAt: null });
     tablet.dropConnections();
     await expect.poll(() => outcomeOf(machine, late.id)).toBe("notConfirmed");
+    expect((await list(machine)).settingsEdits[0]).toEqual({ ...(await read(machine, late.id)), outcome: "notConfirmed", answeredAt: null });
     await api.waitForOnline(machine);
     write.release();
     await answered(machine, late.id);
