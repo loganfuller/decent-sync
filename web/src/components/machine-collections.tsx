@@ -359,6 +359,7 @@ function valueText(value: unknown): string {
   if (typeof value === "boolean") return value ? "On" : "Off";
   if (Array.isArray(value)) return value.length > 0 ? value.map(valueText).join(", ") : "None";
   if (isObject(value)) {
+    if (Object.keys(value).length === 0) return "None";
     return Object.entries(value)
       .map(([key, part]) => `${key}: ${valueText(part)}`)
       .join(", ");
