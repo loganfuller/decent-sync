@@ -159,6 +159,266 @@ var __decentSync = (() => {
     }
   };
 
+  // ../protocol/src/settings-fields.ts
+  var SETTINGS_COLLECTION_NAMES = [
+    "machineSettings",
+    "advancedSettings",
+    "machineCalibration",
+    "sensorCalibration",
+    "appSettings"
+  ];
+  function isSettingsCollectionName(name) {
+    return SETTINGS_COLLECTION_NAMES.includes(name);
+  }
+  var EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings"];
+  function isEditableSettingsCollection(name) {
+    return EDITABLE_SETTINGS_COLLECTIONS.includes(name);
+  }
+  function isEditable(field) {
+    return "editableBy" in field;
+  }
+  var STREAMLINE = ["putBackByStreamline"];
+  var SET_BY_WORKFLOW = "Set by the Workflow";
+  var SETTINGS_FIELDS = {
+    machineSettings: [
+      // The DE1 holds the fan threshold to 0 to 50 (`MMRItem`), as Streamline's page does (`FAN_THRESHOLD_MAX`).
+      { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["resetsOnReconnect", "putBackByStreamline"] },
+      {
+        path: "steamPurgeMode",
+        label: "Steam purge mode",
+        kind: "choice",
+        choices: [
+          { value: 0, label: "Normal" },
+          { value: 1, label: "Two Tap Stop" }
+        ],
+        editableBy: "staff",
+        notes: STREAMLINE
+      },
+      // Decaid writes the Workflow's back to the Machine on every reconnect (`_setDe1DefaultsFor`), and a Loaded Recipe holds them.
+      { path: "steamFlow", label: "Steam flow", unit: "ml/s", kind: "number", setBy: SET_BY_WORKFLOW },
+      { path: "hotWaterFlow", label: "Hot water flow", unit: "ml/s", kind: "number", setBy: SET_BY_WORKFLOW },
+      { path: "flushFlow", label: "Flush flow", unit: "ml/s", kind: "number", setBy: SET_BY_WORKFLOW },
+      { path: "flushTemp", label: "Flush temperature", unit: "°C", kind: "number", setBy: SET_BY_WORKFLOW },
+      { path: "flushTimeout", label: "Flush time-out", unit: "s", kind: "number", setBy: SET_BY_WORKFLOW },
+      { path: "tankTemp", label: "Tank temperature", unit: "°C", kind: "number", setBy: "Set by each profile" },
+      // `BatteryController` switches it as the charging mode asks.
+      { path: "usb", label: "USB charger", kind: "onOff", setBy: "Set by the Tablet's charging mode" }
+    ],
+    advancedSettings: [
+      { path: "heaterPh1Flow", label: "Heater warmup flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
+      { path: "heaterPh2Flow", label: "Heater test flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
+      { path: "heaterIdleTemp", label: "Idle temperature", unit: "°C", kind: "wholeNumber", min: 0, max: 99, editableBy: "admin", notes: STREAMLINE },
+      { path: "heaterPh2Timeout", label: "Heater test time-out", unit: "s", kind: "wholeNumber", min: 0, max: 60, editableBy: "admin", notes: STREAMLINE },
+      // Only the two values Streamline offers: Decaid writes -1 for one outside 90 to 150 and 180 to 260 (`De1HeaterVoltage.fromInt`).
+      // Streamline's restore leaves it alone.
+      {
+        path: "heaterVoltage",
+        label: "Heater voltage",
+        kind: "choice",
+        choices: [
+          { value: 120, label: "110 V" },
+          { value: 230, label: "220 V" }
+        ],
+        editableBy: "admin",
+        notes: ["restartAfterChange"]
+      },
+      {
+        path: "refillKitSetting",
+        label: "Refill kit",
+        kind: "choice",
+        choices: [
+          { value: 2, label: "Auto-Detect" },
+          { value: 1, label: "Force On" },
+          { value: 0, label: "Force Off" }
+        ],
+        editableBy: "admin",
+        notes: ["resetsOnReconnect", "putBackByStreamline"]
+      }
+    ],
+    machineCalibration: [
+      // The range Decaid clamps to (`calFlowEst`), in the thousandths the Machine keeps.
+      { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 1e-3, editableBy: "admin" }
+    ],
+    sensorCalibration: [
+      // The band Streamline accepts for one correction (`SENSOR_CAL_RATIO_MIN` and `SENSOR_CAL_RATIO_MAX` in
+      // streamline-js:src/modules/sensor-cal.js). Upstream sets no bound for the temperature offset; this one is chosen here.
+      { path: "flow", label: "Flow sensor multiplier", kind: "number", min: 0.75, max: 1.33, step: 1e-4, editableBy: "admin" },
+      { path: "pressure", label: "Pressure sensor multiplier", kind: "number", min: 0.75, max: 1.33, step: 1e-4, editableBy: "admin" },
+      { path: "temperature", label: "Temperature sensor offset", unit: "°C", kind: "number", min: -10, max: 10, step: 0.01, editableBy: "admin" }
+    ],
+    appSettings: [
+      {
+        path: "gatewayMode",
+        label: "Gateway mode",
+        kind: "choice",
+        choices: [
+          { value: "disabled", label: "Disabled" },
+          { value: "tracking", label: "Tracking" },
+          { value: "full", label: "Full" }
+        ],
+        editableBy: "admin"
+      },
+      {
+        path: "scalePowerMode",
+        label: "Scale power mode",
+        kind: "choice",
+        choices: [
+          { value: "disabled", label: "Nothing" },
+          { value: "displayOff", label: "Display Off" },
+          { value: "disconnect", label: "Disconnect" }
+        ],
+        editableBy: "staff"
+      },
+      { path: "blockOnNoScale", label: "Block Shots with no scale", kind: "onOff", editableBy: "staff" },
+      { path: "blockTareDuringShot", label: "Block taring during a Shot", kind: "onOff", editableBy: "staff" },
+      { path: "stopHotWaterAtWeight", label: "Stop hot water at weight", kind: "onOff", editableBy: "staff" },
+      { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.1, editableBy: "staff" },
+      { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
+      { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
+      { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "staff" },
+      {
+        path: "chargingMode",
+        label: "Charging mode",
+        kind: "choice",
+        choices: [
+          { value: "disabled", label: "Charge to 100%" },
+          { value: "highAvailability", label: "Charge to 95%" },
+          { value: "balanced", label: "Charge up to 80%" },
+          { value: "longevity", label: "Charge up to 55%" }
+        ],
+        editableBy: "staff"
+      },
+      { path: "nightModeEnabled", label: "Night mode", kind: "onOff", editableBy: "staff" },
+      { path: "nightModeSleepTime", label: "Night mode sleep time", kind: "timeOfDay", min: 0, max: 1439, editableBy: "staff" },
+      { path: "nightModeMorningTime", label: "Night mode morning time", kind: "timeOfDay", min: 0, max: 1439, editableBy: "staff" },
+      { path: "lowBatteryBrightnessLimit", label: "Dim the screen on low battery", kind: "onOff", editableBy: "staff" },
+      // Decaid's own "Keep screen awake", apart from presence's keep-awake.
+      { path: "keepAwake", label: "Keep the Tablet's screen on", kind: "onOff", editableBy: "staff" },
+      {
+        path: "themeMode",
+        label: "Theme",
+        kind: "choice",
+        choices: [
+          { value: "system", label: "System" },
+          { value: "light", label: "Light" },
+          { value: "dark", label: "Dark" }
+        ],
+        editableBy: "staff"
+      },
+      {
+        path: "logLevel",
+        label: "Log level",
+        kind: "choice",
+        choices: [
+          { value: "ALL", label: "ALL" },
+          { value: "FINEST", label: "FINEST" },
+          { value: "FINER", label: "FINER" },
+          { value: "FINE", label: "FINE" },
+          { value: "CONFIG", label: "CONFIG" },
+          { value: "INFO", label: "INFO" },
+          { value: "WARNING", label: "WARNING" },
+          { value: "SEVERE", label: "SEVERE" },
+          { value: "SHOUT", label: "SHOUT" },
+          { value: "OFF", label: "OFF" }
+        ],
+        editableBy: "staff"
+      },
+      // Reported only while Decaid reads the Tablet's battery.
+      { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
+      { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
+      { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
+      { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },
+      { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },
+      { path: "preferredScaleId", label: "Preferred scale", setBy: "Managed with the preferred devices" },
+      { path: "preferredGrinderDeviceId", label: "Preferred grinder", setBy: "Managed with the preferred devices" }
+    ]
+  };
+  function settingsField(collection, path) {
+    return SETTINGS_FIELDS[collection].find((field) => field.path === path);
+  }
+  function validateSettingsEdit(edit, role) {
+    if (!isSettingsCollectionName(edit.collection)) return [{ reason: "unknownCollection" }];
+    const paths = Object.keys(edit.fields);
+    if (paths.length === 0) return [{ reason: "noFields" }];
+    if (edit.collection === "sensorCalibration" && paths.length > 1) return [{ reason: "severalTargets" }];
+    const refusals = [];
+    for (const path of paths) {
+      const reason = fieldRefusal(settingsField(edit.collection, path), edit.fields[path], role);
+      if (reason) refusals.push({ reason, field: path });
+    }
+    return refusals;
+  }
+  function settingsRefusalText(collection, refusal) {
+    const field = refusal.field === void 0 || !isSettingsCollectionName(collection) ? void 0 : settingsField(collection, refusal.field);
+    const name = field?.label ?? refusal.field ?? "";
+    const editable = field && isEditable(field) ? field : void 0;
+    switch (refusal.reason) {
+      case "unknownCollection":
+        return `There are no settings named ${collection}`;
+      case "noFields":
+        return "Change at least one setting";
+      case "severalTargets":
+        return "Set one sensor's calibration at a time";
+      case "unknown":
+        return `There is no setting named ${name}`;
+      case "readOnly":
+        return `${name} can't be changed here${field && !isEditable(field) ? `: ${field.setBy.charAt(0).toLowerCase()}${field.setBy.slice(1)}` : ""}`;
+      case "notAllowed":
+        return `Only an Admin can change ${name}`;
+      case "invalid":
+        return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
+      case "notOffered":
+        return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
+      case "outOfRange":
+        return `${name} must be ${rangeText(editable)}`;
+      case "offStep":
+        return `${name} must be a multiple of ${editable?.step}`;
+    }
+  }
+  function rangeText(field) {
+    if (field?.min !== void 0 && field.max !== void 0) return `from ${field.min} to ${field.max}`;
+    return field?.min !== void 0 ? `${field.min} or more` : `${field?.max} or less`;
+  }
+  function fieldRefusal(field, value, role) {
+    if (!field) return "unknown";
+    if (!isEditable(field)) return "readOnly";
+    if (field.editableBy === "admin" && role !== "admin") return "notAllowed";
+    switch (field.kind) {
+      case "onOff":
+        return typeof value === "boolean" ? void 0 : "invalid";
+      case "choice":
+        return field.choices?.some((choice) => choice.value === value) ? void 0 : "notOffered";
+      case "wholeNumber":
+      case "timeOfDay":
+        if (typeof value !== "number" || !Number.isInteger(value)) return "invalid";
+        return inRange(field, value) ? void 0 : "outOfRange";
+      case "number":
+        if (typeof value !== "number" || !Number.isFinite(value)) return "invalid";
+        if (!inRange(field, value)) return "outOfRange";
+        return field.step === void 0 || onStep(value, field.step) ? void 0 : "offStep";
+    }
+  }
+  function inRange(field, value) {
+    return (field.min === void 0 || value >= field.min) && (field.max === void 0 || value <= field.max);
+  }
+  function onStep(value, step) {
+    const places = decimalPlaces(step);
+    const { digits, exponent } = decimalDigits(value);
+    if (exponent < -places) return false;
+    const units = Math.round(step * 10 ** places);
+    let remainder = 0;
+    for (const digit of digits + "0".repeat(exponent + places)) remainder = (remainder * 10 + Number(digit)) % units;
+    return remainder === 0;
+  }
+  function decimalPlaces(value) {
+    return Math.max(0, -decimalDigits(value).exponent);
+  }
+  function decimalDigits(value) {
+    const [mantissa = "", exponent = "0"] = String(Math.abs(value)).toLowerCase().split("e");
+    const [whole = "", fraction = ""] = mantissa.split(".");
+    return { digits: whole + fraction, exponent: Number(exponent) - fraction.length };
+  }
+
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
   var SYNC_PATH = "/sync";
@@ -404,6 +664,7 @@ var __decentSync = (() => {
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
   var SHOT_STATE = "espresso";
   var PULLING_SHOT = "The Machine was pulling a Shot; ask again";
+  var SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWater"];
   var MAX_REFUSAL_LENGTH = 1e3;
   function encode(message) {
     return JSON.stringify(message);
@@ -513,6 +774,14 @@ var __decentSync = (() => {
           fields.id();
           fields.string("kind", { nonEmpty: true });
           fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        });
+      case "settingsEdit":
+        return check(object3, "settingsEdit", (fields) => {
+          fields.uuid("id");
+          fields.string("collection", { nonEmpty: true });
+          fields.objectField("fields");
+          fields.objectField("expected");
+          fields.integer("timeLeftMs", { nonNegative: true });
         });
       default:
         return invalid("Unknown message type");
@@ -1742,10 +2011,10 @@ var __decentSync = (() => {
       if (typeof context.beanBatchId === "string") names.add(`beanBatch:${context.beanBatchId}`);
       if (typeof context.grinderId === "string") names.add(`grinder:${context.grinderId}`);
       if (isObject5(extras.workflowSkin) && typeof extras.workflowSkin.selectedProfileId === "string") names.add(`profile:${extras.workflowSkin.selectedProfileId}`);
-      const edited = isObject5(shot.annotations) && isObject5(shot.annotations.extras) ? shot.annotations.extras : {};
-      const basket = edited.basketId != null || edited.basketName != null ? edited.basketId : extras.basketId;
+      const edited2 = isObject5(shot.annotations) && isObject5(shot.annotations.extras) ? shot.annotations.extras : {};
+      const basket = edited2.basketId != null || edited2.basketName != null ? edited2.basketId : extras.basketId;
       if (typeof basket === "string") names.add(`basket:${basket}`);
-      for (const recorded of [edited, extras]) {
+      for (const recorded of [edited2, extras]) {
         const tools = Array.isArray(recorded.equipmentIds) ? recorded.equipmentIds : [recorded.equipmentId];
         for (const id2 of tools) if (typeof id2 === "string") names.add(`tool:${id2}`);
       }
@@ -2349,14 +2618,16 @@ var __decentSync = (() => {
   ];
   var RECIPES2 = SOURCES.find((source) => source.name === "dye2Recipes");
   var WRITTEN_LISTS = new Set(LIBRARY_LISTS);
+  var SETTINGS = new Set(SETTINGS_COLLECTION_NAMES);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
   var FULL_READS_ONLY = /* @__PURE__ */ new Set(["sensorCalibration"]);
   var CollectionCapture = class {
-    constructor(outbox, library, pollMs, sawRecipes = () => {
+    constructor(outbox, library, settings, pollMs, sawRecipes = () => {
     }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "library", library);
+      __publicField(this, "settings", settings);
       __publicField(this, "pollMs", pollMs);
       __publicField(this, "sawRecipes", sawRecipes);
       /** What was last queued for each collection. */
@@ -2474,7 +2745,7 @@ var __decentSync = (() => {
               if (!full) continue;
             } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
-            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : this.capture(source, full));
+            const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
             if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
           }
@@ -2482,6 +2753,21 @@ var __decentSync = (() => {
       } finally {
         this.reading = false;
       }
+    }
+    /**
+     * Queues a report of a settings collection a Settings Edit read, within
+     * `SettingsAccess.run`: if it changed since the last one queued, or, when
+     * `always`, whatever it holds, as an edit's read-back is. The edit's answer
+     * follows it, so it is kept where it is: a later report of the collection
+     * is queued after it rather than superseding it, which would put the answer
+     * ahead of the read-back it reports. A read of the machine's own settings
+     * counts for their interval.
+     */
+    reportSettings(name, reading, always) {
+      if (this.stopped) return;
+      this.queueReading(name, reading, always);
+      this.queued.delete(name);
+      if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
     }
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
@@ -2492,17 +2778,22 @@ var __decentSync = (() => {
       );
       if (this.stopped) return false;
       if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
+      return this.queueReading(source.name, reading, full);
+    }
+    /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
+    queueReading(name, reading, full) {
+      const last = this.last.get(name);
       const decision = decide(last, reading, full);
-      if (decision.next) this.last.set(source.name, decision.next);
+      if (decision.next) this.last.set(name, decision.next);
       if (!decision.send || reading.kind === "notModified") return false;
       const id = this.outbox.nextId();
-      const delivery = reading.kind === "value" ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...this.placedInTime(source.name, reading.value) } : { type: "collection", id, name: source.name, available: false };
-      const earlier = this.queued.get(source.name);
+      const delivery = reading.kind === "value" ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value) } : { type: "collection", id, name, available: false };
+      const earlier = this.queued.get(name);
       if (earlier) {
         if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
         if (delivery.available && earlier.value !== void 0 && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
       }
-      this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
+      this.queued.set(name, { latest: id, value: delivery.available ? id : earlier?.value });
       this.outbox.enqueue(delivery);
       return delivery.available;
     }
@@ -2676,11 +2967,11 @@ var __decentSync = (() => {
     return `${SEQUENCE_KEY}.${seq % MAX_KEPT}`;
   }
   function parseSequence(value) {
-    const parsed5 = parse(value);
-    const first = parsed5?.first;
-    const next = parsed5?.next;
+    const parsed6 = parse(value);
+    const first = parsed6?.first;
+    const next = parsed6?.next;
     if (!isCount(first) || !isCount(next) || first > next || next - first > MAX_KEPT) return { first: 0, next: 0 };
-    return { first, next, token: typeof parsed5?.token === "string" ? parsed5.token : "" };
+    return { first, next, token: typeof parsed6?.token === "string" ? parsed6.token : "" };
   }
   function tokenHash(token) {
     let hash = 2166136261;
@@ -2691,16 +2982,16 @@ var __decentSync = (() => {
     return hash.toString(16).padStart(8, "0");
   }
   function parseSlot(value, seq) {
-    const parsed5 = parse(value);
-    if (parsed5?.seq !== seq || parsed5.delivery === void 0) return void 0;
-    const decoded = decodeMachineEvent(JSON.stringify(parsed5.delivery));
+    const parsed6 = parse(value);
+    if (parsed6?.seq !== seq || parsed6.delivery === void 0) return void 0;
+    const decoded = decodeMachineEvent(JSON.stringify(parsed6.delivery));
     return decoded.ok ? decoded.message : void 0;
   }
   function parse(value) {
     if (typeof value !== "string") return void 0;
     try {
-      const parsed5 = JSON.parse(value);
-      return typeof parsed5 === "object" && parsed5 !== null && !Array.isArray(parsed5) ? parsed5 : void 0;
+      const parsed6 = JSON.parse(value);
+      return typeof parsed6 === "object" && parsed6 !== null && !Array.isArray(parsed6) ? parsed6 : void 0;
     } catch {
       return void 0;
     }
@@ -3285,6 +3576,123 @@ var __decentSync = (() => {
     }
   };
 
+  // src/settings-edits.ts
+  var ROUTES2 = {
+    machineSettings: "/machine/settings"
+  };
+  var SettingsAccess = class {
+    constructor() {
+      __publicField(this, "queue", Promise.resolve());
+    }
+    /** Runs `work` once everything asked for before it is done, and resolves or rejects as it does. */
+    run(work) {
+      const done = this.queue.then(work);
+      this.queue = done.catch(() => {
+      });
+      return done;
+    }
+  };
+  var SettingsEdits = class {
+    constructor(access, outbox, report, log) {
+      __publicField(this, "access", access);
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "report", report);
+      __publicField(this, "log", log);
+    }
+    /** Carries out an edit once the reads and edits before it are done, and queues its answer. It never rejects. */
+    apply(edit) {
+      return this.access.run(async () => {
+        let answer;
+        try {
+          answer = await this.carryOut(edit);
+        } catch (error) {
+          answer = refusedByDecaid(edit, null, `Decaid did not answer: ${describe(error)}`);
+        }
+        if (answer.outcome === "refused") this.log(`Did not carry out Settings Edit ${edit.id}: ${describeRefusal(answer)}`);
+        this.outbox.enqueue(answer);
+      });
+    }
+    async carryOut(edit) {
+      if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
+      const refusals = validateSettingsEdit(edit, "admin");
+      if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
+      const state = await request("GET", "/machine/state");
+      if (!state.ok) return refusedByDecaid(edit, state.status, decaidMessage(state));
+      const machineState = stateOf(state.text);
+      if (machineState === null) return refusedByDecaid(edit, state.status, "Decaid's answer names no machine state");
+      if (!SETTINGS_EDIT_STATES.includes(machineState)) {
+        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: machineState };
+      }
+      const route = ROUTES2[edit.collection];
+      const before = await readObject(route);
+      if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
+      this.report(edit.collection, { kind: "value", value: before.value, etag: null }, false);
+      if (Object.keys(edit.fields).some((field) => !sameValue(before.value[field], edit.expected[field]))) {
+        return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: edited(edit, before.value) };
+      }
+      let written2;
+      let failure = "";
+      try {
+        written2 = await request("POST", route, edit.fields);
+      } catch (error) {
+        failure = describe(error);
+      }
+      const after = await readObject(route).catch(() => void 0);
+      this.report(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+      const values = after?.ok ? { values: edited(edit, after.value) } : {};
+      if (written2?.ok) return { type: "settingsEdited", id: edit.id, outcome: "written", ...values };
+      return { ...refusedByDecaid(edit, written2?.status ?? null, written2 ? decaidMessage(written2) : `Decaid did not answer: ${failure}`), ...values };
+    }
+  };
+  async function readObject(route) {
+    const answer = await request("GET", route);
+    const value = answer.ok ? parsed5(answer.text) : void 0;
+    if (isObject6(value)) return { ok: true, value };
+    return { ok: false, answer: answer.ok ? { ...answer, text: "Decaid's answer is not an object" } : answer };
+  }
+  function edited(edit, value) {
+    return Object.fromEntries(Object.keys(edit.fields).filter((field) => field in value).map((field) => [field, value[field]]));
+  }
+  function refusedByDecaid(edit, status, message) {
+    return { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "decaid", status, message: message.slice(0, MAX_REFUSAL_LENGTH) };
+  }
+  function stateOf(text) {
+    const snapshot = parsed5(text);
+    const state = isObject6(snapshot) && isObject6(snapshot.state) ? snapshot.state.state : void 0;
+    return typeof state === "string" && state !== "" ? state : null;
+  }
+  function decaidMessage(answer) {
+    const body = parsed5(answer.text);
+    const said = isObject6(body) ? [body.error, body.message].filter((part) => typeof part === "string" && part !== "") : [];
+    if (said.length > 0) return said.join(": ");
+    return answer.text === "" ? `Decaid answered ${answer.status}` : answer.text;
+  }
+  function describeRefusal(answer) {
+    switch (answer.reason) {
+      case "machineBusy":
+        return `the machine is ${answer.state}`;
+      case "changedSince":
+        return "a setting changed on the tablet since the report it was made over";
+      case "decaid":
+        return `${answer.status === null ? "" : `Decaid answered ${answer.status}: `}${answer.message}`;
+      default:
+        return String(answer.reason);
+    }
+  }
+  function parsed5(text) {
+    try {
+      return JSON.parse(text);
+    } catch {
+      return void 0;
+    }
+  }
+  function isObject6(value) {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+  }
+  function describe(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   // src/shots.ts
   var PAGE_SIZE = 100;
   var OVERLAP = 10;
@@ -3759,6 +4167,8 @@ var __decentSync = (() => {
       __publicField(this, "collections");
       /** Carries out the Library writes the server asks for, one at a time, between reads of the lists it writes to. */
       __publicField(this, "writes");
+      /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
+      __publicField(this, "settingsEdits");
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
       __publicField(this, "shot", new ShotGate());
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
@@ -3814,7 +4224,9 @@ var __decentSync = (() => {
         () => this.collections.readMachineSettings(),
         (state) => this.shot.state(state)
       );
-      this.collections = new CollectionCapture(this.outbox, library, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
+      const settingsAccess = new SettingsAccess();
+      this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
+      this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, (name, reading, always) => this.collections.reportSettings(name, reading, always), log);
       this.writes = new LibraryWrites(
         library,
         this.outbox,
@@ -3892,7 +4304,7 @@ var __decentSync = (() => {
         try {
           tabletId = await this.tabletId.read();
         } catch (error) {
-          if (attempt === this.attempt) this.drop(describe(error));
+          if (attempt === this.attempt) this.drop(describe2(error));
           return;
         }
         if (this.stopped || attempt !== this.attempt) return;
@@ -3937,7 +4349,7 @@ var __decentSync = (() => {
           ...this.yielding ? { yielding: true } : {}
         });
       } catch (error) {
-        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe(error)}`);
+        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe2(error)}`);
       } finally {
         if (attempt === this.attempt) this.connecting = false;
       }
@@ -4045,6 +4457,9 @@ var __decentSync = (() => {
         case "leaveOut":
           void this.writes.leaveOut(message);
           break;
+        case "settingsEdit":
+          void this.settingsEdits.apply(message);
+          break;
         case "heartbeat":
           break;
         case "error": {
@@ -4061,7 +4476,7 @@ var __decentSync = (() => {
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            this.sendFailed(handle, `could not send a heartbeat: ${describe(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe2(error)}`);
           }
         );
       });
@@ -4214,7 +4629,7 @@ var __decentSync = (() => {
   function describeError(code) {
     return code.replace(/_/g, " ");
   }
-  function describe(error) {
+  function describe2(error) {
     return error instanceof Error ? error.message : String(error);
   }
 

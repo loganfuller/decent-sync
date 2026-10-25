@@ -25,6 +25,19 @@ export function isSettingsCollectionName(name: string): name is SettingsCollecti
   return (SETTINGS_COLLECTION_NAMES as readonly string[]).includes(name);
 }
 
+/**
+ * The settings collections a Settings Edit changes, which the plugin writes
+ * through Decaid's routes: only the machine's settings yet. The server
+ * refuses an edit of any other, and the management interface offers none.
+ */
+export const EDITABLE_SETTINGS_COLLECTIONS = ["machineSettings"] as const satisfies readonly SettingsCollectionName[];
+
+export type EditableSettingsCollection = (typeof EDITABLE_SETTINGS_COLLECTIONS)[number];
+
+export function isEditableSettingsCollection(name: string): name is EditableSettingsCollection {
+  return (EDITABLE_SETTINGS_COLLECTIONS as readonly string[]).includes(name);
+}
+
 /** The roles of accounts, as the server gives them: an Admin may change any field, Staff only the fields marked for Staff. */
 export type SettingsRole = "admin" | "staff";
 
@@ -234,7 +247,6 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
       path: "logLevel",
       label: "Log level",
       kind: "choice",
-      // Written out, not mapped from a list: a call here would keep these definitions in a bundle that uses none of them.
       choices: [
         { value: "ALL", label: "ALL" },
         { value: "FINEST", label: "FINEST" },
@@ -321,6 +333,40 @@ export function validateSettingsEdit(edit: SettingsEditFields, role: SettingsRol
     if (reason) refusals.push({ reason, field: path });
   }
   return refusals;
+}
+
+/** A refusal of `validateSettingsEdit` as a sentence the management interface shows, naming the field by its label. */
+export function settingsRefusalText(collection: string, refusal: SettingsEditRefusal): string {
+  const field = refusal.field === undefined || !isSettingsCollectionName(collection) ? undefined : settingsField(collection, refusal.field);
+  const name = field?.label ?? refusal.field ?? "";
+  const editable = field && isEditable(field) ? field : undefined;
+  switch (refusal.reason) {
+    case "unknownCollection":
+      return `There are no settings named ${collection}`;
+    case "noFields":
+      return "Change at least one setting";
+    case "severalTargets":
+      return "Set one sensor's calibration at a time";
+    case "unknown":
+      return `There is no setting named ${name}`;
+    case "readOnly":
+      return `${name} can't be changed here${field && !isEditable(field) ? `: ${field.setBy.charAt(0).toLowerCase()}${field.setBy.slice(1)}` : ""}`;
+    case "notAllowed":
+      return `Only an Admin can change ${name}`;
+    case "invalid":
+      return `${name} must be ${editable?.kind === "onOff" ? "on or off" : editable?.kind === "number" ? "a number" : "a whole number"}`;
+    case "notOffered":
+      return `${name} must be ${(editable?.choices ?? []).map((choice) => choice.label).join(" or ")}`;
+    case "outOfRange":
+      return `${name} must be ${rangeText(editable)}`;
+    case "offStep":
+      return `${name} must be a multiple of ${editable?.step}`;
+  }
+}
+
+function rangeText(field: EditableSettingsField | undefined): string {
+  if (field?.min !== undefined && field.max !== undefined) return `from ${field.min} to ${field.max}`;
+  return field?.min !== undefined ? `${field.min} or more` : `${field?.max} or less`;
 }
 
 function fieldRefusal(field: SettingsField | undefined, value: unknown, role: SettingsRole): SettingsEditRefusalReason | undefined {

@@ -1,9 +1,13 @@
+import { useState } from "react";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
+import { SettingsEditStatus, SettingsForm, editBlocked, useOfferedFields } from "@/components/settings-edits";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import type { Collection, CollectionSummary, PairedDevice, PairedDevices, WorkflowEvent } from "@/lib/api";
+import type { Collection, CollectionSummary, Machine, PairedDevice, PairedDevices, SettingsEdit, WorkflowEvent } from "@/lib/api";
+import { fieldText, isObject, valueText } from "@/lib/settings-text";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import {
   SETTINGS_FIELDS,
@@ -108,14 +112,20 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
  * flow and sensor calibration) and its Tablet's Tablet Settings, each field
  * as its definition names and shows it (`SETTINGS_FIELDS`), and the steam,
  * hot water and rinse settings of its current Workflow, so differences
- * between Machines can be spotted.
+ * between Machines can be spotted. A section the signed-in account may
+ * change a field of has an Edit button (settings-edits.tsx), and
+ * `onReported` loads the reports again once an edit is answered.
  */
 export function SettingsCard({
+  machine,
   settings,
   workflow,
+  onReported,
 }: {
+  machine: Machine;
   settings: Record<SettingsCollectionName, Collection | null>;
   workflow: WorkflowEvent | null;
+  onReported(): Promise<void> | void;
 }) {
   const parts: [title: string, value: unknown][] = [
     ["Steam", workflow?.workflow.steamSettings],
@@ -134,12 +144,12 @@ export function SettingsCard({
           <h3 className="font-medium">Machine Settings</h3>
           <div className="grid gap-6 md:grid-cols-2">
             {MACHINE_SETTINGS.map((name) => (
-              <SettingsSection key={name} name={name} collection={settings[name]} heading="h4" />
+              <SettingsSection key={name} name={name} collection={settings[name]} heading="h4" machine={machine} onReported={onReported} />
             ))}
           </div>
         </section>
         <div className="grid gap-6 md:grid-cols-2">
-          <SettingsSection name="appSettings" collection={settings.appSettings} heading="h3" />
+          <SettingsSection name="appSettings" collection={settings.appSettings} heading="h3" machine={machine} onReported={onReported} />
           <section aria-label="Steam, hot water and rinse" className="grid content-start gap-2">
             <SectionHeading
               heading="h3"
@@ -172,36 +182,101 @@ function SectionHeading({ heading: Heading, title, about }: { heading: "h3" | "h
   );
 }
 
-/** One settings collection as last reported: each field its definition covers, in their order, then any other Decaid reports. */
-function SettingsSection({ name, collection, heading: Heading }: { name: SettingsCollectionName; collection: Collection | null; heading: "h3" | "h4" }) {
+/**
+ * One settings collection as last reported: each field its definition
+ * covers, in their order, then any other Decaid reports. Where the account
+ * may change one of its fields, an Edit button opens its inline form,
+ * disabled while the Machine is offline or its Tablet mismatched
+ * (`editBlocked`), and the section then shows its latest edit, pending and
+ * then what came of it, until another is saved.
+ */
+function SettingsSection({
+  name,
+  collection,
+  heading: Heading,
+  machine,
+  onReported,
+}: {
+  name: SettingsCollectionName;
+  collection: Collection | null;
+  heading: "h3" | "h4";
+  machine: Machine;
+  onReported(): Promise<void> | void;
+}) {
   const title = SETTINGS[name];
+  const offered = useOfferedFields(name, collection, machine);
+  const rows = collection ? settingRows(name, collection.value) : [];
+  const [editing, setEditing] = useState(false);
+  const [edit, setEdit] = useState<SettingsEdit>();
+  const blocked = editBlocked(machine);
   return (
     <section aria-label={title} className="grid content-start gap-2">
-      {/* When it was reported only on asking, but a report missing or unavailable in plain sight. */}
-      <SectionHeading heading={Heading} title={title} about={collection?.available && reportText(collection)} />
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        {/* When it was reported only on asking, but a report missing or unavailable in plain sight. */}
+        <SectionHeading heading={Heading} title={title} about={collection?.available && reportText(collection)} />
+        {offered.length > 0 && !editing && (
+          <Button
+            type="button"
+            variant="outline"
+            size="sm"
+            aria-label={`Edit ${title}`}
+            disabled={blocked !== null}
+            // The latest edit's status stays until another is saved, so one still pending is followed to its outcome.
+            onClick={() => setEditing(true)}
+          >
+            Edit
+          </Button>
+        )}
+      </div>
+      {offered.length > 0 && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
-      {collection && (
-        <Fields label={title}>
-          {settingRows(name, collection.value).map((row) => {
-            const lines = [row.about, ...row.notes].filter((line) => line !== undefined);
-            return (
-              <Field key={row.term} term={row.term}>
-                <span className="inline-flex items-center gap-1.5">
-                  {row.text}
-                  {lines.length > 0 && (
-                    <InfoTip label={`About ${row.term}`}>
-                      {lines.map((line) => (
-                        <p key={line}>{line}</p>
-                      ))}
-                    </InfoTip>
-                  )}
-                </span>
-              </Field>
-            );
-          })}
-        </Fields>
+      {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} onAnswered={onReported} />}
+      {editing && collection && isObject(collection.value) ? (
+        <SettingsForm
+          name={name}
+          machine={machine}
+          offered={offered}
+          reported={collection.value}
+          label={`Edit ${title}`}
+          notes={(field) => (field.notes ?? []).map((note) => NOTES[note])}
+          onCancel={() => setEditing(false)}
+          onSaved={(made) => {
+            setEditing(false);
+            setEdit(made);
+          }}
+        >
+          {/* The fields it does not offer keep their place, read-only. */}
+          <SettingRows label={`${title}, read-only`} rows={rows.filter((row) => !offered.some((field) => field.path === row.path))} />
+        </SettingsForm>
+      ) : (
+        collection && <SettingRows label={title} rows={rows} />
       )}
     </section>
+  );
+}
+
+/** Settings fields as a list of terms and values, with what sets a read-only one and a field's notes in a tooltip. */
+function SettingRows({ label, rows }: { label: string; rows: SettingRow[] }) {
+  return (
+    <Fields label={label}>
+      {rows.map((row) => {
+        const lines = [row.about, ...row.notes].filter((line) => line !== undefined);
+        return (
+          <Field key={row.term} term={row.term}>
+            <span className="inline-flex items-center gap-1.5">
+              {row.text}
+              {lines.length > 0 && (
+                <InfoTip label={`About ${row.term}`}>
+                  {lines.map((line) => (
+                    <p key={line}>{line}</p>
+                  ))}
+                </InfoTip>
+              )}
+            </span>
+          </Field>
+        );
+      })}
+    </Fields>
   );
 }
 
@@ -298,8 +373,9 @@ function settingEntries(value: unknown): [string, string][] {
     .map(([key, part]) => [key, settingText(part)]);
 }
 
-/** A field of a settings collection as shown: its term, its value written out, what sets it if read-only, and its notes. */
+/** A field of a settings collection as shown: its path, its term, its value written out, what sets it if read-only, and its notes. */
 interface SettingRow {
+  path: string;
   term: string;
   text: string;
   about?: string;
@@ -324,6 +400,7 @@ function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[]
   const known = SETTINGS_FIELDS[name]
     .filter((field) => field.path in reported)
     .map((field) => ({
+      path: field.path,
       term: field.label,
       text: fieldText(field, reported[field.path]),
       about: isEditable(field) ? undefined : field.setBy,
@@ -332,50 +409,8 @@ function settingRows(name: SettingsCollectionName, value: unknown): SettingRow[]
   const unknown = Object.keys(reported)
     .filter((path) => !settingsField(name, path))
     .sort((a, b) => a.localeCompare(b, "en"))
-    .map((path) => ({ term: path, text: valueText(reported[path]), about: "Not known to Decent Sync, so shown as Decaid names it, read-only", notes: [] }));
+    .map((path) => ({ path, term: path, text: valueText(reported[path]), about: "Not known to Decent Sync, so shown as Decaid names it, read-only", notes: [] }));
   return [...known, ...unknown];
-}
-
-/**
- * A field's value as its definition shows it: a choice by its label, a time
- * of day as hours and minutes, and a number with its unit. A value that is
- * none of these, such as a choice not offered, is shown as it is
- * (`valueText`).
- */
-function fieldText(field: SettingsField, value: unknown): string {
-  if (field.kind === "choice" && "choices" in field) {
-    const choice = field.choices?.find((offered) => offered.value === value);
-    if (choice) return choice.label;
-  }
-  if (field.kind === "timeOfDay" && typeof value === "number" && Number.isInteger(value) && value >= 0 && value < 24 * 60) {
-    return `${String(Math.floor(value / 60)).padStart(2, "0")}:${String(value % 60).padStart(2, "0")}`;
-  }
-  if (typeof value === "number" && field.unit) return `${valueText(value)} ${field.unit}`;
-  return valueText(value);
-}
-
-/**
- * A settings value written out: on or off, and a number to five decimal
- * places at most, parts of a list or object too. The machine keeps each
- * sensor's calibration in signed Q16.16, steps of 1/65536, so any two it can
- * hold still differ when shown, and Decaid sends 2.500000000000001 for a flow
- * multiplier of 2.5.
- */
-function valueText(value: unknown): string {
-  if (typeof value === "number") return String(Number(value.toFixed(5)));
-  if (typeof value === "boolean") return value ? "On" : "Off";
-  if (Array.isArray(value)) return value.length > 0 ? value.map(valueText).join(", ") : "None";
-  if (isObject(value)) {
-    if (Object.keys(value).length === 0) return "None";
-    return Object.entries(value)
-      .map(([key, part]) => `${key}: ${valueText(part)}`)
-      .join(", ");
-  }
-  return settingText(value);
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 function settingText(value: unknown): string {

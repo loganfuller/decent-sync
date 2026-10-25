@@ -25,6 +25,9 @@ import {
   MAX_RECORD_ID_LENGTH,
   RECIPE_SLOTS,
   RECIPE_SLOT_FIELD,
+  SETTINGS_EDITED_REFUSALS,
+  type SettingsEdit,
+  type SettingsEdited,
   DYE2_RECIPE_FIELD,
   dye2Fingerprint,
   dye2RecipeIdOf,
@@ -782,6 +785,50 @@ describe("Library writes", () => {
     expect(sameValue({ a: 1 }, { a: "1" })).toBe(false);
     expect(sameValue([], {})).toBe(false);
     expect(sameValue(0, null)).toBe(false);
+  });
+});
+
+describe("Settings Edits", () => {
+  const edit: SettingsEdit = {
+    type: "settingsEdit",
+    id: "0193a6f2-5c1e-7d3a-9b4f-1e2d3c4b5a69",
+    collection: "machineSettings",
+    fields: { fan: 40 },
+    expected: { fan: 50 },
+    timeLeftMs: 59_870,
+  };
+  const written: SettingsEdited = { type: "settingsEdited", id: edit.id, outcome: "written", values: { fan: 40 } };
+
+  it("reads an edit, accepting fields it does not know, and refuses one without an id, its fields, what they are expected to hold or the time it has left", () => {
+    expect(decodeServerMessage(frame(edit))).toEqual({ ok: true, message: edit });
+    expect(decodeServerMessage(frame({ ...edit, target: "flow" }))).toMatchObject({ ok: true });
+    expect(decodeServerMessage(frame({ ...edit, id: "edit-1" }))).toMatchObject({ ok: false, problem: "settingsEdit.id must be a UUID" });
+    expect(decodeServerMessage(frame({ ...edit, collection: "" }))).toMatchObject({ ok: false, problem: "settingsEdit.collection must not be empty" });
+    expect(decodeServerMessage(frame({ ...edit, fields: [40] }))).toMatchObject({ ok: false, problem: "settingsEdit.fields must be an object" });
+    expect(decodeServerMessage(frame({ ...edit, expected: undefined }))).toMatchObject({ ok: false, problem: "settingsEdit.expected must be an object" });
+    for (const timeLeftMs of [undefined, -1, 1.5]) expect(decodeServerMessage(frame({ ...edit, timeLeftMs })).ok).toBe(false);
+  });
+
+  it("reads its answer: written, with the values read back where they could be, or refused, with why", () => {
+    const refusals: SettingsEdited[] = [
+      { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "machineBusy", state: "espresso" },
+      { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "changedSince", values: { fan: 30 } },
+      { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "expired" },
+      { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "decaid", status: 500, message: "DeviceNotConnectedException: machine not connected" },
+      { type: "settingsEdited", id: edit.id, outcome: "refused", reason: "decaid", status: null, message: "Decaid did not answer", values: { fan: 50 } },
+    ];
+    expect(SETTINGS_EDITED_REFUSALS).toEqual(["machineBusy", "changedSince", "expired", "decaid"]);
+    for (const answer of [written, { ...written, values: undefined }, ...refusals]) {
+      expect(decodePluginMessage(frame(answer))).toEqual({ ok: true, message: JSON.parse(frame(answer)) });
+    }
+    expect(decodePluginMessage(frame({ ...written, outcome: "applied" }))).toMatchObject({ ok: false, problem: "settingsEdited.outcome must be one of written, refused" });
+    expect(decodePluginMessage(frame({ ...written, reason: "expired" }))).toMatchObject({ ok: false, problem: "settingsEdited.reason must be absent" });
+    expect(decodePluginMessage(frame({ ...written, values: [40] }))).toMatchObject({ ok: false, problem: "settingsEdited.values must be an object" });
+    expect(decodePluginMessage(frame({ ...refusals[0], reason: "busy" })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...refusals[0], state: "" })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...refusals[3], status: undefined })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...refusals[3], message: "a".repeat(MAX_REFUSAL_LENGTH + 1) })).ok).toBe(false);
+    expect(decodePluginMessage(frame({ ...written, id: "edit-1" }))).toMatchObject({ ok: false, problem: "settingsEdited.id must be a UUID" });
   });
 });
 

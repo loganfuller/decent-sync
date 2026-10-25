@@ -1377,6 +1377,100 @@ export interface ItemLeftOut {
   error?: string;
 }
 
+/**
+ * How long a Settings Edit has to be answered from when it was made, by
+ * PostgreSQL's clock (ADR-0023): the time it has left (`timeLeftMs`) counts
+ * down from this.
+ */
+export const SETTINGS_EDIT_MS = 60_000;
+
+/**
+ * Asks the plugin to carry out a Settings Edit made in the management
+ * interface (ADR-0023): one write of a settings collection's fields through
+ * Decaid's API, made only while its Machine is online and sent only on the
+ * connection that held the Machine as it was made. The plugin carries out
+ * Settings Edits one at a time, in the order they arrive, in a queue of
+ * their own beside its reads of the settings collections, apart from the
+ * Library's writes. For each, it reads the machine's state, and goes ahead
+ * only while the machine is idle (SETTINGS_EDIT_STATES); reads the
+ * collection, and goes ahead only while each field still holds its
+ * `expected` value; checks the fields against their definitions again
+ * (`validateSettingsEdit`), writing none without one; writes only the
+ * edit's fields; and then, whether Decaid took the write or not, reads the
+ * collection again and sends it as a `collection` delivery before its
+ * answer, `settingsEdited`.
+ */
+export interface SettingsEdit {
+  type: "settingsEdit";
+  /** The edit's id, a UUID, which its answer repeats. */
+  id: string;
+  /** The settings collection it changes, one of EDITABLE_SETTINGS_COLLECTIONS. A plugin answers one it does not write as refused by `decaid`, with a null status. */
+  collection: string;
+  /** Each field it sets, by its path in the collection, with its new value. */
+  fields: Record<string, unknown>;
+  /**
+   * The value each of `fields` held in the report the edit was made over, as
+   * the plugin sent it: the plugin writes only while the tablet still holds
+   * each, compared as `sameValue` does.
+   */
+  expected: Record<string, unknown>;
+  /** How long it has left, in ms, of SETTINGS_EDIT_MS since it was made, as the server sent it. */
+  timeLeftMs: number;
+}
+
+/**
+ * The machine states Decaid names (`MachineState` in
+ * decaid:lib/src/models/device/machine.dart) in which the plugin carries out
+ * a Settings Edit: the machine is running nothing. In any other, such as a
+ * Shot, steam, hot water, a flush or a cleaning cycle, it refuses the edit
+ * as `machineBusy`.
+ */
+export const SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWater"] as const;
+
+/**
+ * Why the plugin did not carry out a Settings Edit, or Decaid refused it:
+ *
+ * - `machineBusy`: the machine was running something, named by its state;
+ * - `changedSince`: a field it sets no longer held its expected value, as
+ *   one changed on the tablet since the report the edit was made over;
+ * - `expired`: the plugin got it too late to write it in time;
+ * - `decaid`: Decaid refused a read or the write, or did not answer, or was
+ *   not asked, as for a collection or field this plugin does not write.
+ */
+export const SETTINGS_EDITED_REFUSALS = ["machineBusy", "changedSince", "expired", "decaid"] as const;
+
+export type SettingsEditedRefusal = (typeof SETTINGS_EDITED_REFUSALS)[number];
+
+/**
+ * The plugin's answer to a `settingsEdit`, sent through its outbox behind
+ * the report of the collection read after the write, so the server takes in
+ * the read-back before the answer. Acknowledged with `ack` once recorded, by
+ * whichever server instance it reaches, on this connection or a later one.
+ */
+export interface SettingsEdited {
+  type: "settingsEdited";
+  /** The edit's id. */
+  id: string;
+  /** `written`: Decaid took the write; `refused`: the plugin did not ask it to, or Decaid refused (`reason`). */
+  outcome: "written" | "refused";
+  /** Why it was refused; absent once written. */
+  reason?: SettingsEditedRefusal;
+  /** For `machineBusy`: the machine's state, as Decaid names it. */
+  state?: string;
+  /**
+   * The edit's fields as the plugin read them: once written, or refused by
+   * Decaid, as read back after the write, which shows any field Decaid
+   * applied before refusing, as its settings writes are not atomic; for
+   * `changedSince`, as the tablet holds them now. Absent where that read
+   * failed, or nothing was read. A field the read did not hold is absent.
+   */
+  values?: Record<string, unknown>;
+  /** For `decaid`: Decaid's HTTP status, or null if Decaid did not answer or was not asked. */
+  status?: number | null;
+  /** For `decaid`: what Decaid answered (its `error` or `message`), or why it did not answer or was not asked, cut to MAX_REFUSAL_LENGTH. */
+  message?: string;
+}
+
 /** The most of Decaid's answer a `writeRefused` repeats, in UTF-16 code units. */
 export const MAX_REFUSAL_LENGTH = 1000;
 
@@ -1418,7 +1512,8 @@ export type PluginMessage =
   | ItemRemoved
   | ItemLeftOut
   | ListUnrecognised
-  | WriteRefused;
+  | WriteRefused
+  | SettingsEdited;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
   | Welcome
@@ -1433,7 +1528,8 @@ export type ServerMessage =
   | LibraryWrite
   | LibraryDelete
   | LibraryRemove
-  | LeaveOut;
+  | LeaveOut
+  | SettingsEdit;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -1650,6 +1746,19 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         if (object.status !== null) fields.integer("status", { nonNegative: true });
         fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
       });
+    case "settingsEdited":
+      return check<SettingsEdited>(object, "settingsEdited", (fields) => {
+        fields.uuid("id");
+        fields.oneOf("outcome", ["written", "refused"]);
+        if (object.outcome === "refused") fields.oneOf("reason", SETTINGS_EDITED_REFUSALS);
+        else fields.absent("reason");
+        if (object.reason === "machineBusy") fields.string("state", { nonEmpty: true, maxLength: MAX_HARDWARE_LENGTH });
+        if (object.reason === "decaid") {
+          if (object.status !== null) fields.integer("status", { nonNegative: true });
+          fields.string("message", { maxLength: MAX_REFUSAL_LENGTH });
+        }
+        if (object.values !== undefined) fields.objectField("values");
+      });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
     default:
@@ -1744,6 +1853,14 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
         fields.id();
         fields.string("kind", { nonEmpty: true });
         fields.string("localId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+      });
+    case "settingsEdit":
+      return check<SettingsEdit>(object, "settingsEdit", (fields) => {
+        fields.uuid("id");
+        fields.string("collection", { nonEmpty: true });
+        fields.objectField("fields");
+        fields.objectField("expected");
+        fields.integer("timeLeftMs", { nonNegative: true });
       });
     default:
       return invalid("Unknown message type");

@@ -4,6 +4,7 @@ import {
   LIBRARY_ITEM_KINDS,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
+  SETTINGS_COLLECTION_NAMES,
   dye2Key,
   isDye2List,
   isLibraryList,
@@ -15,6 +16,7 @@ import { readCollection } from "./decaid.js";
 import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
+import type { SettingsAccess } from "./settings-edits.js";
 
 type Source = {
   name: CollectionName;
@@ -63,6 +65,13 @@ const RECIPES = SOURCES.find((source) => source.name === "dye2Recipes")!;
 const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 
 /**
+ * The settings collections, read only between Settings Edits
+ * (`SettingsAccess`): a report of one either holds each edit that began
+ * before it, or is queued before that edit's read-back and answer.
+ */
+const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES);
+
+/**
  * The machine's own settings, which Decaid v0.9.0 answers on each request by
  * reading the machine's values one at a time over its Bluetooth or USB
  * connection, 14 reads for the three, on the link the scale also uses
@@ -98,7 +107,9 @@ const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration
  *
  * A Library list the server writes to is read, and its report queued,
  * between the server's writes to the tablet (`LibraryAccess`), so a report
- * holds each write that began before it. And whenever a list was sent, the
+ * holds each write that began before it, and a settings collection between
+ * Settings Edits (`SettingsAccess`), which report what they read
+ * (`reportSettings`). And whenever a list was sent, the
  * lists of the kinds made under it (`childLists`) are sent in full after it,
  * changed or not: whenever the beans were, the bean batches are, as the
  * server takes in a batch only once it knows its bean, which may have been
@@ -126,6 +137,7 @@ export class CollectionCapture {
   constructor(
     private readonly outbox: Outbox,
     private readonly library: LibraryAccess,
+    private readonly settings: SettingsAccess,
     private readonly pollMs: number,
     /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
     private readonly sawRecipes: (value: unknown) => void = () => {},
@@ -246,7 +258,9 @@ export class CollectionCapture {
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
-            : this.capture(source, full));
+            : SETTINGS.has(source.name)
+              ? this.settings.run(() => this.capture(source, full))
+              : this.capture(source, full));
           if (sent) sentLists.add(source.name);
           // Their interval runs from the end of their latest read, so a slow read of one shortens neither's.
           if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
@@ -255,6 +269,22 @@ export class CollectionCapture {
     } finally {
       this.reading = false;
     }
+  }
+
+  /**
+   * Queues a report of a settings collection a Settings Edit read, within
+   * `SettingsAccess.run`: if it changed since the last one queued, or, when
+   * `always`, whatever it holds, as an edit's read-back is. The edit's answer
+   * follows it, so it is kept where it is: a later report of the collection
+   * is queued after it rather than superseding it, which would put the answer
+   * ahead of the read-back it reports. A read of the machine's own settings
+   * counts for their interval.
+   */
+  reportSettings(name: CollectionName, reading: Reading, always: boolean): void {
+    if (this.stopped) return;
+    this.queueReading(name, reading, always);
+    this.queued.delete(name);
+    if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
   }
 
   /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
@@ -267,24 +297,30 @@ export class CollectionCapture {
     );
     if (this.stopped) return false;
     if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
+    return this.queueReading(source.name, reading, full);
+  }
+
+  /** Queues a collection read if it is to be sent: if it changed since the last one queued, or whatever it holds when `full`. Says whether a value was queued. */
+  private queueReading(name: CollectionName, reading: Reading, full: boolean): boolean {
+    const last = this.last.get(name);
     const decision = decide(last, reading, full);
-    if (decision.next) this.last.set(source.name, decision.next);
+    if (decision.next) this.last.set(name, decision.next);
     if (!decision.send || reading.kind === "notModified") return false;
 
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
       reading.kind === "value"
-        ? { type: "collection", id, name: source.name, available: true, value: reading.value, ...this.placedInTime(source.name, reading.value) }
-        : { type: "collection", id, name: source.name, available: false };
+        ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value) }
+        : { type: "collection", id, name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
     // reconnect, except that a value stays ahead of a report that the collection became unavailable:
     // the server keeps the value it gets, and otherwise would never get this one.
-    const earlier = this.queued.get(source.name);
+    const earlier = this.queued.get(name);
     if (earlier) {
       if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
       if (delivery.available && earlier.value !== undefined && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
     }
-    this.queued.set(source.name, { latest: id, value: delivery.available ? id : earlier?.value });
+    this.queued.set(name, { latest: id, value: delivery.available ? id : earlier?.value });
     this.outbox.enqueue(delivery);
     return delivery.available;
   }

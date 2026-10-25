@@ -31,6 +31,8 @@ import {
   type ReassemblyLimits,
   SYNC_PATH,
   type ServerMessage,
+  type SettingsEdit,
+  type SettingsEdited,
   type ShotDelivery,
   type SteamDelivery,
   type WriteRefused,
@@ -62,6 +64,7 @@ import { Notifications } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
+import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
@@ -114,6 +117,8 @@ interface Session {
   writer?: TabletWriter;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
+  /** Claims of its Settings Edits, made one at a time, so they are sent in the order they were made. */
+  settingsEdits: Promise<void>;
   /**
    * Chunked messages still arriving. They belong to this connection alone: a
    * plugin that reconnects sends a message again from its first chunk.
@@ -166,6 +171,11 @@ interface Session {
  * change to the Library is notified too, and every instance then has its
  * connections' writers look for writes due.
  *
+ * A Settings Edit made through any instance is notified to every instance,
+ * and sent by the one holding the connection it was made for, once welcomed
+ * (`SettingsEditsService`); its answer is recorded by whichever instance it
+ * reaches.
+ *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
  * accepted or closes. Connections that hold a Machine are not counted. The
@@ -197,6 +207,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly machineEvents: MachineEventsService,
     private readonly collections: CollectionsService,
     private readonly setAside: SetAsideDeliveriesService,
+    private readonly settingsEdits: SettingsEditsService,
     private readonly prisma: PrismaService,
     notifications: Notifications,
   ) {
@@ -210,6 +221,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // After listening anew, every writer looks, through the Library changes listener.
     notifications.subscribe("machine_locations", (machineId) => {
       for (const session of this.connections) if (machineId !== null && session.machine?.id === machineId) session.writer?.wake();
+    });
+    // After listening anew, every connection looks for edits made meanwhile.
+    notifications.subscribe("settings_edits", (machineId) => {
+      for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSettingsEdits(session);
     });
   }
 
@@ -276,6 +291,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       socket,
       remote: clientAddress(request, this.config.clientAddressHeader),
       queue: Promise.resolve(),
+      settingsEdits: Promise.resolve(),
       chunks: new Reassembly(),
       handled: new HandledDeliveries(),
       welcomed: false,
@@ -415,6 +431,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.leftOut(session, message);
       case "listUnrecognised":
         return this.listUnrecognised(session, message);
+      case "settingsEdited":
+        return this.settingsEdited(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
         return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
@@ -683,8 +701,47 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     return true;
   }
 
-  /** Sends a write, delete, removal or leave-out on the connection, in chunks if it is too large for one frame. */
-  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut): void {
+  /**
+   * Sends the Settings Edits made for the connection that it has not sent,
+   * once welcomed, claiming them while it still holds its Machine. Claims
+   * run one at a time, so edits go in the order they were made.
+   */
+  private sendSettingsEdits(session: Session): void {
+    const live = session.live;
+    if (!live || !session.welcomed || session.closing) return;
+    session.settingsEdits = this.track(
+      session.settingsEdits.then(async () => {
+        if (session.closing) return;
+        try {
+          for (const edit of await this.settingsEdits.claim(live)) this.sendWrite(session, edit);
+        } catch (error) {
+          this.logger.error(`Could not send the Settings Edits of ${this.describe(session)}: ${String(error)}`);
+        }
+      }),
+    );
+  }
+
+  /**
+   * Records the plugin's answer to a Settings Edit of its Machine, whichever
+   * connection it was sent on, then acknowledges it. An answer to no edit of
+   * the Machine, or to one already answered, is acknowledged and changes
+   * nothing. One that fails to store in a way that would repeat is logged
+   * and acknowledged, so it cannot hold up the deliveries behind it.
+   */
+  private async settingsEdited(session: Session, answer: SettingsEdited): Promise<void> {
+    try {
+      const outcome = await this.settingsEdits.recordAnswer(session.machine!.id, answer);
+      if (outcome === "refused") this.logger.log(`The tablet of ${this.describe(session)} refused Settings Edit ${answer.id}: ${describeSettingsRefusal(answer)}`);
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      this.logger.warn(`Could not record the answer to Settings Edit ${answer.id} from ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+    }
+    this.acknowledge(session, answer.id, null);
+  }
+
+  /** Sends a write, delete, removal, leave-out or Settings Edit on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit): void {
     if (session.closing) return;
     for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
   }
@@ -752,6 +809,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         },
       );
     }
+    // An edit made while this hello was being accepted was notified before the session could be found.
+    this.sendSettingsEdits(session);
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
     );
@@ -872,6 +931,20 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   private describe(session: Session): string {
     return session.machine ? `Machine ${session.machine.name} (${session.remote})` : session.remote;
+  }
+}
+
+/** Why the plugin refused a Settings Edit, as a log line shows it: what Decaid answered is escaped. */
+function describeSettingsRefusal(answer: SettingsEdited): string {
+  switch (answer.reason) {
+    case "machineBusy":
+      return `the machine was ${quoted(answer.state ?? "")}`;
+    case "changedSince":
+      return "a setting changed on the tablet since the report it was made over";
+    case "decaid":
+      return `${answer.status === null || answer.status === undefined ? "Decaid did not answer or was not asked" : `Decaid answered ${answer.status}`}, ${quoted((answer.message ?? "").slice(0, 200))}`;
+    default:
+      return "it came too late";
   }
 }
 

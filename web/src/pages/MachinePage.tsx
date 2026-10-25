@@ -317,7 +317,7 @@ function MachineDetails({ id }: { id: string }) {
             <>
               <MachineWorkflow current={data.workflow} />
               <PairedDevicesCard devices={data.pairedDevices} />
-              <SettingsCard settings={data.settings} workflow={data.workflow} />
+              <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={reloadReports} />
               <LibraryCard collections={data.collections} />
             </>
           )}
