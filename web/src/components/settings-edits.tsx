@@ -258,7 +258,8 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
   const [edit, setEdit] = useState(made);
   const [error, setError] = useState<string>();
   const outcome = edit.outcome;
-  const awaiting = outcome === null || outcome === "notConfirmed";
+  // A late answer may still replace a mark of not confirmed, unless the edit was answered, as refused too late.
+  const awaiting = outcome === null || (outcome === "notConfirmed" && edit.answeredAt === null);
   // The edit is read until answered, whatever the page reloads meanwhile.
   const answered = useRef(onAnswered);
   answered.current = onAnswered;
@@ -311,7 +312,7 @@ export function SettingsEditStatus({ machineId, edit: made, onAnswered }: { mach
         <AlertTitle className="flex items-center gap-1.5">
           Not confirmed
           <InfoTip label="About Not confirmed">
-            The Machine didn't answer within a minute, or its connection closed first. Its Tablet never starts the write after that, but
+            The Machine didn't answer within a minute, or its connection closed first. Its Tablet doesn't start the write after that, but
             one already under way may still finish: an answer arriving later is shown here.
           </InfoTip>
         </AlertTitle>

@@ -56,8 +56,10 @@ export type SettingsReport = (name: EditableSettingsCollection, reading: Reading
  * through the outbox. An edit is never queued for later (ADR-0023): one
  * whose connection has closed, or that would start its write with less than
  * SETTINGS_EDIT_WRITE_MARGIN_MS of the time it had left as it arrived, is
- * refused as `expired`, so a write is never started after the server has
- * marked the edit not confirmed. One still waiting its turn as the plugin
+ * refused as `expired`, so a write is never started after the 60 s, nor once
+ * the plugin has heard its connection closed; one started as the server
+ * replaces the connection, before the plugin hears of it, is answered late.
+ * One still waiting its turn as the plugin
  * unloads is dropped, unanswered. For each it reads the machine's state,
  * going ahead only while the machine runs nothing (SETTINGS_EDIT_STATES);
  * reads the collection, going ahead only while every field the edit sets

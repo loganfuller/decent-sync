@@ -66,7 +66,7 @@ describe("Settings Edits within 60 s", () => {
   const read = async (machine: CreatedMachine, id: string, as = api) => (await as.get<{ settingsEdit: SettingsEditView }>(`${path(machine)}/${id}`)).settingsEdit;
   /** Resolves with the edit once the plugin's answer to it has been recorded, whatever came of it. */
   async function answered(machine: CreatedMachine, id: string, as = api): Promise<SettingsEditView> {
-    await expect.poll(async () => (await read(machine, id, as)).answeredAt, { timeout: 15_000 }).not.toBeNull();
+    await expect.poll(async () => (await read(machine, id, as)).answeredAt).not.toBeNull();
     return read(machine, id, as);
   }
   const outcomeOf = async (machine: CreatedMachine, id: string) => (await read(machine, id)).outcome;
@@ -113,10 +113,11 @@ describe("Settings Edits within 60 s", () => {
     expect(refused.status, await refused.text()).toBe(409);
     // Unheard, its connection may yet be alive behind a slow database: the edit stays pending until its 60 s are up.
     expect(await read(machine, made.id)).toMatchObject({ outcome: null });
-    await running;
-    await expect.poll(() => outcomeOf(machine, made.id), { timeout: 20_000 }).toBe("notConfirmed");
-    expect(settingsWrites(tablet)).toEqual([]);
+    // Decaid answers the edit's read before its fetch times out: its connection gone, the plugin writes nothing.
     state.release();
+    await running;
+    await expect.poll(() => outcomeOf(machine, made.id)).toBe("notConfirmed");
+    expect(settingsWrites(tablet)).toEqual([]);
   }
 
   async function slowAndTight(slow: CreatedMachine, slowTablet: SimulatedTablet, tight: CreatedMachine, tightTablet: SimulatedTablet): Promise<void> {
@@ -153,8 +154,9 @@ describe("Settings Edits within 60 s", () => {
     expect(settingsWrites(tightTablet)).toEqual([]);
 
     // 60 s after they were made, neither of the first tablet's edits is answered.
-    await expect.poll(() => outcomeOf(slow, first.id), { timeout: 20_000 }).toBe("notConfirmed");
-    await expect.poll(() => outcomeOf(slow, second.id), { timeout: 5_000 }).toBe("notConfirmed");
+    await after(second.madeAt, 60_000);
+    await expect.poll(() => outcomeOf(slow, first.id)).toBe("notConfirmed");
+    await expect.poll(() => outcomeOf(slow, second.id)).toBe("notConfirmed");
     expect(await read(slow, second.id)).toMatchObject({ answeredAt: null, late: false, refusal: null });
     expect(Date.now() - Date.parse(first.madeAt)).toBeGreaterThanOrEqual(59_000);
 

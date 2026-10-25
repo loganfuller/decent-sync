@@ -167,15 +167,15 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   answer. An edit is never queued for later: the plugin counts down its
   `timeLeftMs` from when it arrives, both by a host timer, which a correction
   of the tablet's clock does not move, and by that clock, which counts time
-  the tablet spent asleep, and refuses it as
-  `expired` once the connection that sent it has closed, or where it would
-  start the write with less than `SETTINGS_EDIT_WRITE_MARGIN_MS` (15 s) left,
-  judged as the edit's turn comes and again just before the write. So a write
-  it starts has time to finish within the 60 s, and none is started once the
-  server has marked the edit not confirmed. A write started in time can still
-  finish later, as Decaid writes fields one at a time. It keeps no edit across
-  an unload: one waiting its turn, or under way, as the plugin unloads is
-  dropped unanswered, and no write is started after it. For each edit the
+  the tablet spent asleep, and refuses it as `expired` once the connection
+  that sent it has closed, or where it would start the write with less than
+  `SETTINGS_EDIT_WRITE_MARGIN_MS` (15 s) left, judged as the edit's turn comes
+  and again just before the write. So a write it starts has time to finish
+  within the 60 s, and none is started after the 60 s, nor once the plugin
+  knows its connection closed. A write started in time can still finish later,
+  as Decaid writes fields one at a time. It keeps no edit across an unload:
+  one waiting its turn, or under way, as the plugin unloads is dropped
+  unanswered, and no write is started after it. For each edit the
   plugin:
   1. checks the fields against their definitions again, writing none without
      one;
@@ -203,12 +203,15 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS` so far.
   Machine: it closed and was released, or a newer connection replaced it, as
   in a reconnect or a Tablet swap. Every instance judges it the same way from
   the database, by PostgreSQL's clock, whenever the edit is read; nothing
-  marks it, and it never turns back. A connection gone unheard, as when its
-  instance crashed, counts only once the 60 s are up, as a plugin whose
-  heartbeats the database is merely slow to record could still start the
-  write. A plugin hears that its connection closed only after the server
-  releases or replaces it, so a write it starts in that moment is answered
-  late.
+  marks it. A connection gone unheard, as when its instance crashed, counts
+  only once the 60 s are up, as a plugin whose heartbeats the database is
+  merely slow to record could still start the write. Two gaps are accepted.
+  Where the server replaces a connection, or releases it as its instance
+  shuts down, the plugin hears of it only afterwards, at most at its next
+  heartbeat, so a write it starts meanwhile is answered late and replaces the
+  mark. And an answer recorded just as the 60 s run out, whose commit lands
+  after them, can show the edit not confirmed for that moment and then on
+  time.
 - **Answered.** Whichever instance the answer reaches, on the connection it
   was sent on or a later one, records it for the edit of that Machine still
   unanswered, by PostgreSQL's clock, and acknowledges it. An answer arriving
