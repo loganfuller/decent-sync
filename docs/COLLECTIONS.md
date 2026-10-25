@@ -198,10 +198,11 @@ multiplier), all an Admin's: the collections in
      holds its expected value (`sameValue`);
   4. writes only the edit's fields through the collection's route: `POST
      /machine/settings`, `/machine/settings/advanced` or
-     `/machine/calibration`. Decaid writes each field to the machine's
-     registers in turn, scaled and truncated (`_writeMMRScaled`), so a flow
-     multiplier of 1.001 is stored as 1.000 and reads as `adjusted`, and a
-     refusal part-way leaves the fields before it written;
+     `/machine/calibration`. Decaid writes each field to the machine in
+     turn, so a refusal part-way leaves the fields before it written. A
+     scaled register's value is truncated (`_writeMMRScaled`), so a flow
+     multiplier of 1.001 is stored as 1.000 and reads as `adjusted`; the
+     heater voltage and refill kit read back as Decaid holds them (below);
   5. whether Decaid took the write or not, reads the collection again and
      queues it as a `collection` delivery, then queues its answer,
      `settingsEdited`, behind it: `written` with the values read back, or

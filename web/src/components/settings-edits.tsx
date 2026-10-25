@@ -97,6 +97,11 @@ function toStep(value: number, step: number): number {
   return Math.abs(rounded - value) < 1e-9 ? rounded : value;
 }
 
+/** Whether a choice's input holds one of its choices. */
+function offers(field: EditableSettingsField, input: string | boolean): boolean {
+  return field.choices?.some((choice) => String(choice.value) === input) ?? false;
+}
+
 /** The value an input holds, as the edit sends it: NaN for a number that isn't one, which validation refuses. */
 function valueOf(field: EditableSettingsField, input: string | boolean): unknown {
   if (field.kind === "onOff") return input === true;
@@ -152,7 +157,9 @@ export function SettingsForm({
       // An input left as it opened is no change, whatever the value it holds, such as a choice not offered.
       if (inputs[field.path] === inputOf(field, baseline[field.path])) continue;
       const value = valueOf(field, inputs[field.path]!);
-      if (sameValue(value, baseline[field.path])) continue;
+      const reported = baseline[field.path];
+      // A number retyped as reported, such as 2.30 for a heater flow read back as 2.3000000000000003, is no change either.
+      if (sameValue(value, field.kind === "number" && field.step !== undefined && typeof reported === "number" ? toStep(reported, field.step) : reported)) continue;
       fields[field.path] = value;
       expected[field.path] = baseline[field.path] ?? null;
     }
@@ -229,9 +236,10 @@ function SettingInput({
     <Field>
       <FieldLabel htmlFor={id}>{label}</FieldLabel>
       {field.kind === "choice" ? (
-        <Select value={String(input)} onValueChange={onChange}>
+        // A reported value none of the choices holds, such as a heater voltage of -1, is shown as it is until one is chosen.
+        <Select value={offers(field, input) ? String(input) : ""} onValueChange={onChange}>
           <SelectTrigger id={id} className="w-full">
-            <SelectValue />
+            <SelectValue placeholder={String(input)} />
           </SelectTrigger>
           <SelectContent>
             {field.choices?.map((choice) => (

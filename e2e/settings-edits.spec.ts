@@ -302,6 +302,20 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await warmup.fill("2.4");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(status).toHaveText("AppliedHeater warmup flow: 2.4 ml/s.");
+  // Read back as 2.4000000000000004 and retyped as 2.40, it is no change, and nothing is sent.
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  await warmup.fill("2.40");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form).toHaveCount(0);
+  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings/advanced")).toHaveLength(2);
+
+  // A barista sets a voltage Decaid holds as unset (-1), which the form shows as it is rather than as no choice.
+  baseExpect((await tablet.callApi("POST", "/machine/settings/advanced", { heaterVoltage: 300 })).status).toBe(202);
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/advancedSettings`)).json()) as { collection: { value: { heaterVoltage: number } } }).collection.value.heaterVoltage).toBe(-1);
+  await page.reload();
+  await advanced.getByRole("button", { name: "Edit Advanced" }).click();
+  await expect(form.getByRole("combobox", { name: "Heater voltage" })).toHaveText("-1");
+  await form.getByRole("button", { name: "Cancel" }).click();
 
   // Decaid truncates 1.001 to the thousandth below, so the Machine holds 1.
   const calibration = page.getByRole("region", { name: "Flow calibration", exact: true });
