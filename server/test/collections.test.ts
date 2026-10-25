@@ -19,7 +19,9 @@ import {
   simulatedDevices,
   simulatedDevicesSwitchedOff,
   simulatedLibrary,
+  skinsAt,
 } from "./support/simulated-tablet.js";
+import { SimulatedDye2, dye2Migrated } from "./support/simulated-dye2.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
@@ -117,6 +119,11 @@ describe("Library, settings and paired devices", () => {
   const sensorCalibrationIn = (served: DecaidApi) =>
     Object.fromEntries(["flow", "pressure", "temperature"].map((target) => [target, served[`/machine/calibration/${target}`]]));
 
+  /** The Skins Decaid answers from `served`, as the plugin reports them. */
+  const skinsIn = (served: DecaidApi) => ({ skins: served["/webui/skins"], default: served["/webui/skins/default"], server: served["/webui/server/status"] });
+  const tabletVersions = async (machine: CreatedMachine) =>
+    (await api.get<{ tabletVersions: unknown }>(`/machines/${machine.machine.id}/tablet-versions`)).tabletVersions;
+
   async function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
     return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
   }
@@ -129,13 +136,14 @@ describe("Library, settings and paired devices", () => {
 
   it("requires a Machine, and knows only the collections tablets report", async () => {
     const machine = await api.createMachine("Nothing reported");
-    for (const path of ["/collections", "/collections/beans", "/paired-devices"]) {
+    for (const path of ["/collections", "/collections/beans", "/paired-devices", "/tablet-versions"]) {
       for (const id of [randomUUID(), "not-a-machine"]) expect((await api.call("GET", `/machines/${id}${path}`)).status).toBe(404);
     }
     expect((await api.call("GET", `/machines/${machine.machine.id}/collections/recipes`)).status).toBe(404);
     expect(await summaries(machine)).toEqual([]);
     for (const name of COLLECTION_NAMES) expect(await collection(machine, name)).toBeNull();
     expect(await pairedDevices(machine)).toEqual({ reportedAt: null, available: null, receivedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] });
+    expect(await tabletVersions(machine)).toEqual({ dye2: { status: "notReported" }, streamline: { status: "notReported" } });
   });
 
   it("stores every collection on connect as Decaid sent it, archived records, hidden profiles and unavailable ones included", async () => {
@@ -161,6 +169,9 @@ describe("Library, settings and paired devices", () => {
       advancedSettings: value("/machine/settings/advanced"),
       machineCalibration: value("/machine/calibration"),
       sensorCalibration: { available: true, value: sensorCalibrationIn(served) },
+      // Decaid lists the plugin itself, loaded; this tablet has no DYE2.
+      plugins: { available: true, value: [expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true, source: null })] },
+      skins: { available: true, value: skinsIn(served) },
       pairedDevices: { available: true, value: paired(served["/devices"]) },
       scaleInfo: value("/scale/info"),
       sensors: value("/sensors"),
@@ -219,6 +230,56 @@ describe("Library, settings and paired devices", () => {
     expect(resent.find((frame) => frame.name === "dye2Equipment")).toMatchObject({ available: true, value: [] });
     await allAcknowledged(tablet);
     expect((await collections(machine)).beans).toEqual({ available: true, value: served["/beans"] });
+  });
+
+  it("reports the plugin list and the Skins, each change at the next poll, and shows the tablet's DYE2 and Streamline", async () => {
+    const machine = await api.createMachine("Plugins and Skins");
+    const dye2 = new SimulatedDye2();
+    const served: DecaidApi = { ...derivedDe1Pro({ serial: "30006" }), ...dye2Migrated() };
+    const tablet = load(machine, { api: served, dye2 });
+    await expect.poll(() => allReported(machine)).toBe(true);
+    // As Decaid sent them: DYE2's entry beside the plugin's own, and the three Skins routes' answers.
+    const plugins = async () => (await collection(machine, "plugins"))!.value as Record<string, unknown>[];
+    expect(await plugins()).toEqual([dye2.listing(), expect.objectContaining({ id: "decent-sync.reaplugin", loaded: true })]);
+    expect((await collection(machine, "skins"))!.value).toEqual(skinsIn(served));
+    // The test tablet's: DYE2's release, and Streamline's release served, though its build of main is the default.
+    expect(await tabletVersions(machine)).toEqual({
+      dye2: { status: "installed", version: "0.1.26", loaded: true, branch: null },
+      streamline: { status: "active", version: "0.2.18", build: "release" },
+    });
+    await allAcknowledged(tablet);
+    await polls(tablet, 3);
+    const initial = sentCounts(tablet);
+    expect(initial).toMatchObject({ plugins: 1, skins: 1 });
+
+    // DYE2 disabled, then installed from its dist branch, which builds main.
+    dye2.disable();
+    await expect.poll(async () => ((await tabletVersions(machine)) as { dye2: unknown }).dye2).toEqual({
+      status: "installed",
+      version: "0.1.26",
+      loaded: false,
+      branch: null,
+    });
+    await dye2.install("branch");
+    await expect.poll(async () => ((await tabletVersions(machine)) as { dye2: unknown }).dye2).toEqual({
+      status: "installed",
+      version: "0.1.26",
+      loaded: true,
+      branch: "dist",
+    });
+    expect((await plugins())[0]).toEqual(dye2.listing());
+
+    // Decaid serves another Skin, as Quick Settings can, without changing the default.
+    const switched = { ...served, ...skinsAt("servedOther") };
+    tablet.serve(switched);
+    await expect.poll(async () => ((await tabletVersions(machine)) as { streamline: unknown }).streamline).toEqual({
+      status: "notActive",
+      activeSkin: { name: "Passione", version: "0.9.6" },
+    });
+    expect((await collection(machine, "skins"))!.value).toEqual(skinsIn(switched));
+    // Each change was sent once, and nothing unchanged again.
+    await polls(tablet, 3);
+    expect(sentCounts(tablet)).toEqual({ ...initial, plugins: 3, skins: 2 });
   });
 
   it("reports a read that fails or has nothing to report as unavailable, keeping the value known", async () => {

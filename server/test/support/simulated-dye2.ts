@@ -4,7 +4,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
-import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "./simulated-tablet.js";
+import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
 // DYE2 v0.1.26 and Streamline `main` at cec5664 on a simulated tablet, built
 // from their source at those builds (dye2:dye2-plugin/src/,
@@ -761,10 +761,20 @@ function healRecipes(rows: Record_[]): Record_[] {
   return dye2DedupeRecipeSlots(dropSuggestedRecipes(dye2MigrateRecipeSlots(rows)));
 }
 
-/** DYE2's entry in `GET /plugins` as recorded once v0.1.26 was installed (plugins.json), its `loaded` and `autoLoad` set by `listing()`. */
-function recordedDye2Listing(): Record_ {
-  return dye2Recording<{ listed: Record_[] }>("plugins").listed[0]!;
+/**
+ * DYE2's entry in `GET /plugins` as recorded once v0.1.26 was installed from
+ * its release (plugins.json), or from its `dist` branch, which builds `main`
+ * (plugins-and-skins-v0.9.0/, `dye2Branch`), its `loaded` and `autoLoad` set
+ * by `listing()`.
+ */
+function recordedDye2Listing(source: Dye2Source): Record_ {
+  if (source === "release") return dye2Recording<{ listed: Record_[] }>("plugins").listed[0]!;
+  const listed = pluginsAndSkinsAt("dye2Branch")["/plugins"]!.body as Record_[];
+  return listed.find((plugin) => plugin.id === DYE2_NAMESPACE)!;
 }
+
+/** Where DYE2 was installed from: its release, or a branch. */
+export type Dye2Source = "release" | "branch";
 
 /** A turn of the event loop later, as Decaid answers a storage command. */
 const nextTurn = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -789,6 +799,7 @@ export class SimulatedDye2 {
   readonly cleared: { id: string; cold: boolean }[] = [];
   private tablet: SimulatedTablet | undefined;
   private installed: boolean;
+  private source: Dye2Source;
   private loadedNow: boolean;
   private autoLoad: boolean;
   /** Each load of DYE2 is a generation, as Decaid's; work begun under one is dropped by the next. */
@@ -805,8 +816,9 @@ export class SimulatedDye2 {
   private readonly refused = new Map<Dye2Endpoint, number>();
   private readonly held = new Map<Dye2Endpoint, Promise<void>>();
 
-  constructor({ state = "loaded" }: { state?: Dye2State } = {}) {
+  constructor({ state = "loaded", source = "release" }: { state?: Dye2State; source?: Dye2Source } = {}) {
     this.installed = state !== "absent";
+    this.source = source;
     this.loadedNow = state === "loaded";
     this.autoLoad = state === "loaded" || state === "unloaded";
   }
@@ -890,9 +902,10 @@ export class SimulatedDye2 {
     this.autoLoad = false;
   }
 
-  /** Installs DYE2 and loads it; resolves as `load` does. */
-  install(): Promise<void> {
+  /** Installs DYE2, from its release unless another source is given, and loads it; resolves as `load` does. */
+  install(source: Dye2Source = "release"): Promise<void> {
     this.installed = true;
+    this.source = source;
     this.autoLoad = true;
     return this.load();
   }
@@ -922,13 +935,13 @@ export class SimulatedDye2 {
 
   /** DYE2's entry in `GET /plugins`, or undefined while it is not installed. */
   listing(): Record_ | undefined {
-    return this.installed ? { ...recordedDye2Listing(), loaded: this.loadedNow, autoLoad: this.autoLoad } : undefined;
+    return this.installed ? { ...recordedDye2Listing(this.source), loaded: this.loadedNow, autoLoad: this.autoLoad } : undefined;
   }
 
   /** The type of DYE2's endpoint of that name while it is loaded, as Decaid opens a socket on it; undefined otherwise. */
   socketEndpoint(name: string): "http" | "websocket" | undefined {
     if (!this.loadedNow) return undefined;
-    const api = (recordedDye2Listing().api ?? []) as { id: string; type: "http" | "websocket" }[];
+    const api = (recordedDye2Listing(this.source).api ?? []) as { id: string; type: "http" | "websocket" }[];
     return api.find((endpoint) => endpoint.id === name)?.type;
   }
 

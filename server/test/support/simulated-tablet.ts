@@ -217,7 +217,10 @@ export class Refusal {
  * replays. Its flow calibration is derived, not recorded: Decaid's answer to
  * `GET /machine/calibration` (de1handler.dart) holding the value its Shot
  * recorded (`workflow.machine.flowCalibration` in shot-espresso.json). So is
- * its sensor calibration (`sensorCalibration`).
+ * its sensor calibration (`sensorCalibration`). Its Skins are those Decaid's
+ * Linux release answered with Streamline's build of `main` the default and
+ * its release served, as the test tablet's app settings name them
+ * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`).
  */
 export function de1ProOnDecaid090(): DecaidApi {
   return {
@@ -236,6 +239,7 @@ export function de1ProOnDecaid090(): DecaidApi {
     "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
     "/machine/calibration": { flowMultiplier: 1.1 },
     ...sensorCalibration(),
+    ...skinsAt("defaultSwitched"),
     "/devices": readFixture("devices.json"),
     "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
     "/sensors": readFixture("sensors.json"),
@@ -258,6 +262,50 @@ export function sensorCalibration(current: { flow?: number; pressure?: number; t
       `/machine/calibration/${target}`,
       { target, source: "current", de1ReportedValue: target === "temperature" ? 0 : 1, measuredValue: now[target] },
     ]),
+  );
+}
+
+/** A step of plugins-and-skins-v0.9.0/plugins-and-skins.json, in the order it was recorded (its README). */
+export type PluginsAndSkinsStep =
+  | "started"
+  | "dye2Release"
+  | "dye2Disabled"
+  | "dye2Enabled"
+  | "dye2Branch"
+  | "streamlineRelease"
+  | "streamlineMain"
+  | "defaultSwitched"
+  | "servedMain"
+  | "servedOther"
+  | "serverStopped";
+
+/**
+ * What Decaid v0.9.0's Linux release answered `GET /plugins`, `/webui/skins`,
+ * `/webui/skins/default` and `/webui/server/status` with after that step
+ * (plugins-and-skins-v0.9.0/), by route, each read kept as `"unchanged"`
+ * there being the last one before it.
+ */
+export function pluginsAndSkinsAt(step: PluginsAndSkinsStep): Record<string, { status: number; body: unknown }> {
+  const recorded = readFixture<Record<string, { reads: Record<string, { status: number; body?: unknown; unchanged?: true }> }>>(
+    "plugins-and-skins.json",
+    "plugins-and-skins-v0.9.0",
+  );
+  const answers: Record<string, { status: number; body: unknown }> = {};
+  for (const [name, { reads }] of Object.entries(recorded)) {
+    for (const [route, read] of Object.entries(reads)) if (!read.unchanged) answers[route] = { status: read.status, body: read.body };
+    if (name === step) return answers;
+  }
+  throw new Error(`No step ${step} was recorded`);
+}
+
+/** Decaid's Skins routes as its Linux release answered them after that step (`pluginsAndSkinsAt`). Merge it into a tablet's API. */
+export function skinsAt(step: PluginsAndSkinsStep): DecaidApi {
+  const answers = pluginsAndSkinsAt(step);
+  return Object.fromEntries(
+    ["/webui/skins", "/webui/skins/default", "/webui/server/status"].map((route) => {
+      const { status, body } = answers[route]!;
+      return [route, status === 200 ? body : new Refusal(status, body)];
+    }),
   );
 }
 

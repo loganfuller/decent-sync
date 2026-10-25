@@ -17,13 +17,18 @@ Everything else is as Decaid sent it.
 These supersede `../de1pro-v0.8.7/`'s `info.json` and `settings.json`, the
 only endpoints v0.9.0 answers otherwise there. The settings now include
 `preferredGrinderDeviceId`, null, and hold the
-tablet's app settings as they are now: the skin `streamline.js-dist`,
-charging mode `longevity`, scale power mode `displayOff`, and a battery at
+tablet's app settings as they are now: the default skin
+`streamline.js-dist` while it serves the release's folder (`webUiPath`,
+`.../app_flutter/web-ui/streamline.js`, which Decaid answers with the folder
+it serves, `settings_handler.dart`), charging mode `longevity`, scale power mode `displayOff`, and a battery at
 51% and not charging. The simulated tablet (`de1ProOnDecaid090` in
 `server/test/support/simulated-tablet.ts`) answers `/info` and `/settings`
 from here, and everything else from `../de1pro-v0.8.7/`, but for
 `/machine/calibration` and `/machine/calibration/{target}`, which were not
-recorded. It answers Decaid's `{"flowMultiplier": …}` (`de1handler.dart`)
+recorded, and Decaid's Skins routes (`/webui/...`), which it answers as
+Decaid's Linux release did with the same default and the release served
+(`../plugins-and-skins-v0.9.0/`, `defaultSwitched`), its paths the
+container's. It answers Decaid's `{"flowMultiplier": …}` (`de1handler.dart`)
 with 1.1, the flow calibration `../de1pro-v0.8.7/shot-espresso.json`
 recorded, and each sensor calibration with derived values in Decaid's shape
 (`sensorCalibration` there).

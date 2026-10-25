@@ -2222,6 +2222,8 @@ var __decentSync = (() => {
     { name: "advancedSettings", path: "/machine/settings/advanced" },
     { name: "machineCalibration", path: "/machine/calibration" },
     { name: "sensorCalibration", read: readSensorCalibration },
+    { name: "plugins", path: "/plugins" },
+    { name: "skins", read: readSkins },
     { name: "pairedDevices", path: "/devices", select: pairedDevices },
     { name: "scaleInfo", path: "/scale/info" },
     { name: "sensors", path: "/sensors" }
@@ -2412,6 +2414,15 @@ var __decentSync = (() => {
       value[target] = reading.value;
     }
     return { kind: "value", value, etag: null };
+  }
+  async function readSkins() {
+    const skins = await readCollection("/webui/skins", null);
+    if (skins.kind !== "value") return { kind: "unavailable" };
+    const defaultSkin = Array.isArray(skins.value) && skins.value.length === 0 ? null : await readCollection("/webui/skins/default", null);
+    if (defaultSkin !== null && defaultSkin.kind !== "value") return { kind: "unavailable" };
+    const server = await readCollection("/webui/server/status", null);
+    if (server.kind !== "value") return { kind: "unavailable" };
+    return { kind: "value", value: { skins: skins.value, default: defaultSkin?.value ?? null, server: server.value }, etag: null };
   }
   function selected(source, reading) {
     if (reading.kind !== "value" || !source.select) return reading;

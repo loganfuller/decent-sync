@@ -9,6 +9,7 @@ import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type PairedDevicesView, pairedDevicesView } from "./paired-devices.js";
+import { type TabletVersionsView, tabletVersionsView } from "./tablet-versions.js";
 
 /** A collection's latest report, without its value, as the REST API lists it. */
 export interface CollectionSummary {
@@ -143,6 +144,17 @@ export class CollectionsService {
       sensors: report("sensors"),
       appSettings: report("appSettings"),
     });
+  }
+
+  /** The DYE2 and Streamline on the Machine's tablet, from its plugin list and Skins as last reported. */
+  async tabletVersions(machineId: string): Promise<TabletVersionsView> {
+    await this.requireMachine(machineId);
+    const rows = await this.prisma.reportedCollection.findMany({
+      where: { machineId, name: { in: ["plugins", "skins"] } },
+      select: { name: true, available: true, reportedAt: true, value: true, receivedAt: true },
+    });
+    const report = (name: CollectionName) => rows.find((row) => row.name === name) ?? null;
+    return tabletVersionsView({ plugins: report("plugins"), skins: report("skins") });
   }
 
   private async requireMachine(id: string): Promise<void> {

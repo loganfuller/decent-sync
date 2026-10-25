@@ -45,6 +45,8 @@ const SOURCES: readonly Source[] = [
   { name: "advancedSettings", path: "/machine/settings/advanced" },
   { name: "machineCalibration", path: "/machine/calibration" },
   { name: "sensorCalibration", read: readSensorCalibration },
+  { name: "plugins", path: "/plugins" },
+  { name: "skins", read: readSkins },
   { name: "pairedDevices", path: "/devices", select: pairedDevices },
   { name: "scaleInfo", path: "/scale/info" },
   { name: "sensors", path: "/sensors" },
@@ -81,7 +83,7 @@ const MACHINE_SETTINGS_MS = 60_000;
 const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
 
 /**
- * The tablet's library, settings and paired devices, through the outbox.
+ * The tablet's library, settings, paired devices, plugins and Skins, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
  * (change-detection.ts), but for the machine's own settings
@@ -325,6 +327,24 @@ async function readSensorCalibration(): Promise<Reading> {
     value[target] = reading.value;
   }
   return { kind: "value", value, etag: null };
+}
+
+/**
+ * Decaid's Skins: its list (`GET /webui/skins`), its default Skin
+ * (`/webui/skins/default`) and what its WebUI server serves
+ * (`/webui/server/status`), as sent, as `{ skins, default, server }`. With
+ * no Skin installed Decaid has no default, and answers its read 404, so it
+ * is not read, and is null. Read one at a time, and unavailable if any read
+ * fails, as a partial set could name another Skin active than the tablet's.
+ */
+async function readSkins(): Promise<Reading> {
+  const skins = await readCollection("/webui/skins", null);
+  if (skins.kind !== "value") return { kind: "unavailable" };
+  const defaultSkin = Array.isArray(skins.value) && skins.value.length === 0 ? null : await readCollection("/webui/skins/default", null);
+  if (defaultSkin !== null && defaultSkin.kind !== "value") return { kind: "unavailable" };
+  const server = await readCollection("/webui/server/status", null);
+  if (server.kind !== "value") return { kind: "unavailable" };
+  return { kind: "value", value: { skins: skins.value, default: defaultSkin?.value ?? null, server: server.value }, etag: null };
 }
 
 function selected(source: Source, reading: Reading): Reading {

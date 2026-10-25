@@ -93,6 +93,9 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
   await page.clock.install();
   const requested: string[] = [];
   page.on("request", (request) => requested.push(new URL(request.url()).pathname));
+  const answered: string[] = [];
+  // Once its body has arrived, not just its headers: the page times its next load from when it has read the answer.
+  page.on("requestfinished", (request) => answered.push(new URL(request.url()).pathname));
   await page.goto("/machines");
   await machineRow(page, "Polled").getByRole("link", { name: "Polled" }).click();
   await expect(page.getByRole("heading", { name: "Polled", level: 1 })).toBeVisible();
@@ -101,6 +104,7 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
   const rest = [
     "/workflow",
     "/paired-devices",
+    "/tablet-versions",
     "/collections",
     "/collections/appSettings",
     "/collections/machineSettings",
@@ -112,6 +116,9 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
   const times = (path: string) => requested.filter((requestedPath) => requestedPath === path).length;
   const restTimes = () => rest.map(times);
   await expect.poll(restTimes).toEqual(rest.map(() => 1));
+  // Each load's next is timed from when it was answered, so the clock moves on only once all have been. The page sends
+  // more requests at once than the browser keeps open to one server, so some wait for others.
+  await expect.poll(() => rest.map((path) => answered.filter((answeredPath) => answeredPath === path).length)).toEqual(rest.map(() => 1));
   const statusTimes = times(status);
 
   await page.clock.fastForward(POLL_MS);

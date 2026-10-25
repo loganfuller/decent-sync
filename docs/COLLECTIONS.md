@@ -1,4 +1,4 @@
-# Library, settings and paired devices
+# Library, settings, paired devices, plugins and Skins
 
 Ticket [#14](https://github.com/loganfuller/decent-sync/issues/14) extends
 protocol version 1 with one delivery, defined and validated in `protocol/`:
@@ -47,6 +47,8 @@ Each is read from Decaid v0.9.0's API (`decaid:assets/api/rest_v1.yml`):
 | `advancedSettings` | `GET /machine/settings/advanced` | content |
 | `machineCalibration` | `GET /machine/calibration` | content |
 | `sensorCalibration` | `GET /machine/calibration/{flow,pressure,temperature}`, three reads | content |
+| `plugins` | `GET /plugins` | content |
+| `skins` | `GET /webui/skins`, `/webui/skins/default` and `/webui/server/status`, three reads | content |
 | `pairedDevices` | `GET /devices`, without devices only discovered nearby | content |
 | `scaleInfo` | `GET /scale/info` | content |
 | `sensors` | `GET /sensors` | content |
@@ -57,7 +59,10 @@ A read is unavailable when it fails or has nothing to report: any status but
 `null` for a collection read from Decaid's API. `sensorCalibration` is
 unavailable if any of its three reads is, and its later reads are then not
 made: a partial set would be compared with another Machine's complete one.
-It is sent as unavailable, never as an empty collection. One of DYE2's keys never written answers `null`
+It is sent as unavailable, never as an empty collection. So is `skins` if any
+of its reads is, as a partial set could name another Skin active than the
+tablet's, but for the default Skin with no Skin installed (Plugins and
+Skins, below). One of DYE2's keys never written answers `null`
 too (`KvStoreHandler` in
 `decaid:lib/src/services/webserver/kv_store_handler.dart`), which DYE2 reads
 as an empty list, and so does the plugin, which sends it as one
@@ -198,6 +203,56 @@ other settings: any two values it can hold then still differ when shown.
 Decaid answers 500 while no machine was ever connected, 503 if the machine
 disconnects mid-read, and 504 if it doesn't answer in time.
 
+## Plugins and Skins
+
+Ticket [#236](https://github.com/loganfuller/decent-sync/issues/236) reports
+the DYE2 and Streamline on each tablet, which the Machine page's Versions card
+shows. They are only shown: nothing is refused at `hello` or flagged below
+ADR-0017's minimums.
+
+`plugins` is Decaid's plugin list as sent: each plugin's manifest with
+`loaded`, `autoLoad`, `source` (how it was installed, such as
+`{"kind":"github_branch","branch":"dist",…}`, or null for a bundled one)
+and `pendingUpdate` (`PluginsHandler` in
+`decaid:lib/src/services/webserver/plugins_handler.dart`). `skins` is
+Decaid's Skins as `{ skins, default, server }`: the Skins list, the default
+Skin and the WebUI server's status, each as sent. With no Skin installed,
+Decaid has no default and answers its read 404, so the plugin reads it only
+when the list holds a Skin, and reports `default` null otherwise. Both are
+read on every poll, as the other collections are, and sent when they
+changed, so a DYE2 update or disable, or a Skin switch, reaches the server at
+the next poll. Neither carries an ETag. A plugin's `source.lastChecked` moves
+with each of Decaid's update checks, and Decaid replaces its bundled Skins
+with their latest releases in the background after it starts, each a change
+sent as any other.
+
+The server works out the two rows from the latest value of each, kept while
+a later read is unavailable (`server/src/collections/tablet-versions.ts`,
+module tests in `server/test/tablet-versions.test.ts`):
+
+- **DYE2** is the `dye2.reaplugin` entry of the plugin list: its manifest
+  `version`, whether it is `loaded` (not when disabled, or when it failed to
+  load) and, when its `source` is a branch install (`kind`
+  `github_branch`), the branch. A branch build carries the version committed
+  on the branch, which lags DYE2's tags; only release builds have their
+  version stamped from the tag. Not installed when the list has no such
+  entry.
+- **Streamline** counts only as the active Skin: the one whose `path` is
+  the WebUI server status's `path`, or, when none is (Decaid serves nothing,
+  or a folder no Skin holds), the default Skin. Quick Settings can serve a
+  Skin other than `defaultSkinId`, which is why the default alone is not
+  enough. Streamline is the active Skin when its id is `streamline.js`, a
+  release, or `streamline.js-dist`, a build of `main` (its `dist` branch),
+  whatever else is installed. The row gives its `version` and which it is;
+  otherwise the active Skin's name and version, or not installed when no
+  Skin is either id. A build of `main` reports the version of the release
+  before it (`0.2.18` at `cec5664`) and Decaid gives no commit for it, so the
+  row says only "main build".
+
+Neither row is anything until its collection is reported. The recording in
+`server/test/fixtures/decaid/plugins-and-skins-v0.9.0/` shows Decaid's answers
+to each change; `AI_RUNTIME_NOTES.md` (Skins) has the routes.
+
 ## Server
 
 `server/src/collections/collections.service.ts` stores the latest value of
@@ -251,6 +306,14 @@ Machine that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines/:id/collections/:name` returns `{ collection }`, the same
   with its `value`, or null until the Machine's tablet reports it. An unknown
   name answers 404.
+- `GET /api/machines/:id/tablet-versions` returns `{ tabletVersions: { dye2,
+  streamline } }` (Plugins and Skins, above), each with a `status`:
+  `notReported` until its collection is reported, `notInstalled`, and for
+  DYE2 `installed`, with its `version`, `loaded` and `branch` (null but for
+  a branch install); for Streamline `active`, with its `version` and `build`
+  (`release` or `main`), or `notActive`, with the `activeSkin`'s `name` and
+  `version`, or null if none is. Every field from Decaid's payload is null
+  where it is missing or not a string.
 - `GET /api/machines/:id/paired-devices` returns `{ pairedDevices: { reportedAt,
   available, receivedAt, scale, auxiliaryScale, sensors, others } }`, each
   device `{ id, type, model, vendor, state, firmware, batteryLevel }`
@@ -273,8 +336,9 @@ Machine that takes their hardware over. Staff read them as Admins do.
   of `receivedAt`.
   Everything else paired, such as the machine itself, is in `others`.
 
-The Machine page shows the paired devices, the app, machine and advanced
-settings, the flow calibration, the sensor calibration (each sensor's
+The Machine page shows the DYE2 and Streamline in its Versions card, which
+keeps the last reported while the Machine is offline, the paired devices, the
+app, machine and advanced settings, the flow calibration, the sensor calibration (each sensor's
 `measuredValue`), the steam, hot water and flush settings of the current
 Workflow, and how many of each library collection its tablet reported, loaded
 every 30 s rather than every 5 s as the Machine's status is.
