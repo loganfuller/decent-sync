@@ -10,6 +10,7 @@ import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateB
 import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
+import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
@@ -37,7 +38,7 @@ import { opened } from "./test-scope.js";
 //   them, the bean batches leaving out those of archived beans too, and send
 //   an ETag, answering 304 to it in If-None-Match. A key of
 //   plugin storage never written answers `null`. The machine's settings, like
-//   its info, fail while no machine is connected.
+//   its info and state, fail while no machine is connected.
 // - Decaid's store API (KvStoreHandler in kv_store_handler.dart) keeps the
 //   values other plugins and skins keep there, such as DYE2's recipes,
 //   baskets and tools under `dye2.reaplugin` and Streamline's under
@@ -55,9 +56,14 @@ import { opened } from "./test-scope.js";
 //   grinders (`POST /grinders`, `PUT` and `DELETE /grinders/{id}`),
 //   profiles (`POST /profiles`, `PUT` and `DELETE /profiles/{id}`, `PUT
 //   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), the
-//   Workflow (`PUT /workflow`) and the store (above), as Decaid does
+//   Workflow (`PUT /workflow`), the store (above), and the settings: the
+//   machine's (`POST /machine/settings`, `/machine/settings/advanced` and
+//   `/machine/calibration`, and `PUT /machine/calibration/{target}`),
+//   Decaid's own (`POST /settings`) and its presence settings and wake
+//   schedules (`POST /presence/settings` and `/presence/schedules`, `PUT`
+//   and `DELETE /presence/schedules/{id}`), as Decaid does
 //   (decaid-beans.ts, decaid-batches.ts, decaid-grinders.ts,
-//   decaid-profiles.ts, decaid-workflow.ts), and serves each bean at
+//   decaid-profiles.ts, decaid-workflow.ts, decaid-settings.ts), and serves each bean at
 //   `/beans/{id}`, its batches at `/beans/{id}/batches`, each batch at
 //   `/bean-batches/{id}`, each grinder at `/grinders/{id}`, and each
 //   profile at `/profiles/{id}`, whose id it derives from the profile's
@@ -220,7 +226,8 @@ export class Refusal {
  * its sensor calibration (`sensorCalibration`). Its Skins are those Decaid's
  * Linux release answered with Streamline's build of `main` the default and
  * its release served, as the test tablet's app settings name them
- * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`).
+ * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`). Its
+ * presence settings are a new install's (`newPresenceSettings`).
  */
 export function de1ProOnDecaid090(): DecaidApi {
   return {
@@ -239,6 +246,7 @@ export function de1ProOnDecaid090(): DecaidApi {
     "/machine/settings/advanced": readFixture("machine-settings-advanced.json"),
     "/machine/calibration": { flowMultiplier: 1.1 },
     ...sensorCalibration(),
+    "/presence/settings": newPresenceSettings(),
     ...skinsAt("defaultSwitched"),
     "/devices": readFixture("devices.json"),
     "/scale/info": new Refusal(503, readFixture("scale-info-no-scale.json")),
@@ -263,6 +271,17 @@ export function sensorCalibration(current: { flow?: number; pressure?: number; t
       { target, source: "current", de1ReportedValue: target === "temperature" ? 0 : 1, measuredValue: now[target] },
     ]),
   );
+}
+
+/**
+ * Decaid v0.9.0's presence settings as a new install holds them, what its
+ * Linux release answered `GET /presence/settings` with as it started
+ * (settings-writes-v0.9.0/, `started`): presence on, a 30 minute sleep
+ * timeout and no wake schedules. The test tablet's own were not recorded.
+ */
+export function newPresenceSettings(): Record<string, unknown> {
+  const recorded = readFixture<{ started: { reads: Record<string, { body: Record<string, unknown> }> } }>("settings-writes.json", "settings-writes-v0.9.0");
+  return recorded.started.reads["/presence/settings"]!.body;
 }
 
 /** A step of plugins-and-skins-v0.9.0/plugins-and-skins.json, in the order it was recorded (its README). */
@@ -583,7 +602,7 @@ export interface SimulatedTabletOptions {
   storage?: PluginStorage;
   /** Decaid's API responses; defaults to de1ProOnDecaid090(). */
   api?: DecaidApi;
-  /** Whether a machine is connected to the tablet; while not, /machine/info fails. Defaults to true. */
+  /** Whether a machine is connected to the tablet; while not, /machine/info, /machine/state and the machine's settings fail. Defaults to true. */
   machineConnected?: boolean;
   /**
    * Runs the plugin's timers, and the delays below, this many times faster,
@@ -757,6 +776,18 @@ export class SimulatedTablet {
    * it returns undefined. Undefined carries out every write.
    */
   refuseWrites?: (request: { method: string; route: string; body: unknown }) => DecaidAnswer | undefined;
+  /**
+   * Fails Decaid's write of one field of a settings write part-way, as when
+   * the machine does not take a register's write in time: called with the
+   * route and each field's name, as the request gives it, as Decaid is about
+   * to write it (or, for `PUT /machine/calibration/{target}`, the target),
+   * whoever sent the request. An answer stops the write there, the fields
+   * before it written, and answers the request with it, such as Decaid's
+   * `{"error": ...}` 504 for a write that timed out (`_mapDe1WriteErrors`
+   * in decaid:lib/src/services/webserver/de1handler.dart). Undefined writes
+   * every field.
+   */
+  failSettingWrites?: (write: { route: string; field: string }) => DecaidAnswer | undefined;
   /** The plugin's id, which names its storage in Decaid's store API. */
   private readonly pluginId: string;
   /** The endpoints the plugin's manifest declares. */
@@ -873,12 +904,18 @@ export class SimulatedTablet {
   }
 
   /**
-   * Connects the machine to the tablet: /machine/info answers from now on,
-   * and Decaid starts sending machine state updates, of which this delivers
-   * one, with the state /machine/state answers.
+   * Connects the machine to the tablet, as when it reconnects: /machine/info
+   * answers from now on, the fan threshold is 50 and the refill kit set to
+   * auto, as Decaid sets them on every connect, and Decaid starts sending
+   * machine state updates, of which this delivers one, with the state
+   * /machine/state answers.
    */
   connectMachine(): void {
     this.machineConnected = true;
+    // A machine connecting to Decaid has its fan threshold and refill kit set to Decaid's defaults (decaid-settings.ts).
+    const { settings, advanced } = reconnected(this.api["/machine/settings"], this.api["/machine/settings/advanced"]);
+    if ("/machine/settings" in this.api) this.api = { ...this.api, "/machine/settings": settings };
+    if ("/machine/settings/advanced" in this.api) this.api = { ...this.api, "/machine/settings/advanced": advanced };
     this.fire("stateUpdate", this.api["/machine/state"]);
   }
 
@@ -1286,12 +1323,23 @@ export class SimulatedTablet {
    * Decaid answers, its body read as JSON.
    */
   async callApi(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<DecaidAnswer> {
-    const answered = (await this.answer(`${API_ORIGIN}/api/v1${path}`, method, {}, body === undefined ? undefined : JSON.stringify(body))) as {
-      status: number;
-      text(): Promise<string>;
-    };
-    const text = await answered.text();
-    return { status: answered.status, body: text === "" ? null : JSON.parse(text) };
+    return this.callApiWithText(method, path, body === undefined ? undefined : JSON.stringify(body));
+  }
+
+  /**
+   * Calls Decaid's API as `callApi` does, with the body as this text, sent as
+   * it is, for one that is not JSON. Resolves with what Decaid answers, its
+   * body read as JSON, or as text where it is not.
+   */
+  async callApiWithText(method: "GET" | "POST" | "PUT" | "DELETE", path: string, text: string | undefined): Promise<DecaidAnswer> {
+    const answered = (await this.answer(`${API_ORIGIN}/api/v1${path}`, method, {}, text)) as { status: number; text(): Promise<string> };
+    const body = await answered.text();
+    if (body === "") return { status: answered.status, body: null };
+    try {
+      return { status: answered.status, body: JSON.parse(body) };
+    } catch {
+      return { status: answered.status, body };
+    }
   }
 
   /** The tablet's Workflow, as `GET /workflow` answers it. */
@@ -1448,12 +1496,14 @@ export class SimulatedTablet {
     }
     // Decaid refuses a plugin's endpoints while no such plugin is loaded (`_handlePluginApiEndpoint` in plugins_handler.dart).
     if (route.startsWith("/plugins/dye2.reaplugin/")) return response(404, JSON.stringify({ error: "plugin with dye2.reaplugin not loaded" }));
+    const settings = this.answerSettings(method, route, requestBody);
+    if (settings) return response(settings.status, settings.text ?? JSON.stringify(settings.body));
     const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
     if (written) {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
     }
     if (method !== "GET") throw new Error(`The simulated tablet's API carries out no ${method} ${route}`);
-    if ((["/machine/info", "/machine/settings", "/machine/settings/advanced"].includes(route) || route.startsWith("/machine/calibration")) && !this.machineConnected) {
+    if ((["/machine/info", "/machine/state", "/machine/settings", "/machine/settings/advanced"].includes(route) || route.startsWith("/machine/calibration")) && !this.machineConnected) {
       // de1handler.dart answers a DeviceNotConnectedException with a 500.
       const refusal = machineNotConnected();
       return response(refusal.status, JSON.stringify(refusal.body));
@@ -1509,6 +1559,45 @@ export class SimulatedTablet {
     if (!(served in this.api) && stored) return response(200, "null");
     if (!(served in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
+  }
+
+  /**
+   * Carries out a settings write as Decaid v0.9.0 does (decaid-settings.ts),
+   * to the machine's settings, Decaid's own or its presence settings and wake
+   * schedules, keeping what it changed where `api` serves the matching `GET`,
+   * or reads the presence settings, without `keepAwakeUntil` while no
+   * machine is connected, or the wake schedules; undefined for any other
+   * request, the machine's settings' reads included.
+   */
+  private answerSettings(method: string, route: string, body: unknown): SettingsAnswer | undefined {
+    const presence = this.api["/presence/settings"];
+    if (method === "GET" && route === "/presence/settings" && !(presence instanceof Refusal) && presence !== undefined) {
+      return { status: 200, body: presenceSettings(presence, this.machineConnected) };
+    }
+    if (method === "GET" && route === "/presence/schedules" && !(presence instanceof Refusal) && presence !== undefined) {
+      return { status: 200, body: (presence as { schedules: unknown }).schedules };
+    }
+    if (method === "GET") return undefined;
+    const text = typeof body === "string" ? body : body === undefined ? undefined : JSON.stringify(body);
+    const failWrite: FieldWriteFailure = (field) => this.failSettingWrites?.({ route, field });
+    const machine = { body: text, machineConnected: this.machineConnected, failWrite };
+    // What a route holds to write to: none while it is served as a refusal, which a write then throws for.
+    const held = (served: string) => (this.api[served] instanceof Refusal ? undefined : this.api[served]);
+    const keep = (served: string, { answer, value }: Written) => {
+      if (value) this.api = { ...this.api, [served]: value };
+      return answer;
+    };
+    if (method === "POST" && route === "/machine/settings") return keep(route, writeMachineSettings({ ...machine, current: held(route) }));
+    if (method === "POST" && route === "/machine/settings/advanced") return keep(route, writeAdvancedSettings({ ...machine, current: held(route) }));
+    if (method === "POST" && route === "/machine/calibration") return keep(route, writeCalibration({ ...machine, current: held(route) }));
+    const target = /^\/machine\/calibration\/([^/]+)$/.exec(route)?.[1];
+    if (method === "PUT" && target !== undefined) {
+      const served = `/machine/calibration/${decodeURIComponent(target)}`;
+      return keep(served, writeSensorCalibration({ ...machine, target: decodeURIComponent(target), current: held(served) }));
+    }
+    if (method === "POST" && route === "/settings") return keep(route, writeAppSettings({ current: held(route), body: text, failWrite }));
+    const presenceWrite = writePresence(method, route, text, held("/presence/settings"));
+    return presenceWrite && keep("/presence/settings", presenceWrite);
   }
 
   /**
@@ -1601,7 +1690,8 @@ export class SimulatedTablet {
    * set, so the plugin hears of its own write while it awaits the answer.
    * The steam, hot water and flush settings it writes to the machine are the
    * machine's settings from then on, as `GET /machine/settings` answers them
-   * (`machineSettingsWritten`), the flush time and temperature only on a
+   * (`machineSettingsWritten`), as the machine's registers hold them
+   * (`machineSettingsHeld`), the flush time and temperature only on a
    * machine that keeps them (`keepsFlushSettings`).
    */
   private writeWorkflow(body: unknown): DecaidAnswer {
@@ -1611,8 +1701,9 @@ export class SimulatedTablet {
     if (workflow) {
       const settings = this.api["/machine/settings"];
       const written = machineSettingsWritten(current as Record<string, unknown>, workflow, this.keepsFlushSettings);
-      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && Object.keys(written).length > 0) {
-        this.api = { ...this.api, "/machine/settings": { ...settings, ...written } };
+      // While the machine's settings are served as a refusal, only their read fails: the Workflow write still lands, and the refusal stays.
+      if (typeof settings === "object" && settings !== null && !Array.isArray(settings) && !(settings instanceof Refusal) && Object.keys(written).length > 0) {
+        this.api = { ...this.api, "/machine/settings": { ...settings, ...machineSettingsHeld(written) } };
       }
       this.setWorkflow(workflow);
     }
