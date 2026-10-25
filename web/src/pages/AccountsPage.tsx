@@ -124,8 +124,9 @@ export function AccountsPage() {
         <CardHeader>
           <CardTitleWithInfo title="Invite someone">
             <p>
-              Admins can change everything on this server. Staff can see everything except other people's accounts, and
-              can move Machines between the Locations they work at.
+              Admins can change everything on this server. Staff can see everything except other people's accounts. They can
+              edit the Library's shared content anywhere, and at the Locations they work at, move Machines, change what is
+              offered there, manage Recipes and record stock.
             </p>
           </CardTitleWithInfo>
         </CardHeader>
