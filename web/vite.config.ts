@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import tailwindcss from "@tailwindcss/vite";
 import react from "@vitejs/plugin-react";
-import { defineConfig } from "vite";
+import { defaultClientConditions, defineConfig } from "vite";
 
 // In development the server runs separately (npm run dev:server); proxy its
 // REST API so the app uses the same paths it has when the server serves it.
@@ -18,6 +18,8 @@ export default defineConfig({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: { "@": path.resolve(import.meta.dirname, "src") },
+    // The protocol package's TypeScript source, as esbuild, TypeScript and Vitest take it, so the app needs no protocol build.
+    conditions: ["@decent-sync/source", ...defaultClientConditions],
   },
   server: {
     proxy: { "/api": { target: serverUrl, changeOrigin: false } },

@@ -80,6 +80,40 @@ devices, and those Decaid remembers (`disconnected`, and not `available` while
 out of range), stay. A remembered device in range but not connected is listed
 by Decaid as `discovered` too, so it is left out until it connects or leaves.
 
+## Settings fields
+
+Milestone 4 ([#220](https://github.com/loganfuller/decent-sync/issues/220),
+ADR-0023) makes a Machine's settings editable. Each field of
+`machineSettings`, `advancedSettings`, `machineCalibration`,
+`sensorCalibration` and `appSettings` is defined once, in
+`protocol/src/settings-fields.ts` (`SETTINGS_FIELDS`, ticket
+[#222](https://github.com/loganfuller/decent-sync/issues/222)), for the
+server, the plugin and the management interface: Decaid's name for it (for
+`sensorCalibration`, the target, whose `measuredValue` is the value), its
+label and unit, its kind (number, whole number, on or off, choice, or time of
+day), its range and its step or choices, who may change it (Staff or Admin),
+or what sets it for a read-only field, and its notes: reset when the Machine
+reconnects, put back by Streamline's settings page, or to restart the Machine
+after a change. Labels, units, ranges, steps and choices follow Streamline's
+settings page at `cec5664`, and Decaid's own limits where it has none.
+
+`validateSettingsEdit`, a pure function, decides whether an edit's fields and
+values are allowed by the definitions and to the account making it. It
+refuses an unknown or read-only field, an Admin's field for Staff, a value not
+of the field's kind, a choice not offered, a value out of range, and one off
+its step (`onStep`): a number may have no more decimal places than its step,
+and must be a whole multiple of it, compared in the step's least decimal
+place rather than by floating-point division, so a step of 0.05 takes 0.35
+and refuses 0.33. Nothing makes edits yet.
+
+The Machine page's Settings card groups the Machine Settings (`General`, the
+`machineSettings`; `Advanced`; `Flow calibration`; `Sensor calibration`) and
+the Tablet Settings (`appSettings`). Each field is shown by its label, with
+its unit or its choice's label, and a reported value outside its range or
+choices is shown as it is. A read-only field says what sets it, and a field
+carries its notes. A field Decaid reports that no definition covers is shown
+read-only under Decaid's name, after the others.
+
 ## Plugin
 
 `plugin/src/collections.ts` reads the collections and sends them through the
@@ -149,8 +183,8 @@ the machine connects), each until written through Decaid.
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
 `flowMultiplier` (the DE1's `calFlowEst`, kept in thousandths), which scales
 the flow the machine reports, and which each Shot records as
-`workflow.machine.flowCalibration`. The Machine page shows settings to three
-decimal places at most, so a change of a thousandth shows.
+`workflow.machine.flowCalibration`. The Machine page shows the settings
+fields to five decimal places at most, so a change of a thousandth shows.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. The `volumeFlowMultiplier`,
@@ -198,8 +232,8 @@ and no other machine setting changed. Other firmware versions are untested.
 The calibration is always in `measuredValue`. For `flow` and `pressure`,
 which are ratiometric, `de1ReportedValue` is 1.0; for `temperature`, an
 offset, it is 0.0 (`rest_v1.yml`). The machine keeps each in signed Q16.16,
-so the Machine page shows them to five decimal places at most, not three as
-other settings: any two values it can hold then still differ when shown.
+so the Machine page shows them to five decimal places at most: any two values
+it can hold then still differ when shown.
 Decaid answers 500 while no machine was ever connected, 503 if the machine
 disconnects mid-read, and 504 if it doesn't answer in time.
 
@@ -338,8 +372,8 @@ Machine that takes their hardware over. Staff read them as Admins do.
 
 The Machine page shows the DYE2 and Streamline in its Versions card, which
 keeps the last reported while the Machine is offline, the paired devices, the
-app, machine and advanced settings, the flow calibration, the sensor calibration (each sensor's
-`measuredValue`), the steam, hot water and flush settings of the current
+Machine Settings and Tablet Settings by their field definitions (Settings
+fields, above), the steam, hot water and flush settings of the current
 Workflow, and how many of each library collection its tablet reported, loaded
 every 30 s rather than every 5 s as the Machine's status is.
 

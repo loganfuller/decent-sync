@@ -37,7 +37,7 @@ test.afterAll(async () => {
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
-  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and a pressure sensor recalibrated
+  // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), a pressure sensor recalibrated
   // by the least step the machine can hold, a 65536th (signed Q16.16).
   const served = {
     ...de1ProOnDecaid090(),
@@ -45,6 +45,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ...simulatedDevices(),
     "/machine/calibration": { flowMultiplier: 0.596 },
     ...sensorCalibration({ pressure: 1 + 1 / 65536 }),
+    // And a Tablet Setting no definition covers, as a newer Decaid may report.
+    "/settings": { ...(simulatedDevices()["/settings"] as Record<string, unknown>), updateChannel: "beta" },
   };
   // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50 });
@@ -69,28 +71,50 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Discovered nearby, not paired.
   await expect(devices).not.toContainText("MockBengle");
 
-  const settings = page.getByRole("region", { name: "Settings" });
-  const machineSettings = settings.getByRole("region", { name: "Machine settings" });
-  await expect(machineSettings).toContainText(/^Machine settingsReported at \w{3} \d+, \d{4}/);
-  const expected: [string, string][] = [["fan", "55"], ["usb", "No"], ["steamFlow", "0.8"], ["tankTemp", "20"]];
-  for (const [term, value] of expected) {
-    await expect(field(machineSettings, term)).toHaveText(value);
-  }
-  await expect(field(settings.getByRole("region", { name: "Advanced settings" }), "heaterIdleTemp")).toHaveText("98");
-  const calibration = settings.getByRole("region", { name: "Flow calibration" });
+  // Each field by its label, with its unit and its choice's label; the read-only ones with what sets them, and the notes.
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  const machineSettings = settings.getByRole("region", { name: "Machine Settings" });
+  const general = machineSettings.getByRole("region", { name: "General", exact: true });
+  await expect(general).toContainText(/^GeneralReported at \w{3} \d+, \d{4}/);
+  const shown: [term: string, value: string, ...about: string[]][] = [
+    // Above the 50 °C an edit may set, and shown as it is.
+    ["Fan threshold", "55 °C", RESETS, PUT_BACK],
+    ["Steam purge mode", "Normal", PUT_BACK],
+    ["Steam flow", "0.8 ml/s", "Set by the Workflow"],
+    ["Tank temperature", "20 °C", "Set by each profile"],
+    ["USB charger", "Off", "Set by the Tablet's charging mode"],
+  ];
+  await expectShown(general, shown);
+  await expectShown(machineSettings.getByRole("region", { name: "Advanced", exact: true }), [
+    ["Idle temperature", "98 °C", PUT_BACK],
+    ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
+    ["Refill kit", "Auto-Detect", RESETS, PUT_BACK],
+  ]);
+  await expect(field(machineSettings, "Heater voltage")).not.toContainText(PUT_BACK);
+  const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
   await expect(calibration).toContainText(/^Flow calibrationReported at \w{3} \d+, \d{4}/);
-  await expect(field(calibration, "flowMultiplier")).toHaveText("0.596");
+  await expectShown(calibration, [["Flow multiplier", "0.596"]]);
   // Its pressure sensor's recalibration shows, to five decimal places.
-  const sensors = settings.getByRole("region", { name: "Sensor calibration" });
+  const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
   await expect(sensors).toContainText(/^Sensor calibrationReported at \w{3} \d+, \d{4}/);
-  const calibrated: [target: string, value: string][] = [["flow", "1"], ["pressure", "1.00002"], ["temperature", "0"]];
-  for (const [target, value] of calibrated) {
-    await expect(field(sensors, target)).toHaveText(value);
-  }
+  await expectShown(sensors, [
+    ["Flow sensor multiplier", "1"],
+    ["Pressure sensor multiplier", "1.00002"],
+    ["Temperature sensor offset", "0 °C"],
+  ]);
   await expect(sensors).not.toContainText("factory");
-  const appSettings = settings.getByRole("region", { name: "App settings" });
-  await expect(field(appSettings, "gatewayMode")).toHaveText("disabled");
-  await expect(field(appSettings, "simulatedDevices")).toHaveText("machine, bengle, scale, sensor");
+  const tabletSettings = settings.getByRole("region", { name: "Tablet Settings" });
+  await expect(tabletSettings).toContainText(/^Tablet SettingsReported at \w{3} \d+, \d{4}/);
+  await expectShown(tabletSettings, [
+    ["Gateway mode", "Disabled"],
+    ["Charging mode", "Charge to 100%"],
+    ["Night mode sleep time", "22:00"],
+    ["Volume flow multiplier", "0.3 s"],
+    ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
+    ["Default skin", "streamline.js", "Managed with the Tablet's skins"],
+    ["Preferred machine", "MockDe1", "Managed with the preferred devices"],
+    ["updateChannel", "beta", "Not known to Decent Sync, so shown as Decaid names it, read-only"],
+  ]);
   const workflowSettings = settings.getByRole("region", { name: "Steam, hot water and rinse" });
   await expect(workflowSettings).toContainText("From its Workflow, as its tablet reported it at");
   await expect(field(workflowSettings.getByLabel("Steam", { exact: true }), "flow")).toHaveText("2.5");
@@ -110,9 +134,9 @@ test("the Machine page shows paired devices, settings and the library, and follo
   tablet.serve({ ...served, ...simulatedDevicesSwitchedOff() });
   await afterDetailsPolls(page, async () => {
     await baseExpect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: 2_000 });
-    await baseExpect(machineSettings).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
+    await baseExpect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
   });
-  await expect(field(machineSettings, "fan")).toHaveText("55");
+  await expect(field(general, "Fan threshold")).toHaveText(/^55 °C/);
 });
 
 test("the Versions card shows the DYE2 and Streamline on the tablet, follows their changes, and keeps them while the Machine is offline", async ({ page }) => {
@@ -167,15 +191,25 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await page.goto("/machines");
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
   await expect(page.getByRole("region", { name: "Paired devices" })).toContainText("Its tablet has not reported its paired devices yet.");
-  const settings = page.getByRole("region", { name: "Settings" });
-  for (const name of ["App settings", "Machine settings", "Advanced settings", "Flow calibration", "Sensor calibration"]) {
-    await expect(settings.getByRole("region", { name })).toContainText("Not reported yet");
+  const settings = page.getByRole("region", { name: "Settings", exact: true });
+  for (const name of ["General", "Advanced", "Flow calibration", "Sensor calibration", "Tablet Settings"]) {
+    await expect(settings.getByRole("region", { name, exact: true })).toContainText("Not reported yet");
   }
   await expect(settings.getByRole("region", { name: "Steam, hot water and rinse" })).toContainText("Its tablet has not reported its Workflow yet.");
   await expect(rows(page.getByRole("region", { name: "Library" })).first()).toHaveText("BeansNoneNot reported yet");
   await expect(field(page, "DYE2")).toHaveText("Not reported");
   await expect(field(page, "Streamline")).toHaveText("Not reported");
 });
+
+const RESETS = "Resets when the Machine reconnects.";
+const PUT_BACK = "Streamline puts back a value set in its settings page when that page next opens.";
+
+/** That each field is shown by its label with its value first, then each line saying what sets it or noting what may become of it. */
+async function expectShown(scope: Locator, shown: [term: string, value: string, ...about: string[]][]) {
+  for (const [term, value, ...about] of shown) {
+    await expect(field(scope, term)).toHaveText([value, ...about].join(""));
+  }
+}
 
 /** A table's rows below its header. */
 function rows(within: Locator) {
