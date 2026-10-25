@@ -296,13 +296,11 @@ export class CollectionCapture {
    * place of the target's last, beside the other targets as last read.
    * Where the last read was unavailable, every target is read again when
    * `readAll`, as after the edit's write, and otherwise there is none to
-   * report, so the edit's check spends none of its time on reads. Unavailable
-   * where the target's read is.
+   * report, so the edit's check spends none of its time on reads.
    */
-  async sensorCalibrationWith(target: string, read: Reading, readAll: boolean): Promise<Reading | undefined> {
-    if (read.kind !== "value") return { kind: "unavailable" };
+  async sensorCalibrationWith(target: string, read: Record<string, unknown>, readAll: boolean): Promise<Reading | undefined> {
     if (this.sensorCalibration === undefined) return readAll ? readSensorCalibration() : undefined;
-    return { kind: "value", value: { ...this.sensorCalibration, [target]: read.value }, etag: null };
+    return { kind: "value", value: { ...this.sensorCalibration, [target]: read }, etag: null };
   }
 
   /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */

@@ -62,7 +62,7 @@ export interface SettingsReports {
    * last, the other targets as last read; where they are not, all read again
    * when `readAll`, and otherwise undefined.
    */
-  sensorCalibrationWith(target: string, read: Reading, readAll: boolean): Promise<Reading | undefined>;
+  sensorCalibrationWith(target: string, read: Record<string, unknown>, readAll: boolean): Promise<Reading | undefined>;
 }
 
 /**
@@ -189,7 +189,7 @@ export class SettingsEdits {
     const route = `/machine/calibration/${target}`;
     const before = await readObject(route);
     if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-    const checked = await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }, false);
+    const checked = await this.reports.sensorCalibrationWith(target, before.value, false);
     if (checked) this.reports.reportSettings("sensorCalibration", checked, false);
     const current = before.value.measuredValue;
     if (!sameValue(current, edit.expected[target])) {
@@ -208,7 +208,7 @@ export class SettingsEdits {
       failure = describe(error);
     }
     const after = await readObject(route).catch(() => undefined);
-    const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }, true) : undefined;
+    const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, after.value, true) : undefined;
     this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
     return answered(edit, written, failure, after?.ok ? calibrated(target, after.value) : undefined);
   }

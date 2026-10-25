@@ -1414,7 +1414,8 @@ export const SETTINGS_EDIT_WRITE_MARGIN_MS = 15_000;
  * A `sensorCalibration` edit sets one sensor target's current value, read
  * and set by target: it reads that target for the check, sets it from that
  * read's value (an absolute set, as Streamline's), and reads it again after,
- * sending the collection with it and the other targets as last read.
+ * sending the collection with it and the other targets as last read, or
+ * with all three read again where the last read was unavailable.
  */
 export interface SettingsEdit {
   type: "settingsEdit";

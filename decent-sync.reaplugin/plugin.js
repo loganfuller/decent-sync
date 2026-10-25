@@ -2792,13 +2792,11 @@ var __decentSync = (() => {
      * place of the target's last, beside the other targets as last read.
      * Where the last read was unavailable, every target is read again when
      * `readAll`, as after the edit's write, and otherwise there is none to
-     * report, so the edit's check spends none of its time on reads. Unavailable
-     * where the target's read is.
+     * report, so the edit's check spends none of its time on reads.
      */
     async sensorCalibrationWith(target, read, readAll) {
-      if (read.kind !== "value") return { kind: "unavailable" };
       if (this.sensorCalibration === void 0) return readAll ? readSensorCalibration() : void 0;
-      return { kind: "value", value: { ...this.sensorCalibration, [target]: read.value }, etag: null };
+      return { kind: "value", value: { ...this.sensorCalibration, [target]: read }, etag: null };
     }
     /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
     async capture(source, full) {
@@ -3715,7 +3713,7 @@ var __decentSync = (() => {
       const route = `/machine/calibration/${target}`;
       const before = await readObject(route);
       if (!before.ok) return refusedByDecaid(edit, before.answer.status, decaidMessage(before.answer));
-      const checked = await this.reports.sensorCalibrationWith(target, { kind: "value", value: before.value, etag: null }, false);
+      const checked = await this.reports.sensorCalibrationWith(target, before.value, false);
       if (checked) this.reports.reportSettings("sensorCalibration", checked, false);
       const current = before.value.measuredValue;
       if (!sameValue(current, edit.expected[target])) {
@@ -3733,7 +3731,7 @@ var __decentSync = (() => {
         failure = describe(error);
       }
       const after = await readObject(route).catch(() => void 0);
-      const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, { kind: "value", value: after.value, etag: null }, true) : void 0;
+      const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, after.value, true) : void 0;
       this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
       return answered(edit, written2, failure, after?.ok ? calibrated(target, after.value) : void 0);
     }
