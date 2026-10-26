@@ -87,6 +87,8 @@ describe("Settings Edits", () => {
     return body as Record<string, unknown>;
   }
   const settingsWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === "POST /machine/settings");
+  /** How many of the plugin's requests to the machine's settings the tablet has taken, its writes among them. */
+  const settingsRequests = (tablet: SimulatedTablet) => tablet.requests.filter((request) => request === "/machine/settings").length;
   const editsReceived = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Frame).type === "settingsEdit");
 
   it("applies an Admin's edit of the fan threshold, reporting the read-back before the answer", async () => {
@@ -237,12 +239,21 @@ describe("Settings Edits", () => {
     expect((await tablet.callApi("POST", "/settings", { themeMode: "dark" })).status).toBe(200);
     await expect.poll(() => (tablet.sent as Frame[]).some((frame) => frame.type === "collection" && frame.name === "appSettings" && (frame.value as { themeMode?: string }).themeMode === "dark")).toBe(true);
 
+    // The edit's write is held, and listed in `requests` once released. Its read-back is the next request to the machine's
+    // settings after it: `SettingsAccess` runs the edit and their interval reads one at a time, and the tablet answers that
+    // read from what Decaid holds as it lists it, with no await between.
+    const write = tablet.holdRequests("POST", "/machine/settings");
     const made = await make(machine, { collection: "machineSettings", fields: { fan: 40 }, expected: { fan: 50 } });
-    await expect.poll(async () => (await readHeld(tablet)).fan).toBe(40);
+    await expect.poll(() => write.arrived).toBe(1);
+    const beforeWrite = settingsRequests(tablet);
+    write.release();
+    // The edit has read back the fan threshold it wrote, not just written it, before anything else changes it.
+    await expect.poll(() => settingsRequests(tablet)).toBeGreaterThanOrEqual(beforeWrite + 2);
+    expect((await readHeld(tablet)).fan).toBe(40);
     // A barista lowers it again, and the machine's settings are read on their interval, while the edit's read-back and answer wait.
     expect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
-    const reads = tablet.requests.filter((request) => request === "/machine/settings").length;
-    await expect.poll(() => tablet.requests.filter((request) => request === "/machine/settings").length).toBeGreaterThan(reads);
+    const reads = settingsRequests(tablet);
+    await expect.poll(() => settingsRequests(tablet)).toBeGreaterThan(reads);
     stalled = false;
     tablet.resumeUpload();
 
