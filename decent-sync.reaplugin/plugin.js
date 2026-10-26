@@ -1451,7 +1451,7 @@ var __decentSync = (() => {
        * is, which a correction of the tablet's clock does not move.
        */
       __publicField(this, "awayTimer");
-      /** Whether DYE2 has been not loaded since `awayTimer` fired, until it is seen loaded. */
+      /** Whether `awayTimer` has fired since DYE2 was last seen loaded. */
       __publicField(this, "notLoadedLong", false);
       __publicField(this, "captureOnly", false);
       /** How many writes of the plugin's into the Workflow are under way (`ownWrite`). */
