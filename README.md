@@ -544,7 +544,7 @@ holding its spec, tickets and pull requests.
 5. **[Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5).**
    Each release runs beside the previous one (ADR-0025), so several server
    instances upgrade without taking anything offline, and Roux's server runs
-   on two machines deployed blue-green. Built before the Live View, whose
+   on two fly.io VMs deployed blue-green. Built before the Live View, whose
    messages are the first to need it. Spec:
    [#277](https://github.com/loganfuller/decent-sync/issues/277).
 6. **Analytics.** Broader views across Machines and Locations, and Barista

@@ -12,7 +12,7 @@ We rejected checking the Decaid version in the plugin. The minimum would then mo
 
 ## Consequences
 
-- **No compatibility code but ADR-0025's.** No fallbacks for older Decaid record layouts. The plugin and server handle what the other's previous release sends, and send it nothing it would refuse, until the wire moves on, and each release migrates the database in place. The protocol stays at version 1: a wire change raises the wire revision instead (ADR-0025).
+- **No compatibility code but ADR-0025's.** No fallbacks for older Decaid record layouts. The plugin and server handle what the other's previous release sends, and send it nothing new without the wire revision that brings it, until the wire moves on, and each release migrates the database in place. The protocol stays at version 1: a wire change raises the wire revision instead (ADR-0025).
 - **Raising the Decaid minimum.** A release that relies on a newer Decaid raises `OLDEST_SUPPORTED_DECAID`. Once the server is upgraded, it refuses tablets below the new minimum, so the release's upgrade notes name it.
 - **de1app.** The plugin skips Decaid's imports from the legacy Tcl app (ids `de1app-*`, ADR-0004). Nothing else handles them.
 - **Unfamiliar fields are still accepted.** Validators ignore fields they do not know, and Decaid payloads are stored as sent, so a newer Decaid doesn't break capture.
