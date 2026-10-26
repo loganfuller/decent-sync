@@ -89,11 +89,13 @@ for (;;) {
 }
 
 const envFile = path.join(repoDir, ".env");
-if (!process.env.TEST_DATABASE_URL && fs.existsSync(envFile)) process.loadEnvFile(envFile);
+// The file overrides nothing already set, so it is read whenever either is unset.
+if ((!process.env.TEST_DATABASE_URL || !process.env.DATABASE_URL) && fs.existsSync(envFile)) process.loadEnvFile(envFile);
 const url = process.env.TEST_DATABASE_URL || defaultUrl;
-const development = process.env.DATABASE_URL && new URL(process.env.DATABASE_URL);
 const target = new URL(url);
-if (development && development.hostname === target.hostname && development.port === target.port) {
+/** A URL's host and port as PostgreSQL clients read them, every loopback name as one. */
+const endpoint = ({ hostname, port }) => `${["localhost", "127.0.0.1", "[::1]"].includes(hostname) ? "loopback" : hostname}:${port || "5432"}`;
+if (process.env.DATABASE_URL && endpoint(new URL(process.env.DATABASE_URL)) === endpoint(target)) {
   throw new Error(`TEST_DATABASE_URL names DATABASE_URL's server (${target.host}), which holds development data: point it at ${container} on port 55432`);
 }
 
@@ -112,6 +114,13 @@ const client = await (async () => {
   }
 })();
 try {
+  // Another address could still reach another server, such as DATABASE_URL's under
+  // another name, so nothing is dropped unless this is the container's own cluster.
+  const identity = "SELECT system_identifier::text AS id FROM pg_control_system()";
+  const own = docker("exec", container, "psql", "-U", "decent_sync", "-d", "decent_sync", "-tAc", identity);
+  const { rows: [reached] } = await client.query(identity);
+  if (reached.id !== own) throw new Error(`${target.host} reaches a PostgreSQL server other than ${container}'s, so no test databases were dropped there`);
+
   // Test databases are named decent_sync_test_<unix seconds>_<hex> (testDatabaseName() in
   // server/test/support/test-server.ts). One over 2 hours old that no session is using was
   // left by a run that was killed. A plain DROP refuses one a session connected to meanwhile.
