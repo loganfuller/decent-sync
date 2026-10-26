@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid090, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
+import { CHECK_MS, DETAILS_POLL_MS, POLL_MS, afterDetailsPolls, afterStatusPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 
@@ -71,8 +71,8 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   // within seconds, and loads the Workflow less often.
   tablet.setWorkflow(derivedWorkflow({ targetYield: 40, grinderSetting: "7.5" }));
   tablet.reportState("idle", "idle");
-  await expect(field(page, "Machine state")).toHaveText(/^Idle, since /);
-  await afterDetailsPolls(page, () => expect(field(workflow, "Yield")).toHaveText("40 g", { timeout: 2_000 }));
+  await afterStatusPolls(page, () => expect(field(page, "Machine state")).toHaveText(/^Idle, since /, { timeout: CHECK_MS }));
+  await afterDetailsPolls(page, () => expect(field(workflow, "Yield")).toHaveText("40 g", { timeout: CHECK_MS }));
   await expect(field(workflow, "Grind setting")).toHaveText("7.5");
   await page.goto("/machines");
   await expect(machineRow(page, "Bar 1")).toContainText("Idle");

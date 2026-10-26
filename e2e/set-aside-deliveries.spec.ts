@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid090, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { afterDetailsPolls } from "./support/polling.js";
+import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -39,7 +39,7 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   await machineRow(page, "Bar 1").getByRole("link", { name: "Bar 1" }).click();
   const setAside = page.getByRole("region", { name: "Deliveries set aside" });
   // Loaded every 30 s, as is all but the Machine's status.
-  await afterDetailsPolls(page, () => expect(setAside).toContainText("1 delivery from its tablet could not be stored", { timeout: 2_000 }));
+  await afterDetailsPolls(page, () => expect(setAside).toContainText("1 delivery from its tablet could not be stored", { timeout: CHECK_MS }));
   const rows = setAside.getByRole("table", { name: "Deliveries set aside" }).getByRole("row");
   await expect(rows).toHaveCount(2);
   await expect(rows.nth(1).getByRole("cell")).toHaveText([/^\w{3} \d+, \d{4}, /, "Shot", "nul-shot", /^.+ \((?:22P05|22021)\)$/]);

@@ -13,7 +13,7 @@ import {
 } from "../server/test/support/simulated-tablet.js";
 import { SimulatedDye2, dye2Migrated } from "../server/test/support/simulated-dye2.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { afterDetailsPolls } from "./support/polling.js";
+import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
@@ -140,8 +140,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
   tablet.machineConnected = false;
   tablet.serve({ ...served, ...simulatedDevicesSwitchedOff() });
   await afterDetailsPolls(page, async () => {
-    await expect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: 2_000 });
-    await expect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
+    await expect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: CHECK_MS });
+    await expect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: CHECK_MS });
   });
   await expect(field(general, "Fan threshold")).toHaveText(/^55 °C/);
 });
@@ -218,8 +218,8 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline!.status).toBe("notActive");
   await expect.poll(async () => (await reported()).dye2!.loaded).toBe(false);
   await afterDetailsPolls(page, async () => {
-    await expect(field(page, "DYE2")).toHaveText("0.1.26 (not loaded)", { timeout: 2_000 });
-    await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: 2_000 });
+    await expect(field(page, "DYE2")).toHaveText("0.1.26 (not loaded)", { timeout: CHECK_MS });
+    await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
   });
 
   // DYE2 is installed from its dist branch and Decaid serves Streamline's build of main, both builds of main, and the
@@ -230,8 +230,8 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", build: "main" });
   await tablet.unload();
   await afterDetailsPolls(page, async () => {
-    await expect(field(page, "Status")).toHaveText("Offline", { timeout: 2_000 });
-    await expect(field(page, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: 2_000 });
+    await expect(field(page, "Status")).toHaveText("Offline", { timeout: CHECK_MS });
+    await expect(field(page, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: CHECK_MS });
   });
   await expect(field(page, "Streamline")).toHaveText("0.2.18 (main build)");
 });

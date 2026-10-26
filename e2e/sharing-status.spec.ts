@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
 // A Machine's page shows its sharing status: how many changes are waiting for
@@ -41,6 +42,8 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   await offer(page, uptown.id, "House Blend");
   await expect.poll(() => tablet.beans().map((record) => record.name)).toEqual(["House Blend"]);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
@@ -54,9 +57,9 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   // Offline, what the Location offers meanwhile waits for it, and is written once it connects again.
   tablet.loseNetwork();
   await offer(page, uptown.id, "Seasonal");
-  await expect(sharing.getByText("2 changes, written once its tablet connects")).toBeVisible();
+  await afterStatusPolls(page, () => expect(sharing.getByText("2 changes, written once its tablet connects")).toBeVisible({ timeout: CHECK_MS }));
   tablet.restoreNetwork();
-  await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
+  await afterStatusPolls(page, () => expect(sharing.getByText("None: its tablet is up to date")).toBeVisible({ timeout: CHECK_MS }));
   expect(tablet.beans().map((record) => record.name).sort()).toEqual(["House Blend", "Seasonal"]);
   // The Bean refused stays refused until it changes again.
   await expect(refused.getByRole("row", { name: /Refused Blend/ })).toBeVisible();

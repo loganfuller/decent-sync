@@ -70,6 +70,8 @@ test("signing in survives a browser restart, and signing out ends the session on
 });
 
 test("a session that expires while a Machine's page is open goes to sign-in at its next poll, and back after signing in", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/");
   await signIn(page, admin);
   await expectSignedIn(page);
@@ -94,7 +96,7 @@ test("a session that expires while a Machine's page is open goes to sign-in at i
   }
 
   // The page's next poll is refused, and it goes to sign-in. All of the poll's refused requests read the session once.
-  await refused;
+  await refused();
   await expect(page).toHaveURL(/\/sign-in$/);
   expect(await alerts()).toEqual([]);
   expect(sessionReads).toBe(1);

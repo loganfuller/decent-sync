@@ -10,6 +10,7 @@ import {
   settingsFor,
 } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -44,6 +45,8 @@ let lab: { serverUrl: string; token: string };
 let labTablet: SimulatedTablet;
 
 test("creating a Machine shows its token once, and a tablet using it shows the Machine online", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Machines" }).click();
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
@@ -76,8 +79,10 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   // Someone at the machine enters what was copied in the plugin's settings.
   lab = { serverUrl, token };
   labTablet = loadTablet(lab);
-  await expect(row).toContainText("Online");
-  await expect(row).toContainText("DE1Pro");
+  await afterStatusPolls(page, async () => {
+    await expect(row).toContainText("Online", { timeout: CHECK_MS });
+    await expect(row).toContainText("DE1Pro", { timeout: CHECK_MS });
+  });
   await expect(row).not.toContainText("Hardware not reported");
 
   // Once dismissed, the token is gone for good.
@@ -232,6 +237,8 @@ test("a bound Machine connecting from a machine without a serial can be confirme
 });
 
 test("reissuing a token shows the new token once, and the old token can no longer connect", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Home").getByRole("link", { name: "Home" }).click();
   await expect(field(page, "Status")).toHaveText("Online");
@@ -262,8 +269,10 @@ test("reissuing a token shows the new token once, and the old token can no longe
   connections.push(raw);
   raw.send(helloWith(home.token, { machine: { model: "DE1Plus", serial: "10010" }, connectionId: "00:00:5E:00:53:20" }));
   expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
-  await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText(
-    "a token that was replaced by a newer one",
+  await afterStatusPolls(page, () =>
+    expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText("a token that was replaced by a newer one", {
+      timeout: CHECK_MS,
+    }),
   );
 
   await notice.getByRole("button", { name: "Done" }).click();
@@ -275,7 +284,7 @@ test("reissuing a token shows the new token once, and the old token can no longe
   // With the new token entered, the Machine is back.
   await homeTablet.unload();
   loadTablet({ serverUrl: home.serverUrl, token }, { api: derivedDe1Pro({ model: "DE1", serial: "0", connectionId: "00:00:5E:00:53:20" }) });
-  await expect(field(page, "Status")).toHaveText("Online");
+  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Online", { timeout: CHECK_MS }));
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toHaveCount(0);
 });
 
@@ -300,6 +309,8 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   await before.waitForLog(/^Connected to /);
   const first = String(storage.read("tabletId"));
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Reset tablet").getByRole("link", { name: "Reset tablet" }).click();
   const tablets = page.getByRole("region", { name: "Tablets" });
@@ -313,9 +324,11 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   const second = String(storage.read("tabletId"));
   expect(second).not.toBe(first);
 
-  await expect(field(tablets, "Tablet id")).toHaveText(second);
   const earlier = tablets.getByRole("list", { name: "Earlier tablets" }).getByRole("listitem");
-  await expect(earlier).toHaveCount(1);
+  await afterStatusPolls(page, async () => {
+    await expect(field(tablets, "Tablet id")).toHaveText(second, { timeout: CHECK_MS });
+    await expect(earlier).toHaveCount(1, { timeout: CHECK_MS });
+  });
   await expect(earlier).toContainText(first);
   await expect(earlier).toContainText(/^.+First seen .+, last seen .+$/);
 });

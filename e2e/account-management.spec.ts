@@ -114,6 +114,8 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   // Sam has Uptown 1's page open on their laptop.
   const samsLaptop = await signedOutPage(browser);
   expect((await samsLaptop.request.post("/api/session", { data: sam })).status()).toBe(200);
+  // The page's clock runs as usual until the test moves it on.
+  await samsLaptop.clock.install();
   await samsLaptop.goto(`/machines/${uptown1.id}`);
   await expect(samsLaptop.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   const laptopAlerts = await recordAlerts(samsLaptop);
@@ -138,7 +140,7 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   await expect(samsPhone.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
 
   // The laptop's session ended, so its page is refused at its next poll and goes to sign-in, and back after Sam signs in.
-  await refused;
+  await refused();
   await expect(samsLaptop).toHaveURL(/\/sign-in$/);
   expect(await laptopAlerts()).toEqual([]);
   await signIn(samsLaptop, sam);
@@ -157,6 +159,8 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
 test("an Admin deactivates an account, which signs it out and refuses its sign-in, then reactivates it", async ({ page, browser }) => {
   // Sam opens Uptown 1's page, signing in on the way.
   const samsPage = await signedOutPage(browser);
+  // The page's clock runs as usual until the test moves it on.
+  await samsPage.clock.install();
   await samsPage.goto(`/machines/${uptown1.id}`);
   await expect(samsPage).toHaveURL(/\/sign-in$/);
   await signIn(samsPage, { email: sam.email, password: newPassword });
@@ -173,7 +177,7 @@ test("an Admin deactivates an account, which signs it out and refuses its sign-i
   await expect(row.getByRole("button", { name: `Reset ${sam.name}'s password` })).toHaveCount(0);
 
   // Sam's open page is refused at its next poll and goes to sign-in, where signing in is refused.
-  await refused;
+  await refused();
   await expect(samsPage).toHaveURL(/\/sign-in$/);
   expect(await alerts()).toEqual([]);
   await signIn(samsPage, { email: sam.email, password: newPassword });

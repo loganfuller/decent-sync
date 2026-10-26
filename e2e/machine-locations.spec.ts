@@ -1,6 +1,7 @@
 import { expect, type Page, test } from "@playwright/test";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 
@@ -264,6 +265,8 @@ test("an open correction follows another Admin's change to its entry, and saving
   const entry = `/api/machines/${machine.id}/location-history/${machine.locationHistory[0]!.id}`;
   expect((await page.request.patch(entry, { data: { effectiveFrom: "2026-01-10T15:00:00Z" } })).status()).toBe(200);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}`);
   await history(page).getByRole("button", { name: "Correct arrival at Uptown" }).click();
   const form = history(page).getByRole("form");
@@ -271,7 +274,7 @@ test("an open correction follows another Admin's change to its entry, and saving
 
   // Another Admin corrects the entry while the form is open; the page's polling brings it in.
   expect((await page.request.patch(entry, { data: { locationId: belmont!.id, effectiveFrom: "2026-01-12T15:00:00Z" } })).status()).toBe(200);
-  await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-12T09:00");
+  await afterStatusPolls(page, () => expect(form.getByLabel("Arrived")).toHaveValue("2026-01-12T09:00", { timeout: CHECK_MS }));
   await expect(form.getByRole("combobox", { name: "Location" })).toHaveText("Belmont");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
