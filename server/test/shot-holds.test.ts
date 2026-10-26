@@ -64,8 +64,6 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   const workflowWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === "PUT /workflow").length;
   /** The writes the server sent the tablet's plugin. */
   const serverWrites = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Record_).type === "write");
-  /** How many changes the Machine's sharing status shows waiting. */
-  const waiting = async ({ machine }: CreatedMachine) => (await api.get<{ status: { waiting: number | null } }>(`/machines/${machine.id}/sharing-status`)).status.waiting ?? 0;
   /** The Recipe whose load the tablet's plugin keeps held for a Shot in its storage (`heldLoad`), by its global id, or null. */
   const heldLoad = (tablet: SimulatedTablet) => {
     const kept = tablet.storage.read("heldLoad");
@@ -184,10 +182,11 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     shot = shotOn(c, "unload-51011", 51012);
     await c.changeSettings({ context: { targetDoseWeight: 18.8 } });
     await expect.poll(async () => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${one}`)).recipe.content.dose, { timeout: 15_000 }).toBe(18.8);
+    const sent = c.received.length;
     expect((await api.call("PUT", `/recipes/${one}/archived`, { archived: true })).status).toBe(200);
-    // The site's own wait: C's Machine has the Archive's writes waiting, held through the Shot, its record's removal and the
-    // unload; then nothing under way on the tablets, C's Machine left out.
-    await expect.poll(() => waiting(machines.c), { timeout: 15_000 }).toBeGreaterThan(0);
+    // The site's own wait: the server's removal of C's record of the Recipe has reached the plugin, which holds it through
+    // the Shot; then nothing under way on the tablets, C's Machine left out, as it has the removal and the unload waiting.
+    await expect.poll(() => (c.received.slice(sent) as Record_[]).some((frame) => frame.type === "remove" && frame.kind === "recipe"), { timeout: 15_000 }).toBe(true);
     await quiet({ shotOnC: true });
     expect(recipeIdInWorkflow(c)).toBe(ETHIOPIA);
     shot.end();
