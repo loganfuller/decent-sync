@@ -17,7 +17,7 @@ const QUIET = "quiet";
 
 /**
  * Resolves once the tablets, their DYE2s, the Streamlines and the server
- * have nothing left to do between them: two samples in a row pass, with a
+ * show nothing left to do between them: two samples in a row pass, with a
  * finished read of `/sensors`, which each of the plugin's polls makes last,
  * on every tablet between them, so a change a poll would find has been
  * read and reported. Each sample checks that the server has acknowledged
@@ -28,6 +28,12 @@ const QUIET = "quiet";
  * enough: the plugin holds a Workflow report back while its own writes and
  * DYE2's saves run, so DYE2 can be settled before the server's write
  * arrives, and every frame acknowledged while a report is held back.
+ *
+ * It sees only those checks. A delivery waiting for Decaid's plugin storage
+ * to answer (as while `holdStorageAnswers` holds it), one waiting out the
+ * plugin's retry after a failed send or read, and a frame the server sent
+ * that has not yet arrived all pass unseen, so don't call it while a test
+ * holds storage answers or has just made a send or read fail.
  *
  * It is for setup and for ordering steps, not in place of a settle before a
  * check that something does not happen: it shows that nothing is under way,

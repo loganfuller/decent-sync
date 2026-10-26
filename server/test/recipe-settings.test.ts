@@ -215,7 +215,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
       await expect.poll(() => [setting(c, "flushDuration"), recorded(c, "flushDuration")], { timeout: 15_000 }).toEqual([duration, duration]);
     }
     await settle();
-    // One edit of each, from C, and nothing written into C's Workflow of the flush.
+    // One edit of each, from C, C's Workflow and record left at the last, and nothing written into C's Workflow of the flush.
+    expect([setting(c, "flushDuration"), recorded(c, "flushDuration")]).toEqual([10, 10]);
     expect(await editsOf(one, "flushDuration")).toBe(edits + 3);
     expect(workflowWritesTo(c, received).filter((fields) => "rinseData.duration" in fields)).toEqual([]);
   });
