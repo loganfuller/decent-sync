@@ -2,8 +2,9 @@ import { GLOBAL_ID_KEY, RECIPE_SETTINGS, dye2GlobalIdOf, dye2RecipeIdOf, workflo
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { startStreamline } from "./support/simulated-streamline.js";
+import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
 import {
   DYE2_NAMESPACE,
   type Dye2Key,
@@ -126,8 +127,9 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   }
   /** The ids of the Shots a filtered list holds, in list order. */
   const listed = async (query: string) => (await api.get<{ shots: ShotView[] }>(`/shots?${query}`)).shots.map((shot) => shot.id);
-  /** Waits a while for what should not happen. */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
+  /** Whether the server has acknowledged a Workflow delivery from the tablet naming that record id. */
+  const namedDelivered = (tablet: SimulatedTablet, recordId: string) =>
+    tablet.acknowledgedSome((frame: Record_) => frame.type === "workflow" && dye2RecipeIdOf(frame.workflow) === recordId);
 
   /**
    * Holds the plugin's reads of DYE2's recipes back, for a tablet given its
@@ -219,7 +221,13 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(() => recipeRecords(tablet).every(([, id]) => id !== null)).toBe(true);
     await expect.poll(() => recipeRecords(neverUsed)).toEqual(recipeRecords(tablet));
     const idOf = (recordId: string) => dye2GlobalIdOf(recordWithId(tablet, recordId))!;
-    return { here, machine, second, tablet, neverUsed, library: idOf(LIBRARY), brazil: idOf(BRAZIL), ethiopia: idOf(ETHIOPIA) };
+    /**
+     * Resolves once both tablets, their DYE2s, both Machines and the Streamlines given have nothing left under way
+     * (`quiesced`), so a wrong write or load a step set off has landed before a check after it that it did not happen.
+     * While `recipeReadsHold` holds reads, a read is under way by design, so a site there waits on its own event instead.
+     */
+    const quiet = (streamlines: Record<string, SimulatedStreamline> = {}) => quiesced(api, { tablets: { tablet, neverUsed }, machines: { machine, second }, streamlines });
+    return { here, machine, second, tablet, neverUsed, library: idOf(LIBRARY), brazil: idOf(BRAZIL), ethiopia: idOf(ETHIOPIA), quiet };
   }
 
   /** Applies the recipe's pill on DYE2's dashboard, and resolves once the Machine has its Recipe loaded. */
@@ -278,7 +286,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
   });
 
   it("does not link a Shot to the Recipe its Workflow names where it was not its Machine's Loaded Recipe as it was pulled, as on a Capture-only Machine", async () => {
-    const { machine, tablet, library, brazil } = await lab("Capture-only", 49011);
+    const { machine, tablet, library, brazil, quiet } = await lab("Capture-only", 49011);
     await load(tablet, machine, LIBRARY, library);
     expect((await api.call("PUT", `/machines/${machine.machine.id}/sharing`, { sharing: false })).status).toBe(200);
     await expect.poll(() => recipeIdInWorkflow(tablet)).toBeNull();
@@ -286,10 +294,12 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
     // The Brazil applied from Streamline's strip while capture-only stays named in the Workflow, but is not its Loaded Recipe:
     // the plugin writes nothing there.
-    const applied = await startStreamline(tablet).then((streamline) => streamline.applyRecipe(2));
+    const streamline = await startStreamline(tablet);
+    const applied = await streamline.applyRecipe(2);
     expect(applied.workflow?.status).toBe(200);
     await expect.poll(() => recipeIdInWorkflow(tablet)).toBe(BRAZIL);
-    await settle();
+    // Once the apply's report, Streamline's replies and anything they set off are done.
+    await quiet({ streamline });
     const shot = pull(tablet, "recipe-capture-only", 49011);
     expect(dye2RecipeIdOf(shot.workflow)).toBe(BRAZIL);
     expect((await storedShot("recipe-capture-only")).recipe).toBeNull();
@@ -342,7 +352,9 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const { id: savedId } = saved.body as { id: string; name: string };
     expect(savedId).toMatch(/^recipe-/);
     expect(recipeIdInWorkflow(tablet)).toBe(savedId);
-    await settle();
+    // The site's own wait, as the recipe reads are held: the server has the Workflow naming the new recipe, which its map
+    // holds no record of yet.
+    await expect.poll(() => namedDelivered(tablet, savedId), { timeout: 15_000 }).toBe(true);
     pull(tablet, "recipe-saved-before-intake", 49101);
     expect((await storedShot("recipe-saved-before-intake")).recipe).toBeNull();
     expect(await loadedRecipe(machine)).toBeNull();
@@ -385,7 +397,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
   it("writes the settings Streamline's strip leaves out of a recipe made in DYE2's editor and applied before its record was taken in, which the Machine's next change keeps", async () => {
     const unread = recipeReadsHold();
-    const { machine, tablet } = await lab("Made then applied", 49111, unread.tabletOptions);
+    const { machine, tablet, quiet } = await lab("Made then applied", 49111, unread.tabletOptions);
     tablet.connectMachine();
     const streamline = await startStreamline(tablet);
     const hotWater = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.hotWaterDuration.workflow);
@@ -399,7 +411,9 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const savedId = String(saved.id);
     await streamline.applyRecipe(5);
     expect([recipeIdInWorkflow(tablet), hotWater()]).toEqual([savedId, own]);
-    await settle();
+    // The site's own wait, as the recipe reads are held: the server has the Workflow naming the new recipe, so its report,
+    // timed by the tablet's clock as the host's, comes before the dial change timed from here on.
+    await expect.poll(() => namedDelivered(tablet, savedId), { timeout: 15_000 }).toBe(true);
     // Then a change of the dial, which the load gains the Recipe, timed as the plugin observed it, not as the recipe was named.
     const dialledAt = new Date().toISOString();
     await tablet.changeSettings({ context: { grinderSetting: "3.1" } });
@@ -418,7 +432,8 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
-    await settle();
+    // Once the change's report, DYE2's save of it and anything else they set off are done, the reads no longer held.
+    await quiet({ streamline });
     const recorded = (recordWithId(tablet, savedId)?.dashboardVariables ?? {}) as Record_;
     expect([(await recipe(savedRecipe)).content.hotWaterDuration, hotWater(), recorded.hotWaterTimeS]).toEqual([47, 47, 47]);
   });
