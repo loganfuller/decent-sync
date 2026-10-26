@@ -69,6 +69,11 @@ jobs:
           path: *modules-path
           key: *modules-key
 
+      # vitest.config.ts deals the test files out to the shards by this
+      # manifest, and a file it lacks falls back to an estimate from its size.
+      - name: Check every test file has a duration in vitest.durations.json
+        run: node scripts/update-test-durations.mjs --check
+
       # Decaid installs the committed build, so it must match its source.
       - name: Check the committed plugin build is fresh
         run: npm run check:plugin-build
@@ -76,8 +81,10 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-  # vitest.config.ts deals the test files out to the shards by size. The job
-  # total is the shard count only while shard is the matrix's one dimension.
+  # vitest.config.ts deals the test files out to the shards by their CI
+  # durations in vitest.durations.json, committed so every shard reads the
+  # same one. The job total is the shard count only while shard is the
+  # matrix's one dimension.
   vitest:
     name: vitest (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-26.04

@@ -3,25 +3,57 @@ import { availableParallelism } from "node:os";
 import path from "node:path";
 import { defineConfig } from "vitest/config";
 import { BaseSequencer, type TestSpecification } from "vitest/node";
+import { dealOut, estimateDurations, longestFirst, readManifest } from "./scripts/test-durations.mjs";
 
-// CI runs the tests in shards (`--shard=i/n`), one job each. Vitest's own
-// sharding splits the files evenly by count, in hash order, which left one
-// shard with half again the work of another: a file's tests take from under a
-// second to a minute. Its size follows its duration well enough, so this
-// deals the files out largest first, each to the shard with the fewest bytes
-// so far. Every shard computes the same split from the same files.
-class SizeBalancedSequencer extends BaseSequencer {
+// CI runs the tests in shards (`--shard=i/n`), one job each, and a file is
+// the unit of parallelism: Vitest runs a file's tests in turn, on one worker.
+// Vitest's own split by count, and a split by size, both left one shard far
+// slower than another, since a file's size tracks its duration poorly. So
+// this deals the files out by their typical CI durations in
+// vitest.durations.json (scripts/update-test-durations.mjs, which the checks
+// job runs with --check), longest first, each to the shard with the least
+// time so far. A file the manifest lacks is estimated from its size
+// (scripts/test-durations.mjs). The split reads only the file list, the
+// manifest and file sizes, never Vitest's results cache, so every shard
+// computes the same one.
+//
+// Each shard then starts its longest files first, so that a long file does
+// not start last and run on alone. Every project has the same groupOrder and
+// maxWorkers, so Vitest's pool runs them as one group taking files from one
+// queue, in this order: unlike BaseSequencer.sort, this does not keep each
+// project's files together. Where a local results cache exists, files that
+// failed last time still go first.
+class DurationBalancedSequencer extends BaseSequencer {
   override async shard(files: TestSpecification[]): Promise<TestSpecification[]> {
     const { index, count } = this.ctx.config.shard!;
-    const sized = files.map((spec) => ({ spec, size: fs.statSync(spec.moduleId).size }));
-    sized.sort((a, b) => b.size - a.size || (a.spec.moduleId < b.spec.moduleId ? -1 : a.spec.moduleId > b.spec.moduleId ? 1 : 0));
-    const shards = Array.from({ length: count }, () => ({ specs: [] as TestSpecification[], size: 0 }));
-    for (const { spec, size } of sized) {
-      const lightest = shards.reduce((least, shard) => (shard.size < least.size ? shard : least));
-      lightest.specs.push(spec);
-      lightest.size += size;
-    }
-    return shards[index - 1]!.specs;
+    return dealOut(this.estimate(files), count)[index - 1]!.map((file) => file.spec);
+  }
+
+  override async sort(files: TestSpecification[]): Promise<TestSpecification[]> {
+    const { cache, config } = this.ctx;
+    const failed = (spec: TestSpecification) =>
+      cache.getFileTestResults(`${spec.project.name}:${path.relative(config.root, spec.moduleId)}`)?.failed === true;
+    return this.estimate(files)
+      .sort(
+        (a, b) =>
+          a.spec.project.config.sequence.groupOrder - b.spec.project.config.sequence.groupOrder ||
+          Number(failed(b.spec)) - Number(failed(a.spec)) ||
+          longestFirst(a, b),
+      )
+      .map((file) => file.spec);
+  }
+
+  private estimate(files: TestSpecification[]) {
+    const { root } = this.ctx.config;
+    return estimateDurations(
+      files.map((spec) => ({
+        spec,
+        path: path.relative(root, spec.moduleId).split(path.sep).join("/"),
+        project: spec.project.name,
+        size: fs.statSync(spec.moduleId).size,
+      })),
+      readManifest(root),
+    );
   }
 }
 
@@ -48,7 +80,7 @@ export default defineConfig({
     hookTimeout: 60_000,
     // Checks that no server's or simulated tablet's log holds a secret a test was given.
     setupFiles: ["server/test/support/setup.ts"],
-    sequence: { sequencer: SizeBalancedSequencer },
+    sequence: { sequencer: DurationBalancedSequencer },
     projects: [
       { extends: true, test: { name: "protocol", include: ["protocol/test/**/*.test.ts"] } },
       { extends: true, test: { name: "plugin", include: ["plugin/test/**/*.test.ts"] } },
