@@ -139,7 +139,7 @@ export class ShotsService {
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return { shots: page.map(withLocationInferred), total, limit, offset };
+    return { shots: page.map(shownShot), total, limit, offset };
   }
 
   /**
@@ -219,7 +219,7 @@ export class ShotsService {
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
-    return { ...withLocationInferred(shot!), previousShot: await this.previous(shot!) };
+    return { ...shownShot(shot!), previousShot: await this.previous(shot!) };
   }
 
   async measurements(id: string) {
@@ -374,7 +374,7 @@ function compareText(a: string | null, b: string | null): number {
  * inferred too; an unknown Location is not. Its duration leaves its Preheat
  * out (`shownDuration`).
  */
-function withLocationInferred<T extends { machineInferred: boolean; locationId: string | null; duration: number | null; preheat: number | null }>(
+function shownShot<T extends { machineInferred: boolean; locationId: string | null; duration: number | null; preheat: number | null }>(
   shot: T,
 ): Omit<T, "preheat"> & { locationInferred: boolean } {
   const { preheat, ...shown } = shot;

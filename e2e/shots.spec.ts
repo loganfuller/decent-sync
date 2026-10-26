@@ -19,7 +19,7 @@ const expect = baseExpect.configure({ timeout: 15_000 });
 const tablets: SimulatedTablet[] = [];
 
 const CURVES_TIP =
-  "Seconds from the start of the Shot's profile. Dashed lines are the targets its profile set." +
+  "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported." +
   "Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the profile's, and it doesn't count toward the duration or the peaks.";
 
 interface Recorded {
