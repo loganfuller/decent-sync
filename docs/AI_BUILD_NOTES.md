@@ -39,7 +39,7 @@ Vitest tests that need build output (the committed plugin, the compiled server) 
 
 ### Tests that stay fast
 
-- A file is the unit of parallelism: Vitest runs a file's tests in turn, on one worker. Keep each file well under the ideal shard length, the manifest's total divided by the number of shards times workers per shard (about 110 s today). `loaded-recipe-following.test.ts` already exceeds it, and sets CI's floor.
+- A file is the unit of parallelism: Vitest runs a file's tests in turn, on one worker. Keep each file well under the ideal shard length, the manifest's total divided by the number of shards times workers per shard (about 100 s today). The longest, `loaded-recipe-following.test.ts`, takes about 85 s.
 - A new real-time wait gets a test override through an environment variable, with the production default unchanged, as `SYNC_HELLO_TIMEOUT_SECONDS` and `SYNC_HEARTBEAT_SECONDS` do.
 - The `checks` job fails while `vitest.durations.json` lacks a test file or names one that is gone (`node scripts/update-test-durations.mjs --check`). Run the script with `--add-missing`, which estimates a new file from its size, and commit the result. After a file's duration changes a lot, such as after a split or a large speed-up, rebuild the manifest from the last 10 main runs on CI by running the script with no flag once those runs exist; compare their timings as the Milestone 1 verification paragraph says.
 
