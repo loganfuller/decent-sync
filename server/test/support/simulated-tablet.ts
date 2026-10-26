@@ -192,6 +192,11 @@ export interface EndpointAnswer {
   body: string;
 }
 
+/** One of the plugin's requests to Decaid's API under way (`inFlightRequests`), by its method, such as "GET". */
+export interface InFlightRequest {
+  readonly method: string;
+}
+
 export function readBuiltPlugin(): { source: string; manifest: Record<string, unknown> } {
   assertBuilt("plugin");
   return {
@@ -749,8 +754,8 @@ export class SimulatedTablet {
   readonly requestedAt: number[] = [];
   /** The plugin's requests that could change the tablet's data (any method but GET), such as "POST /beans". */
   readonly writes: string[] = [];
-  /** The plugin's requests to Decaid's API under way, for `requestsInFlight`. */
-  private inFlight = 0;
+  /** The plugin's requests to Decaid's API under way, for `requestsInFlight` and `inFlightRequests`. */
+  private readonly inFlight = new Set<InFlightRequest>();
   /** The plugin's writes to Decaid's store API that Decaid carried out, in order, each with the value written. */
   readonly storeWrites: { namespace: string; key: string; value: unknown }[] = [];
   /** Told of every change of the Workflow, after the plugin is. */
@@ -1524,16 +1529,27 @@ export class SimulatedTablet {
    * through `callApi`, are not counted; their `settled()` covers them.
    */
   get requestsInFlight(): number {
-    return this.inFlight;
+    return this.inFlight.size;
+  }
+
+  /**
+   * The plugin's requests to Decaid's API under way now, as `requestsInFlight`
+   * counts them, each the same object from the start of its fetch to its end,
+   * so a caller can tell a request still under way from one begun since.
+   */
+  get inFlightRequests(): readonly InFlightRequest[] {
+    return [...this.inFlight];
   }
 
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown, init: unknown): Promise<unknown> {
-    this.inFlight++;
+    const { method = "GET" } = (init ?? {}) as { method?: string };
+    const request: InFlightRequest = { method: method.toUpperCase() };
+    this.inFlight.add(request);
     try {
       return await this.fetchAnswer(input, init);
     } finally {
-      this.inFlight--;
+      this.inFlight.delete(request);
     }
   }
 

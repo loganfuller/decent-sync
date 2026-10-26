@@ -1,7 +1,7 @@
 import { expect } from "vitest";
 import type { AdminApi, CreatedMachine } from "./admin-api.js";
 import type { SimulatedStreamline } from "./simulated-streamline.js";
-import type { SimulatedTablet } from "./simulated-tablet.js";
+import type { InFlightRequest, SimulatedTablet } from "./simulated-tablet.js";
 
 /** What `quiesced` waits on, each by the name a failure gives it, such as `{ a, c }`. */
 export interface QuietScope {
@@ -22,18 +22,24 @@ const QUIET = "quiet";
  * on every tablet between them, so a change a poll would find has been
  * read and reported. Each sample checks that the server has acknowledged
  * every frame each plugin sent with an id (heartbeats and `hello` carry
- * none), that no plugin request to Decaid is under way, that every DYE2 and
- * Streamline is settled, and that no Machine's sharing status shows anything
- * waiting, the Loaded Recipe's write included. One sample of each is not
+ * none), that no plugin write to Decaid is under way, nor a read that was
+ * under way as the sample before it ended, as one held or slowed is, that
+ * every DYE2 and Streamline is settled, and that no Machine's sharing status
+ * shows anything waiting, the Loaded Recipe's write included. A read begun
+ * since passes: at 50x a tablet polls every 100 ms of real time, so on a
+ * busy machine one of its polls' reads is nearly always under way, and
+ * waiting for none at all could outlast the timeout. One sample of each is not
  * enough: the plugin holds a Workflow report back while its own writes and
  * DYE2's saves run, so DYE2 can be settled before the server's write
  * arrives, and every frame acknowledged while a report is held back.
  *
  * It sees only those checks. A delivery waiting for Decaid's plugin storage
  * to answer (as while `holdStorageAnswers` holds it), one waiting out the
- * plugin's retry after a failed send or read, and a frame the server sent
- * that has not yet arrived all pass unseen, so don't call it while a test
- * holds storage answers or has just made a send or read fail.
+ * plugin's retry after a failed send or read, a frame the server sent that
+ * has not yet arrived, and work the plugin began with a read since the
+ * sample before, as a save into the Loaded Recipe does, all pass unseen, so
+ * don't call it while a test holds storage answers or has just made a send
+ * or read fail.
  *
  * Before a check that something does not happen, it shows only that nothing
  * is under way, not that nothing would follow: a timer of the plugin's, or
@@ -46,10 +52,12 @@ const QUIET = "quiet";
 export async function quiesced(api: AdminApi, { tablets, machines = {}, streamlines = {} }: QuietScope): Promise<void> {
   /** Each tablet's count of `/sensors` reads as the first of the passing samples ended. */
   let first: Map<string, number> | undefined;
+  /** Each tablet's requests to Decaid under way as the latest sample that read them ended. */
+  const underWay = new Map<string, ReadonlySet<InFlightRequest>>();
   await expect
     .poll(async () => {
       // A sample that throws ends the run of quiet samples, as a failed check does.
-      const sampled = await sample(api, tablets, machines, streamlines).catch((error: unknown) => {
+      const sampled = await sample(api, tablets, machines, streamlines, underWay).catch((error: unknown) => {
         first = undefined;
         throw error;
       });
@@ -73,6 +81,7 @@ async function sample(
   tablets: Record<string, SimulatedTablet>,
   machines: Record<string, CreatedMachine>,
   streamlines: Record<string, SimulatedStreamline>,
+  underWay: Map<string, ReadonlySet<InFlightRequest>>,
 ): Promise<string | Map<string, number>> {
   for (const [name, tablet] of Object.entries(tablets)) {
     if (tablet.dye2 && !(await settledNow(tablet.dye2))) return `DYE2 on tablet ${name} is not settled`;
@@ -90,9 +99,16 @@ async function sample(
     if (waiting !== null && waiting !== 0) return `Machine ${name} has ${waiting} waiting`;
   }
   // Read together, with no await between them, so the counts mark the end of this sample.
+  const requests = new Map(Object.entries(tablets).map(([name, tablet]) => [name, tablet.inFlightRequests]));
+  const before = new Map(underWay);
+  for (const [name, now] of requests) underWay.set(name, new Set(now));
   for (const [name, tablet] of Object.entries(tablets)) {
     if (!tablet.acknowledgedEvery((frame: { id?: unknown }) => typeof frame.id === "string")) return `tablet ${name} has a frame unacknowledged`;
-    if (tablet.requestsInFlight > 0) return `tablet ${name} has ${tablet.requestsInFlight} Decaid requests in flight`;
+    const now = requests.get(name)!;
+    const writes = now.filter((request) => request.method !== "GET").length;
+    if (writes > 0) return `tablet ${name} has ${writes} Decaid writes in flight`;
+    const lasting = now.filter((request) => before.get(name)?.has(request)).length;
+    if (lasting > 0) return `tablet ${name} has ${lasting} Decaid reads in flight since the sample before`;
   }
   return new Map(Object.entries(tablets).map(([name, tablet]) => [name, tablet.requests.filter((route) => route === "/sensors").length]));
 }
