@@ -749,6 +749,8 @@ export class SimulatedTablet {
   readonly requestedAt: number[] = [];
   /** The plugin's requests that could change the tablet's data (any method but GET), such as "POST /beans". */
   readonly writes: string[] = [];
+  /** The plugin's requests to Decaid's API under way, for `requestsInFlight`. */
+  private inFlight = 0;
   /** The plugin's writes to Decaid's store API that Decaid carried out, in order, each with the value written. */
   readonly storeWrites: { namespace: string; key: string; value: unknown }[] = [];
   /** Told of every change of the Workflow, after the plugin is. */
@@ -1515,8 +1517,27 @@ export class SimulatedTablet {
     if (status !== 200) throw new Error(`Decaid refused to delete the bean with ${status}: ${JSON.stringify(body)}`);
   }
 
+  /**
+   * How many of the plugin's requests to Decaid's API are under way: each
+   * from the start of its fetch, through any `apiDelayMs` delay or hold,
+   * until it is answered or fails. DYE2's and Streamline's calls, made
+   * through `callApi`, are not counted; their `settled()` covers them.
+   */
+  get requestsInFlight(): number {
+    return this.inFlight;
+  }
+
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown, init: unknown): Promise<unknown> {
+    this.inFlight++;
+    try {
+      return await this.fetchAnswer(input, init);
+    } finally {
+      this.inFlight--;
+    }
+  }
+
+  private async fetchAnswer(input: unknown, init: unknown): Promise<unknown> {
     const arrived = this.answerOnArrival ? this.request(input, init) : undefined;
     // Answered or not, a request failing is not seen before its delay is over.
     arrived?.catch(() => {});
