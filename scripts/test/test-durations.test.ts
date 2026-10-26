@@ -82,4 +82,10 @@ describe("dealing files out to shards", () => {
 
     expect(dealOut(files, 3).map((shard) => shard.map((file) => file.path))).toEqual([["a"], ["b", "d"], ["c", "e"]]);
   });
+
+  it("spreads files of equal sums over the shards with the fewest files", () => {
+    const files = ["a", "b", "c", "d", "e"].map((path) => ({ path, seconds: 0 }));
+
+    expect(dealOut(files, 3).map((shard) => shard.map((file) => file.path))).toEqual([["a", "d"], ["b", "e"], ["c"]]);
+  });
 });

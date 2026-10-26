@@ -12,7 +12,7 @@ import { dealOut, estimateDurations, longestFirst, readManifest } from "./script
 // this deals the files out by their typical CI durations in
 // vitest.durations.json (scripts/update-test-durations.mjs, which the checks
 // job runs with --check), longest first, each to the shard with the least
-// time so far. A file the manifest lacks is estimated from its size
+// time so far, the fewest files on a tie. A file the manifest lacks is estimated from its size
 // (scripts/test-durations.mjs). The split reads only the file list, the
 // manifest and file sizes, never Vitest's results cache, so every shard
 // computes the same one.
@@ -82,7 +82,7 @@ export default defineConfig({
     // Each server test file runs up to three server instances on one
     // PostgreSQL, whose connection pools each hold up to 10 connections, and
     // PostgreSQL allows 100 by default. Vitest's default of one worker per
-    // CPU but one ran out of them on a 10-CPU machine; five peaked near 60.
+    // CPU but one ran out of them on a 10-CPU machine; five peaked near 85.
     maxWorkers: Math.min(5, Math.max(1, availableParallelism() - 1)),
     // Vitest's defaults (a poll gives up after 1 s, a test after 5 s, a hook
     // after 10 s) fail on a busy CI runner well before a server and tablet

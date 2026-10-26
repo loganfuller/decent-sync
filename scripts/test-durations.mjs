@@ -53,19 +53,23 @@ export function estimateDurations(files, manifest, root) {
   }));
 }
 
-/** Orders estimated files longest first, ties by path. */
+/** Orders estimated files longest first, ties by path, then by project. */
 export function longestFirst(a, b) {
-  return b.seconds - a.seconds || compareText(a.path, b.path);
+  return b.seconds - a.seconds || compareText(a.path, b.path) || compareText(a.project ?? "", b.project ?? "");
 }
 
 /**
  * Deals estimated files out to `count` shards, longest first, each to the
- * shard with the smallest summed estimate so far, the lowest on a tie.
+ * shard with the smallest summed estimate so far. On a tie it goes to the
+ * shard with the fewest files, so files estimated at 0 s are spread out
+ * rather than all landing on one, and then to the lowest.
  */
 export function dealOut(files, count) {
   const shards = Array.from({ length: count }, () => ({ files: [], seconds: 0 }));
   for (const file of [...files].sort(longestFirst)) {
-    const lightest = shards.reduce((least, shard) => (shard.seconds < least.seconds ? shard : least));
+    const lightest = shards.reduce((least, shard) =>
+      shard.seconds < least.seconds || (shard.seconds === least.seconds && shard.files.length < least.files.length) ? shard : least,
+    );
     lightest.files.push(file);
     lightest.seconds += file.seconds;
   }

@@ -8,6 +8,7 @@ export interface TestFile {
 }
 export interface Estimated {
   path: string;
+  project?: string;
   seconds: number;
 }
 
