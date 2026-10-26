@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException, type OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, Logger, NotFoundException, type OnModuleInit } from "@nestjs/common";
 import { HttpAdapterHost } from "@nestjs/core";
 import express, { type Express, type NextFunction, type Request, type Response } from "express";
 import type { Config } from "./config.js";
@@ -23,6 +23,8 @@ const API_PATH = /^\/api(?:\/|$)/i;
  */
 @Injectable()
 export class ManagementInterface implements OnModuleInit {
+  private readonly logger = new Logger("ManagementInterface");
+
   constructor(
     private readonly adapterHost: HttpAdapterHost,
     @Inject(CONFIG) private readonly config: Config,
@@ -40,6 +42,8 @@ export class ManagementInterface implements OnModuleInit {
       res.sendFile("index.html", { root }, (error?: Error) => {
         if (!error) return;
         if (res.headersSent) {
+          const code = (error as NodeJS.ErrnoException).code;
+          if (code !== "ECONNABORTED") this.logger.error(`Failed to send index.html after the response had started: ${error.message}`);
           res.destroy();
           return;
         }

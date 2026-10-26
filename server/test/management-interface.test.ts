@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -9,10 +10,12 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // path outside the API that matches no file of its build, so deep links such
 // as /machines open the page, even when the build sits under a directory whose
 // name starts with a dot, as a T3 worktree under ~/.t3/ does. CI's checkout has
-// no such segment, so the test writes a small build of its own under one.
+// no such segment, so the test writes a small build of its own under one. A
+// preload fails reads of its `vanishing-*` file, as a rebuild removing it would.
 
 const INDEX = "<!doctype html><title>Decent Sync</title>";
 const APP = "console.log('app');";
+const vanishingFiles = path.join(path.dirname(fileURLToPath(import.meta.url)), "support/vanishing-files.mjs");
 
 describe("The management interface", () => {
   const dir = path.join(os.tmpdir(), `.decent-sync-web-${randomBytes(6).toString("hex")}`);
@@ -22,7 +25,8 @@ describe("The management interface", () => {
     fs.mkdirSync(path.join(dir, "assets"), { recursive: true });
     fs.writeFileSync(path.join(dir, "index.html"), INDEX);
     fs.writeFileSync(path.join(dir, "assets/app.js"), APP);
-    server = await startTestServer({ env: { WEB_DIST_DIR: dir } });
+    fs.writeFileSync(path.join(dir, "assets/vanishing-5678.js"), APP);
+    server = await startTestServer({ env: { WEB_DIST_DIR: dir, NODE_OPTIONS: `--import=${pathToFileURL(vanishingFiles).href}` } });
   });
   afterAll(async () => {
     await server?.stop();
@@ -63,6 +67,10 @@ describe("The management interface", () => {
 
   it("answers a missing asset with index.html, so a page can reload on a chunk it no longer finds", async () => {
     await expectIndex(await get("/assets/gone-1234.js"));
+  });
+
+  it("answers a file that goes before it is read as an unknown route, naming no path on the server", async () => {
+    await expectNotFound(await get("/assets/vanishing-5678.js"), "Cannot GET /assets/vanishing-5678.js");
   });
 
   it("leaves /api and the paths under it to the API, matching them without regard to case", async () => {
