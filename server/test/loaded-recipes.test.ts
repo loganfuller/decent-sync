@@ -508,6 +508,8 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
+    // A race test's ordering sleep, which #297 leaves as it is: the save's slowed read comes back, naming the Ethiopia, before
+    // reads are answered at once again.
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     slow = false;
     await loads(machine, brazil);
