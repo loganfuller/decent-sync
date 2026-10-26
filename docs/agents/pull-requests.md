@@ -2,6 +2,8 @@
 
 Open a pull request only when asked (`AGENTS.md`). Its description says what changed and why, how it was verified, and what it does not cover.
 
+CI skips a pull request that changes only docs (anything under `docs/`, and Markdown other than `UPGRADING.md`), so don't wait for its run or report one as missing. A cancelled run on an older commit was superseded by a newer push, not failed: read the newest run.
+
 ## Screenshots
 
 A pull request that changes the management interface shows the change in screenshots, embedded in its description under a `## Screenshots` heading placed before the verification section. A line before each image says what it shows, and one line at the top says how the data was seeded.
