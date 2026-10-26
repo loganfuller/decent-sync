@@ -41,6 +41,14 @@ export interface Sample<C extends string> {
   preheat: boolean;
   values: Record<C, number | null>;
   targets: Record<C, number | null>;
+  /** A Shot's: the Profile step its Machine was running, null in Preheat or where it reported none. */
+  step?: Step | null;
+}
+
+/** A step of a Shot's Profile: its index among the Profile's steps, and its name. */
+export interface Step {
+  frame: number;
+  name: string;
 }
 
 /** Decaid takes a snapshot several times a second, so a longer gap between two is the tablet's clock changing. */
@@ -56,9 +64,14 @@ const QUARTER_HOUR_MS = 15 * 60_000;
  * firmware's control output, which swings around. Its Preheat is its leading
  * samples whose substate is `preparingForShot`, as the server reads it
  * (`extractCurves`), with the heater test's targets, before the profile's.
+ * Each sample after Preheat names the step of `profile`, the Shot's Workflow's,
+ * that its `profileFrame` indexes, as Streamline names it; in Preheat the
+ * frame is left over from before the Shot.
  */
-export function shotSamples(measurements: unknown): Sample<ShotCurve>[] {
-  return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale) => ({
+export function shotSamples(measurements: unknown, profile?: unknown): Sample<ShotCurve>[] {
+  const steps = record(profile)?.steps;
+  return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
+    step: preheat ? null : profileStep(machine?.profileFrame, Array.isArray(steps) ? steps : []),
     values: {
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
@@ -115,7 +128,12 @@ export function steamSamples(measurements: unknown, stopAt: number | null): Samp
 function timedSamples<C extends string>(
   measurements: unknown,
   leading: (machine: Record<string, unknown> | undefined) => boolean,
-  read: (measurement: Record<string, unknown>, machine: Record<string, unknown> | undefined, scale: Record<string, unknown> | undefined) => Omit<Sample<C>, "seconds" | "preheat">,
+  read: (
+    measurement: Record<string, unknown>,
+    machine: Record<string, unknown> | undefined,
+    scale: Record<string, unknown> | undefined,
+    preheat: boolean,
+  ) => Omit<Sample<C>, "seconds" | "preheat">,
 ): Sample<C>[] {
   if (!Array.isArray(measurements)) return [];
   const timed: { elapsed: number; sample: Omit<Sample<C>, "seconds"> }[] = [];
@@ -137,10 +155,53 @@ function timedSamples<C extends string>(
     }
     previous = at;
     if (!preheat) zero ??= elapsed;
-    timed.push({ elapsed, sample: { preheat, ...read(fields, machine, record(fields.scale)) } });
+    timed.push({ elapsed, sample: { preheat, ...read(fields, machine, record(fields.scale), preheat) } });
   }
   const start = zero ?? elapsed + 1;
   return timed.map(({ elapsed, sample }) => ({ seconds: (elapsed - start) / 1000, ...sample }));
+}
+
+/**
+ * The step a `profileFrame` indexes among a Profile's steps, by its name, or
+ * "Step N", counting from 1, for a step with none or a frame past the last.
+ */
+function profileStep(frame: unknown, steps: unknown[]): Step | null {
+  if (typeof frame !== "number" || !Number.isInteger(frame) || frame < 0) return null;
+  const name = record(steps[frame])?.name;
+  return { frame, name: typeof name === "string" && name.trim() !== "" ? name.trim() : `Step ${frame + 1}` };
+}
+
+/**
+ * The seconds at which a Shot's samples move from one step of its Profile to
+ * another: each sample whose frame differs from the last one reported before
+ * it, from the first sample after Preheat on, so none is at 0 s or in
+ * Preheat. A step that ends between two samples, or lasts none, shows no
+ * change of its own: one change marks the frame change the samples show.
+ */
+export function stepChanges(samples: Sample<string>[]): number[] {
+  const changes: number[] = [];
+  let frame: number | undefined;
+  for (const sample of samples) {
+    if (!sample.step) continue;
+    if (frame !== undefined && sample.step.frame !== frame) changes.push(sample.seconds);
+    frame = sample.step.frame;
+  }
+  return changes;
+}
+
+/**
+ * The step of the last sample at or before `seconds`, which a change of step
+ * starts at: null where it has none, and before the first sample or after the
+ * last, as a chart reads past a Shot's end the longer Shot compared with it.
+ */
+export function stepAt(samples: Sample<string>[], seconds: number): Step | null {
+  if (seconds > lastSecond(samples) + 1e-9) return null;
+  let found: Step | null = null;
+  for (const sample of samples) {
+    if (sample.seconds > seconds + 1e-9) break;
+    found = sample.step ?? null;
+  }
+  return found;
 }
 
 /** One point of a chart: each series' value at a time, or null where it has none. */
