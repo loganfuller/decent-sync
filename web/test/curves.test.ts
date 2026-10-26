@@ -125,6 +125,18 @@ describe("a Shot's Profile steps", () => {
     expect(stepChanges(unnamed)).toEqual(stepChanges(shotSamples(measurements, profile)));
   });
 
+  it("neither starts nor ends a step at a sample that reports no frame", () => {
+    // Derived: the real Shot with one Pressurize sample's profileFrame left out.
+    const missing = measurements.map((sample, n) => {
+      if (n !== 110) return sample;
+      const { profileFrame: _, ...machine } = sample.machine;
+      return { ...sample, machine };
+    });
+    const samples = shotSamples(missing, profile);
+    expect(samples[110]!.step).toBeNull();
+    expect(stepChanges(samples)).toEqual(stepChanges(shotSamples(measurements, profile)));
+  });
+
   it("reads the step at a chart's time from the last sample at or before it", () => {
     const samples = shotSamples(measurements, profile);
     const change = samples[67]!.seconds;

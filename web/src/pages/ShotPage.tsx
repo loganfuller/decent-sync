@@ -226,7 +226,7 @@ function ShotDetails({ id }: { id: string }) {
               temperature, measured at the group head, the sensor closest to the coffee.
             </p>
             <p>
-              Vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step.
+              Grey vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step.
             </p>
             <p>
               Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the

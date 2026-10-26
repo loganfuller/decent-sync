@@ -71,7 +71,7 @@ const QUARTER_HOUR_MS = 15 * 60_000;
 export function shotSamples(measurements: unknown, profile?: unknown): Sample<ShotCurve>[] {
   const steps = record(profile)?.steps;
   return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
-    step: preheat ? null : step(machine?.profileFrame, Array.isArray(steps) ? steps : []),
+    step: preheat ? null : profileStep(machine?.profileFrame, Array.isArray(steps) ? steps : []),
     values: {
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
@@ -165,7 +165,7 @@ function timedSamples<C extends string>(
  * The step a `profileFrame` indexes among a Profile's steps, by its name, or
  * "Step N", counting from 1, for a step with none or a frame past the last.
  */
-function step(frame: unknown, steps: unknown[]): Step | null {
+function profileStep(frame: unknown, steps: unknown[]): Step | null {
   if (typeof frame !== "number" || !Number.isInteger(frame) || frame < 0) return null;
   const name = record(steps[frame])?.name;
   return { frame, name: typeof name === "string" && name.trim() !== "" ? name.trim() : `Step ${frame + 1}` };
