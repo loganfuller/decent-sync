@@ -122,4 +122,3 @@ async function conflictOver(page: Page, beanId: string, one: SimulatedTablet, tw
 function heldBean(tablet: SimulatedTablet, id: string): Record<string, unknown> | undefined {
   return tablet.beans().find((record) => globalIdOf(record) === id);
 }
-

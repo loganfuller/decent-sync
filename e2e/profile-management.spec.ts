@@ -77,4 +77,3 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
   await expect(page.getByRole("table", { name: "Profiles" }).or(page.getByText(/^No Profiles yet\./))).toBeVisible();
   await expect(page.getByRole("link", { name: "Retired Bloom", exact: true })).toHaveCount(0);
 });
-

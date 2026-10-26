@@ -112,4 +112,3 @@ async function post<T>(page: Page, path: string, data: unknown): Promise<T> {
   expect(response.status(), await response.text()).toBe(201);
   return (await response.json()) as T;
 }
-
