@@ -1,5 +1,6 @@
 import { expect, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { syncingTablet } from "../server/test/support/loaded-tablets.js";
+import { type SimulatedTablet, derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
@@ -11,13 +12,8 @@ import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js"
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
-const tablets: SimulatedTablet[] = [];
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a Machine with no Location shows it is capture-only because it has none", async ({ page }) => {
   const { machine } = await createMachine(page, "Home machine");
@@ -98,18 +94,19 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
  */
 async function tabletOf(token: string, serial: string): Promise<SimulatedTablet> {
   const api = derivedDe1Pro({ serial });
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: {
-      ...api,
-      "/beans": [],
-      "/bean-batches": [],
-      "/grinders": [],
-      "/profiles": (api["/profiles"] as Record<string, unknown>[]).filter((profile) => profile.isDefault === true),
+  const tablet = syncingTablet(
+    { token },
+    { url: server.url() },
+    {
+      api: {
+        ...api,
+        "/beans": [],
+        "/bean-batches": [],
+        "/grinders": [],
+        "/profiles": (api["/profiles"] as Record<string, unknown>[]).filter((profile) => profile.isDefault === true),
+      },
     },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
+  );
   await tablet.waitForLog(/^Connected to /);
   return tablet;
 }

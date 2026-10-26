@@ -1,8 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 import { GLOBAL_ID_KEY, RECIPE_SLOT_FIELD } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -21,15 +22,12 @@ import { expectTip } from "./support/tooltips.js";
 // library-recipe-copies.test.ts's. Serials are made up, from 45501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
+/** What each Machine's tablet holds over derivedDe1Pro()'s: no library, and DYE2's lists empty. */
+const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS };
 
 type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("Staff create a Recipe in slot 3 of the five at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
   page,
@@ -37,7 +35,7 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
 }) => {
   const lab = await createLocation(page, "Roastery lab");
   const cafe = await createLocation(page, "Uptown");
-  const cafeTablet = await tabletAt(page, "Uptown 1", cafe, "45503");
+  const cafeTablet = await tabletAt(page, server, "Uptown 1", cafe, "45503", tabletApi);
   // A batch at the cafe only, and a Profile saved on the cafe's tablet, shown there only.
   await createBatch(page, "Guji", cafe);
   const profile = await cafeTablet.addProfile(derivedProfile("Uptown Bloom", 7.25));
@@ -189,8 +187,8 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
 
 test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on its page, and using its value makes it current on every tablet", async ({ page }) => {
   const lab = await createLocation(page, "Conflict lab");
-  const one = await tabletAt(page, "Conflict lab 1", lab, "45521");
-  const two = await tabletAt(page, "Conflict lab 2", lab, "45522");
+  const one = await tabletAt(page, server, "Conflict lab 1", lab, "45521", tabletApi);
+  const two = await tabletAt(page, server, "Conflict lab 2", lab, "45522", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "House Espresso" });
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso");
 
@@ -261,7 +259,7 @@ test("the form keeps a Tool Archived since as one to uncheck, beside a new one, 
 
 test("the form clears a Recipe's Bean saved on a tablet with no batch of it at its Location", async ({ page }) => {
   const lab = await createLocation(page, "Bean-only lab");
-  const tablet = await tabletAt(page, "Bean-only lab 1", lab, "45531");
+  const tablet = await tabletAt(page, server, "Bean-only lab 1", lab, "45531", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "Bean-only Espresso" });
   await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
   // A Bean added on the tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1.
@@ -337,7 +335,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
 }) => {
   const lab = await createLocation(page, "Copy lab");
   const uptown = await createLocation(page, "Copy Uptown");
-  const labTablet = await tabletAt(page, "Copy lab 1", lab, "45541");
+  const labTablet = await tabletAt(page, server, "Copy lab 1", lab, "45541", tabletApi);
   // The lab's batch, Grinder, Profile and Basket; Uptown has two Grinders, one of the lab's model.
   const batch = await createBatch(page, "Copy Guji", lab);
   const labGrinder = await createGrinder(page, lab, "Copy EK43");
@@ -446,20 +444,6 @@ async function createRecipe(page: Page, at: { id: string }, slot: number | null,
   return ((await response.json()) as { recipe: { id: string } }).recipe;
 }
 
-/** A Machine at the Location, its tablet connected with DYE2's lists empty, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  expect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}
 
 /** A browser signed in as Staff at the Location, invited by the Admin. */
 async function staffAt(page: Page, browser: import("@playwright/test").Browser, email: string, location: { id: string }) {

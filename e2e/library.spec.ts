@@ -1,6 +1,7 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -13,19 +14,19 @@ import { expectTip } from "./support/tooltips.js";
 // belongs to the Location where it was created.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
+/**
+ * What each Machine's tablet holds over derivedDe1Pro()'s: no beans or batches, and DYE2's lists empty. The test
+ * tablet's recipe and basket, shared too, would add writes to every join here.
+ */
+const tabletApi = { "/beans": [], "/bean-batches": [], ...NO_DYE2_LISTS };
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("the Beans list shows each Bean and the Locations offering it, and a Bean's page shows what it is", async ({ page }) => {
   const lab = await createLocation(page, "Roastery lab");
   const uptown = await createLocation(page, "Uptown");
-  const labTablet = await tabletAt(page, "Lab group", lab, "15001");
-  const uptownTablet = await tabletAt(page, "Uptown group", uptown, "15002");
+  const labTablet = await tabletAt(page, server, "Lab group", lab, "15001", tabletApi);
+  const uptownTablet = await tabletAt(page, server, "Uptown group", uptown, "15002", tabletApi);
 
   await labTablet.addBean({ roaster: "Roux Bakehouse", name: "Guji Hambela", country: "Ethiopia", region: "Guji", variety: ["74110", "74112"], processing: "washed" });
   await uptownTablet.addBean({ roaster: "Sandbox Coffee Roasters", name: "Washed Heirloom", decaf: true, decafProcess: "Swiss Water" });
@@ -67,9 +68,9 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
 test("the Bean Batches list shows each batch's Locations and its remaining weight at each, and a batch's page shows them with its roast", async ({ page }) => {
   const lab = await createLocation(page, "Batch lab");
   const cafe = await createLocation(page, "Batch cafe");
-  const labTablet = await tabletAt(page, "Batch lab group", lab, "15011");
-  const travellerTablet = await tabletAt(page, "Batch lab group 2", lab, "15012");
-  const cafeTablet = await tabletAt(page, "Batch cafe group", cafe, "15013");
+  const labTablet = await tabletAt(page, server, "Batch lab group", lab, "15011", tabletApi);
+  const travellerTablet = await tabletAt(page, server, "Batch lab group 2", lab, "15012", tabletApi);
+  const cafeTablet = await tabletAt(page, server, "Batch cafe group", cafe, "15013", tabletApi);
 
   const guji = await labTablet.addBean({ roaster: "Roux Bakehouse", name: "Batch Guji", country: "Ethiopia" });
   const labBatch = await labTablet.addBatch(guji.id, { roastDate: "2026-10-01", roastLevel: "light", weight: 250, price: 18.5, currency: "USD", notes: "Lab roast" });
@@ -128,8 +129,8 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
 test("the Profiles list shows each Profile and the Locations showing it, and a Profile's page shows what it is", async ({ page }) => {
   const lab = await createLocation(page, "Profile lab");
   const cafe = await createLocation(page, "Profile cafe");
-  const labTablet = await tabletAt(page, "Profile lab group", lab, "15021");
-  const cafeTablet = await tabletAt(page, "Profile cafe group", cafe, "15022");
+  const labTablet = await tabletAt(page, server, "Profile lab group", lab, "15021", tabletApi);
+  const cafeTablet = await tabletAt(page, server, "Profile cafe group", cafe, "15022", tabletApi);
 
   // A lab Profile, saved again from it with new steps, which Streamline hides; and one created at both Locations.
   const bloom = await labTablet.addProfile(derivedProfile("Lab Bloom", 8.5));
@@ -188,8 +189,8 @@ test("the Profiles list shows each Profile and the Locations showing it, and a P
 test("the Grinders list shows each Grinder's Location, and a Grinder's page shows what it is", async ({ page }) => {
   const lab = await createLocation(page, "Grinder lab");
   const cafe = await createLocation(page, "Grinder cafe");
-  const labTablet = await tabletAt(page, "Grinder lab group", lab, "15031");
-  const cafeTablet = await tabletAt(page, "Grinder cafe group", cafe, "15032");
+  const labTablet = await tabletAt(page, server, "Grinder lab group", lab, "15031", tabletApi);
+  const cafeTablet = await tabletAt(page, server, "Grinder cafe group", cafe, "15032", tabletApi);
 
   // One model at both Locations is two Grinders; one archived on the lab's tablet is Archived.
   await labTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish", burrSize: 98, burrType: "flat", notes: "Filter station" });
@@ -239,21 +240,6 @@ async function createLocation(page: Page, name: string): Promise<{ id: string; n
   return ((await response.json()) as { location: { id: string; name: string } }).location;
 }
 
-/** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  expect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    // DYE2's lists empty: the test tablet's recipe and basket, shared too, would add writes to every join here.
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], ...NO_DYE2_LISTS },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}
 
 /** A Machine of that name, through the REST API. */
 async function machineNamed(page: Page, name: string): Promise<{ id: string }> {

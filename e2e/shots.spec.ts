@@ -15,8 +15,6 @@ import { expectTip, tap } from "./support/tooltips.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 
-const tablets: SimulatedTablet[] = [];
-
 const CURVES_TIP =
   "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group temperature, measured at the group head, the sensor closest to the coffee." +
   "Grey vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step." +
@@ -33,10 +31,6 @@ interface Recorded {
 }
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("Shots from every Location are listed newest first, at their Location's time, with inferred credit marked", async ({ page }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
@@ -406,13 +400,11 @@ async function adopt(page: Page, name: string, hardware: { model: string; serial
     const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
     expect(moved.status()).toBe(201);
   }
-  tablets.push(
-    SimulatedTablet.load({
-      settings: settingsFor({ serverUrl: server.url(), token }),
-      api: withShots(derivedDe1Pro(hardware), shots),
-      timeScale: 50,
-    }),
-  );
+  SimulatedTablet.load({
+    settings: settingsFor({ serverUrl: server.url(), token }),
+    api: withShots(derivedDe1Pro(hardware), shots),
+    timeScale: 50,
+  });
   await expect
     .poll(async () => {
       const listed = await page.request.get(`/api/shots?limit=100`);

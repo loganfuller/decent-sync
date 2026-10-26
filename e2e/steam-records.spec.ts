@@ -14,13 +14,7 @@ import { expectTip } from "./support/tooltips.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 
-const tablets: SimulatedTablet[] = [];
-
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("Steam Records from every Location are listed newest first, at their Location's time", async ({ page }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
@@ -198,13 +192,11 @@ async function adopt(page: Page, name: string, hardware: { model: string; serial
 
 /** Loads a simulated tablet with the token, on the hardware given, and waits until its Steam Records are listed. */
 async function load(page: Page, token: string, hardware: { model: string; serial: string }, steams: Record<string, unknown>[]) {
-  tablets.push(
-    SimulatedTablet.load({
-      settings: settingsFor({ serverUrl: server.url(), token }),
-      api: withSteams(derivedDe1Pro(hardware), steams),
-      timeScale: 50,
-    }),
-  );
+  SimulatedTablet.load({
+    settings: settingsFor({ serverUrl: server.url(), token }),
+    api: withSteams(derivedDe1Pro(hardware), steams),
+    timeScale: 50,
+  });
   await expect
     .poll(async () => {
       const listed = await page.request.get("/api/steam-records?limit=100");

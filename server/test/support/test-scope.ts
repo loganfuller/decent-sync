@@ -5,8 +5,9 @@
 // its later tests several times slower. So Vitest's setup (setup.ts) ends
 // each one a test opened once that test has run, unless the test is a step of
 // a scenario (`runAsSteps`), whose later steps may use it; those end with the
-// file, as before. Playwright specs, whose tests build on each other, keep
-// theirs: only Vitest's setup listens.
+// file, as before. Playwright's `useFreshServer` (e2e/support/fresh-server.ts)
+// does the same for a spec's tests, except for what a test opens through
+// `keep()` for later tests to use, which ends with the file.
 
 /** Something a test opened that keeps working until it is ended. */
 export interface Opened {

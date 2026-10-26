@@ -14,13 +14,7 @@ import { field, machineRow } from "./support/locators.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "America/New_York" });
 
-const tablets: SimulatedTablet[] = [];
-
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("the Machines list and Machine page show the machine state, last Shot and current Workflow, and follow changes", async ({ page }) => {
   const { token } = await createMachine(page, "Bar 1");
@@ -28,7 +22,6 @@ test("the Machines list and Machine page show the machine state, last Shot and c
     settings: settingsFor({ serverUrl: server.url(), token }),
     api: withShots(de1ProOnDecaid090(), [derivedShot("bar-shot")]),
   });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   tablet.reportState("espresso", "pouring");
 

@@ -23,13 +23,7 @@ import { expectTip } from "./support/tooltips.js";
 // hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
-
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("an Admin changes a Machine's fan threshold, shown pending and then applied, and is told why an edit during a Shot was refused", async ({ page }) => {
   const belmont = await createLocation(page, "Belmont");
@@ -685,7 +679,6 @@ async function tabletOf(
     timeScale,
     utcOffsetMinutes,
   });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
 }

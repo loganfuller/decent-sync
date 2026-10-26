@@ -10,13 +10,7 @@ import { signInAsAdmin } from "./support/seed.js";
 // refuses one Bean; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
-
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a Machine's page shows the changes waiting for its tablet, the last it applied, and a write it refused, with Decaid's answer", async ({ page }) => {
   const location = await page.request.post("/api/locations", { data: { name: "Uptown", timeZone: "America/Chicago" } });
@@ -30,7 +24,6 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
     api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
     timeScale: 50,
   });
-  tablets.push(tablet);
   // Its Decaid refuses one coffee, as one it cannot cast.
   tablet.refuseWrites = ({ method, route, body }) =>
     method === "POST" && route === "/beans" && (body as { name?: unknown }).name === "Refused Blend"
@@ -86,7 +79,6 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
     },
     timeScale: 50,
   });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
 
   await page.goto(`/machines/${machine.id}`);

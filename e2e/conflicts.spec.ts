@@ -1,7 +1,8 @@
 import { expect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -15,13 +16,10 @@ import { expectTip } from "./support/tooltips.js";
 // server/test/library-conflicts.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
+/** What each Machine's tablet holds over derivedDe1Pro()'s: no library. */
+const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a Conflict made through two tablets is listed and noted on its item, whose page shows its history, and using its value makes it current", async ({
   page,
@@ -90,9 +88,9 @@ test("dismissing a Conflict closes it and changes nothing else", async ({ page }
 async function sharedBean(page: Page, name: string, serial: string) {
   const lab = await createLocation(page, `${name} lab`);
   const cafeLocation = await createLocation(page, `${name} cafe`);
-  const one = await tabletAt(page, `${name} lab 1`, lab, serial);
-  const two = await tabletAt(page, `${name} lab 2`, lab, String(Number(serial) + 1));
-  const cafe = await tabletAt(page, `${name} cafe 1`, cafeLocation, String(Number(serial) + 2));
+  const one = await tabletAt(page, server, `${name} lab 1`, lab, serial, tabletApi);
+  const two = await tabletAt(page, server, `${name} lab 2`, lab, String(Number(serial) + 1), tabletApi);
+  const cafe = await tabletAt(page, server, `${name} cafe 1`, cafeLocation, String(Number(serial) + 2), tabletApi);
   await one.addBean({ roaster: "Roux", name: `${name} Guji` });
   await expect.poll(() => two.beans().find((record) => record.name === `${name} Guji` && globalIdOf(record))).toBeTruthy();
   const beanId = globalIdOf(two.beans().find((record) => record.name === `${name} Guji`)!)!;
@@ -125,17 +123,3 @@ function heldBean(tablet: SimulatedTablet, id: string): Record<string, unknown> 
   return tablet.beans().find((record) => globalIdOf(record) === id);
 }
 
-/** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  expect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}

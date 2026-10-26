@@ -1,8 +1,9 @@
 import { expect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -14,21 +15,18 @@ import { expectTip } from "./support/tooltips.js";
 // by their own ids.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
+/** What each Machine's tablet holds over derivedDe1Pro()'s: no library. */
+const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
 
 type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
-
 test("a batch's page lists its Shots from both Locations, and the Shots list filters by Bean Batch and by Grinder", async ({ page }) => {
   const lab = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Roastery lab", timeZone: "America/Chicago" });
   const cafe = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Belmont", timeZone: "America/Chicago" });
-  const labTablet = await tabletAt(page, "Lab group", lab.location.id, "27001");
-  const cafeTablet = await tabletAt(page, "Belmont 1", cafe.location.id, "27002");
+  const labTablet = await tabletAt(page, server, "Lab group", lab.location.id, "27001", tabletApi);
+  const cafeTablet = await tabletAt(page, server, "Belmont 1", cafe.location.id, "27002", tabletApi);
   const { bean } = await post<{ bean: { id: string } }>(page, "/api/beans", { content: { roaster: "Roux Bakehouse", name: "Linked Sidra" } });
   const { batch } = await post<{ batch: { id: string } }>(page, "/api/bean-batches", {
     beanId: bean.id,
@@ -115,15 +113,3 @@ async function post<T>(page: Page, path: string, data: unknown): Promise<T> {
   return (await response.json()) as T;
 }
 
-/** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, locationId: string, serial: string): Promise<SimulatedTablet> {
-  const { token } = await post<{ token: string }>(page, "/api/machines", { name, locationId });
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}

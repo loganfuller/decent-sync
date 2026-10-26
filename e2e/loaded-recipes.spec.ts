@@ -18,8 +18,6 @@ import { expectTip } from "./support/tooltips.js";
 // 47501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
-
 type Record_ = Record<string, unknown>;
 
 /** The recording's tablet's record ids: the Ethiopia's recipe, in no Recipe Slot, and the Brazil's, in slot 2. */
@@ -27,10 +25,6 @@ const ETHIOPIA = "1";
 const BRAZIL = "2";
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machine's page and its Location's, in its slot or in none, until the profile changes", async ({ page }) => {
   const location = await createLocation(page, "Uptown");
@@ -111,7 +105,6 @@ async function tabletAt(page: Page, name: string, location: { id: string }, api:
   expect(response.status()).toBe(201);
   const { token, machine } = (await response.json()) as { token: string; machine: { id: string } };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return { id: machine.id, tablet };
 }

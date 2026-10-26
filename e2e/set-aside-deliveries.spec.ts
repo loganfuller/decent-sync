@@ -15,13 +15,7 @@ import { expectTip } from "./support/tooltips.js";
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "America/New_York" });
 
-const tablets: SimulatedTablet[] = [];
-
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a Shot that cannot be stored is listed on its Machine's page, without what it carried, and the Shots after it are stored", async ({ page }) => {
   const { token } = await createMachine(page, "Bar 1");
@@ -30,7 +24,6 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
     settings: settingsFor({ serverUrl: server.url(), token }),
     api: withShots(de1ProOnDecaid090(), [unstorable, derivedShot("bar-shot")]),
   });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
 
   // The page's clock runs as usual until the test moves it on.

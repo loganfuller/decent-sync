@@ -18,16 +18,11 @@ import { field, rows } from "./support/locators.js";
 // 49501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
-const tablets: SimulatedTablet[] = [];
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 
 type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("each Recipe's and Basket's page lists its Shots, and the Shots list filters by Recipe and by Basket", async ({ page }) => {
   const { bar1, one, two } = await lab(page, "Uptown", 49501);
@@ -202,7 +197,6 @@ async function tabletAt(page: Page, name: string, location: { id: string }, api:
   expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
 }
