@@ -464,6 +464,8 @@ interface everywhere else.
 | `npm run dev:web` | Vite dev server for `web/`, proxying `/api` to the dev server |
 | `npm run typecheck` | typecheck every workspace |
 | `npm run build` | build every workspace, including `decent-sync.reaplugin/` |
+| `npm run build:stale` | rebuild only the workspaces whose builds are older than their sources |
+| `npm run db:test` | start the shared test PostgreSQL in Docker, and drop test databases left over 2 hours old |
 | `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
 | `npm run test:e2e` | Playwright against the built server (run `npm run build` first) |
 | `npm run check:plugin-build` | fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
@@ -472,8 +474,11 @@ interface everywhere else.
 
 Server tests and Playwright start the built server once per test file, each on
 a fresh database they create and drop on the PostgreSQL server named by
-`DATABASE_URL`, so they need it running and its user allowed to create
-databases and roles (true of `npm run db:up`'s).
+`TEST_DATABASE_URL`, or else `DATABASE_URL`, so they need it running and its
+user allowed to create databases and roles (true of `npm run db:test`'s and
+`npm run db:up`'s). `npm run db:test` runs a PostgreSQL for tests alone, with
+more connections, keeping test databases out of development data
+(`.env.example`). `docs/AI_BUILD_NOTES.md` says how to run part of the tests.
 
 Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit the
 rebuilt plugin with every change to `plugin/` or `protocol/`. CI checks it, and
