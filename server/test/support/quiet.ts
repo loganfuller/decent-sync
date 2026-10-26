@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { expect } from "vitest";
 import type { AdminApi, CreatedMachine } from "./admin-api.js";
 import type { SimulatedStreamline } from "./simulated-streamline.js";
@@ -20,26 +21,30 @@ const QUIET = "quiet";
  * show nothing left to do between them: two samples in a row pass, with a
  * finished read of `/sensors`, which each of the plugin's polls makes last,
  * on every tablet between them, so a change a poll would find has been
- * read and reported. Each sample checks that the server has acknowledged
- * every frame each plugin sent with an id (heartbeats and `hello` carry
- * none), that no plugin write to Decaid is under way, nor a read that was
- * under way as the sample before it ended, as one held or slowed is, that
- * every DYE2 and Streamline is settled, and that no Machine's sharing status
- * shows anything waiting, the Loaded Recipe's write included. A read begun
- * since passes: at 50x a tablet polls every 100 ms of real time, so on a
- * busy machine one of its polls' reads is nearly always under way, and
- * waiting for none at all could outlast the timeout. One sample of each is not
- * enough: the plugin holds a Workflow report back while its own writes and
- * DYE2's saves run, so DYE2 can be settled before the server's write
- * arrives, and every frame acknowledged while a report is held back.
+ * read and reported, and with every read the plugin had under way as the
+ * first of them ended finished, as one held or slowed is not.
+ *
+ * Each sample checks that every DYE2 and Streamline is settled, that no
+ * Machine's sharing status shows anything waiting, the Loaded Recipe's write
+ * included, and on each tablet that the server has acknowledged every frame
+ * the plugin sent with an id (heartbeats and `hello` carry none), that no
+ * plugin write to Decaid is under way, nor a read of the Workflow, which the
+ * plugin makes only to write into it or to save it into the Loaded Recipe,
+ * and that the plugin's latest Workflow delivery holds the tablet's
+ * Workflow as it is now, as one held back while the plugin writes or saves
+ * does not. Other reads begun since the first sample pass: at 50x a tablet
+ * polls every 100 ms of real time, so on a busy machine one of its polls'
+ * reads is nearly always under way, and waiting for none could outlast the
+ * timeout. One sample is not enough: DYE2 can be settled before the
+ * server's write arrives, and every frame acknowledged before the next is
+ * sent.
  *
  * It sees only those checks. A delivery waiting for Decaid's plugin storage
  * to answer (as while `holdStorageAnswers` holds it), one waiting out the
  * plugin's retry after a failed send or read, a frame the server sent that
- * has not yet arrived, and work the plugin began with a read since the
- * sample before, as a save into the Loaded Recipe does, all pass unseen, so
- * don't call it while a test holds storage answers or has just made a send
- * or read fail.
+ * has not yet arrived, and a change a read begun since the first sample
+ * finds all pass unseen, so don't call it while a test holds storage
+ * answers or has just made a send or read fail.
  *
  * Before a check that something does not happen, it shows only that nothing
  * is under way, not that nothing would follow: a timer of the plugin's, or
@@ -50,14 +55,12 @@ const QUIET = "quiet";
  * last, and its tablet or Machine.
  */
 export async function quiesced(api: AdminApi, { tablets, machines = {}, streamlines = {} }: QuietScope): Promise<void> {
-  /** Each tablet's count of `/sensors` reads as the first of the passing samples ended. */
-  let first: Map<string, number> | undefined;
-  /** Each tablet's requests to Decaid under way as the latest sample that read them ended. */
-  const underWay = new Map<string, ReadonlySet<InFlightRequest>>();
+  /** Each tablet's count of `/sensors` reads, and its reads under way, as the first of the passing samples ended. */
+  let first: Map<string, Sampled> | undefined;
   await expect
     .poll(async () => {
       // A sample that throws ends the run of quiet samples, as a failed check does.
-      const sampled = await sample(api, tablets, machines, streamlines, underWay).catch((error: unknown) => {
+      const sampled = await sample(api, tablets, machines, streamlines).catch((error: unknown) => {
         first = undefined;
         throw error;
       });
@@ -69,20 +72,27 @@ export async function quiesced(api: AdminApi, { tablets, machines = {}, streamli
         first = sampled;
         return "quiet once, waiting for a /sensors read on every tablet";
       }
-      const unread = Object.keys(tablets).filter((name) => sampled.get(name)! <= first!.get(name)!);
-      return unread.length === 0 ? QUIET : `quiet, but no /sensors read finished since the first quiet sample on tablet ${unread.join(", ")}`;
+      const unread = Object.keys(tablets).filter((name) => sampled.get(name)!.sensors <= first!.get(name)!.sensors);
+      if (unread.length > 0) return `quiet, but no /sensors read finished since the first quiet sample on tablet ${unread.join(", ")}`;
+      const reading = Object.keys(tablets).filter((name) => sampled.get(name)!.reads.some((read) => first!.get(name)!.reads.includes(read)));
+      return reading.length === 0 ? QUIET : `quiet, but a read under way at the first quiet sample is still under way on tablet ${reading.join(", ")}`;
     })
     .toBe(QUIET);
 }
 
-/** One sample: what failed, or, if every check passed, each tablet's count of `/sensors` reads as it ended. */
+/** What a passing sample found on a tablet: its count of `/sensors` reads, and its reads to Decaid under way, as the sample ended. */
+interface Sampled {
+  sensors: number;
+  reads: readonly InFlightRequest[];
+}
+
+/** One sample: what failed, or, if every check passed, what it found on each tablet. */
 async function sample(
   api: AdminApi,
   tablets: Record<string, SimulatedTablet>,
   machines: Record<string, CreatedMachine>,
   streamlines: Record<string, SimulatedStreamline>,
-  underWay: Map<string, ReadonlySet<InFlightRequest>>,
-): Promise<string | Map<string, number>> {
+): Promise<string | Map<string, Sampled>> {
   for (const [name, tablet] of Object.entries(tablets)) {
     if (tablet.dye2 && !(await settledNow(tablet.dye2))) return `DYE2 on tablet ${name} is not settled`;
   }
@@ -98,19 +108,26 @@ async function sample(
     }
     if (waiting !== null && waiting !== 0) return `Machine ${name} has ${waiting} waiting`;
   }
-  // Read together, with no await between them, so the counts mark the end of this sample.
-  const requests = new Map(Object.entries(tablets).map(([name, tablet]) => [name, tablet.inFlightRequests]));
-  const before = new Map(underWay);
-  for (const [name, now] of requests) underWay.set(name, new Set(now));
+  // Read together, with no await between them, so what each returns marks the end of this sample.
+  const found = new Map<string, Sampled>();
   for (const [name, tablet] of Object.entries(tablets)) {
     if (!tablet.acknowledgedEvery((frame: { id?: unknown }) => typeof frame.id === "string")) return `tablet ${name} has a frame unacknowledged`;
-    const now = requests.get(name)!;
-    const writes = now.filter((request) => request.method !== "GET").length;
+    const requests = tablet.inFlightRequests;
+    const writes = requests.filter((request) => request.method !== "GET").length;
     if (writes > 0) return `tablet ${name} has ${writes} Decaid writes in flight`;
-    const lasting = now.filter((request) => before.get(name)?.has(request)).length;
-    if (lasting > 0) return `tablet ${name} has ${lasting} Decaid reads in flight since the sample before`;
+    if (requests.some((request) => request.route === "/workflow")) return `tablet ${name} has a read of the Workflow in flight`;
+    if (!holdsWorkflow(tablet)) return `tablet ${name}'s Workflow is not the one its plugin last delivered`;
+    found.set(name, { sensors: tablet.requests.filter((route) => route === "/sensors").length, reads: requests });
   }
-  return new Map(Object.entries(tablets).map(([name, tablet]) => [name, tablet.requests.filter((route) => route === "/sensors").length]));
+  return found;
+}
+
+/** Whether the plugin's latest Workflow delivery holds the tablet's Workflow as it is now, as it does where the tablet has none. */
+function holdsWorkflow(tablet: SimulatedTablet): boolean {
+  const now = tablet.workflow();
+  if (now === undefined) return true;
+  const delivered = (tablet.sent as { type?: unknown; workflow?: unknown }[]).filter((frame) => frame.type === "workflow").at(-1);
+  return delivered !== undefined && isDeepStrictEqual(delivered.workflow, now);
 }
 
 /** Whether its `settled()` resolves before anything else is due to run, rather than waiting for what it is still doing. */

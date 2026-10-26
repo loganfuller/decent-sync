@@ -192,9 +192,10 @@ export interface EndpointAnswer {
   body: string;
 }
 
-/** One of the plugin's requests to Decaid's API under way (`inFlightRequests`), by its method, such as "GET". */
+/** One of the plugin's requests to Decaid's API under way (`inFlightRequests`): its method, such as "GET", and route, such as "/workflow". */
 export interface InFlightRequest {
   readonly method: string;
+  readonly route: string;
 }
 
 export function readBuiltPlugin(): { source: string; manifest: Record<string, unknown> } {
@@ -1544,7 +1545,7 @@ export class SimulatedTablet {
   // Decaid's plugin fetch, limited to its own API.
   private async fetch(input: unknown, init: unknown): Promise<unknown> {
     const { method = "GET" } = (init ?? {}) as { method?: string };
-    const request: InFlightRequest = { method: method.toUpperCase() };
+    const request: InFlightRequest = { method: method.toUpperCase(), route: String(input).slice(`${API_ORIGIN}/api/v1`.length).split("?")[0]! };
     this.inFlight.add(request);
     try {
       return await this.fetchAnswer(input, init);
