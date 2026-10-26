@@ -40,13 +40,29 @@ jobs:
         uses: actions/checkout@v7
 
       - &setup-node
+        id: node
         uses: actions/setup-node@v7
         with:
           node-version: 24
-          cache: npm
 
       - name: Install
         run: npm ci
+
+      # The test jobs restore this node_modules rather than installing. Only
+      # this job saves it, straight after a clean install and before anything
+      # builds, so nothing a build or test run writes gets into it.
+      - id: modules-lookup
+        uses: actions/cache/restore@v6
+        with:
+          path: node_modules
+          key: &modules-key node-modules-ubuntu-26.04-node${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}
+          lookup-only: true
+
+      - if: steps.modules-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: node_modules
+          key: *modules-key
 
       # Decaid installs the committed build, so it must match its source.
       - name: Check the committed plugin build is fresh
@@ -99,8 +115,16 @@ jobs:
       - *checkout
       - *setup-node
 
+      - &restore-modules
+        id: modules
+        uses: actions/cache/restore@v6
+        with:
+          path: node_modules
+          key: *modules-key
+
       - &install
         name: Install
+        if: steps.modules.outputs.cache-hit != 'true'
         run: npm ci
 
       # Per-core speed varies between runners, so compare timings knowing it.
@@ -154,6 +178,7 @@ jobs:
       - *start-postgres
       - *checkout
       - *setup-node
+      - *restore-modules
       - *install
       - *runner-cpu
       - *build
