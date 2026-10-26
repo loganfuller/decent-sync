@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util";
+import { CHUNK_LIMITS, type Chunk, Reassembly } from "@decent-sync/protocol";
 import { expect } from "vitest";
 import type { AdminApi, CreatedMachine } from "./admin-api.js";
 import type { SimulatedStreamline } from "./simulated-streamline.js";
@@ -126,8 +127,23 @@ async function sample(
 function holdsWorkflow(tablet: SimulatedTablet): boolean {
   const now = tablet.workflow();
   if (now === undefined) return true;
-  const delivered = (tablet.sent as { type?: unknown; workflow?: unknown }[]).filter((frame) => frame.type === "workflow").at(-1);
-  return delivered !== undefined && isDeepStrictEqual(delivered.workflow, now);
+  const delivered = latestWorkflowDelivery(tablet);
+  return delivered !== undefined && isDeepStrictEqual(delivered, now);
+}
+
+/** The Workflow of the plugin's latest Workflow delivery, a message sent in chunks put back together, or undefined for none. */
+function latestWorkflowDelivery(tablet: SimulatedTablet): unknown {
+  const chunks = new Reassembly();
+  let latest: unknown;
+  for (const frame of tablet.sent as { type?: unknown; workflow?: unknown }[]) {
+    let message: { type?: unknown; workflow?: unknown } | undefined = frame;
+    if (frame.type === "chunk") {
+      const added = chunks.add(frame as unknown as Chunk, CHUNK_LIMITS);
+      message = added.status === "complete" ? (JSON.parse(added.text) as typeof message) : undefined;
+    }
+    if (message?.type === "workflow") latest = message.workflow;
+  }
+  return latest;
 }
 
 /** Whether its `settled()` resolves before anything else is due to run, rather than waiting for what it is still doing. */
