@@ -48,8 +48,12 @@ const CLOCK_CHANGE_MS = 60_000;
 const QUARTER_HOUR_MS = 15 * 60_000;
 
 /**
- * A Shot's samples: the machine's pressure, flow and mix temperature, the
- * scale's weight, and the targets it reported. Its Preheat is its leading
+ * A Shot's samples: the machine's pressure, flow and group temperature, the
+ * scale's weight, and the targets it reported. The group temperature, in °C,
+ * is measured at the group head, the closest to the coffee, and its target is
+ * the profile's temperature, as Streamline draws them. The mix temperature is
+ * left out: where the profile measures at the coffee, its target is the
+ * firmware's control output, which swings around. Its Preheat is its leading
  * samples whose substate is `preparingForShot`, as the server reads it
  * (`extractCurves`), with the heater test's targets, before the profile's.
  */
@@ -59,14 +63,14 @@ export function shotSamples(measurements: unknown): Sample<ShotCurve>[] {
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
       weight: number(scale?.weight),
-      temperature: number(machine?.mixTemperature),
+      temperature: number(machine?.groupTemperature),
     },
     // A target of zero is a frame that sets none, as a pressure frame's flow target.
     targets: {
       pressure: positive(machine?.targetPressure),
       flow: positive(machine?.targetFlow),
       weight: null,
-      temperature: positive(machine?.targetMixTemperature),
+      temperature: positive(machine?.targetGroupTemperature),
     },
   }));
 }
