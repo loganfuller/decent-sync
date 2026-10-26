@@ -244,7 +244,7 @@ describe("Shot capture and reconciliation", () => {
     const record = shot("live-shot", { timestamp: "2026-11-01T12:00:00Z" });
     tablet.serve(withShots(tabletApi(machine), [record]));
     tablet.fire("shotStored", { id: record.id });
-    expect(await waitShot(String(record.id))).toMatchObject({ profileTitle: "Londonium", actualDose: 18, actualYield: 35.9, duration: 27.935, peakPressure: expect.any(Number) });
+    expect(await waitShot(String(record.id))).toMatchObject({ profileTitle: "Londonium", actualDose: 18, actualYield: 35.9, duration: 23.549, peakPressure: expect.any(Number) });
     const curves = await measurements(String(record.id));
     expect(curves).toEqual(record.measurements);
     const { measurements: omitted, ...summary } = record;
@@ -347,7 +347,7 @@ describe("Shot capture and reconciliation", () => {
     for (const record of [unreachable, connected]) {
       const id = String(record.id);
       expect(await waitShot(id, (shot) => shot.enjoyment === 88)).toMatchObject({
-        machineId: owner.machine.id, pendingMachineId: null, machineInferred: false, pulledAt: expect.any(String), duration: 27.935,
+        machineId: owner.machine.id, pendingMachineId: null, machineInferred: false, pulledAt: expect.any(String), duration: 23.549,
       });
       expect((await detail(id)).record!.annotations).toEqual(annotations);
       expect(await measurements(id)).toEqual(record.measurements);
@@ -499,7 +499,7 @@ describe("Shot capture and reconciliation", () => {
     expect((await api.call("GET", `/shots/${record.id}`)).status).toBe(404);
     const replacement = await connect(machine, other.url);
     await deliver(replacement, record);
-    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 92, actualDose: null, actualYield: 40, profileTitle: "Londonium", duration: 27.935 });
+    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 92, actualDose: null, actualYield: 40, profileTitle: "Londonium", duration: 23.549 });
     expect(await measurements(String(record.id))).toEqual(record.measurements);
     expect((await list(machine.machine.id)).total).toBe(1);
   });

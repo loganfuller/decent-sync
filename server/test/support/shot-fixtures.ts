@@ -15,6 +15,15 @@ export function burrsShotFixture(): Record<string, unknown> {
   return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/simulated-devices-v0.9.0/shot-grinder-burrs.json", import.meta.url), "utf8"));
 }
 
+/**
+ * A real Shot with a long Preheat: its first 43 of 168 samples, 7.36 s, while
+ * the Machine heated its water at the heater test's 8 ml/s
+ * (de1pro-v0.9.0/shot-preheat.json).
+ */
+export function preheatShotFixture(): Record<string, unknown> {
+  return JSON.parse(fs.readFileSync(new URL("../fixtures/decaid/de1pro-v0.9.0/shot-preheat.json", import.meta.url), "utf8"));
+}
+
 export function withShots(api: DecaidApi, shots: Record<string, unknown>[]): DecaidApi {
   return { ...api, ...Object.fromEntries(shots.map((shot) => [`/shots/${encodeURIComponent(String(shot.id))}`, shot])) };
 }

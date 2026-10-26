@@ -125,7 +125,7 @@ export function RecordCard({ title, description, fields, empty }: { title: strin
   );
 }
 
-/** A record's samples as a table, for reading exact values. */
+/** A record's samples as a table, for reading exact values, with a Shot's Preheat marked. */
 export function MeasurementsTable<C extends string>({ curves, samples }: { curves: Record<C, CurveInfo>; samples: Sample<C>[] }) {
   const shown = Object.keys(curves) as C[];
   return (
@@ -145,7 +145,14 @@ export function MeasurementsTable<C extends string>({ curves, samples }: { curve
           <TableBody className="tabular-nums">
             {samples.map((sample, index) => (
               <TableRow key={index}>
-                <TableCell>{sample.seconds.toFixed(2)} s</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {sample.seconds.toFixed(2)} s
+                  {sample.preheat && (
+                    <Badge variant="secondary" className="ml-2">
+                      Preheat
+                    </Badge>
+                  )}
+                </TableCell>
                 {shown.map((curve) => (
                   <TableCell key={curve}>
                     <OrNone>{numberText(sample.values[curve])}</OrNone>
