@@ -9,7 +9,7 @@ A pull request that changes the management interface shows the change in screens
 ### Taking them
 
 - Seed the data as Seam 2 does: a fresh test server with simulated tablets running the built plugin (`docs/AI_BUILD_NOTES.md`). Never use a real server or the test tablet. Use made-up hardware ids, and keep tokens, link secrets and session cookies out of view.
-- Write a scratch Playwright spec that drives the pages and calls `page.screenshot`, for example `e2e/zz-screenshots.spec.ts`. Write it only in the throwaway worktree you run Playwright from, and never commit it. Playwright needs a path without a dot segment (`docs/AI_BUILD_NOTES.md`).
+- Write a scratch Playwright spec that drives the pages and calls `page.screenshot`, for example `e2e/zz-screenshots.spec.ts`. Never commit it.
 - Use a 1280 x 800 viewport, and `fullPage: true` for pages. Dialogs animate open, so wait about 600 ms after one appears before capturing it.
 - Show each state a reviewer needs, such as the page before and after an action, a confirmation, and what Staff see compared with Admins.
 - Open each image and check it before publishing: no half-faded dialogs, raw values or secrets.
