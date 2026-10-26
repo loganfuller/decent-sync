@@ -20,10 +20,12 @@ const QUIET = "quiet";
 /**
  * Resolves once the tablets, their DYE2s, the Streamlines and the server
  * show nothing left to do between them: two samples in a row pass, with a
- * finished read of `/sensors`, which each of the plugin's polls makes last,
- * on every tablet between them, so a change a poll would find has been
- * read and reported, and with every read the plugin had under way as the
- * first of them ended finished, as one held or slowed is not.
+ * read of `/sensors`, which each of the plugin's polls makes last, begun on
+ * every tablet between them, two where the plugin had a read under way as
+ * the first ended, as it then may have been part way through a poll, so a
+ * whole poll has run since and a change it would find has been read and
+ * reported; and with every read under way as the first ended finished, as
+ * one held or slowed is not.
  *
  * Each sample checks that every DYE2 and Streamline is settled, that no
  * Machine's sharing status shows anything waiting, the Loaded Recipe's write
@@ -71,10 +73,14 @@ export async function quiesced(api: AdminApi, { tablets, machines = {}, streamli
       }
       if (!first) {
         first = sampled;
-        return "quiet once, waiting for a /sensors read on every tablet";
+        return "quiet once, waiting for a whole poll on every tablet";
       }
-      const unread = Object.keys(tablets).filter((name) => sampled.get(name)!.sensors <= first!.get(name)!.sensors);
-      if (unread.length > 0) return `quiet, but no /sensors read finished since the first quiet sample on tablet ${unread.join(", ")}`;
+      // Part way through a poll at the first sample, the next /sensors read ends that poll, so a whole one takes two.
+      const unread = Object.keys(tablets).filter((name) => {
+        const { sensors, reads } = first!.get(name)!;
+        return sampled.get(name)!.sensors < sensors + (reads.length > 0 ? 2 : 1);
+      });
+      if (unread.length > 0) return `quiet, but no whole poll has run since the first quiet sample on tablet ${unread.join(", ")}`;
       const reading = Object.keys(tablets).filter((name) => sampled.get(name)!.reads.some((read) => first!.get(name)!.reads.includes(read)));
       return reading.length === 0 ? QUIET : `quiet, but a read under way at the first quiet sample is still under way on tablet ${reading.join(", ")}`;
     })
