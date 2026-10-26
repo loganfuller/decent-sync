@@ -26,34 +26,45 @@ import { dealOut, estimateDurations, longestFirst, readManifest } from "./script
 class DurationBalancedSequencer extends BaseSequencer {
   override async shard(files: TestSpecification[]): Promise<TestSpecification[]> {
     const { index, count } = this.ctx.config.shard!;
-    return dealOut(this.estimate(files), count)[index - 1]!.map((file) => file.spec);
+    return dealOut(await this.estimate(files), count)[index - 1]!.map((file) => file.spec);
   }
 
   override async sort(files: TestSpecification[]): Promise<TestSpecification[]> {
-    const { cache, config } = this.ctx;
-    const failed = (spec: TestSpecification) =>
-      cache.getFileTestResults(`${spec.project.name}:${path.relative(config.root, spec.moduleId)}`)?.failed === true;
-    return this.estimate(files)
-      .sort(
-        (a, b) =>
-          a.spec.project.config.sequence.groupOrder - b.spec.project.config.sequence.groupOrder ||
-          Number(failed(b.spec)) - Number(failed(a.spec)) ||
-          longestFirst(a, b),
-      )
+    const { cache } = this.ctx;
+    const results = (spec: TestSpecification) =>
+      cache.getFileTestResults(`${spec.project.name}:${path.relative(this.ctx.config.root, spec.moduleId)}`);
+    return (await this.estimate(files))
+      .sort((a, b) => {
+        const groupOrder = a.spec.project.config.sequence.groupOrder - b.spec.project.config.sequence.groupOrder;
+        if (groupOrder !== 0) return groupOrder;
+        const [aResults, bResults] = [results(a.spec), results(b.spec)];
+        if (aResults && bResults && aResults.failed !== bResults.failed) return aResults.failed ? -1 : 1;
+        return longestFirst(a, b);
+      })
       .map((file) => file.spec);
   }
 
-  private estimate(files: TestSpecification[]) {
+  // Estimates every test file of every project, not just the files given, so
+  // a file the manifest lacks gets the same estimate however the run is
+  // filtered, and in shard() and sort() alike, as in --add-missing.
+  private async estimate(files: TestSpecification[]) {
     const { root } = this.ctx.config;
-    return estimateDurations(
-      files.map((spec) => ({
-        spec,
-        path: path.relative(root, spec.moduleId).split(path.sep).join("/"),
-        project: spec.project.name,
-        size: fs.statSync(spec.moduleId).size,
-      })),
-      readManifest(root),
+    const key = (project: string, moduleId: string) => `${project}:${moduleId}`;
+    const all = new Map<string, { path: string; project: string; size: number }>();
+    const add = (project: string, moduleId: string) =>
+      all.set(key(project, moduleId), {
+        path: path.relative(root, moduleId).split(path.sep).join("/"),
+        project,
+        size: fs.statSync(moduleId).size,
+      });
+    for (const project of this.ctx.projects) {
+      for (const moduleId of (await project.globTestFiles()).testFiles) add(project.name, moduleId);
+    }
+    for (const spec of files) add(spec.project.name, spec.moduleId);
+    const estimated = new Map(
+      estimateDurations([...all].map(([id, file]) => ({ ...file, id })), readManifest(root)).map((file) => [file.id, file]),
     );
+    return files.map((spec) => ({ ...estimated.get(key(spec.project.name, spec.moduleId))!, spec }));
   }
 }
 
