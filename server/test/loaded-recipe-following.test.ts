@@ -691,6 +691,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     expect(await loadedRecipe(machines.a)).toBeNull();
     expect(saves(a)).toBe(saved);
+    // Nor is the recipe's grind written over the barista's.
+    expect(context(a).grinderSetting).toBe("2.2");
     // Sharing again, it is the Machine's Loaded Recipe.
     expect((await api.call("PUT", `/machines/${machines.a.machine.id}/sharing`, { sharing: true })).status).toBe(200);
     await loads(machines.a, one);
