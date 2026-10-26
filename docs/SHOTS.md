@@ -297,18 +297,24 @@ not through the puck, with the heater test's targets. Preheat ends at the
 first sample with any other substate, or none; a later `preparingForShot`
 sample is not Preheat. The duration counts from that first sample, and the
 peaks leave Preheat out, while the pull time is still the recording's start.
-`preheat` keeps how long Preheat lasted, up to that first sample, so a
-Shot's recording runs from its pull time for its Preheat and its duration,
-which bounds when it was pulled with a Loaded Recipe (`shotRecipeSql`).
+`preheat` keeps how long Preheat lasted, up to that first sample, and
+`duration` keeps the whole recording, Preheat included, as 1.2.0 stores it
+and bounds when a Shot was pulled with a Loaded Recipe by
+(`shotRecipeSql`); the REST API shows the duration without Preheat
+(`shownDuration`). So the two releases agree on `duration` while both run.
 
-`curves_revision` names the revision of `extractCurves` these values were
-computed by (`CURVES_REVISION`). A full record stores them at the current
-one, and an edit leaves them as they are. `CurvesRefresh` computes those of
-an earlier revision again from their measurements, in batches of 20 with
-their rows locked, skipping any another transaction holds, as the server
+`curves_revision` names the revision of `extractCurves` the Preheat and
+peaks were computed by (`CURVES_REVISION`). A full record stores them at the
+current one, and an edit leaves them as they are. `CurvesRefresh` computes
+those of an earlier revision again from their measurements, in batches of 20
+with their rows locked, skipping any another transaction holds, as the server
 starts and then hourly, so it also takes the Shots the previous release
-stores while it still serves beside this one during an upgrade. Raising the revision
-recomputes every stored Shot the same way.
+stores while it still serves beside this one during an upgrade. Until then
+such a Shot shows the whole recording as its duration. Raising the revision
+recomputes every stored Shot the same way. An accepted gap: the previous
+release still writes peaks with Preheat in them when it stores a newer full
+record of a Shot already computed again, or an edit it read before the
+refresh, and those stay until that Shot's next full record here.
 
 ## REST API
 

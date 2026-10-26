@@ -6,7 +6,7 @@ import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { CURVES_REVISION, extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
+import { CURVES_REVISION, extractCurves, extractShot, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
@@ -61,7 +61,7 @@ export class ShotsService {
         ...(curves && {
           ...(!stored?.hasFullRecord && { pulledAt: curves.pulledAt }),
           preheat: curves.preheat,
-          duration: curves.duration,
+          duration: recordingSeconds(curves),
           peakPressure: curves.peakPressure,
           peakFlow: curves.peakFlow,
           curvesRevision: CURVES_REVISION,
@@ -216,7 +216,7 @@ export class ShotsService {
   }
 
   async get(id: string) {
-    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, preheat: true, ...linkColumns }, include: creditView });
+    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
     return { ...withLocationInferred(shot!), previousShot: await this.previous(shot!) };
@@ -257,7 +257,7 @@ const creditView = {
 } as const;
 /** The columns behind a Shot's links, which it shows as the items they link to. */
 const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, libraryToolIds: true, recipeId: true } as const;
-const listOmitted = { record: true, versionAt: true, hasFullRecord: true, curvesRevision: true, preheat: true, ...linkColumns } as const;
+const listOmitted = { record: true, versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns } as const;
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
 export interface BatchLink {
@@ -369,9 +369,16 @@ function compareText(a: string | null, b: string | null): number {
   return a.localeCompare(b, undefined, { sensitivity: "base" });
 }
 
-/** A Location credited through an inferred Machine is inferred too. An unknown Location is not. */
-function withLocationInferred<T extends { machineInferred: boolean; locationId: string | null }>(shot: T): T & { locationInferred: boolean } {
-  return { ...shot, locationInferred: shot.machineInferred && shot.locationId !== null };
+/**
+ * A Shot as it is shown. A Location credited through an inferred Machine is
+ * inferred too; an unknown Location is not. Its duration leaves its Preheat
+ * out (`shownDuration`).
+ */
+function withLocationInferred<T extends { machineInferred: boolean; locationId: string | null; duration: number | null; preheat: number | null }>(
+  shot: T,
+): Omit<T, "preheat"> & { locationInferred: boolean } {
+  const { preheat, ...shown } = shot;
+  return { ...shown, duration: shownDuration(shot.duration, preheat), locationInferred: shot.machineInferred && shot.locationId !== null };
 }
 
 function shotNotFound() { return new NotFoundException("Shot not found"); }

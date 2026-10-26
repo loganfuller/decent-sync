@@ -203,8 +203,7 @@ export function shotLinkedSql(kind: LibraryKind, ids: readonly string[]): Prisma
  */
 export function shotRecipeSql(alias: string): Prisma.Sql {
   const shot = Prisma.raw(alias);
-  // Its Preheat comes before the duration; a Shot of an earlier curves revision counted it in the duration and holds none.
-  const end = Prisma.sql`${shot}.pulled_at + make_interval(secs => coalesce(${shot}.preheat, 0) + coalesce(${shot}.duration, 0))`;
+  const end = Prisma.sql`${shot}.pulled_at + make_interval(secs => coalesce(${shot}.duration, 0))`;
   return Prisma.sql`(CASE WHEN ${shot}.recipe_id IS NOT NULL THEN (
     SELECT CASE WHEN latest.unloaded_at IS NULL OR latest.unloaded_at > ${shot}.pulled_at THEN latest.recipe_id END
     FROM (

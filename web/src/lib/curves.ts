@@ -99,7 +99,8 @@ export function steamSamples(measurements: unknown, stopAt: number | null): Samp
  * each read by `read` from the measurement and its machine snapshot and scale
  * reading. Its leading samples whose machine snapshot `leading` picks out,
  * such as a Shot's Preheat, come before 0 s, which is the first sample after
- * them, or the last sample if there is none. Times are counted as the server
+ * them, or a millisecond after the last if none follows, as when a Shot is
+ * stopped before its profile starts. Times are counted as the server
  * counts a record's duration: the gaps between consecutive samples added up,
  * leaving out the whole quarter hours a daylight-saving change adds or takes
  * away, and counting for nothing a gap left by any other change of the
@@ -134,7 +135,7 @@ function timedSamples<C extends string>(
     if (!preheat) zero ??= elapsed;
     timed.push({ elapsed, sample: { preheat, ...read(fields, machine, record(fields.scale)) } });
   }
-  const start = zero ?? elapsed;
+  const start = zero ?? elapsed + 1;
   return timed.map(({ elapsed, sample }) => ({ seconds: (elapsed - start) / 1000, ...sample }));
 }
 

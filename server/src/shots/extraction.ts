@@ -133,11 +133,31 @@ export function elapsedSeconds(times: readonly number[]): number | null {
 }
 
 /**
- * The revision of `extractCurves`'s values, raised whenever it changes them,
- * so that the Shots stored with an earlier revision's are computed again
- * (`CurvesRefresh`). Revision 1 leaves Preheat out.
+ * The revision of the values `extractCurves` stores, raised whenever it
+ * changes them, so that the Shots stored with an earlier revision's are
+ * computed again (`CurvesRefresh`). Revision 1 adds Preheat and leaves it
+ * out of the peaks.
  */
 export const CURVES_REVISION = 1;
+
+/**
+ * A Shot's duration as `shots.duration` keeps it: the whole recording, its
+ * Preheat and then its profile, as the release before this one stores and
+ * reads it, so the two agree while both run.
+ */
+export function recordingSeconds({ preheat, duration }: { preheat: number | null; duration: number | null }): number | null {
+  return preheat === null || duration === null ? null : preheat + duration;
+}
+
+/**
+ * The duration a Shot shows, from the stored recording and its Preheat, to
+ * the millisecond its sample times have. A Shot not computed again since an
+ * earlier revision has no Preheat stored, and shows the whole recording
+ * until it is.
+ */
+export function shownDuration(recording: number | null, preheat: number | null): number | null {
+  return recording === null || preheat === null ? recording : Math.round((recording - preheat) * 1000) / 1000;
+}
 
 /**
  * Values that need the Shot's curves: when it was pulled, how long its
@@ -145,10 +165,10 @@ export const CURVES_REVISION = 1;
  * samples whose substate is `preparingForShot`, which Decaid maps from the
  * DE1's heating states before the profile starts; it ends at the first sample
  * with any other substate, or none. The duration counts from that sample to
- * the last, and the peaks leave Preheat out, so the heater test's flow is
- * not counted. Preheat lasts until that first sample, so it and the duration
- * add up to the whole recording. The pull time is still when the recording
- * started.
+ * the last, 0 if there is none, and the peaks leave Preheat out, so the
+ * heater test's flow is not counted. Preheat lasts until that first sample,
+ * or to the last, so it and the duration add up to the whole recording. The
+ * pull time is still when the recording started.
  */
 export function extractCurves(record: unknown, measurements: unknown) {
   const samples = Array.isArray(measurements) ? measurements : [];
@@ -178,7 +198,7 @@ export function extractCurves(record: unknown, measurements: unknown) {
   return {
     pulledAt: pulledAt(object(record), first, last),
     preheat: elapsedSeconds(times.slice(0, preheatTimes + 1)),
-    duration: elapsedSeconds(times.slice(preheatTimes)),
+    duration: times.length === 0 ? null : (elapsedSeconds(times.slice(preheatTimes)) ?? 0),
     peakPressure,
     peakFlow,
   };

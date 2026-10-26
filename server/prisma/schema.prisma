@@ -517,16 +517,18 @@ model Shot {
   targetYield      Float?            @map("target_yield")
   actualYield      Float?            @map("actual_yield")
   /// How long its Preheat lasted, in seconds: the Machine heating its water
-  /// before the profile starts. The duration and peaks leave it out
-  /// (extractCurves); the time a Shot was pulled through is its pull time
-  /// plus both.
+  /// before the profile starts. Its peaks leave it out (extractCurves), and
+  /// the duration it shows is `duration` without it (shownDuration). Null
+  /// until a Shot of an earlier curves revision is computed again.
   preheat          Float?
+  /// The whole recording, in seconds, Preheat included, as the release
+  /// before stores it and bounds a Shot's Loaded Recipe by (shotRecipeSql).
   duration         Float?
   enjoyment        Float?
   barista          String?
   peakPressure     Float?            @map("peak_pressure")
   peakFlow         Float?            @map("peak_flow")
-  /// The revision of extractCurves its Preheat, duration and peaks were
+  /// The revision of extractCurves its Preheat and peaks were
   /// computed by (CURVES_REVISION); those of an earlier one are computed
   /// again from its measurements (CurvesRefresh).
   curvesRevision   Int               @default(0) @map("curves_revision")

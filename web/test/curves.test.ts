@@ -37,6 +37,18 @@ describe("shotSamples", () => {
   });
 });
 
+describe("shotSamples of a Shot stopped in Preheat", () => {
+  it("keeps every sample before 0 s, however many there are", () => {
+    // Derived: the real Shot's Preheat alone, and its first sample alone, as a Shot stopped before its profile started would record.
+    const all = shotSamples(measurements.slice(0, 43));
+    expect(all.every((sample) => sample.preheat && sample.seconds < 0)).toBe(true);
+    expect(all.at(-1)!.seconds).toBe(-0.001);
+    const one = shotSamples(measurements.slice(0, 1));
+    expect(one.map((sample) => [sample.seconds, sample.preheat])).toEqual([[-0.001, true]]);
+    expect(firstSecond(one)).toBe(-0.001);
+  });
+});
+
 describe("chartPoints", () => {
   it("reads a Shot's Preheat before 0 s, with 0 s itself and the Shot compared with aligned there", () => {
     const samples = shotSamples(measurements);

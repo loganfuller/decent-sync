@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { MAX_HARDWARE_LENGTH } from "@decent-sync/protocol";
-import { extractCurves, extractShot, shotHardware, shotVersion } from "../src/shots/extraction.js";
+import { extractCurves, extractShot, recordingSeconds, shotHardware, shotVersion, shownDuration } from "../src/shots/extraction.js";
 import { burrsShotFixture, preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import { dye2Recording } from "./support/simulated-dye2.js";
 
@@ -102,13 +102,25 @@ describe("Shot extraction", () => {
     expect(extractCurves(shot, untimed)).toMatchObject({ preheat: 0, peakFlow: 8.053466796875 });
   });
 
-  it("counts a Shot that never left Preheat as all Preheat, with no duration or peaks", () => {
+  it("counts a Shot that never left Preheat as all Preheat, with a duration of 0 and no peaks", () => {
     // Derived: the real Shot's Preheat alone, as a Shot stopped before its profile started would record.
     const shot = preheatShotFixture();
     const curves = extractCurves(shot, (shot.measurements as unknown[]).slice(0, 43));
-    expect(curves).toMatchObject({ duration: null, peakFlow: null, peakPressure: null });
+    expect(curves).toMatchObject({ duration: 0, peakFlow: null, peakPressure: null });
     // From its first sample to its last, at 15:53:24.620; the profile's first was not recorded.
     expect(curves.preheat).toBeCloseTo(7.166, 3);
+  });
+
+  it("stores the whole recording as the duration, as the release before does, and shows it without Preheat", () => {
+    const shot = preheatShotFixture();
+    const curves = extractCurves(shot, shot.measurements);
+    const recording = recordingSeconds(curves)!;
+    // As the release before computed it: every sample's gap, Preheat's included.
+    expect(recording).toBeCloseTo(33.196, 3);
+    expect(shownDuration(recording, curves.preheat)).toBe(25.833);
+    // A Shot not computed again keeps the release before's duration, with no Preheat stored.
+    expect(shownDuration(recording, null)).toBe(recording);
+    expect([recordingSeconds({ preheat: null, duration: null }), shownDuration(null, null)]).toEqual([null, null]);
   });
 
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {

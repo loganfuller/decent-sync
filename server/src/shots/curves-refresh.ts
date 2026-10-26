@@ -11,12 +11,13 @@ export const CURVES_REFRESH_BATCH = 20;
 const REFRESH_TRANSACTION = { maxWait: 2_000, timeout: 60_000 } as const;
 
 /**
- * Computes again, from its measurements, the Preheat, duration and peaks of
- * every Shot stored with an earlier revision of `extractCurves`
+ * Computes again, from its measurements, the Preheat and peaks of every
+ * Shot stored with an earlier revision of `extractCurves`
  * (CURVES_REVISION), as the server starts and then every hour, on every
  * instance, in the background, as `DeliveryIdCleanup` deletes. The hourly
  * runs take the Shots the previous release stores while it still serves
- * beside this one. A run that fails is logged, and the next tries again.
+ * beside this one. Their duration, the whole recording, is as that release
+ * stores it already. A run that fails is logged, and the next tries again.
  */
 @Injectable()
 export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
@@ -60,7 +61,7 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Could not compute Shots' curves again; trying again in an hour: ${String(error)}`);
     }
-    if (refreshed > 0) this.logger.log(`Computed the Preheat, duration and peaks of ${refreshed} stored ${refreshed === 1 ? "Shot" : "Shots"} again`);
+    if (refreshed > 0) this.logger.log(`Computed the Preheat and peaks of ${refreshed} stored ${refreshed === 1 ? "Shot" : "Shots"} again`);
   }
 
   /**
@@ -79,9 +80,9 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
         ORDER BY s.id LIMIT ${CURVES_REFRESH_BATCH}::integer
         FOR UPDATE OF s SKIP LOCKED`;
       for (const shot of shots) {
-        const { preheat, duration, peakPressure, peakFlow } = extractCurves(shot.record, shot.measurements);
+        const { preheat, peakPressure, peakFlow } = extractCurves(shot.record, shot.measurements);
         await tx.$executeRaw`
-          UPDATE shots SET preheat = ${preheat}, duration = ${duration}, peak_pressure = ${peakPressure}, peak_flow = ${peakFlow},
+          UPDATE shots SET preheat = ${preheat}, peak_pressure = ${peakPressure}, peak_flow = ${peakFlow},
             curves_revision = ${CURVES_REVISION}::integer
           WHERE id = ${shot.id}`;
       }
