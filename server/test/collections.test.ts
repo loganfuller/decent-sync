@@ -849,8 +849,8 @@ describe("Library, settings and paired devices", () => {
         const tablet = tablets.load({
           settings: { ...settingsFor({ token: "stand-in token 32002", serverUrl: standIn.url }), PollSeconds: 5 },
           api: served,
-          // Ten times faster, so a minute is 6 s.
-          timeScale: 10,
+          // Fifty times faster, so a minute is 1.2 s.
+          timeScale: 50,
         });
         const sent = () => standIn.received.filter((message) => message.type === "collection" && message.name === "sensorCalibration");
         const reads = () => SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route).length);
