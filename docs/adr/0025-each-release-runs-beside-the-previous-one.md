@@ -6,7 +6,7 @@ An upgrade takes nothing offline. Release N works beside release N-1 wherever th
 - as the plugin's storage on a tablet and the records it writes onto the tablet, which one release leaves for the other after an update;
 - as a page of the management interface loaded from N-1 talking to a server of N.
 
-It never has to work beside N-2. Several instances are upgraded by starting the new release beside the old and moving traffic over. No release asks for a step that stops service: no stopped server, no recreated database, nothing its upgrade notes ask to be redone. The steps left by hand happen while everything runs:
+It never has to work beside N-2. Only tagged releases count. Anything added since the latest release, such as a column, message, field or route, may still be changed or removed before the next release, since no release runs it. A merged migration is still changed by a later one rather than edited, as staging and development databases have applied it. Several instances are upgraded by starting the new release beside the old and moving traffic over. No release asks for a step that stops service: no stopped server, no recreated database, nothing its upgrade notes ask to be redone. The steps left by hand happen while everything runs:
 - updating tablets before a release raises the Decaid, DYE2 or Streamline minimum (ADR-0017);
 - seeing that every tablet has the previous release's plugin before deploying a release that raises the wire revision.
 
