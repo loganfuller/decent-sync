@@ -194,7 +194,14 @@ describe("several server instances", () => {
 
       expect(await revokedRaw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
       expect(quiet.output()).toMatch(/Not listening for access changes/);
-      expect(keptRaw.messages).toEqual([expect.objectContaining({ type: "welcome" })]);
+      // Listening again wakes every connection's writer too. A raw connection sends no reports, so this is the kept one's
+      // first look, which tells it that its Machine, in no Location, takes part nowhere. It lands before or after the
+      // revoked connection closes.
+      expect(await keptRaw.message(1)).toEqual({ type: "captureOnly", captureOnly: true });
+      // A heartbeat answered: the kept connection was neither refused nor closed.
+      keptRaw.send({ type: "heartbeat" });
+      expect(await keptRaw.message(2)).toEqual({ type: "heartbeat" });
+      expect(keptRaw.messages).not.toContainEqual(expect.objectContaining({ type: "error" }));
       // Read through the quiet instance: an instance counts a connection unheard for three of its own heartbeat
       // intervals as gone, and the first's is 0.5 s, which this test outlasts on a busy machine.
       expect(await api.at(quiet.url).machineNamed("Kept while not listening")).toMatchObject({ online: true });
