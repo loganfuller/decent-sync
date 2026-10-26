@@ -91,17 +91,26 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     records(tablet, key).find((record) => String(record.name).trim().toLowerCase() === name.trim().toLowerCase());
   const show = (kind: "baskets" | "tools", id: string, location: LocationView, shown: boolean) => api.call("PUT", `/${kind}/${id}/locations/${location.id}`, { shown });
 
+  /** The kind of the Library's items each of DYE2's lists holds, as the server's writes name it. */
+  const KIND_OF: Record<Dye2Key, string> = { baskets: "basket", equipment: "tool", recipes: "recipe" };
+
   /**
    * Has DYE2, which read the list just before, post it back just after the
-   * plugin's next write of the key, losing that write. Returns whether DYE2's
-   * post has landed and the server has acknowledged the plugin's answer to
-   * the write: until then, the list may still show the write, and the
-   * server, still awaiting the answer, plans from the tablet's record as it
-   * was before the write, so a sharing status of nothing waiting says
-   * nothing of it.
+   * plugin's next write of the key, losing that write. `taken()` waits until
+   * DYE2's post has landed and the server has acknowledged the plugin's
+   * answer to the write: until then, the list may still show the write, and
+   * the server, still awaiting the answer, plans from the tablet's record as
+   * it was before the write, so a sharing status of nothing waiting says
+   * nothing of it. Should that not come, it fails naming the furthest stage
+   * the write reached (`stage`), and only then prints what the tablet and
+   * both instances sent and logged since the loss was set up, as asking the
+   * server for its state while the write is due could change its timing
+   * (#163).
    */
   const loseNextWrite = (tablet: SimulatedTablet, key: Dye2Key) => {
     const before = structuredClone(dye2List(tablet, key) ?? []);
+    const from = { received: tablet.received.length, sent: tablet.sent.length, requests: tablet.requests.length, logs: tablet.logs.length };
+    const outputFrom = [server, other].map((instance) => instance.output().length);
     /** Where in what the plugin sent its answer to the write lost comes, the next answer it sends, as it writes one item at a time. */
     let answerFrom: number | undefined;
     let posted = false;
@@ -116,11 +125,51 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
       }
       return undefined;
     };
-    const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown }[];
-    return () => {
-      if (!posted) return false;
+    const frames = (list: unknown[]) => list as { type?: unknown; id?: unknown; kind?: unknown }[];
+    /** The furthest the write lost has got, from the server's sending it to its acknowledging the answer. */
+    const stage = () => {
+      if (answerFrom === undefined) {
+        const sent = frames(tablet.received.slice(from.received)).some(
+          (frame) => (frame.type === "write" || frame.type === "remove") && frame.kind === KIND_OF[key],
+        );
+        return sent ? "write not carried out" : "no write sent";
+      }
+      if (!posted) return "rewrite not posted";
       const answer = frames(tablet.sent.slice(answerFrom)).find((frame) => frame.type === "written" || frame.type === "removed");
-      return answer !== undefined && tablet.acks(answer.id) > 0;
+      if (answer === undefined) return "no answer sent";
+      return tablet.acks(answer.id) > 0 ? "answer acknowledged" : "answer not acknowledged";
+    };
+    /** The frames, but heartbeats, one to a line, each cut to 400 characters, with a hello's token left out (AGENTS.md). */
+    const shown = (list: unknown[]) => {
+      const beats = frames(list).filter((frame) => frame.type === "heartbeat").length;
+      const lines = frames(list)
+        .filter((frame) => frame.type !== "heartbeat")
+        .map((frame) => {
+          const text = JSON.stringify(frame, (field, value: unknown) => (field === "token" ? "(left out)" : value)) ?? String(frame);
+          return `  ${text.length > 400 ? `${text.slice(0, 400)}...` : text}`;
+        });
+      return [...lines, `  and ${beats} heartbeats`];
+    };
+    const since = () =>
+      [
+        `The tablet received:`,
+        ...shown(tablet.received.slice(from.received)),
+        `The tablet sent:`,
+        ...shown(tablet.sent.slice(from.sent)),
+        `The plugin requested of Decaid: ${tablet.requests.slice(from.requests).join(", ")}`,
+        `The plugin logged:`,
+        ...tablet.logs.slice(from.logs).map((line) => `  ${line}`),
+        ...[server, other].flatMap((instance, index) => [`The ${index === 0 ? "first" : "second"} instance logged:`, instance.output().slice(outputFrom[index])]),
+      ].join("\n");
+    return {
+      async taken() {
+        try {
+          await expect.poll(stage).toBe("answer acknowledged");
+        } catch (error) {
+          console.error(`The write of ${key} lost reached no further than "${stage()}". Since its loss was set up:\n${since()}`);
+          throw error;
+        }
+      },
     };
   };
 
@@ -215,6 +264,8 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await show("tools", tool!.id, cafe, true)).status).toBe(200);
     await expect.poll(() => recordNamed(cafeTablet, "equipment", "Fixture WDT Tool")).toBeDefined();
     await expect.poll(() => recordNamed(two, "equipment", "Fixture WDT Tool")).toBeDefined();
+    // Not while the global id written back to the first tablet's record could still lose an edit there (ADR-0005).
+    await expect.poll(() => recordNamed(one, "equipment", "Fixture WDT Tool")?.[GLOBAL_ID_KEY]).toBe(tool!.id);
 
     // DYE2's equipment page on the first tablet changes the needles from 8 to 10: every tablet holding it, at both Locations, gets it.
     await saveInDye2(one, tools.editWdtTool);
@@ -288,7 +339,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     const removalLost = loseNextWrite(cafeTablet, "equipment");
     const cafeWrites = cafeTablet.storeWrites.filter((write) => write.key === "equipment").length;
     expect((await show("tools", tool!.id, cafe, false)).status).toBe(200);
-    await expect.poll(removalLost).toBe(true);
+    await removalLost.taken();
     await expect.poll(() => recordNamed(cafeTablet, "equipment", "Deleted Fixture Spare Tamper")).toBeUndefined();
     expect(cafeTablet.storeWrites.filter((write) => write.key === "equipment").length).toBeGreaterThanOrEqual(cafeWrites + 2);
     expect(await shownAt("tools", "Deleted Fixture Spare Tamper")).toEqual([]);
@@ -387,16 +438,19 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     // A create lost.
     const createLost = loseNextWrite(two, "baskets");
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost"));
-    await expect.poll(createLost).toBe(true);
+    await createLost.taken();
     await expect.poll(() => recordNamed(two, "baskets", "Lost Fixture 18g Precision")).toBeDefined();
     expect(two.storeWrites.filter((write) => write.key === "baskets").length).toBeGreaterThanOrEqual(2);
     expect(await shownAt("baskets", "Lost Fixture 18g Precision")).toEqual(["Lost lab"]);
 
-    // An edit lost: the record comes back as it was before the plugin's write, which is no edit of the tablet's.
+    // An edit lost: the record comes back as it was before the plugin's write, which is no edit of the tablet's. The
+    // first tablet edits it once its record carries the global id written back to it, as an edit while that write reads
+    // and posts the list would be lost to it (ADR-0005).
     await expect.poll(() => records(two, "baskets").length).toBe(1);
+    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.[GLOBAL_ID_KEY]).toBeDefined();
     const editLost = loseNextWrite(two, "baskets");
     await saveInDye2(one, baskets.edit18gBasket, ownNames("Lost"));
-    await expect.poll(editLost).toBe(true);
+    await editLost.taken();
     await expect.poll(() => recordNamed(two, "baskets", "Lost Fixture 18g Precision")?.notes).toBe("Fixture notes, edited");
     const [basket] = await named("baskets", "Lost Fixture 18g Precision");
     expect((await view("baskets", basket!.id)).content).toMatchObject({ notes: "Fixture notes, edited", diameterMm: 58.4 });
@@ -489,7 +543,9 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await api.waitForOnline(...machines);
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost twice"));
     const name = "Lost twice Fixture 18g Precision";
-    await expect.poll(() => recordNamed(two, "baskets", name)?.[GLOBAL_ID_KEY]).toBeDefined();
+    // The first tablet's record too carries its global id, written back to it: an edit there while that write reads and
+    // posts the list would be lost to it, as ADR-0005 says, and leave the second tablet nothing to be written (#163).
+    for (const tablet of [one, two]) await expect.poll(() => recordNamed(tablet, "baskets", name)?.[GLOBAL_ID_KEY]).toBeDefined();
     const set = async (tablet: SimulatedTablet, field: string, value: unknown) => {
       const list = records(tablet, "baskets").map((record) => (record.name === name ? { ...record, [field]: value } : record));
       expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
@@ -499,7 +555,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     // into the list holding its old notes.
     const lost = loseNextWrite(two, "baskets");
     await set(one, "notes", "Edited on one");
-    await expect.poll(lost).toBe(true);
+    await lost.taken();
     await expect.poll(() => recordNamed(two, "baskets", name)?.notes).toBe("Fixture notes");
     await set(one, "diameterMm", 58.7);
     // Its old notes are no edit: the first tablet's are written to it again, and kept everywhere.
@@ -513,7 +569,7 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     // write of the diameter, is no Conflict.
     const lostAgain = loseNextWrite(two, "baskets");
     await set(one, "notes", "Edited twice on one");
-    await expect.poll(lostAgain).toBe(true);
+    await lostAgain.taken();
     await set(one, "notes", "Edited on one");
     await expect.poll(async () => (await view("baskets", basket!.id)).content.notes).toBe("Edited on one");
     const waiting = async () => (await api.get<{ status: { waiting: number } }>(`/machines/${machines[1].machine.id}/sharing-status`)).status.waiting;
