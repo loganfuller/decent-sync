@@ -443,8 +443,7 @@ describe("Steam Record capture", () => {
     const reads = steamReads(tablet);
     const refusedAt = tablet.readClock();
     // Three poll intervals of the tablet's time: the window counts poll ticks, so two or three with no read
-    // already show polling has stopped. The clock runs at timeScale only while no connection is opening, so
-    // a plugin that kept reconnecting would outlast the poll's timeout and fail here, not pass.
+    // already show polling has stopped.
     await expect.poll(() => tablet.readClock()).toBeGreaterThan(refusedAt + 3 * 5_000);
     expect(steamReads(tablet)).toBe(reads);
   });
