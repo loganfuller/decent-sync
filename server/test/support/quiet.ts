@@ -39,7 +39,11 @@ export async function quiesced(api: AdminApi, { tablets, machines = {}, streamli
   let first: Map<string, number> | undefined;
   await expect
     .poll(async () => {
-      const sampled = await sample(api, tablets, machines, streamlines);
+      // A sample that throws, such as on a failed read of a sharing status, ends the run of quiet samples as a failed check does.
+      const sampled = await sample(api, tablets, machines, streamlines).catch((error: unknown) => {
+        first = undefined;
+        throw error;
+      });
       if (typeof sampled === "string") {
         first = undefined;
         return sampled;
