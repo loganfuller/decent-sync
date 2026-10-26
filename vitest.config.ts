@@ -31,13 +31,13 @@ class DurationBalancedSequencer extends BaseSequencer {
 
   override async sort(files: TestSpecification[]): Promise<TestSpecification[]> {
     const { cache } = this.ctx;
-    const results = (spec: TestSpecification) =>
-      cache.getFileTestResults(`${spec.project.name}:${path.relative(this.ctx.config.root, spec.moduleId)}`);
+    const results = (file: { spec: TestSpecification; path: string }) =>
+      cache.getFileTestResults(`${file.spec.project.name}:${file.path}`);
     return (await this.estimate(files))
       .sort((a, b) => {
         const groupOrder = a.spec.project.config.sequence.groupOrder - b.spec.project.config.sequence.groupOrder;
         if (groupOrder !== 0) return groupOrder;
-        const [aResults, bResults] = [results(a.spec), results(b.spec)];
+        const [aResults, bResults] = [results(a), results(b)];
         if (aResults && bResults && aResults.failed !== bResults.failed) return aResults.failed ? -1 : 1;
         return longestFirst(a, b);
       })
