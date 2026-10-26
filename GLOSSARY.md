@@ -137,6 +137,10 @@ _Avoid_: Recipe (a recipe is saved; a workflow is current); rinse settings (Deca
 One extraction recorded on a machine: its measurements over time, what was used, and how it turned out.
 _Avoid_: Pull, brew, extraction (as a noun for the record)
 
+**Preheat**:
+The part of a Shot's recording before its profile starts, while the Machine heats its water. Preheat is shown with the Shot but isn't counted in its duration or peaks.
+_Avoid_: Warmup, heater test
+
 **Steam Record**:
 One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached.
 _Avoid_: Steam shot, steaming session
