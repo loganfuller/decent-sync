@@ -22,20 +22,30 @@ export function writeManifest(root, durations) {
 /**
  * Each file's estimated duration in whole seconds: its manifest entry, or for a
  * file the manifest lacks, its size times the median seconds per byte of the
- * manifest's files in its Vitest project (of all the manifest's files, when
- * the manifest has none of that project's). `files` are `{ path, project,
- * size }`, the path relative to the config's root with POSIX separators.
- * Returns them as `{ ...file, seconds }`, in the same order.
+ * manifest's files in its Vitest project. When the manifest has none of that
+ * project's files, the median is taken over every manifest entry whose file
+ * is in `root`, so the estimate does not depend on which projects a run
+ * includes. `files` are `{ path, project, size }`, the path relative to `root`
+ * with POSIX separators, and every file of each project they include. Returns
+ * them as `{ ...file, seconds }`, in the same order.
  */
-export function estimateDurations(files, manifest) {
-  const known = files.filter((file) => Object.hasOwn(manifest, file.path) && file.size > 0);
-  const perByte = (group) => median(group.map((file) => manifest[file.path] / file.size));
-  const overall = perByte(known);
+export function estimateDurations(files, manifest, root) {
+  const perByte = (group) => median(group.filter((file) => file.size > 0).map((file) => manifest[file.path] / file.size));
+  const known = files.filter((file) => Object.hasOwn(manifest, file.path));
   const byProject = new Map();
+  let overall;
   for (const file of files) {
     if (Object.hasOwn(manifest, file.path) || byProject.has(file.project)) continue;
-    if (overall === undefined) throw new Error(`${manifestName} has no entry for any test file to estimate from.`);
-    byProject.set(file.project, perByte(known.filter((other) => other.project === file.project)) ?? overall);
+    let rate = perByte(known.filter((other) => other.project === file.project));
+    if (rate === undefined) {
+      overall ??= perByte(Object.keys(manifest).flatMap((entry) => {
+        const size = fs.statSync(path.join(root, entry), { throwIfNoEntry: false })?.size;
+        return size === undefined ? [] : [{ path: entry, size }];
+      }));
+      if (overall === undefined) throw new Error(`${manifestName} has no entry for any test file to estimate from.`);
+      rate = overall;
+    }
+    byProject.set(file.project, rate);
   }
   return files.map((file) => ({
     ...file,

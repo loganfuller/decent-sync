@@ -44,9 +44,9 @@ class DurationBalancedSequencer extends BaseSequencer {
       .map((file) => file.spec);
   }
 
-  // Estimates every test file of every project, not just the files given, so
-  // a file the manifest lacks gets the same estimate however the run is
-  // filtered, and in shard() and sort() alike, as in --add-missing.
+  // Estimates every test file of each project in the run, not just the files
+  // given, so a file the manifest lacks gets the same estimate however the
+  // run is filtered, and in shard() and sort() alike, as in --add-missing.
   private async estimate(files: TestSpecification[]) {
     const { root } = this.ctx.config;
     const key = (project: string, moduleId: string) => `${project}:${moduleId}`;
@@ -62,7 +62,9 @@ class DurationBalancedSequencer extends BaseSequencer {
     }
     for (const spec of files) add(spec.project.name, spec.moduleId);
     const estimated = new Map(
-      estimateDurations([...all].map(([id, file]) => ({ ...file, id })), readManifest(root)).map((file) => [file.id, file]),
+      estimateDurations([...all].map(([id, file]) => ({ ...file, id })), readManifest(root), root).map(
+        (file) => [file.id, file],
+      ),
     );
     return files.map((spec) => ({ ...estimated.get(key(spec.project.name, spec.moduleId))!, spec }));
   }

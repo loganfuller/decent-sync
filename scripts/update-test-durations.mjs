@@ -56,7 +56,7 @@ if (flag === "--check" || flag === "--add-missing") {
   }
 
   const kept = Object.fromEntries(Object.entries(manifest).filter(([file]) => listed.has(file)));
-  const estimated = estimateDurations(files, kept);
+  const estimated = estimateDurations(files, kept, repo);
   writeManifest(repo, Object.fromEntries(estimated.map((file) => [file.path, file.seconds])));
   for (const file of estimated.filter((file) => !Object.hasOwn(kept, file.path))) {
     console.log(`Added ${file.path}: ${file.seconds} s, estimated from its size`);
@@ -85,7 +85,7 @@ if (flag === "--check" || flag === "--add-missing") {
   const measured = Object.fromEntries(
     files.filter((file) => samples.has(file.path)).map((file) => [file.path, Math.round(median(samples.get(file.path)) / 1000)]),
   );
-  const estimated = estimateDurations(files, measured);
+  const estimated = estimateDurations(files, measured, repo);
   writeManifest(repo, Object.fromEntries(estimated.map((file) => [file.path, file.seconds])));
   for (const file of estimated.filter((file) => !Object.hasOwn(measured, file.path))) {
     console.log(`No CI data for ${file.path}: ${file.seconds} s, estimated from its size`);

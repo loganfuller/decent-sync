@@ -1,4 +1,7 @@
-import { describe, expect, it } from "vitest";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { describe, expect, it, onTestFinished } from "vitest";
 import { dealOut, estimateDurations, readRunLog } from "../test-durations.mjs";
 
 const prefix = (job: string) => `${job}\tUNKNOWN STEP\t2026-10-26T04:42:32.0286979Z `;
@@ -50,17 +53,20 @@ describe("estimating durations", () => {
     ];
     const manifest = { "server/test/a.test.ts": 10, "server/test/b.test.ts": 20, "server/test/c.test.ts": 90, "plugin/test/a.test.ts": 1 };
 
-    expect(estimateDurations(files, manifest).map((file) => file.seconds)).toEqual([10, 20, 90, 40, 1, 3]);
+    expect(estimateDurations(files, manifest, os.tmpdir()).map((file) => file.seconds)).toEqual([10, 20, 90, 40, 1, 3]);
   });
 
-  it("estimates a project the manifest has no file of from all the manifest's files", () => {
-    const files = [
-      { path: "server/test/a.test.ts", project: "server", size: 1000 },
-      { path: "plugin/test/a.test.ts", project: "plugin", size: 1000 },
-      { path: "web/test/new.test.ts", project: "web", size: 1000 },
-    ];
+  it("estimates a project the manifest has no file of from every manifest entry on disk, whichever projects are run", () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "test-durations-"));
+    onTestFinished(() => fs.rmSync(root, { recursive: true, force: true }));
+    for (const dir of ["server/test", "plugin/test"]) fs.mkdirSync(path.join(root, dir), { recursive: true });
+    fs.writeFileSync(path.join(root, "server/test/a.test.ts"), "x".repeat(1000));
+    fs.writeFileSync(path.join(root, "plugin/test/a.test.ts"), "x".repeat(1000));
+    const manifest = { "server/test/a.test.ts": 30, "plugin/test/a.test.ts": 2, "server/test/gone.test.ts": 500 };
+    const newFile = { path: "web/test/new.test.ts", project: "web", size: 1000 };
 
-    expect(estimateDurations(files, { "server/test/a.test.ts": 30, "plugin/test/a.test.ts": 2 }).at(-1)!.seconds).toBe(16);
+    expect(estimateDurations([newFile], manifest, root)[0]!.seconds).toBe(16);
+    expect(estimateDurations([{ path: "server/test/a.test.ts", project: "server", size: 1000 }, newFile], manifest, root)[1]!.seconds).toBe(16);
   });
 });
 
