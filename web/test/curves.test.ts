@@ -22,6 +22,18 @@ describe("shotSamples", () => {
     expect(samples[42]!.values.flow).toBeCloseTo(8, 0);
   });
 
+  it("reads the group temperature against its target, the profile's, not the mix temperature", () => {
+    const samples = shotSamples(measurements);
+    // The profile's steps hold the group at 88 °C, then 83 °C, while the mix target swings from 76 to 94 °C.
+    expect([43, 50, 80, 167].map((n) => [samples[n]!.values.temperature, samples[n]!.targets.temperature])).toEqual([
+      [70.85310363769531, 88],
+      [72.68592834472656, 88],
+      [85.04533386230469, 83],
+      [83.12239074707031, 83],
+    ]);
+    expect(new Set(samples.slice(43).map((sample) => sample.targets.temperature))).toEqual(new Set([88, 83]));
+  });
+
   it("starts at 0 s, with no Preheat, when the first sample is not preparingForShot", () => {
     // Derived: the real Shot without its Preheat's samples.
     const samples = shotSamples(measurements.slice(43));
