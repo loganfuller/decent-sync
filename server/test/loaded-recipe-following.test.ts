@@ -12,8 +12,9 @@ import {
   recordedDye2MainTablet,
   selectRecipeInDye2,
 } from "./support/simulated-dye2.js";
+import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { startStreamline } from "./support/simulated-streamline.js";
+import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -127,8 +128,6 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     (tablet.received.slice(from).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe") as { fields: Record_ }[]).map(({ fields }) => fields);
   /** How many times the plugin had DYE2 save into the recipe the Workflow names. */
   const saves = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === `POST /plugins/${DYE2_NAMESPACE}/record`).length;
-  /** Waits a while for what should not happen, as a write to a Workflow that does not follow the Recipe. */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
@@ -139,7 +138,10 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * on A and C, and the Brazil's (in slot 2) on D, which each loads, in that
    * order. A's machine is connected. `apiDelayMs` slows the answers A's
    * Decaid gives the plugin, as the simulated tablet's option of that name
-   * does.
+   * does. `quiet()` resolves once every tablet and Machine of the lab, and
+   * the Streamlines given, have nothing left under way (`quiesced`), so a
+   * wrong write a step set off has landed before a check after it that it
+   * did not happen.
    */
   async function lab<WithD extends boolean = false>(
     scenario: string,
@@ -177,6 +179,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await load(c, machines.c, ETHIOPIA, one);
     if (d && machines.d) await load(d, machines.d, BRAZIL, two);
     a.connectMachine();
+    const tablets: Record<string, SimulatedTablet> = d ? { a, c, d } : { a, c };
+    const followed: Record<string, CreatedMachine> = machines.d ? { a: machines.a, c: machines.c, d: machines.d } : { a: machines.a, c: machines.c };
+    const quiet = (streamlines: Record<string, SimulatedStreamline> = {}) => quiesced(api, { tablets, machines: followed, streamlines });
     return {
       here,
       machines: machines as typeof machines & { d: WithD extends true ? CreatedMachine : undefined },
@@ -187,18 +192,20 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       one,
       two,
       load,
+      quiet,
     };
   }
 
   it("takes a grind and brew temperature change on A that DYE2 saves into the Recipe once each, and writes them into C's Workflow on the other instance, and no other's, A's included", async () => {
-    const { machines, dye2, a, c, d, one } = await lab("Recorded", 48001, { d: true });
+    const { machines, dye2, a, c, d, one, quiet } = await lab("Recorded", 48001, { d: true });
     const grinds = await editsOf(one, "grindSetting");
     const received = a.received.length;
     await a.changeSettings({ context: { grinderSetting: "3.1" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.1);
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("3.1");
     expect(dye2.a.recorded.at(-1)).toMatchObject({ id: ETHIOPIA, patch: { grind: 3.1 } });
-    await settle();
+    // Once A's report of the Workflow holding the grind has been taken in.
+    await quiet();
     // The Workflow's change on A, which reached the server after DYE2's save, is no second edit.
     expect(await editsOf(one, "grindSetting")).toBe(grinds + 1);
 
@@ -208,7 +215,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (await recipe(one)).content.brewTemperature, { timeout: 15_000 }).toBe(90);
     await expect.poll(() => firstTemperature(c), { timeout: 15_000 }).toBe(90);
     expect(((profile(c).steps as Record_[])[2] ?? {}).temperature).toBe(85);
-    await settle();
+    // Once A's report of the Workflow holding the brew temperature has been taken in.
+    await quiet();
     expect(await editsOf(one, "brewTemperature")).toBe(temperatures + 1);
     // Every recipe record's embedded Workflow, which Streamline's strip applies, holds the Recipe's profile at its brew
     // temperature.
@@ -243,7 +251,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes an RPM and dose saved in DYE2's editor on A, which has the Recipe loaded and applies it again, into C's Workflow, where they stay through A's next change, and keeps the RPM then cleared on A, writing the Recipe's back into none", async () => {
-    const { a, c, one } = await lab("Editor cleared", 48231);
+    const { a, c, one, quiet } = await lab("Editor cleared", 48231);
     // DYE2's editor on A saves the fields changed over a fresh read, and applies the recipe the Workflow names again, so A's
     // Workflow holds them before the server takes them in.
     const saved = await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333, dose: 19.5 }).save();
@@ -256,14 +264,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // A's next change, which DYE2 saves before its Workflow, holding them, reaches the server, keeps them.
     await a.changeSettings({ context: { grinderSetting: "2.7" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(2.7);
-    await settle();
+    // Once A's report of the Workflow holding the grind, and the grind's write into C's, are done.
+    await quiet();
     expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
     expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
     // A value cleared on A is A's own: the Recipe's is not written back over it.
     const received = a.received.length;
     await a.changeSettings({ context: { extras: { rpm: null } } });
-    await settle();
-    await settle();
+    // Once DYE2's save of the clear and A's report of it have been taken in, and any write they made the server due.
+    await quiet();
     expect(extras(a).rpm ?? null).toBeNull();
     expect(loadedRecipeWrites(a, received)).toEqual([]);
     expect((await recipe(one)).content.rpm).toBe(1333);
@@ -273,15 +282,16 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   // The Workflow holding the RPM DYE2's editor applied reaches the server before the editor's save, so it is taken as the
   // Recipe's only as the clear arrives, from the Workflow held before it (`followMachine`).
   it("keeps an RPM cleared on A straight after DYE2's editor saved and applied it there, writing the Recipe's back into none", async () => {
-    const { a, c, one } = await lab("Editor cleared at once", 48251);
+    const { a, c, one, quiet } = await lab("Editor cleared at once", 48251);
     await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333 }).save();
     await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1333);
     await expect.poll(() => [extras(a).rpm, extras(c).rpm], { timeout: 15_000 }).toEqual([1333, 1333]);
-    await settle();
+    // Once the editor's save has been taken in and written, so the frames counted from here are the clear's.
+    await quiet();
     const received = a.received.length;
     await a.changeSettings({ context: { extras: { rpm: null } } });
-    await settle();
-    await settle();
+    // Once DYE2's save of the clear and A's report of it have been taken in, and any write they made the server due.
+    await quiet();
     expect(extras(a).rpm ?? null).toBeNull();
     expect(loadedRecipeWrites(a, received)).toEqual([]);
   });
@@ -311,7 +321,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     let slow = false;
     let reading = false;
     // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here. Answered as it is then.
-    const { a, c, one } = await lab("Cleared meanwhile", 48261, {
+    const { a, c, one, quiet } = await lab("Cleared meanwhile", 48261, {
       apiDelayMs: (method, path) => {
         if (!slow || method !== "GET" || path !== "/workflow") return 0;
         reading = true;
@@ -326,7 +336,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await a.changeSettings({ context: { extras: { rpm: null } } });
     await expect.poll(() => extras(c).rpm, { timeout: 15_000 }).toBe(1333);
     slow = false;
-    await settle();
+    // Once the edit's write into A's Workflow, and A's report of the clear, are done.
+    await quiet();
     expect(extras(a).rpm ?? null).toBeNull();
     expect((await recipe(one)).content.rpm).toBe(1333);
   });
@@ -359,13 +370,14 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("takes an RPM and Basket a Recipe holds none of as its own as they change on its Machine, which DYE2 saves none of, and writes them into D's", async () => {
-    const { machines, dye2, a, d, two, load } = await lab("Unheld", 48131, { d: true });
+    const { machines, dye2, a, d, two, load, quiet } = await lab("Unheld", 48131, { d: true });
     await patch(two, { rpm: null, basketId: null });
     await expect.poll(() => [variables(record(a, BRAZIL)).rpm ?? null, variables(record(a, BRAZIL)).basketId ?? null], { timeout: 15_000 }).toEqual([null, null]);
     // A's Workflow holds none either as it loads it, so the load gains the Recipe neither.
     await a.changeSettings({ context: { extras: { rpm: null, basketId: null, basketName: null } } });
     await load(a, machines.a, BRAZIL, two);
-    await settle();
+    // Once the load has been taken in.
+    await quiet();
     expect((await recipe(two)).content).not.toHaveProperty("rpm");
     expect((await recipe(two)).content).not.toHaveProperty("basketId");
     const received = a.received.length;
@@ -397,7 +409,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("brings a Machine that applied an out-of-date copy of the Recipe to its dial, which the copy never sets back", async () => {
-    const { machines, c, one, two, load } = await lab("Stale", 48191);
+    const { machines, c, one, two, load, quiet } = await lab("Stale", 48191);
     await load(c, machines.c, BRAZIL, two);
     const doses = await editsOf(one, "dose");
     // C's record is written nothing while it is offline: it applies the copy it holds.
@@ -408,7 +420,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     c.restoreNetwork();
     await loads(machines.c, one);
     await expect.poll(() => [context(c).targetDoseWeight, context(c).grinderSetting], { timeout: 15_000 }).toEqual([18.6, "2.9"]);
-    await settle();
+    // Once C's report of the Workflow brought to the Recipe has been taken in.
+    await quiet();
     expect((await recipe(one)).content).toMatchObject({ dose: 18.6, grindSetting: 2.9 });
     expect(await editsOf(one, "dose")).toBe(doses + 1);
   });
@@ -426,6 +439,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const grinder = (await globalOf(a, "/grinders", RECORDED_GRINDER_83))!;
     await a.changeSettings({ context: { grinderId: RECORDED_GRINDER_83, grinderModel: "Fixture Grinder 83" } });
     await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(grinder);
+    await expect.poll(() => localId(c, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
@@ -433,7 +447,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("takes another batch of the Recipe's Bean picked on A as its batch, writing it into C's, and keeps a batch of another Bean and a grind cleared as A's own, the Recipe loaded", async () => {
-    const { here, machines, dye2, a, c, one } = await lab("Next bag", 48141);
+    const { here, machines, dye2, a, c, one, quiet } = await lab("Next bag", 48141);
     const bean = (await recipe(one)).content.beanId as string;
     const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
     expect(created.status).toBe(201);
@@ -442,6 +456,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (local = await localId(a, "/bean-batches", next)), { timeout: 15_000 }).toEqual(expect.any(String));
     await a.changeSettings({ context: { beanBatchId: local } });
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
+    // C's record of the batch first, so the id expected of C's Workflow is read once it exists.
+    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", next));
     await loads(machines.a, one);
 
@@ -450,7 +466,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const versionsBefore = (await versions(one)).length;
     await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
     await a.changeSettings({ context: { grinderSetting: null } });
-    await settle();
+    // Once A's reports of the batch and the grind cleared have been taken in.
+    await quiet();
     expect((await recipe(one)).content.beanBatchId).toBe(next);
     expect((await recipe(one)).content.grindSetting).toEqual(expect.any(Number));
     expect((await versions(one)).length).toBe(versionsBefore);
@@ -466,7 +483,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe loaded and saving, a Shot pulled then linked", async () => {
-    const { here, machines, a, c, one } = await lab("New roast", 48501);
+    const { here, machines, a, c, one, quiet } = await lab("New roast", 48501);
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);
     const bean = (await recipe(one)).content.beanId as string;
     const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
@@ -487,8 +504,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await patch(one, { grinderId: grinder });
     for (const tablet of [a, c]) await expect.poll(async () => context(tablet).grinderId, { timeout: 15_000 }).toBe(await localId(tablet, "/grinders", grinder));
 
-    // Neither unloaded it meanwhile: DYE2 clears nothing on a batch or grinder.
-    await settle();
+    // Neither unloaded it meanwhile: DYE2 clears nothing on a batch or grinder. Once the grinder's writes, and A's and C's
+    // reports of them, are done.
+    await quiet();
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     expect([named(a), named(c)]).toEqual([one, one]);
     expect(await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)])).toEqual(times);
@@ -501,7 +519,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("loads a recipe applied from Streamline's strip on a profile with a target weight, with the Workflow on the Recipe's batch, which DYE2 keeps named", async () => {
-    const { machines, dye2, c, one, two } = await lab("Target", 48111);
+    const { machines, dye2, c, one, two, quiet } = await lab("Target", 48111);
     // Classic Italian espresso, the Brazil's, stops at a target weight, which DYE2's fingerprint leaves out (decentespresso/dye2#18).
     expect((await recipe(two)).content.profileId).toBe(CLASSIC);
     const held = record(c, BRAZIL)?.beanBatchId;
@@ -515,8 +533,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => named(c), { timeout: 15_000 }).toBe(two);
     // The strip applies the batch the record's embedded Workflow holds.
     expect(context(c).beanBatchId).toBe(held);
-    await settle();
-    await dye2.c.settled();
+    // Once C's report of the recipe applied, DYE2's checks of it and Streamline's replies are done.
+    await quiet({ streamline });
     expect(dye2.c.cleared).toEqual([]);
     expect(dye2.c.selected()).toMatchObject({ kind: "recipe", id: BRAZIL });
     await loads(machines.c, two);
@@ -525,7 +543,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("keeps the Recipe loaded through a yield set on Streamline's Drink tile, takes DYE2's save of it as the Recipe's yield, and writes it into C's Workflow", async () => {
-    const { machines, dye2, a, c, one } = await lab("Drink", 48041);
+    const { machines, dye2, a, c, one, quiet } = await lab("Drink", 48041);
     const streamline = await startStreamline(a);
     const temperature = (await recipe(one)).content.brewTemperature;
     expect(firstTemperature(a)).toBe(temperature);
@@ -536,7 +554,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).targetYield, { timeout: 15_000 }).toBe(38.5);
     // Sent with the Workflow's own profile, its target weight the yield (decentespresso/streamline-js#155).
     expect(firstTemperature(a)).toBe(temperature);
-    await settle();
+    // Once A's report of the yield and DYE2's save of it have been taken in, and Streamline has replied.
+    await quiet({ streamline });
     expect((await recipe(one)).content.brewTemperature).toBe(temperature);
     expect(await editsOf(one, "brewTemperature")).toBe(edits);
     expect(dye2.a.cleared).toEqual([]);
@@ -545,7 +564,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("leaves the Loaded Recipe's dial alone on a wake onto its profile in Streamline, and on a tap of that profile's button", async () => {
-    const { machines, dye2, a, one } = await lab("Wake", 48051);
+    const { machines, dye2, a, one, quiet } = await lab("Wake", 48051);
     const streamline = await startStreamline(a);
     await streamline.saveForProfile(ADAPTIVE, { targetDoseWeight: 18.8, targetYield: 39, brewTemperature: 91 });
     const content = (await recipe(one)).content;
@@ -554,7 +573,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     // Streamline sends nothing, as DYE2's selection names a recipe on the profile the Workflow holds (decentespresso/streamline-js#153).
     expect(await streamline.wake(ADAPTIVE)).toBeUndefined();
     expect(await streamline.tapProfile(ADAPTIVE)).toBeUndefined();
-    await settle();
+    // Once anything the wake and the tap set off is done.
+    await quiet({ streamline });
     expect({ dose: context(a).targetDoseWeight, yield: context(a).targetYield, grind: context(a).grinderSetting, temperature: firstTemperature(a) }).toEqual(dial);
     expect((await recipe(one)).content).toEqual(content);
     expect((await versions(one)).length).toBe(versionsBefore);
@@ -563,7 +583,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("saves nothing into the Recipe as DYE2's profile picker switches A's profile, which unloads it", async () => {
-    const { machines, dye2, a, c, one } = await lab("Picker", 48221);
+    const { machines, dye2, a, c, one, quiet } = await lab("Picker", 48221);
     const content = (await recipe(one)).content;
     const versionsBefore = (await versions(one)).length;
     const saved = saves(a);
@@ -574,7 +594,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await dye2.a.settled();
     expect(recipeIdInWorkflow(a)).toBeNull();
     await loads(machines.a, null);
-    await settle();
+    // Once A's report of the Workflow with the recipe cleared has been taken in.
+    await quiet();
     expect(saves(a)).toBe(saved);
     expect(dye2.a.recorded.filter((recorded) => "brewC" in recorded.patch)).toEqual([]);
     expect((await recipe(one)).content).toEqual(content);
@@ -585,12 +606,12 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes a Profile edit into A's and C's Workflows as two writes each, which keep the Recipe named and loaded on both, the server recording no unload", async () => {
-    const { machines, dye2, a, c, one } = await lab("Profile", 48061);
+    const { machines, dye2, a, c, one, quiet } = await lab("Profile", 48061);
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);
     await patch(one, { profileId: CLASSIC });
     await expect.poll(() => [profile(a).title, profile(c).title], { timeout: 15_000 }).toEqual(["Classic Italian espresso", "Classic Italian espresso"]);
-    await Promise.all([dye2.a.settled(), dye2.c.settled()]);
-    await settle();
+    // Once the second of each pair of writes, and A's and C's reports of them, are done.
+    await quiet();
     expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
     expect([dye2.a.cleared, dye2.c.cleared]).toEqual([[], []]);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
@@ -602,12 +623,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes an edit made while A's DYE2 was away into A's Workflow once it is back, A having no Loaded Recipe meanwhile", async () => {
-    const { machines, dye2, a, c, one } = await lab("Away", 48211);
+    const { machines, dye2, a, c, one, quiet } = await lab("Away", 48211);
     dye2.a.unload();
     await loads(machines.a, null);
     await patch(one, { dose: 18.6 });
     await expect.poll(() => context(c).targetDoseWeight, { timeout: 15_000 }).toBe(18.6);
-    await settle();
+    // A's own wait: the edit's write into A's record of the Recipe, which goes ahead while DYE2 is away, has landed, and with
+    // it anything else the edit made the server due on A.
+    await expect.poll(() => variables(record(a, ETHIOPIA)).dose, { timeout: 15_000 }).toBe(18.6);
+    await quiet();
     expect(context(a).targetDoseWeight).not.toBe(18.6);
     await dye2.a.load();
     await loads(machines.a, one);
@@ -617,17 +641,19 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("writes nothing back after a Shot stored with the Recipe loaded, as Streamline clears only the note", async () => {
-    const { machines, a, one } = await lab("After Shot", 48071);
+    const { machines, a, one, quiet } = await lab("After Shot", 48071);
     const streamline = await startStreamline(a);
     await a.changeSettings({ context: { extras: { note: "After Shot note" } } });
-    await settle();
+    // Once A's report of the note, and Streamline's reply to it, are done.
+    await quiet({ streamline });
     const held = { batch: context(a).beanBatchId, grinder: context(a).grinderId, basket: extras(a).basketId, rpm: extras(a).rpm };
     expect(Object.values(held)).not.toContain(undefined);
     const edits = (await versions(one)).length;
     const writes = a.writes.filter((write) => write === "PUT /workflow").length;
     // Only the note is cleared (decentespresso/streamline-js#164).
     expect(await streamline.shotStored()).toEqual({ extras: { note: null } });
-    await settle();
+    // Once A's report of the note cleared has been taken in, and Streamline has replied.
+    await quiet({ streamline });
     expect({ batch: context(a).beanBatchId, grinder: context(a).grinderId, basket: extras(a).basketId, rpm: extras(a).rpm }).toEqual(held);
     expect(a.writes.filter((write) => write === "PUT /workflow").length).toBe(writes);
     expect(named(a)).toBe(one);
@@ -636,10 +662,11 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("keeps D's Recipe loaded as it is taken out of its slot, and clears A's and C's as theirs is Archived, or A is made capture-only, where a recipe then applied stays named", async () => {
-    const { machines, dye2, a, c, d, one, two, load } = await lab("Cleared", 48081, { d: true });
+    const { machines, dye2, a, c, d, one, two, load, quiet } = await lab("Cleared", 48081, { d: true });
     expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: null })).status).toBe(200);
     await expect.poll(() => record(d, BRAZIL)?.stripSlot, { timeout: 15_000 }).toBeNull();
-    await settle();
+    // Once D's report of its record out of its slot has been taken in, and DYE2 has checked it.
+    await quiet();
     expect(recipeIdInWorkflow(d)).toBe(BRAZIL);
     await loads(machines.d, two);
 
@@ -659,21 +686,25 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const saved = saves(a);
     await selectRecipeInDye2(a, ETHIOPIA);
     await a.changeSettings({ context: { grinderSetting: "2.2" } });
-    await settle();
+    // Once A's reports of the recipe applied and the grind have been taken in.
+    await quiet();
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     expect(await loadedRecipe(machines.a)).toBeNull();
     expect(saves(a)).toBe(saved);
+    // Nor is the recipe's grind written over the barista's.
+    expect(context(a).grinderSetting).toBe("2.2");
     // Sharing again, it is the Machine's Loaded Recipe.
     expect((await api.call("PUT", `/machines/${machines.a.machine.id}/sharing`, { sharing: true })).status).toBe(200);
     await loads(machines.a, one);
   });
 
   it("keeps a Recipe moved to another slot loaded, its record keeping its id, and saves a change into it alone", async () => {
-    const { machines, dye2, a, c, d, one, two } = await lab("Moved", 48091, { d: true });
+    const { machines, dye2, a, c, d, one, two, quiet } = await lab("Moved", 48091, { d: true });
     const times = await loadedTimes(machines.d);
     expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: 5 })).status).toBe(200);
     for (const tablet of [a, c, d]) await expect.poll(() => record(tablet, BRAZIL)?.stripSlot, { timeout: 15_000 }).toBe(5);
-    await settle();
+    // Once the tablets' reports of their records in the new slot have been taken in, and DYE2 has checked them.
+    await quiet();
     expect(recipeIdInWorkflow(d)).toBe(BRAZIL);
     await loads(machines.d, two);
     expect(await loadedTimes(machines.d)).toBe(times);
