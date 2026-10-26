@@ -2,8 +2,8 @@ import net from "node:net";
 import { adminDatabaseUrl } from "./test-server.js";
 
 // Stands in for a connection pooler such as PgBouncer in session mode, between
-// a server under test and the PostgreSQL server named by DATABASE_URL: each
-// connection gets a PostgreSQL session of its own. As PgBouncer does by
+// a server under test and the PostgreSQL server tests use (`adminDatabaseUrl()`):
+// each connection gets a PostgreSQL session of its own. As PgBouncer does by
 // default, it refuses startup parameters it does not track. It records the
 // parameters each connection sent, and asks each new session for its
 // idle_in_transaction_session_timeout before handing it to the client.

@@ -20,6 +20,7 @@
     "check:plugin-build": "node scripts/check-plugin-build.mjs",
     "package:plugin": "node scripts/package-plugin.mjs",
     "db:up": "docker compose up -d --wait db",
+    "db:test": "node scripts/db-test.mjs",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
     "dev:web": "npm run dev -w web"
