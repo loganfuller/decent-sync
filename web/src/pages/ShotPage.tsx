@@ -221,7 +221,11 @@ function ShotDetails({ id }: { id: string }) {
       <Card role="region" aria-label="Curves">
         <CardHeader>
           <CardTitleWithInfo title="Curves">
-            <p>Seconds from the start of the Shot. Dashed lines are the targets its profile set.</p>
+            <p>Seconds from the start of the Shot's profile. Dashed lines are the targets its profile set.</p>
+            <p>
+              Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the
+              profile's, and it doesn't count toward the duration or the peaks.
+            </p>
           </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-6">

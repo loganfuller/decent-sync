@@ -6,7 +6,7 @@ import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
+import { CURVES_REVISION, extractCurves, extractShot, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
@@ -36,9 +36,8 @@ export class ShotsService {
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
       await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
-      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; duration: number | null; peakPressure: number | null; peakFlow: number | null; pulledAt: Date | null; newer: boolean }[]>`
-        SELECT record, has_full_record AS "hasFullRecord", duration, peak_pressure AS "peakPressure", peak_flow AS "peakFlow",
-          pulled_at AS "pulledAt", ${version}::timestamptz > version_at AS newer
+      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; newer: boolean }[]>`
+        SELECT record, has_full_record AS "hasFullRecord", ${version}::timestamptz > version_at AS newer
         FROM shots WHERE id = ${message.shotId}`;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
 
@@ -47,8 +46,9 @@ export class ShotsService {
       const reported = !stored || stored.newer;
       const record = reported ? incoming : stored.record;
       const { recipeRecordId, ...metadata } = extractShot(record);
-      // The pull time needs the curves too, so it is set with them; edits never load or rewrite them.
-      const curves = full ? extractCurves(record, measurements) : stored;
+      // The pull time needs the curves too, so it is set with them; edits never load or rewrite them,
+      // so they leave the values computed from them as they are, whoever computed them (CurvesRefresh).
+      const curves = full ? extractCurves(record, measurements) : null;
       // The first full record credits the Shot, with its Machine's row locked, and sets the pull time
       // its Location is credited by. Later records change neither, so they cannot race a change to
       // that Machine's Location History, or the adoption of a Pending Machine's Shot.
@@ -58,10 +58,14 @@ export class ShotsService {
       const data = {
         ...metadata,
         ...links,
-        pulledAt: (stored?.hasFullRecord ? stored.pulledAt : curves?.pulledAt) ?? null,
-        duration: curves?.duration ?? null,
-        peakPressure: curves?.peakPressure ?? null,
-        peakFlow: curves?.peakFlow ?? null,
+        ...(curves && {
+          ...(!stored?.hasFullRecord && { pulledAt: curves.pulledAt }),
+          preheat: curves.preheat,
+          duration: curves.duration,
+          peakPressure: curves.peakPressure,
+          peakFlow: curves.peakFlow,
+          curvesRevision: CURVES_REVISION,
+        }),
         hasFullRecord: full || stored?.hasFullRecord === true,
         record: record as Prisma.InputJsonObject,
         ...credit,
@@ -212,7 +216,7 @@ export class ShotsService {
   }
 
   async get(id: string) {
-    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, ...linkColumns }, include: creditView });
+    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, preheat: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
     return { ...withLocationInferred(shot!), previousShot: await this.previous(shot!) };
@@ -253,7 +257,7 @@ const creditView = {
 } as const;
 /** The columns behind a Shot's links, which it shows as the items they link to. */
 const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, libraryToolIds: true, recipeId: true } as const;
-const listOmitted = { record: true, versionAt: true, hasFullRecord: true, ...linkColumns } as const;
+const listOmitted = { record: true, versionAt: true, hasFullRecord: true, curvesRevision: true, preheat: true, ...linkColumns } as const;
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
 export interface BatchLink {

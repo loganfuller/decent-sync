@@ -1,10 +1,10 @@
 import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
-import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
+import { derivedShot, preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
-import { expectTip } from "./support/tooltips.js";
+import { expectTip, tap } from "./support/tooltips.js";
 
 // Shots in the management interface, as an Admin whose browser is in Tokyo
 // while the Locations are in the US: times are shown and filtered in each
@@ -17,6 +17,10 @@ test.use({ timezoneId: "Asia/Tokyo" });
 const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
+
+const CURVES_TIP =
+  "Seconds from the start of the Shot's profile. Dashed lines are the targets its profile set." +
+  "Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the profile's, and it doesn't count toward the duration or the peaks.";
 
 interface Recorded {
   hardware?: { model: string; serial: string };
@@ -70,7 +74,7 @@ test("Shots from every Location are listed newest first, at their Location's tim
   await expect(page.getByText("Shots 1–6 of 6")).toBeVisible();
 
   const labRow = row(page, "Feb 10, 2026, 6:30 AM MST");
-  await expect(labRow.getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Lab 1", "Lab", "Londonium", "Roux Bakehouse · Ethiopia Guji", "18 g", "35.9 g", "27.9 s", "-", "Ann"]);
+  await expect(labRow.getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Lab 1", "Lab", "Londonium", "Roux Bakehouse · Ethiopia Guji", "18 g", "35.9 g", "23.5 s", "-", "Ann"]);
   // An inferred Machine credit, and the Location it brings, are marked.
   const inferred = row(page, "Feb 11, 2026, 9:00 AM CST");
   await expect(inferred.getByRole("cell").nth(1)).toHaveText("Uptown 1Inferred");
@@ -152,7 +156,7 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Grind setting")).toHaveText("7.5");
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Burrs")).toHaveText("SSP MP");
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
-  await expectTip(curves, "Curves", "Seconds from the start of the Shot. Dashed lines are the targets its profile set.");
+  await expectTip(curves, "Curves", CURVES_TIP);
   await expectTip(page.getByRole("region", { name: "Annotations" }), "Annotations", "How it turned out, as recorded on the tablet.");
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
@@ -187,7 +191,7 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
 
 test("a curve breaks where its samples have no value, as a pressure target where a step sets none", async ({ page }) => {
   // Derived: the real Shot's samples with their pressure targets changed to 3, 3, none (0) and 9 bar,
-  // at 0, 4.4, 25.8 and 27.9 seconds, as a profile switching from pressure to flow control and back would record.
+  // at -4.4 (in Preheat), 0, 21.4 and 23.5 seconds, as a profile switching from pressure to flow control and back would record.
   const hardware = { model: "DE1Pro", serial: "10024" };
   const shot = shotAt("switching-shot", "2026-03-01T12:00:00Z", { hardware });
   const targets = [3, 3, 0, 9];
@@ -224,17 +228,17 @@ test("a curve breaks where its samples have no value, as a pressure target where
   const plot = pressure.locator('[data-slot="chart"]');
   const tooltip = pressure.locator(".recharts-tooltip-wrapper");
   const box = (await plot.boundingBox())!;
-  // The plot starts after the 40-pixel y-axis and runs to 28 seconds.
-  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * seconds) / 28, y: box.height / 3 });
+  // The plot starts after the 40-pixel y-axis and runs from -5 to 24 seconds.
+  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * (seconds + 5)) / 29, y: box.height / 3 });
 
-  await plot.hover({ position: at(2) });
+  await plot.hover({ position: at(-2.4) });
   await expect(tooltip).toContainText("Target3 bar");
-  // Between 4.4 and 25.8 seconds no step set a pressure target, so none is drawn or named.
-  await plot.hover({ position: at(14) });
+  // Between 0 and 21.4 seconds no step set a pressure target, so none is drawn or named.
+  await plot.hover({ position: at(9.6) });
   await expect(tooltip).toContainText("This Shot");
   await expect(tooltip).not.toContainText("Target");
   // The last sample's target is kept, though it falls between the chart's tenths of a second.
-  await plot.hover({ position: at(27.99) });
+  await plot.hover({ position: at(23.6) });
   await expect(tooltip).toContainText("Target9 bar");
   // That target has no value either side, so a line would not show it: it is marked.
   await expect(pressure.locator('circle[data-lone-reading="target"]')).toHaveCount(1);
@@ -250,6 +254,61 @@ test("a curve breaks where its samples have no value, as a pressure target where
   await page.goto("/shots/clock-set-back-shot");
   await expect(target).toHaveCount(1);
   expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
+});
+
+test("a Shot's Preheat is shaded and labelled before 0 s, left out of its duration, and marked in its measurements", async ({ page }) => {
+  // The real Shot with a long Preheat, 7.36 s, and before it on the same Machine the other real Shot, whose
+  // Preheat lasted 4.39 s, each changing only its id and recorded hardware, and the other its time.
+  const hardware = { model: "DE1Pro", serial: "10027" };
+  const preheated = preheatShotFixture();
+  const { machine, ...workflow } = preheated.workflow as Record<string, Record<string, unknown>>;
+  const shot = { ...preheated, id: "preheat-shot", workflow: { ...workflow, machine: { ...machine, serialNumber: hardware.serial } } };
+  await adopt(page, "Preheater", hardware, null, [shot, shotAt("preheat-previous", "2026-10-25T12:00:00Z", { hardware })]);
+
+  await page.goto("/shots/preheat-shot");
+  // From the first sample after Preheat, not the 33.2 s since the recording started.
+  await expect(field(page, "Duration")).toHaveText("25.8 s");
+  const curves = page.getByRole("region", { name: "Curves" });
+  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
+    const chart = curves.getByRole("figure", { name });
+    await expect(chart.locator(".recharts-reference-area")).toHaveCount(1);
+    await expect(chart.getByText("Preheat", { exact: true })).toBeVisible();
+  }
+
+  // A tap as iOS Safari makes one opens the Curves card's explanation, and a tap elsewhere closes it.
+  await page.mouse.move(0, 0);
+  await tap(curves.getByRole("button", { name: "About Curves", exact: true }));
+  await expect(page.getByRole("tooltip")).toHaveText(CURVES_TIP);
+  await tap(curves.getByRole("heading", { name: "Curves" }));
+  await expect(page.getByRole("tooltip")).toHaveCount(0);
+
+  // Compared, both Shots are aligned at 0 s, each with its own Preheat before it: the previous Shot's
+  // starts at -4.4 s and its profile ends at 23.5 s, this one's at -7.4 s and 25.8 s.
+  await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Preheater" }).check();
+  const pressure = curves.getByRole("figure", { name: "Pressure" });
+  await expect(pressure).toContainText("Previous Shot");
+  const plot = pressure.locator('[data-slot="chart"]');
+  const tooltip = pressure.locator(".recharts-tooltip-wrapper");
+  const box = (await plot.boundingBox())!;
+  // The plot starts after the 40-pixel y-axis and runs from -8 to 26 seconds.
+  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * (seconds + 8)) / 34, y: box.height / 3 });
+  for (const [seconds, previous] of [[-6, false], [-2, true], [22, true], [24.5, false]] as const) {
+    await plot.hover({ position: at(seconds) });
+    await expect(tooltip).toContainText("This Shot");
+    if (previous) await expect(tooltip).toContainText("Previous Shot");
+    else await expect(tooltip).not.toContainText("Previous Shot");
+    // Every time before 0 s is in Preheat, and the tooltip says so.
+    if (seconds < 0) await expect(tooltip).toContainText(/s, Preheat/);
+    else await expect(tooltip).not.toContainText("Preheat");
+  }
+
+  await curves.getByRole("button", { name: "Measurements as a table" }).click();
+  const measurements = curves.getByRole("table", { name: "Measurements" }).getByRole("row").filter({ has: page.getByRole("cell") });
+  await expect(measurements).toHaveCount(168);
+  await expect(measurements.first().getByRole("cell").first()).toHaveText("-7.36 sPreheat");
+  await expect(measurements.nth(42).getByRole("cell").first()).toHaveText(/^-0\.\d\d sPreheat$/);
+  await expect(measurements.nth(43).getByRole("cell").first()).toHaveText("0.00 s");
+  await expect(measurements.filter({ hasText: "Preheat" })).toHaveCount(43);
 });
 
 test("a Shot's record as sent scrolls a long line in its box, leaving the page and its charts their width", async ({ page }) => {

@@ -70,3 +70,19 @@ were written to check that. Each pressure write held the Q16.16 value nearest
 the one wanted.
 
 Nothing here is edited: none of these answers holds a hardware id.
+
+## A Shot with a long Preheat, read on 2026-10-25
+
+`shot-preheat.json` is `GET /api/v1/shots/399cf1d5-aced-480d-aa93-01a3897f3820`,
+read from the same tablet and build (Decaid 0.9.0+2977, DE1Pro firmware
+1358), after #287 was filed from it. It was pulled at 15:53 local time with
+Adaptive v3, the heater test set to 8 ml/s for 8 s (`heaterPh2Flow`,
+`heaterPh2Timeout`). Its first 43 of 168 samples, 7.36 s, have the substate
+`preparingForShot`: the Machine's Preheat, at 8 ml/s, its mix temperature
+held near 85.7 °C against an 88 °C target, until the heater test's timeout.
+Its peak flow, 8.05 ml/s, is in Preheat; after it the peak is 8.045 ml/s.
+
+Edited: the machine's serial number is replaced with `10001`, as in
+`../de1pro-v0.8.7/`, and the Visualizer upload's id, in `metadata` and the
+annotations' extras, with `00000000-0000-4000-8000-000000000287`. Everything
+else is as Decaid sent it, with no Barista or notes recorded.

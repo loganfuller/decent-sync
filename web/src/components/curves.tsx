@@ -1,7 +1,7 @@
-import { CartesianGrid, Line, LineChart, XAxis, YAxis } from "recharts";
+import { CartesianGrid, Line, LineChart, ReferenceArea, XAxis, YAxis } from "recharts";
 import { type ChartConfig, ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from "@/components/ui/chart";
 import { numberText } from "@/components/records";
-import { type CurveInfo, type Sample, chartPoints, lastSecond } from "@/lib/curves";
+import { type CurveInfo, type Sample, chartPoints, firstSecond, lastSecond, secondTicks } from "@/lib/curves";
 
 // Colors from the data visualization palette's first two categorical slots,
 // checked for color vision deficiencies against light and dark surfaces: this
@@ -23,7 +23,8 @@ export interface Compared<C extends string> {
 /**
  * A record's curves, each its own chart on a shared time axis, with the
  * targets it followed and, when given, the same curves of the record it is
- * compared with. `label` names the record shown, such as "This Shot".
+ * compared with, both from 0 s. `label` names the record shown, such as
+ * "This Shot". A Shot's Preheat is before 0 s, shaded and labelled.
  */
 export function Curves<C extends string>({
   curves,
@@ -36,11 +37,12 @@ export function Curves<C extends string>({
   current: Sample<C>[];
   previous?: Compared<C>;
 }) {
+  const from = Math.min(firstSecond(current), previous ? firstSecond(previous.samples) : 0);
   const until = Math.max(lastSecond(current), previous ? lastSecond(previous.samples) : 0);
   return (
     <div className="grid gap-6 lg:grid-cols-2">
       {(Object.keys(curves) as C[]).map((curve) => (
-        <CurveChart key={curve} curve={curve} info={curves[curve]} currentLabel={label} current={current} previous={previous} until={until} />
+        <CurveChart key={curve} curve={curve} info={curves[curve]} currentLabel={label} current={current} previous={previous} from={from} until={until} />
       ))}
     </div>
   );
@@ -52,6 +54,7 @@ function CurveChart<C extends string>({
   currentLabel,
   current,
   previous,
+  from,
   until,
 }: {
   curve: C;
@@ -59,10 +62,13 @@ function CurveChart<C extends string>({
   currentLabel: string;
   current: Sample<C>[];
   previous?: Compared<C>;
+  from: number;
   until: number;
 }) {
   const { label, unit } = info;
-  const points = chartPoints(curve, current, previous?.samples, until);
+  const points = chartPoints(curve, current, previous?.samples, from, until);
+  const start = Math.floor(from);
+  const end = Math.max(1, Math.ceil(until));
   const hasTarget = points.some((point) => point.target !== null);
   const hasValue = points.some((point) => point.current !== null || point.previous !== null);
   // A reading with no value either side draws no line, so it is marked: 8 pixels across, in its series' color.
@@ -90,7 +96,8 @@ function CurveChart<C extends string>({
             <XAxis
               dataKey="seconds"
               type="number"
-              domain={[0, Math.max(1, Math.ceil(until))]}
+              domain={[start, end]}
+              ticks={secondTicks(start, end)}
               tickLine={false}
               axisLine={false}
               tickFormatter={(seconds: number) => `${seconds} s`}
@@ -110,7 +117,7 @@ function CurveChart<C extends string>({
                   label={label}
                   // A series with no value at this time, as a target where a step sets none, is left out.
                   payload={(payload ?? []).filter((item) => item.value != null).sort((a, b) => byOrder(a) - byOrder(b))}
-                  labelFormatter={(_, payload) => `${Number((payload[0]?.payload.seconds ?? 0).toFixed(2))} s`}
+                  labelFormatter={(_, payload) => secondsLabel(payload[0]?.payload.seconds ?? 0)}
                   formatter={(value, name) => (
                     <div className="flex w-full justify-between gap-4">
                       <span className="text-muted-foreground">{config[name as keyof typeof config]?.label ?? name}</span>
@@ -122,6 +129,15 @@ function CurveChart<C extends string>({
               )}
             />
             <ChartLegend content={<ChartLegendContent />} itemSorter={byOrder} />
+            {start < 0 && (
+              <ReferenceArea
+                x1={start}
+                x2={0}
+                fill="var(--muted-foreground)"
+                fillOpacity={0.12}
+                label={{ value: "Preheat", position: "insideTop", className: "fill-muted-foreground text-xs" }}
+              />
+            )}
             {previous && (
               <Line dataKey="previous" type="linear" stroke="var(--color-previous)" strokeWidth={2} dot={lone("previous")} isAnimationActive={false} />
             )}
@@ -153,4 +169,10 @@ function CurveChart<C extends string>({
       )}
     </figure>
   );
+}
+
+/** A time on the chart, to hundredths, and whether it is in Preheat, as every time before 0 s is. */
+function secondsLabel(seconds: number): string {
+  const text = `${Number(seconds.toFixed(2))} s`;
+  return seconds < 0 ? `${text}, Preheat` : text;
 }

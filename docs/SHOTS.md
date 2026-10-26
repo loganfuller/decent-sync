@@ -286,6 +286,30 @@ consecutive samples, leaving out the whole quarter hours a daylight-saving
 change adds or takes away; a gap where the tablet's clock was otherwise
 corrected counts for nothing (`elapsedSeconds`).
 
+A Shot's recording starts while the Machine is still heating its water for
+it, which Decaid's shot screen calls Preheat (`_currentStep` in
+`decaid:lib/src/realtime_shot_feature/realtime_shot_feature.dart`): its
+leading samples whose `machine.state.substate` is `preparingForShot`, which
+Decaid maps from the DE1's `heatWaterTank`, `heatWaterHeater` and
+`stabilizeMixTemp` (`decaid:lib/src/models/device/impl/de1/de1.utils.dart`).
+The Machine runs water through its heater at the heater test's flow then,
+not through the puck, with the heater test's targets. Preheat ends at the
+first sample with any other substate, or none; a later `preparingForShot`
+sample is not Preheat. The duration counts from that first sample, and the
+peaks leave Preheat out, while the pull time is still the recording's start.
+`preheat` keeps how long Preheat lasted, up to that first sample, so a
+Shot's recording runs from its pull time for its Preheat and its duration,
+which bounds when it was pulled with a Loaded Recipe (`shotRecipeSql`).
+
+`curves_revision` names the revision of `extractCurves` these values were
+computed by (`CURVES_REVISION`). A full record stores them at the current
+one, and an edit leaves them as they are. `CurvesRefresh` computes those of
+an earlier revision again from their measurements, in batches of 20 with
+their rows locked, skipping any another transaction holds, as the server
+starts and then hourly, so it also takes the Shots the previous release
+stores while it still serves beside this one during an upgrade. Raising the revision
+recomputes every stored Shot the same way.
+
 ## REST API
 
 All endpoints require a signed-in account, Admin or Staff.
@@ -365,7 +389,10 @@ daylight-saving changes, and previous Shots.
 `/shots` lists Shots with the REST filters in its address, so a filtered
 list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
 among them; `/shots/:id` shows a Shot's curves (pressure,
-flow, weight and basket temperature, with the targets its profile set),
+flow, weight and mix temperature, with the targets its Machine reported),
+from 0 s at the first sample after its Preheat, which is shaded and
+labelled before 0 s in every chart and marked in the measurements table,
+the previous Shot it is compared with aligned at 0 s too,
 everything its record holds, the Basket's and Tools' names DYE2 stored
 and its Grinder's burrs, after the Grinder, among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
 and Profile it is linked to, each linking to its page, and a comparison

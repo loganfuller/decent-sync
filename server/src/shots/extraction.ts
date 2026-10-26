@@ -132,22 +132,44 @@ export function elapsedSeconds(times: readonly number[]): number | null {
   return elapsed / 1000;
 }
 
-/** Values that need the Shot's curves: when it was pulled, its duration and its peaks. */
+/**
+ * The revision of `extractCurves`'s values, raised whenever it changes them,
+ * so that the Shots stored with an earlier revision's are computed again
+ * (`CurvesRefresh`). Revision 1 leaves Preheat out.
+ */
+export const CURVES_REVISION = 1;
+
+/**
+ * Values that need the Shot's curves: when it was pulled, how long its
+ * Preheat lasted, its duration and its peaks. Preheat is the Shot's leading
+ * samples whose substate is `preparingForShot`, which Decaid maps from the
+ * DE1's heating states before the profile starts; it ends at the first sample
+ * with any other substate, or none. The duration counts from that sample to
+ * the last, and the peaks leave Preheat out, so the heater test's flow is
+ * not counted. Preheat lasts until that first sample, so it and the duration
+ * add up to the whole recording. The pull time is still when the recording
+ * started.
+ */
 export function extractCurves(record: unknown, measurements: unknown) {
   const samples = Array.isArray(measurements) ? measurements : [];
   const times: number[] = [];
+  let preheatTimes = 0;
+  let preheat = true;
   let first: number | null = null;
   let last: number | null = null;
   let peakPressure: number | null = null;
   let peakFlow: number | null = null;
   for (const sample of samples) {
     const machine = object(object(sample).machine);
+    if (preheat && object(machine.state).substate !== "preparingForShot") preheat = false;
     const at = date(machine.timestamp)?.getTime();
     if (at !== undefined) {
       times.push(at);
+      if (preheat) preheatTimes++;
       first = first === null ? at : Math.min(first, at);
       last = last === null ? at : Math.max(last, at);
     }
+    if (preheat) continue;
     const pressure = number(machine.pressure);
     const flow = number(machine.flow);
     if (pressure !== null) peakPressure = peakPressure === null ? pressure : Math.max(peakPressure, pressure);
@@ -155,7 +177,8 @@ export function extractCurves(record: unknown, measurements: unknown) {
   }
   return {
     pulledAt: pulledAt(object(record), first, last),
-    duration: elapsedSeconds(times),
+    preheat: elapsedSeconds(times.slice(0, preheatTimes + 1)),
+    duration: elapsedSeconds(times.slice(preheatTimes)),
     peakPressure,
     peakFlow,
   };

@@ -516,11 +516,20 @@ model Shot {
   actualDose       Float?            @map("actual_dose")
   targetYield      Float?            @map("target_yield")
   actualYield      Float?            @map("actual_yield")
+  /// How long its Preheat lasted, in seconds: the Machine heating its water
+  /// before the profile starts. The duration and peaks leave it out
+  /// (extractCurves); the time a Shot was pulled through is its pull time
+  /// plus both.
+  preheat          Float?
   duration         Float?
   enjoyment        Float?
   barista          String?
   peakPressure     Float?            @map("peak_pressure")
   peakFlow         Float?            @map("peak_flow")
+  /// The revision of extractCurves its Preheat, duration and peaks were
+  /// computed by (CURVES_REVISION); those of an earlier one are computed
+  /// again from its measurements (CurvesRefresh).
+  curvesRevision   Int               @default(0) @map("curves_revision")
   measurements     ShotMeasurements?
 
   /// The migration orders both pulled_at columns NULLS LAST, as the queries do; Prisma cannot express that.

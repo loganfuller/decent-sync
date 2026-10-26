@@ -30,9 +30,15 @@ export const STEAM_CURVES = {
 export type ShotCurve = keyof typeof SHOT_CURVES;
 export type SteamCurve = keyof typeof STEAM_CURVES;
 
-/** One sample: seconds since the record's first, and each curve's value and target there. */
+/**
+ * One sample: its seconds, and each curve's value and target there. A Steam
+ * Record's count from its first sample, and a Shot's from the first after
+ * its Preheat, whose samples are at negative seconds.
+ */
 export interface Sample<C extends string> {
   seconds: number;
+  /** In the Shot's Preheat: the Machine heating its water before the profile starts. */
+  preheat: boolean;
   values: Record<C, number | null>;
   targets: Record<C, number | null>;
 }
@@ -41,9 +47,14 @@ export interface Sample<C extends string> {
 const CLOCK_CHANGE_MS = 60_000;
 const QUARTER_HOUR_MS = 15 * 60_000;
 
-/** A Shot's samples: the machine's pressure, flow and basket temperature, the scale's weight, and the targets its profile set. */
+/**
+ * A Shot's samples: the machine's pressure, flow and mix temperature, the
+ * scale's weight, and the targets it reported. Its Preheat is its leading
+ * samples whose substate is `preparingForShot`, as the server reads it
+ * (`extractCurves`), with the heater test's targets, before the profile's.
+ */
 export function shotSamples(measurements: unknown): Sample<ShotCurve>[] {
-  return timedSamples(measurements, (_, machine, scale) => ({
+  return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale) => ({
     values: {
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
@@ -67,7 +78,7 @@ export function shotSamples(measurements: unknown): Sample<ShotCurve>[] {
  * and `stopAt`, the milk temperature its Workflow stops steaming at, if any.
  */
 export function steamSamples(measurements: unknown, stopAt: number | null): Sample<SteamCurve>[] {
-  return timedSamples(measurements, (measurement, machine) => ({
+  return timedSamples(measurements, () => false, (measurement, machine) => ({
     values: {
       milkTemperature: number(measurement.milkTemperature),
       steamTemperature: number(machine?.steamTemperature),
@@ -86,24 +97,32 @@ export function steamSamples(measurements: unknown, stopAt: number | null): Samp
 /**
  * The samples of a record's measurements, in the order Decaid recorded them,
  * each read by `read` from the measurement and its machine snapshot and scale
- * reading. Times are counted as the server counts a record's duration: the
- * gaps between consecutive samples added up, leaving out the whole quarter
- * hours a daylight-saving change adds or takes away, and counting for nothing
- * a gap left by any other change of the tablet's clock. Each sample is still
- * a millisecond after the one before, so samples a clock change would put at
- * one time stay apart, and a gap among them is kept.
+ * reading. Its leading samples whose machine snapshot `leading` picks out,
+ * such as a Shot's Preheat, come before 0 s, which is the first sample after
+ * them, or the last sample if there is none. Times are counted as the server
+ * counts a record's duration: the gaps between consecutive samples added up,
+ * leaving out the whole quarter hours a daylight-saving change adds or takes
+ * away, and counting for nothing a gap left by any other change of the
+ * tablet's clock. Each sample is still a millisecond after the one before, so
+ * samples a clock change would put at one time stay apart, and a gap among
+ * them is kept.
  */
 function timedSamples<C extends string>(
   measurements: unknown,
-  read: (measurement: Record<string, unknown>, machine: Record<string, unknown> | undefined, scale: Record<string, unknown> | undefined) => Omit<Sample<C>, "seconds">,
+  leading: (machine: Record<string, unknown> | undefined) => boolean,
+  read: (measurement: Record<string, unknown>, machine: Record<string, unknown> | undefined, scale: Record<string, unknown> | undefined) => Omit<Sample<C>, "seconds" | "preheat">,
 ): Sample<C>[] {
   if (!Array.isArray(measurements)) return [];
-  const samples: Sample<C>[] = [];
+  const timed: { elapsed: number; sample: Omit<Sample<C>, "seconds"> }[] = [];
   let previous: number | undefined;
   let elapsed = 0;
+  let preheat = true;
+  let zero: number | undefined;
   for (const measurement of measurements) {
     const fields = record(measurement);
     const machine = record(fields?.machine);
+    // A sample without a time still ends what leads, as it does on the server.
+    if (preheat && !leading(machine)) preheat = false;
     const at = time(machine?.timestamp);
     if (!fields || at === undefined) continue;
     if (previous !== undefined) {
@@ -112,9 +131,11 @@ function timedSamples<C extends string>(
       elapsed += real >= 0 && real <= CLOCK_CHANGE_MS ? Math.max(real, 1) : 1;
     }
     previous = at;
-    samples.push({ seconds: elapsed / 1000, ...read(fields, machine, record(fields.scale)) });
+    if (!preheat) zero ??= elapsed;
+    timed.push({ elapsed, sample: { preheat, ...read(fields, machine, record(fields.scale)) } });
   }
-  return samples;
+  const start = zero ?? elapsed;
+  return timed.map(({ elapsed, sample }) => ({ seconds: (elapsed - start) / 1000, ...sample }));
 }
 
 /** One point of a chart: each series' value at a time, or null where it has none. */
@@ -144,13 +165,13 @@ interface Series<C extends string> {
  * line breaks where its samples have none, such as a target a step does
  * not set, and has no value past its last.
  */
-export function chartPoints<C extends string>(curve: C, current: Sample<C>[], previous: Sample<C>[] | undefined, until: number): ChartPoint[] {
+export function chartPoints<C extends string>(curve: C, current: Sample<C>[], previous: Sample<C>[] | undefined, from: number, until: number): ChartPoint[] {
   const series: Series<C>[] = [
     { samples: current, value: (sample) => sample.values[curve] },
     { samples: current, value: (sample) => sample.targets[curve] },
     ...(previous ? [{ samples: previous, value: (sample: Sample<C>) => sample.values[curve] }] : []),
   ];
-  const times = chartTimes(previous ? [current, previous] : [current], series, until);
+  const times = chartTimes(previous ? [current, previous] : [current], series, from, until);
   const [currents, targets, previouses] = series.map(({ samples, value }) => resample(samples, value, times));
   return times.map((seconds, n) => ({ seconds, current: currents![n]!, target: targets![n]!, previous: previouses?.[n] ?? null }));
 }
@@ -159,12 +180,13 @@ export function chartPoints<C extends string>(curve: C, current: Sample<C>[], pr
  * The times a chart reads its series at, rising. Every sample's when the
  * records have few enough; otherwise each record's first and last, and those
  * on both sides of wherever a series gains or loses a value, so no gap or
- * lone reading is lost. Between them, a grid every tenth of a second, or less
+ * lone reading is lost. Between them, from `from` to `until`, which a Shot's
+ * Preheat puts before 0 s, a grid every tenth of a second, or less
  * often for a long record, so sparse samples can be read between too; a grid
  * time closer than half a step to a sample's is left out.
  */
-function chartTimes<C extends string>(records: Sample<C>[][], series: Series<C>[], until: number): number[] {
-  const step = Math.max(0.1, Math.ceil((until / MAX_POINTS) * 10) / 10);
+function chartTimes<C extends string>(records: Sample<C>[][], series: Series<C>[], from: number, until: number): number[] {
+  const step = Math.max(0.1, Math.ceil(((until - from) / MAX_POINTS) * 10) / 10);
   const kept: number[] = [];
   if (records.reduce((count, samples) => count + samples.length, 0) <= MAX_POINTS) {
     for (const samples of records) for (const sample of samples) kept.push(sample.seconds);
@@ -179,7 +201,7 @@ function chartTimes<C extends string>(records: Sample<C>[][], series: Series<C>[
   kept.sort((a, b) => a - b);
   const times: number[] = [];
   let next = 0;
-  for (let n = 0; n * step <= until + 1e-9; n++) {
+  for (let n = Math.ceil(from / step - 1e-9); n * step <= until + 1e-9; n++) {
     const grid = Math.round(n * step * 10) / 10;
     // Kept times before this grid time come first; the grid time only if none is within half a step.
     while (next < kept.length && kept[next]! < grid) times.push(kept[next++]!);
@@ -190,9 +212,31 @@ function chartTimes<C extends string>(records: Sample<C>[][], series: Series<C>[
   return times.filter((time, n) => n === 0 || time - times[n - 1]! > 1e-9);
 }
 
-/** How long the samples run, in seconds. */
+/** When the samples end, in seconds. */
 export function lastSecond(samples: { seconds: number }[]): number {
   return samples.at(-1)?.seconds ?? 0;
+}
+
+/** The steps a chart's time axis is marked at, in seconds. */
+const TICK_STEPS = [1, 2, 5, 10, 15, 20, 30, 60, 120, 300, 600, 900, 1800, 3600];
+
+/**
+ * The times a chart's axis from `start` to `end` seconds is marked at: every
+ * multiple of the smallest step that leaves at most seven marks between
+ * them, so 0 s, where a Shot's profile starts after its Preheat, is always
+ * one.
+ */
+export function secondTicks(start: number, end: number): number[] {
+  const step = TICK_STEPS.find((candidate) => (end - start) / candidate <= 7) ?? TICK_STEPS.at(-1)!;
+  const ticks: number[] = [];
+  // Never -0, which Math.ceil gives for a start just before 0.
+  for (let n = Math.ceil(start / step); n * step <= end; n++) ticks.push(n * step || 0);
+  return ticks;
+}
+
+/** When the samples start, in seconds: before 0 s for a Shot's Preheat. */
+export function firstSecond(samples: { seconds: number }[]): number {
+  return Math.min(0, samples[0]?.seconds ?? 0);
 }
 
 /**
