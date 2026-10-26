@@ -1,4 +1,5 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
+import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
@@ -124,9 +125,18 @@ describe("several server instances", () => {
   it("releases a Machine whose hello is accepted while its instance shuts down", async () => {
     // Heartbeats too rare to matter: the busy connection, silent, is not released for it while its row is held,
     // which would be a lock wait of its own.
-    const leaving = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "10" }, sharing: first });
-    const [holdingBusy, holdingLate] = await Promise.all([first.connectDatabase(), first.connectDatabase()]);
+    let leaving: TestServer | undefined;
+    // Ended however far setup gets: the drop would cut off one left open, an error the test file reports.
+    const holding: pg.Client[] = [];
+    const hold = async () => {
+      const client = await first.connectDatabase();
+      holding.push(client);
+      return client;
+    };
     try {
+      leaving = await startTestServer({ env: { ...env, SYNC_HEARTBEAT_SECONDS: "10" }, sharing: first });
+      const holdingBusy = await hold();
+      const holdingLate = await hold();
       const busy = await api.createMachine("Busy while stopping");
       const late = await api.createMachine("Accepted while stopping");
       expect((await connect(leaving, helloWith(busy.token, { machine: de1Pro("12601") }))).messages[0]).toMatchObject({ type: "welcome" });
@@ -156,8 +166,8 @@ describe("several server instances", () => {
       expect(await api.machineNamed("Accepted while stopping")).toMatchObject({ online: false });
       expect(await api.machineNamed("Busy while stopping")).toMatchObject({ online: false });
     } finally {
-      await Promise.all([holdingBusy.end(), holdingLate.end()]);
-      await leaving.stop();
+      await Promise.all(holding.map((client) => client.end()));
+      await leaving?.stop();
     }
   });
 
@@ -185,11 +195,13 @@ describe("several server instances", () => {
       const keptRaw = await connect(quiet, helloWith(kept.token, { machine: de1Pro("12801") }));
       const revokedRaw = await connect(quiet, helloWith(revoked.token, { machine: de1Pro("12802") }));
 
-      // Every instance loses its listening connection, then a token is revoked with no notification.
+      // Every instance loses its listening connection, and a token is revoked with no notification. In one statement, so
+      // the revocation commits well before an instance listens again, 1 s later: in a second it could come after.
       await database.query(
-        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE 'LISTEN %'",
+        `WITH revoking AS (UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = $1)
+         SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE 'LISTEN %'`,
+        [revoked.machine.id],
       );
-      await database.query("UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = $1", [revoked.machine.id]);
 
       expect(await revokedRaw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
       expect(quiet.output()).toMatch(/Not listening for access changes/);
