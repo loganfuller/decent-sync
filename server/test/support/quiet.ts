@@ -7,12 +7,19 @@ import type { InFlightRequest, SimulatedTablet } from "./simulated-tablet.js";
 
 /** What `quiesced` waits on, each by the name a failure gives it, such as `{ a, c }`. */
 export interface QuietScope {
-  /** The tablets, and the DYE2 each runs. Each must poll: one with a long `pollSeconds` reads no sensors, and never passes. */
+  /** The tablets, and the DYE2 each runs. Each must poll, unless `polls` is false: one with a long `pollSeconds` reads no sensors in time. */
   tablets: Record<string, SimulatedTablet>;
   /** The Machines whose sharing status must show nothing waiting. */
   machines?: Record<string, CreatedMachine>;
   /** The Streamlines running on the tablets, which the tablets do not keep track of. */
   streamlines?: Record<string, SimulatedStreamline>;
+  /**
+   * False for tablets polling too seldom to wait for, as with a `pollSeconds`
+   * of 3600 (72 s of real time at 50x): no whole poll is waited for, so it
+   * shows only that nothing is under way, not what a poll would find. A site
+   * using it waits first for what the change it checks causes.
+   */
+  polls?: boolean;
 }
 
 const QUIET = "quiet";
@@ -57,7 +64,7 @@ const QUIET = "quiet";
  * Bounded by expect.poll's timeout, its failure names the check that failed
  * last, and its tablet or Machine.
  */
-export async function quiesced(api: AdminApi, { tablets, machines = {}, streamlines = {} }: QuietScope): Promise<void> {
+export async function quiesced(api: AdminApi, { tablets, machines = {}, streamlines = {}, polls = true }: QuietScope): Promise<void> {
   /** Each tablet's count of `/sensors` reads, and its reads under way, as the first of the passing samples ended. */
   let first: Map<string, Sampled> | undefined;
   await expect
@@ -73,10 +80,11 @@ export async function quiesced(api: AdminApi, { tablets, machines = {}, streamli
       }
       if (!first) {
         first = sampled;
-        return "quiet once, waiting for a whole poll on every tablet";
+        return polls ? "quiet once, waiting for a whole poll on every tablet" : "quiet once";
       }
       // Part way through a poll at the first sample, the next /sensors read ends that poll, so a whole one takes two.
       const unread = Object.keys(tablets).filter((name) => {
+        if (!polls) return false;
         const { sensors, reads } = first!.get(name)!;
         return sampled.get(name)!.sensors < sensors + (reads.length > 0 ? 2 : 1);
       });
