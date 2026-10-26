@@ -64,8 +64,13 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   const workflowWrites = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === "PUT /workflow").length;
   /** The writes the server sent the tablet's plugin. */
   const serverWrites = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Record_).type === "write");
-  /** Waits a while for what should not happen. */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
+  /** How many changes the Machine's sharing status shows waiting. */
+  const waiting = async ({ machine }: CreatedMachine) => (await api.get<{ status: { waiting: number | null } }>(`/machines/${machine.id}/sharing-status`)).status.waiting ?? 0;
+  /** The Recipe whose load the tablet's plugin keeps held for a Shot in its storage (`heldLoad`), by its global id, or null. */
+  const heldLoad = (tablet: SimulatedTablet) => {
+    const kept = tablet.storage.read("heldLoad");
+    return typeof kept === "string" ? ((JSON.parse(kept) as { globalId?: string }).globalId ?? null) : null;
+  };
 
   /** C pulls a Shot: its machine state is espresso until Decaid stores it, as `end()` does. */
   function shotOn(tablet: SimulatedTablet, id: string, serial: number) {
@@ -84,7 +89,12 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
    * each running DYE2. A brings its recipes, and the Ethiopia's is applied
    * from DYE2's Select Recipe page on A, then on C the Ethiopia's, or the
    * recipe whose record id `c` gives, which each loads. Each load returns
-   * once both tablets and the server have nothing left to do (`quiesced`).
+   * once both tablets and the server have nothing left to do (`quiet()`).
+   * `quiet()` resolves once both tablets, their DYE2s and both Machines have
+   * nothing left under way (`quiesced`). During a Shot on C the server's
+   * writes to C are held on purpose, so C's Machine keeps them waiting:
+   * `quiet({ shotOnC: true })` leaves it out, and the site waits first for
+   * a sign of its own that the write is held.
    */
   async function lab(scenario: string, serial: number, options: { c?: typeof ETHIOPIA | typeof BRAZIL } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
@@ -98,17 +108,18 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => [dye2GlobalIdOf(record(c, id)), record(c, id)?.beanBatchId ?? null]).flat(), { timeout: 15_000 }).not.toContain(null);
     const one = dye2GlobalIdOf(record(a, ETHIOPIA))!;
     const two = dye2GlobalIdOf(record(a, BRAZIL))!;
+    const quiet = ({ shotOnC = false } = {}) => quiesced(api, { tablets: { a, c }, machines: shotOnC ? { a: machines.a } : machines });
     const load = async (tablet: SimulatedTablet, machine: CreatedMachine, id: string, recipeId: string) => {
       expect((await selectRecipeInDye2(tablet, id)).applied?.workflow?.status).toBe(200);
       await expect.poll(() => recipeNamedInWorkflow(tablet), { timeout: 15_000 }).toBe(recipeId);
       await loads(machine, recipeId);
       // The writes that follow a load land, so none is under way as a Shot begins.
-      await quiesced(api, { tablets: { a, c }, machines });
+      await quiet();
     };
     await load(a, machines.a, ETHIOPIA, one);
     const onC = options.c ?? ETHIOPIA;
     await load(c, machines.c, onC, onC === BRAZIL ? two : one);
-    return { machines, a, c, one, two, dye2 };
+    return { machines, a, c, one, two, dye2, quiet };
   }
 
   /**
@@ -121,7 +132,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     tablet.callApi("PUT", "/workflow", { context: { targetDoseWeight: 18, grinderSetting: "2.5", extras: { dye: { recipeId: ETHIOPIA } } } });
 
   it("writes two Recipe edits made during C's Shot into its Workflow once it is stored, with the latest values, a Profile change as its two writes together", async () => {
-    const { machines, c, one } = await lab("Edits", 51001);
+    const { machines, c, one, quiet } = await lab("Edits", 51001);
     const times = await loadedTimes(machines.c);
     const grinds: unknown[] = [];
     c.onWorkflowChange((workflow) => grinds.push(((workflow.context ?? {}) as Record_).grinderSetting));
@@ -132,13 +143,16 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     // The server asked for the first of its writes, of C's record of the Recipe, which the plugin holds.
     await expect.poll(() => serverWrites(c).length, { timeout: 15_000 }).toBeGreaterThan(sent);
     await patch(one, { grindSetting: 3.2, profileId: CLASSIC, brewTemperature: 91 });
-    await settle();
+    // The site's own wait is the server's first write above, which the plugin holds through the Shot; then nothing under way
+    // on the tablets, C's Machine left out, as it has the held writes waiting.
+    await quiet({ shotOnC: true });
     expect(workflowWrites(c)).toBe(writes);
     expect(context(c).grinderSetting).toBe("2.5");
 
     shot.end();
     await expect.poll(() => [context(c).grinderSetting, (c.workflow().profile as Record_).title, firstTemperature(c)], { timeout: 15_000 }).toEqual(["3.2", "Classic Italian espresso", 91]);
-    await settle();
+    // Once the held writes, their reports and anything else they set off are done.
+    await quiet();
     // Written once, the profile's change as the recipe cleared and then named again with the rest.
     expect(workflowWrites(c)).toBe(writes + 2);
     expect(grinds).not.toContain("3.1");
@@ -148,26 +162,33 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   });
 
   it("holds a load and an unload made during C's Shot until it is stored, while a change made on C during it is saved into the Recipe at once", async () => {
-    const { machines, c, one } = await lab("Load", 51011, { c: BRAZIL });
+    const { machines, c, one, quiet } = await lab("Load", 51011, { c: BRAZIL });
     await patch(one, { dose: 18.6, grindSetting: 2.9 });
     await expect.poll(() => [variables(record(c, ETHIOPIA)).dose, variables(record(c, ETHIOPIA)).grind], { timeout: 15_000 }).toEqual([18.6, 2.9]);
     const writes = workflowWrites(c);
     let shot = shotOn(c, "load-51011", 51012);
     expect((await applyStaleEthiopia(c)).status).toBe(200);
     await loads(machines.c, one);
-    await settle();
+    // The site's own wait: the plugin keeps the load held for the Shot; then nothing under way on the tablets, C's Machine
+    // left out.
+    await expect.poll(() => heldLoad(c), { timeout: 15_000 }).toBe(one);
+    await quiet({ shotOnC: true });
     expect(workflowWrites(c)).toBe(writes);
     expect(dial(c)).toEqual([18, "2.5"]);
     shot.end();
     await expect.poll(() => dial(c), { timeout: 15_000 }).toEqual([18.6, "2.9"]);
-    await settle();
+    // Once the held load, its report and anything else it set off are done.
+    await quiet();
 
     // A change on C during its next Shot is saved into the Recipe, but its unload waits.
     shot = shotOn(c, "unload-51011", 51012);
     await c.changeSettings({ context: { targetDoseWeight: 18.8 } });
     await expect.poll(async () => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${one}`)).recipe.content.dose, { timeout: 15_000 }).toBe(18.8);
     expect((await api.call("PUT", `/recipes/${one}/archived`, { archived: true })).status).toBe(200);
-    await settle();
+    // The site's own wait: C's Machine has the Archive's writes waiting, held through the Shot, its record's removal and the
+    // unload; then nothing under way on the tablets, C's Machine left out.
+    await expect.poll(() => waiting(machines.c), { timeout: 15_000 }).toBeGreaterThan(0);
+    await quiet({ shotOnC: true });
     expect(recipeIdInWorkflow(c)).toBe(ETHIOPIA);
     shot.end();
     await expect.poll(() => recipeIdInWorkflow(c), { timeout: 15_000 }).toBeNull();
@@ -175,14 +196,17 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   });
 
   it("makes a load held as the plugin stops once it loads again, where the Workflow still names its Recipe", async () => {
-    const { machines, c, one } = await lab("Reload", 51021, { c: BRAZIL });
+    const { machines, c, one, quiet } = await lab("Reload", 51021, { c: BRAZIL });
     await patch(one, { dose: 18.6, grindSetting: 2.9 });
     await expect.poll(() => [variables(record(c, ETHIOPIA)).dose, variables(record(c, ETHIOPIA)).grind], { timeout: 15_000 }).toEqual([18.6, 2.9]);
     const writes = workflowWrites(c);
     c.reportState("espresso", "pouring");
     expect((await applyStaleEthiopia(c)).status).toBe(200);
     await loads(machines.c, one);
-    await settle();
+    // The site's own wait: the plugin keeps the load held for the Shot; then nothing under way on the tablets, C's Machine
+    // left out.
+    await expect.poll(() => heldLoad(c), { timeout: 15_000 }).toBe(one);
+    await quiet({ shotOnC: true });
     expect(workflowWrites(c)).toBe(writes);
     // Loaded again, as on an update, and cut off from the server, so only the plugin's own load writes the Workflow.
     const reloaded = await c.reload();

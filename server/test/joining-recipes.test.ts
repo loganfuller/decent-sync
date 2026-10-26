@@ -2,6 +2,7 @@ import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { quiesced } from "./support/quiet.js";
 import { startStreamline } from "./support/simulated-streamline.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, dye2NeverUsed, dye2PagesKeys, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
@@ -130,8 +131,11 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
   const move = (created: CreatedMachine, location: LocationView) =>
     api.send("POST", `/machines/${created.machine.id}/location-history`, { locationId: location.id }, 201);
   const setSharing = (created: CreatedMachine, sharing: boolean) => api.send("PUT", `/machines/${created.machine.id}/sharing`, { sharing });
-  /** Waits a while for what should not happen, as a Recipe the Machine never loaded being loaded. */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
+  /**
+   * Resolves once the tablets, their DYE2s and the Machines given have nothing left under way (`quiesced`), so a wrong write
+   * or load a step set off has landed before a check after it that it did not happen.
+   */
+  const quiet = (tablets: Record<string, SimulatedTablet>, machines: Record<string, CreatedMachine>) => quiesced(api, { tablets, machines });
 
   /** A Location whose first Machine's tablet is the recording's, so its recipes are the Location's Recipes, under the same ids; resolves once its records carry their Recipes' global ids. */
   async function seeded(name: string, serial: string, scenario: string, instance: TestServer) {
@@ -185,7 +189,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     expect(tablet.workflow().hotWaterData).toEqual(hotWater);
     // Nothing is saved into Uptown's Recipe in slot 2.
     await tablet.changeSettings({ context: { grinderSetting: "4.4" } });
-    await settle();
+    // Once the change's report, and anything it set off, are done.
+    await quiet({ tablet }, { machine });
     const uptownTwoRecord = String(records(tablet, "recipes").find((record) => dye2GlobalIdOf(record) === uptownTwo.id)?.id);
     expect(dye2.recorded.filter((record) => record.id === uptownTwoRecord)).toEqual([]);
     expect(await versions(uptownTwo.id)).toBe(edits);
@@ -197,7 +202,7 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
 
   it("never loads Uptown's Recipe through the record id the Workflow still names as its Machine moves there, though it is the lab's Brazil's slot-number id too", async () => {
     const { location: lab, machine, tablet } = await seeded("Same id lab", "49041", "Same id lab", server);
-    const { location: uptown, tablet: uptownTablet } = await seeded("Same id Uptown", "49042", "Same id Uptown", other);
+    const { location: uptown, machine: uptownMachine, tablet: uptownTablet } = await seeded("Same id Uptown", "49042", "Same id Uptown", other);
     const labBrazil = recipeUnder(tablet, BRAZIL)!;
     const uptownBrazil = recipeUnder(uptownTablet, BRAZIL)!;
     expect(uptownBrazil).not.toBe(labBrazil);
@@ -211,7 +216,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     await expect.poll(() => recipeRecords(tablet), { timeout: 15_000 }).toEqual(recipeRecords(uptownTablet));
     await expect.poll(() => recipeIdInWorkflow(tablet)).toBeNull();
     await loads(machine, null);
-    await settle();
+    // Once the move's writes, the tablet's reports of them and anything they set off are done.
+    await quiet({ tablet, uptownTablet }, { machine, uptownMachine });
     expect(await loadedRecipe(machine)).toBeNull();
     expect(await loadedHistory(machine)).not.toContain(uptownBrazil);
     expect((await recipesAt(lab)).map((held) => held.id)).toContain(labBrazil);
@@ -223,7 +229,7 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
   });
 
   it("drops a capture-only Machine's own recipes, baskets and tools as it joins a Location that has some, under the same ids, leaving none in the Library", async () => {
-    const { location: cafe, tablet: cafeTablet } = await seeded("Dropping cafe", "49011", "Dropping cafe", other);
+    const { location: cafe, machine: cafeMachine, tablet: cafeTablet } = await seeded("Dropping cafe", "49011", "Dropping cafe", other);
     const cafeBrazil = recipeUnder(cafeTablet, BRAZIL)!;
     const cafeRecipes = (await recipesAt(cafe)).map((held) => held.id).sort();
     // Its sharing is off before its tablet first connects: capture-only, its experiments there are its own.
@@ -234,7 +240,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     await api.waitForOnline(machine);
     // Its own Brazil, applied while capture-only, stays named in the Workflow, under the id the cafe's Brazil has too.
     expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
-    await settle();
+    // Once the apply's report, and anything it set off, are done.
+    await quiet({ tablet, cafeTablet }, { machine, cafeMachine });
     expect(recipeIdInWorkflow(tablet)).toBe(BRAZIL);
     expect(dye2.selected()).toMatchObject({ kind: "recipe", id: BRAZIL });
     expect(recipeRecords(tablet).every(([, id]) => id === null)).toBe(true);
@@ -253,7 +260,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     await expect.poll(() => recipeIdInWorkflow(tablet)).toBeNull();
     expect(dye2.selected()).toBeNull();
     await tablet.changeSettings({ context: { grinderSetting: "3.3" } });
-    await settle();
+    // Once the change's report, and anything it set off, are done.
+    await quiet({ tablet, cafeTablet }, { machine, cafeMachine });
     expect(await loadedRecipe(machine)).toBeNull();
     expect(await loadedHistory(machine)).toEqual([]);
     expect(await versions(cafeBrazil)).toBe(edits);
@@ -283,7 +291,8 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     for (const tablet of [kept, cleared, renamed]) {
       await expect.poll(() => records(tablet, "baskets").map((record) => [record.name, dye2GlobalIdOf(record)]), { timeout: 15_000 }).toEqual([["Matching Fixture 20g High-flow", shown.id]]);
     }
-    await settle();
+    // Once the joins' writes, the tablets' reports of them and anything they set off are done.
+    await quiet({ kept, cleared, renamed }, { kept: machines[0], cleared: machines[1], renamed: machines[2] });
     expect(extras(kept).basketName).toBe("Matching Fixture 20g High-flow");
     expect(extras(kept).basketId).toBe(records(kept, "baskets")[0]!.id);
     expect(extras(renamed).basketId).toBe(records(renamed, "baskets")[0]!.id);
