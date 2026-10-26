@@ -35,10 +35,13 @@ const QUIET = "quiet";
  * that has not yet arrived all pass unseen, so don't call it while a test
  * holds storage answers or has just made a send or read fail.
  *
- * It is for setup and for ordering steps, not in place of a settle before a
- * check that something does not happen: it shows that nothing is under way,
- * not that nothing would follow. Bounded by expect.poll's timeout, its
- * failure names the check that failed last, and its tablet or Machine.
+ * Before a check that something does not happen, it shows only that nothing
+ * is under way, not that nothing would follow: a timer of the plugin's, or
+ * work it cannot see, may bring a change later. Such a site waits on an
+ * event of its own, or a span of the tablet's clock, and each site that
+ * uses it so is shown to fail with the rule it guards broken (#297).
+ * Bounded by expect.poll's timeout, its failure names the check that failed
+ * last, and its tablet or Machine.
  */
 export async function quiesced(api: AdminApi, { tablets, machines = {}, streamlines = {} }: QuietScope): Promise<void> {
   /** Each tablet's count of `/sensors` reads as the first of the passing samples ended. */
