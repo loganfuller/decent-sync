@@ -199,11 +199,12 @@ export interface InFlightRequest {
   readonly route: string;
 }
 
-/** The built plugin: the change's, or with `latestRelease` the latest release's, as committed at its tag. */
-export function readBuiltPlugin(options: { latestRelease?: boolean } = {}): { source: string; manifest: Record<string, unknown> } {
+/** The built plugin, and the directory it is in: the change's, or with `latestRelease` the latest release's, as committed at its tag. */
+export function readBuiltPlugin(options: { latestRelease?: boolean } = {}): { dir: string; source: string; manifest: Record<string, unknown> } {
   if (!options.latestRelease) assertBuilt("plugin");
   const dir = options.latestRelease ? path.join(latestReleaseDir(), "decent-sync.reaplugin") : reapluginDir;
   return {
+    dir,
     source: fs.readFileSync(path.join(dir, "plugin.js"), "utf8"),
     manifest: JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")),
   };
@@ -773,6 +774,8 @@ export class SimulatedTablet {
   /** Told of every change of the Workflow, after the plugin is. */
   private readonly workflowListeners = new Set<(workflow: Record<string, unknown>) => void>();
   readonly plugin: BuiltPlugin;
+  /** The directory whose plugin.js it runs: the checkout's decent-sync.reaplugin, or with `latestRelease` the latest release's. */
+  readonly pluginDir: string;
   /** DYE2 running beside the plugin, if the tablet has it. */
   readonly dye2: SimulatedDye2 | undefined;
   /** The sockets open on Decaid's plugin WebSocket endpoints, by the plugin id and endpoint each was opened on. */
@@ -887,7 +890,8 @@ export class SimulatedTablet {
     this.storage.decaidStarted();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
-    const { source, manifest } = readBuiltPlugin({ latestRelease: options.latestRelease });
+    const { dir, source, manifest } = readBuiltPlugin({ latestRelease: options.latestRelease });
+    this.pluginDir = dir;
     this.manifest = manifest;
     this.dye2 = options.dye2;
     this.dye2?.attach(this);

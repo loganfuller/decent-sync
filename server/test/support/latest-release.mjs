@@ -68,7 +68,8 @@ export function latestReleaseDir(root = repoDir) {
   return dir;
 }
 
-function compareVersions(a, b) {
+/** Orders two release tags by version, as a sort's comparator does. */
+export function compareVersions(a, b) {
   const [, ...x] = RELEASE_TAG.exec(a).map(Number);
   const [, ...y] = RELEASE_TAG.exec(b).map(Number);
   return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];

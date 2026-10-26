@@ -29,6 +29,8 @@ export interface TestServer {
   url: string;
   /** The test database it uses. */
   database: string;
+  /** The tree whose built server it runs: the checkout, or with `latestRelease` the latest release's build. */
+  buildDir: string;
   /** Everything the server has written to stdout and stderr so far. */
   output(): string;
   /**
@@ -95,7 +97,8 @@ const sharerHalts = new WeakMap<TestServer, (() => Promise<void>)[]>();
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   if (!options.latestRelease) assertBuilt("protocol", "server");
-  const main = path.join(options.latestRelease ? latestReleaseDir() : repoDir, "server/dist/main.js");
+  const buildDir = options.latestRelease ? latestReleaseDir() : repoDir;
+  const main = path.join(buildDir, "server/dist/main.js");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   // Its owner must know of it, to stop it before dropping the database.
@@ -212,7 +215,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await client.connect();
     return client;
   };
-  const server: TestServer = { url, database, output: () => output.join(""), stop, kill, connectDatabase };
+  const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, connectDatabase };
   // Only once it has started: a start that fails has stopped itself.
   if (halts) halts.push(halt);
   sharerHalts.set(server, halts || sharers);

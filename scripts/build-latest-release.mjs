@@ -4,8 +4,10 @@
 // directory of its own outside the checkout, installs its dependencies with
 // `npm ci`, and builds its protocol, management interface and server, leaving
 // its plugin as committed at the tag. A tag already built is left as it is,
-// so each tag is built once on a machine, for every checkout; the builds of
-// earlier tags are removed once a later one is built. It builds in a
+// so each tag is built once on a machine, for every checkout. Once it has
+// built a tag, it removes the builds of earlier tags but the one just before
+// it, which tests another checkout started earlier may still be running, and
+// never removes a later tag's. It builds in a
 // directory of its own and moves the build into place only once finished, so
 // a build cut short is never taken for one, and runs in other checkouts at
 // the same time do no harm. It never touches this checkout's builds, and
@@ -17,7 +19,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { repoDir } from "../server/test/support/build-table.mjs";
-import { RELEASE_TAG, latestReleaseTag, releaseDir, releasesDir } from "../server/test/support/latest-release.mjs";
+import { RELEASE_TAG, compareVersions, latestReleaseTag, releaseDir, releasesDir } from "../server/test/support/latest-release.mjs";
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 /** The workspaces built; the plugin is used as committed at the tag. */
@@ -46,14 +48,14 @@ try {
   fail(error.message);
 }
 const dir = releaseDir(tag);
+const root = releasesDir();
+fs.mkdirSync(root, { recursive: true });
+removeAbandonedBuilds();
 if (fs.existsSync(dir)) {
   console.log(`The latest release, ${tag}, is already built in ${dir}.`);
   process.exit(0);
 }
 
-const root = releasesDir();
-fs.mkdirSync(root, { recursive: true });
-removeAbandonedBuilds();
 const building = path.join(root, `.building-${tag}-${process.pid}`);
 fs.rmSync(building, { recursive: true, force: true });
 fs.mkdirSync(building);
@@ -75,9 +77,8 @@ try {
   fs.rmSync(building, { recursive: true, force: true });
   if (!fs.existsSync(dir)) fail(`Could not move the build of ${tag} into ${dir}: ${error.message}`);
 }
-for (const entry of fs.readdirSync(root)) {
-  if (RELEASE_TAG.test(entry) && entry !== tag) fs.rmSync(path.join(root, entry), { recursive: true, force: true });
-}
+const earlier = fs.readdirSync(root).filter((entry) => RELEASE_TAG.test(entry) && compareVersions(entry, tag) < 0).sort(compareVersions);
+for (const entry of earlier.slice(0, -1)) fs.rmSync(path.join(root, entry), { recursive: true, force: true });
 console.log(`Built the latest release, ${tag}, in ${dir}.`);
 
 /**
