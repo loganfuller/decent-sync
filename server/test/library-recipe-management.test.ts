@@ -8,7 +8,7 @@ import { AdminApi, type CreatedMachine, type LocationView } from "./support/admi
 import { emptyLibrary, recipeIdInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { SimulatedDye2, dye2List, dye2Migrated, openDye2RecipeEditor, selectRecipeInDye2 } from "./support/simulated-dye2.js";
 import { Refusal, type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
-import { type TestServer, adminDatabaseUrl, startTestServer } from "./support/test-server.js";
+import { type TestServer, adminDatabaseUrl, startTestServer, testDatabaseName } from "./support/test-server.js";
 
 // Seam 1 and the REST API for ticket #143: Recipes created, edited, moved
 // between Recipe Slots, taken out of them, Archived and restored in the
@@ -863,7 +863,7 @@ describe("The migration giving Recipes record ids", () => {
   it("keeps each Recipe's slot number as its record id, gives one in no slot a new one, and takes those above slot 5 out of their slots", async () => {
     // A scratch database migrated to the init migration, holding Recipes as they were, then the migration applied.
     const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
-    const database = `decent_sync_test_migration_${Date.now().toString(36)}`;
+    const database = testDatabaseName();
     await admin.connect();
     await admin.query(`CREATE DATABASE "${database}"`);
     const url = new URL(adminDatabaseUrl());

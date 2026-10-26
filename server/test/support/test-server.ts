@@ -12,9 +12,10 @@ import { watchLog, watchSecrets } from "./secrets.js";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
 // own fresh PostgreSQL database, so each test file starts from an empty
-// server. DATABASE_URL, from the environment or the repo's .env, names the
-// PostgreSQL server to create test databases on; its user needs CREATEDB, and
-// CREATEROLE for `notOwner`.
+// server. TEST_DATABASE_URL, or else DATABASE_URL, from the environment or the
+// repo's .env, names the PostgreSQL server to create test databases on
+// (`adminDatabaseUrl()`); its user needs CREATEDB, and CREATEROLE for
+// `notOwner`. The server under test gets its own database as DATABASE_URL.
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
 const main = path.join(repoDir, "server/dist/main.js");
@@ -70,7 +71,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   const baseUrl = adminDatabaseUrl();
-  const database = options.sharing?.database ?? `decent_sync_test_${randomBytes(6).toString("hex")}`;
+  const database = options.sharing?.database ?? testDatabaseName();
   const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
   /** Drops the server's database, unless it shares another's, and its role. */
   const drop = async () => {
@@ -186,15 +187,29 @@ export function ignoredRecordWarnings(server: TestServer, machineName: string): 
   });
 }
 
-/** DATABASE_URL, naming the PostgreSQL server tests create their databases on. */
+/**
+ * TEST_DATABASE_URL, or else DATABASE_URL, naming the PostgreSQL server tests
+ * create their databases on. Either may be in the repo's .env, which does not
+ * override the environment.
+ */
 export function adminDatabaseUrl(): string {
   const envFile = path.join(repoDir, ".env");
-  if (!process.env.DATABASE_URL && fs.existsSync(envFile)) process.loadEnvFile(envFile);
-  const url = process.env.DATABASE_URL;
+  if ((!process.env.TEST_DATABASE_URL || !process.env.DATABASE_URL) && fs.existsSync(envFile)) process.loadEnvFile(envFile);
+  const url = process.env.TEST_DATABASE_URL || process.env.DATABASE_URL;
   if (!url) {
-    throw new Error("Server tests need DATABASE_URL (see .env.example) naming a PostgreSQL 14+ server; run npm run db:up");
+    throw new Error(
+      "Server tests need TEST_DATABASE_URL or DATABASE_URL (see .env.example) naming a PostgreSQL 14+ server; run npm run db:test, or npm run db:up",
+    );
   }
   return url;
+}
+
+/**
+ * A new test database's name, `decent_sync_test_<unix seconds>_<12 hex>`. The
+ * time lets `npm run db:test` drop the databases killed runs left behind.
+ */
+export function testDatabaseName(): string {
+  return `decent_sync_test_${Math.floor(Date.now() / 1000)}_${randomBytes(6).toString("hex")}`;
 }
 
 async function withClient<T>(connectionString: string, use: (client: pg.Client) => Promise<T>): Promise<T> {
