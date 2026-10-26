@@ -264,6 +264,8 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect((await show("tools", tool!.id, cafe, true)).status).toBe(200);
     await expect.poll(() => recordNamed(cafeTablet, "equipment", "Fixture WDT Tool")).toBeDefined();
     await expect.poll(() => recordNamed(two, "equipment", "Fixture WDT Tool")).toBeDefined();
+    // Not while the global id written back to the first tablet's record could still lose an edit there (ADR-0005).
+    await expect.poll(() => recordNamed(one, "equipment", "Fixture WDT Tool")?.[GLOBAL_ID_KEY]).toBe(tool!.id);
 
     // DYE2's equipment page on the first tablet changes the needles from 8 to 10: every tablet holding it, at both Locations, gets it.
     await saveInDye2(one, tools.editWdtTool);
@@ -441,8 +443,11 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     expect(two.storeWrites.filter((write) => write.key === "baskets").length).toBeGreaterThanOrEqual(2);
     expect(await shownAt("baskets", "Lost Fixture 18g Precision")).toEqual(["Lost lab"]);
 
-    // An edit lost: the record comes back as it was before the plugin's write, which is no edit of the tablet's.
+    // An edit lost: the record comes back as it was before the plugin's write, which is no edit of the tablet's. The
+    // first tablet edits it once its record carries the global id written back to it, as an edit while that write reads
+    // and posts the list would be lost to it (ADR-0005).
     await expect.poll(() => records(two, "baskets").length).toBe(1);
+    await expect.poll(() => recordNamed(one, "baskets", "Lost Fixture 18g Precision")?.[GLOBAL_ID_KEY]).toBeDefined();
     const editLost = loseNextWrite(two, "baskets");
     await saveInDye2(one, baskets.edit18gBasket, ownNames("Lost"));
     await editLost.taken();
@@ -538,7 +543,9 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     await api.waitForOnline(...machines);
     await saveInDye2(one, baskets.create18gBasket, ownNames("Lost twice"));
     const name = "Lost twice Fixture 18g Precision";
-    await expect.poll(() => recordNamed(two, "baskets", name)?.[GLOBAL_ID_KEY]).toBeDefined();
+    // The first tablet's record too carries its global id, written back to it: an edit there while that write reads and
+    // posts the list would be lost to it, as ADR-0005 says, and leave the second tablet nothing to be written (#163).
+    for (const tablet of [one, two]) await expect.poll(() => recordNamed(tablet, "baskets", name)?.[GLOBAL_ID_KEY]).toBeDefined();
     const set = async (tablet: SimulatedTablet, field: string, value: unknown) => {
       const list = records(tablet, "baskets").map((record) => (record.name === name ? { ...record, [field]: value } : record));
       expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
