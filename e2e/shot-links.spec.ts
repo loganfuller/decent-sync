@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
@@ -13,7 +13,6 @@ import { expectTip } from "./support/tooltips.js";
 // sharing a batch, each with a Grinder of its own, pull Shots naming them
 // by their own ids.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -112,7 +111,7 @@ function shotWith(id: string, serial: string, context: Record_, enjoyment: numbe
 
 async function post<T>(page: Page, path: string, data: unknown): Promise<T> {
   const response = await page.request.post(path, { data });
-  baseExpect(response.status(), await response.text()).toBe(201);
+  expect(response.status(), await response.text()).toBe(201);
   return (await response.json()) as T;
 }
 

@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { globalIdOf } from "@decent-sync/protocol";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -14,7 +14,6 @@ import { expectTip } from "./support/tooltips.js";
 // nothing else; what the tablets are written then is
 // server/test/library-conflicts.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -129,7 +128,7 @@ function heldBean(tablet: SimulatedTablet, id: string): Record<string, unknown> 
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },

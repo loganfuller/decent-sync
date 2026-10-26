@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { signInAsAdmin } from "./support/seed.js";
@@ -12,7 +12,6 @@ import { expectTip } from "./support/tooltips.js";
 // Profile, is the Profile with the same steps, and is shown there. A Grinder
 // belongs to the Location where it was created.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -86,7 +85,7 @@ test("the Bean Batches list shows each batch's Locations and its remaining weigh
   const lightBatch = () => travellerTablet.batches().find((record) => record.roastLevel === "light");
   await expect.poll(lightBatch).toMatchObject({ archived: false });
   const traveller = await machineNamed(page, "Batch lab group 2");
-  baseExpect((await page.request.post(`/api/machines/${traveller.id}/location-history`, { data: { locationId: cafe.id } })).status()).toBe(201);
+  expect((await page.request.post(`/api/machines/${traveller.id}/location-history`, { data: { locationId: cafe.id } })).status()).toBe(201);
   await expect.poll(() => lightBatch()?.archived).toBe(true);
   await travellerTablet.editBatch(lightBatch()!.id, { archived: false });
   await expect.poll(async () => batchAt(page, "Batch Guji")).toEqual([["Batch cafe", null], ["Batch lab", 180.5]]);
@@ -236,14 +235,14 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
 
 async function createLocation(page: Page, name: string): Promise<{ id: string; name: string }> {
   const response = await page.request.post("/api/locations", { data: { name, timeZone: "America/Chicago" } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   return ((await response.json()) as { location: { id: string; name: string } }).location;
 }
 
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },

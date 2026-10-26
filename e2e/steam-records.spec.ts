@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { derivedSteam, nextMilkProbeSteamFixture, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -13,7 +13,6 @@ import { expectTip } from "./support/tooltips.js";
 // changing only their ids and local times. Hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -42,7 +41,7 @@ test("Steam Records from every Location are listed newest first, at their Locati
   const borrowed = await createMachine(page, "Uptown 2");
   const raw = await RawConnection.open(server.url());
   raw.send(helloWith(borrowed.token, { machine: { model: "DE1Pro", serial: "10044" } }));
-  baseExpect(await raw.message(0)).toMatchObject({ type: "welcome" });
+  expect(await raw.message(0)).toMatchObject({ type: "welcome" });
   await raw.close();
   await load(page, borrowed.token, { model: "Bengle", serial: "10049" }, [steamAt("held-steam", "2026-01-20T15:00:00Z")]);
 
@@ -192,7 +191,7 @@ async function adopt(page: Page, name: string, hardware: { model: string; serial
   const { machine, token } = await createMachine(page, name);
   if (locationId) {
     const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
-    baseExpect(moved.status()).toBe(201);
+    expect(moved.status()).toBe(201);
   }
   await load(page, token, hardware, steams);
 }
@@ -206,12 +205,12 @@ async function load(page: Page, token: string, hardware: { model: string; serial
       timeScale: 50,
     }),
   );
-  await baseExpect
+  await expect
     .poll(async () => {
       const listed = await page.request.get("/api/steam-records?limit=100");
       const ids = ((await listed.json()) as { steamRecords: { id: string }[] }).steamRecords.map((steam) => steam.id);
       return steams.every((steam) => ids.includes(String(steam.id)));
-    }, { timeout: 15_000 })
+    })
     .toBe(true);
 }
 

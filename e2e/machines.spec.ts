@@ -1,5 +1,5 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
   PluginStorage,
   RawConnection,
@@ -19,8 +19,6 @@ import { expectTip } from "./support/tooltips.js";
 // made up: serials from 10001, connection ids from 00:00:5E:00:53:xx.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
-// Machine pages poll the server every few seconds, so status takes up to that long to show.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 const connections: RawConnection[] = [];

@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { SimulatedDye2, dye2Library, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
@@ -16,7 +16,6 @@ import { expectTip } from "./support/tooltips.js";
 // (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
 // 47501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -104,7 +103,7 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
 /** A Machine at the Location, its tablet connected with that API and running DYE2, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<{ id: string; tablet: SimulatedTablet }> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token, machine } = (await response.json()) as { token: string; machine: { id: string } };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
   tablets.push(tablet);

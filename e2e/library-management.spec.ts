@@ -1,4 +1,4 @@
-import { expect as baseExpect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
@@ -8,7 +8,6 @@ import { field } from "./support/locators.js";
 // there (ticket #87). What each Location's tablets are written of them is
 // server/test/library-management.test.ts's.
 useFreshServer();
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -55,12 +54,12 @@ test("a lab batch is added at a cafe, given a remaining weight there and finishe
   const lab = await createLocation(page, "Roastery lab");
   await createLocation(page, "Belmont");
   const createdBean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux Bakehouse", name: "Lab Sidra" } } });
-  baseExpect(createdBean.status()).toBe(201);
+  expect(createdBean.status()).toBe(201);
   const { bean } = (await createdBean.json()) as { bean: { id: string } };
   const createdBatch = await page.request.post("/api/bean-batches", {
     data: { beanId: bean.id, content: { roastDate: "2026-10-04", weight: 250 }, locations: [{ locationId: lab.id }] },
   });
-  baseExpect(createdBatch.status()).toBe(201);
+  expect(createdBatch.status()).toBe(201);
 
   await page.goto("/library/bean-batches");
   await page.getByRole("link", { name: "Lab Sidra, roasted 2026-10-04" }).click();
@@ -84,7 +83,7 @@ test("a lab batch is added at a cafe, given a remaining weight there and finishe
 
 test("creating a Bean whose roaster and name the Library has is refused, with a link to that Bean", async ({ page }) => {
   const created = await page.request.post("/api/beans", { data: { content: { roaster: "Sandbox Coffee Roasters", name: "Washed Heirloom" } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
 
   await page.goto("/library/beans");
   await page.getByRole("button", { name: "New Bean" }).click();
@@ -100,7 +99,7 @@ test("creating a Bean whose roaster and name the Library has is refused, with a 
 test("a Bean's form saves an edit of one field while another holds a value the form cannot read", async ({ page }) => {
   // Decaid takes any whole number as an altitude, which the form reads as whole numbers of 0 or more.
   const created = await page.request.post("/api/beans", { data: { content: { roaster: "Sandbox Coffee Roasters", name: "Below Sea Level", altitude: [-5] } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { id } = ((await created.json()) as { bean: { id: string } }).bean;
 
   await page.goto(`/library/beans/${id}`);
@@ -110,5 +109,5 @@ test("a Bean's form saves an edit of one field while another holds a value the f
   await coffee.getByRole("button", { name: "Save" }).click();
   await expect(field(page.getByLabel("Coffee", { exact: true }), "Notes")).toHaveText("Salted caramel");
   const { bean } = (await (await page.request.get(`/api/beans/${id}`)).json()) as { bean: { content: Record<string, unknown> } };
-  baseExpect(bean.content).toMatchObject({ notes: "Salted caramel", altitude: [-5] });
+  expect(bean.content).toMatchObject({ notes: "Salted caramel", altitude: [-5] });
 });

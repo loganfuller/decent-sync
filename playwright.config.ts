@@ -7,6 +7,12 @@ import { defineConfig, devices } from "@playwright/test";
 export default defineConfig({
   testDir: "e2e",
   forbidOnly: !!process.env.CI,
+  // Playwright's defaults (an expect gives up after 5 s, a test after 30 s)
+  // fail on a busy machine before a page polling every few seconds has
+  // caught up. As in vitest.config.ts, a spec bounds its times from below and
+  // leaves the upper bound to these (docs/AI_BUILD_NOTES.md).
+  timeout: 60_000,
+  expect: { timeout: 15_000 },
   // No retries, in CI either: a test that passes only when retried is flaky, and should fail until it is fixed.
   reporter: process.env.CI ? [["list"], ["html", { open: "never" }]] : "list",
   use: { trace: "retain-on-failure" },

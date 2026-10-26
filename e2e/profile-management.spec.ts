@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -10,7 +10,6 @@ import { createLocation, signInAsAdmin } from "./support/seed.js";
 // what each Location's tablets are written of them is
 // server/test/library-profile-management.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -59,7 +58,7 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
   const record = await labTablet.addProfile(derivedProfile("Retired Bloom", 7.25));
   const id = String(record.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(id)}`)).status()).toBe(200);
-  baseExpect((await page.request.put(`/api/profiles/${encodeURIComponent(id)}/locations/${cafe.id}`, { data: { shown: true } })).status()).toBe(200);
+  expect((await page.request.put(`/api/profiles/${encodeURIComponent(id)}/locations/${cafe.id}`, { data: { shown: true } })).status()).toBe(200);
 
   await page.goto(`/library/profiles/${encodeURIComponent(id)}`);
   await page.getByRole("button", { name: "Archive", exact: true }).click();
@@ -84,7 +83,7 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },

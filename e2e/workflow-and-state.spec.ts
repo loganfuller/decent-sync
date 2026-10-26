@@ -1,4 +1,4 @@
-import { expect as baseExpect, test } from "@playwright/test";
+import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid090, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -13,8 +13,6 @@ import { field, machineRow } from "./support/locators.js";
 // 10001.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "America/New_York" });
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -74,7 +72,7 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   tablet.setWorkflow(derivedWorkflow({ targetYield: 40, grinderSetting: "7.5" }));
   tablet.reportState("idle", "idle");
   await expect(field(page, "Machine state")).toHaveText(/^Idle, since /);
-  await afterDetailsPolls(page, () => baseExpect(field(workflow, "Yield")).toHaveText("40 g", { timeout: 2_000 }));
+  await afterDetailsPolls(page, () => expect(field(workflow, "Yield")).toHaveText("40 g", { timeout: 2_000 }));
   await expect(field(workflow, "Grind setting")).toHaveText("7.5");
   await page.goto("/machines");
   await expect(machineRow(page, "Bar 1")).toContainText("Idle");
@@ -129,7 +127,7 @@ test("the Machine page asks for its status every 5 s, and for the rest every 30 
 
   await page.clock.fastForward(POLL_MS);
   await expect.poll(() => times(status)).toBeGreaterThan(statusTimes);
-  baseExpect(restTimes()).toEqual(rest.map(() => 1));
+  expect(restTimes()).toEqual(rest.map(() => 1));
 
   await page.clock.fastForward(DETAILS_POLL_MS);
   await expect.poll(restTimes).toEqual(rest.map(() => 2));

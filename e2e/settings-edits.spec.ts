@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
+import { expect, type Browser, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, sensorCalibration, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, rows } from "./support/locators.js";
@@ -22,8 +22,6 @@ import { expectTip } from "./support/tooltips.js";
 // tablet running the built plugin takes the writes as Decaid v0.9.0 does;
 // hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const tablets: SimulatedTablet[] = [];
 
@@ -63,7 +61,7 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await expect(status).toContainText("Fan threshold: 40 °C.");
   // Its values come from the latest report, read back after the write.
   await expect(general.getByRole("definition").first()).toHaveText("40 °C");
-  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
+  expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
 
   // A Shot is being pulled: the edit is refused with the Machine's state, and nothing is written. The last edit's
   // status stays while the form is open, until another is saved.
@@ -75,7 +73,7 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await form.getByRole("button", { name: "Save" }).click();
   await expect(status).toContainText("Not changed");
   await expect(status).toContainText("The Machine was busy (espresso). Edit it again once it is idle.");
-  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
+  expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(1);
 });
 
 test("Staff at the Machine's Location change its steam purge mode, Staff elsewhere have no Edit, and Edit is disabled while the Machine is offline", async ({ page, browser }) => {
@@ -130,7 +128,7 @@ test("an edit made over the report the form opened with is refused as changed si
   await fan.fill("40");
 
   // A barista sets 30 on the Tablet, which the page loads with what its tablet reported while the form is open.
-  baseExpect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
+  expect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
   await expect.poll(async () => (await machineSettings(page, machine.id))?.fan).toBe(30);
   const loaded = page.waitForResponse((response) => response.url().endsWith(`/machines/${machine.id}/collections/machineSettings`));
   await page.clock.fastForward(DETAILS_POLL_MS);
@@ -141,8 +139,8 @@ test("an edit made over the report the form opened with is refused as changed si
   const status = general.getByRole("status");
   await expect(status).toContainText("Not changed");
   await expect(status).toContainText("It was changed on the Tablet since the values shown. It holds Fan threshold: 30 °C.");
-  baseExpect(((await tablet.callApi("GET", "/machine/settings")).body as { fan: number }).fan).toBe(30);
-  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(0);
+  expect(((await tablet.callApi("GET", "/machine/settings")).body as { fan: number }).fan).toBe(30);
+  expect(tablet.writes.filter((write) => write === "POST /machine/settings")).toHaveLength(0);
 });
 
 test("an edit the Machine answered before the server answered its making still shows the values read back", async ({ page }) => {
@@ -315,10 +313,10 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await warmup.fill("2.40");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
-  baseExpect(tablet.writes.filter((write) => write === "POST /machine/settings/advanced")).toHaveLength(2);
+  expect(tablet.writes.filter((write) => write === "POST /machine/settings/advanced")).toHaveLength(2);
 
   // A barista sets a voltage Decaid holds as unset (-1), which the form shows as it is rather than as no choice.
-  baseExpect((await tablet.callApi("POST", "/machine/settings/advanced", { heaterVoltage: 300 })).status).toBe(202);
+  expect((await tablet.callApi("POST", "/machine/settings/advanced", { heaterVoltage: 300 })).status).toBe(202);
   await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/advancedSettings`)).json()) as { collection: { value: { heaterVoltage: number } } }).collection.value.heaterVoltage).toBe(-1);
   await page.reload();
   await advanced.getByRole("button", { name: "Edit Advanced" }).click();
@@ -401,7 +399,7 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   await warning.getByRole("button", { name: "Cancel" }).click();
   await expect(warning).toBeHidden();
   await expect(form).toBeVisible();
-  baseExpect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual([]);
+  expect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual([]);
   await form.getByRole("button", { name: "Save" }).click();
   await warning.getByRole("button", { name: "Go ahead" }).click();
 
@@ -410,7 +408,7 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   // The values read back, the machine holding the Q16.16 value nearest 1.29, 1.2899932861328125, shown as 1.29 and not 1.28999.
   await expect(status).toContainText("Pressure sensor multiplier: 1.29.");
   await expect(sensors.getByRole("definition").nth(1)).toHaveText("1.29");
-  baseExpect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual(["PUT /machine/calibration/pressure"]);
+  expect(tablet.writes.filter((write) => write.startsWith("PUT /machine/calibration/"))).toEqual(["PUT /machine/calibration/pressure"]);
   // Which the form opens on the step, as it is within half a step of Q16.16 of 1.29.
   await sensors.getByRole("button", { name: "Edit Pressure sensor multiplier" }).click();
   await expect(form.getByLabel("Pressure sensor multiplier")).toHaveValue("1.29");
@@ -465,8 +463,8 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     await expect(field(tabletSettings, "Charging mode")).toHaveText("Charge up to 80%");
   });
   // Sent as minutes after midnight, as Decaid keeps them, and only the fields changed.
-  baseExpect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 375, chargingMode: "balanced" });
-  baseExpect(settingsWrites()).toHaveLength(1);
+  expect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 375, chargingMode: "balanced" });
+  expect(settingsWrites()).toHaveLength(1);
 
   await page.goto(`/machines/${machine.id}`);
   const tabletSettings = page.getByRole("region", { name: "Tablet Settings", exact: true });
@@ -480,7 +478,7 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
   await expect(tabletSettings.getByRole("status")).toContainText("Applied");
   await expect(tabletSettings.getByRole("status")).toContainText("Gateway mode: Full.");
   await expect.poll(async () => ((await tablet.callApi("GET", "/settings")).body as { gatewayMode: string }).gatewayMode).toBe("full");
-  baseExpect(settingsWrites()).toHaveLength(2);
+  expect(settingsWrites()).toHaveLength(2);
 });
 
 test("the Tablet Settings form warns where the Tablet's UTC offset differs from its Location's time zone's, and not for a Machine with no Location", async ({ page }) => {
@@ -590,12 +588,12 @@ test("Staff change presence, and add, change and delete a wake schedule in the T
       await expect(rows(edits).nth(index).getByRole("cell")).toHaveText([/.+/, "You", "Presence", change.join(""), "Applied"]);
     }
   });
-  baseExpect(await held()).toMatchObject({ userPresenceEnabled: true, sleepTimeoutMinutes: 45, schedules: [] });
-  baseExpect(presenceWrites()).toEqual([
+  expect(await held()).toMatchObject({ userPresenceEnabled: true, sleepTimeoutMinutes: 45, schedules: [] });
+  expect(presenceWrites()).toEqual([
     "POST /presence/settings",
     "POST /presence/schedules",
-    baseExpect.stringMatching(/^PUT \/presence\/schedules\//),
-    baseExpect.stringMatching(/^DELETE \/presence\/schedules\//),
+    expect.stringMatching(/^PUT \/presence\/schedules\//),
+    expect.stringMatching(/^DELETE \/presence\/schedules\//),
   ]);
 });
 
@@ -647,7 +645,7 @@ test("the wake schedule form warns of a Tablet's time zone differing from its Lo
 /** Makes an edit of the Machine's General settings through the REST API as the page's account, and resolves with its id. */
 async function makeEdit(page: Page, machineId: string, fields: Record<string, unknown>, expected: Record<string, unknown>): Promise<string> {
   const response = await page.request.post(`/api/machines/${machineId}/settings-edits`, { data: { collection: "machineSettings", fields, expected } });
-  baseExpect(response.status(), await response.text()).toBe(201);
+  expect(response.status(), await response.text()).toBe(201);
   return ((await response.json()) as { settingsEdit: { id: string } }).settingsEdit.id;
 }
 
@@ -708,14 +706,14 @@ async function machineSettings(page: Page, machineId: string, name = "machineSet
 /** Runs `work` with a page signed in as a new Staff member working at the Location. */
 async function asStaff(page: Page, browser: Browser, email: string, locationId: string, work: (staffPage: Page) => Promise<void>): Promise<void> {
   const response = await page.request.post("/api/invites", { data: { email, role: "staff", locationIds: [locationId] } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { link } = (await response.json()) as { link: string };
   const context = await browser.newContext({ baseURL: server.url() });
   try {
     const accepted = await context.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, {
       data: { name: "Staff", email, password: "staff password 1" },
     });
-    baseExpect(accepted.status()).toBe(201);
+    expect(accepted.status()).toBe(201);
     await work(await context.newPage());
   } finally {
     await context.close();

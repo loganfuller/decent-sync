@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { GLOBAL_ID_KEY } from "@decent-sync/protocol";
 import { type Dye2Key, DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
@@ -13,7 +13,6 @@ import { expectTip } from "./support/tooltips.js";
 // each Location showing them; their history and Conflicts; and what Staff may
 // change. Serials are made up, from 43101.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const tablets: SimulatedTablet[] = [];
@@ -100,7 +99,7 @@ test("a Tool's attributes are edited, and its history lists the edit", async ({ 
   const created = await page.request.post("/api/tools", {
     data: { locationId: lab.id, content: { name: "Lab WDT Tool", custom: [{ key: "Needles", value: "8" }] } },
   });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
 
   await page.goto("/library/tools");
   await expectTip(page.getByRole("main"), "Tools", /^Gear such as WDT tools and puck screens, which DYE2 calls equipment/);
@@ -146,7 +145,7 @@ test("a Conflict over a Basket's notes, made on two tablets offline, is shown on
   const one = await tabletAt(page, "Conflict lab 1", lab, "43121");
   const two = await tabletAt(page, "Conflict lab 2", lab, "43122");
   const created = await page.request.post("/api/baskets", { data: { locationId: lab.id, content: { name: "Conflict 18g Precision", notes: "New" } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { id } = ((await created.json()) as { basket: { id: string } }).basket;
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("New");
 
@@ -184,16 +183,16 @@ test("Staff edit a Basket's content, but cannot show or hide it at a Location th
   const home = await createLocation(page, "Belmont");
   const elsewhere = await createLocation(page, "Staff lab");
   const created = await page.request.post("/api/baskets", { data: { locationId: elsewhere.id, content: { name: "Staff lab basket", size: "single" } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { id } = ((await created.json()) as { basket: { id: string } }).basket;
 
   const response = await page.request.post("/api/invites", { data: { email: sam.email, role: "staff", locationIds: [home.id] } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { link } = (await response.json()) as { link: string };
   const samsBrowser = await browser.newContext({ baseURL: server.url() });
   try {
     const accepted = await samsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, { data: sam });
-    baseExpect(accepted.status()).toBe(201);
+    expect(accepted.status()).toBe(201);
     const samsPage = await samsBrowser.newPage();
     await samsPage.goto(`/library/baskets/${id}`);
     await expect(samsPage.getByRole("heading", { name: "Staff lab basket", level: 1 })).toBeVisible();
@@ -223,9 +222,9 @@ test("Staff edit a Basket's content, but cannot show or hide it at a Location th
 test("creating a Tool whose name the Library has is refused, with a link to that Tool, which is to be restored if Archived", async ({ page }) => {
   const lab = await createLocation(page, "Duplicate lab");
   const created = await page.request.post("/api/tools", { data: { locationId: lab.id, content: { name: "Duplicate Puck Screen" } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { id } = ((await created.json()) as { tool: { id: string } }).tool;
-  baseExpect((await page.request.put(`/api/tools/${id}/archived`, { data: { archived: true } })).status()).toBe(200);
+  expect((await page.request.put(`/api/tools/${id}/archived`, { data: { archived: true } })).status()).toBe(200);
 
   await page.goto("/library/tools");
   await page.getByRole("button", { name: "New Tool" }).click();
@@ -240,13 +239,13 @@ test("creating a Tool whose name the Library has is refused, with a link to that
   await expect(page.getByRole("heading", { name: "Duplicate Puck Screen", level: 1 })).toContainText("Archived");
   await expect(page.getByRole("button", { name: "Restore" })).toBeVisible();
   const { tools } = (await (await page.request.get("/api/tools")).json()) as { tools: { name: string }[] };
-  baseExpect(tools.filter((tool) => tool.name.toLowerCase().includes("puck screen"))).toHaveLength(1);
+  expect(tools.filter((tool) => tool.name.toLowerCase().includes("puck screen"))).toHaveLength(1);
 });
 
 /** A Machine at the Location, its tablet connected with DYE2's lists empty, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
@@ -267,7 +266,7 @@ function recordOf(tablet: SimulatedTablet, key: Dye2Key, id: string): Record_ | 
 /** Saves the Basket's notes on the tablet as DYE2's baskets page does: reads the list, changes the record, posts the list back. */
 async function saveNotes(tablet: SimulatedTablet, id: string, notes: string): Promise<void> {
   const list = (dye2List(tablet, "baskets") as Record_[]).map((record) => (record[GLOBAL_ID_KEY] === id ? { ...record, notes } : record));
-  baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
+  expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/baskets`, list)).status).toBe(200);
 }
 
 async function view(page: Page, id: string): Promise<{ content: Record_ }> {

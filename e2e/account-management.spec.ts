@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
+import { expect, type Browser, type Page, test } from "@playwright/test";
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { nextRefusedPoll } from "./support/polling.js";
@@ -11,8 +11,6 @@ import { admin, createLocation, createMachine, signInAsAdmin } from "./support/s
 // themselves. A session the Admin ends sends its open page to sign-in, and
 // back to that page after signing in.
 const server = useFreshServer();
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 const newPassword = "Sam's new password";
@@ -30,7 +28,7 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
 
   // Sam accepts in their own browser, and keeps it open.
   const samsPage = await signedOutPage(browser);
-  baseExpect((await samsPage.request.post(`/api/invite-links/${secretOf(link)}/accept`, { data: sam })).status()).toBe(201);
+  expect((await samsPage.request.post(`/api/invite-links/${secretOf(link)}/accept`, { data: sam })).status()).toBe(201);
   await samsPage.goto("/locations");
   const worksAt = samsPage.getByRole("list", { name: "Locations" }).getByRole("listitem").filter({ hasText: "You work here" });
   await expect(worksAt).toHaveText([/^Uptown/]);
@@ -115,7 +113,7 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
 test("an Admin resets a Staff member's password with a one-time link that ends their other sessions", async ({ page, browser }) => {
   // Sam has Uptown 1's page open on their laptop.
   const samsLaptop = await signedOutPage(browser);
-  baseExpect((await samsLaptop.request.post("/api/session", { data: sam })).status()).toBe(200);
+  expect((await samsLaptop.request.post("/api/session", { data: sam })).status()).toBe(200);
   await samsLaptop.goto(`/machines/${uptown1.id}`);
   await expect(samsLaptop.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   const laptopAlerts = await recordAlerts(samsLaptop);
@@ -124,7 +122,7 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   await accountRow(page, sam.email).getByRole("button", { name: `Reset ${sam.name}'s password` }).click();
   const notice = page.getByRole("region", { name: `Password reset link for ${sam.name}` });
   const link = await notice.getByRole("textbox", { name: "Password reset link" }).inputValue();
-  baseExpect(link.startsWith(`${server.url()}/reset-password/`)).toBe(true);
+  expect(link.startsWith(`${server.url()}/reset-password/`)).toBe(true);
   await notice.getByRole("button", { name: "Done" }).click();
   await expect(notice).toHaveCount(0);
 
@@ -141,8 +139,8 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
 
   // The laptop's session ended, so its page is refused at its next poll and goes to sign-in, and back after Sam signs in.
   await refused;
-  await baseExpect(samsLaptop).toHaveURL(/\/sign-in$/);
-  baseExpect(await laptopAlerts()).toEqual([]);
+  await expect(samsLaptop).toHaveURL(/\/sign-in$/);
+  expect(await laptopAlerts()).toEqual([]);
   await signIn(samsLaptop, sam);
   await expect(samsLaptop.getByRole("alert")).toHaveText("The email or password is incorrect");
   await signIn(samsLaptop, { email: sam.email, password: newPassword });
@@ -176,8 +174,8 @@ test("an Admin deactivates an account, which signs it out and refuses its sign-i
 
   // Sam's open page is refused at its next poll and goes to sign-in, where signing in is refused.
   await refused;
-  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
-  baseExpect(await alerts()).toEqual([]);
+  await expect(samsPage).toHaveURL(/\/sign-in$/);
+  expect(await alerts()).toEqual([]);
   await signIn(samsPage, { email: sam.email, password: newPassword });
   await expect(samsPage.getByRole("alert")).toHaveText("This account has been deactivated. Ask an Admin to reactivate it");
 
@@ -219,8 +217,8 @@ test("a request the server answers only after the session ended goes to sign-in,
   const refused = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/locations" && response.status() === 401);
   list.release();
   await refused;
-  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
-  baseExpect(await alerts()).toEqual([]);
+  await expect(samsPage).toHaveURL(/\/sign-in$/);
+  expect(await alerts()).toEqual([]);
   await samsPage.context().close();
 });
 
@@ -275,12 +273,12 @@ test("a session read answered before signing out does not sign the person back i
   await samsPage.getByRole("link", { name: "Decent Sync" }).click();
   await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
   await samsPage.getByRole("button", { name: "Sign out" }).click();
-  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
+  await expect(samsPage).toHaveURL(/\/sign-in$/);
 
   const answered = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session");
   read.release();
   const answer = await answered;
-  baseExpect(answer.status()).toBe(200);
+  expect(answer.status()).toBe(200);
   await answer.finished();
 
   // The page got the answer before Sam tries a wrong password, whose answer comes back later still. Signed back in,
@@ -288,9 +286,9 @@ test("a session read answered before signing out does not sign the person back i
   await samsPage.getByLabel("Email").fill(sam.email, { timeout: 5_000 });
   await samsPage.getByLabel("Password").fill("not Sam's password", { timeout: 5_000 });
   await samsPage.getByRole("button", { name: "Sign in" }).click({ timeout: 5_000 });
-  await baseExpect(samsPage.getByRole("alert")).toHaveText("The email or password is incorrect");
-  await baseExpect(samsPage).toHaveURL(/\/sign-in$/);
-  await baseExpect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);
+  await expect(samsPage.getByRole("alert")).toHaveText("The email or password is incorrect");
+  await expect(samsPage).toHaveURL(/\/sign-in$/);
+  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);
   await samsPage.context().close();
 });
 
@@ -396,13 +394,13 @@ async function holdNextGet(page: Page, path: string, { answerNow }: { answerNow:
 async function setAccess(page: Page, email: string, access: { role: "admin" | "staff"; locationIds: string[] }) {
   const { accounts } = (await (await page.request.get("/api/accounts")).json()) as { accounts: { id: string; email: string }[] };
   const account = accounts.find((candidate) => candidate.email === email)!;
-  baseExpect((await page.request.put(`/api/accounts/${account.id}/access`, { data: access })).status()).toBe(200);
+  expect((await page.request.put(`/api/accounts/${account.id}/access`, { data: access })).status()).toBe(200);
 }
 
 /** Creates an invite through the REST API and returns its link. */
 async function invite(page: Page, body: { email: string; role: "admin" | "staff"; locationIds?: string[] }): Promise<string> {
   const response = await page.request.post("/api/invites", { data: body });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   return ((await response.json()) as { link: string }).link;
 }
 
@@ -417,7 +415,7 @@ async function signedOutPage(browser: Browser): Promise<Page> {
 /** A page in a browser of Sam's own, signed in with their password as the reset left it. */
 async function signedInPage(browser: Browser): Promise<Page> {
   const page = await signedOutPage(browser);
-  baseExpect((await page.request.post("/api/session", { data: { email: sam.email, password: newPassword } })).status()).toBe(200);
+  expect((await page.request.post("/api/session", { data: { email: sam.email, password: newPassword } })).status()).toBe(200);
   return page;
 }
 

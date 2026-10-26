@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
+import { expect, type Browser, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { machineRow } from "./support/locators.js";
@@ -10,8 +10,6 @@ import { expectTip } from "./support/tooltips.js";
 // and moves only the Machines at those Locations. A link already used says
 // it can no longer be used.
 const server = useFreshServer();
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 /** Sam's invite link, once the first test has created it. */
@@ -43,7 +41,7 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
   // What to do with the link stays on the page.
   await expect(notice).toContainText(`Send this link to ${sam.email}.`);
   samsLink = await notice.getByRole("textbox", { name: "Invite link" }).inputValue();
-  baseExpect(samsLink.startsWith(`${server.url()}/invite/`)).toBe(true);
+  expect(samsLink.startsWith(`${server.url()}/invite/`)).toBe(true);
   // Ready for the next invite.
   await expect(form.getByLabel("Email")).toHaveValue("");
 
@@ -137,7 +135,7 @@ test("someone signed in who opens an invite link signs out before accepting it",
 /** Creates an invite through the REST API and returns its link. */
 async function invite(page: Page, body: { email: string; role: "admin" | "staff"; locationIds?: string[] }): Promise<string> {
   const response = await page.request.post("/api/invites", { data: body });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   return ((await response.json()) as { link: string }).link;
 }
 
