@@ -287,9 +287,9 @@ test("a session read answered before signing out does not sign the person back i
 
   // The page got the answer before Sam tries a wrong password, whose answer comes back later still. Signed back in,
   // the page would have left the sign-in form; it stays, with that refusal's own message.
-  await samsPage.getByLabel("Email").fill(sam.email, { timeout: 5_000 });
-  await samsPage.getByLabel("Password").fill("not Sam's password", { timeout: 5_000 });
-  await samsPage.getByRole("button", { name: "Sign in" }).click({ timeout: 5_000 });
+  await samsPage.getByLabel("Email").fill(sam.email);
+  await samsPage.getByLabel("Password").fill("not Sam's password");
+  await samsPage.getByRole("button", { name: "Sign in" }).click();
   await expect(samsPage.getByRole("alert")).toHaveText("The email or password is incorrect");
   await expect(samsPage).toHaveURL(/\/sign-in$/);
   await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);

@@ -28,7 +28,8 @@ test.beforeEach(({ page }) => signInAsAdmin(page));
 test("an Admin changes a Machine's fan threshold, shown pending and then applied, and is told why an edit during a Shot was refused", async ({ page }) => {
   const belmont = await createLocation(page, "Belmont");
   const { machine, token } = await createMachine(page, "Belmont left", belmont.id);
-  const tablet = await tabletOf(token, "22401");
+  // At real time, so Decaid's write is held for less than its 30 s fetch timeout.
+  const tablet = await tabletOf(token, "22401", { timeScale: 1 });
   await reported(page, machine.id);
   await page.goto(`/machines/${machine.id}`);
 
@@ -47,10 +48,13 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   await expect(page.getByRole("tooltip")).toHaveText("Set by the Workflow");
 
   await fan.fill("40");
+  // Held until the page has shown it pending, which a quick answer would otherwise replace before it is seen.
+  const write = tablet.holdRequests("POST", "/machine/settings");
   await form.getByRole("button", { name: "Save" }).click();
   const status = general.getByRole("status");
   await expect(status).toContainText("Pending");
   await expect(status).toContainText("Fan threshold: 40 °C. Sent to the Machine, waiting for its answer.");
+  write.release();
   await expect(status).toContainText("Applied");
   await expect(status).toContainText("Fan threshold: 40 °C.");
   // Its values come from the latest report, read back after the write.
