@@ -1445,8 +1445,14 @@ var __decentSync = (() => {
       /** The tablet's records that can be a Loaded Recipe, by their ids there, as last read; null until first read. */
       __publicField(this, "records", null);
       __publicField(this, "dye2", "unknown");
-      /** When DYE2 was first seen not loaded, since it was last loaded. */
-      __publicField(this, "notLoadedSince", null);
+      /**
+       * Armed for twice the poll interval as DYE2 is first seen not loaded,
+       * since it was last loaded, by the host's timers, as SHOT_STORED_WITHIN_MS
+       * is, which a correction of the tablet's clock does not move.
+       */
+      __publicField(this, "awayTimer");
+      /** Whether DYE2 has been not loaded since `awayTimer` fired, until it is seen loaded. */
+      __publicField(this, "notLoadedLong", false);
       __publicField(this, "captureOnly", false);
       /** How many writes of the plugin's into the Workflow are under way (`ownWrite`). */
       __publicField(this, "writing", 0);
@@ -1497,6 +1503,7 @@ var __decentSync = (() => {
     stop() {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
+      if (this.awayTimer !== void 0) clearTimeout(this.awayTimer);
       this.pushes.stop();
     }
     /** Whether the server says the Machine is capture-only: nothing is written into its Workflow, nor saved into its recipes, while it is. */
@@ -1719,16 +1726,29 @@ var __decentSync = (() => {
     async check() {
       this.dye2 = await readDye2State();
       if (this.dye2 === "loaded") {
-        this.notLoadedSince = null;
+        if (this.awayTimer !== void 0) clearTimeout(this.awayTimer);
+        this.awayTimer = void 0;
+        this.notLoadedLong = false;
         this.pushes.keepOpen();
-      } else this.notLoadedSince ?? (this.notLoadedSince = Date.now());
+      } else if (this.awayTimer === void 0 && !this.notLoadedLong && !this.stopped) {
+        this.awayTimer = setTimeout(() => {
+          this.awayTimer = void 0;
+          this.notLoadedLong = true;
+        }, 2 * this.pollMs);
+      }
       this.changes.dye2Absent(this.unavailable());
       this.sawRecipes(await this.readRecipes());
     }
-    /** Whether DYE2 is not there: absent, disabled, or not loaded for longer than twice the poll interval. */
+    /**
+     * Whether DYE2 is not there: absent, disabled, or not loaded for longer
+     * than twice the poll interval, as the host's timers count it
+     * (`awayTimer`). Unlike a Settings Edit's deadline, this needs no check by
+     * the tablet's clock for time it spent asleep, as it measures an absence
+     * seen across polls, and polls stop while the tablet sleeps too.
+     */
     unavailable() {
       if (this.dye2 === "absent" || this.dye2 === "disabled") return true;
-      return this.dye2 === "notLoaded" && this.notLoadedSince !== null && Date.now() - this.notLoadedSince > 2 * this.pollMs;
+      return this.dye2 === "notLoaded" && this.notLoadedLong;
     }
     /**
      * Loads the Recipe the Workflow names, while it still names it: writes
