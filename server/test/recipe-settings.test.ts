@@ -351,10 +351,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await load(c, machines.c, LIBRARY, one);
     await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
     await streamline.setSteamHeater(false);
-    // Once C's report of the heater off, and Streamline's reply, are done; then a second, as the edit after C's next change
-    // is timed by the server's clock.
+    // Once C's report of the heater off, and Streamline's reply, are done.
     await quiet({ streamline });
-    await apart();
 
     // Offline, C's next change is saved into its record with steam still off, and the Recipe's steam temperature is edited
     // meanwhile.
@@ -362,6 +360,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await c.changeSettings({ hotWaterData: { volume: 130 } });
     await expect.poll(() => recorded(c, "hotWaterVolume"), { timeout: 15_000 }).toBe(130);
     expect(recorded(c, "steamTemperature")).toBe(150);
+    // A second after C's heater off and offline change, timed by the tablet's clock, as the edit is timed by the server's.
+    await apart();
     await patch(one, { steamTemperature: 160 });
     await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(160);
     c.restoreNetwork();
