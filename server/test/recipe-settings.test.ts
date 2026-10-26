@@ -87,12 +87,18 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     (tablet.received.slice(from).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe") as { fields: Record_ }[]).map(
       ({ fields }) => fields,
     );
-  /** The tablet's answer to the server's write of a Loaded Recipe into its Workflow, from `from` on, setting that setting: whether it is acknowledged. */
-  const answeredWrite = (tablet: SimulatedTablet, from: number, name: RecipeSetting) => {
-    const write = (tablet.received.slice(from) as Record_[]).find(
-      (frame) => frame.type === "write" && frame.kind === "loadedRecipe" && RECIPE_SETTINGS[name].workflow in ((frame.fields ?? {}) as Record_),
+  /**
+   * Whether the tablet has answered a write of a Loaded Recipe into its Workflow the server sent from `from` on, setting
+   * that setting, by refusing it or writing that setting, and the server has acknowledged the answer.
+   */
+  const settledWrite = (tablet: SimulatedTablet, from: number, name: RecipeSetting) => {
+    const field = RECIPE_SETTINGS[name].workflow;
+    const writes = (tablet.received.slice(from) as Record_[]).filter((frame) => frame.type === "write" && frame.kind === "loadedRecipe" && field in ((frame.fields ?? {}) as Record_));
+    return writes.some((write) =>
+      tablet.acknowledgedSome(
+        (frame: Record_) => frame.id === write.id && (frame.type === "writeRefused" || (frame.type === "written" && ((frame.writtenFields ?? []) as unknown[]).includes(field))),
+      ),
     );
-    return write !== undefined && tablet.acknowledgedSome((frame: Record_) => frame.id === write.id && (frame.type === "written" || frame.type === "writeRefused"));
   };
   /**
    * A second between two events timed by different clocks, as `docs/AI_BUILD_NOTES.md` (Seam 1) asks: the tablet times
@@ -374,17 +380,18 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("writes a hot water setting edited while C's machine is away once it is back, never saving C's old one into the Recipe", async () => {
-    const { machines, a, c, one, quiet } = await lab("Unplugged", 49131);
+    const { a, c, one, quiet } = await lab("Unplugged", 49131);
     const dose = (tablet: SimulatedTablet) => workflowValueAt(tablet.workflow(), "context.targetDoseWeight");
     // Decaid refuses the hot water settings with no machine, and takes the rest of the write.
     c.machineConnected = false;
     const received = c.received.length;
     await patch(one, { dose: 19.3, hotWaterDuration: 41 });
     await expect.poll(() => [dose(c), recorded(c, "hotWaterDuration")], { timeout: 15_000 }).toEqual([19.3, 41]);
-    // C's own wait: its answer to the server's write of the edit, acknowledged. The hot water time it left out stays due on
-    // C until the machine is back, so C's Machine is left out of quiet's.
-    await expect.poll(() => answeredWrite(c, received, "hotWaterDuration"), { timeout: 15_000 }).toBe(true);
-    await quiesced(api, { tablets: { a, c }, machines: { a: machines.a } });
+    // C's own wait: the server writes the edit, C takes it without the hot water time, then the server writes the hot water
+    // time alone, which C refuses with no machine. Once that refusal is acknowledged C's Machine has nothing waiting, and
+    // quiet covers the rest of what the edit set off.
+    await expect.poll(() => settledWrite(c, received, "hotWaterDuration"), { timeout: 15_000 }).toBe(true);
+    await quiet();
     expect(setting(c, "hotWaterDuration")).toBe(HELD.hotWaterDuration);
 
     // Once the machine is back, the hot water time is written, and C's next change, which DYE2 saves, keeps it.
@@ -424,7 +431,9 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     c.restoreNetwork();
     await loads(machines.c, one);
     await expect.poll(() => settingsOf(c), { timeout: 15_000 }).toMatchObject({ ...HELD, steamDuration: 40, hotWaterVolume: 140, flushDuration: 6 });
-    // Once C's report of the Workflow brought to the Recipe has been taken in.
+    // C's own wait: the server's write of the edit into C's record, the copy it applied, has landed, and with it anything
+    // else C's return set off.
+    await expect.poll(() => [recorded(c, "steamDuration"), recorded(c, "hotWaterVolume"), recorded(c, "flushDuration")], { timeout: 15_000 }).toEqual([40, 140, 6]);
     await quiet();
     expect((await recipe(one)).content).toMatchObject({ steamDuration: 40, hotWaterVolume: 140, flushDuration: 6 });
   });
