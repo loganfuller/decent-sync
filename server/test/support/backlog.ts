@@ -10,14 +10,18 @@ import { expect } from "vitest";
 /**
  * Resolves once `done` holds, waiting as long as `progress`, such as how many
  * records are stored or how many frames the tablet sent, rises within each
- * poll's timeout. Fails once it stops rising for that long.
+ * poll's timeout. Fails once it stops rising for that long. Each poll attempt
+ * checks `done` once, and `progress` only while not done; the first attempt
+ * runs at once, so `done` is still checked before any wait.
  */
 export async function whileProgressing(done: () => boolean | Promise<boolean>, progress: () => number | Promise<number>): Promise<void> {
   let reached = await progress();
-  while (!(await done())) {
+  for (;;) {
     const before = reached;
+    let finished = false;
     await expect
-      .poll(async () => (await done()) || (reached = await progress()) > before, { message: `progress stopped at ${before}` })
+      .poll(async () => (finished = await done()) || (reached = await progress()) > before, { message: `progress stopped at ${before}` })
       .toBe(true);
+    if (finished) return;
   }
 }

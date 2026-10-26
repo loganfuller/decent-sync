@@ -230,7 +230,7 @@ describe("Steam Record capture", () => {
     stalled = false;
     tablet.dropConnections();
     await tablet.waitForLogs(/^Connected to /, 2);
-    const total = async () => (await list(machine.machine.id, api.at(other.url))).total;
+    const total = async () => (await api.at(other.url).get<{ total: number }>(`/steam-records?limit=1&machineId=${machine.machine.id}`)).total;
     await whileProgressing(async () => (await total()) === 205, total);
 
     // Every id went once, in pages of at most 100, each under one delivery id. The reconnect sent the
@@ -254,8 +254,8 @@ describe("Steam Record capture", () => {
 
   it("sends a new Steam Record by the next poll, reading only the newest, with its measurements and milk temperature, credited to the reporting Machine", async () => {
     const machine = await api.createMachine("Live steam");
-    // Polls every two minutes of the tablet's time: 2.4 s of real time.
-    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 120 } });
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
     await tablet.waitForLog(/^Connected to /);
     // Every id is read, for the index.
     await expect.poll(() => idReads(tablet)).toBeGreaterThanOrEqual(1);
@@ -297,18 +297,18 @@ describe("Steam Record capture", () => {
     );
     // Each read of Decaid's API takes 20 ms of real time, so the backfill takes seconds.
     const tablet = load(machine, history, { apiDelayMs: 1_000 });
-    await expect.poll(async () => (await list(machine.machine.id)).total).toBeGreaterThan(0);
+    const total = async () => (await api.get<{ total: number }>(`/steam-records?limit=1&machineId=${machine.machine.id}`)).total;
+    await expect.poll(total).toBeGreaterThan(0);
     tablet.serve(tabletApi(machine, [...history, derivedSteam("new-during-backfill")]));
     await waitSteam("new-during-backfill");
-    expect((await list(machine.machine.id)).total).toBeLessThan(history.length + 1);
-    const total = async () => (await list(machine.machine.id)).total;
+    expect(await total()).toBeLessThan(history.length + 1);
     await whileProgressing(async () => (await total()) === history.length + 1, total);
   }, 300_000);
 
   it("sends both of two Steam Records recorded in one poll interval: the newest by the next poll, the other by the next read of every id", async () => {
     const machine = await api.createMachine("Two steams in an interval");
-    // Polls every 10 s of the tablet's time, 0.2 s of real time.
-    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 10 } });
+    // Polls every 5 s of the tablet's time, 0.1 s of real time.
+    const tablet = load(machine, [], { settings: { ...settingsFor(machine), PollSeconds: 5 } });
     await tablet.waitForLog(/^Connected to /);
     // The index's read, made before the hold below, so it is not the read that finds the other.
     await expect.poll(() => idReads(tablet)).toBeGreaterThanOrEqual(1);
@@ -441,8 +441,10 @@ describe("Steam Record capture", () => {
     await api.issued(await api.call("POST", `/machines/${machine.machine.id}/token`));
     await tablet.waitForLog(/^The server refused the token\./);
     const reads = steamReads(tablet);
-    // Twenty poll intervals of the tablet's time.
-    await new Promise((resolve) => setTimeout(resolve, 2_000));
+    const refusedAt = tablet.readClock();
+    // Three poll intervals of the tablet's time: the window counts poll ticks, so two or three with no read
+    // already show polling has stopped.
+    await expect.poll(() => tablet.readClock()).toBeGreaterThan(refusedAt + 3 * 5_000);
     expect(steamReads(tablet)).toBe(reads);
   });
 
