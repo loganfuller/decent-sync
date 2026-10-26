@@ -48,5 +48,11 @@ export class ManagementInterface implements OnModuleInit {
         res.status(notFound.getStatus()).send(notFound.getResponse());
       });
     });
+    // A file that goes between express.static finding it and reading it, as in a rebuild, answers as an
+    // unknown route does, rather than with an error naming its path on the server.
+    app.use((error: NodeJS.ErrnoException, req: Request, _res: Response, next: NextFunction) => {
+      const missing = error?.code === "ENOENT" || error?.message?.includes("ENOENT");
+      next(missing ? new NotFoundException(`Cannot ${req.method} ${req.originalUrl}`) : error);
+    });
   }
 }
