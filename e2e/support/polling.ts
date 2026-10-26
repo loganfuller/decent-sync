@@ -19,18 +19,20 @@ export const CHECK_MS = 2_000;
 
 /**
  * Starts watching for the page to be refused with 401 at a poll of `path`, a
- * REST API path such as `/api/machines/<id>`. Call it just before ending the
- * page's session, and once it has ended, await the function it returns: it
- * moves the page's clock on by `POLL_MS` until the refusal has arrived, and
- * resolves with it. It moves the clock again until then because a load under
- * way as the session ended is answered 200, and leaves no poll due at that
- * move. The page must have opened with its clock installed
- * (`page.clock.install()`).
+ * REST API path such as `/api/machines/<id>`, or of a path under it, such as
+ * the Machine's details, whose refusal sends the page to sign-in too. Call it
+ * just before ending the page's session, and once it has ended, await the
+ * function it returns: it moves the page's clock on by `POLL_MS` until the
+ * refusal has arrived, and resolves with it. It moves the clock again until
+ * then because a load under way as the session ended is answered 200, and
+ * leaves no poll due at that move. The page must have opened with its clock
+ * installed (`page.clock.install()`).
  */
 export function nextRefusedPoll(page: Page, path: string): () => Promise<Response> {
   let refused: Response | undefined;
   const watch = (response: Response) => {
-    if (new URL(response.url()).pathname === path && response.status() === 401) refused ??= response;
+    const { pathname } = new URL(response.url());
+    if ((pathname === path || pathname.startsWith(`${path}/`)) && response.status() === 401) refused ??= response;
   };
   page.on("response", watch);
   return async () => {

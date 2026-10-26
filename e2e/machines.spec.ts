@@ -252,7 +252,7 @@ test("reissuing a token shows the new token once, and the old token can no longe
   expect(token).not.toBe(replaced);
 
   // The tablet still using the old token is disconnected, and its reconnects are refused.
-  await expect(field(page, "Status")).toHaveText("Offline");
+  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Offline", { timeout: CHECK_MS }));
   const raw = await RawConnection.open(server.url());
   raw.send(helloWith(home.token, { machine: { model: "DE1Plus", serial: "10010" }, connectionId: "00:00:5E:00:53:20" }));
   expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
