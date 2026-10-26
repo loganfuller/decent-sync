@@ -241,8 +241,8 @@ describe("Settings Edits", () => {
 
     // Where the edit's write falls among the plugin's requests, marked as the tablet takes it, refusing nothing. (Held with
     // `holdRequests` instead, it would fail as Decaid's fetch times out, 30 s by this tablet's clock, 600 ms at 50x.) Its
-    // read-back is the next request to the machine's settings after it: `SettingsAccess` runs the edit and their interval
-    // reads one at a time, and the tablet answers that read from what Decaid holds as it lists it, with no await between.
+    // read-back is the next request to the machine's settings after it: `SettingsAccess` runs the edit and every other read
+    // of them one at a time, and the tablet answers that read from what Decaid holds as it lists it, with no await between.
     let written: number | undefined;
     tablet.refuseWrites = ({ method, route }) => {
       if (method === "POST" && route === "/machine/settings") written ??= tablet.requests.length;
