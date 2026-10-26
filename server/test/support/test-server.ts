@@ -30,7 +30,12 @@ export interface TestServer {
   database: string;
   /** Everything the server has written to stdout and stderr so far. */
   output(): string;
-  /** Shuts the server down as a self-hoster's stop does, then drops its database unless it shares another's. */
+  /**
+   * Shuts the server down as a self-hoster's stop does. The server that owns
+   * its database also stops every instance sharing it, all at once, and drops
+   * the database once all of them have exited. A sharer's stop stops only
+   * that sharer. Calling it again, or while it runs, does no harm.
+   */
   stop(): Promise<void>;
   /** Kills the server without letting it shut down, as a crash does. */
   kill(): Promise<void>;
@@ -46,7 +51,12 @@ export interface TestServerOptions {
   publicUrl?: string;
   /** Further environment variables, such as SYNC_HELLO_TIMEOUT_SECONDS. */
   env?: Record<string, string>;
-  /** Runs another instance on this server's database instead of a fresh one, as a horizontally scaled deployment does. */
+  /**
+   * Runs another instance on this server's database instead of a fresh one,
+   * as a horizontally scaled deployment does. The server that owns the
+   * database stops it too, before dropping the database, so a test need not
+   * stop it first.
+   */
   sharing?: TestServer;
   /** Runs the server with its clock this far ahead of real time (behind if negative), as on a drifting host. */
   clockOffsetMs?: number;
@@ -66,10 +76,20 @@ export interface TestServerOptions {
   notOwner?: boolean;
 }
 
+/**
+ * The halts of the instances sharing each test database, keyed by its owner
+ * and by each of them: the owner's stop runs them all with its own before
+ * dropping the database, so none is cut off from it while shutting down.
+ */
+const sharerHalts = new WeakMap<TestServer, (() => Promise<void>)[]>();
+
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   assertBuilt("protocol", "server");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
+  // Its owner must know of it, to stop it before dropping the database.
+  const halts = options.sharing && sharerHalts.get(options.sharing);
+  if (options.sharing && !halts) throw new Error("sharing names a server that startTestServer did not start");
   const baseUrl = adminDatabaseUrl();
   const database = options.sharing?.database ?? testDatabaseName();
   const role = options.notOwner ? `decent_sync_test_${randomBytes(6).toString("hex")}` : undefined;
@@ -139,10 +159,19 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   // A port found free may be taken by another test file's server before this one binds it, which takes seconds,
   // so the server is started again on another port if it finds its port taken.
   let started = spawnServer(await freePort());
+  // Shuts this instance down, once, however many stops ask for it.
+  let halting: Promise<void> | undefined;
+  const halt = () =>
+    (halting ??= (async () => {
+      await terminate(started.child);
+      handedOut = readHandedOut();
+      fs.rmSync(secretsFile, { force: true });
+    })());
+  // The halts of the instances sharing this one's database, if it owns it.
+  const sharers: (() => Promise<void>)[] = [];
   const stop = async () => {
-    await terminate(started.child);
-    handedOut = readHandedOut();
-    fs.rmSync(secretsFile, { force: true });
+    if (options.sharing) return halt();
+    await Promise.all([halt(), ...sharers.map((sharerHalt) => sharerHalt())]);
     await drop();
   };
   const kill = async () => {
@@ -172,7 +201,11 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await client.connect();
     return client;
   };
-  return { url, database, output: () => output.join(""), stop, kill, connectDatabase };
+  const server: TestServer = { url, database, output: () => output.join(""), stop, kill, connectDatabase };
+  // Only once it has started: a start that fails has stopped itself.
+  if (halts) halts.push(halt);
+  sharerHalts.set(server, halts || sharers);
+  return server;
 }
 
 /**
