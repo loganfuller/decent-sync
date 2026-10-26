@@ -41,3 +41,4 @@ GitHub's API cannot attach images to a pull request description, so the images g
 3. To replace screenshots, such as after review changes the interface, push a new commit to the same branch and update the commit ids in the description.
 
 The branch can be deleted once the pull request is merged. Pull requests #38 and #115 show the pattern.
+
