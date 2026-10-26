@@ -4,7 +4,7 @@ import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import { quiesced } from "./support/quiet.js";
-import { startStreamline } from "./support/simulated-streamline.js";
+import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -87,8 +87,18 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     (tablet.received.slice(from).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe") as { fields: Record_ }[]).map(
       ({ fields }) => fields,
     );
-  /** Waits a while for what should not happen, as a write of a setting back. */
-  const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
+  /** The tablet's answer to the server's write of a Loaded Recipe into its Workflow, from `from` on, setting that setting: whether it is acknowledged. */
+  const answeredWrite = (tablet: SimulatedTablet, from: number, name: RecipeSetting) => {
+    const write = (tablet.received.slice(from) as Record_[]).find(
+      (frame) => frame.type === "write" && frame.kind === "loadedRecipe" && RECIPE_SETTINGS[name].workflow in ((frame.fields ?? {}) as Record_),
+    );
+    return write !== undefined && tablet.acknowledgedSome((frame: Record_) => frame.id === write.id && (frame.type === "written" || frame.type === "writeRefused"));
+  };
+  /**
+   * A second between two events timed by different clocks, as `docs/AI_BUILD_NOTES.md` (Seam 1) asks: the tablet times
+   * what it reports by the host's clock, and the server times an edit by PostgreSQL's, which drift apart.
+   */
+  const apart = () => new Promise((resolve) => setTimeout(resolve, 1_000));
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, and,
@@ -99,7 +109,11 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
    * recipe is applied on DYE2's dashboard on A and C (unless `loadC` is
    * false), and the Brazil's on B, which each loads, in that order. It
    * returns once every tablet and the server have nothing left to do
-   * (`quiesced`), so the baselines a test reads next start from rest.
+   * (`quiet()`), so the baselines a test reads next start from rest.
+   * `quiet()` resolves once every tablet and Machine of the lab, and the
+   * Streamlines given, have nothing left under way (`quiesced`), so a wrong
+   * write a step set off has landed before a check after it that it did
+   * not happen.
    */
   async function lab<WithB extends boolean = false>(scenario: string, serial: number, options: { loadC?: boolean; b?: WithB } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
@@ -134,10 +148,10 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await load(a, machines.a, LIBRARY, one);
     if (options.loadC !== false) await load(c, machines.c, LIBRARY, one);
     if (b && machines.b) await load(b, machines.b, BRAZIL, two);
-    await quiesced(api, {
-      tablets: { a, c, ...(b ? { b } : {}) },
-      machines: { a: machines.a, c: machines.c, ...(machines.b ? { b: machines.b } : {}) },
-    });
+    const tablets: Record<string, SimulatedTablet> = b ? { a, b, c } : { a, c };
+    const followed: Record<string, CreatedMachine> = machines.b ? { a: machines.a, b: machines.b, c: machines.c } : { a: machines.a, c: machines.c };
+    const quiet = (streamlines: Record<string, SimulatedStreamline> = {}) => quiesced(api, { tablets, machines: followed, streamlines });
+    await quiet();
     return {
       here,
       machines: machines as typeof machines & { b: WithB extends true ? CreatedMachine : undefined },
@@ -147,6 +161,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
       one,
       two,
       load,
+      quiet,
     };
   }
 
@@ -186,7 +201,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a steam time change on A that DYE2 saves as the Recipe's, writing it into C's Workflow and record, but not A's or B's, which has another Recipe loaded", async () => {
-    const { a, b, c, one } = await lab("Steamed", 49011, { b: true });
+    const { a, b, c, one, quiet } = await lab("Steamed", 49011, { b: true });
     const ownOnB = setting(b, "steamDuration");
     const edits = await editsOf(one, "steamDuration");
     const received = a.received.length;
@@ -194,7 +209,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(async () => (await recipe(one)).content.steamDuration, { timeout: 15_000 }).toBe(27);
     await expect.poll(() => [setting(c, "steamDuration"), recorded(c, "steamDuration")], { timeout: 15_000 }).toEqual([27, 27]);
     expect(await editsOf(one, "steamDuration")).toBe(edits + 1);
-    await settle();
+    // Once A's report of the steam time, DYE2's save of it and the writes into C are done.
+    await quiet();
     expect(setting(b, "steamDuration")).toBe(ownOnB);
     // A's record, which DYE2 saved the steam time into, embedding it as the server derives it, is not written again, nor its
     // Workflow.
@@ -204,7 +220,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a held flush time changed 10, 6 and 10 on C as the Recipe's each time, writing nothing back", async () => {
-    const { a, c, one } = await lab("Purge", 49021);
+    const { a, c, one, quiet } = await lab("Purge", 49021);
     const received = c.received.length;
     const edits = await editsOf(one, "flushDuration");
     for (const duration of [10, 6, 10]) {
@@ -214,7 +230,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
       // The check after the loop, not this one, rules out a write back.
       await expect.poll(() => [setting(c, "flushDuration"), recorded(c, "flushDuration")], { timeout: 15_000 }).toEqual([duration, duration]);
     }
-    await settle();
+    // Once C's report of the last flush time, DYE2's save of it and the write into A are done.
+    await quiet();
     // One edit of each, from C, C's Workflow and record left at the last, and nothing written into C's Workflow of the flush.
     expect([setting(c, "flushDuration"), recorded(c, "flushDuration")]).toEqual([10, 10]);
     expect(await editsOf(one, "flushDuration")).toBe(edits + 3);
@@ -222,31 +239,36 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes no steam turned off on A as an edit, by a steam temperature of 0 or below 135 °C or Streamline's heater switch, and writes no steam temperature into A's Workflow", async () => {
-    const { a, c, one } = await lab("Off", 49031);
+    const { a, c, one, quiet } = await lab("Off", 49031);
     const steamEdits = { temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") };
     const off = (temperature: number) => expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(temperature);
 
     await a.changeSettings({ steamSettings: { targetTemperature: 0 } });
-    await settle();
+    // Once A's report of steam off has been taken in, and any write it made the server due.
+    await quiet();
     await off(0);
     // DYE2 saves nothing of steam while it is off (decentespresso/dye2#30).
     expect(recorded(a, "steamTemperature")).toBe(150);
     await a.changeSettings({ steamSettings: { targetTemperature: 120 } });
-    await settle();
+    // Once A's report of steam at 120 °C has been taken in, and any write it made the server due.
+    await quiet();
     await off(120);
     expect(recorded(a, "steamTemperature")).toBe(150);
     await a.changeSettings({ steamSettings: { targetTemperature: 150 } });
-    await settle();
+    // Once A's report of steam back on at the Recipe's has been taken in.
+    await quiet();
 
     // Streamline's heater switch turns steam off with a temperature of 0, and back on at the Recipe's.
     const streamline = await startStreamline(a);
     await streamline.setSteamHeater(false);
-    await settle();
+    // Once A's report of the heater off, and Streamline's reply, are done.
+    await quiet({ streamline });
     await off(0);
     expect(setting(a, "steamDuration")).toBe(30);
     await streamline.setSteamHeater(true);
     await off(150);
-    await settle();
+    // Once A's report of the heater on, and Streamline's reply, are done.
+    await quiet({ streamline });
 
     expect((await recipe(one)).content).toMatchObject({ steamTemperature: 150, steamDuration: 30 });
     expect({ temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") }).toEqual(steamEdits);
@@ -255,7 +277,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a steam time of 0 set on A as the Recipe's, which Streamline reads as no timer, writing it into C's with its steam left on", async () => {
-    const { a, c, one } = await lab("Zero", 49121);
+    const { a, c, one, quiet } = await lab("Zero", 49121);
     const edits = await editsOf(one, "steamDuration");
     const streamline = await startStreamline(a);
     // A steam time of 0 leaves the heater alone (streamline-js bc487aa).
@@ -265,14 +287,16 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(() => [setting(c, "steamDuration"), recorded(c, "steamDuration")], { timeout: 15_000 }).toEqual([0, 0]);
     expect(setting(c, "steamTemperature")).toBe(150);
     expect(await editsOf(one, "steamDuration")).toBe(edits + 1);
-    await settle();
+    // Once A's report of the steam time, the writes into C and Streamline's reply are done.
+    await quiet({ streamline });
     expect([setting(a, "steamDuration"), setting(a, "steamTemperature")]).toEqual([0, 150]);
   });
 
   it("writes a steam time edited on A into C's Workflow while C's steam is off, without turning it on, where it survives C's next change", async () => {
-    const { a, c, one } = await lab("Kept off", 49041);
+    const { a, c, one, quiet } = await lab("Kept off", 49041);
     await c.changeSettings({ steamSettings: { targetTemperature: 0 } });
-    await settle();
+    // Once C's report of steam off has been taken in.
+    await quiet();
     await a.changeSettings({ steamSettings: { duration: 22 } });
     await expect.poll(async () => (await recipe(one)).content.steamDuration, { timeout: 15_000 }).toBe(22);
     await expect.poll(() => setting(c, "steamDuration"), { timeout: 15_000 }).toBe(22);
@@ -280,20 +304,24 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     // C's next change, which DYE2 saves with steam still off.
     await c.changeSettings({ hotWaterData: { volume: 130 } });
     await expect.poll(async () => (await recipe(one)).content.hotWaterVolume, { timeout: 15_000 }).toBe(130);
-    await settle();
+    // Once C's report of the hot water volume, DYE2's save of it and the write into A are done.
+    await quiet();
     expect([setting(c, "steamDuration"), setting(c, "steamTemperature")]).toEqual([22, 0]);
     expect((await recipe(one)).content).toMatchObject({ steamDuration: 22, steamTemperature: 150 });
   });
 
   it("keeps Streamline's remembered steam temperature at the Recipe's on a load and a Loaded Recipe write while steam is off, so steam turned back on there takes the Recipe's", async () => {
-    const { machines, a, c, one, load } = await lab("Remembered", 49051, { loadC: false });
+    const { machines, a, c, one, load, quiet } = await lab("Remembered", 49051, { loadC: false });
     const streamline = await startStreamline(c, { "last-steam-temp": 140 });
     await load(c, machines.c, LIBRARY, one);
     await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
 
     // C's barista turns the heater off in Streamline, and the Recipe's steam temperature is edited meanwhile.
     await streamline.setSteamHeater(false);
-    await settle();
+    // Once C's report of the heater off, and Streamline's reply, are done; then a second, as the edit after it is timed by
+    // the server's clock.
+    await quiet({ streamline });
+    await apart();
     expect(setting(c, "steamTemperature")).toBe(0);
     await patch(one, { steamTemperature: 155 });
     await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(155);
@@ -305,18 +333,22 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
     await streamline.setSteamHeater(true);
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
-    await settle();
+    // Once C's report of the heater on, and Streamline's reply, are done.
+    await quiet({ streamline });
     expect((await recipe(one)).content.steamTemperature).toBe(155);
     expect(await editsOf(one, "steamTemperature")).toBe(edits);
   });
 
   it("keeps Streamline's remembered steam temperature at an edit made while C was offline with steam off, which DYE2 saves nothing of", async () => {
-    const { machines, a, c, one, load } = await lab("Missed", 49111, { loadC: false });
+    const { machines, a, c, one, load, quiet } = await lab("Missed", 49111, { loadC: false });
     const streamline = await startStreamline(c, { "last-steam-temp": 140 });
     await load(c, machines.c, LIBRARY, one);
     await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
     await streamline.setSteamHeater(false);
-    await settle();
+    // Once C's report of the heater off, and Streamline's reply, are done; then a second, as the edit after C's next change
+    // is timed by the server's clock.
+    await quiet({ streamline });
+    await apart();
 
     // Offline, C's next change is saved into its record with steam still off, and the Recipe's steam temperature is edited
     // meanwhile.
@@ -336,18 +368,23 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     // Turned back on in Streamline, at the Recipe's: no edit.
     await streamline.setSteamHeater(true);
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
-    await settle();
+    // Once C's report of the heater on, and Streamline's reply, are done.
+    await quiet({ streamline });
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
   });
 
   it("writes a hot water setting edited while C's machine is away once it is back, never saving C's old one into the Recipe", async () => {
-    const { a, c, one } = await lab("Unplugged", 49131);
+    const { machines, a, c, one, quiet } = await lab("Unplugged", 49131);
     const dose = (tablet: SimulatedTablet) => workflowValueAt(tablet.workflow(), "context.targetDoseWeight");
     // Decaid refuses the hot water settings with no machine, and takes the rest of the write.
     c.machineConnected = false;
+    const received = c.received.length;
     await patch(one, { dose: 19.3, hotWaterDuration: 41 });
     await expect.poll(() => [dose(c), recorded(c, "hotWaterDuration")], { timeout: 15_000 }).toEqual([19.3, 41]);
-    await settle();
+    // C's own wait: its answer to the server's write of the edit, acknowledged. The hot water time it left out stays due on
+    // C until the machine is back, so C's Machine is left out of quiet's.
+    await expect.poll(() => answeredWrite(c, received, "hotWaterDuration"), { timeout: 15_000 }).toBe(true);
+    await quiesced(api, { tablets: { a, c }, machines: { a: machines.a } });
     expect(setting(c, "hotWaterDuration")).toBe(HELD.hotWaterDuration);
 
     // Once the machine is back, the hot water time is written, and C's next change, which DYE2 saves, keeps it.
@@ -355,12 +392,13 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(() => setting(c, "hotWaterDuration"), { timeout: 15_000 }).toBe(41);
     await c.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
-    await settle();
+    // Once C's report of the grind, DYE2's save of it and the write into A are done.
+    await quiet();
     expect([(await recipe(one)).content.hotWaterDuration, setting(a, "hotWaterDuration"), setting(c, "hotWaterDuration")]).toEqual([41, 41, 41]);
   });
 
   it("takes a steam temperature of Off saved in DYE2's editor as no edit, writing the Recipe's back into the record", async () => {
-    const { a, c, one } = await lab("Editor", 49061);
+    const { a, c, one, quiet } = await lab("Editor", 49061);
     const edits = await editsOf(one, "steamTemperature");
     // DYE2's editor on A saves the fields changed over a fresh read (decentespresso/dye2#28), the steam temperature by its
     // Off preset, and applies the recipe again, steam off with it, which is A's own.
@@ -370,13 +408,14 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(async () => (await recipe(one)).content.flushDuration, { timeout: 15_000 }).toBe(9);
     await expect.poll(() => recorded(a, "steamTemperature"), { timeout: 15_000 }).toBe(150);
     await expect.poll(() => setting(c, "flushDuration"), { timeout: 15_000 }).toBe(9);
-    await settle();
+    // Once A's report of the editor's apply, DYE2's save and the writes into C are done.
+    await quiet();
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([150, edits]);
     expect([setting(c, "steamTemperature"), recorded(c, "steamTemperature")]).toEqual([150, 150]);
   });
 
   it("brings a Machine that applied an out-of-date copy of the Recipe to its current settings, which the copy never sets back", async () => {
-    const { machines, c, one } = await lab("Stale", 49071, { loadC: false });
+    const { machines, c, one, quiet } = await lab("Stale", 49071, { loadC: false });
     // C's record is written nothing while it is offline: it applies the copy it holds.
     c.loseNetwork();
     await patch(one, { steamDuration: 40, hotWaterVolume: 140, flushDuration: 6 });
@@ -385,7 +424,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     c.restoreNetwork();
     await loads(machines.c, one);
     await expect.poll(() => settingsOf(c), { timeout: 15_000 }).toMatchObject({ ...HELD, steamDuration: 40, hotWaterVolume: 140, flushDuration: 6 });
-    await settle();
+    // Once C's report of the Workflow brought to the Recipe has been taken in.
+    await quiet();
     expect((await recipe(one)).content).toMatchObject({ steamDuration: 40, hotWaterVolume: 140, flushDuration: 6 });
   });
 
@@ -400,14 +440,15 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a steam mode switched in DYE2's editor into the Recipe and every tablet's record, writing nothing into any Workflow", async () => {
-    const { a, b, c, one } = await lab("Mode", 49091, { b: true });
+    const { a, b, c, one, quiet } = await lab("Mode", 49091, { b: true });
     const received = { a: a.received.length, b: b.received.length, c: c.received.length };
     expect(variables(record(c, LIBRARY)).steamMode).toBe("flow");
     const saved = await (await openDye2RecipeEditor(a, { id: LIBRARY })).set({ steam: { mode: "time" } }).save();
     expect(saved.patch.dashboardVariables).toEqual({ steamMode: "time" });
     await expect.poll(async () => (await recipe(one)).content.steamMode, { timeout: 15_000 }).toBe("time");
     for (const tablet of [b, c]) await expect.poll(() => variables(record(tablet, LIBRARY)).steamMode, { timeout: 15_000 }).toBe("time");
-    await settle();
+    // Once A's report of the editor's save and the tablets' reports of their records are done.
+    await quiet();
     expect((await recipe(one)).content).toMatchObject({ steamDuration: HELD.steamDuration, steamFlow: HELD.steamFlow });
     for (const [tablet, from] of [
       [a, received.a],
@@ -419,7 +460,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("changes nothing on the server but the Machine's events for a steam, hot water or flush change with no Recipe loaded", async () => {
-    const { machines, a, b, c, one, two } = await lab("Unloaded", 49101, { b: true });
+    const { machines, a, b, c, one, two, quiet } = await lab("Unloaded", 49101, { b: true });
     // A's recipe cleared, as Streamline's strip switched off clears it: A has no Recipe loaded.
     expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, {})).status).toBe(200);
     await loads(machines.a, null);
@@ -427,7 +468,8 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     const elsewhere = { b: settingsOf(b), c: settingsOf(c) };
     await a.changeSettings({ steamSettings: { duration: 44, targetTemperature: 145 }, hotWaterData: { volume: 90 }, rinseData: { duration: 3 } });
     await expect.poll(async () => (await latestWorkflow(machines.a))?.rinseData, { timeout: 15_000 }).toMatchObject({ duration: 3 });
-    await settle();
+    // Once A's report of the change, and anything it set off, are done.
+    await quiet();
     expect({ one: await recipe(one), two: await recipe(two), versions: [(await versions(one)).length, (await versions(two)).length] }).toEqual(before);
     expect({ b: settingsOf(b), c: settingsOf(c) }).toEqual(elsewhere);
     expect(settingsOf(a)).toMatchObject({ steamDuration: 44, steamTemperature: 145, hotWaterVolume: 90, flushDuration: 3 });
