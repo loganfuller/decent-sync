@@ -18,6 +18,7 @@
   "server/test/batch-intake.test.ts": 0,
   "server/test/bean-intake.test.ts": 0,
   "server/test/binding-deadlocks.test.ts": 7,
+  "server/test/builds.test.ts": 2,
   "server/test/capture-only.test.ts": 9,
   "server/test/chunked-messages.test.ts": 12,
   "server/test/client-address.test.ts": 8,
