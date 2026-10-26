@@ -12,10 +12,10 @@ import { dealOut, estimateDurations, longestFirst, readManifest } from "./script
 // this deals the files out by their typical CI durations in
 // vitest.durations.json (scripts/update-test-durations.mjs, which the checks
 // job runs with --check), longest first, each to the shard with the least
-// time so far, the fewest files on a tie. A file the manifest lacks is estimated from its size
-// (scripts/test-durations.mjs). The split reads only the file list, the
-// manifest and file sizes, never Vitest's results cache, so every shard
-// computes the same one.
+// time so far, the fewest files on a tie. A file the manifest lacks is
+// estimated from its size (scripts/test-durations.mjs). The split reads only
+// the file list, the manifest and file sizes, never Vitest's results cache,
+// so every shard computes the same one.
 //
 // Each shard then starts its longest files first, so that a long file does
 // not start last and run on alone. Every project has the same groupOrder and

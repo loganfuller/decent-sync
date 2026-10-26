@@ -61,8 +61,9 @@ export function longestFirst(a, b) {
 /**
  * Deals estimated files out to `count` shards, longest first, each to the
  * shard with the smallest summed estimate so far. On a tie it goes to the
- * shard with the fewest files, so files estimated at 0 s are spread out
- * rather than all landing on one, and then to the lowest.
+ * shard with the fewest files, then to the lowest, so files estimated at 0 s
+ * are spread over the shards whose sums tie, and no shard is left empty
+ * while there are as many files as shards.
  */
 export function dealOut(files, count) {
   const shards = Array.from({ length: count }, () => ({ files: [], seconds: 0 }));
