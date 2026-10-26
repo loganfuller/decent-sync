@@ -49,11 +49,11 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The test jobs restore this node_modules rather than installing, with
-      # any a workspace has of its own, where npm nests a version that
-      # conflicts with the root's. Only this job saves it, straight after a
-      # clean install and before anything builds, so nothing a build or test
-      # run writes gets into it.
+      # The test jobs restore this node_modules, with any a workspace has of
+      # its own (npm nests one there when a version conflicts with the
+      # root's), and install only when there is nothing to restore. Only this
+      # job saves it, straight after a clean install and before anything
+      # builds, so nothing a build or test run writes gets into it.
       - id: modules-lookup
         uses: actions/cache/restore@v6
         with:
