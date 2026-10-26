@@ -139,13 +139,13 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
       if (answer === undefined) return "no answer sent";
       return tablet.acks(answer.id) > 0 ? "answer acknowledged" : "answer not acknowledged";
     };
-    /** The frames, but heartbeats, one to a line, each cut to 400 characters. */
+    /** The frames, but heartbeats, one to a line, each cut to 400 characters, with a hello's token left out (AGENTS.md). */
     const shown = (list: unknown[]) => {
       const beats = frames(list).filter((frame) => frame.type === "heartbeat").length;
       const lines = frames(list)
         .filter((frame) => frame.type !== "heartbeat")
         .map((frame) => {
-          const text = JSON.stringify(frame) ?? String(frame);
+          const text = JSON.stringify(frame, (field, value: unknown) => (field === "token" ? "(left out)" : value)) ?? String(frame);
           return `  ${text.length > 400 ? `${text.slice(0, 400)}...` : text}`;
         });
       return [...lines, `  and ${beats} heartbeats`];
