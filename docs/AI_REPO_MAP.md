@@ -17,7 +17,7 @@ Target requirements come from `GLOSSARY.md`, accepted `docs/adr/` decisions and 
 | `protocol/` | Internal shared wire types and runtime validators; never published | `src/index.ts` (with `LIBRARY_ITEM_KINDS`, each Library kind's list, ids and parent kind, described once), `src/chunking.ts` (splitting a message too large for one frame, and reassembly) |
 | `e2e/` | Playwright tests (Seam 2) | `playwright.config.ts` at the root |
 | `Dockerfile`, `docker-compose.yml` | Server image (server plus built web app) and the self-hosting stack with PostgreSQL; `npm run db:up` starts only its `db` service | |
-| `scripts/` | Repo checks and release packaging | `check-plugin-build.mjs`, `check-release-tag.mjs`, `package-plugin.mjs`; tests in `scripts/test/` |
+| `scripts/` | Repo checks, release packaging and the test durations manifest | `check-plugin-build.mjs`, `check-release-tag.mjs`, `package-plugin.mjs`, `update-test-durations.mjs` (writes and checks `vitest.durations.json`, with `test-durations.mjs`, the estimates `vitest.config.ts` shares); tests in `scripts/test/` |
 | `.github/workflows/` | CI on pull requests that change more than docs and on `main`; release on `vX.Y.Z` tags | `ci.yml` (the release waits for its push run on `main`), `release.yml` |
 
 Root `package.json` scripts are the commands; the README's Development section lists them. One protocol change updates the plugin, server and shared package together here; the old plugin repo is archived.
