@@ -1,8 +1,9 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { SimulatedDye2, dye2Library, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../server/test/support/simulated-dye2.js";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -16,9 +17,6 @@ import { expectTip } from "./support/tooltips.js";
 // (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
 // 47501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
 
 type Record_ = Record<string, unknown>;
 
@@ -28,10 +26,6 @@ const BRAZIL = "2";
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
-
 test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machine's page and its Location's, in its slot or in none, until the profile changes", async ({ page }) => {
   const location = await createLocation(page, "Uptown");
   // The recording's tablet, with its library, Workflow and eight recipes, its beans' names starting with the scenario's.
@@ -39,13 +33,15 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   await tabletAt(page, "Bar 2", location, { ...derivedDe1Pro({ serial: "47502" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
   await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(recordOn(bar1.tablet, id)))).not.toContain(null);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${bar1.id}`);
   const loaded = page.getByRole("region", { name: "Loaded Recipe" });
   await expect(loaded).toContainText("No Recipe is loaded.");
 
   expect((await (await openDye2Dashboard(bar1.tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
   const now = loaded.getByLabel("Loaded now");
-  await expect(field(now, "Recipe")).toHaveText("Fixture Brazil EspressoSlot 2");
+  await afterStatusPolls(page, () => expect(field(now, "Recipe")).toHaveText("Fixture Brazil EspressoSlot 2", { timeout: CHECK_MS }));
   await expect(field(now, "Since")).toHaveText(/^\w{3} \d+, \d{4}/);
   const history = loaded.getByRole("table", { name: "Loaded Recipe history" });
   await expect(rows(history)).toHaveCount(1);
@@ -88,6 +84,8 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
     await expect.poll(() => ((recordOn(tablet, BRAZIL)?.dashboardVariables ?? {}) as Record_).basketId ?? null).not.toBeNull();
     expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
   }
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${bar2.id}`);
   await expect(field(page.getByRole("region", { name: "Loaded Recipe" }).getByLabel("Loaded now"), "Recipe")).toHaveText("Fixture Brazil EspressoSlot 2");
 
@@ -95,7 +93,7 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
   await bar1.tablet.changeSettings({ context: { grinderSetting: "2.8" } });
   await expect.poll(() => (bar2.tablet.workflow().context as Record_).grinderSetting).toBe("2.8");
   const sharing = page.getByRole("region", { name: "Sharing" });
-  await expect(sharing.getByText("Its Workflow written, or cleared of, the Recipe Fixture Brazil Espresso")).toBeVisible();
+  await afterStatusPolls(page, () => expect(sharing.getByText("Its Workflow written, or cleared of, the Recipe Fixture Brazil Espresso")).toBeVisible({ timeout: CHECK_MS }));
   await sharing.getByRole("link", { name: "Fixture Brazil Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Fixture Brazil Espresso", level: 1 })).toBeVisible();
   await expect(page.getByText("2.8", { exact: true }).first()).toBeVisible();
@@ -104,10 +102,9 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
 /** A Machine at the Location, its tablet connected with that API and running DYE2, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<{ id: string; tablet: SimulatedTablet }> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token, machine } = (await response.json()) as { token: string; machine: { id: string } };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return { id: machine.id, tablet };
 }

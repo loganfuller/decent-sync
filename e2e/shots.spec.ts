@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Locator, type Page, test } from "@playwright/test";
+import { expect, type Locator, type Page, test } from "@playwright/test";
 import { derivedShot, preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -14,9 +14,6 @@ import { expectTip, tap } from "./support/tooltips.js";
 // Baristas, Beans and hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
-const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
 
 const CURVES_TIP =
   "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group temperature, measured at the group head, the sensor closest to the coffee." +
@@ -34,10 +31,6 @@ interface Recorded {
 }
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("Shots from every Location are listed newest first, at their Location's time, with inferred credit marked", async ({ page }) => {
   const lab = await createLocation(page, "Lab", "America/Denver");
@@ -401,25 +394,23 @@ function shotAt(id: string, pulledAt: string, recorded: Recorded): Record<string
  */
 async function adopt(page: Page, name: string, hardware: { model: string; serial: string }, locationId: string | null, shots: Record<string, unknown>[]) {
   const response = await page.request.post("/api/machines", { data: { name } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
   if (locationId) {
     const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
-    baseExpect(moved.status()).toBe(201);
+    expect(moved.status()).toBe(201);
   }
-  tablets.push(
-    SimulatedTablet.load({
-      settings: settingsFor({ serverUrl: server.url(), token }),
-      api: withShots(derivedDe1Pro(hardware), shots),
-      timeScale: 50,
-    }),
-  );
-  await baseExpect
+  SimulatedTablet.load({
+    settings: settingsFor({ serverUrl: server.url(), token }),
+    api: withShots(derivedDe1Pro(hardware), shots),
+    timeScale: 50,
+  });
+  await expect
     .poll(async () => {
       const listed = await page.request.get(`/api/shots?limit=100`);
       const ids = ((await listed.json()) as { shots: { id: string }[] }).shots.map((shot) => shot.id);
       return shots.every((shot) => ids.includes(String(shot.id)));
-    }, { timeout: 15_000 })
+    })
     .toBe(true);
 }
 

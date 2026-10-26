@@ -1,6 +1,7 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
 // A Machine's page shows its sharing status: how many changes are waiting for
@@ -8,30 +9,21 @@ import { signInAsAdmin } from "./support/seed.js";
 // Decaid's answer. A simulated tablet running the built plugin, whose Decaid
 // refuses one Bean; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
-
 test("a Machine's page shows the changes waiting for its tablet, the last it applied, and a write it refused, with Decaid's answer", async ({ page }) => {
   const location = await page.request.post("/api/locations", { data: { name: "Uptown", timeZone: "America/Chicago" } });
-  baseExpect(location.status()).toBe(201);
+  expect(location.status()).toBe(201);
   const uptown = ((await location.json()) as { location: { id: string } }).location;
   const created = await page.request.post("/api/machines", { data: { name: "Uptown group", locationId: uptown.id } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { machine, token } = (await created.json()) as { machine: { id: string }; token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
     api: { ...derivedDe1Pro({ serial: "25201" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
     timeScale: 50,
   });
-  tablets.push(tablet);
   // Its Decaid refuses one coffee, as one it cannot cast.
   tablet.refuseWrites = ({ method, route, body }) =>
     method === "POST" && route === "/beans" && (body as { name?: unknown }).name === "Refused Blend"
@@ -43,6 +35,8 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   await offer(page, uptown.id, "House Blend");
   await expect.poll(() => tablet.beans().map((record) => record.name)).toEqual(["House Blend"]);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
@@ -56,20 +50,20 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
   // Offline, what the Location offers meanwhile waits for it, and is written once it connects again.
   tablet.loseNetwork();
   await offer(page, uptown.id, "Seasonal");
-  await expect(sharing.getByText("2 changes, written once its tablet connects")).toBeVisible();
+  await afterStatusPolls(page, () => expect(sharing.getByText("2 changes, written once its tablet connects")).toBeVisible({ timeout: CHECK_MS }));
   tablet.restoreNetwork();
-  await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
-  baseExpect(tablet.beans().map((record) => record.name).sort()).toEqual(["House Blend", "Seasonal"]);
+  await afterStatusPolls(page, () => expect(sharing.getByText("None: its tablet is up to date")).toBeVisible({ timeout: CHECK_MS }));
+  expect(tablet.beans().map((record) => record.name).sort()).toEqual(["House Blend", "Seasonal"]);
   // The Bean refused stays refused until it changes again.
   await expect(refused.getByRole("row", { name: /Refused Blend/ })).toBeVisible();
 });
 
 test("a Machine's page shows a DYE2 list its tablet holds in a shape not recognised, which nothing is written to", async ({ page }) => {
   const location = await page.request.post("/api/locations", { data: { name: "Belmont", timeZone: "America/Chicago" } });
-  baseExpect(location.status()).toBe(201);
+  expect(location.status()).toBe(201);
   const belmont = ((await location.json()) as { location: { id: string } }).location;
   const created = await page.request.post("/api/machines", { data: { name: "Belmont group", locationId: belmont.id } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { machine, token } = (await created.json()) as { machine: { id: string }; token: string };
   const tablet = SimulatedTablet.load({
     settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
@@ -85,7 +79,6 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
     },
     timeScale: 50,
   });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
 
   await page.goto(`/machines/${machine.id}`);
@@ -99,8 +92,8 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
 /** Offers a new Bean at the Location with a batch there, through the REST API. */
 async function offer(page: Page, locationId: string, name: string): Promise<void> {
   const created = await page.request.post("/api/beans", { data: { content: { roaster: "Roux", name } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const { bean } = (await created.json()) as { bean: { id: string } };
   const batch = await page.request.post("/api/bean-batches", { data: { beanId: bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId }] } });
-  baseExpect(batch.status()).toBe(201);
+  expect(batch.status()).toBe(201);
 }

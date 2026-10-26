@@ -1,5 +1,5 @@
 import { CLOSE_CODES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import {
   PluginStorage,
   RawConnection,
@@ -10,6 +10,7 @@ import {
   settingsFor,
 } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -19,33 +20,20 @@ import { expectTip } from "./support/tooltips.js";
 // made up: serials from 10001, connection ids from 00:00:5E:00:53:xx.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ permissions: ["clipboard-read", "clipboard-write"] });
-// Machine pages poll the server every few seconds, so status takes up to that long to show.
-const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
-const connections: RawConnection[] = [];
 
 /** Starts a simulated tablet with the plugin set up as someone at the machine would. */
 function loadTablet(settings: { serverUrl: string; token: string }, options: Omit<SimulatedTabletOptions, "settings"> = {}) {
-  const tablet = SimulatedTablet.load({ settings: settingsFor(settings), ...options });
-  tablets.push(tablet);
-  return tablet;
+  return SimulatedTablet.load({ settings: settingsFor(settings), ...options });
 }
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterEach(async () => {
-  await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
-});
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 let lab: { serverUrl: string; token: string };
 let labTablet: SimulatedTablet;
 
 test("creating a Machine shows its token once, and a tablet using it shows the Machine online", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Machines" }).click();
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
@@ -77,9 +65,12 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
 
   // Someone at the machine enters what was copied in the plugin's settings.
   lab = { serverUrl, token };
-  labTablet = loadTablet(lab);
-  await expect(row).toContainText("Online");
-  await expect(row).toContainText("DE1Pro");
+  // The later tests use it.
+  labTablet = server.keep(() => loadTablet(lab));
+  await afterStatusPolls(page, async () => {
+    await expect(row).toContainText("Online", { timeout: CHECK_MS });
+    await expect(row).toContainText("DE1Pro", { timeout: CHECK_MS });
+  });
   await expect(row).not.toContainText("Hardware not reported");
 
   // Once dismissed, the token is gone for good.
@@ -139,7 +130,7 @@ test("a mismatch is resolved by creating a machine entry for the reported hardwa
   // The moved tablet gets the new Machine's token.
   await moved.unload();
   uptown = { serverUrl: lab.serverUrl, token };
-  uptownTablet = loadTablet(uptown, { api: derivedDe1Pro({ serial: "10002", connectionId: "00:00:5E:00:53:02" }) });
+  uptownTablet = server.keep(() => loadTablet(uptown, { api: derivedDe1Pro({ serial: "10002", connectionId: "00:00:5E:00:53:02" }) }));
   await page.getByRole("region", { name: "Mismatch" }).getByRole("link", { name: "Uptown 1" }).click();
   await expect(page.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
   await expect(field(page, "Status")).toHaveText("Online");
@@ -185,7 +176,7 @@ let homeTablet: SimulatedTablet;
 test("an Unidentified Machine is identified by entering its model and serial", async ({ page }) => {
   home = await createMachine(page, "Home");
   // An older DE1 that reports no serial.
-  homeTablet = loadTablet(home, { api: derivedDe1Pro({ model: "DE1", serial: "0", connectionId: "00:00:5E:00:53:20" }) });
+  homeTablet = server.keep(() => loadTablet(home, { api: derivedDe1Pro({ model: "DE1", serial: "0", connectionId: "00:00:5E:00:53:20" }) }));
 
   await page.goto("/machines");
   const row = machineRow(page, "Home");
@@ -216,7 +207,7 @@ test("an Unidentified Machine is identified by entering its model and serial", a
 test("a bound Machine connecting from a machine without a serial can be confirmed as its own hardware", async ({ page }) => {
   // Uptown 1's tablet connects from a new connection id while its machine reports no serial.
   await uptownTablet.unload();
-  uptownTablet = loadTablet(uptown, { api: derivedDe1Pro({ serial: "0", connectionId: "00:00:5E:00:53:31" }) });
+  uptownTablet = server.keep(() => loadTablet(uptown, { api: derivedDe1Pro({ serial: "0", connectionId: "00:00:5E:00:53:31" }) }));
 
   await page.goto("/machines");
   await expect(machineRow(page, "Uptown 1")).toContainText("Unidentified");
@@ -234,6 +225,8 @@ test("a bound Machine connecting from a machine without a serial can be confirme
 });
 
 test("reissuing a token shows the new token once, and the old token can no longer connect", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Home").getByRole("link", { name: "Home" }).click();
   await expect(field(page, "Status")).toHaveText("Online");
@@ -259,13 +252,14 @@ test("reissuing a token shows the new token once, and the old token can no longe
   expect(token).not.toBe(replaced);
 
   // The tablet still using the old token is disconnected, and its reconnects are refused.
-  await expect(field(page, "Status")).toHaveText("Offline");
+  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Offline", { timeout: CHECK_MS }));
   const raw = await RawConnection.open(server.url());
-  connections.push(raw);
   raw.send(helloWith(home.token, { machine: { model: "DE1Plus", serial: "10010" }, connectionId: "00:00:5E:00:53:20" }));
   expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
-  await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText(
-    "a token that was replaced by a newer one",
+  await afterStatusPolls(page, () =>
+    expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toContainText("a token that was replaced by a newer one", {
+      timeout: CHECK_MS,
+    }),
   );
 
   await notice.getByRole("button", { name: "Done" }).click();
@@ -277,14 +271,13 @@ test("reissuing a token shows the new token once, and the old token can no longe
   // With the new token entered, the Machine is back.
   await homeTablet.unload();
   loadTablet({ serverUrl: home.serverUrl, token }, { api: derivedDe1Pro({ model: "DE1", serial: "0", connectionId: "00:00:5E:00:53:20" }) });
-  await expect(field(page, "Status")).toHaveText("Online");
+  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Online", { timeout: CHECK_MS }));
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toHaveCount(0);
 });
 
 test("the Machine page shows why a too-old plugin was refused", async ({ page }) => {
   const old = await createMachine(page, "Old plugin");
   const raw = await RawConnection.open(server.url());
-  connections.push(raw);
   raw.send({ type: "hello", protocolVersion: 0, token: old.token });
   expect(await raw.closed).toEqual({ code: CLOSE_CODES.plugin_too_old, reason: "plugin_too_old" });
 
@@ -302,6 +295,8 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   await before.waitForLog(/^Connected to /);
   const first = String(storage.read("tabletId"));
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Reset tablet").getByRole("link", { name: "Reset tablet" }).click();
   const tablets = page.getByRole("region", { name: "Tablets" });
@@ -315,9 +310,11 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   const second = String(storage.read("tabletId"));
   expect(second).not.toBe(first);
 
-  await expect(field(tablets, "Tablet id")).toHaveText(second);
   const earlier = tablets.getByRole("list", { name: "Earlier tablets" }).getByRole("listitem");
-  await expect(earlier).toHaveCount(1);
+  await afterStatusPolls(page, async () => {
+    await expect(field(tablets, "Tablet id")).toHaveText(second, { timeout: CHECK_MS });
+    await expect(earlier).toHaveCount(1, { timeout: CHECK_MS });
+  });
   await expect(earlier).toContainText(first);
   await expect(earlier).toContainText(/^.+First seen .+, last seen .+$/);
 });
@@ -353,9 +350,8 @@ test("the Machine page shows a mismatch and its status while what its tablet rep
   const settings = await createMachine(page, "Unread");
   // Bound to serial 10050, its token then reports 10051, which no Machine has.
   const binding = await RawConnection.welcomed(settings.serverUrl, helloWith(settings.token, { machine: { model: "DE1Pro", serial: "10050" } }));
-  connections.push(binding);
   await binding.close();
-  connections.push(await RawConnection.welcomed(settings.serverUrl, helloWith(settings.token, { machine: { model: "DE1Pro", serial: "10051" } })));
+  await RawConnection.welcomed(settings.serverUrl, helloWith(settings.token, { machine: { model: "DE1Pro", serial: "10051" } }));
 
   // Its Workflow, paired devices, settings and library cannot be read.
   await page.route(/\/api\/machines\/[^/]+\/(workflow|paired-devices|collections)/, (route) =>

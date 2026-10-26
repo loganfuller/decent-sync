@@ -1,4 +1,4 @@
-import { expect as baseExpect, type Browser, type Page, test } from "@playwright/test";
+import { expect, type Browser, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf, dye2RecipeIdOf } from "@decent-sync/protocol";
 import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../server/test/support/simulated-dye2.js";
@@ -17,18 +17,12 @@ import { field, rows } from "./support/locators.js";
 // (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
 // 49501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
-const tablets: SimulatedTablet[] = [];
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
 
 type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("each Recipe's and Basket's page lists its Shots, and the Shots list filters by Recipe and by Basket", async ({ page }) => {
   const { bar1, one, two } = await lab(page, "Uptown", 49501);
@@ -83,7 +77,7 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
     await expect(samsPage.getByRole("heading", { name: "Fixture Brazil Espresso", level: 1 })).toBeVisible();
     await expect(samsPage.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
     await expect(samsPage.getByRole("button", { name: "Delete" })).toHaveCount(0);
-    baseExpect((await samsPage.request.delete(`/api/recipes/${two}`)).status()).toBe(403);
+    expect((await samsPage.request.delete(`/api/recipes/${two}`)).status()).toBe(403);
   });
 
   // The Recipe a Shot was pulled with stays.
@@ -94,9 +88,9 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
 
   // A Basket a Recipe names stays.
   const created = await page.request.post("/api/baskets", { data: { locationId: location.id, content: { name: "Belmont 22 g" } } });
-  baseExpect(created.status()).toBe(201);
+  expect(created.status()).toBe(201);
   const basket = ((await created.json()) as { basket: { id: string } }).basket.id;
-  baseExpect((await page.request.patch(`/api/recipes/${two}`, { data: { content: { basketId: basket } } })).status()).toBe(200);
+  expect((await page.request.patch(`/api/recipes/${two}`, { data: { content: { basketId: basket } } })).status()).toBe(200);
   await page.goto(`/library/baskets/${basket}`);
   await page.getByRole("button", { name: "Delete" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
@@ -109,7 +103,7 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
   await expect(page).toHaveURL(new RegExp(`/locations/${location.id}$`));
   for (const tablet of [bar1, bar2]) await expect.poll(() => recipeRecords(tablet).some((record) => dye2GlobalIdOf(record) === two)).toBe(false);
   expect(recipeRecords(bar1).some((record) => dye2GlobalIdOf(record) === one)).toBe(true);
-  baseExpect((await page.request.get(`/api/recipes/${two}`)).status()).toBe(404);
+  expect((await page.request.get(`/api/recipes/${two}`)).status()).toBe(404);
 });
 
 /** The record ids of the recording's Ethiopia, in no slot, and its Brazil, in slot 2, as DYE2 numbered recipes before v0.1.25 (fixtures/decaid/dye2-v0.1.26/library.json). */
@@ -146,7 +140,7 @@ async function lab(page: Page, name: string, serial: number) {
 async function pullWith(page: Page, tablet: SimulatedTablet, recordId: string, recipeId: string, id: string, serial: number): Promise<void> {
   const dashboard = await openDye2Dashboard(tablet);
   const applied = dashboard.recipePills().some((pill) => pill.id === recordId) ? await dashboard.applyRecipe(recordId) : (await selectRecipeInDye2(tablet, recordId)).applied;
-  baseExpect(applied?.workflow?.status).toBe(200);
+  expect(applied?.workflow?.status).toBe(200);
   await expect.poll(() => dye2RecipeIdOf(tablet.workflow())).toBe(recordId);
   await expect
     .poll(async () => {
@@ -185,12 +179,12 @@ function recipeRecords(tablet: SimulatedTablet): Record_[] {
 /** Runs `act` as Sam, Staff at the Location, signed in in a browser of their own. */
 async function asStaff(browser: Browser, page: Page, location: { id: string }, act: (samsPage: Page) => Promise<void>): Promise<void> {
   const response = await page.request.post("/api/invites", { data: { email: sam.email, role: "staff", locationIds: [location.id] } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { link } = (await response.json()) as { link: string };
   const samsBrowser = await browser.newContext({ baseURL: server.url() });
   try {
     const accepted = await samsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, { data: sam });
-    baseExpect(accepted.status()).toBe(201);
+    expect(accepted.status()).toBe(201);
     await act(await samsBrowser.newPage());
   } finally {
     await samsBrowser.close();
@@ -200,10 +194,9 @@ async function asStaff(browser: Browser, page: Page, location: { id: string }, a
 /** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   return tablet;
 }

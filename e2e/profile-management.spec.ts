@@ -1,6 +1,7 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
-import { SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { expect, test } from "@playwright/test";
+import { derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 
 // Showing and hiding Profiles at Locations in the management interface,
@@ -10,21 +11,17 @@ import { createLocation, signInAsAdmin } from "./support/seed.js";
 // what each Location's tablets are written of them is
 // server/test/library-profile-management.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
-const tablets: SimulatedTablet[] = [];
+/** What each Machine's tablet holds over derivedDe1Pro()'s: no library. */
+const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] };
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("a lab Profile is shown at cafes, and hidden at one of them again", async ({ page }) => {
   const lab = await createLocation(page, "Roastery lab");
   await createLocation(page, "Uptown");
   await createLocation(page, "Belmont");
-  const labTablet = await tabletAt(page, "Lab group", lab, "17001");
+  const labTablet = await tabletAt(page, server, "Lab group", lab, "17001", tabletApi);
   const record = await labTablet.addProfile(derivedProfile("Lab Bloom", 8.5));
   const id = String(record.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(id)}`)).status()).toBe(200);
@@ -55,11 +52,11 @@ test("a lab Profile is shown at cafes, and hidden at one of them again", async (
 test("a Profile is Archived, keeping where it was shown, restored, and deleted by an Admin", async ({ page }) => {
   const lab = await createLocation(page, "Archive lab");
   const cafe = await createLocation(page, "Archive cafe");
-  const labTablet = await tabletAt(page, "Archive lab group", lab, "17011");
+  const labTablet = await tabletAt(page, server, "Archive lab group", lab, "17011", tabletApi);
   const record = await labTablet.addProfile(derivedProfile("Retired Bloom", 7.25));
   const id = String(record.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(id)}`)).status()).toBe(200);
-  baseExpect((await page.request.put(`/api/profiles/${encodeURIComponent(id)}/locations/${cafe.id}`, { data: { shown: true } })).status()).toBe(200);
+  expect((await page.request.put(`/api/profiles/${encodeURIComponent(id)}/locations/${cafe.id}`, { data: { shown: true } })).status()).toBe(200);
 
   await page.goto(`/library/profiles/${encodeURIComponent(id)}`);
   await page.getByRole("button", { name: "Archive", exact: true }).click();
@@ -80,18 +77,3 @@ test("a Profile is Archived, keeping where it was shown, restored, and deleted b
   await expect(page.getByRole("table", { name: "Profiles" }).or(page.getByText(/^No Profiles yet\./))).toBeVisible();
   await expect(page.getByRole("link", { name: "Retired Bloom", exact: true })).toHaveCount(0);
 });
-
-/** A Machine at the Location, its tablet connected, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [] },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}

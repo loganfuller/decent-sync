@@ -1,8 +1,9 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { GLOBAL_ID_KEY, RECIPE_SLOT_FIELD } from "@decent-sync/protocol";
 import { DYE2_NAMESPACE, dye2List } from "../server/test/support/simulated-dye2.js";
-import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, derivedProfile, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { NO_DYE2_LISTS, SimulatedTablet, derivedProfile } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
@@ -20,17 +21,13 @@ import { expectTip } from "./support/tooltips.js";
 // server/test/library-recipe-management.test.ts's and
 // library-recipe-copies.test.ts's. Serials are made up, from 45501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
-const expect = baseExpect.configure({ timeout: 15_000 });
 
-const tablets: SimulatedTablet[] = [];
+/** What each Machine's tablet holds over derivedDe1Pro()'s: no library, and DYE2's lists empty. */
+const tabletApi = { "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS };
 
 type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("Staff create a Recipe in slot 3 of the five at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
   page,
@@ -38,7 +35,7 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
 }) => {
   const lab = await createLocation(page, "Roastery lab");
   const cafe = await createLocation(page, "Uptown");
-  const cafeTablet = await tabletAt(page, "Uptown 1", cafe, "45503");
+  const cafeTablet = await tabletAt(page, server, "Uptown 1", cafe, "45503", tabletApi);
   // A batch at the cafe only, and a Profile saved on the cafe's tablet, shown there only.
   await createBatch(page, "Guji", cafe);
   const profile = await cafeTablet.addProfile(derivedProfile("Uptown Bloom", 7.25));
@@ -178,7 +175,7 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
   const lab = await createLocation(page, "Finished lab");
   const batch = await createBatch(page, "Finished Kenya", lab);
   const recipe = await createRecipe(page, lab, 1, { name: "Finished Kenya Espresso", beanBatchId: batch.id });
-  baseExpect((await page.request.put(`/api/bean-batches/${batch.id}/locations/${lab.id}`, { data: { atLocation: false } })).status()).toBe(200);
+  expect((await page.request.put(`/api/bean-batches/${batch.id}/locations/${lab.id}`, { data: { atLocation: false } })).status()).toBe(200);
 
   await page.goto(`/locations/${lab.id}`);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" })).filter({ hasText: "Finished Kenya Espresso" })).toContainText("Batch finished here");
@@ -190,8 +187,8 @@ test("a Recipe whose Bean Batch is finished at its Location is flagged", async (
 
 test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on its page, and using its value makes it current on every tablet", async ({ page }) => {
   const lab = await createLocation(page, "Conflict lab");
-  const one = await tabletAt(page, "Conflict lab 1", lab, "45521");
-  const two = await tabletAt(page, "Conflict lab 2", lab, "45522");
+  const one = await tabletAt(page, server, "Conflict lab 1", lab, "45521", tabletApi);
+  const two = await tabletAt(page, server, "Conflict lab 2", lab, "45522", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "House Espresso" });
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso");
 
@@ -227,16 +224,16 @@ test("the form keeps a Tool Archived since as one to uncheck, beside a new one, 
   const lab = await createLocation(page, "Form lab");
   const tool = async (name: string) => {
     const response = await page.request.post("/api/tools", { data: { locationId: lab.id, content: { name } } });
-    baseExpect(response.status()).toBe(201);
+    expect(response.status()).toBe(201);
     return ((await response.json()) as { tool: { id: string } }).tool;
   };
   const old = await tool("Form Old WDT");
   await tool("Form New WDT");
   const recipe = await createRecipe(page, lab, 1, { name: "Form Espresso", toolIds: [old.id] });
-  baseExpect((await page.request.put(`/api/tools/${old.id}/archived`, { data: { archived: true } })).status()).toBe(200);
+  expect((await page.request.put(`/api/tools/${old.id}/archived`, { data: { archived: true } })).status()).toBe(200);
   const archivedBatch = await createBatch(page, "Form Retired", lab);
   const { batch: retired } = (await (await page.request.get(`/api/bean-batches/${archivedBatch.id}`)).json()) as { batch: { bean: { id: string } } };
-  baseExpect((await page.request.put(`/api/beans/${retired.bean.id}/archived`, { data: { archived: true } })).status()).toBe(200);
+  expect((await page.request.put(`/api/beans/${retired.bean.id}/archived`, { data: { archived: true } })).status()).toBe(200);
 
   await page.goto(`/library/recipes/${recipe.id}`);
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
@@ -262,7 +259,7 @@ test("the form keeps a Tool Archived since as one to uncheck, beside a new one, 
 
 test("the form clears a Recipe's Bean saved on a tablet with no batch of it at its Location", async ({ page }) => {
   const lab = await createLocation(page, "Bean-only lab");
-  const tablet = await tabletAt(page, "Bean-only lab 1", lab, "45531");
+  const tablet = await tabletAt(page, server, "Bean-only lab 1", lab, "45531", tabletApi);
   const recipe = await createRecipe(page, lab, 1, { name: "Bean-only Espresso" });
   await expect.poll(() => slotOn(tablet, 1)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
   // A Bean added on the tablet, with no batch anywhere, picked in DYE2's editor for the recipe in slot 1.
@@ -272,7 +269,7 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
     .poll(async () => ((await (await page.request.get("/api/beans")).json()) as { beans: { name: string | null }[] }).beans.some((listed) => listed.name === "Bean-only Sidamo"))
     .toBe(true);
   const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === 1 ? { ...record, beanId: bean.id } : record));
-  baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
   await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { uses: { bean: { name: string } | null } } }).recipe.uses.bean?.name).toBe(
     "Bean-only Sidamo",
   );
@@ -329,8 +326,8 @@ test("a Recipe's page shows its steam, hot water and flush settings, each it hol
   await shown(hotWater, { "Hot water time": "30 s", "Hot water volume": "200 ml" });
   await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
   const { recipe: saved } = (await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } };
-  baseExpect(saved.content).not.toHaveProperty("steamTemperature");
-  baseExpect(saved.content).toMatchObject({ steamDuration: 0, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
+  expect(saved.content).not.toHaveProperty("steamTemperature");
+  expect(saved.content).toMatchObject({ steamDuration: 0, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
 });
 
 test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: the Recipe there leaves its slot, and the copy's history names the original", async ({
@@ -338,7 +335,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
 }) => {
   const lab = await createLocation(page, "Copy lab");
   const uptown = await createLocation(page, "Copy Uptown");
-  const labTablet = await tabletAt(page, "Copy lab 1", lab, "45541");
+  const labTablet = await tabletAt(page, server, "Copy lab 1", lab, "45541", tabletApi);
   // The lab's batch, Grinder, Profile and Basket; Uptown has two Grinders, one of the lab's model.
   const batch = await createBatch(page, "Copy Guji", lab);
   const labGrinder = await createGrinder(page, lab, "Copy EK43");
@@ -348,7 +345,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   const profileId = String(profile.id);
   await expect.poll(async () => (await page.request.get(`/api/profiles/${encodeURIComponent(profileId)}`)).status()).toBe(200);
   const basketResponse = await page.request.post("/api/baskets", { data: { locationId: lab.id, content: { name: "Copy 20g" } } });
-  baseExpect(basketResponse.status()).toBe(201);
+  expect(basketResponse.status()).toBe(201);
   const basket = ((await basketResponse.json()) as { basket: { id: string } }).basket;
   const original = await createRecipe(page, lab, 1, {
     name: "Copy Lab Guji",
@@ -390,7 +387,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   // The copy's page: in slot 1 at Uptown, with the Mazzer, its history naming the original.
   await expect(page.getByText("Slot 1 at Copy Uptown")).toBeVisible();
   const copyId = page.url().split("/").pop()!;
-  baseExpect(copyId).not.toBe(original.id);
+  expect(copyId).not.toBe(original.id);
   const details = page.getByLabel("Recipe", { exact: true });
   await expect(field(details, "Grinder")).toHaveText("Copy Mazzer");
   await expect(field(details, "Grind setting")).toHaveText("2.5");
@@ -403,7 +400,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await page.getByRole("link", { name: "← Copy Uptown" }).click();
   await expect(rows(page.getByRole("table", { name: "Recipes in no slot" }))).toHaveText([/Copy Uptown House/]);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Copy Lab Guji/]);
-  baseExpect(await (await page.request.get(`/api/recipes/${original.id}`)).json()).toEqual(originalBefore);
+  expect(await (await page.request.get(`/api/recipes/${original.id}`)).json()).toEqual(originalBefore);
 });
 
 test("Staff copy a Recipe only to the Locations they work at", async ({ page, browser }) => {
@@ -428,50 +425,36 @@ test("Staff copy a Recipe only to the Locations they work at", async ({ page, br
 /** A batch, roasted on 2026-10-01, of a Bean of that name, at the Location. */
 async function createBatch(page: Page, name: string, at: { id: string }): Promise<{ id: string }> {
   const bean = await page.request.post("/api/beans", { data: { content: { roaster: "Roux", name } } });
-  baseExpect(bean.status()).toBe(201);
+  expect(bean.status()).toBe(201);
   const { id: beanId } = ((await bean.json()) as { bean: { id: string } }).bean;
   const batch = await page.request.post("/api/bean-batches", { data: { beanId, content: { roastDate: "2026-10-01" }, locations: [{ locationId: at.id }] } });
-  baseExpect(batch.status()).toBe(201);
+  expect(batch.status()).toBe(201);
   return ((await batch.json()) as { batch: { id: string } }).batch;
 }
 
 async function createGrinder(page: Page, at: { id: string }, model: string): Promise<{ id: string }> {
   const response = await page.request.post("/api/grinders", { data: { locationId: at.id, content: { model } } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   return ((await response.json()) as { grinder: { id: string } }).grinder;
 }
 
 async function createRecipe(page: Page, at: { id: string }, slot: number | null, content: Record_): Promise<{ id: string }> {
   const response = await page.request.post("/api/recipes", { data: { locationId: at.id, slot, content } });
-  baseExpect(response.status(), await response.text()).toBe(201);
+  expect(response.status(), await response.text()).toBe(201);
   return ((await response.json()) as { recipe: { id: string } }).recipe;
 }
 
-/** A Machine at the Location, its tablet connected with DYE2's lists empty, polling every 5 s of its time, which runs 50 times faster here. */
-async function tabletAt(page: Page, name: string, location: { id: string }, serial: string): Promise<SimulatedTablet> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
-  baseExpect(response.status()).toBe(201);
-  const { token } = (await response.json()) as { token: string };
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: { ...derivedDe1Pro({ serial }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS },
-    timeScale: 50,
-  });
-  tablets.push(tablet);
-  await tablet.waitForLog(/^Connected to /);
-  return tablet;
-}
 
 /** A browser signed in as Staff at the Location, invited by the Admin. */
 async function staffAt(page: Page, browser: import("@playwright/test").Browser, email: string, location: { id: string }) {
   const response = await page.request.post("/api/invites", { data: { email, role: "staff", locationIds: [location.id] } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { link } = (await response.json()) as { link: string };
   const context = await browser.newContext({ baseURL: server.url() });
   const accepted = await context.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, {
     data: { name: "Sam Staff", email, password: "staff password 1" },
   });
-  baseExpect(accepted.status()).toBe(201);
+  expect(accepted.status()).toBe(201);
   return context;
 }
 
@@ -484,7 +467,7 @@ function slotOn(tablet: SimulatedTablet, slot: number): Record_ | undefined {
 /** Saves the recipe's name in a slot on the tablet as DYE2's editor does: reads the list, changes the record, posts the list back. */
 async function saveName(tablet: SimulatedTablet, slot: number, name: string): Promise<void> {
   const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === slot ? { ...record, name } : record));
-  baseExpect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
 }
 
 async function view(page: Page, id: string): Promise<{ name: string | null }> {

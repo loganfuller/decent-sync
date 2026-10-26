@@ -1,5 +1,5 @@
 import { COLLECTION_NAMES } from "@decent-sync/protocol";
-import { expect as baseExpect, type Locator, test } from "@playwright/test";
+import { expect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
   de1ProOnDecaid090,
@@ -13,7 +13,7 @@ import {
 } from "../server/test/support/simulated-tablet.js";
 import { SimulatedDye2, dye2Migrated } from "../server/test/support/simulated-dye2.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { afterDetailsPolls } from "./support/polling.js";
+import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
@@ -25,16 +25,8 @@ import { expectTip, tap } from "./support/tooltips.js";
 // them by the changes named.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "America/New_York" });
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
-
-const tablets: SimulatedTablet[] = [];
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
-
-test.afterAll(async () => {
-  await Promise.all(tablets.map((tablet) => tablet.unload()));
-});
 
 test("the Machine page shows paired devices, settings and the library, and follows a machine and scale switched off", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 2");
@@ -52,7 +44,6 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Polls every 5 s of the tablet's time, and reads the machine's own settings every 60 s, which runs fifty times faster here.
   // The tablet is in Toronto in summer.
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50, utcOffsetMinutes: -240 });
-  tablets.push(tablet);
   await tablet.waitForLog(/^Connected to /);
   // The page loads what the tablet reported every 30 s, so it opens once the server holds all of it.
   const reported = async () => ((await (await page.request.get(`/api/machines/${id}/collections`)).json()) as { collections: unknown[] }).collections;
@@ -142,8 +133,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
   tablet.machineConnected = false;
   tablet.serve({ ...served, ...simulatedDevicesSwitchedOff() });
   await afterDetailsPolls(page, async () => {
-    await baseExpect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: 2_000 });
-    await baseExpect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: 2_000 });
+    await expect(rows(devices).first()).toHaveText(["Scale", "Mock Scale", "Disconnected", "Not reported", "Not reported"].join(""), { timeout: CHECK_MS });
+    await expect(general).toContainText(/Not available when last read, at .+; shown as reported at /, { timeout: CHECK_MS });
   });
   await expect(field(general, "Fan threshold")).toHaveText(/^55 °C/);
 });
@@ -163,8 +154,7 @@ test("the Settings card shows a Tablet's presence settings and wake schedules un
   };
   // Hardware of its own, and in Kolkata, five and a half hours east of UTC, while the page is in New York.
   const served = { ...derivedDe1Pro({ serial: "20004" }), "/presence/settings": presence };
-  const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50, utcOffsetMinutes: 330 });
-  tablets.push(tablet);
+  SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, timeScale: 50, utcOffsetMinutes: 330 });
   const reported = async () => ((await (await page.request.get(`/api/machines/${id}/collections/presenceSettings`)).json()) as { collection: unknown }).collection;
   await expect.poll(reported).not.toBeNull();
 
@@ -198,7 +188,6 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   // Hardware of its own, as Bar 2's tablet holds the test tablet's.
   const served = { ...derivedDe1Pro({ serial: "20003" }), ...dye2Migrated() };
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api: served, dye2, timeScale: 50 });
-  tablets.push(tablet);
   // What the server holds from the tablet, which the page loads every 30 s.
   const reported = async () =>
     ((await (await page.request.get(`/api/machines/${id}/tablet-versions`)).json()) as { tabletVersions: Record<string, { status: string; loaded?: boolean; branch?: string }> })
@@ -220,8 +209,8 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline!.status).toBe("notActive");
   await expect.poll(async () => (await reported()).dye2!.loaded).toBe(false);
   await afterDetailsPolls(page, async () => {
-    await baseExpect(field(page, "DYE2")).toHaveText("0.1.26 (not loaded)", { timeout: 2_000 });
-    await baseExpect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: 2_000 });
+    await expect(field(page, "DYE2")).toHaveText("0.1.26 (not loaded)", { timeout: CHECK_MS });
+    await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
   });
 
   // DYE2 is installed from its dist branch and Decaid serves Streamline's build of main, both builds of main, and the
@@ -232,15 +221,15 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", build: "main" });
   await tablet.unload();
   await afterDetailsPolls(page, async () => {
-    await baseExpect(field(page, "Status")).toHaveText("Offline", { timeout: 2_000 });
-    await baseExpect(field(page, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: 2_000 });
+    await expect(field(page, "Status")).toHaveText("Offline", { timeout: CHECK_MS });
+    await expect(field(page, "DYE2")).toHaveText("0.1.26 (branch dist)", { timeout: CHECK_MS });
   });
   await expect(field(page, "Streamline")).toHaveText("0.2.18 (main build)");
 });
 
 test("a Machine whose tablet has reported nothing says so", async ({ page }) => {
   const { token } = await createMachine(page, "Spare 2");
-  baseExpect(token).toBeTruthy();
+  expect(token).toBeTruthy();
   await page.goto("/machines");
   await page.getByRole("link", { name: "Spare 2", exact: true }).click();
   await expect(page.getByRole("region", { name: "Paired devices" })).toContainText("Its tablet has not reported its paired devices yet.");

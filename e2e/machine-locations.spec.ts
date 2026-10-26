@@ -1,6 +1,7 @@
-import { expect as baseExpect, type Page, test } from "@playwright/test";
+import { expect, type Page, test } from "@playwright/test";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 
@@ -9,8 +10,6 @@ import { field, machineRow } from "./support/locators.js";
 // each Location's own time zone. Hardware ids are made up.
 const server = useFreshServer();
 test.use({ timezoneId: "Asia/Tokyo" });
-// Machine pages poll the server every few seconds.
-const expect = baseExpect.configure({ timeout: 15_000 });
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -162,7 +161,7 @@ test("an unassigned Machine is assigned its first Location", async ({ page }) =>
 test("a machine entry created for a Pending Machine starts at the Location chosen", async ({ page }) => {
   // Mover's tablet reports its own hardware, then moves onto a machine without an entry.
   const response = await page.request.post("/api/machines", { data: { name: "Mover" } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { token } = (await response.json()) as { token: string };
   const connections: RawConnection[] = [];
   try {
@@ -170,7 +169,7 @@ test("a machine entry created for a Pending Machine starts at the Location chose
       const raw = await RawConnection.open(server.url());
       connections.push(raw);
       raw.send(helloWith(token, { machine: { model: "DE1Pro", serial }, connectionId: "00:00:5E:00:53:41" }));
-      baseExpect(await raw.message(0)).toMatchObject({ type: "welcome" });
+      expect(await raw.message(0)).toMatchObject({ type: "welcome" });
     }
   } finally {
     await Promise.all(connections.map((raw) => raw.terminate()));
@@ -208,13 +207,13 @@ function history(page: Page) {
 test("a time the clocks repeat keeps its moment when only the Location is corrected, and one they skip is refused", async ({ page }) => {
   const harbor = await createLocation(page, "Harbor", "America/New_York");
   const response = await page.request.post("/api/machines", { data: { name: "Fall back", locationId: harbor.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { machine } = (await response.json()) as { machine: { id: string; locationHistory: { id: string }[] } };
   // The second 1:30 AM of New York's fall-back night, with seconds the form does not show.
   const arrived = await page.request.patch(`/api/machines/${machine.id}/location-history/${machine.locationHistory[0]!.id}`, {
     data: { effectiveFrom: "2025-11-02T06:30:42.123Z" },
   });
-  baseExpect(arrived.status()).toBe(200);
+  expect(arrived.status()).toBe(200);
 
   await page.goto(`/machines/${machine.id}`);
   const entries = history(page).getByRole("listitem");
@@ -261,19 +260,21 @@ test("an open correction follows another Admin's change to its entry, and saving
   const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
   const [uptown, belmont] = ["Uptown", "Belmont"].map((name) => locations.find((location) => location.name === name)!);
   const response = await page.request.post("/api/machines", { data: { name: "Shared", locationId: uptown!.id } });
-  baseExpect(response.status()).toBe(201);
+  expect(response.status()).toBe(201);
   const { machine } = (await response.json()) as { machine: { id: string; locationHistory: { id: string }[] } };
   const entry = `/api/machines/${machine.id}/location-history/${machine.locationHistory[0]!.id}`;
-  baseExpect((await page.request.patch(entry, { data: { effectiveFrom: "2026-01-10T15:00:00Z" } })).status()).toBe(200);
+  expect((await page.request.patch(entry, { data: { effectiveFrom: "2026-01-10T15:00:00Z" } })).status()).toBe(200);
 
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
   await page.goto(`/machines/${machine.id}`);
   await history(page).getByRole("button", { name: "Correct arrival at Uptown" }).click();
   const form = history(page).getByRole("form");
   await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-10T09:00");
 
   // Another Admin corrects the entry while the form is open; the page's polling brings it in.
-  baseExpect((await page.request.patch(entry, { data: { locationId: belmont!.id, effectiveFrom: "2026-01-12T15:00:00Z" } })).status()).toBe(200);
-  await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-12T09:00");
+  expect((await page.request.patch(entry, { data: { locationId: belmont!.id, effectiveFrom: "2026-01-12T15:00:00Z" } })).status()).toBe(200);
+  await afterStatusPolls(page, () => expect(form.getByLabel("Arrived")).toHaveValue("2026-01-12T09:00", { timeout: CHECK_MS }));
   await expect(form.getByRole("combobox", { name: "Location" })).toHaveText("Belmont");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toHaveCount(0);
