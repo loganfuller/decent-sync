@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet } from "./support/simulated-dye2.js";
+import { quiesced } from "./support/quiet.js";
 import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -20,9 +21,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // at the Recipe's (ADR-0021). With no Recipe loaded, a change of them stays
 // on its Machine (#190). Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 and Streamline at cec5664 as recorded
-// (fixtures/decaid/dye2-v0.1.26/), Machines A and B on one server instance
-// and C on another sharing one database, with assertions through the REST
-// API and what each simulated tablet holds. Serials are made up, from 49001.
+// (fixtures/decaid/dye2-v0.1.26/), Machine A, and B in the tests that use
+// it, on one server instance and C on another sharing one database, with
+// assertions through the REST API and what each simulated tablet holds.
+// Serials are made up, from 49001.
 
 type Record_ = Record<string, unknown>;
 
@@ -89,40 +91,41 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   const settle = () => new Promise((resolve) => setTimeout(resolve, 1_500));
 
   /**
-   * A Location with Machines A, whose tablet is the v0.1.26 recording's, and
-   * B on one instance, and C on the other, both tablets where DYE2 was never
-   * used, each running DYE2 with its machine connected. A brings its
-   * recipes, and the library recipe's Recipe is given HELD's settings before
-   * B and C join, so every tablet's record holds them. The library recipe is
-   * applied on DYE2's dashboard on A and C (unless `loadC` is false), and the
-   * Brazil's on B, which each loads.
+   * A Location with Machines A, whose tablet is the v0.1.26 recording's, and,
+   * with `b`, B on one instance, and C on the other, both tablets where DYE2
+   * was never used, each running DYE2 with its machine connected. A brings
+   * its recipes, and the library recipe's Recipe is given HELD's settings
+   * before B and C join, so every tablet's record holds them. The library
+   * recipe is applied on DYE2's dashboard on A and C (unless `loadC` is
+   * false), and the Brazil's on B, which each loads, in that order. It
+   * returns once every tablet and the server have nothing left to do
+   * (`quiesced`), so the baselines a test reads next start from rest.
    */
-  async function lab(scenario: string, serial: number, options: { loadC?: boolean } = {}) {
+  async function lab<WithB extends boolean = false>(scenario: string, serial: number, options: { loadC?: boolean; b?: WithB } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
       a: await api.createMachine(`${scenario} lab A`, here.id),
-      b: await api.createMachine(`${scenario} lab B`, here.id),
+      b: options.b ? await api.createMachine(`${scenario} lab B`, here.id) : undefined,
       c: await api.createMachine(`${scenario} lab C`, here.id),
     };
-    const dye2 = { a: new SimulatedDye2(), b: new SimulatedDye2(), c: new SimulatedDye2() };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a });
+    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: new SimulatedDye2() });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [LIBRARY, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const one = dye2GlobalIdOf(record(a, LIBRARY))!;
     const two = dye2GlobalIdOf(record(a, BRAZIL))!;
     await patch(one, HELD);
     await expect.poll(() => recorded(a, "hotWaterDuration"), { timeout: 15_000 }).toBe(HELD.hotWaterDuration);
-    const b = syncingTablet(machines.b, server, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.b });
-    const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 2)), dye2: dye2.c });
-    await api.waitForOnline(machines.b, machines.c);
-    for (const tablet of [b, c]) {
+    const b = machines.b ? syncingTablet(machines.b, server, { api: dye2NeverUsed(String(serial + 1)), dye2: new SimulatedDye2() }) : undefined;
+    const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 2)), dye2: new SimulatedDye2() });
+    await api.waitForOnline(...(machines.b ? [machines.b] : []), machines.c);
+    for (const tablet of b ? [b, c] : [c]) {
       await expect
         .poll(() => [LIBRARY, BRAZIL].map((id) => [dye2GlobalIdOf(record(tablet, id)), record(tablet, id)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
         .not.toContain(null);
       await expect.poll(() => recorded(tablet, "flushTemperature")).toBe(HELD.flushTemperature);
     }
     // Decaid writes the steam, hot water and flush settings to the machine, and refuses them without one.
-    for (const tablet of [a, b, c]) tablet.connectMachine();
+    for (const tablet of b ? [a, b, c] : [a, c]) tablet.connectMachine();
     const load = async (tablet: SimulatedTablet, machine: CreatedMachine, id: string, recipeId: string) => {
       expect((await (await openDye2Dashboard(tablet)).applyRecipe(id)).workflow?.status).toBe(200);
       await expect.poll(() => recipeNamedInWorkflow(tablet), { timeout: 15_000 }).toBe(recipeId);
@@ -130,9 +133,21 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     };
     await load(a, machines.a, LIBRARY, one);
     if (options.loadC !== false) await load(c, machines.c, LIBRARY, one);
-    await load(b, machines.b, BRAZIL, two);
-    await settle();
-    return { here, machines, dye2, a, b, c, one, two, load };
+    if (b && machines.b) await load(b, machines.b, BRAZIL, two);
+    await quiesced(api, {
+      tablets: { a, c, ...(b ? { b } : {}) },
+      machines: { a: machines.a, c: machines.c, ...(machines.b ? { b: machines.b } : {}) },
+    });
+    return {
+      here,
+      machines: machines as typeof machines & { b: WithB extends true ? CreatedMachine : undefined },
+      a,
+      b: b as WithB extends true ? SimulatedTablet : undefined,
+      c,
+      one,
+      two,
+      load,
+    };
   }
 
   it("loads every setting a Recipe holds into the Workflow, applied by Streamline's strip, leaving each it holds none of as the Machine had it, and writes them into each record and its embedded Workflow", async () => {
@@ -171,7 +186,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a steam time change on A that DYE2 saves as the Recipe's, writing it into C's Workflow and record, but not A's or B's, which has another Recipe loaded", async () => {
-    const { a, b, c, one } = await lab("Steamed", 49011);
+    const { a, b, c, one } = await lab("Steamed", 49011, { b: true });
     const ownOnB = setting(b, "steamDuration");
     const edits = await editsOf(one, "steamDuration");
     const received = a.received.length;
@@ -188,19 +203,21 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect(workflowWritesTo(a, received)).toEqual([]);
   });
 
-  it("takes a held flush time changed 10, 6, 10 and 6 on C as the Recipe's each time, writing nothing back", async () => {
+  it("takes a held flush time changed 10, 6 and 10 on C as the Recipe's each time, writing nothing back", async () => {
     const { a, c, one } = await lab("Purge", 49021);
     const received = c.received.length;
     const edits = await editsOf(one, "flushDuration");
-    for (const duration of [10, 6, 10, 6]) {
+    for (const duration of [10, 6, 10]) {
       await c.changeSettings({ rinseData: { duration } });
       await expect.poll(async () => (await recipe(one)).content.flushDuration, { timeout: 15_000 }).toBe(duration);
       await expect.poll(() => setting(a, "flushDuration"), { timeout: 15_000 }).toBe(duration);
-      await settle();
-      expect([setting(c, "flushDuration"), recorded(c, "flushDuration")]).toEqual([duration, duration]);
+      // The check after the loop, not this one, rules out a write back.
+      await expect.poll(() => [setting(c, "flushDuration"), recorded(c, "flushDuration")], { timeout: 15_000 }).toEqual([duration, duration]);
     }
-    // One edit of each, from C, and nothing written into C's Workflow of the flush.
-    expect(await editsOf(one, "flushDuration")).toBe(edits + 4);
+    await settle();
+    // One edit of each, from C, C's Workflow and record left at the last, and nothing written into C's Workflow of the flush.
+    expect([setting(c, "flushDuration"), recorded(c, "flushDuration")]).toEqual([10, 10]);
+    expect(await editsOf(one, "flushDuration")).toBe(edits + 3);
     expect(workflowWritesTo(c, received).filter((fields) => "rinseData.duration" in fields)).toEqual([]);
   });
 
@@ -383,7 +400,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("takes a steam mode switched in DYE2's editor into the Recipe and every tablet's record, writing nothing into any Workflow", async () => {
-    const { a, b, c, one } = await lab("Mode", 49091);
+    const { a, b, c, one } = await lab("Mode", 49091, { b: true });
     const received = { a: a.received.length, b: b.received.length, c: c.received.length };
     expect(variables(record(c, LIBRARY)).steamMode).toBe("flow");
     const saved = await (await openDye2RecipeEditor(a, { id: LIBRARY })).set({ steam: { mode: "time" } }).save();
@@ -402,7 +419,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
   });
 
   it("changes nothing on the server but the Machine's events for a steam, hot water or flush change with no Recipe loaded", async () => {
-    const { machines, a, b, c, one, two } = await lab("Unloaded", 49101);
+    const { machines, a, b, c, one, two } = await lab("Unloaded", 49101, { b: true });
     // A's recipe cleared, as Streamline's strip switched off clears it: A has no Recipe loaded.
     expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, {})).status).toBe(200);
     await loads(machines.a, null);

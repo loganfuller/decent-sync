@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
 import { SimulatedDye2, dye2List, dye2NeverUsed, recordedDye2MainTablet, selectRecipeInDye2 } from "./support/simulated-dye2.js";
+import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -81,9 +82,11 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
    * one instance, and C, a tablet where DYE2 was never used, on the other,
    * each running DYE2. A brings its recipes, and the Ethiopia's is applied
-   * from DYE2's Select Recipe page on both, which each loads.
+   * from DYE2's Select Recipe page on A, then on C the Ethiopia's, or the
+   * recipe whose record id `c` gives, which each loads. Each load returns
+   * once both tablets and the server have nothing left to do (`quiesced`).
    */
-  async function lab(scenario: string, serial: number) {
+  async function lab(scenario: string, serial: number, options: { c?: typeof ETHIOPIA | typeof BRAZIL } = {}) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = { a: await api.createMachine(`${scenario} lab A`, here.id), c: await api.createMachine(`${scenario} lab C`, here.id) };
     const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: new SimulatedDye2() });
@@ -100,11 +103,12 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
       await expect.poll(() => recipeNamedInWorkflow(tablet), { timeout: 15_000 }).toBe(recipeId);
       await loads(machine, recipeId);
       // The writes that follow a load land, so none is under way as a Shot begins.
-      await settle();
+      await quiesced(api, { tablets: { a, c }, machines });
     };
     await load(a, machines.a, ETHIOPIA, one);
-    await load(c, machines.c, ETHIOPIA, one);
-    return { machines, a, c, one, two, load, dye2 };
+    const onC = options.c ?? ETHIOPIA;
+    await load(c, machines.c, onC, onC === BRAZIL ? two : one);
+    return { machines, a, c, one, two, dye2 };
   }
 
   /**
@@ -144,8 +148,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   });
 
   it("holds a load and an unload made during C's Shot until it is stored, while a change made on C during it is saved into the Recipe at once", async () => {
-    const { machines, c, one, two, load } = await lab("Load", 51011);
-    await load(c, machines.c, BRAZIL, two);
+    const { machines, c, one } = await lab("Load", 51011, { c: BRAZIL });
     await patch(one, { dose: 18.6, grindSetting: 2.9 });
     await expect.poll(() => [variables(record(c, ETHIOPIA)).dose, variables(record(c, ETHIOPIA)).grind], { timeout: 15_000 }).toEqual([18.6, 2.9]);
     const writes = workflowWrites(c);
@@ -172,8 +175,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   });
 
   it("makes a load held as the plugin stops once it loads again, where the Workflow still names its Recipe", async () => {
-    const { machines, c, one, two, load } = await lab("Reload", 51021);
-    await load(c, machines.c, BRAZIL, two);
+    const { machines, c, one } = await lab("Reload", 51021, { c: BRAZIL });
     await patch(one, { dose: 18.6, grindSetting: 2.9 });
     await expect.poll(() => [variables(record(c, ETHIOPIA)).dose, variables(record(c, ETHIOPIA)).grind], { timeout: 15_000 }).toEqual([18.6, 2.9]);
     const writes = workflowWrites(c);
