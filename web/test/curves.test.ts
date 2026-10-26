@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import preheatShot from "../../server/test/fixtures/decaid/de1pro-v0.9.0/shot-preheat.json" with { type: "json" };
-import { chartPoints, firstSecond, lastSecond, secondTicks, shotSamples } from "../src/lib/curves";
+import { chartPoints, firstSecond, lastSecond, secondTicks, shotSamples, stepAt, stepChanges } from "../src/lib/curves";
 
 // A Shot the test tablet's Decaid v0.9.0 recorded with a long Preheat: its
 // first 43 of 168 samples, 7.36 s, before its profile's first, at
@@ -82,5 +82,56 @@ describe("secondTicks", () => {
     expect(secondTicks(0, 28)).toEqual([0, 5, 10, 15, 20, 25]);
     expect(secondTicks(-1, 701)).toEqual([0, 120, 240, 360, 480, 600]);
     expect(secondTicks(0, 1)).toEqual([0, 1]);
+  });
+});
+
+describe("a Shot's Profile steps", () => {
+  const profile = preheatShot.workflow.profile;
+
+  it("names each sample's step after Preheat by its profileFrame, and none in Preheat", () => {
+    const samples = shotSamples(measurements, profile);
+    // In Preheat the frame, 4, is left over from before the Shot.
+    expect(samples.slice(0, 43).every((sample) => sample.step === null)).toBe(true);
+    expect([43, 66, 67, 72, 101, 127, 167].map((n) => samples[n]!.step)).toEqual([
+      { frame: 0, name: "Prefill" },
+      { frame: 0, name: "Prefill" },
+      { frame: 2, name: "Compressing" },
+      { frame: 3, name: "Dripping" },
+      { frame: 4, name: "Pressurize" },
+      { frame: 6, name: "Extraction" },
+      { frame: 6, name: "Extraction" },
+    ]);
+  });
+
+  it("changes step at each frame change the samples show, never in Preheat or at 0 s", () => {
+    const samples = shotSamples(measurements, profile);
+    // Fill (frame 1) and the 0 s Extraction start (frame 5) are never reported, so 0 to 2 and 4 to 6 are one change each.
+    // Preheat's frame 4 to the profile's frame 0, at 0 s, is none.
+    expect(stepChanges(samples)).toEqual([67, 72, 101, 127].map((n) => samples[n]!.seconds));
+    expect(stepChanges(samples)[0]).toBeGreaterThan(0);
+    // A Shot stopped in Preheat has none.
+    expect(stepChanges(shotSamples(measurements.slice(0, 43), profile))).toEqual([]);
+  });
+
+  it("names a step with no name, or a frame past the Profile's steps, Step N, counting from 1", () => {
+    // Derived: the real Shot's Profile with its Dripping step's name blank, and with only its first three steps.
+    const blank = { ...profile, steps: profile.steps.map((step, n) => (n === 3 ? { ...step, name: " " } : step)) };
+    expect(shotSamples(measurements, blank)[72]!.step).toEqual({ frame: 3, name: "Step 4" });
+    const short = { ...profile, steps: profile.steps.slice(0, 3) };
+    expect([67, 72, 127].map((n) => shotSamples(measurements, short)[n]!.step?.name)).toEqual(["Compressing", "Step 4", "Step 7"]);
+    // With no Profile at all, every step after Preheat is still named and its changes still marked.
+    const unnamed = shotSamples(measurements);
+    expect(unnamed[43]!.step).toEqual({ frame: 0, name: "Step 1" });
+    expect(stepChanges(unnamed)).toEqual(stepChanges(shotSamples(measurements, profile)));
+  });
+
+  it("reads the step at a chart's time from the last sample at or before it", () => {
+    const samples = shotSamples(measurements, profile);
+    const change = samples[67]!.seconds;
+    expect(stepAt(samples, change)?.name).toBe("Compressing");
+    expect(stepAt(samples, change - 0.001)?.name).toBe("Prefill");
+    expect(stepAt(samples, -1)).toBeNull();
+    expect(stepAt(samples, lastSecond(samples))?.name).toBe("Extraction");
+    expect(stepAt(samples, lastSecond(samples) + 0.1)).toBeNull();
   });
 });

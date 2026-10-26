@@ -125,8 +125,17 @@ export function RecordCard({ title, description, fields, empty }: { title: strin
   );
 }
 
-/** A record's samples as a table, for reading exact values, with a Shot's Preheat marked. */
-export function MeasurementsTable<C extends string>({ curves, samples }: { curves: Record<C, CurveInfo>; samples: Sample<C>[] }) {
+/** A record's samples as a table, for reading exact values, with a Shot's Preheat marked and, when asked, its steps named. */
+export function MeasurementsTable<C extends string>({
+  curves,
+  samples,
+  steps = false,
+}: {
+  curves: Record<C, CurveInfo>;
+  samples: Sample<C>[];
+  /** A Step column names each sample's Profile step, as a Shot's do. */
+  steps?: boolean;
+}) {
   const shown = Object.keys(curves) as C[];
   return (
     <RecordCollapsible label="Measurements as a table" description={`${samples.length} samples, as recorded.`}>
@@ -135,6 +144,7 @@ export function MeasurementsTable<C extends string>({ curves, samples }: { curve
           <TableHeader>
             <TableRow>
               <TableHead>Time</TableHead>
+              {steps && <TableHead>Step</TableHead>}
               {shown.map((curve) => (
                 <TableHead key={curve}>
                   {curves[curve].label} ({curves[curve].unit})
@@ -153,6 +163,7 @@ export function MeasurementsTable<C extends string>({ curves, samples }: { curve
                     </Badge>
                   )}
                 </TableCell>
+                {steps && <TableCell className="whitespace-nowrap">{sample.step?.name}</TableCell>}
                 {shown.map((curve) => (
                   <TableCell key={curve}>
                     <OrNone>{numberText(sample.values[curve])}</OrNone>

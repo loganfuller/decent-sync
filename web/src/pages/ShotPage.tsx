@@ -46,7 +46,7 @@ async function loadShot(id: string): Promise<ShotData> {
     api<{ shot: Shot }>("GET", path),
     api<{ measurements: unknown }>("GET", `${path}/measurements`),
   ]);
-  return { shot, samples: shotSamples(measurements) };
+  return { shot, samples: shotSamples(measurements, record(shot.record.workflow)?.profile) };
 }
 
 function ShotDetails({ id }: { id: string }) {
@@ -226,6 +226,9 @@ function ShotDetails({ id }: { id: string }) {
               temperature, measured at the group head, the sensor closest to the coffee.
             </p>
             <p>
+              Vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step.
+            </p>
+            <p>
               Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the
               profile's, and it doesn't count toward the duration or the peaks.
             </p>
@@ -255,7 +258,7 @@ function ShotDetails({ id }: { id: string }) {
             <p className="text-sm text-muted-foreground">No measurements were recorded.</p>
           )}
           {shown && <Comparison shot={shot} previous={shown.shot} />}
-          {samples.length > 0 && <MeasurementsTable curves={SHOT_CURVES} samples={samples} />}
+          {samples.length > 0 && <MeasurementsTable curves={SHOT_CURVES} samples={samples} steps />}
         </CardContent>
       </Card>
 

@@ -399,6 +399,9 @@ flow, weight and group temperature, as Streamline draws them, with the
 targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and
 labelled before 0 s in every chart and marked in the measurements table,
+a dashed vertical line at each change of its Profile's step after Preheat
+(each sample's `profileFrame`, as Streamline marks them), the step named in
+the tooltip and the measurements table,
 the previous Shot it is compared with aligned at 0 s too,
 everything its record holds, the Basket's and Tools' names DYE2 stored
 and its Grinder's burrs, after the Grinder, among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket

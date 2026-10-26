@@ -20,6 +20,7 @@ const tablets: SimulatedTablet[] = [];
 
 const CURVES_TIP =
   "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group temperature, measured at the group head, the sensor closest to the coffee." +
+  "Vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step." +
   "Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the profile's, and it doesn't count toward the duration or the peaks.";
 
 interface Recorded {
@@ -256,7 +257,7 @@ test("a curve breaks where its samples have no value, as a pressure target where
   expect((await target.getAttribute("d"))?.match(/M/g)).toHaveLength(2);
 });
 
-test("a Shot's Preheat is shaded and labelled before 0 s, left out of its duration, and marked in its measurements", async ({ page }) => {
+test("a Shot's Preheat is shaded and labelled before 0 s, left out of its duration, and marked in its measurements, with its steps after it", async ({ page }) => {
   // The real Shot with a long Preheat, 7.36 s, and before it on the same Machine the other real Shot, whose
   // Preheat lasted 4.39 s, each changing only its id and recorded hardware, and the other its time.
   const hardware = { model: "DE1Pro", serial: "10027" };
@@ -273,6 +274,8 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
     const chart = curves.getByRole("figure", { name });
     await expect(chart.locator(".recharts-reference-area")).toHaveCount(1);
     await expect(chart.getByText("Preheat", { exact: true })).toBeVisible();
+    // A line at each of the four frame changes its samples show, at 5.0, 6.0, 12.1 and 17.5 s: none at 0 s or in Preheat.
+    await expect(chart.locator(".recharts-reference-line")).toHaveCount(4);
   }
 
   // A tap as iOS Safari makes one opens the Curves card's explanation, and a tap elsewhere closes it.
@@ -287,19 +290,32 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Preheater" }).check();
   const pressure = curves.getByRole("figure", { name: "Pressure" });
   await expect(pressure).toContainText("Previous Shot");
+  // The previous Shot's own step change, at 21.4 s, is not marked.
+  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name }).locator(".recharts-reference-line")).toHaveCount(4);
+  }
   const plot = pressure.locator('[data-slot="chart"]');
   const tooltip = pressure.locator(".recharts-tooltip-wrapper");
   const box = (await plot.boundingBox())!;
   // The plot starts after the 40-pixel y-axis and runs from -8 to 26 seconds.
   const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * (seconds + 8)) / 34, y: box.height / 3 });
-  for (const [seconds, previous] of [[-6, false], [-2, true], [22, true], [24.5, false]] as const) {
+  const cases = [
+    [-6, false, undefined],
+    [-2, true, undefined],
+    [3, true, "Prefill"],
+    [14, true, "Pressurize"],
+    [22, true, "Extraction"],
+    [24.5, false, "Extraction"],
+  ] as const;
+  for (const [seconds, previous, step] of cases) {
     await plot.hover({ position: at(seconds) });
     await expect(tooltip).toContainText("This Shot");
     if (previous) await expect(tooltip).toContainText("Previous Shot");
     else await expect(tooltip).not.toContainText("Previous Shot");
-    // Every time before 0 s is in Preheat, and the tooltip says so.
+    // Every time before 0 s is in Preheat, and the tooltip says so; after it, the tooltip names this Shot's step.
     if (seconds < 0) await expect(tooltip).toContainText(/s, Preheat/);
     else await expect(tooltip).not.toContainText("Preheat");
+    if (step) await expect(tooltip).toContainText(new RegExp(`\\d s, ${step}This Shot`));
   }
 
   await curves.getByRole("button", { name: "Measurements as a table" }).click();
@@ -309,6 +325,11 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   await expect(measurements.nth(42).getByRole("cell").first()).toHaveText(/^-0\.\d\d sPreheat$/);
   await expect(measurements.nth(43).getByRole("cell").first()).toHaveText("0.00 s");
   await expect(measurements.filter({ hasText: "Preheat" })).toHaveCount(43);
+  // Each sample's step, after the time: none in Preheat.
+  await expect(curves.getByRole("table", { name: "Measurements" }).getByRole("columnheader").nth(1)).toHaveText("Step");
+  for (const [n, step] of [[0, ""], [42, ""], [43, "Prefill"], [67, "Compressing"], [126, "Pressurize"], [127, "Extraction"]] as const) {
+    await expect(measurements.nth(n).getByRole("cell").nth(1)).toHaveText(step);
+  }
 });
 
 test("a Shot's record as sent scrolls a long line in its box, leaving the page and its charts their width", async ({ page }) => {
