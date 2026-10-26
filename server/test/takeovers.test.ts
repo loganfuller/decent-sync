@@ -103,7 +103,6 @@ describe("Takeovers", () => {
   });
   afterAll(async () => {
     await tablets.unloadAll();
-    await other?.stop();
     await server?.stop();
   });
 

@@ -37,8 +37,7 @@ describe("the idle-in-transaction timeout", () => {
 
   afterEach(async () => {
     await Promise.all(clients.splice(0).map((client) => client.end()));
-    // Instances sharing a database stop before the one that drops it.
-    for (const server of servers.splice(0).reverse()) await server.stop();
+    for (const server of servers.splice(0)) await server.stop();
     await Promise.all(poolers.splice(0).map((pooler) => pooler.close()));
   });
 

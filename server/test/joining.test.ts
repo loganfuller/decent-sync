@@ -65,7 +65,6 @@ describe("Joining a Location", () => {
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
     await Promise.all(raws.map((raw) => raw.terminate()));
-    await other?.stop();
     await server?.stop();
   });
 

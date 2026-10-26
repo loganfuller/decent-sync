@@ -33,7 +33,6 @@ describe("Client addresses", () => {
     await Promise.all(connections.splice(0).map((raw) => raw.terminate()));
   });
   afterAll(async () => {
-    await Promise.all([blank?.stop(), realIp?.stop(), forwarded?.stop()]);
     await unset?.stop();
   });
 

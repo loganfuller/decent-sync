@@ -45,7 +45,6 @@ describe("Settings Edits within 60 s", () => {
     cafe = await api.createLocation("Deadline cafe", "America/Toronto");
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

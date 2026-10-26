@@ -63,7 +63,6 @@ describe("Deliveries that cannot be stored", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await other?.stop();
     await server?.stop();
     await pooler?.close();
   });

@@ -43,7 +43,6 @@ describe("Grinders belonging to a Location", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

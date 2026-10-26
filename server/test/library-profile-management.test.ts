@@ -44,7 +44,6 @@ describe("Profiles in the management interface", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

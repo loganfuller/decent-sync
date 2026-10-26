@@ -41,7 +41,6 @@ describe("The capture-only switch", () => {
   });
   afterAll(async () => {
     await Promise.all(tablets.map((tablet) => tablet.unload()));
-    await other?.stop();
     await server?.stop();
   });
 

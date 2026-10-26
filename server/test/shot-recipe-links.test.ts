@@ -95,7 +95,6 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

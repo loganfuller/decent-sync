@@ -35,7 +35,6 @@ describe("several server instances", () => {
     other = api.at(second.url);
   });
   afterAll(async () => {
-    await second?.stop();
     await first?.stop();
   });
 

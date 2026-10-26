@@ -125,7 +125,6 @@ describe("Location History", () => {
     elsewhere = await api.createLocation("Elsewhere", "America/Chicago");
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

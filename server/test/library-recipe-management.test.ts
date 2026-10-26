@@ -63,7 +63,6 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 
