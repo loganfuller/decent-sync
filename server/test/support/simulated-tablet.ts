@@ -12,6 +12,7 @@ import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./d
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
+import { latestReleaseDir } from "./latest-release.mjs";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -198,11 +199,13 @@ export interface InFlightRequest {
   readonly route: string;
 }
 
-export function readBuiltPlugin(): { source: string; manifest: Record<string, unknown> } {
-  assertBuilt("plugin");
+/** The built plugin: the change's, or with `latestRelease` the latest release's, as committed at its tag. */
+export function readBuiltPlugin(options: { latestRelease?: boolean } = {}): { source: string; manifest: Record<string, unknown> } {
+  if (!options.latestRelease) assertBuilt("plugin");
+  const dir = options.latestRelease ? path.join(latestReleaseDir(), "decent-sync.reaplugin") : reapluginDir;
   return {
-    source: fs.readFileSync(path.join(reapluginDir, "plugin.js"), "utf8"),
-    manifest: JSON.parse(fs.readFileSync(path.join(reapluginDir, "manifest.json"), "utf8")),
+    source: fs.readFileSync(path.join(dir, "plugin.js"), "utf8"),
+    manifest: JSON.parse(fs.readFileSync(path.join(dir, "manifest.json"), "utf8")),
   };
 }
 
@@ -689,6 +692,14 @@ export interface SimulatedTabletOptions {
    * lists no DYE2.
    */
   dye2?: SimulatedDye2;
+  /**
+   * Loads the latest release's plugin, as committed at its tag and built by
+   * `npm run build:latest-release` (latest-release.mjs), rather than the
+   * change's, as on a tablet that has not installed the change's release yet
+   * (ADR-0025). A `reload()` loads it again, and `reload({ latestRelease:
+   * false })` loads the change's, as Decaid installing the update does.
+   */
+  latestRelease?: boolean;
 }
 
 type TransportEvent = Record<string, unknown> & { type: string };
@@ -876,7 +887,7 @@ export class SimulatedTablet {
     this.storage.decaidStarted();
     rememberSecret(options.settings.Token);
     watchLog("a simulated tablet's log", () => this.logs.join("\n"));
-    const { source, manifest } = readBuiltPlugin();
+    const { source, manifest } = readBuiltPlugin({ latestRelease: options.latestRelease });
     this.manifest = manifest;
     this.dye2 = options.dye2;
     this.dye2?.attach(this);

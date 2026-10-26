@@ -8,6 +8,7 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 import { stripVTControlCharacters } from "node:util";
 import pg from "pg";
 import { assertBuilt } from "./builds.js";
+import { latestReleaseDir } from "./latest-release.mjs";
 import { watchLog, watchSecrets } from "./secrets.js";
 
 // Runs the built server (`npm run build` first) as a self-hoster does, on its
@@ -16,9 +17,9 @@ import { watchLog, watchSecrets } from "./secrets.js";
 // repo's .env, names the PostgreSQL server to create test databases on
 // (`adminDatabaseUrl()`); its user needs CREATEDB, and CREATEROLE for
 // `notOwner`. The server under test gets its own database as DATABASE_URL.
+// With `latestRelease` it runs the latest release's server instead.
 
 const repoDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../..");
-const main = path.join(repoDir, "server/dist/main.js");
 const clockOffset = path.join(repoDir, "server/test/support/clock-offset.mjs");
 const secretCapture = path.join(repoDir, "server/test/support/secret-capture.mjs");
 const passwordHashGate = path.join(repoDir, "server/test/support/password-hash-gate.mjs");
@@ -74,6 +75,15 @@ export interface TestServerOptions {
    * public schema, as migrating needs, and is dropped with the database.
    */
   notOwner?: boolean;
+  /**
+   * Runs the latest release's server, built from its tag by `npm run
+   * build:latest-release` (latest-release.mjs), rather than the change's, as
+   * an instance of the previous release runs during an upgrade (ADR-0025).
+   * It migrates its database with its own migrations, so with `sharing` it
+   * runs beside the change's server on a database the change migrated, or
+   * the other way round.
+   */
+  latestRelease?: boolean;
 }
 
 /**
@@ -84,7 +94,8 @@ export interface TestServerOptions {
 const sharerHalts = new WeakMap<TestServer, (() => Promise<void>)[]>();
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
-  assertBuilt("protocol", "server");
+  if (!options.latestRelease) assertBuilt("protocol", "server");
+  const main = path.join(options.latestRelease ? latestReleaseDir() : repoDir, "server/dist/main.js");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
   // Its owner must know of it, to stop it before dropping the database.

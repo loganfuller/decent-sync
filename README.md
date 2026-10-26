@@ -465,6 +465,7 @@ interface everywhere else.
 | `npm run typecheck` | typecheck every workspace |
 | `npm run build` | build every workspace, including `decent-sync.reaplugin/` |
 | `npm run build:stale` | rebuild only the workspaces whose builds are older than their sources |
+| `npm run build:latest-release` | build the latest release from its tag, outside the checkout, for the tests that run it beside the change |
 | `npm run db:test` | start the shared test PostgreSQL in Docker, and drop test databases left over 2 hours old |
 | `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
 | `npm run test:e2e` | Playwright against the built server (run `npm run build` first) |
