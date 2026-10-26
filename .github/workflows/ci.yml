@@ -165,8 +165,9 @@ jobs:
             exit 1
           fi
 
+      # The tests that run the latest release have a job of their own.
       - name: Vitest
-        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --exclude 'server/test/latest-release/**'
 
       # The only record of server-side errors, such as running out of
       # connections.
@@ -174,6 +175,45 @@ jobs:
         name: PostgreSQL logs
         if: always()
         run: docker logs postgres || cat "$RUNNER_TEMP/postgres.log"
+
+  # Seam 1 tests that run the latest release beside the change
+  # (server/test/latest-release/), in a job of their own so the shards above
+  # need not build it.
+  latest-release:
+    name: vitest (latest release)
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    env: *env
+
+    steps:
+      - *start-postgres
+
+      # The latest release is the newest vX.Y.Z tag on main, which needs
+      # main's history and the tags.
+      - &checkout-with-tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - *setup-node
+      - *restore-modules
+      - *install
+      - *runner-cpu
+      - *build
+
+      # Any job that runs the latest release can take this step, after a
+      # checkout with the tags (checkout-with-tags) and Node.
+      - &build-latest-release
+        name: Build the latest release
+        run: npm run build:latest-release
+
+      - *wait-postgres
+
+      - name: Vitest
+        run: npx vitest run server/test/latest-release
+
+      - *postgres-logs
 
   playwright:
     name: playwright (${{ matrix.shard }}/${{ strategy.job-total }})

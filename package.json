@@ -15,6 +15,7 @@
   "scripts": {
     "build": "npm run build -w protocol && npm run build -w plugin && npm run build -w web && npm run build -w server",
     "build:stale": "node scripts/build-stale.mjs",
+    "build:latest-release": "node scripts/build-latest-release.mjs",
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json && tsc -p scripts/test/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
