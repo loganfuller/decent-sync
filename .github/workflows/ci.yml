@@ -9,13 +9,14 @@ on:
   push:
     branches: [main]
   # Docs-only means everything under docs/ and any Markdown file but
-  # UPGRADING.md, which scripts/release-notes.mjs reads at release time. The
+  # UPGRADING.md, which scripts/release-notes.mjs reads at release time, and
+  # those in decent-sync.reaplugin/, which the plugin ZIP packs whole. The
   # filter looks at the pull request's whole diff, so once it touches anything
   # else, every later push runs CI. A check from a workflow this filter skips
   # stays pending: if these jobs ever become required checks, docs-only pull
   # requests would be blocked, so replace the filter with job-level skips then.
   pull_request:
-    paths: ['**', '!docs/**', '!**/*.md', 'UPGRADING.md']
+    paths: ['**', '!docs/**', '!**/*.md', 'UPGRADING.md', 'decent-sync.reaplugin/**']
 
 permissions:
   contents: read
@@ -48,20 +49,24 @@ jobs:
       - name: Install
         run: npm ci
 
-      # The test jobs restore this node_modules rather than installing. Only
-      # this job saves it, straight after a clean install and before anything
-      # builds, so nothing a build or test run writes gets into it.
+      # The test jobs restore this node_modules rather than installing, with
+      # any a workspace has of its own, where npm nests a version that
+      # conflicts with the root's. Only this job saves it, straight after a
+      # clean install and before anything builds, so nothing a build or test
+      # run writes gets into it.
       - id: modules-lookup
         uses: actions/cache/restore@v6
         with:
-          path: node_modules
+          path: &modules-path |
+            node_modules
+            */node_modules
           key: &modules-key node-modules-ubuntu-26.04-node${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}
           lookup-only: true
 
       - if: steps.modules-lookup.outputs.cache-hit != 'true'
         uses: actions/cache/save@v6
         with:
-          path: node_modules
+          path: *modules-path
           key: *modules-key
 
       # Decaid installs the committed build, so it must match its source.
@@ -119,7 +124,7 @@ jobs:
         id: modules
         uses: actions/cache/restore@v6
         with:
-          path: node_modules
+          path: *modules-path
           key: *modules-key
 
       - &install
