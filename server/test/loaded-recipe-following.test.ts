@@ -439,6 +439,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const grinder = (await globalOf(a, "/grinders", RECORDED_GRINDER_83))!;
     await a.changeSettings({ context: { grinderId: RECORDED_GRINDER_83, grinderModel: "Fixture Grinder 83" } });
     await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(grinder);
+    await expect.poll(() => localId(c, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
@@ -455,6 +456,8 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (local = await localId(a, "/bean-batches", next)), { timeout: 15_000 }).toEqual(expect.any(String));
     await a.changeSettings({ context: { beanBatchId: local } });
     await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
+    // C's record of the batch first, so the id expected of C's Workflow is read once it exists.
+    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
     await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", next));
     await loads(machines.a, one);
 
