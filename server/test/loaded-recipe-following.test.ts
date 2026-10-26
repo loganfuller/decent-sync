@@ -38,9 +38,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded. Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 and Streamline at cec5664 as recorded
-// (fixtures/decaid/dye2-v0.1.26/), Machines A and D on one server instance
-// and C on another sharing one database, with assertions through the REST
-// API and what each simulated tablet holds. Serials are made up, from 48001.
+// (fixtures/decaid/dye2-v0.1.26/), Machine A, and D in the tests that use
+// it, on one server instance and C on another sharing one database, with
+// assertions through the REST API and what each simulated tablet holds.
+// Serials are made up, from 48001.
 
 type Record_ = Record<string, unknown>;
 
@@ -131,32 +132,37 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
-   * one instance, C on the other, and D on the first, both tablets where
-   * DYE2 was never used, each running DYE2. A brings its recipes, which every
-   * tablet there is written under their record ids, and the Ethiopia's (in no
-   * slot) is applied from DYE2's Select Recipe page on A and C, and the
-   * Brazil's (in slot 2) on D, which each loads. A's machine is connected.
-   * `apiDelayMs` slows the answers A's Decaid gives the plugin, as the
-   * simulated tablet's option of that name does.
+   * one instance, C on the other, and, with `d`, D on the first, both
+   * tablets where DYE2 was never used, each running DYE2. A brings its
+   * recipes, which every tablet there is written under their record ids,
+   * and the Ethiopia's (in no slot) is applied from DYE2's Select Recipe page
+   * on A and C, and the Brazil's (in slot 2) on D, which each loads, in that
+   * order. A's machine is connected. `apiDelayMs` slows the answers A's
+   * Decaid gives the plugin, as the simulated tablet's option of that name
+   * does.
    */
-  async function lab(scenario: string, serial: number, options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number } = {}) {
+  async function lab<WithD extends boolean = false>(
+    scenario: string,
+    serial: number,
+    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; d?: WithD } = {},
+  ) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
       a: await api.createMachine(`${scenario} lab A`, here.id),
       c: await api.createMachine(`${scenario} lab C`, here.id),
-      d: await api.createMachine(`${scenario} lab D`, here.id),
+      d: options.d ? await api.createMachine(`${scenario} lab D`, here.id) : undefined,
     };
-    const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: new SimulatedDye2() };
+    const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: options.d ? new SimulatedDye2() : undefined };
     const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
-    const d = syncingTablet(machines.d, server, { api: dye2NeverUsed(String(serial + 2)), dye2: dye2.d });
-    await api.waitForOnline(machines.c, machines.d);
+    const d = machines.d ? syncingTablet(machines.d, server, { api: dye2NeverUsed(String(serial + 2)), dye2: dye2.d }) : undefined;
+    await api.waitForOnline(machines.c, ...(machines.d ? [machines.d] : []));
     const one = dye2GlobalIdOf(record(a, ETHIOPIA))!;
     const two = dye2GlobalIdOf(record(a, BRAZIL))!;
     // Each tablet holds both, naming the batch and Basket each uses by its own ids.
-    for (const tablet of [c, d]) {
+    for (const tablet of d ? [c, d] : [c]) {
       await expect
         .poll(() => [ETHIOPIA, BRAZIL].map((id) => [dye2GlobalIdOf(record(tablet, id)), record(tablet, id)?.beanBatchId ?? null]).flat(), { timeout: 15_000 })
         .not.toContain(null);
@@ -169,13 +175,23 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     };
     await load(a, machines.a, ETHIOPIA, one);
     await load(c, machines.c, ETHIOPIA, one);
-    await load(d, machines.d, BRAZIL, two);
+    if (d && machines.d) await load(d, machines.d, BRAZIL, two);
     a.connectMachine();
-    return { here, machines, dye2, a, c, d, one, two, load };
+    return {
+      here,
+      machines: machines as typeof machines & { d: WithD extends true ? CreatedMachine : undefined },
+      dye2: dye2 as typeof dye2 & { d: WithD extends true ? SimulatedDye2 : undefined },
+      a,
+      c,
+      d: d as WithD extends true ? SimulatedTablet : undefined,
+      one,
+      two,
+      load,
+    };
   }
 
   it("takes a grind and brew temperature change on A that DYE2 saves into the Recipe once each, and writes them into C's Workflow on the other instance, and no other's, A's included", async () => {
-    const { machines, dye2, a, c, d, one } = await lab("Recorded", 48001);
+    const { machines, dye2, a, c, d, one } = await lab("Recorded", 48001, { d: true });
     const grinds = await editsOf(one, "grindSetting");
     const received = a.received.length;
     await a.changeSettings({ context: { grinderSetting: "3.1" } });
@@ -226,9 +242,10 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(variables(record(c, ETHIOPIA)).rpm).toBe(0);
   });
 
-  it("writes an RPM and dose saved in DYE2's editor on A, which has the Recipe loaded and applies it again, into C's Workflow, where they stay through A's next change", async () => {
-    const { a, c, one } = await lab("Editor", 48161);
-    // DYE2's editor saves the fields changed over a fresh read, and applies the recipe the Workflow names again.
+  it("writes an RPM and dose saved in DYE2's editor on A, which has the Recipe loaded and applies it again, into C's Workflow, where they stay through A's next change, and keeps the RPM then cleared on A, writing the Recipe's back into none", async () => {
+    const { a, c, one } = await lab("Editor cleared", 48231);
+    // DYE2's editor on A saves the fields changed over a fresh read, and applies the recipe the Workflow names again, so A's
+    // Workflow holds them before the server takes them in.
     const saved = await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333, dose: 19.5 }).save();
     expect(saved.reapplied).toBe(true);
     await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ rpm: 1333, dose: 19.5 });
@@ -236,24 +253,12 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       await expect.poll(() => [extras(tablet).rpm, context(tablet).targetDoseWeight], { timeout: 15_000 }).toEqual([1333, 19.5]);
     }
     expect(recipeIdInWorkflow(a)).toBe(ETHIOPIA);
-    // A's next change of the Workflow, which DYE2 saves, keeps them.
-    await a.changeSettings({ context: { grinderSetting: "3.3" } });
-    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.3);
-    await settle();
-    expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
-    expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
-  });
-
-  it("keeps an RPM cleared on A after DYE2's editor saved and applied it there and A changed on, writing the Recipe's back into none", async () => {
-    const { a, c, one } = await lab("Editor cleared", 48231);
-    // DYE2's editor on A saves the RPM and applies the recipe again, so A's Workflow holds it before the server takes it in.
-    await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ rpm: 1333 }).save();
-    await expect.poll(async () => (await recipe(one)).content.rpm, { timeout: 15_000 }).toBe(1333);
-    await expect.poll(() => [extras(a).rpm, extras(c).rpm], { timeout: 15_000 }).toEqual([1333, 1333]);
-    // A's next change, which DYE2 saves before its Workflow, holding the RPM, reaches the server.
+    // A's next change, which DYE2 saves before its Workflow, holding them, reaches the server, keeps them.
     await a.changeSettings({ context: { grinderSetting: "2.7" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(2.7);
     await settle();
+    expect((await recipe(one)).content).toMatchObject({ rpm: 1333, dose: 19.5 });
+    expect([extras(c).rpm, context(c).targetDoseWeight]).toEqual([1333, 19.5]);
     // A value cleared on A is A's own: the Recipe's is not written back over it.
     const received = a.received.length;
     await a.changeSettings({ context: { extras: { rpm: null } } });
@@ -354,7 +359,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("takes an RPM and Basket a Recipe holds none of as its own as they change on its Machine, which DYE2 saves none of, and writes them into D's", async () => {
-    const { machines, dye2, a, d, two, load } = await lab("Unheld", 48131);
+    const { machines, dye2, a, d, two, load } = await lab("Unheld", 48131, { d: true });
     await patch(two, { rpm: null, basketId: null });
     await expect.poll(() => [variables(record(a, BRAZIL)).rpm ?? null, variables(record(a, BRAZIL)).basketId ?? null], { timeout: 15_000 }).toEqual([null, null]);
     // A's Workflow holds none either as it loads it, so the load gains the Recipe neither.
@@ -375,7 +380,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("gains a Recipe the grinder, Basket, RPM and dose it holds none of from the Workflow it is loaded on, and writes them into D's", async () => {
-    const { machines, a, d, two, load } = await lab("Gains", 48121);
+    const { machines, a, d, two, load } = await lab("Gains", 48121, { d: true });
     await patch(two, { rpm: null, basketId: null, grinderId: null, dose: null });
     await expect.poll(() => [variables(record(a, BRAZIL)).rpm ?? null, variables(record(a, BRAZIL)).basketId ?? null, variables(record(a, BRAZIL)).dose ?? null], { timeout: 15_000 }).toEqual([
       null,
@@ -631,7 +636,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("keeps D's Recipe loaded as it is taken out of its slot, and clears A's and C's as theirs is Archived, or A is made capture-only, where a recipe then applied stays named", async () => {
-    const { machines, dye2, a, c, d, one, two, load } = await lab("Cleared", 48081);
+    const { machines, dye2, a, c, d, one, two, load } = await lab("Cleared", 48081, { d: true });
     expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: null })).status).toBe(200);
     await expect.poll(() => record(d, BRAZIL)?.stripSlot, { timeout: 15_000 }).toBeNull();
     await settle();
@@ -664,7 +669,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("keeps a Recipe moved to another slot loaded, its record keeping its id, and saves a change into it alone", async () => {
-    const { machines, dye2, a, c, d, one, two } = await lab("Moved", 48091);
+    const { machines, dye2, a, c, d, one, two } = await lab("Moved", 48091, { d: true });
     const times = await loadedTimes(machines.d);
     expect((await api.call("PUT", `/recipes/${two}/slot`, { slot: 5 })).status).toBe(200);
     for (const tablet of [a, c, d]) await expect.poll(() => record(tablet, BRAZIL)?.stripSlot, { timeout: 15_000 }).toBe(5);
