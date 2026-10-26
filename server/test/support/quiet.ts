@@ -39,7 +39,7 @@ export async function quiesced(api: AdminApi, { tablets, machines = {}, streamli
   let first: Map<string, number> | undefined;
   await expect
     .poll(async () => {
-      // A sample that throws, such as on a failed read of a sharing status, ends the run of quiet samples as a failed check does.
+      // A sample that throws ends the run of quiet samples, as a failed check does.
       const sampled = await sample(api, tablets, machines, streamlines).catch((error: unknown) => {
         first = undefined;
         throw error;
@@ -72,7 +72,12 @@ async function sample(
     if (!(await settledNow(streamline))) return `Streamline ${name} is not settled`;
   }
   for (const [name, { machine }] of Object.entries(machines)) {
-    const { waiting } = (await api.get<{ status: { waiting: number | null } }>(`/machines/${machine.id}/sharing-status`)).status;
+    let waiting: number | null;
+    try {
+      ({ waiting } = (await api.get<{ status: { waiting: number | null } }>(`/machines/${machine.id}/sharing-status`)).status);
+    } catch (error) {
+      return `Machine ${name}'s sharing status could not be read: ${error instanceof Error ? error.message : String(error)}`;
+    }
     if (waiting !== null && waiting !== 0) return `Machine ${name} has ${waiting} waiting`;
   }
   // Read together, with no await between them, so the counts mark the end of this sample.
