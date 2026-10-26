@@ -81,3 +81,4 @@ The plugin needs Decaid v0.9.0 or newer, and a Machine that follows Recipes
 DYE2 built from `main` at `2cf631c` or later and, where Streamline is its
 skin, streamline-js from `main` at `c006dac` or later
 ([ADR-0017](docs/adr/0017-supported-versions.md)).
+
