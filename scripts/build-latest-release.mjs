@@ -19,7 +19,7 @@ import { execFileSync, spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { repoDir } from "../server/test/support/build-table.mjs";
-import { RELEASE_TAG, compareVersions, latestReleaseTag, releaseDir, releasesDir } from "../server/test/support/latest-release.mjs";
+import { buildsToRemove, latestReleaseTag, releaseDir, releasesDir } from "../server/test/support/latest-release.mjs";
 
 const npm = process.platform === "win32" ? "npm.cmd" : "npm";
 /** The workspaces built; the plugin is used as committed at the tag. */
@@ -77,8 +77,7 @@ try {
   fs.rmSync(building, { recursive: true, force: true });
   if (!fs.existsSync(dir)) fail(`Could not move the build of ${tag} into ${dir}: ${error.message}`);
 }
-const earlier = fs.readdirSync(root).filter((entry) => RELEASE_TAG.test(entry) && compareVersions(entry, tag) < 0).sort(compareVersions);
-for (const entry of earlier.slice(0, -1)) fs.rmSync(path.join(root, entry), { recursive: true, force: true });
+for (const entry of buildsToRemove(fs.readdirSync(root), tag)) fs.rmSync(path.join(root, entry), { recursive: true, force: true });
 console.log(`Built the latest release, ${tag}, in ${dir}.`);
 
 /**

@@ -18,11 +18,18 @@ export const BUILD_COMMAND = "npm run build:latest-release";
 /** A release's tag, such as v1.3.0. */
 export const RELEASE_TAG = /^v(\d+)\.(\d+)\.(\d+)$/;
 
+/** The tag `latestReleaseTag()` found for this checkout, which it keeps. */
+let found;
+
 /**
  * The newest vX.Y.Z tag on main (`origin/main`), of the tags this clone
- * holds. Throws, saying how to fetch them, when it holds none.
+ * holds. Throws, saying how to fetch them, when it holds none. For this
+ * checkout it is found once in each process, or each test file, as Vitest
+ * loads modules afresh for each: every worktree shares the tags, so another's
+ * fetch would otherwise change the release under tests already running.
  */
 export function latestReleaseTag(root = repoDir) {
+  if (root === repoDir && found !== undefined) return found;
   const fetchThem =
     "fetch main's history and its tags (`git fetch --tags origin main`; in CI, actions/checkout with `fetch-depth: 0`)";
   let listed;
@@ -37,7 +44,9 @@ export function latestReleaseTag(root = repoDir) {
   }
   const tags = listed.split("\n").filter((tag) => RELEASE_TAG.test(tag));
   if (tags.length === 0) throw new Error(`No vX.Y.Z tag is on origin/main: ${fetchThem}`);
-  return tags.sort(compareVersions).at(-1);
+  const tag = tags.sort(compareVersions).at(-1);
+  if (root === repoDir) found = tag;
+  return tag;
 }
 
 /**
@@ -66,6 +75,19 @@ export function latestReleaseDir(root = repoDir) {
     throw new Error(`Tests that run the latest release need its build, and ${tag} is not built in ${dir}: run \`${BUILD_COMMAND}\`.`);
   }
   return dir;
+}
+
+/**
+ * Of the entries in the releases directory, the builds to remove once the
+ * build of the tag `built` is in place: those of tags earlier than the one
+ * just before it, which tests another checkout started earlier may still be
+ * running, and never a later tag's.
+ */
+export function buildsToRemove(entries, built) {
+  return entries
+    .filter((entry) => RELEASE_TAG.test(entry) && compareVersions(entry, built) < 0)
+    .sort(compareVersions)
+    .slice(0, -1);
 }
 
 /** Orders two release tags by version, as a sort's comparator does. */

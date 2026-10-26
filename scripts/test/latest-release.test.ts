@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { latestReleaseTag } from "../../server/test/support/latest-release.mjs";
+import { buildsToRemove, latestReleaseTag } from "../../server/test/support/latest-release.mjs";
 
 // The latest release, which Seam 1 runs beside the change, read from a
 // scratch repository's tags.
@@ -50,5 +50,14 @@ describe("the latest release", () => {
 
     pushMain();
     expect(() => latestReleaseTag(dir)).toThrow(/No vX\.Y\.Z tag is on origin\/main: .*fetch-depth: 0/);
+  });
+});
+
+describe("the builds removed once a release is built", () => {
+  it("are those of tags earlier than the one just before it, never a later tag's", () => {
+    const entries = ["v1.2.0", "v1.10.0", "v1.9.0", "v1.3.1", "v2.0.0", ".building-v1.10.0-123", "notes"];
+    expect(buildsToRemove(entries, "v1.10.0")).toEqual(["v1.2.0", "v1.3.1"]);
+    expect(buildsToRemove(["v1.3.0", "v1.3.1"], "v1.3.1")).toEqual([]);
+    expect(buildsToRemove(["v1.3.1", "v1.4.0"], "v1.3.1")).toEqual([]);
   });
 });
