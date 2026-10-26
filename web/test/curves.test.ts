@@ -24,7 +24,7 @@ describe("shotSamples", () => {
 
   it("reads the group temperature against its target, the profile's, not the mix temperature", () => {
     const samples = shotSamples(measurements);
-    // The profile's steps hold the group at 88 °C, then 83 °C, while the mix target swings from 76 to 94 °C.
+    // The profile's steps hold the group at 88 °C, then 83 °C, while the mix target swings from 75 to 94 °C.
     expect([43, 50, 80, 167].map((n) => [samples[n]!.values.temperature, samples[n]!.targets.temperature])).toEqual([
       [70.85310363769531, 88],
       [72.68592834472656, 88],

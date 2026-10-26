@@ -395,8 +395,8 @@ daylight-saving changes, and previous Shots.
 `/shots` lists Shots with the REST filters in its address, so a filtered
 list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
 among them; `/shots/:id` shows a Shot's curves (pressure,
-flow, weight and group temperature, measured at the group head as Streamline
-draws it, with the targets its Machine reported),
+flow, weight and group temperature, as Streamline draws them, with the
+targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and
 labelled before 0 s in every chart and marked in the measurements table,
 the previous Shot it is compared with aligned at 0 s too,

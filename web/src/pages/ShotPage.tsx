@@ -223,7 +223,7 @@ function ShotDetails({ id }: { id: string }) {
           <CardTitleWithInfo title="Curves">
             <p>
               Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group
-              temperature, measured at the group head, the closest to the coffee.
+              temperature, measured at the group head, the sensor closest to the coffee.
             </p>
             <p>
               Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the
