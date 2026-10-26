@@ -89,7 +89,6 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

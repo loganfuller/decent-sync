@@ -54,7 +54,6 @@ describe("sign-in limits across server instances", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await second?.stop();
     await first?.stop();
   });
 

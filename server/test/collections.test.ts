@@ -68,7 +68,6 @@ describe("Library, settings and paired devices", () => {
     for (const tablet of used) expect(tablet.writes).toEqual([]);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

@@ -36,7 +36,7 @@ describe("Shot capture and reconciliation", () => {
     other = await startTestServer({ env, sharing: server });
     api = await AdminApi.setUp(server.url);
   });
-  afterAll(async () => { await other?.stop(); await server?.stop(); });
+  afterAll(async () => { await server?.stop(); });
 
   function shot(id: string, changes: Record<string, unknown> = {}) {
     const fixture = shotFixture();

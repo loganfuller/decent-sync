@@ -590,7 +590,6 @@ describe("Telling skins of Recipes changed in the management interface", { timeo
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

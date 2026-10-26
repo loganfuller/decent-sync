@@ -74,7 +74,6 @@ describe("Steam Record capture", () => {
     for (const tablet of tablets.splice(0)) expect(tablet.requests).not.toContain("/steams");
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
     if (timeZone === undefined) delete process.env.TZ;
     else process.env.TZ = timeZone;

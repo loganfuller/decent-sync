@@ -46,7 +46,6 @@ describe("Baskets and Tools shared through DYE2's lists", { timeout: 90_000 }, (
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

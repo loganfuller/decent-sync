@@ -75,7 +75,6 @@ describe("session expiry across server instances", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await Promise.all([ahead?.stop(), behind?.stop()]);
     await first?.stop();
   });
 

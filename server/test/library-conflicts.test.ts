@@ -60,7 +60,6 @@ describe("Resolving Conflicts", () => {
     adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

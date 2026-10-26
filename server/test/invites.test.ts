@@ -45,7 +45,6 @@ describe("invites", () => {
     belmont = await api.createLocation("Belmont", "America/Chicago");
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 
@@ -223,7 +222,6 @@ describe("invite expiry across server instances", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await Promise.all([ahead?.stop(), behind?.stop()]);
     await first?.stop();
   });
 

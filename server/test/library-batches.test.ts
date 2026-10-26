@@ -58,7 +58,6 @@ describe("Bean Batches at Locations", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

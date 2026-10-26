@@ -101,7 +101,6 @@ describe("account management", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await other?.stop();
     await server?.stop();
   });
 
@@ -548,7 +547,6 @@ describe("the last active Admin", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await other?.stop();
     await server?.stop();
   });
 
@@ -658,7 +656,6 @@ describe("password reset link expiry across server instances", () => {
   });
   afterAll(async () => {
     await database?.end();
-    await Promise.all([ahead?.stop(), behind?.stop()]);
     await first?.stop();
   });
 

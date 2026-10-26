@@ -41,7 +41,6 @@ describe("Workflow changes and machine state transitions", () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

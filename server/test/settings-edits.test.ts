@@ -52,7 +52,6 @@ describe("Settings Edits", () => {
     elsewhere = await api.createLocation("Settings elsewhere", "America/Toronto");
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

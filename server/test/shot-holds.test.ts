@@ -45,7 +45,6 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

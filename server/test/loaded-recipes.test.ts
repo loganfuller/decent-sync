@@ -80,7 +80,6 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 

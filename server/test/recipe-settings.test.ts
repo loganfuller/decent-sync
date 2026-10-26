@@ -57,7 +57,6 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
-    await other?.stop();
     await server?.stop();
   });
 
