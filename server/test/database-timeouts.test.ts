@@ -7,7 +7,7 @@ import { databaseUnreachable, poolConfig } from "../src/database.js";
 import { PrismaClient } from "../src/generated/prisma/client.js";
 import { Notifications } from "../src/notifications.js";
 import { type OutageProxy, startOutageProxy } from "./support/outage-proxy.js";
-import { adminDatabaseUrl } from "./support/test-server.js";
+import { adminDatabaseUrl, testDatabaseName } from "./support/test-server.js";
 
 // The server's connections to the PostgreSQL server tests use
 // (`server/src/database.ts`), through a proxy that takes it away
@@ -15,17 +15,37 @@ import { adminDatabaseUrl } from "./support/test-server.js";
 // request answers with 503, that a statement outlasting its query timeout
 // leaves behind no connection for a later query to wait on, and that the
 // notifications listener notices a connection gone silent. The pool's
-// timeouts are shortened here. It runs only `SELECT`s and notifications.
+// timeouts are shortened here. It runs only `SELECT`s and notifications, on
+// a database of its own, so no other run hears them.
 
-const QUERY_TIMEOUT_MS = 1_000;
+const QUERY_TIMEOUT_MS = 2_000;
 const CONNECT_TIMEOUT_MS = 500;
 
 describe("the server's database client", () => {
   let proxy: OutageProxy;
   const clients: PrismaClient[] = [];
+  const database = testDatabaseName();
+  /** The file's own database, through the proxy or not. */
+  const databaseUrl = (host?: string) => {
+    const url = new URL(adminDatabaseUrl());
+    url.pathname = `/${database}`;
+    if (host) url.host = host;
+    return url.href;
+  };
+  /** Runs one statement on the PostgreSQL server, outside any test database. */
+  const onServer = async (sql: string) => {
+    const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
+    await admin.connect();
+    try {
+      await admin.query(sql);
+    } finally {
+      await admin.end();
+    }
+  };
 
   beforeAll(async () => {
     proxy = await startOutageProxy();
+    await onServer(`CREATE DATABASE "${database}" TEMPLATE template0`);
   });
   afterEach(async () => {
     proxy.restore();
@@ -33,14 +53,10 @@ describe("the server's database client", () => {
   });
   afterAll(async () => {
     await proxy?.close();
+    await onServer(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`);
   });
 
-  /** The database's URL through the proxy. */
-  function throughProxy(): string {
-    const url = new URL(adminDatabaseUrl());
-    url.host = proxy.host;
-    return url.href;
-  }
+  const throughProxy = () => databaseUrl(proxy.host);
   /** A client of the server's pool through the proxy, its timeouts short, holding at most `max` connections. */
   function connect(max = 10): PrismaClient {
     const prisma = new PrismaClient({
@@ -105,13 +121,13 @@ describe("the server's database client", () => {
     // No connection free in time.
     const busy = connect(1);
     // Longer than a wait for a connection may take, within the query timeout. Prisma sends a query only once awaited.
-    const holding = busy.$executeRaw`SELECT pg_sleep(0.8)`.then(() => {});
+    const holding = busy.$executeRaw`SELECT pg_sleep(1)`.then(() => {});
     await new Promise((resolve) => setTimeout(resolve, 100));
     expect(databaseUnreachable(await failure(busy.$queryRaw`SELECT 1`))).toBe(true);
     await holding;
 
     // PostgreSQL ending the connection mid-statement, as a database shutting down for a failover does (57P01).
-    const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
+    const admin = new pg.Client({ connectionString: databaseUrl() });
     await admin.connect();
     try {
       let pid: number | undefined;
@@ -146,7 +162,7 @@ describe("the server's database client", () => {
     const heard: (string | null)[] = [];
     notifications.subscribe("library_changes", (payload) => heard.push(payload));
     await notifications.onModuleInit();
-    const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
+    const admin = new pg.Client({ connectionString: databaseUrl() });
     await admin.connect();
     try {
       expect(heard).toEqual([null]);
