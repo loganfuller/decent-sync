@@ -267,21 +267,27 @@ jobs:
 
       # The suite runs the latest release's own code and tests, so the change
       # reaches it only through its migrations, what applies them (Prisma,
-      # from the lockfile) and this job's own scripts. When none of those
-      # changed, it would find what it found before, so it skips with a
-      # notice: on a pull request, against main; on a push to main, against
-      # the previous push. A base it can't find, as on a new branch's push,
-      # runs it.
+      # from the lockfile) and this job's own scripts. It runs only when one
+      # of those differs: on a pull request, from main; on a push to main,
+      # from the latest release, so main runs it for as long as it holds
+      # anything that release lacks, whatever an earlier push found.
+      # Otherwise it skips with a notice. A base it can't find runs it.
       - id: schema
         name: Check for a change the latest release's suite depends on
         env:
-          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
         run: |
-          if git cat-file -e "$BASE^{commit}" 2> /dev/null && git diff --quiet "$BASE" HEAD -- \
+          if [ "$PULL_REQUEST" = true ]; then
+            base=HEAD^1 since="main"
+          else
+            base=$(node --input-type=module -e 'import { latestReleaseTag } from "./server/test/support/latest-release.mjs"; console.log(latestReleaseTag())') || base=
+            since=$base
+          fi
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2> /dev/null && git diff --quiet "$base" HEAD -- \
               server/prisma/migrations server/prisma.config.ts package-lock.json .github/workflows/ci.yml \
               scripts/latest-release-suite.mjs scripts/build-latest-release.mjs \
               server/test/support/latest-release.mjs server/test/support/build-table.mjs; then
-            echo "::notice title=Latest release's suite skipped::Nothing it depends on changed since $(git rev-parse --short "$BASE"): no migration, nor Prisma's version or this job's scripts."
+            echo "::notice title=Latest release's suite skipped::Nothing it depends on differs from $since: no migration, nor Prisma's version or this job's scripts."
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
 
@@ -292,7 +298,7 @@ jobs:
 
       - name: Build the latest release
         if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
-        run: npm run build:latest-release
+        run: node scripts/build-latest-release.mjs
 
       - *wait-postgres
 
