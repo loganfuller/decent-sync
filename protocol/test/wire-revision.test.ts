@@ -36,9 +36,11 @@ describe("the wire revision", () => {
     expect(peerHasWireRevision(9, 5, 5)).toBe(true);
   });
 
-  it("fails, saying to delete the check, when asked about a revision every peer accepted has", () => {
+  it("fails, saying to delete the check or move it to the current revision, when asked about a revision every peer accepted has", () => {
     // Once the wire has moved on, every peer within the window has the revision before.
-    expect(() => peerHasWireRevision(3, 2, 3)).toThrow("Every peer that wire revision 3 accepts has revision 2: delete this check");
+    expect(() => peerHasWireRevision(3, 2, 3)).toThrow(
+      "Every peer that wire revision 3 accepts has revision 2: delete this check, or, if what it sends came after the latest release, ask for revision 3",
+    );
     expect(() => peerHasWireRevision(7, 4, 7)).toThrow(/delete this check/);
     // At revision 2 every peer has 1, the revision of a peer that sends none.
     expect(() => peerHasWireRevision(2, 1, 2)).toThrow(/delete this check/);

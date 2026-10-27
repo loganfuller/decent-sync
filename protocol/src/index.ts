@@ -71,15 +71,18 @@ export function acceptsWireRevision(peer: number, own = WIRE_REVISION): boolean 
  * Whether a peer at wire revision `peer` has `revision`, asked by a build at
  * `own` where it sends something new in that revision, with the revision it
  * arrived in. Throws once every peer it accepts has that revision, as the
- * check is then left over and is to be deleted, and while `own` doesn't have
- * it, as the change never raised WIRE_REVISION.
+ * check is then left over and is to be deleted, or, where what it sends came
+ * after the latest release, moved to the current revision; and while `own`
+ * doesn't have it, as the change never raised WIRE_REVISION.
  */
 export function peerHasWireRevision(peer: number, revision: number, own = WIRE_REVISION): boolean {
   if (revision > own) {
     throw new Error(`Asked whether a peer has wire revision ${revision}, but this build speaks ${own}: raise WIRE_REVISION`);
   }
   if (revision <= Math.max(FIRST_WIRE_REVISION, own - 1)) {
-    throw new Error(`Every peer that wire revision ${own} accepts has revision ${revision}: delete this check`);
+    throw new Error(
+      `Every peer that wire revision ${own} accepts has revision ${revision}: delete this check, or, if what it sends came after the latest release, ask for revision ${own}`,
+    );
   }
   return peer >= revision;
 }
