@@ -42,32 +42,39 @@ export function useNewBuildOnNavigation(): void {
   }, [pathname]);
 }
 
-/** The reloads this tab made for a chunk that failed to load, kept through them. */
-const CHUNK_RELOADS = "decent-sync:chunk-reloads";
+/** Set once this tab reloads for a chunk that failed to load, until one loads; kept through the reload. */
+const RELOADED_FOR_CHUNK = "decent-sync:reloaded-for-chunk";
 
 /**
  * Reloads the page once a chunk of it fails to load (Vite's
  * `vite:preloadError`, as when the server answers a chunk it lacks with
- * index.html), so it loads the build the server serves. It reloads a tab so
- * once for each build of the page and the other build the server named then,
- * if any: a chunk failing again after a reload that changed neither is left to
- * fail, so this never loops, while one failing after a deploy reloads, though
- * the page's build reloaded for one before. A navigation to a lazily loaded
- * page waits for its chunk, so this is how such a navigation finds a deploy.
+ * index.html), so it loads the build the server serves. A navigation to a
+ * lazily loaded page waits for its chunk, so this is how such a navigation
+ * finds a deploy. A chunk failing again before one has loaded since the
+ * reload is left to fail, so this never loops. It reloads whatever the server
+ * names, none included, as such a page is broken until it does.
  */
 export function reloadForFailedChunk(): void {
   if (!pageBuild) return;
-  const reload = serverBuild && serverBuild !== pageBuild ? `${pageBuild} ${serverBuild}` : pageBuild;
   try {
-    const reloaded = JSON.parse(sessionStorage.getItem(CHUNK_RELOADS) ?? "[]") as string[];
-    if (reloaded.includes(reload)) {
+    if (sessionStorage.getItem(RELOADED_FOR_CHUNK) !== null) {
       console.warn("A chunk of this page failed to load again after it reloaded for one, so it does not reload again.");
       return;
     }
-    sessionStorage.setItem(CHUNK_RELOADS, JSON.stringify([...reloaded, reload]));
+    sessionStorage.setItem(RELOADED_FOR_CHUNK, "1");
   } catch {
     // Without the tab's storage it cannot tell whether it reloaded already, so it does not.
     return;
   }
   window.location.reload();
+}
+
+/** Passes on a lazily loaded module once its chunk has loaded, so a chunk failing after it reloads the page again. */
+export function chunkLoaded<T>(module: T): T {
+  try {
+    sessionStorage.removeItem(RELOADED_FOR_CHUNK);
+  } catch {
+    // Without the tab's storage no reload was kept to forget.
+  }
+  return module;
 }

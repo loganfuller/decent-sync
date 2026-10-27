@@ -148,7 +148,7 @@ test("a page open while the server restarts with another build stays as it is un
   await expect(heading(page, "Locations")).toBeVisible();
 });
 
-test("a chunk that fails to load reloads the page once, and not again when the reload brought the same build", async ({ page }) => {
+test("a chunk that fails to load reloads the page once, and not again when it fails after the reload too", async ({ page }) => {
   const withoutShots = copyOfBuild((dir) => {
     const assets = path.join(dir, "assets");
     const chunks = fs.readdirSync(assets).filter((file) => /^ShotsPage-.*\.js$/.test(file));
