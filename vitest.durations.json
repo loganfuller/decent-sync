@@ -39,6 +39,7 @@
   "server/test/joining-recipes.test.ts": 30,
   "server/test/joining.test.ts": 20,
   "server/test/latest-release/latest-release.test.ts": 1,
+  "server/test/latest-release/mixed-versions.test.ts": 7,
   "server/test/library-batches.test.ts": 26,
   "server/test/library-beans.test.ts": 17,
   "server/test/library-conflicts.test.ts": 14,

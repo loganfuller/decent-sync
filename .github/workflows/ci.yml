@@ -177,8 +177,9 @@ jobs:
         run: docker logs postgres || cat "$RUNNER_TEMP/postgres.log"
 
   # Seam 1 tests that run the latest release beside the change
-  # (server/test/latest-release/), in a job of their own so the shards above
-  # need not build it.
+  # (server/test/latest-release/), the mixed-versions suite among them, in a
+  # job of their own so the shards above need not build it. The release
+  # waits for it with the rest of this workflow.
   latest-release:
     name: vitest (latest release)
     runs-on: ubuntu-26.04
