@@ -2,11 +2,11 @@
 
 Decaid's local streams on the test tablet, recorded for the Live View (#258)
 in one supervised, read-only capture on 2026-10-27 (#259), and two Steam
-Records from a second supervised capture that evening, for #308, which made
-one write (below). The tablet ran Decaid 0.9.0+2977 (built from the v0.9.0
-tag, commit `b9f9d055`), DYE2 0.1.26 and the plugin 1.4.0, which stayed
-connected to its server throughout, and Streamline's `dist` build `55bd37d`
-in #259's capture. Its DE1Pro was on firmware 1358, with a Bookoo Mini scale
+Records from a second supervised capture that evening for #308 (the third
+recording below), which made one write. The tablet ran Decaid 0.9.0+2977
+(built from the v0.9.0 tag, commit `b9f9d055`), DYE2 0.1.26, the plugin
+1.4.0, which stayed connected to its server throughout, and, in #259's
+capture, Streamline's `dist` build `55bd37d`. Its DE1Pro was on firmware 1358, with a Bookoo Mini scale
 and no milk probe. Its identity was confirmed with
 `GET /api/v1/machine/info` first each time.
 
@@ -27,7 +27,8 @@ and sent nothing on them:
 Its only request was `GET /api/v1/sensors` every 30 s, which listed no
 sensor all along. The Steam Records were read afterwards with
 `GET /api/v1/steams/latest` and `/api/v1/steams/{id}`, and every other request
-to the tablet in the run was a `GET` too. The machine socket sends what the
+to the tablet in the first two recordings was a `GET` too. The third made one
+write (below). The machine socket sends what the
 plugin's `stateUpdate` carries. Both are `MachineSnapshot.toJson()` of the
 machine's `currentSnapshot`: `_handleSnapshot` in
 `decaid:lib/src/services/webserver/de1handler.dart` sends one, and
@@ -56,24 +57,28 @@ at once, so it looked refused (decentespresso/streamline-js#175). Its
 no option equal to it, though the choice stays staged for saving. The first
 attempt's Settings Edit held until that page next opened and put Normal back
 (`checkMachineSettingsDrift`, the `putBackByStreamline` note in
-`protocol/src/settings-fields.ts`), so the second left the page closed. The
-capture itself wrote nothing to the tablet.
+`protocol/src/settings-fields.ts`), so the second left the page closed.
+#259's capture itself wrote nothing to the tablet.
 
 A third recording, later the same evening for #308, took two steamings with
 Normal, to see how other stops end. It wasn't read-only: the owner authorized
 one write, `PUT /api/v1/machine/state/idle`, which a script sent 10 s into the
 first steaming's `pouring`. That's what Streamline's on-screen Stop sends on a
-Machine without a group head controller, and what Decaid sends to stop at a
-milk temperature (`_maybeAppSideStop` in
-`decaid:lib/src/controllers/steam_sequencer.dart`). This DE1Pro has one
-(`GHC: true`), so Streamline hides that button. For the second steaming, the
+Machine without a group head controller. To stop at a milk temperature, Decaid
+requests the same state (`requestMachineState(MachineState.idle)`, as that
+route's handler does), except on a Bengle with its probe attached, which stops
+in firmware (`_maybeAppSideStop` and `useFwAutonomousStop` in
+`decaid:lib/src/controllers/steam_sequencer.dart`). This DE1Pro has a group
+head controller (`GHC: true`), so Streamline hides that button. For the second steaming, the
 owner set the Workflow's steam duration to 10 s on the Tablet and let the
 Machine stop by itself. It puffed until the owner tapped stop on the group
 head controller, then purged. The owner set 120 s back after it. Only the two
-Steam Records are committed from it.
+Steam Records are committed from it, parsed and written again as
+`writeSteamRecord` in `trim.mjs` writes them. They named no Barista or
+drinker.
 
-`trim.mjs` cut the two recordings, which aren't committed, into the fixtures
-and printed the rates below:
+`trim.mjs` cut the first two recordings, which aren't committed, into the
+other fixtures and printed the rates below:
 
 ```sh
 node server/test/fixtures/decaid/de1pro-live-v0.9.0/trim.mjs <recording> <Steam Record> \
@@ -164,7 +169,8 @@ prints them:
   `BatteryController` checks the battery
   (`decaid:lib/src/controllers/battery_controller.dart`).
 - **Shot settings.** Only the frame sent as the socket opened (`opening.json`):
-  nothing changed them in the run.
+  nothing changed them in the run. In the third recording, the socket sent a
+  frame on each change of the steam duration, to 10 s and back to 120 s.
 - **Shot state.** Only around the shot: 10 frames of its states and decisions.
 - **Sizes.** A machine frame is about 310 to 335 bytes, a scale frame about
   105 to 115, water levels 43, a devices frame 718 and a shot state frame 352.
