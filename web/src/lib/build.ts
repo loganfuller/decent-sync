@@ -17,6 +17,13 @@ const pageBuild = document.querySelector<HTMLMetaElement>('meta[name="decent-syn
 let serverBuild: string | null = null;
 
 /**
+ * Whether this page has asked to reload, at a navigation or for a chunk: what
+ * happens in it after that, a chunk failing or loading of a navigation it
+ * left, changes nothing the reloaded page reads.
+ */
+let reloading = false;
+
+/**
  * Notes the build a response from the server names. A response the browser
  * revalidated from its cache keeps the name it had, unless the server names
  * one, as every server with a build does.
@@ -38,7 +45,10 @@ export function useNewBuildOnNavigation(): void {
   useLayoutEffect(() => {
     if (pathname === shown.current) return;
     shown.current = pathname;
-    if (pageBuild && serverBuild && serverBuild !== pageBuild) window.location.reload();
+    if (pageBuild && serverBuild && serverBuild !== pageBuild) {
+      reloading = true;
+      window.location.reload();
+    }
   }, [pathname]);
 }
 
@@ -48,8 +58,9 @@ export function useNewBuildOnNavigation(): void {
  * a chunk it lacks with index.html), what stands in for it reloads the page
  * as it is shown, to load the build the server serves. Only then: a failure
  * after someone moved on to another page leaves that page as it is, a form
- * they are filling in included, until they open this one. A navigation to
- * such a page waits for its chunk, so this is how it finds a deploy.
+ * they are filling in included, until they open this one. A navigation from
+ * one lazily loaded page to another waits for its chunk, so that is how it
+ * finds a deploy.
  */
 export function lazyPage<P extends object>(load: () => Promise<ComponentType<P>>): LazyExoticComponent<ComponentType<P>> {
   return lazy(async () => {
@@ -76,9 +87,6 @@ function FailedChunk({ error }: { error: unknown }): null {
 /** Set once this tab reloads for a chunk that failed to load, until one loads; kept through the reload. */
 const RELOADED_FOR_CHUNK = "decent-sync:reloaded-for-chunk";
 
-/** Whether this page asked to reload for a chunk: one loading after that, as a navigation it left, keeps the flag. */
-let reloading = false;
-
 /**
  * Reloads the page for a chunk that failed to load, and says whether it did.
  * A chunk failing again before one has loaded since the reload is left to
@@ -87,6 +95,7 @@ let reloading = false;
  */
 function reloadForFailedChunk(): boolean {
   if (!pageBuild) return false;
+  if (reloading) return true;
   try {
     if (sessionStorage.getItem(RELOADED_FOR_CHUNK) !== null) {
       console.warn("A chunk of this page failed to load again after it reloaded for one, so it does not reload again.");

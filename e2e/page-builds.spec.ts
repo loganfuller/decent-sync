@@ -187,14 +187,22 @@ test("a chunk that fails after a deploy reloads the page into the new build, tho
   await expect(heading(page, "Shots")).toBeVisible();
   expect(failed).toBe(true);
 
-  // A deploy moves the Steam Records page's chunk. A navigation to that lazily loaded page waits for the chunk this
-  // page knows, which is gone.
+  // A deploy moves the Steam Records page's chunk. A navigation to that lazily loaded page from the Shots page, also
+  // lazily loaded, waits for the chunk this page knows, which is gone. The new build's chunk then fails once too:
+  // the reload into it, at the same time as the navigation's, used none of the page's one reload for a chunk.
   const after = await restart(before, buildMovingChunk(another, "SteamRecordsPage"));
+  let movedFailed = false;
+  await page.route(/\/assets\/SteamRecordsPage-moved\.js$/, (route) => {
+    if (movedFailed) return route.continue();
+    movedFailed = true;
+    return route.abort();
+  });
   await afterPollNaming(page, another);
   await mainNav(page).getByRole("link", { name: "Steam Records" }).click();
   await expect.poll(() => pageBuild(page)).toBe(another);
   await expect(page).toHaveURL(`${after.url}/steam-records`);
   await expect(heading(page, "Steam Records")).toBeVisible();
+  expect(movedFailed).toBe(true);
 });
 
 test("a chunk failing after its navigation was left reloads nothing until its page is opened", async ({ page }) => {
