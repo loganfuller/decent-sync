@@ -18,16 +18,20 @@ section).
 ### Upgrade without going offline from now on
 
 This release runs beside 1.3.1, and each release from now on runs beside the
-one before it. On fly.io, set `fly.toml` up as the README's fly.io section now
-shows: a blue-green deploy, a `wait_timeout`, a 10 s check interval and a
-`kill_timeout` of 30 s. Deploy this release, then run `fly scale count 2`.
-That deploy, and every one after it, takes nothing offline.
+one before it. Pages opened from 1.3.1 don't reload into the new release by
+themselves, as later pages do at their next navigation: reload them once after
+upgrading.
 
-A stopping server now still answers requests for 15 s (`DRAIN_GRACE_SECONDS`),
-so that a proxy routing by `/api/health` sends them elsewhere first. A single
-instance has nowhere to send them, so set it to 0 there, as
-`docker-compose.yml` now does: download that file again. Otherwise each later
-restart waits 10 s, until Docker kills the server.
+On fly.io, set `fly.toml` up as the README's fly.io section now shows: a
+blue-green deploy, a `wait_timeout`, a 10 s check interval and a
+`kill_timeout` of 150 s. Deploy this release, then run `fly scale count 2`.
+That deploy takes nothing offline, though 1.3.1 doesn't drain as it stops, so
+a request under way on it then may fail.
+
+A stopping server now still answers requests for 15 s
+(`DRAIN_GRACE_SECONDS`), which a single instance has no use for. Set it to 0
+there, as `docker-compose.yml` now does: download that file again. Otherwise
+each later restart waits 10 s, until Docker kills the server.
 
 ### The health check reports the database in its body
 

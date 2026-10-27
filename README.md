@@ -340,12 +340,14 @@ beyond whatever else uses it, such as another app on the same cluster.
 # fly.toml
 app = "my-decent-sync"
 primary_region = "yyz"
-# How long a stopping VM has before fly.io kills it. On fly.io's signal the
-# server answers 503 to its health check at once, hands its tablets to the
-# other VMs, still answers requests for 15 s (DRAIN_GRACE_SECONDS) until the
-# proxy has noticed, then finishes those under way. fly.io's default of 5 s
-# would cut that short.
-kill_timeout = 30
+# How long a stopping VM has before fly.io kills it: above the server's whole
+# drain. On fly.io's signal the server answers 503 to its health check, hands
+# its tablets to the other VMs and still answers requests for 15 s
+# (DRAIN_GRACE_SECONDS), until the proxy has noticed. It then finishes those
+# under way, whose transactions may run up to 60 s, and a background job's
+# batch, up to 60 s more. A drain usually ends after the 15 s; fly.io's
+# default of 5 s would cut even that short.
+kill_timeout = 150
 
 [build]
   image = "ghcr.io/loganfuller/decent-sync:1.0.0"
