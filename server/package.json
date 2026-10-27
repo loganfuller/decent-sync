@@ -8,7 +8,7 @@
     "build": "prisma generate && nest build",
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=../.env dist/main.js",
-    "dev": "prisma generate && nest start --watch --exec \"node --env-file-if-exists=../.env\""
+    "dev": "prisma generate && DRAIN_GRACE_SECONDS=0 nest start --watch --exec \"node --env-file-if-exists=../.env\""
   },
   "dependencies": {
     "@decent-sync/protocol": "*",

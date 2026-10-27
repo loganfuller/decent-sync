@@ -24,6 +24,12 @@ export interface Config {
    * only behind a proxy that sets or overwrites it, as any client can send it.
    */
   clientAddressHeader?: string;
+  /**
+   * How long a stopping instance still answers requests that arrive, so a
+   * proxy's routing check sees it stopping and sends them elsewhere: at least
+   * the check's interval plus its timeout (`drain.ts`).
+   */
+  drainGraceMs: number;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -64,6 +70,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const helloTimeoutMs = parseSeconds("SYNC_HELLO_TIMEOUT_SECONDS", env.SYNC_HELLO_TIMEOUT_SECONDS, 10, problems);
   const heartbeatIntervalMs = parseSeconds("SYNC_HEARTBEAT_SECONDS", env.SYNC_HEARTBEAT_SECONDS, 30, problems);
   const clientAddressHeader = parseHeaderName("CLIENT_ADDRESS_HEADER", env.CLIENT_ADDRESS_HEADER, problems);
+  // fly.io's routing check every 10 s, with a timeout of 5 s.
+  const drainGraceMs = parseSeconds("DRAIN_GRACE_SECONDS", env.DRAIN_GRACE_SECONDS, 15, problems, { zero: true });
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -76,6 +84,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     helloTimeoutMs,
     heartbeatIntervalMs,
     clientAddressHeader,
+    drainGraceMs,
   };
 }
 
@@ -113,13 +122,19 @@ function parsePort(value: string | undefined, problems: string[]): number {
   return port;
 }
 
-/** A positive number of seconds, possibly fractional, in milliseconds. */
-function parseSeconds(name: string, value: string | undefined, defaultSeconds: number, problems: string[]): number {
+/** A positive number of seconds, or with `zero` also 0, possibly fractional, in milliseconds. */
+function parseSeconds(
+  name: string,
+  value: string | undefined,
+  defaultSeconds: number,
+  problems: string[],
+  { zero = false }: { zero?: boolean } = {},
+): number {
   const raw = value?.trim();
   if (!raw) return defaultSeconds * 1000;
   const seconds = Number(raw);
-  if (!Number.isFinite(seconds) || seconds <= 0) {
-    problems.push(`${name} must be a positive number of seconds, not ${raw}`);
+  if (!Number.isFinite(seconds) || seconds < 0 || (seconds === 0 && !zero)) {
+    problems.push(`${name} must be a ${zero ? "non-negative" : "positive"} number of seconds, not ${raw}`);
   }
   return Math.round(seconds * 1000);
 }

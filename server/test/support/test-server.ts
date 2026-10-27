@@ -45,6 +45,8 @@ export interface TestServer {
    * started, such as Prisma's while it migrates, as its host crashing does.
    */
   kill(): Promise<void>;
+  /** Sends the server a signal, as a terminal or host does, such as another while it stops. */
+  signal(name: NodeJS.Signals): void;
   /**
    * A client of its database, for changes the server is not told about, or
    * locks held while it works. The caller ends it.
@@ -179,6 +181,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
         PUBLIC_URL: options.publicUrl ?? url,
         HOST: "127.0.0.1",
         PORT: String(port),
+        // No proxy routes by a test server's health, so it stops without waiting for one to notice; a test of that sets its own.
+        DRAIN_GRACE_SECONDS: "0",
         ...options.env,
         NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
         TEST_SECRETS_FILE: secretsFile,
@@ -203,7 +207,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   let halting: Promise<void> | undefined;
   const halt = () =>
     (halting ??= (async () => {
-      await terminate(started.child);
+      await terminate(started.child, Number(options.env?.DRAIN_GRACE_SECONDS ?? 0) * 1000);
       handedOut = readHandedOut();
       fs.rmSync(secretsFile, { force: true });
     })());
@@ -243,7 +247,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await client.connect();
     return client;
   };
-  const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, connectDatabase };
+  const signal = (name: NodeJS.Signals) => void started.child.kill(name);
+  const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, signal, connectDatabase };
   // Only once it has started: a start that fails has stopped itself.
   if (halts && stoppedHalts.has(halts)) {
     await halt();
@@ -361,11 +366,12 @@ function killTree(pid: number): void {
   }
 }
 
-async function terminate(child: ChildProcess): Promise<void> {
+/** Stops a server as its host does: SIGTERM, then SIGKILL once it has had 5 s more than its drain's grace. */
+async function terminate(child: ChildProcess, graceMs: number): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
-  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+  const timer = setTimeout(() => child.kill("SIGKILL"), graceMs + 5_000);
   await exited;
   clearTimeout(timer);
 }
