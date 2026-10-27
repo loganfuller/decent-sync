@@ -12,8 +12,11 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // name starts with a dot, as a T3 worktree under ~/.t3/ does. CI's checkout has
 // no such segment, so the test writes a small build of its own under one. A
 // preload fails reads of its `vanishing-*` file, as a rebuild removing it would.
+// Ticket #283: every response names the build in its Decent-Sync-Build header,
+// as the build's index.html names it, so a page can follow it (ADR-0025).
 
-const INDEX = "<!doctype html><title>Decent Sync</title>";
+const BUILD = "0f1e2d3c4b5a6978";
+const INDEX = `<!doctype html><title>Decent Sync</title><meta name="decent-sync-build" content="${BUILD}">`;
 const APP = "console.log('app');";
 const vanishingFiles = path.join(path.dirname(fileURLToPath(import.meta.url)), "support/vanishing-files.mjs");
 
@@ -92,6 +95,45 @@ describe("The management interface", () => {
       expect(response.headers.get("etag")).toBeTruthy();
       expect(response.headers.get("last-modified")).toBeTruthy();
     }
+  });
+
+  it("names its build in every response: the API's, its refusals and unknown routes, index.html and the build's files", async () => {
+    for (const [urlPath, status] of [
+      ["/api/health", 200],
+      ["/api/session", 401],
+      ["/api/machines", 401],
+      ["/api/no-such-route", 404],
+      ["/machines", 200],
+      ["/assets/app.js", 200],
+      ["/assets/gone-1234.js", 200],
+    ] as const) {
+      const response = await get(urlPath);
+      expect(response.status, urlPath).toBe(status);
+      expect(response.headers.get("decent-sync-build"), urlPath).toBe(BUILD);
+    }
+    const signIn = await fetch(`${server.url}/api/session`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: "nobody@example.com", password: "not a password" }),
+    });
+    expect(signIn.status).toBe(401);
+    expect(signIn.headers.get("decent-sync-build")).toBe(BUILD);
+  });
+
+  it("names the same build on every instance serving it, and none without a build that names one", async () => {
+    const unnamed = path.join(dir, "unnamed");
+    fs.mkdirSync(unnamed);
+    fs.writeFileSync(path.join(unnamed, "index.html"), "<!doctype html><title>Decent Sync</title>");
+    const instances = await Promise.all([
+      startTestServer({ sharing: server, env: { WEB_DIST_DIR: dir } }),
+      startTestServer({ sharing: server, env: { WEB_DIST_DIR: unnamed } }),
+      startTestServer({ sharing: server, env: { WEB_DIST_DIR: path.join(dir, "no-such-build") } }),
+    ]);
+    const [same, withoutName, withoutBuild] = await Promise.all(instances.map((instance) => fetch(`${instance.url}/api/health`)));
+    expect(same!.headers.get("decent-sync-build")).toBe(BUILD);
+    expect(withoutName!.headers.has("decent-sync-build")).toBe(false);
+    expect(withoutBuild!.headers.has("decent-sync-build")).toBe(false);
+    await Promise.all(instances.map((instance) => instance.stop()));
   });
 
   it("answers a deep link as an unknown route while the build has no index.html", async () => {

@@ -1,3 +1,4 @@
+import { noteServerBuild } from "@/lib/build";
 import type { LibraryKind } from "@/lib/library-kinds";
 
 // The management interface uses only the server's REST API, the same one any
@@ -40,6 +41,7 @@ export async function api<T>(method: string, path: string, body?: unknown, { rep
     headers: body === undefined ? undefined : { "Content-Type": "application/json" },
     body: body === undefined ? undefined : JSON.stringify(body),
   });
+  noteServerBuild(response);
   const data: unknown = response.status === 204 ? undefined : await response.json().catch(() => undefined);
   if (!response.ok) {
     if (reportRefusal && (response.status === 401 || response.status === 403)) {

@@ -1,6 +1,7 @@
 import { type ReactNode, Suspense, lazy } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
+import { useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
@@ -35,6 +36,7 @@ const SteamRecordPage = lazy(() => import("@/pages/SteamRecordPage").then((page)
 export function App() {
   return (
     <BrowserRouter>
+      <NewBuildOnNavigation />
       <AuthProvider>
         <Routes>
           <Route path="/setup" element={<Gate page="setup" />} />
@@ -108,6 +110,12 @@ export function App() {
       </AuthProvider>
     </BrowserRouter>
   );
+}
+
+/** Loads the build the server serves at the next navigation once it is another (`src/lib/build.ts`). */
+function NewBuildOnNavigation(): null {
+  useNewBuildOnNavigation();
+  return null;
 }
 
 interface ReturnTo {

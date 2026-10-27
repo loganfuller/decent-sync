@@ -16,6 +16,8 @@ import { type TestServer, type TestServerOptions, startTestServer } from "../../
  */
 export function useFreshServer(options: TestServerOptions = {}): {
   url(): string;
+  /** The server itself, such as to start another instance on its database (`sharing`), which it stops with its own. */
+  server(): Promise<TestServer>;
   /** A client of the server's database, for changes no page can make, such as time passing. The caller ends it. */
   connectDatabase(): Promise<pg.Client>;
   /**
@@ -69,6 +71,10 @@ export function useFreshServer(options: TestServerOptions = {}): {
     url: () => {
       if (!url) throw new Error("The fresh server is available only inside tests");
       return url;
+    },
+    server: async () => {
+      if (!server) throw new Error("The fresh server is available only inside tests");
+      return server;
     },
     connectDatabase: async () => {
       if (!server) throw new Error("The fresh server is available only inside tests");

@@ -95,6 +95,12 @@ export interface TestServerOptions {
   starting?: (kill: () => Promise<void>) => void;
   /** How long it may take to listen, such as while it waits for the migration lock. Defaults to 30 s. */
   readyTimeoutMs?: number;
+  /**
+   * Listens on this port rather than one found free, as a server restarted at
+   * the same address does, such as one whose own `stop()` freed it. Its start
+   * fails if the port is taken.
+   */
+  port?: number;
 }
 
 /**
@@ -183,7 +189,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
 
   // A port found free may be taken by another test file's server before this one binds it, which takes seconds,
   // so the server is started again on another port if it finds its port taken.
-  let started = spawnServer(await freePort());
+  let started = spawnServer(options.port ?? (await freePort()));
   // Shuts this instance down, once, however many stops ask for it.
   let halting: Promise<void> | undefined;
   const halt = () =>
@@ -214,7 +220,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
       await waitForListening(started, options.readyTimeoutMs);
       break;
     } catch (error) {
-      if (error instanceof PortTaken && attempt < 5) {
+      if (error instanceof PortTaken && attempt < 5 && options.port === undefined) {
         started = spawnServer(await freePort());
         continue;
       }
