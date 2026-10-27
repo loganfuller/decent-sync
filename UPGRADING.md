@@ -30,7 +30,8 @@ a request under way on it then may fail.
 
 A stopping server now still answers requests for 15 s
 (`DRAIN_GRACE_SECONDS`), which a single instance has no use for. Set it to 0
-there, as `docker-compose.yml` now does: download that file again. Otherwise
+there: with Docker Compose, add `DRAIN_GRACE_SECONDS: "0"` to the server's
+`environment` in `docker-compose.yml`, as this release's file does. Otherwise
 each later restart waits 10 s, until Docker kills the server.
 
 ### The health check reports the database in its body

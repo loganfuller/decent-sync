@@ -169,8 +169,8 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
 | `CLIENT_ADDRESS_HEADER` | optional: the request header a reverse proxy puts the tablet's address in, such as `X-Forwarded-For` (see [On the internet](#on-the-internet)) |
 
-To upgrade, pull the newer image and restart. The server, one instance, is
-offline for the few seconds the new one takes to start:
+To upgrade, pull the newer image and restart. The server is offline until
+the new one has started and migrated the database, usually a few seconds:
 
 ```bash
 docker compose pull && docker compose up -d
@@ -374,7 +374,7 @@ kill_timeout = 150
   auto_stop_machines = "off"
 
   # Optional: the most connections, tablets' included, the proxy sends this
-  # machine at once; it holds back the rest. fly.io sets no limit by default.
+  # VM at once; it holds back the rest. fly.io sets no limit by default.
   [http_service.concurrency]
     type = "connections"
     soft_limit = 100
@@ -398,14 +398,15 @@ release at a time ([Upgrading](#upgrading)). With a custom domain, set
 ### Upgrading
 
 Each release from the one after 1.3.1 runs beside the release before it
-([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)). An
-upgrade starts the new release beside the old one, which keeps serving while
-the new one migrates the database in place. No upgrade asks to stop the
-server first or to recreate the database. With two instances or more behind a
-proxy that routes by `/api/health`, as in the fly.io example, the new release
-takes the traffic once it is up and the old one stops, so nothing goes
-offline. One instance, as with Docker Compose, restarts into the new release
-and is offline for the few seconds that takes.
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)): the
+new release migrates the database in place while the old one may still serve
+from it, so no upgrade asks to stop the server first or to recreate the
+database. With two instances or more behind a proxy that routes by
+`/api/health`, as in the fly.io example, the new release starts beside the
+old one and takes the traffic once it has migrated, and the old one then
+stops, so nothing goes offline. One instance, as with Docker Compose, stops
+and then starts the new release, and is offline until it has migrated:
+usually a few seconds.
 
 Decaid checks for plugin releases every 12 hours while it runs, and updates
 each tablet's plugin whatever its server runs. A plugin and server a release
@@ -419,7 +420,7 @@ release to run until it is. With Docker Compose, set `DECENT_SYNC_VERSION` to
 each release in turn; on fly.io, the image version in `fly.toml`.
 
 Each release's notes start with what it needs beyond its image
-([UPGRADING.md](UPGRADING.md)), all of it done while the server runs.
+([UPGRADING.md](UPGRADING.md)).
 
 ## Installing the plugin
 
