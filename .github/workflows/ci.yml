@@ -247,8 +247,9 @@ jobs:
   # throwaway PostgreSQL, migrates this job's template1 with the change's
   # migrations, so every database the suite creates is a copy, and leaves out
   # the release's server/test/latest-release/, as the shards above do. Sharded
-  # as they are, by the release's own vitest.config.ts. It runs only for a
-  # change to the schema or what applies it (the schema step).
+  # as they are, by the release's own vitest.config.ts. It runs only when
+  # something it depends on differs from main, or on main from the latest
+  # release (the schema step).
   latest-release-suite:
     name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-26.04
