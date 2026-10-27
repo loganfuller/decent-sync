@@ -1,8 +1,9 @@
 import { type DynamicModule, Module } from "@nestjs/common";
-import { APP_INTERCEPTOR } from "@nestjs/core";
+import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import { AccountsModule } from "./accounts/accounts.module.js";
 import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
+import { DatabaseUnreachableFilter } from "./database.js";
 import { Drain } from "./drain.js";
 import { HealthController } from "./health.controller.js";
 import { LibraryModule } from "./library/library.module.js";
@@ -29,7 +30,13 @@ export class AppModule {
         SyncModule,
       ],
       controllers: [HealthController],
-      providers: [ManagementInterface, Drain, { provide: APP_INTERCEPTOR, useExisting: Drain }],
+      providers: [
+        ManagementInterface,
+        Drain,
+        { provide: APP_INTERCEPTOR, useExisting: Drain },
+        // The root module's global filter is the last Nest tries (`DatabaseUnreachableFilter`).
+        { provide: APP_FILTER, useClass: DatabaseUnreachableFilter },
+      ],
     };
   }
 }

@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import pg from "pg";
 import { CONFIG } from "./config.module.js";
 import type { Config } from "./config.js";
+import { listenerConfig } from "./database.js";
 import type { Prisma } from "./generated/prisma/client.js";
 
 /**
@@ -51,6 +52,7 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
   private connecting: pg.Client | undefined;
   private retryMs = MIN_RETRY_MS;
   private retryTimer: NodeJS.Timeout | undefined;
+  private checkTimer: NodeJS.Timeout | undefined;
   private closing = false;
 
   constructor(@Inject(CONFIG) private readonly config: Config) {}
@@ -66,11 +68,13 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy(): Promise<void> {
     this.closing = true;
     clearTimeout(this.retryTimer);
+    clearTimeout(this.checkTimer);
     await Promise.all([this.client?.end().catch(() => {}), this.connecting?.end().catch(() => {})]);
   }
 
   private async listen(): Promise<void> {
-    const client = new pg.Client({ connectionString: this.config.databaseUrl });
+    // A connect that hangs, or a connection lost without a reset, fails in time, so it is retried (`database.ts`).
+    const client = new pg.Client(listenerConfig(this.config.databaseUrl));
     client.on("notification", (message) => {
       const listeners = this.listeners.get(message.channel as Channel);
       if (listeners && message.payload) for (const listener of listeners) listener(message.payload);
@@ -91,14 +95,37 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
     if (this.closing) return void (await client.end().catch(() => {}));
     this.client = client;
     this.retryMs = MIN_RETRY_MS;
+    this.check(client);
     // Anything sent while not listening was missed.
     for (const listeners of this.listeners.values()) for (const listener of listeners) listener(null);
   }
 
+  /**
+   * Checks once a heartbeat interval, as the server hears from each tablet,
+   * that the listening connection is still answered, and takes it for lost
+   * once a check outlasts the listener's query timeout. TCP keepalive sees
+   * only the first hop, so through a pooler or proxy that stays up while the
+   * database behind it went silent (ADR-0016), it would go on listening to
+   * nothing. The check listens again on a channel it listens on, which
+   * changes nothing, so its last statement still shows the connection as the
+   * listener in `pg_stat_activity`.
+   */
+  private check(client: pg.Client): void {
+    this.checkTimer = setTimeout(() => {
+      client.query(`LISTEN ${CHANNELS[0]}`).then(
+        () => {
+          if (!this.closing && this.client === client) this.check(client);
+        },
+        (error: unknown) => this.lost(client, error instanceof Error ? error.message : String(error)),
+      );
+    }, this.config.heartbeatIntervalMs);
+  }
+
   private lost(client: pg.Client, reason: string): void {
-    // Shutdown ends the clients itself.
-    if (this.closing || (this.client !== undefined && this.client !== client)) return;
+    // Shutdown ends the clients itself; a client already lost, or replaced, says nothing more.
+    if (this.closing || (client !== this.client && client !== this.connecting)) return;
     this.client = undefined;
+    clearTimeout(this.checkTimer);
     client.end().catch(() => {});
     if (this.retryTimer) return;
     this.logger.warn(

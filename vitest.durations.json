@@ -26,6 +26,8 @@
   "server/test/client-address.test.ts": 8,
   "server/test/collections.test.ts": 52,
   "server/test/database-clock.test.ts": 3,
+  "server/test/database-outage.test.ts": 5,
+  "server/test/database-timeouts.test.ts": 3,
   "server/test/delivery-id-cleanup.test.ts": 0,
   "server/test/delivery-id-retention.test.ts": 14,
   "server/test/durable-outbox.test.ts": 19,
