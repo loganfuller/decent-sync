@@ -6,9 +6,9 @@ Records from a second supervised capture that evening for #308 (the third
 recording below), which made one write. The tablet ran Decaid 0.9.0+2977
 (built from the v0.9.0 tag, commit `b9f9d055`), DYE2 0.1.26, the plugin
 1.4.0, which stayed connected to its server throughout, and, in #259's
-capture, Streamline's `dist` build `55bd37d`. Its DE1Pro was on firmware 1358, with a Bookoo Mini scale
-and no milk probe. Its identity was confirmed with
-`GET /api/v1/machine/info` first each time.
+capture, Streamline's `dist` build `55bd37d`. Its DE1Pro was on firmware
+1358, with a Bookoo Mini scale and no milk probe. Its identity was confirmed
+with `GET /api/v1/machine/info` first each time.
 
 ## How they were taken
 
@@ -69,13 +69,13 @@ requests the same state (`requestMachineState(MachineState.idle)`, as that
 route's handler does), except on a Bengle with its probe attached, which stops
 in firmware (`_maybeAppSideStop` and `useFwAutonomousStop` in
 `decaid:lib/src/controllers/steam_sequencer.dart`). This DE1Pro has a group
-head controller (`GHC: true`), so Streamline hides that button. For the second steaming, the
-owner set the Workflow's steam duration to 10 s on the Tablet and let the
-Machine stop by itself. It puffed until the owner tapped stop on the group
-head controller, then purged. The owner set 120 s back after it. Only the two
-Steam Records are committed from it, parsed and written again as
-`writeSteamRecord` in `trim.mjs` writes them. They named no Barista or
-drinker.
+head controller (`GHC: true`), so Streamline hides its on-screen Stop. For
+the second steaming, the owner set the Workflow's steam duration to 10 s on
+the Tablet and let the Machine stop by itself. It puffed until the owner
+tapped stop on the group head controller, then purged. The owner set 120 s
+back after it. Only the two Steam Records are committed from it, parsed and
+written again as `writeSteamRecord` in `trim.mjs` writes them. They named no
+Barista or drinker.
 
 `trim.mjs` cut the first two recordings, which aren't committed, into the
 other fixtures and printed the rates below:
