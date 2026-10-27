@@ -38,6 +38,12 @@ export const MIGRATION_LOCK_CONNECTION = "decent-sync migration lock";
  */
 const MIGRATION_LOCK_IDLE_TIMEOUT = "15s";
 const MIGRATION_LOCK_PING_MS = 5_000;
+/**
+ * How long a query on the migration lock's connection may run, as a waiting
+ * one, such as for a row another transaction holds, would keep a vanished
+ * holder's connection from going idle. Its queries are quick bookkeeping.
+ */
+const MIGRATION_LOCK_STATEMENT_TIMEOUT = "5s";
 
 /**
  * Applies pending database migrations, so upgrading the server is starting a
@@ -171,11 +177,12 @@ async function migrationFailure(lock: pg.Client, code: number | string | null): 
 /**
  * Takes the migration lock on a connection of its own, named
  * `MIGRATION_LOCK_CONNECTION`, waiting however long another instance holds
- * it. PostgreSQL ends the connection once it has gone 15 s without a query,
- * so it drops the lock of a holder whose host vanished, even through a proxy,
- * which would answer PostgreSQL's TCP keepalives itself: fly.io has one in
- * front of its Managed Postgres. The server probes it with TCP keepalives, so
- * a database that vanished doesn't leave it waiting for good.
+ * it. PostgreSQL ends a query on the connection after 5 s, and the connection
+ * once it has gone 15 s without one, so it drops the lock of a holder whose
+ * host vanished within 20 s, even through a proxy, which would answer
+ * PostgreSQL's TCP keepalives itself: fly.io has one in front of its Managed
+ * Postgres. The server probes it with TCP keepalives, so a database that
+ * vanished doesn't leave it waiting for good.
  */
 async function takeMigrationLock(config: Config): Promise<pg.Client> {
   const lock = new pg.Client({ connectionString: config.databaseUrl, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
@@ -183,10 +190,10 @@ async function takeMigrationLock(config: Config): Promise<pg.Client> {
   lock.on("error", () => {});
   try {
     await lock.connect();
-    // Set once connected, as a pooler may refuse startup parameters. A host's other timeouts would end the wait, or the lock while Prisma migrates.
+    // Set once connected, as a pooler may refuse startup parameters. Waits for locks are left to the statement timeout, which a host's lock_timeout would cut short.
     await lock.query(
       `SET application_name = '${MIGRATION_LOCK_CONNECTION}'; ` +
-        `SET statement_timeout = 0; SET lock_timeout = 0; SET idle_session_timeout = '${MIGRATION_LOCK_IDLE_TIMEOUT}'`,
+        `SET statement_timeout = '${MIGRATION_LOCK_STATEMENT_TIMEOUT}'; SET lock_timeout = 0; SET idle_session_timeout = '${MIGRATION_LOCK_IDLE_TIMEOUT}'`,
     );
     // Tried each second rather than waited for in one query, which would hold a snapshot all the while: a concurrent
     // index build among the holder's migrations waits for every older snapshot, so it would fail on its lock_timeout.

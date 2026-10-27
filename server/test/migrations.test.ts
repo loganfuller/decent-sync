@@ -173,6 +173,20 @@ describe("migrations", () => {
     }
   });
 
+  it("fail to start, letting go of the lock, once a query on the lock's connection runs over 5 s, as one waiting when its host vanished would keep it held", async () => {
+    const owner = await start();
+    const database = await connect(owner);
+    // An unfinished migration, whose record a transaction holds, so recording it as rolled back waits.
+    await database.query("INSERT INTO _prisma_migrations (id, checksum, migration_name) VALUES (gen_random_uuid()::text, '', $1)", [COLUMN]);
+    const holder = await connect(owner);
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM _prisma_migrations WHERE migration_name = $1 FOR UPDATE", [COLUMN]);
+
+    const failure = await startStaged(owner).then(() => "started", (error: Error) => error.message);
+    expect(failure).toContain("canceling statement due to statement timeout");
+    expect(await lockHeld(database)).toBe(false);
+  });
+
   it("stop Prisma's engine when its CLI dies alone, before recording the migration as rolled back and letting go of the lock", async () => {
     const owner = await start();
     const holder = await connect(owner);
