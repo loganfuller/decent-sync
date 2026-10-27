@@ -4,10 +4,8 @@
 // migrates a PostgreSQL server's template1 with this checkout's migrations,
 // so every database the suite creates there is a copy its server finds
 // nothing to migrate in, then runs the suite in the latest release's build
-// (`npm run build:latest-release`). It leaves out the release's
-// server/test/latest-release/, as CI's shards of this checkout's suite do:
-// those tests run a release beside the one before it, and read the tags from
-// a git checkout, which that build is not.
+// (`npm run build:latest-release`). It leaves out the release's tests that
+// read the tags from a git checkout, which that build is not (LEFT_OUT).
 //
 // The PostgreSQL is a throwaway container of its own, removed afterwards,
 // never the development database's or the shared test database's: every
@@ -18,7 +16,6 @@
 //   (npm run test:latest-release-suite -- [options])
 
 import { execFileSync, spawn } from "node:child_process";
-import fs from "node:fs";
 import { createRequire } from "node:module";
 import path from "node:path";
 import pg from "pg";
@@ -26,25 +23,12 @@ import { repoDir } from "../server/test/support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag } from "../server/test/support/latest-release.mjs";
 
 /**
- * The tests of releases from before this script that need an empty database,
- * or a setting a copy of template1 doesn't carry, left out by name. Later
- * releases create those tests' databases from template0. Delete these once
- * the latest release holds this script.
+ * The release's tests that read the tags from a git checkout: its
+ * server/test/latest-release/, which CI's shards of this checkout's suite
+ * leave out too, as those tests run a release beside the one before it; and
+ * its wire revision's test, which compares the revision with its latest tag's.
  */
-const NEEDING_EMPTY_DATABASES = [
-  // server/test/idle-in-transaction-timeout.test.ts
-  "is set on a fresh database, for connections that send no settings",
-  "is left off when the server migrates as a role that does not own the database",
-  // server/test/library-recipe-management.test.ts
-  "keeps each Recipe's slot number as its record id",
-];
-/**
- * The test of releases from before #348 that takes EST5EDT for an alias of
- * America/New_York, left out by name: tzdata 2026d, which Node 24.22.1
- * carries, made EST5EDT a zone of its own, which PostgreSQL's time zone data
- * may lack. Delete this once the latest release holds #348.
- */
-const TAKING_EST5EDT_FOR_AN_ALIAS = "accepts IANA aliases PostgreSQL may not know, stored under a name it does";
+const LEFT_OUT = ["server/test/latest-release/**", "protocol/test/wire-revision.test.ts"];
 const IMAGE = "postgres:17";
 const readyWithinMs = 60_000;
 
@@ -169,18 +153,12 @@ async function migrateTemplate1(url) {
 
 /** Runs the latest release's Vitest suite with its test databases on the server, resolving with its exit code. */
 async function runSuite(url) {
-  const leftOut = [
-    ...(fs.existsSync(path.join(releaseDir, "scripts/latest-release-suite.mjs")) ? [] : NEEDING_EMPTY_DATABASES),
-    TAKING_EST5EDT_FOR_AN_ALIAS,
-  ];
-  const filter = leftOut.length === 0 ? [] : ["--testNamePattern", `^(?!.*(?:${leftOut.map(escapeRegExp).join("|")}))`];
-  console.log(`Running the Vitest suite of ${tag}, built in ${releaseDir}, but server/test/latest-release/.`);
-  if (leftOut.length > 0) console.log(`Leaving out these tests of ${tag}, for the reasons this script gives: ${leftOut.map((name) => `"${name}"`).join(", ")}.`);
+  console.log(`Running the Vitest suite of ${tag}, built in ${releaseDir}, but ${LEFT_OUT.join(" and ")}.`);
   // The variables npm sets for a script it runs describe this checkout, not the release's.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("npm_") && name !== "INIT_CWD"));
   return run(
     process.execPath,
-    [path.join(releaseDir, "node_modules/vitest/vitest.mjs"), "run", "--exclude", "server/test/latest-release/**", ...filter, ...args],
+    [path.join(releaseDir, "node_modules/vitest/vitest.mjs"), "run", ...LEFT_OUT.flatMap((pattern) => ["--exclude", pattern]), ...args],
     { cwd: releaseDir, env: { ...env, TEST_DATABASE_URL: url, DATABASE_URL: url } },
     (child) => void (vitest = child),
   );
@@ -208,10 +186,6 @@ async function withClient(url, use) {
   } finally {
     await client.end().catch(() => {});
   }
-}
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function pause() {

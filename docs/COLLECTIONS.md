@@ -246,8 +246,8 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
      one, and refuses an edit they refuse by `decaid`, with a null status and
      a message of `NOT_WRITTEN` followed by what they refuse. A plugin at
      another release, whose definitions differ, refuses so an edit the
-     server's allow, as the previous release's plugin refuses a weight flow
-     multiplier of 0.86 off its step of 0.1 (#343);
+     server's allow, as 1.3.1's plugin refused a weight flow multiplier of
+     0.86 off its step of 0.1 (#343);
   2. reads `GET /machine/state`, going ahead only while the state is `idle`,
      `schedIdle`, `sleeping` or `needsWater` (`SETTINGS_EDIT_STATES`), and
      refusing it as `machineBusy`, naming the state, otherwise, or with
