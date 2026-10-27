@@ -13,19 +13,21 @@ const migrationsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)),
 const LATEST_AT_1_2_0 = "20261025200000_wake_schedule_edits";
 
 /**
- * Comments, strings, quoted identifiers and dollar-quoted bodies, matched from
- * the left, so that each hides what looks like another inside it.
+ * Comments, escape strings, strings, quoted identifiers and dollar-quoted
+ * bodies, matched from the left, so that each hides what looks like another
+ * inside it. Meant to catch mistakes, not SQL written to get past it.
  */
-const LEXEMES = /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'|"(?:[^"]|"")*"|\$(\w*)\$[\s\S]*?\$\1\$/g;
+const LEXEMES = /--[^\n]*|\/\*[\s\S]*?\*\/|\b[eE]'(?:[^'\\]|\\[\s\S]|'')*'|'(?:[^']|'')*'|"(?:[^"]|"")*"|\$(\w*)\$[\s\S]*?\$\1\$/g;
 
 /** The form a migration's SQL is written in, or undefined if neither. */
 function migrationForm(sql: string): "transaction" | "concurrent index" | undefined {
   const code = sql.replace(LEXEMES, (lexeme) => (/^(--|\/\*)/.test(lexeme) ? " " : lexeme)).replace(/\s+/g, " ").trim();
   const transaction = /^BEGIN; SET LOCAL lock_timeout = '5s'; (.+) COMMIT;$/.exec(code);
   if (transaction) {
-    // Nothing in between ends the transaction, builds an index concurrently, which a transaction refuses, or changes the timeout.
-    const statements = transaction[1]!.replace(LEXEMES, "''");
-    return /(^|;)\s*(BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b/i.test(statements) || /\b(CONCURRENTLY|lock_timeout|RESET ALL)\b/i.test(statements)
+    // Nothing in between ends the transaction, builds an index concurrently, which a transaction refuses, or changes the
+    // timeout. Strings are left out, and quoted identifiers unquoted, as a setting's name may be.
+    const statements = transaction[1]!.replace(LEXEMES, (lexeme) => (lexeme.startsWith('"') ? lexeme.slice(1, -1).replaceAll('""', '"') : "''"));
+    return /(^|;)\s*(BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b/i.test(statements) || /\b(CONCURRENTLY|lock_timeout|RESET ALL|set_config)\b/i.test(statements)
       ? undefined
       : "transaction";
   }
@@ -51,6 +53,7 @@ describe("migrations", () => {
     // A function's body may hold its own BEGIN and END, and a string or comment anything.
     expect(migrationForm(`BEGIN;\nSET LOCAL lock_timeout = '5s';\nCREATE FUNCTION f() RETURNS void AS $$\nBEGIN\n  RETURN;\nEND;\n$$ LANGUAGE plpgsql;\nCOMMIT;\n`)).toBe("transaction");
     expect(migrationForm(`BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT DEFAULT '--; COMMIT;'; /* COMMIT; */\nCOMMIT;\n`)).toBe("transaction");
+    expect(migrationForm(`BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT DEFAULT E'it\\'s; COMMIT;';\nCOMMIT;\n`)).toBe("transaction");
   });
 
   it("are refused in any other form", () => {
@@ -72,6 +75,10 @@ describe("migrations", () => {
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL lock_timeout = '0';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nRESET lock_timeout;\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nRESET ALL;\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL "lock_timeout" = '0';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nSELECT set_config('lock_timeout', '0', true);\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
+      // An escape string's quote hiding a commit from a plain string's reading.
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nCREATE TABLE "a" ();\nSELECT E'\\''; COMMIT; SELECT '--';\nCREATE TABLE "a" ();\nCOMMIT;\n`,
       // A concurrent build in a transaction, which refuses it.
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nCREATE INDEX CONCURRENTLY "shots_a_idx" ON "shots" ("a");\nCOMMIT;\n`,
       // A concurrent drop, which Prisma can't split out, so runs the file in one transaction; no drop; another index dropped; no lock_timeout.

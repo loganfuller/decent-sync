@@ -22,7 +22,8 @@ export interface StagedMigrations {
  */
 export function stageMigrations(migrations: Record<string, string>): StagedMigrations {
   assertBuilt("protocol", "server");
-  const buildDir = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-staged-"));
+  // Its real path, which the server's processes see, as macOS's temporary directory is behind a symlink.
+  const buildDir = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-staged-")));
   for (const entry of ["dist", "prisma", "prisma.config.ts", "package.json"]) {
     fs.cpSync(path.join(repoDir, "server", entry), path.join(buildDir, "server", entry), { recursive: true });
   }

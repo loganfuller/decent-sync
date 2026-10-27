@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -140,6 +140,21 @@ describe("migrations", () => {
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
   });
 
+  it("stop Prisma's engine when its CLI dies alone, before recording the migration as rolled back and letting go of the lock", async () => {
+    const owner = await start();
+    const holder = await connect(owner);
+    await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    const failure = startStaged(owner).then(() => "started", (error: Error) => error.message);
+    await waitForLockWaits(owner, { relation: "shots" });
+    process.kill(prismaCliOf(staged.buildDir), "SIGKILL");
+    expect(await failure).toContain(`Database migrations failed (prisma migrate deploy exited with SIGKILL). Recorded ${COLUMN} as rolled back`);
+
+    // Left running, the engine would now take shots and finish the migration without the lock.
+    await holder.query("COMMIT");
+    await startStaged(owner);
+    expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
+  });
+
   it("name `migrate resolve --applied` when a migration fails, for one an instance killed after its commit left applied but unfinished", async () => {
     const owner = await start();
     const database = await connect(owner);
@@ -161,6 +176,15 @@ describe("migrations", () => {
     expect(await hasColumn(database, "machines")).toBe(true);
   });
 });
+
+/** The Prisma CLI running the staged migrations in `buildDir`: the parent of the schema engine reading its schema. */
+function prismaCliOf(buildDir: string): number {
+  const engine = execFileSync("ps", ["-A", "-o", "ppid=,command="], { encoding: "utf8" })
+    .split("\n")
+    .find((line) => line.includes("schema-engine") && line.includes(buildDir));
+  if (!engine) throw new Error(`No schema engine runs the migrations staged in ${buildDir}`);
+  return Number(engine.trim().split(/\s+/)[0]);
+}
 
 /** Runs the checkout's Prisma CLI in `cwd`, which names the migrations through its prisma.config.ts, on the server's database. */
 function runPrisma(server: TestServer, cwd: string, args: string[]): Promise<{ code: number | null; output: string }> {

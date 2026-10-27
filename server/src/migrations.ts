@@ -70,11 +70,12 @@ export async function runMigrations(config: Config): Promise<void> {
  * it on `lock`. Prisma's CLI runs in a process group of its own, with the
  * schema engine it starts, which is stopped whole if the lock's connection is
  * lost, as another instance may then take the lock and find the migration
- * unfinished, or if the server is told to stop: the CLI stopped alone would
- * leave the engine to finish the migration. Resolves with the CLI's exit
- * code, and why the lock was lost, if it was.
+ * unfinished, if the server is told to stop, and once the CLI exits, before
+ * the server records anything or lets go of the lock: the CLI stopped or dying
+ * alone would leave the engine to finish the migration. Resolves with the CLI's exit
+ * code, or the signal that ended it, and why the lock was lost, if it was.
  */
-function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number | null; lost?: string }> {
+function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number | string | null; lost?: string }> {
   const prismaCli = createRequire(import.meta.url).resolve("prisma/build/index.js");
   return new Promise((resolve, reject) => {
     const child = spawn(process.execPath, [prismaCli, "migrate", "deploy"], {
@@ -117,15 +118,17 @@ function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number 
       settle();
       reject(error);
     });
-    child.on("exit", (code) => {
+    child.on("exit", (code, signal) => {
+      // A CLI that died, rather than finished, may have left its engine migrating.
+      stopPrisma();
       settle();
-      resolve({ code, lost });
+      resolve({ code: code ?? signal, lost });
     });
   });
 }
 
 /** Why migrating failed, once the migration that failed is recorded as rolled back. */
-async function migrationFailure(lock: pg.Client, code: number | null): Promise<StartupError> {
+async function migrationFailure(lock: pg.Client, code: number | string | null): Promise<StartupError> {
   const failed = `Database migrations failed (prisma migrate deploy exited with ${code})`;
   let names: string[];
   try {
