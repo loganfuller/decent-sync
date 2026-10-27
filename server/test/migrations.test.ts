@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { waitForLockWaits } from "./support/lock-waits.js";
+import { startOutageProxy } from "./support/outage-proxy.js";
 import { type StagedMigrations, migrationRecords, stageMigrations } from "./support/staged-migrations.js";
 import { type TestServer, type TestServerOptions, adminDatabaseUrl, startTestServer } from "./support/test-server.js";
 
@@ -62,6 +63,14 @@ describe("migrations", () => {
         [MIGRATION_LOCK_CONNECTION],
       )
     ).rows[0]!.count;
+  /** Whether any session holds the migration lock: a lock on one bigint keeps its low half in `objid`. */
+  const lockHeld = async (database: pg.Client) =>
+    (
+      await database.query(
+        "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND classid = 0 AND objid = $1 AND objsubid = 1 AND granted",
+        [MIGRATION_LOCK],
+      )
+    ).rowCount === 1;
   const hasColumn = async (database: pg.Client, table: string) =>
     (await database.query("SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'staged'", [table])).rowCount === 1;
 
@@ -139,6 +148,46 @@ describe("migrations", () => {
     await holder.query("COMMIT");
     await startStaged(owner);
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
+  });
+
+  it("keep the lock while migrating past its idle timeout, and lose it once their network goes silent, though a proxy between them and PostgreSQL answers its TCP keepalives", { timeout: 90_000 }, async () => {
+    const owner = await start();
+    const holder = await connect(owner);
+    // Held past the database's idle-in-transaction timeout, 30 s, which would otherwise end it.
+    await holder.query("SET idle_in_transaction_session_timeout = 0; BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    const watcher = await connect(owner);
+    const proxy = await startOutageProxy();
+    try {
+      let crash = async () => {};
+      // Not given up on for not being ready, which would close its connections.
+      const vanishing = startStaged(owner, { databaseHost: proxy.host, readyTimeoutMs: 80_000, starting: (kill) => void (crash = kill) });
+      vanishing.catch(() => {});
+      await waitForLockWaits(owner, { relation: "shots" });
+      // Past the lock connection's idle timeout, 15 s, which its pings keep it from reaching while Prisma migrates.
+      await new Promise((resolve) => setTimeout(resolve, 16_000));
+      expect(await lockHeld(watcher)).toBe(true);
+      // As a host that vanished, closing nothing.
+      proxy.silence();
+      // Within the lock's idle timeout, 15 s, of its last query, which came less than 5 s before.
+      await expect.poll(() => lockHeld(watcher), { timeout: 25_000, interval: 500 }).toBe(false);
+      await crash();
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("fail to start, letting go of the lock, once a query on the lock's connection runs over 5 s, as one waiting when its host vanished would keep it held", async () => {
+    const owner = await start();
+    const database = await connect(owner);
+    // An unfinished migration, whose record a transaction holds, so recording it as rolled back waits.
+    await database.query("INSERT INTO _prisma_migrations (id, checksum, migration_name) VALUES (gen_random_uuid()::text, '', $1)", [COLUMN]);
+    const holder = await connect(owner);
+    await holder.query("BEGIN");
+    await holder.query("SELECT 1 FROM _prisma_migrations WHERE migration_name = $1 FOR UPDATE", [COLUMN]);
+
+    const failure = await startStaged(owner).then(() => "started", (error: Error) => error.message);
+    expect(failure).toContain("Recording migrations left unfinished as rolled back failed (canceling statement due to statement timeout)");
+    expect(await lockHeld(database)).toBe(false);
   });
 
   it("stop Prisma's engine when its CLI dies alone, before recording the migration as rolled back and letting go of the lock", async () => {
