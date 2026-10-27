@@ -111,13 +111,16 @@ describe("The management interface", () => {
       expect(response.status, urlPath).toBe(status);
       expect(response.headers.get("decent-sync-build"), urlPath).toBe(BUILD);
     }
-    const signIn = await fetch(`${server.url}/api/session`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ email: "nobody@example.com", password: "not a password" }),
-    });
-    expect(signIn.status).toBe(401);
-    expect(signIn.headers.get("decent-sync-build")).toBe(BUILD);
+    // A refused sign-in, and bodies Nest's parsers refuse before any route: malformed, and over their 100 kB.
+    for (const [body, status] of [
+      [JSON.stringify({ email: "nobody@example.com", password: "not a password" }), 401],
+      ["{", 400],
+      [JSON.stringify({ email: "x".repeat(200_000) }), 413],
+    ] as const) {
+      const response = await fetch(`${server.url}/api/session`, { method: "POST", headers: { "Content-Type": "application/json" }, body });
+      expect(response.status).toBe(status);
+      expect(response.headers.get("decent-sync-build"), `${status}`).toBe(BUILD);
+    }
   });
 
   it("names the same build on every instance serving it, and none without a build that names one", async () => {

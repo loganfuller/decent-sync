@@ -42,25 +42,29 @@ export function useNewBuildOnNavigation(): void {
   }, [pathname]);
 }
 
-/** The builds that reloaded this tab for a chunk that failed to load, kept through the reload. */
+/** The reloads this tab made for a chunk that failed to load, kept through them. */
 const CHUNK_RELOADS = "decent-sync:chunk-reloads";
 
 /**
  * Reloads the page once a chunk of it fails to load (Vite's
  * `vite:preloadError`, as when the server answers a chunk it lacks with
- * index.html), so it loads the build the server serves. A build reloads a tab
- * so once: a chunk failing again after the reload brought the same build is
- * left to fail, so this never loops.
+ * index.html), so it loads the build the server serves. It reloads a tab so
+ * once for each build of the page and the other build the server named then,
+ * if any: a chunk failing again after a reload that changed neither is left to
+ * fail, so this never loops, while one failing after a deploy reloads, though
+ * the page's build reloaded for one before. A navigation to a lazily loaded
+ * page waits for its chunk, so this is how such a navigation finds a deploy.
  */
 export function reloadForFailedChunk(): void {
   if (!pageBuild) return;
+  const reload = serverBuild && serverBuild !== pageBuild ? `${pageBuild} ${serverBuild}` : pageBuild;
   try {
     const reloaded = JSON.parse(sessionStorage.getItem(CHUNK_RELOADS) ?? "[]") as string[];
-    if (reloaded.includes(pageBuild)) {
+    if (reloaded.includes(reload)) {
       console.warn("A chunk of this page failed to load again after it reloaded for one, so it does not reload again.");
       return;
     }
-    sessionStorage.setItem(CHUNK_RELOADS, JSON.stringify([...reloaded, pageBuild]));
+    sessionStorage.setItem(CHUNK_RELOADS, JSON.stringify([...reloaded, reload]));
   } catch {
     // Without the tab's storage it cannot tell whether it reloaded already, so it does not.
     return;

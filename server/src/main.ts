@@ -3,6 +3,7 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { StartupError, loadConfig } from "./config.js";
+import { ManagementInterface } from "./management-interface.js";
 import { checkIdleInTransactionTimeout, runMigrations } from "./migrations.js";
 
 async function main(): Promise<void> {
@@ -11,6 +12,9 @@ async function main(): Promise<void> {
   await checkIdleInTransactionTimeout(config);
 
   const app = await NestFactory.create(AppModule.register(config));
+  // Every response names the build of the management interface. Added before `listen()` initializes the app, this
+  // runs before Nest's body parsers, which answer a malformed or oversized body themselves, and every other middleware.
+  app.use(app.get(ManagementInterface).nameBuild);
   app.enableShutdownHooks();
   await app.listen(config.port, config.host);
   // Test servers are ready once this is logged (`server/test/support/test-server.ts`).

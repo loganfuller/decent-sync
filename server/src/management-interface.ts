@@ -31,7 +31,7 @@ const BUILD_NAME = /<meta name="decent-sync-build" content="([0-9a-f]+)">/;
  *
  * Every response names the build, as its index.html names it when the server
  * starts, so a page loads the new one at its next navigation after a deploy
- * (ADR-0025): `nameBuild`, which `AppModule` applies to every route. A server
+ * (ADR-0025): `nameBuild`, which `main.ts` puts before all else. A server
  * without a build, or with one that names none, names none.
  */
 @Injectable()

@@ -46,6 +46,26 @@ function namedBuild(name: string | null): string {
   });
 }
 
+/**
+ * A copy of the built app naming itself `name`, whose lazily loaded chunk
+ * starting `prefix` has moved to another file, as a deploy changing it does.
+ */
+function buildMovingChunk(name: string, prefix: string): string {
+  return copyOfBuild((dir) => {
+    const assets = path.join(dir, "assets");
+    const chunks = fs.readdirSync(assets).filter((file) => file.startsWith(`${prefix}-`) && file.endsWith(".js"));
+    expect(chunks).toHaveLength(1);
+    const moved = `${prefix}-moved.js`;
+    fs.renameSync(path.join(assets, chunks[0]!), path.join(assets, moved));
+    for (const file of [...fs.readdirSync(assets).map((asset) => path.join(assets, asset)), path.join(dir, "index.html")]) {
+      const text = fs.readFileSync(file, "latin1");
+      if (text.includes(chunks[0]!)) fs.writeFileSync(file, text.replaceAll(chunks[0]!, moved), "latin1");
+    }
+    const index = path.join(dir, "index.html");
+    fs.writeFileSync(index, fs.readFileSync(index, "utf8").replace(BUILD_NAME, `<meta name="decent-sync-build" content="${name}">`));
+  });
+}
+
 /** Another instance on the fresh server's database, serving the app in `webDistDir`, or the build's. */
 async function instance(webDistDir?: string, port?: number): Promise<TestServer> {
   return startTestServer({ sharing: await server.server(), port, env: webDistDir ? { WEB_DIST_DIR: webDistDir } : {} });
@@ -148,6 +168,33 @@ test("a chunk that fails to load reloads the page once, and not again when the r
   await mainNav(page).getByRole("link", { name: "Shots" }).click();
   await notAgain;
   expect(loads).toEqual(["/machines", "/shots"]);
+});
+
+test("a chunk that fails after a deploy reloads the page into the new build, though the page reloaded for a chunk before", async ({ page }) => {
+  const another = randomBytes(8).toString("hex");
+  const before = await instance();
+  // The Shots page's chunk fails to load once, as on a flaky network, so the page reloads and loads it.
+  let failed = false;
+  await page.route(/\/assets\/ShotsPage-[^/]*\.js$/, (route) => {
+    if (failed) return route.continue();
+    failed = true;
+    return route.abort();
+  });
+  await page.clock.install();
+  await page.goto(`${before.url}/machines`);
+  await expect(heading(page, "Machines")).toBeVisible();
+  await mainNav(page).getByRole("link", { name: "Shots" }).click();
+  await expect(heading(page, "Shots")).toBeVisible();
+  expect(failed).toBe(true);
+
+  // A deploy moves the Steam Records page's chunk. A navigation to that lazily loaded page waits for the chunk this
+  // page knows, which is gone.
+  const after = await restart(before, buildMovingChunk(another, "SteamRecordsPage"));
+  await afterPollNaming(page, another);
+  await mainNav(page).getByRole("link", { name: "Steam Records" }).click();
+  await expect.poll(() => pageBuild(page)).toBe(another);
+  await expect(page).toHaveURL(`${after.url}/steam-records`);
+  await expect(heading(page, "Steam Records")).toBeVisible();
 });
 
 test("a page without a build never reloads", async ({ page }) => {
