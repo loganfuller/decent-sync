@@ -1,0 +1,10 @@
+{
+  "frames": [
+    {"ms":0,"source":"shotSettings","frame":{"steamSetting":0,"targetSteamTemp":160,"targetSteamDuration":120,"targetHotWaterTemp":80,"targetHotWaterVolume":75,"targetHotWaterDuration":30,"targetShotVolume":0,"groupTemp":0}},
+    {"ms":1,"source":"waterLevels","frame":{"currentLevel":30.52734375,"refillLevel":5}},
+    {"ms":1,"source":"devices","frame":{"timestamp":"2026-10-27T21:16:54.176200Z","devices":[{"name":"Bookoo Mini Scale","id":"00:00:5E:00:53:02","state":"connected","type":"scale","available":true,"connectionRole":"primary"},{"name":"DE1","id":"00:00:5E:00:53:01","state":"connected","type":"machine","available":true}],"scanning":false,"charging":{"mode":"longevity","nightModeEnabled":false,"currentPhase":"inactive","batteryPercent":52,"usbChargerOn":true,"isEmergency":false},"connectionStatus":{"phase":"ready","foundMachines":[{"name":"DE1","id":"00:00:5E:00:53:01","state":"discovered","type":"machine"}],"foundScales":[{"name":"Bookoo Mini Scale","id":"00:00:5E:00:53:02","state":"discovered","type":"scale"}],"pendingAmbiguity":null,"error":null}}},
+    {"ms":2,"source":"scale","frame":{"status":"connected"}},
+    {"ms":2,"source":"machine","frame":{"timestamp":"2026-10-27T17:17:07.628128","state":{"state":"sleeping","substate":"idle"},"flow":0,"pressure":0.0048828125,"targetFlow":8,"targetPressure":0,"mixTemperature":58.984375,"groupTemperature":59.206085205078125,"targetMixTemperature":88.375,"targetGroupTemperature":84,"profileFrame":4,"steamTemperature":141}},
+    {"ms":4,"source":"shotState","frame":{"event":"state","timestamp":"2026-10-27T17:05:36.601296","shotId":null,"state":"idle","machineState":"espresso","machineSubstate":"pouringDone","profileFrame":null,"scaleConnected":true,"scaleLost":false,"machineHasAutonomousSAW":false,"decision":null}}
+  ]
+}

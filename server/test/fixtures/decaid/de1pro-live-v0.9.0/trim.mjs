@@ -33,10 +33,13 @@ const scrub = (value) =>
 
 /** A recording's frames, each with its arrival in ms, and its machine frames. */
 function read(file) {
-  const frames = readFileSync(file, "utf8")
+  const lines = readFileSync(file, "utf8")
     .split("\n")
     .filter(Boolean)
-    .map((text) => JSON.parse(text))
+    .map((text) => JSON.parse(text));
+  // Each socket's first frame is then the one it sent as it opened.
+  if (lines.some((line) => line.event === "close")) throw new Error(`A socket closed in ${file}`);
+  const frames = lines
     .filter((line) => "frame" in line && line.source !== "sensors")
     .map((line) => ({ ...line, ms: Date.parse(line.at) }));
   for (const { frame } of frames.filter((line) => line.source === "devices")) {
@@ -69,6 +72,14 @@ function window({ frames }, from, to) {
   return inside.map((line) => ({ ms: line.ms - inside[0].ms, source: line.source, frame: scrub(line.frame) }));
 }
 
+/** The frame each socket sent as it opened, at its ms since the first. */
+function opening({ frames }) {
+  const first = new Map();
+  for (const line of frames) if (!first.has(line.source)) first.set(line.source, line);
+  const lines = [...first.values()];
+  return lines.map((line) => ({ ms: line.ms - lines[0].ms, source: line.source, frame: scrub(line.frame) }));
+}
+
 /** A run of the states, from 2 s before it to 3 s after it, the Machine idle again by then. */
 const around = (recording, [first, last]) => window(recording, first.ms - 2000, last.ms + 3000);
 
@@ -95,7 +106,12 @@ const twoTapSteaming = runs(twoTap, ["steam"]).find(([first, last]) =>
   twoTap.machine.some((line) => line.ms >= first.ms && line.ms <= last.ms && line.frame.state.substate === "puffing"),
 );
 if (!twoTapSteaming) throw new Error("No steaming with puffing was recorded");
+const scaleConnected = normal.frames.find((line) => line.source === "scale" && line.frame.status === "connected");
+if (!scaleConnected) throw new Error("The scale was not recorded connecting");
 
+writeFrames("opening.json", opening(normal));
+writeFrames("opening-scale-connected.json", opening(twoTap));
+writeFrames("scale-connects.json", window(normal, scaleConnected.ms - 2000, scaleConnected.ms + 3000));
 writeFrames("shot.json", around(normal, runs(normal, ["espresso", "skipStep"])[0]));
 writeFrames("steam.json", around(normal, runs(normal, ["steam"])[0]));
 writeFrames("steam-two-tap-stop.json", around(twoTap, twoTapSteaming));

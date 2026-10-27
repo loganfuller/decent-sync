@@ -44,10 +44,12 @@ Mode Normal (`steamPurgeMode` 0):
 A second recording took one more steaming with Two Tap Stop
 (`steamPurgeMode` 1). The owner set Two Tap Stop with a Settings Edit from the
 management interface, tapped stop twice, and set Normal back the same way.
-Streamline's own settings page couldn't set it: its `onchange` stores the
-select's string `"1"`, and the page drawn again finds no option equal to it.
-The first attempt's Settings Edit held until that page next opened and put
-Normal back (`checkMachineSettingsDrift`, the `putBackByStreamline` note in
+In Streamline's own settings page, choosing Two Tap Stop showed Normal again
+at once, so it looked refused (decentespresso/streamline-js#175). Its
+`onchange` stores the select's string `"1"`, and the page drawn again finds
+no option equal to it, though the choice stays staged for saving. The first
+attempt's Settings Edit held until that page next opened and put Normal back
+(`checkMachineSettingsDrift`, the `putBackByStreamline` note in
 `protocol/src/settings-fields.ts`), so the second left the page closed. The capture itself wrote nothing to the
 tablet.
 
@@ -74,6 +76,9 @@ computer's differ, so a `timestamp` and an arrival time can't be compared.
 
 | File | What it holds |
 |---|---|
+| `opening.json` | The frame each socket sent as it opened, the Machine asleep and the scale off: the latest snapshot, shot settings, devices, water levels and shot state, and the scale's `{"status":"disconnected"}` |
+| `opening-scale-connected.json` | The same at the second recording's start, the scale on: its frame is `{"status":"connected"}`, and its weights follow live |
+| `scale-connects.json` | The scale connecting while the Machine heated: `{"status":"connected"}`, then its weights |
 | `shot.json` | A shot: `espresso` with `preparingForShot` 2.9 s, `preinfusion` 7.7 s, `pouring` 23.8 s and `pouringDone` 4.2 s, with its `shotState` events and the scale's weights |
 | `steam.json` | Steaming with Normal: `preparingForShot` 2 s, `pouring` 16.9 s, then `pouringDone` 6.3 s from the stop, holding the purge, then `idle` as the purge tails off |
 | `steam-two-tap-stop.json` | Steaming with Two Tap Stop: `preparingForShot` 3.1 s, `pouring` 21.8 s, `puffing` 4.6 s after the first tap, `pouringDone` 4.8 s after the second, holding the purge, then `idle` |
@@ -85,7 +90,9 @@ computer's differ, so a `timestamp` and an arrival time can't be compared.
 | `steam-record.json` | `GET /api/v1/steams/{id}` of `steam.json`'s steaming: 10 `preparingForShot`, 81 `pouring`, 30 `pouringDone` and 1 `idle` sample |
 | `steam-record-two-tap-stop.json` | The same of `steam-two-tap-stop.json`'s: 15 `preparingForShot`, 105 `pouring`, 22 `puffing`, 23 `pouringDone` and 1 `idle` sample |
 
-Each activity's fixture runs from 2 s before it to 3 s after it. The Steam
+No socket closed in either recording, so each one's first frame is the one
+it sent as it opened. Each activity's fixture, and `scale-connects.json`, runs
+from 2 s before it to 3 s after it. The Steam
 Records are whole, measurements included, with the ids Decaid gave them.
 
 Edited: the Bluetooth addresses of the machine and the scale, in `devices`
@@ -121,8 +128,8 @@ machine frame was in each state, as `trim.mjs` prints them:
 - **Devices.** One frame as the socket opened, then one a minute, as
   `BatteryController` checks the battery
   (`decaid:lib/src/controllers/battery_controller.dart`).
-- **Shot settings.** Only the frame sent as the socket opened: nothing changed
-  them in the run.
+- **Shot settings.** Only the frame sent as the socket opened (`opening.json`):
+  nothing changed them in the run.
 - **Shot state.** Only around the shot: 10 frames of its states and decisions.
 - **Sizes.** A machine frame is about 310 to 335 bytes, a scale frame about
   105 to 115, water levels 43, a devices frame 718 and a shot state frame 352.
@@ -135,11 +142,12 @@ machine frame was in each state, as `trim.mjs` prints them:
   temperatures still reported. Water levels and the scale also kept coming.
 - **The Tablet's screen off.** From just after the Machine went to sleep at
   21:09:24 UTC, the Tablet's screen was off until after the first recording
-  ended at 21:15:20. Every stream kept its rate. The management interface
+  ended at 21:15:40. Every stream kept its rate. The management interface
   showed the Machine online in every poll of its server's
-  `GET /api/machines/{id}` (75, 5 s apart). Its `lastSeenAt` moved on every
-  30 s throughout. The recording computer's open sockets may have kept the
-  Tablet's Wi-Fi awake, as a plugin streaming to a Live View would.
+  `GET /api/machines/{id}` (75, 5 s apart, the last at 21:15:36). Its
+  `lastSeenAt` moved on every 30 s throughout. The recording computer's open
+  sockets may have kept the Tablet's Wi-Fi awake, as a plugin streaming to a
+  Live View would.
 - **Steaming's stop.** Neither mode reported `pausedSteam`.
   - **Normal:** stop turned `pouring` into `pouringDone`. Flow fell from 2.3
     ml/s to 0 over 3.3 s, then the purge ran at targets of 2 and then 4 ml/s.
