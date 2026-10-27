@@ -7,8 +7,10 @@ import { latestReleaseTag, releaseWireRevision, wireRevisionIn } from "../../ser
 
 // The wire revision's rules (ADR-0025), for any revisions: which peers a
 // build accepts, and which have what a revision added. As one of its tests
-// reads the tags, the latest release's suite leaves this file out by its path
-// (scripts/latest-release-suite.mjs): change that path too if it moves.
+// reads the tags, the latest release's suite leaves the release's copy of this
+// file out by its path (LEFT_OUT in scripts/latest-release-suite.mjs): if it
+// moves, add the new path there, and drop the old once a release with the
+// move is the latest.
 
 describe("the wire revision", () => {
   it("is 1 for a peer that sends none, as every release before it is", () => {

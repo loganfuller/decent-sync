@@ -492,9 +492,9 @@ export const NOT_WRITTEN = "Not written: ";
  * Whether a plugin refused an edit by its own definitions though these
  * allow it: a plugin at another release, whose definitions differ, such as
  * the previous release's beside this one (ADR-0025), as 1.3.1's put a weight
- * flow multiplier of 0.86 off a step of 0.1 (#343). Nothing was written, and the
- * plugin takes the edit once it updates. Judged as the plugin judges, as an
- * Admin's.
+ * flow multiplier of 0.86 off a step of 0.1 (#343). Nothing was written, and
+ * the plugin takes the edit once it updates. Judged as the plugin judges, as
+ * an Admin's.
  */
 export function refusedByOtherDefinitions(edit: SettingsEditFields, refusal: { reason?: string; status?: number | null; message?: string | null }): boolean {
   return refusal.reason === "decaid" && refusal.status === null && (refusal.message?.startsWith(NOT_WRITTEN) ?? false) && validateSettingsEdit(edit, "admin").length === 0;
