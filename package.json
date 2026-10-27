@@ -19,6 +19,7 @@
     "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json && tsc -p scripts/test/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
+    "test:latest-release-suite": "node scripts/latest-release-suite.mjs",
     "check:plugin-build": "node scripts/check-plugin-build.mjs",
     "package:plugin": "node scripts/package-plugin.mjs",
     "db:up": "docker compose up -d --wait db",

@@ -15,11 +15,19 @@ on:
   # else, every later push runs CI. A check from a workflow this filter skips
   # stays pending: if these jobs ever become required checks, docs-only pull
   # requests would be blocked, so replace the filter with job-level skips then.
+  #
+  # Labelling or unlabelling a pull request runs it again, for the
+  # breaking-release label (scripts/breaking-release.mjs). Every job runs on
+  # those events too: a job skipped there would report as passing over an
+  # earlier failure.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
     paths: ['**', '!docs/**', '!**/*.md', 'UPGRADING.md', 'decent-sync.reaplugin/**']
 
+# pull-requests: read lets scripts/breaking-release.mjs read pull requests' labels.
 permissions:
   contents: read
+  pull-requests: read
 
 # Each push to main gets a group of its own through run_id, so its runs are
 # never cancelled and never wait for each other: the release workflow waits on
@@ -200,21 +208,106 @@ jobs:
 
       - *checkout-with-tags
       - *setup-node
+
+      # A job that checks the change against the latest release takes this
+      # step after checkout-with-tags and Node, and skips its checks on its
+      # `skip` output: while a breaking release is on its way they don't
+      # apply, and they skip with a notice saying why. They skip by step,
+      # not by job, so the check still reports.
+      - &breaking-release
+        id: breaking-release
+        name: Check for a breaking release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node scripts/breaking-release.mjs
+
       - *restore-modules
       - *install
       - *runner-cpu
       - *build
 
       # Any job that runs the latest release can take this step, after a
-      # checkout with the tags (checkout-with-tags) and Node.
+      # checkout with the tags (checkout-with-tags), Node and the
+      # breaking-release step.
       - &build-latest-release
         name: Build the latest release
+        if: steps.breaking-release.outputs.skip != 'true'
         run: npm run build:latest-release
 
       - *wait-postgres
 
       - name: Vitest
+        if: steps.breaking-release.outputs.skip != 'true'
         run: npx vitest run server/test/latest-release
+
+      - *postgres-logs
+
+  # The latest release's own Vitest suite, run on databases with the change's
+  # schema, so a migration the running release would break on fails here
+  # (ADR-0025). scripts/latest-release-suite.mjs, which runs it locally on a
+  # throwaway PostgreSQL, migrates this job's template1 with the change's
+  # migrations, so every database the suite creates is a copy, and leaves out
+  # the release's server/test/latest-release/, as the shards above do. Sharded
+  # as they are, by the release's own vitest.config.ts. It runs only when
+  # something it depends on differs from main, or on main from the latest
+  # release (the schema step).
+  latest-release-suite:
+    name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    env: *env
+
+    steps:
+      - *start-postgres
+      - *checkout-with-tags
+      - *setup-node
+
+      # The suite runs the latest release's own code and tests, so the change
+      # reaches it only through its migrations, what applies them (Prisma,
+      # from the lockfile) and this job's own scripts. It runs only when one
+      # of those differs: on a pull request, from main; on a push to main,
+      # from the latest release, so main runs it for as long as it holds
+      # anything that release lacks, whatever an earlier push found.
+      # Otherwise it skips with a notice. A base it can't find runs it.
+      - id: schema
+        name: Check for a change the latest release's suite depends on
+        env:
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$PULL_REQUEST" = true ]; then
+            base=HEAD^1 since="main"
+          else
+            base=$(node --input-type=module -e 'import { latestReleaseTag } from "./server/test/support/latest-release.mjs"; console.log(latestReleaseTag())') || base=
+            since=$base
+          fi
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2> /dev/null && git diff --quiet "$base" HEAD -- \
+              server/prisma/migrations server/prisma.config.ts package-lock.json .github/workflows/ci.yml \
+              scripts/latest-release-suite.mjs scripts/build-latest-release.mjs \
+              server/test/support/latest-release.mjs server/test/support/build-table.mjs; then
+            echo "::notice title=Latest release's suite skipped::Nothing it depends on differs from $since: no migration, nor Prisma's version or this job's scripts."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - *breaking-release
+      - *restore-modules
+      - *install
+      - *runner-cpu
+
+      - name: Build the latest release
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
+        run: node scripts/build-latest-release.mjs
+
+      - *wait-postgres
+
+      - name: Vitest of the latest release on this schema
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
+        run: node scripts/latest-release-suite.mjs --database-url "$DATABASE_URL" --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - *postgres-logs
 

@@ -7,7 +7,9 @@ import { type TestServer, type TestServerOptions, startTestServer } from "./supp
 // A migration sets idle_in_transaction_session_timeout on the database, so
 // the server's connections need not send it at startup, which a pooler may
 // refuse or drop. Only the database's owner or a superuser may set it, so the
-// server warns at startup, and starts anyway, while it is off.
+// server warns at startup, and starts anyway, while it is off. A database
+// copied from template1 doesn't carry the setting, so each owner here starts
+// on an empty one, from template0, which its migration sets.
 
 const WARNING = "idle_in_transaction_session_timeout is off";
 const fix = (database: string) => `ALTER DATABASE ${database} SET idle_in_transaction_session_timeout = '30s';`;
@@ -42,7 +44,7 @@ describe("the idle-in-transaction timeout", () => {
   });
 
   it("is set on a fresh database, for connections that send no settings, and reaches the server's connections through a pooler, without a startup setting it would refuse", async () => {
-    const direct = await start();
+    const direct = await start({ emptyDatabase: true });
     expect(await timeoutOf(await connect(direct))).toEqual({ timeout: "30s", source: "database" });
     expect(direct.output()).not.toContain(WARNING);
 
@@ -79,7 +81,7 @@ describe("the idle-in-transaction timeout", () => {
   });
 
   it("is warned of at startup when turned off, and the server still serves", async () => {
-    const first = await start();
+    const first = await start({ emptyDatabase: true });
     await (await connect(first)).query(`ALTER DATABASE ${first.database} SET idle_in_transaction_session_timeout = 0`);
     const second = await start({ sharing: first });
 

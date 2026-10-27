@@ -38,8 +38,9 @@ describe("migrations", () => {
   });
   afterAll(() => staged.remove());
 
+  // Each owner migrates an empty database, from template0: these tests are of migrating.
   const start = async (options?: TestServerOptions) => {
-    const server = await startTestServer(options);
+    const server = await startTestServer({ emptyDatabase: true, ...options });
     owners.push(server);
     return server;
   };
