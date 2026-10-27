@@ -1,12 +1,14 @@
 # DE1Pro's live streams on Decaid v0.9.0
 
 Decaid's local streams on the test tablet, recorded for the Live View (#258)
-in one supervised, read-only capture on 2026-10-27 (#259). The tablet ran
-Decaid 0.9.0+2977 (built from the v0.9.0 tag, commit `b9f9d055`), DYE2
-0.1.26, Streamline's `dist` build `55bd37d` and the plugin 1.4.0, which stayed
-connected to its server throughout. Its DE1Pro was on firmware 1358, with a
-Bookoo Mini scale and no milk probe. Its identity was confirmed with
-`GET /api/v1/machine/info` first.
+in one supervised, read-only capture on 2026-10-27 (#259), and two Steam
+Records from a second supervised capture that evening, for #308, which made
+one write (below). The tablet ran Decaid 0.9.0+2977 (built from the v0.9.0
+tag, commit `b9f9d055`), DYE2 0.1.26 and the plugin 1.4.0, which stayed
+connected to its server throughout, and Streamline's `dist` build `55bd37d`
+in #259's capture. Its DE1Pro was on firmware 1358, with a Bookoo Mini scale
+and no milk probe. Its identity was confirmed with
+`GET /api/v1/machine/info` first each time.
 
 ## How they were taken
 
@@ -57,6 +59,19 @@ attempt's Settings Edit held until that page next opened and put Normal back
 `protocol/src/settings-fields.ts`), so the second left the page closed. The
 capture itself wrote nothing to the tablet.
 
+A third recording, later the same evening for #308, took two steamings with
+Normal, to see how other stops end. It wasn't read-only: the owner authorized
+one write, `PUT /api/v1/machine/state/idle`, which a script sent 10 s into the
+first steaming's `pouring`. That's what Streamline's on-screen Stop sends on a
+Machine without a group head controller, and what Decaid sends to stop at a
+milk temperature (`_maybeAppSideStop` in
+`decaid:lib/src/controllers/steam_sequencer.dart`). This DE1Pro has one
+(`GHC: true`), so Streamline hides that button. For the second steaming, the
+owner set the Workflow's steam duration to 10 s on the Tablet and let the
+Machine stop by itself. It puffed until the owner tapped stop on the group
+head controller, then purged. The owner set 120 s back after it. Only the two
+Steam Records are committed from it.
+
 `trim.mjs` cut the two recordings, which aren't committed, into the fixtures
 and printed the rates below:
 
@@ -97,8 +112,10 @@ can't be compared.
 | `asleep.json` | The Machine going to sleep: 5 s idle, then 30 s `sleeping` |
 | `steam-record.json` | `GET /api/v1/steams/{id}` of `steam.json`'s steaming: 10 `preparingForShot`, 81 `pouring`, 30 `pouringDone` and 1 `idle` sample |
 | `steam-record-two-tap-stop.json` | The same of `steam-two-tap-stop.json`'s: 15 `preparingForShot`, 105 `pouring`, 22 `puffing`, 23 `pouringDone` and 1 `idle` sample |
+| `steam-record-idle-request.json` | The same of the third recording's first steaming, stopped by the `idle` request: 15 `preparingForShot`, 50 `pouring`, 33 `pouringDone` and 1 `idle` sample |
+| `steam-record-timed-stop.json` | The same of its second, stopped on time: 12 `preparingForShot`, 66 `pouring`, 171 `puffing`, 37 `pouringDone` and 1 `idle` sample |
 
-No socket closed in either recording, so each one's first frame is the one
+No socket closed in any recording, so each one's first frame is the one
 it sent as it opened. Each activity's fixture, `wake.json` and
 `scale-connects.json` run from 2 s before it to 3 s after it.
 `needs-water.json` starts 4 s before the reading reached 0. The Steam
@@ -186,7 +203,7 @@ prints them:
   every devices frame), and Android doesn't put a device on power into Doze.
   The recording computer's open sockets may also have kept the Tablet's Wi-Fi
   awake, as a plugin streaming to a Live View would.
-- **Steaming's stop.** Neither mode reported `pausedSteam`.
+- **Steaming's stop.** No steaming reported `pausedSteam`.
   - **Normal:** stop turned `pouring` into `pouringDone`. Flow fell from 2.3
     ml/s to 0 over 3.3 s, then the purge ran at targets of 2 and then 4 ml/s.
     The state turned `idle` 6.3 s after the stop, at 2.8 ml/s, and the purge
@@ -196,5 +213,18 @@ prints them:
     4.6 s, a small puff about every 1.5 s. The second tap began
     `pouringDone`: flow fell for 2 s, then the purge ran as in Normal and
     tailed off in `idle`.
-  - So `puffing` is the pause between the two taps. The purge is reported as
-    `pouringDone` in either mode.
+  - **An `idle` request** (the third recording) stopped steaming as a tap
+    does in Normal: `pouringDone` at a target of 0 for 3.75 s as the flow
+    fell, then the purge at targets of 2 and then 4 ml/s, then `idle`.
+  - **On time** (the third recording, a steam duration of 10 s): the target
+    flow went to 0 after 9.99 s of `pouring`, so the Machine counts its
+    steam duration from `pouring`, not from `preparingForShot`. Flow fell
+    over 3.8 s still in `pouring`, as after Two Tap Stop's first tap. Then
+    `puffing` held a target of 0.125 ml/s for 35.6 s, until the owner tapped
+    stop. The tap began `pouringDone`, 2.1 s at a target of 0, then the
+    purge.
+  - So `puffing` follows a stop that waits for the barista's tap: Two Tap
+    Stop's first tap, or a stop on time. The purge is reported as
+    `pouringDone` after every stop recorded. Each stop begins with a target
+    flow of 0 while the flow falls, under `pouring` or `pouringDone`, and no
+    substate of its own.
