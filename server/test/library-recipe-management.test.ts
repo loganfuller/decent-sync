@@ -860,11 +860,12 @@ describe("The migration giving Recipes record ids", () => {
   const migration = (name: string) => fs.readFileSync(path.join(migrations, name, "migration.sql"), "utf8");
 
   it("keeps each Recipe's slot number as its record id, gives one in no slot a new one, and takes those above slot 5 out of their slots", async () => {
-    // A scratch database migrated to the init migration, holding Recipes as they were, then the migration applied.
+    // A scratch database migrated to the init migration, holding Recipes as they were, then the migration applied. An
+    // empty one, from template0: the next release's suite copies a template1 a later change migrated.
     const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
     const database = testDatabaseName();
     await admin.connect();
-    await admin.query(`CREATE DATABASE "${database}"`);
+    await admin.query(`CREATE DATABASE "${database}" TEMPLATE template0`);
     const url = new URL(adminDatabaseUrl());
     url.pathname = `/${database}`;
     const client = new pg.Client({ connectionString: url.toString() });

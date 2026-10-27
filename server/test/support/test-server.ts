@@ -75,9 +75,16 @@ export interface TestServerOptions {
   /** Connects the server to PostgreSQL through this host and port, such as a pooler's. */
   databaseHost?: string;
   /**
-   * Runs the server, on a fresh database, as a role of its own that does not
-   * own that database, as a host may give it. The role may create in the
-   * public schema, as migrating needs, and is dropped with the database.
+   * Creates its database from template0 rather than template1, for a test
+   * that needs an empty database or a setting a copy of template1 doesn't
+   * carry: the next release's suite runs on a template1 a later change
+   * migrated (`npm run test:latest-release-suite`). `notOwner` does too.
+   */
+  emptyDatabase?: boolean;
+  /**
+   * Runs the server, on a fresh, empty database, as a role of its own that
+   * does not own that database, as a host may give it. The role may create in
+   * the public schema, as migrating needs, and is dropped with the database.
    */
   notOwner?: boolean;
   /**
@@ -112,6 +119,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   const main = path.join(buildDir, "server/dist/main.js");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
+  if (options.emptyDatabase && options.sharing) throw new Error("emptyDatabase needs a fresh database; it cannot be combined with sharing");
   // Its owner must know of it, to stop it before dropping the database.
   const halts = options.sharing && sharerHalts.get(options.sharing);
   if (options.sharing && !halts) throw new Error("sharing names a server that startTestServer did not start");
@@ -129,7 +137,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   const serverDatabaseUrl = new URL(databaseUrl);
   if (options.databaseHost) serverDatabaseUrl.host = options.databaseHost;
   try {
-    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"`));
+    const template = options.emptyDatabase || options.notOwner ? " TEMPLATE template0" : "";
+    if (!options.sharing) await withClient(baseUrl, (client) => client.query(`CREATE DATABASE "${database}"${template}`));
     if (role) {
       const password = randomBytes(16).toString("hex");
       await withClient(baseUrl, (client) => client.query(`CREATE ROLE "${role}" LOGIN PASSWORD '${password}'`));

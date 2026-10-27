@@ -469,6 +469,7 @@ interface everywhere else.
 | `npm run db:test` | start the shared test PostgreSQL in Docker, and drop test databases left over 2 hours old |
 | `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
 | `npm run test:e2e` | Playwright against the built server (run `npm run build` first) |
+| `npm run test:latest-release-suite` | the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker (run `npm run build:latest-release` first) |
 | `npm run check:plugin-build` | fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | write the release ZIP of the committed plugin to `dist/` |
 | `docker compose up --build` | build the server image from this checkout and run it with PostgreSQL |
