@@ -75,6 +75,7 @@ const tabletId = "0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81";
 const hello: Hello = {
   type: "hello",
   protocolVersion: PROTOCOL_VERSION,
+  wireRevision: WIRE_REVISION,
   token,
   pluginVersion: "0.1.0",
   decaidVersion: "0.9.0+2977",
@@ -100,7 +101,7 @@ describe("decodePluginMessage", () => {
   });
 
   it("accepts a hello without hardware or connection id", () => {
-    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, token, pluginVersion: "0.1.0", decaidVersion: "0.9.0+2977", tabletId };
+    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, token, pluginVersion: "0.1.0", decaidVersion: "0.9.0+2977", tabletId };
     expect(decodePluginMessage(frame(bare))).toEqual({ ok: true, message: bare });
     for (const missing of [{ machine: null }, { connectionId: null }]) {
       expect(decodePluginMessage(frame({ ...bare, ...missing })).ok).toBe(true);
@@ -119,7 +120,7 @@ describe("decodePluginMessage", () => {
 
   it("refuses a hello with missing or mistyped fields, naming each one", () => {
     const result = decodePluginMessage(
-      frame({ type: "hello", protocolVersion: PROTOCOL_VERSION, token: "", pluginVersion: 1, connectionId: 7, machine: { model: "DE1" } }),
+      frame({ type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, token: "", pluginVersion: 1, connectionId: 7, machine: { model: "DE1" } }),
     );
     expect(result).toEqual({
       ok: false,
@@ -242,8 +243,9 @@ describe("decodePluginMessage", () => {
   });
 
   it("reads a hello's wire revision, a whole number from 1, and takes a hello without one as revision 1", () => {
-    // A plugin of 1.3.1 or earlier sends none.
-    expect(decodePluginMessage(frame(hello))).toEqual({ ok: true, message: hello });
+    // A plugin of 1.3.1 or earlier sends none, accepted while the revision is 1 or 2.
+    const { wireRevision: _, ...none } = hello;
+    expect(decodePluginMessage(frame(none))).toEqual({ ok: true, message: none });
     for (const wireRevision of [WIRE_REVISION, WIRE_REVISION + 1, WIRE_REVISION + 20]) {
       expect(decodePluginMessage(frame({ ...hello, wireRevision }))).toEqual({ ok: true, message: { ...hello, wireRevision } });
     }

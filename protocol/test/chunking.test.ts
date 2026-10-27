@@ -8,6 +8,7 @@ import {
   MAX_FRAME_BYTES,
   MAX_ID_LENGTH,
   PROTOCOL_VERSION,
+  WIRE_REVISION,
   type PluginMessage,
   Reassembly,
   type ReassemblyLimits,
@@ -30,6 +31,7 @@ const LONE_SURROGATE = /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[
 const hello: Hello = {
   type: "hello",
   protocolVersion: PROTOCOL_VERSION,
+  wireRevision: WIRE_REVISION,
   token: "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s",
   pluginVersion: "0.1.0",
   decaidVersion: "0.9.0+2977",
