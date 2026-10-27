@@ -59,7 +59,7 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 
 - Plugin host, transport limits, events and upstream evidence: `docs/AI_RUNTIME_NOTES.md`.
 - Protocol ownership and compatibility: `docs/AI_PROTOCOL_NOTES.md`.
-- Capture storage: `docs/AI_STORAGE_NOTES.md`.
+- Capture storage, and writing a migration: `docs/AI_STORAGE_NOTES.md`.
 - Verification and real-tablet rules: `docs/AI_BUILD_NOTES.md`.
 - GitHub Issues, milestones and dependency conventions: `docs/agents/issue-tracker.md`.
 - Pull request descriptions, and screenshots of management interface changes embedded in them: `docs/agents/pull-requests.md`.
