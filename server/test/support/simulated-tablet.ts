@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SYNC_PATH } from "@decent-sync/protocol";
+import { PROTOCOL_VERSION, SETTINGS_EDIT_WRITE_MARGIN_MS, SYNC_PATH, WIRE_REVISION } from "@decent-sync/protocol";
 import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
@@ -492,12 +492,17 @@ export function settingsFor({ token, serverUrl }: { token: string; serverUrl: st
   return { ServerUrl: serverUrl, Token: token };
 }
 
-/** A valid `hello` of this protocol version, for raw frames, from a new tablet unless `extra` names its `tabletId`. */
+/**
+ * A valid `hello` of this protocol version and wire revision, as the plugin
+ * sends it, for raw frames, from a new tablet unless `extra` names its
+ * `tabletId`.
+ */
 export function helloWith(token: string, extra: Record<string, unknown> = {}): Record<string, unknown> {
   rememberSecret(token);
   return {
     type: "hello",
     protocolVersion: PROTOCOL_VERSION,
+    wireRevision: WIRE_REVISION,
     token,
     pluginVersion: "0.1.0",
     decaidVersion: "0.9.0+2977",

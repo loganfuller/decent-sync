@@ -35,6 +35,7 @@ import {
   type SettingsEdited,
   type ShotDelivery,
   type SteamDelivery,
+  WIRE_REVISION,
   type WriteRefused,
   decodePluginFrame,
   decodePluginMessage,
@@ -789,7 +790,12 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     await this.check([live]);
     if (session.closing) return;
 
-    this.send(session, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: this.config.heartbeatIntervalMs });
+    this.send(session, {
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      wireRevision: WIRE_REVISION,
+      heartbeatIntervalMs: this.config.heartbeatIntervalMs,
+    });
     session.welcomed = true;
     this.resetIdleTimer(session);
     // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004). The

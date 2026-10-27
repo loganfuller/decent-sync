@@ -96,3 +96,28 @@ export function compareVersions(a, b) {
   const [, ...y] = RELEASE_TAG.exec(b).map(Number);
   return x[0] - y[0] || x[1] - y[1] || x[2] - y[2];
 }
+
+/**
+ * The wire revision `protocol/src/index.ts` sets in this source
+ * (`WIRE_REVISION`), or undefined if it sets none.
+ */
+export function wireRevisionIn(source) {
+  const match = /^export const WIRE_REVISION = (\d+);$/m.exec(source);
+  return match ? Number(match[1]) : undefined;
+}
+
+/**
+ * The wire revision of the release with this tag, read from its protocol
+ * package's source at the tag, so it needs no build: 1 for a release that
+ * sets none, as every release before the revision existed is at 1
+ * (`FIRST_WIRE_REVISION`).
+ */
+export function releaseWireRevision(tag, root = repoDir) {
+  const source = execFileSync("git", ["show", `${tag}:protocol/src/index.ts`], {
+    cwd: root,
+    encoding: "utf8",
+    maxBuffer: 64 * 1024 * 1024,
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+  return wireRevisionIn(source) ?? 1;
+}

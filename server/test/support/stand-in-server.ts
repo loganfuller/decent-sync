@@ -1,5 +1,5 @@
 import { type AddressInfo } from "node:net";
-import { CHUNK_LIMITS, PROTOCOL_VERSION, Reassembly, SYNC_PATH, type ServerMessage } from "@decent-sync/protocol";
+import { CHUNK_LIMITS, PROTOCOL_VERSION, Reassembly, SYNC_PATH, type ServerMessage, WIRE_REVISION } from "@decent-sync/protocol";
 import { WebSocket, WebSocketServer } from "ws";
 
 // A stand-in for the Decent Sync server on its sync endpoint, for the
@@ -75,7 +75,7 @@ export class StandInServer {
 
   private take(socket: WebSocket, message: Received): void {
     this.received.push(message);
-    if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: 30_000 });
+    if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, heartbeatIntervalMs: 30_000 });
     else if (message.type === "heartbeat") this.reply(socket, { type: "heartbeat" });
     else if (typeof message.id === "string") this.reply(socket, { type: "ack", id: message.id });
     for (const wake of this.waiters.splice(0)) wake();

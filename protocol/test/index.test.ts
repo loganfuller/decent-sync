@@ -39,6 +39,7 @@ import {
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
+  WIRE_REVISION,
   type WriteRefused,
   childKinds,
   childLists,
@@ -177,6 +178,7 @@ describe("decodePluginMessage", () => {
     for (const bad of [
       { ...hello, pluginVersion: { token } },
       { ...hello, protocolVersion: token },
+      { ...hello, wireRevision: token },
       { ...hello, machine: { model: token, serial: [token] } },
       { ...hello, tabletId: token },
       { ...hello, type: token },
@@ -239,6 +241,31 @@ describe("decodePluginMessage", () => {
     }
   });
 
+  it("reads a hello's wire revision, a whole number from 1, and takes a hello without one as revision 1", () => {
+    // A plugin of 1.3.1 or earlier sends none.
+    expect(decodePluginMessage(frame(hello))).toEqual({ ok: true, message: hello });
+    for (const wireRevision of [WIRE_REVISION, WIRE_REVISION + 1, WIRE_REVISION + 20]) {
+      expect(decodePluginMessage(frame({ ...hello, wireRevision }))).toEqual({ ok: true, message: { ...hello, wireRevision } });
+    }
+    for (const wireRevision of [null, 0, -1, 1.5, "1", { token }]) {
+      const result = decodePluginMessage(frame({ ...hello, wireRevision }));
+      expect(result).toEqual({ ok: false, error: "protocol_error", problem: "hello.wireRevision must be a whole number of at least 1" });
+    }
+  });
+
+  it("checks a hello's wire revision before its shape, as its protocol version is", () => {
+    // Whatever else an older or newer hello carries, its revision is read first.
+    expect(decodePluginMessage(frame({ type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: 0, token }))).toEqual({
+      ok: false,
+      error: "protocol_error",
+      problem: "hello.wireRevision must be a whole number of at least 1",
+    });
+    expect(decodePluginMessage(frame({ type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, token }))).toMatchObject({
+      ok: false,
+      problem: expect.stringContaining("hello.pluginVersion must be a string"),
+    });
+  });
+
   it("refuses a protocol version that is newer than the server's, or not a version", () => {
     expect(decodePluginMessage(frame({ ...hello, protocolVersion: PROTOCOL_VERSION + 1 }))).toMatchObject({
       ok: false,
@@ -275,6 +302,18 @@ describe("decodeServerMessage", () => {
     expect(decodeServerMessage(encode({ type: "heartbeat" }))).toEqual({ ok: true, message: { type: "heartbeat" } });
     const error: ErrorMessage = { type: "error", code: "bad_token", message: "No Machine has this token" };
     expect(decodeServerMessage(encode(error))).toEqual({ ok: true, message: error });
+  });
+
+  it("reads a welcome's wire revision, which a server of 1.3.1 or earlier doesn't send", () => {
+    const welcome = { type: "welcome", protocolVersion: PROTOCOL_VERSION, heartbeatIntervalMs: 30_000 };
+    expect(decodeServerMessage(frame(welcome))).toEqual({ ok: true, message: welcome });
+    expect(decodeServerMessage(frame({ ...welcome, wireRevision: WIRE_REVISION }))).toEqual({
+      ok: true,
+      message: { ...welcome, wireRevision: WIRE_REVISION },
+    });
+    for (const wireRevision of [null, 0, 1.5, "1"]) {
+      expect(decodeServerMessage(frame({ ...welcome, wireRevision })).ok).toBe(false);
+    }
   });
 
   it("refuses a welcome without a usable heartbeat interval", () => {

@@ -9,6 +9,7 @@
   "protocol/test/chunking.test.ts": 0,
   "protocol/test/index.test.ts": 0,
   "protocol/test/settings-fields.test.ts": 0,
+  "protocol/test/wire-revision.test.ts": 0,
   "scripts/test/latest-release.test.ts": 0,
   "scripts/test/release.test.ts": 1,
   "scripts/test/test-durations.test.ts": 0,
