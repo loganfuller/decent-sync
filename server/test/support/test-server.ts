@@ -45,6 +45,8 @@ export interface TestServer {
    * started, such as Prisma's while it migrates, as its host crashing does.
    */
   kill(): Promise<void>;
+  /** Sends the server a signal, as a terminal or host does, such as another while it stops. */
+  signal(name: NodeJS.Signals): void;
   /**
    * A client of its database, for changes the server is not told about, or
    * locks held while it works. The caller ends it.
@@ -245,7 +247,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     await client.connect();
     return client;
   };
-  const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, connectDatabase };
+  const signal = (name: NodeJS.Signals) => void started.child.kill(name);
+  const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, signal, connectDatabase };
   // Only once it has started: a start that fails has stopped itself.
   if (halts && stoppedHalts.has(halts)) {
     await halt();

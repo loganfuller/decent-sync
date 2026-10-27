@@ -182,8 +182,9 @@ docker run -d -p 3000:3000 \
   ghcr.io/loganfuller/decent-sync:1.0.0
 ```
 
-`DRAIN_GRACE_SECONDS=0` stops it at once: with one instance there is no proxy
-to wait for, and Docker kills a container 10 s after asking it to stop.
+`DRAIN_GRACE_SECONDS=0` skips the grace: with one instance there is nowhere
+else for requests to go, and Docker kills a container 10 s after asking it to
+stop.
 
 The user in `DATABASE_URL` should own its database: a migration sets the
 database's `idle_in_transaction_session_timeout`, so that a transaction left

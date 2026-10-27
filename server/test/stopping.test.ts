@@ -120,11 +120,14 @@ describe("stopping an instance", () => {
     }
   });
 
-  it("answers requests for its grace, though it has nothing to hand over or finish", async () => {
+  it("answers requests for its grace, though it has nothing to hand over or finish, and ignores another signal meanwhile", async () => {
     const stopping = await startTestServer({ env: graced, sharing: staying });
     try {
       const signalled = performance.now();
       const stopped = stopping.stop();
+      // As a terminal's Ctrl-C reaches it twice under `npm start`, from the terminal and from npm.
+      await expect.poll(() => stopping.output(), { timeout: 5_000 }).toMatch(/Stopping on SIGTERM/);
+      stopping.signal("SIGINT");
       const statuses: number[] = [];
       for (let status = await health(stopping); status !== undefined; status = await health(stopping)) {
         statuses.push(status);
