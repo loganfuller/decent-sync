@@ -340,13 +340,14 @@ beyond whatever else uses it, such as another app on the same cluster.
 # fly.toml
 app = "my-decent-sync"
 primary_region = "yyz"
-# How long a stopping VM has before fly.io kills it: above the server's whole
-# drain. On fly.io's signal the server answers 503 to its health check, hands
-# its tablets to the other VMs and still answers requests for 15 s
-# (DRAIN_GRACE_SECONDS), until the proxy has noticed. It then finishes those
-# under way, whose transactions may run up to 60 s, and a background job's
-# batch, up to 60 s more. A drain usually ends after the 15 s; fly.io's
-# default of 5 s would cut even that short.
+# How long a stopping VM has before fly.io kills it. On fly.io's signal the
+# server answers 503 to its health check, hands its tablets to the other VMs
+# and still answers requests for 15 s (DRAIN_GRACE_SECONDS), until the proxy
+# has noticed. It then finishes the requests under way and its background
+# jobs' batches: usually at once, but a large change, such as one to a long
+# Location History, can take a minute or two. Work that outlasts this is cut
+# off, and its transaction rolls back. fly.io's default of 5 s would cut off
+# even the 15 s.
 kill_timeout = 150
 
 [build]
