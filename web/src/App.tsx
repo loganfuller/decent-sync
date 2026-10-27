@@ -1,7 +1,7 @@
-import { type ReactNode, Suspense, lazy } from "react";
+import { type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
-import { chunkLoaded, useNewBuildOnNavigation } from "@/lib/build";
+import { lazyPage, useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
@@ -28,11 +28,11 @@ import { ToolPage } from "@/pages/ToolPage";
 import { ToolsPage } from "@/pages/ToolsPage";
 
 // The Shot and Steam Record pages load their charts and calendar only when opened, which keeps them out of every other page.
-// Each one loaded lets a chunk failing later reload the page again (`src/lib/build.ts`).
-const ShotsPage = lazy(() => import("@/pages/ShotsPage").then(chunkLoaded).then((page) => ({ default: page.ShotsPage })));
-const ShotPage = lazy(() => import("@/pages/ShotPage").then(chunkLoaded).then((page) => ({ default: page.ShotPage })));
-const SteamRecordsPage = lazy(() => import("@/pages/SteamRecordsPage").then(chunkLoaded).then((page) => ({ default: page.SteamRecordsPage })));
-const SteamRecordPage = lazy(() => import("@/pages/SteamRecordPage").then(chunkLoaded).then((page) => ({ default: page.SteamRecordPage })));
+// One whose chunk fails to load reloads as it is shown (`src/lib/build.ts`).
+const ShotsPage = lazyPage(() => import("@/pages/ShotsPage").then((page) => page.ShotsPage));
+const ShotPage = lazyPage(() => import("@/pages/ShotPage").then((page) => page.ShotPage));
+const SteamRecordsPage = lazyPage(() => import("@/pages/SteamRecordsPage").then((page) => page.SteamRecordsPage));
+const SteamRecordPage = lazyPage(() => import("@/pages/SteamRecordPage").then((page) => page.SteamRecordPage));
 
 export function App() {
   return (

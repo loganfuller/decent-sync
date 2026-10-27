@@ -197,6 +197,40 @@ test("a chunk that fails after a deploy reloads the page into the new build, tho
   await expect(heading(page, "Steam Records")).toBeVisible();
 });
 
+test("a chunk failing after its navigation was left reloads nothing until its page is opened", async ({ page }) => {
+  const serving = await instance();
+  // The Shots page's chunk is held until the test fails it, and loads from then on.
+  let failChunk: (() => Promise<void>) | undefined;
+  const held = new Promise<void>((resolve) => {
+    void page.route(/\/assets\/ShotsPage-[^/]*\.js$/, (route) => {
+      if (failChunk) return route.continue();
+      failChunk = () => route.abort();
+      resolve();
+    });
+  });
+  await page.goto(`${serving.url}/machines`);
+  await expect(heading(page, "Machines")).toBeVisible();
+  await mainNav(page).getByRole("link", { name: "Shots" }).click();
+  await held;
+
+  // Someone moves on before it loads, and starts a form there.
+  await mainNav(page).getByRole("link", { name: "Locations" }).click();
+  await expect(heading(page, "Locations")).toBeVisible();
+  const name = page.getByRole("form", { name: "New Location" }).getByLabel("Name", { exact: true });
+  await name.fill("Unsaved cafe");
+  await markDocument(page);
+  const failed = page.waitForEvent("requestfailed", (request) => /\/assets\/ShotsPage-/.test(request.url()));
+  await failChunk!();
+  await failed;
+  await expect(name).toHaveValue("Unsaved cafe");
+  expect(await sameDocument(page)).toBe(true);
+
+  // Opening the Shots page then reloads it, which loads its chunk.
+  await mainNav(page).getByRole("link", { name: "Shots" }).click();
+  await expect(heading(page, "Shots")).toBeVisible();
+  expect(await sameDocument(page)).toBe(false);
+});
+
 test("a page without a build never reloads", async ({ page }) => {
   const another = randomBytes(8).toString("hex");
   const before = await instance(namedBuild(null));

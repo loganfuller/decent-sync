@@ -1,11 +1,11 @@
-import { useLayoutEffect, useRef } from "react";
+import { type ComponentType, type LazyExoticComponent, createElement, lazy, useLayoutEffect, useRef, useState } from "react";
 import { useLocation } from "react-router";
 
 // A page follows the build of the management interface the server serves
 // (ADR-0025). After a deploy it loads the new build at its next navigation,
-// and a chunk of its own that fails to load, as a server of another build no
-// longer has it, reloads it once. A page without a build, as under
-// `npm run dev:web`, never reloads.
+// and a lazily loaded page whose chunk fails to load, as a server of another
+// build no longer has it, reloads once it is shown. A page without a build,
+// as under `npm run dev:web`, never reloads.
 
 /** The header naming the build the server serves, on every response (`server/src/management-interface.ts`). */
 const BUILD_HEADER = "Decent-Sync-Build";
@@ -42,39 +42,67 @@ export function useNewBuildOnNavigation(): void {
   }, [pathname]);
 }
 
+/**
+ * A page loaded only when opened, as React's `lazy` loads it. Should its
+ * chunk fail to load (Vite's `vite:preloadError`, as when the server answers
+ * a chunk it lacks with index.html), what stands in for it reloads the page
+ * as it is shown, to load the build the server serves. Only then: a failure
+ * after someone moved on to another page leaves that page as it is, a form
+ * they are filling in included, until they open this one. A navigation to
+ * such a page waits for its chunk, so this is how it finds a deploy.
+ */
+export function lazyPage<P extends object>(load: () => Promise<ComponentType<P>>): LazyExoticComponent<ComponentType<P>> {
+  return lazy(async () => {
+    try {
+      const page = await load();
+      forgetChunkReload();
+      return { default: page };
+    } catch (error) {
+      return { default: () => createElement(FailedChunk, { error }) };
+    }
+  });
+}
+
+/** Stands in for a page whose chunk failed to load: reloads the page, or fails as the page would have. */
+function FailedChunk({ error }: { error: unknown }): null {
+  const [failed, setFailed] = useState(false);
+  useLayoutEffect(() => {
+    if (!reloadForFailedChunk()) setFailed(true);
+  }, []);
+  if (failed) throw error;
+  return null;
+}
+
 /** Set once this tab reloads for a chunk that failed to load, until one loads; kept through the reload. */
 const RELOADED_FOR_CHUNK = "decent-sync:reloaded-for-chunk";
 
 /**
- * Reloads the page once a chunk of it fails to load (Vite's
- * `vite:preloadError`, as when the server answers a chunk it lacks with
- * index.html), so it loads the build the server serves. A navigation to a
- * lazily loaded page waits for its chunk, so this is how such a navigation
- * finds a deploy. A chunk failing again before one has loaded since the
- * reload is left to fail, so this never loops. It reloads whatever the server
- * names, none included, as such a page is broken until it does.
+ * Reloads the page for a chunk that failed to load, and says whether it did.
+ * A chunk failing again before one has loaded since the reload is left to
+ * fail, so this never loops. It reloads whatever the server names, none
+ * included, as the page is broken until it does.
  */
-export function reloadForFailedChunk(): void {
-  if (!pageBuild) return;
+function reloadForFailedChunk(): boolean {
+  if (!pageBuild) return false;
   try {
     if (sessionStorage.getItem(RELOADED_FOR_CHUNK) !== null) {
       console.warn("A chunk of this page failed to load again after it reloaded for one, so it does not reload again.");
-      return;
+      return false;
     }
     sessionStorage.setItem(RELOADED_FOR_CHUNK, "1");
   } catch {
     // Without the tab's storage it cannot tell whether it reloaded already, so it does not.
-    return;
+    return false;
   }
   window.location.reload();
+  return true;
 }
 
-/** Passes on a lazily loaded module once its chunk has loaded, so a chunk failing after it reloads the page again. */
-export function chunkLoaded<T>(module: T): T {
+/** A chunk loaded, so one failing after it reloads the page again. */
+function forgetChunkReload(): void {
   try {
     sessionStorage.removeItem(RELOADED_FOR_CHUNK);
   } catch {
     // Without the tab's storage no reload was kept to forget.
   }
-  return module;
 }
