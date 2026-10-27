@@ -500,6 +500,14 @@ var __decentSync = (() => {
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
+  var WIRE_REVISION = 1;
+  var FIRST_WIRE_REVISION = 1;
+  function wireRevisionOf(message) {
+    return message.wireRevision ?? FIRST_WIRE_REVISION;
+  }
+  function acceptsWireRevision(peer, own = WIRE_REVISION) {
+    return peer >= own - 1;
+  }
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
   var MAX_ID_LENGTH = 128;
@@ -512,7 +520,11 @@ var __decentSync = (() => {
     protocol_error: 4e3,
     /** The token is unknown or has been revoked. */
     bad_token: 4001,
-    /** The plugin speaks a protocol version older than the server supports. */
+    /**
+     * The plugin speaks a protocol version older than the server supports, or
+     * a wire revision more than one behind the server's (ADR-0025). The plugin
+     * stops reconnecting, and the Machine's page shows why.
+     */
     plugin_too_old: 4002,
     /**
      * A connection from another tablet took over with the same token. The
@@ -799,6 +811,7 @@ var __decentSync = (() => {
       case "welcome":
         return check(object3, "welcome", (fields) => {
           fields.integer("protocolVersion");
+          if (object3.wireRevision !== void 0) fields.integer("wireRevision", { positive: true });
           fields.integer("heartbeatIntervalMs", { positive: true });
         });
       case "ack":
@@ -4628,6 +4641,7 @@ var __decentSync = (() => {
         await this.send(handle, {
           type: "hello",
           protocolVersion: PROTOCOL_VERSION,
+          wireRevision: WIRE_REVISION,
           token: this.settings.token,
           pluginVersion: "1.3.1",
           decaidVersion: identity.decaidVersion,
@@ -4698,6 +4712,11 @@ var __decentSync = (() => {
           this.reconnectDelayMs = MIN_RECONNECT_MS;
           this.clearTimer("connect");
           this.log(`Connected to ${this.settings.syncUrl}`);
+          if (!acceptsWireRevision(wireRevisionOf(message))) {
+            this.log(
+              `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`
+            );
+          }
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           this.machineEvents.welcome();

@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { afterAll, describe, expect, it } from "vitest";
-import { buildsToRemove, latestReleaseTag } from "../../server/test/support/latest-release.mjs";
+import { buildsToRemove, latestReleaseTag, releaseWireRevision, wireRevisionIn } from "../../server/test/support/latest-release.mjs";
 
 // The latest release, which Seam 1 runs beside the change, read from a
 // scratch repository's tags.
@@ -50,6 +50,34 @@ describe("the latest release", () => {
 
     pushMain();
     expect(() => latestReleaseTag(dir)).toThrow(/No vX\.Y\.Z tag is on origin\/main: .*fetch-depth: 0/);
+  });
+});
+
+describe("a release's wire revision", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-wire-revision-"));
+  afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+  it("is what its protocol package sets at its tag, or 1 where it sets none", () => {
+    const git = (...args: string[]) =>
+      execFileSync("git", ["-c", "user.name=Test", "-c", "user.email=test@example.com", "-c", "commit.gpgSign=false", "-c", "tag.gpgSign=false", ...args], { cwd: scratch, encoding: "utf8", stdio: "pipe" });
+    git("init", "--quiet", "--initial-branch=main");
+    const release = (tag: string, source: string) => {
+      fs.mkdirSync(path.join(scratch, "protocol/src"), { recursive: true });
+      fs.writeFileSync(path.join(scratch, "protocol/src/index.ts"), source);
+      git("add", "--all");
+      git("commit", "--quiet", "-m", tag);
+      git("tag", tag);
+    };
+    release("v1.3.1", "export const PROTOCOL_VERSION = 1;\n");
+    release("v1.4.0", "export const PROTOCOL_VERSION = 1;\n\n/** The wire revision. */\nexport const WIRE_REVISION = 2;\n");
+    release("v1.5.0", "export const WIRE_REVISION = 12;\n");
+
+    expect(releaseWireRevision("v1.3.1", scratch)).toBe(1);
+    expect(releaseWireRevision("v1.4.0", scratch)).toBe(2);
+    expect(releaseWireRevision("v1.5.0", scratch)).toBe(12);
+    expect(() => releaseWireRevision("v9.9.9", scratch)).toThrow();
+    // Only a declaration on a line of its own counts.
+    expect(wireRevisionIn("// export const WIRE_REVISION = 3;\nexport const WIRE_REVISION_NOTE = 4;\n")).toBeUndefined();
   });
 });
 

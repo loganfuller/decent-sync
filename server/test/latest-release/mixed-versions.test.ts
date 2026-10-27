@@ -1,9 +1,9 @@
 import path from "node:path";
-import { globalIdOf } from "@decent-sync/protocol";
+import { WIRE_REVISION, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
-import { latestReleaseDir } from "../support/latest-release.mjs";
+import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
 import { emptyLibrary, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
@@ -51,6 +51,9 @@ const pluginDirs = (): Record<Release, string> => ({
   change: path.join(repoDir, "decent-sync.reaplugin"),
   "latest release": path.join(latestReleaseDir(), "decent-sync.reaplugin"),
 });
+
+/** Each release's wire revision: the change's, and the latest release's as its tag sets it, 1 where it sets none. */
+const wireRevisions = (): Record<Release, number> => ({ change: WIRE_REVISION, "latest release": releaseWireRevision(latestReleaseTag()) });
 
 interface SettingsEditView {
   id: string;
@@ -144,6 +147,18 @@ describe("the latest release beside the change", () => {
     { pairing: "the change's plugin with the latest release's server", plugin: "change", server: "latest release" },
   ] as const)("$pairing", ({ plugin, server }) => {
     const id = (what: string) => `mixed-${plugin.replace(" ", "-")}-plugin-${what}`;
+
+    it("welcomes the plugin, each sending the wire revision it has, or none from a release before it", async () => {
+      const { tablet } = await connected(`Wire revision, the ${plugin}'s plugin`, plugin, server);
+      const revisions = wireRevisions();
+      const [hello, welcome] = [tablet.sent[0], tablet.received[0]] as { type?: unknown; wireRevision?: unknown }[];
+      expect(hello).toMatchObject({ type: "hello" });
+      // A plugin or server of 1.3.1 or earlier sends none, so is at revision 1.
+      expect(hello!.wireRevision ?? 1).toBe(revisions[plugin]);
+      expect(welcome).toMatchObject({ type: "welcome" });
+      expect(welcome!.wireRevision ?? 1).toBe(revisions[server]);
+      expect(tablet.logs.filter((line) => line.startsWith("The server needs upgrading"))).toEqual([]);
+    });
 
     it("captures a Shot, a Steam Record and Workflow changes", async () => {
       const steam = derivedSteam(id("steam"));

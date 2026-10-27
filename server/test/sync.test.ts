@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import net from "node:net";
-import { CLOSE_CODES, MISSED_HEARTBEATS, PROTOCOL_VERSION } from "@decent-sync/protocol";
+import { CLOSE_CODES, MISSED_HEARTBEATS, PROTOCOL_VERSION, WIRE_REVISION } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import WebSocket from "ws";
 import { AdminApi, type MachineView } from "./support/admin-api.js";
@@ -296,13 +296,14 @@ describe("Machines and the sync connection", () => {
       return (connection.messages[0] as { message: string }).message;
     };
 
-    it("welcome a valid hello, with the heartbeat interval, and answer each heartbeat", async () => {
+    it("welcome a valid hello, with the wire revision and heartbeat interval, and answer each heartbeat", async () => {
       const { token } = await createMachine("Raw");
       raw = await RawConnection.open(server.url);
       raw.send(helloWith(token));
       expect(await raw.message(0)).toEqual({
         type: "welcome",
         protocolVersion: PROTOCOL_VERSION,
+        wireRevision: WIRE_REVISION,
         heartbeatIntervalMs: HEARTBEAT_SECONDS * 1000,
       });
       await waitForMachine("Raw", (machine) => machine.online);
@@ -336,6 +337,20 @@ describe("Machines and the sync connection", () => {
       await waitForMachine("Slow database", (machine) => machine.online);
     });
 
+    it("welcome a hello without a wire revision, as a plugin of 1.3.1 or earlier sends, and one with the current revision", async () => {
+      const { token } = await createMachine("Wire revisions");
+      for (const wireRevision of [undefined, WIRE_REVISION]) {
+        raw = await RawConnection.open(server.url);
+        const hello = helloWith(token, { wireRevision });
+        expect("wireRevision" in JSON.parse(JSON.stringify(hello))).toBe(wireRevision !== undefined);
+        raw.send(hello);
+        expect(await raw.message(0)).toMatchObject({ type: "welcome", wireRevision: WIRE_REVISION });
+        await waitForMachine("Wire revisions", (machine) => machine.online);
+        await raw.terminate();
+        await waitForMachine("Wire revisions", (machine) => !machine.online);
+      }
+    });
+
     it("close a connection that sends no hello within the timeout with the protocol-error code", async () => {
       raw = await RawConnection.open(server.url);
       const opened = Date.now();
@@ -354,6 +369,7 @@ describe("Machines and the sync connection", () => {
         [{ type: "heartbeat" }, "The first message must be hello"],
         [{ type: "shot" }, "shot.id must be a string; shot.shotId must be a string; shot.shot must be an object"],
         [helloWith(token, { protocolVersion: PROTOCOL_VERSION + 1 }), expect.stringContaining("update the server")],
+        [helloWith(token, { wireRevision: 0 }), "hello.wireRevision must be a whole number of at least 1"],
       ];
       for (const [frame, problem] of invalid) {
         raw = await RawConnection.open(server.url);

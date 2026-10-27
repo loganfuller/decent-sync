@@ -8,9 +8,12 @@ import {
   type PluginMessage,
   Reassembly,
   type ServerMessage,
+  WIRE_REVISION,
+  acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
   sameHardware,
+  wireRevisionOf,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
@@ -348,6 +351,7 @@ export class SyncConnection {
       await this.send(handle, {
         type: "hello",
         protocolVersion: PROTOCOL_VERSION,
+        wireRevision: WIRE_REVISION,
         token: this.settings.token,
         pluginVersion: __PLUGIN_VERSION__,
         decaidVersion: identity.decaidVersion,
@@ -426,6 +430,13 @@ export class SyncConnection {
         this.reconnectDelayMs = MIN_RECONNECT_MS;
         this.clearTimer("connect");
         this.log(`Connected to ${this.settings.syncUrl}`);
+        // A server outside the window (ADR-0025) may not know what this plugin sends unchecked. Logged once per
+        // connection, as each is welcomed once, and the plugin carries on.
+        if (!acceptsWireRevision(wireRevisionOf(message))) {
+          this.log(
+            `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`,
+          );
+        }
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the

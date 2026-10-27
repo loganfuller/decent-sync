@@ -124,7 +124,15 @@ jobs:
             echo $? > "$RUNNER_TEMP/postgres.exit"
           ) > "$RUNNER_TEMP/postgres.log" 2>&1 &
 
-      - *checkout
+      # The latest release is the newest vX.Y.Z tag on main, which needs
+      # main's history and the tags. The latest-release job below runs it,
+      # and the wire revision's test (protocol/test/wire-revision.test.ts),
+      # in whichever shard, reads its revision from its tag.
+      - &checkout-with-tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
       - *setup-node
 
       - &restore-modules
@@ -190,13 +198,7 @@ jobs:
     steps:
       - *start-postgres
 
-      # The latest release is the newest vX.Y.Z tag on main, which needs
-      # main's history and the tags.
-      - &checkout-with-tags
-        uses: actions/checkout@v7
-        with:
-          fetch-depth: 0
-
+      - *checkout-with-tags
       - *setup-node
       - *restore-modules
       - *install

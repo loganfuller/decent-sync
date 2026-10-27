@@ -15,15 +15,77 @@ import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.
 export * from "./chunking.js";
 export * from "./settings-fields.js";
 
-/** The protocol version this build of the plugin and server speaks. */
+/**
+ * The protocol version this build of the plugin and server speaks. It stays
+ * 1 (ADR-0025): a server of 1.3.1 or earlier refuses a `hello` of a newer
+ * protocol version, so raising it would cut off every plugin that updated
+ * until its server was upgraded. A change to the wire raises WIRE_REVISION
+ * instead.
+ */
 export const PROTOCOL_VERSION = 1;
 
 /**
- * The oldest protocol version the server accepts. Both stay 1: a wire change
- * needs only the plugin and server of the same commit, so it raises neither,
- * and a plugin from before it fails validation (ADR-0017).
+ * The oldest protocol version the server accepts, 1 as PROTOCOL_VERSION is.
+ * The server refuses a plugin too old for it by its wire revision instead
+ * (`acceptsWireRevision`, ADR-0025).
  */
 export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
+
+/**
+ * The wire revision this build of the plugin and server speaks, sent in
+ * `hello` and `welcome` (ADR-0025). Any change to the wire the receiver can't
+ * ignore for good raises it, a new field included: the first such change
+ * after a release raises it by one, and later ones before the next release
+ * share that number. What a revision adds goes only to a peer at that
+ * revision (`peerHasWireRevision`). A field the receiver may ignore for good,
+ * `wireRevision` itself among them, raises nothing until a release relies on
+ * it, which then relies on it only from a peer at the revision that reliance
+ * raises. A test reads a release's from the source at its tag, so it stays
+ * declared as it is here.
+ */
+export const WIRE_REVISION = 1;
+
+/**
+ * The wire revision of a peer that sends none: the wire of every release
+ * before the revision existed, 1.3.1 included.
+ */
+export const FIRST_WIRE_REVISION = 1;
+
+/** The wire revision a `hello` or `welcome` says its sender speaks. */
+export function wireRevisionOf(message: Hello | Welcome): number {
+  return message.wireRevision ?? FIRST_WIRE_REVISION;
+}
+
+/**
+ * Whether a peer at wire revision `peer` works with a build at `own`: one no
+ * more than one revision behind it, or any revision ahead, as each
+ * revision's wire holds the last's. The server refuses a plugin it doesn't
+ * accept with plugin_too_old; a plugin whose server it doesn't accept logs
+ * that the server needs upgrading, and carries on.
+ */
+export function acceptsWireRevision(peer: number, own = WIRE_REVISION): boolean {
+  return peer >= own - 1;
+}
+
+/**
+ * Whether a peer at wire revision `peer` has `revision`, asked by a build at
+ * `own` where it sends something new in that revision, with the revision it
+ * arrived in. Throws once every peer it accepts has that revision, as the
+ * check is then left over and is to be deleted, or, where what it sends came
+ * after the latest release, moved to the current revision; and while `own`
+ * doesn't have it, as the change never raised WIRE_REVISION.
+ */
+export function peerHasWireRevision(peer: number, revision: number, own = WIRE_REVISION): boolean {
+  if (revision > own) {
+    throw new Error(`Asked whether a peer has wire revision ${revision}, but this build speaks ${own}: raise WIRE_REVISION`);
+  }
+  if (revision <= Math.max(FIRST_WIRE_REVISION, own - 1)) {
+    throw new Error(
+      `Every peer that wire revision ${own} accepts has revision ${revision}: delete this check, or, if what it sends came after the latest release, ask for revision ${own}`,
+    );
+  }
+  return peer >= revision;
+}
 
 /**
  * The oldest Decaid release the server accepts, always a release rather than
@@ -97,7 +159,11 @@ export const CLOSE_CODES: Readonly<Record<ErrorCode, number>> = {
   protocol_error: 4000,
   /** The token is unknown or has been revoked. */
   bad_token: 4001,
-  /** The plugin speaks a protocol version older than the server supports. */
+  /**
+   * The plugin speaks a protocol version older than the server supports, or
+   * a wire revision more than one behind the server's (ADR-0025). The plugin
+   * stops reconnecting, and the Machine's page shows why.
+   */
   plugin_too_old: 4002,
   /**
    * A connection from another tablet took over with the same token. The
@@ -231,6 +297,8 @@ export function globalIdOf(record: unknown): string | null {
 export interface Hello {
   type: "hello";
   protocolVersion: number;
+  /** The plugin's WIRE_REVISION; a plugin of 1.3.1 or earlier sends none, so is at FIRST_WIRE_REVISION. */
+  wireRevision?: number;
   token: string;
   pluginVersion: string;
   /** Decaid's full version, such as 0.9.0+2977. */
@@ -267,6 +335,8 @@ export interface Heartbeat {
 export interface Welcome {
   type: "welcome";
   protocolVersion: number;
+  /** The server's WIRE_REVISION; a server of 1.3.1 or earlier sends none, so is at FIRST_WIRE_REVISION. */
+  wireRevision?: number;
   /** How often the plugin sends `heartbeat`; either end closes a connection silent for `MISSED_HEARTBEATS` intervals. */
   heartbeatIntervalMs: number;
 }
@@ -1679,10 +1749,10 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
 }
 
 /**
- * A `hello` is checked for its protocol version before anything else, so a
- * plugin too old to send today's `hello` is told it is too old rather than
- * that its message is invalid. A valid `hello` is then checked for its Decaid
- * version.
+ * A `hello` is checked for its protocol version and wire revision before
+ * anything else, so a plugin too old to send today's `hello` is told it is
+ * too old rather than that its message is invalid. A valid `hello` is then
+ * checked for its Decaid version.
  */
 function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage> {
   switch (object.type) {
@@ -1704,6 +1774,18 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       if (version > PROTOCOL_VERSION) {
         return {
           ...invalid(`The plugin speaks protocol version ${version}, newer than this server's ${PROTOCOL_VERSION}: update the server`),
+          ...token,
+        };
+      }
+      const revision = object.wireRevision === undefined ? FIRST_WIRE_REVISION : object.wireRevision;
+      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < FIRST_WIRE_REVISION) {
+        return invalid(`hello.wireRevision must be a whole number of at least ${FIRST_WIRE_REVISION}`);
+      }
+      if (!acceptsWireRevision(revision)) {
+        return {
+          ok: false,
+          error: "plugin_too_old",
+          problem: `The plugin speaks wire revision ${revision}, but this server needs ${WIRE_REVISION - 1} or newer: update the plugin`,
           ...token,
         };
       }
@@ -1875,6 +1957,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
     case "welcome":
       return check<Welcome>(object, "welcome", (fields) => {
         fields.integer("protocolVersion");
+        if (object.wireRevision !== undefined) fields.integer("wireRevision", { positive: true });
         fields.integer("heartbeatIntervalMs", { positive: true });
       });
     case "ack":
