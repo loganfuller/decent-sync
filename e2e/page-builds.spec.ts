@@ -231,6 +231,49 @@ test("a chunk failing after its navigation was left reloads nothing until its pa
   expect(await sameDocument(page)).toBe(false);
 });
 
+test("a chunk loading in a page already reloading for another doesn't let the reloaded page reload again", async ({ page }) => {
+  const serving = await instance();
+  const loads: string[] = [];
+  page.on("request", (request) => {
+    if (request.isNavigationRequest() && request.frame() === page.mainFrame()) loads.push(new URL(request.url()).pathname);
+  });
+  // The Steam Records page's chunk is held, the Shots page's always fails, and the reload's page is held too.
+  let steamRecords: { url: string; release(): Promise<void> } | undefined;
+  let releaseReload: (() => Promise<void>) | undefined;
+  const steamRecordsHeld = new Promise<void>((resolve) => {
+    void page.route(/\/assets\/SteamRecordsPage-[^/]*\.js$/, (route) => {
+      steamRecords = { url: route.request().url(), release: () => route.continue() };
+      resolve();
+    });
+  });
+  const reloadHeld = new Promise<void>((resolve) => {
+    void page.route(`${serving.url}/shots`, (route) => {
+      if (releaseReload) return route.continue();
+      releaseReload = () => route.continue();
+      resolve();
+    });
+  });
+  await page.route(/\/assets\/ShotsPage-[^/]*\.js$/, (route) => route.abort());
+  await page.goto(`${serving.url}/machines`);
+  await expect(heading(page, "Machines")).toBeVisible();
+  await mainNav(page).getByRole("link", { name: "Steam Records" }).click();
+  await steamRecordsHeld;
+  await mainNav(page).getByRole("link", { name: "Shots" }).click();
+  await reloadHeld;
+
+  // The Steam Records chunk, of the navigation left, loads in the page waiting for its reload. Neither Playwright nor
+  // CDP can evaluate in that page now, so a second, ample for a chunk this size, lets it finish with the chunk: with
+  // the rule kept the test passes however long that takes, and with it broken the page has cleared the flag by then.
+  const loaded = page.waitForEvent("requestfinished", (request) => request.url() === steamRecords!.url);
+  await steamRecords!.release();
+  await loaded;
+  await new Promise((resolve) => setTimeout(resolve, 1_000));
+  const notAgain = page.waitForEvent("console", (message) => message.text().includes("so it does not reload again"));
+  await releaseReload!();
+  await notAgain;
+  expect(loads).toEqual(["/machines", "/shots"]);
+});
+
 test("a page without a build never reloads", async ({ page }) => {
   const another = randomBytes(8).toString("hex");
   const before = await instance(namedBuild(null));

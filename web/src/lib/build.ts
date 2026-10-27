@@ -76,6 +76,9 @@ function FailedChunk({ error }: { error: unknown }): null {
 /** Set once this tab reloads for a chunk that failed to load, until one loads; kept through the reload. */
 const RELOADED_FOR_CHUNK = "decent-sync:reloaded-for-chunk";
 
+/** Whether this page asked to reload for a chunk: one loading after that, as a navigation it left, keeps the flag. */
+let reloading = false;
+
 /**
  * Reloads the page for a chunk that failed to load, and says whether it did.
  * A chunk failing again before one has loaded since the reload is left to
@@ -90,6 +93,7 @@ function reloadForFailedChunk(): boolean {
       return false;
     }
     sessionStorage.setItem(RELOADED_FOR_CHUNK, "1");
+    reloading = true;
   } catch {
     // Without the tab's storage it cannot tell whether it reloaded already, so it does not.
     return false;
@@ -100,6 +104,7 @@ function reloadForFailedChunk(): boolean {
 
 /** A chunk loaded, so one failing after it reloads the page again. */
 function forgetChunkReload(): void {
+  if (reloading) return;
   try {
     sessionStorage.removeItem(RELOADED_FOR_CHUNK);
   } catch {
