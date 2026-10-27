@@ -247,7 +247,8 @@ jobs:
   # throwaway PostgreSQL, migrates this job's template1 with the change's
   # migrations, so every database the suite creates is a copy, and leaves out
   # the release's server/test/latest-release/, as the shards above do. Sharded
-  # as they are, by the release's own vitest.config.ts.
+  # as they are, by the release's own vitest.config.ts. It runs only for a
+  # change to the schema or what applies it (the schema step).
   latest-release-suite:
     name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
     runs-on: ubuntu-26.04
@@ -263,15 +264,40 @@ jobs:
       - *start-postgres
       - *checkout-with-tags
       - *setup-node
+
+      # The suite runs the latest release's own code and tests, so the change
+      # reaches it only through its migrations, what applies them (Prisma,
+      # from the lockfile) and this job's own scripts. When none of those
+      # changed, it would find what it found before, so it skips with a
+      # notice: on a pull request, against main; on a push to main, against
+      # the previous push. A base it can't find, as on a new branch's push,
+      # runs it.
+      - id: schema
+        name: Check for a change the latest release's suite depends on
+        env:
+          BASE: ${{ github.event_name == 'pull_request' && 'HEAD^1' || github.event.before }}
+        run: |
+          if git cat-file -e "$BASE^{commit}" 2> /dev/null && git diff --quiet "$BASE" HEAD -- \
+              server/prisma/migrations server/prisma.config.ts package-lock.json .github/workflows/ci.yml \
+              scripts/latest-release-suite.mjs scripts/build-latest-release.mjs \
+              server/test/support/latest-release.mjs server/test/support/build-table.mjs; then
+            echo "::notice title=Latest release's suite skipped::Nothing it depends on changed since $(git rev-parse --short "$BASE"): no migration, nor Prisma's version or this job's scripts."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - *breaking-release
       - *restore-modules
       - *install
       - *runner-cpu
-      - *build-latest-release
+
+      - name: Build the latest release
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
+        run: npm run build:latest-release
+
       - *wait-postgres
 
       - name: Vitest of the latest release on this schema
-        if: steps.breaking-release.outputs.skip != 'true'
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
         run: node scripts/latest-release-suite.mjs --database-url "$DATABASE_URL" --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - *postgres-logs
