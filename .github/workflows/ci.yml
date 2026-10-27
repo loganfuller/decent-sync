@@ -277,10 +277,11 @@ jobs:
   # (ADR-0025). scripts/latest-release-suite.mjs, which runs it locally on a
   # throwaway PostgreSQL, migrates this job's template1 with the change's
   # migrations, so every database the suite creates is a copy, and leaves out
-  # the release's server/test/latest-release/, as the shards above do. Sharded
-  # as they are, by the release's own vitest.config.ts. It runs only when
-  # something it depends on differs from main, or on main from the latest
-  # release (the schema step).
+  # the release's tests that read the tags, which its build lacks: its
+  # server/test/latest-release/, as the shards above do, and its wire
+  # revision's test. Sharded as they are, by the release's own
+  # vitest.config.ts. It runs only when something it depends on differs from
+  # main, or on main from the latest release (the schema step).
   latest-release-suite:
     name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
     needs: changes

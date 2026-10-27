@@ -4,10 +4,8 @@
 // migrates a PostgreSQL server's template1 with this checkout's migrations,
 // so every database the suite creates there is a copy its server finds
 // nothing to migrate in, then runs the suite in the latest release's build
-// (`npm run build:latest-release`). It leaves out the release's
-// server/test/latest-release/, as CI's shards of this checkout's suite do:
-// those tests run a release beside the one before it, and read the tags from
-// a git checkout, which that build is not.
+// (`npm run build:latest-release`). It leaves out the release's tests that
+// read the tags from a git checkout, which that build is not (LEFT_OUT).
 //
 // The PostgreSQL is a throwaway container of its own, removed afterwards,
 // never the development database's or the shared test database's: every
@@ -24,6 +22,13 @@ import pg from "pg";
 import { repoDir } from "../server/test/support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag } from "../server/test/support/latest-release.mjs";
 
+/**
+ * The release's tests that read the tags from a git checkout: its
+ * server/test/latest-release/, which CI's shards of this checkout's suite
+ * leave out too, as those tests run a release beside the one before it; and
+ * its wire revision's test, which compares the revision with its latest tag's.
+ */
+const LEFT_OUT = ["server/test/latest-release/**", "protocol/test/wire-revision.test.ts"];
 const IMAGE = "postgres:17";
 const readyWithinMs = 60_000;
 
@@ -148,12 +153,12 @@ async function migrateTemplate1(url) {
 
 /** Runs the latest release's Vitest suite with its test databases on the server, resolving with its exit code. */
 async function runSuite(url) {
-  console.log(`Running the Vitest suite of ${tag}, built in ${releaseDir}, but server/test/latest-release/.`);
+  console.log(`Running the Vitest suite of ${tag}, built in ${releaseDir}, but ${LEFT_OUT.join(" and ")}.`);
   // The variables npm sets for a script it runs describe this checkout, not the release's.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("npm_") && name !== "INIT_CWD"));
   return run(
     process.execPath,
-    [path.join(releaseDir, "node_modules/vitest/vitest.mjs"), "run", "--exclude", "server/test/latest-release/**", ...args],
+    [path.join(releaseDir, "node_modules/vitest/vitest.mjs"), "run", ...LEFT_OUT.flatMap((pattern) => ["--exclude", pattern]), ...args],
     { cwd: releaseDir, env: { ...env, TEST_DATABASE_URL: url, DATABASE_URL: url } },
     (child) => void (vitest = child),
   );
