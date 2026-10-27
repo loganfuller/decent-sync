@@ -29,10 +29,12 @@ import { type TestServer, startTestServer } from "../support/test-server.js";
 /** What the plugin logs on a message from the server it can't read (plugin/src/connection.ts). */
 const IGNORED = "Ignoring a message from the server";
 
-// Heartbeats every 30 s, the default. Each checks its connection's token, so
-// the test of a token reissued runs its tablets at real time, which then send
-// none while it runs.
-const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "30" };
+// The defaults, set here as the tests rely on them. Heartbeats every 30 s:
+// each checks its connection's token, so the test of a token reissued runs
+// its tablets at real time, which then send none while it runs. 10 s for a
+// hello: a connection refused for a late one is a protocol_error too, which
+// a busy machine must not turn into a failure.
+const env = { SYNC_HELLO_TIMEOUT_SECONDS: "10", SYNC_HEARTBEAT_SECONDS: "30" };
 
 /** The fan threshold the tablets' machines start with (machine-settings.json), and an edit of it. */
 const FAN_TO_40 = { collection: "machineSettings", fields: { fan: 40 }, expected: { fan: 50 } };
@@ -76,7 +78,7 @@ describe("the latest release beside the change", () => {
     for (const tablet of loaded.splice(0)) {
       const plugin = tablet.pluginDir === dirs.change ? "the change's plugin" : "the latest release's plugin";
       // The first of each, as a plugin refused reconnects and is refused again.
-      expect(tablet.logs.find((line) => line.startsWith(IGNORED)), `${plugin} ignored a message from the server`).toBeUndefined();
+      expect(tablet.logs.find((line) => line.includes(IGNORED)), `${plugin} ignored a message from the server`).toBeUndefined();
       const refusal = tablet.received.find((frame) => {
         const { type, code } = frame as { type?: unknown; code?: unknown };
         return type === "error" && code === "protocol_error";
