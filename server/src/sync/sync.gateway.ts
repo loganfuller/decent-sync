@@ -197,6 +197,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   /** Message handling and releases still running, which shutdown waits for before the database disconnects. */
   private readonly inFlight = new Set<Promise<void>>();
   private shuttingDown = false;
+  private handingOver: Promise<void> | undefined;
 
   constructor(
     private readonly adapterHost: HttpAdapterHost,
@@ -234,11 +235,22 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(request, socket, head));
   }
 
-  /**
-   * Runs before the database disconnects: closes every connection, waits for
-   * hellos still being accepted, then releases this instance's Machines.
-   */
+  /** Runs before the database disconnects, if the drain has not handed the tablets over already. */
   async onModuleDestroy(): Promise<void> {
+    await this.handOver();
+  }
+
+  /**
+   * Hands this instance's tablets to another as it stops (`drain.ts`): closes
+   * every connection as going away, which the plugin reconnects after, and
+   * refuses new ones, waits for hellos still being accepted, then releases
+   * this instance's Machines. Done once, however many ask.
+   */
+  handOver(): Promise<void> {
+    return (this.handingOver ??= this.closeAll());
+  }
+
+  private async closeAll(): Promise<void> {
     this.shuttingDown = true;
     const sessions = [...this.connections];
     const closed = sessions.map((session) => new Promise((resolve) => session.socket.once("close", resolve)));

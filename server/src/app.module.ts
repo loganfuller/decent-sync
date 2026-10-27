@@ -2,6 +2,7 @@ import { type DynamicModule, Module } from "@nestjs/common";
 import { AccountsModule } from "./accounts/accounts.module.js";
 import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
+import { Drain } from "./drain.js";
 import { HealthController } from "./health.controller.js";
 import { LibraryModule } from "./library/library.module.js";
 import { LocationsModule } from "./locations/locations.module.js";
@@ -27,7 +28,7 @@ export class AppModule {
         SyncModule,
       ],
       controllers: [HealthController],
-      providers: [ManagementInterface],
+      providers: [ManagementInterface, Drain],
     };
   }
 }

@@ -452,6 +452,7 @@ required variable is missing or invalid.
 | `WEB_DIST_DIR` | the built management interface (default `web/dist`) |
 | `SYNC_HELLO_TIMEOUT_SECONDS` | how long a plugin connection has to send `hello` (default 10) |
 | `SYNC_HEARTBEAT_SECONDS` | how often plugins send a heartbeat (default 30); a connection silent for three is closed |
+| `DRAIN_GRACE_SECONDS` | how long a stopping server, its health check answering 503, still answers requests, so a proxy that routes by that check notices and sends them elsewhere (default 15, a 10 s check interval plus a 5 s timeout; 0 with one instance). It then finishes those under way and exits |
 | `CLIENT_ADDRESS_HEADER` | the request header, such as `X-Forwarded-For` or `X-Real-IP`, whose last entry, when an IP address, is a tablet's address instead of the connection's (default unset: the connection's). Set it only when every request reaches the server through a proxy that sets or overwrites that header ([On the internet](#on-the-internet)) |
 
 On startup the server applies pending database migrations, then serves the

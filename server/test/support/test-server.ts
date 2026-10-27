@@ -179,6 +179,8 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
         PUBLIC_URL: options.publicUrl ?? url,
         HOST: "127.0.0.1",
         PORT: String(port),
+        // No proxy routes by a test server's health, so it stops without waiting for one to notice; a test of that sets its own.
+        DRAIN_GRACE_SECONDS: "0",
         ...options.env,
         NODE_OPTIONS: [options.env?.NODE_OPTIONS, ...preloads.map((preload) => `--import=${pathToFileURL(preload).href}`)].filter(Boolean).join(" "),
         TEST_SECRETS_FILE: secretsFile,
@@ -203,7 +205,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   let halting: Promise<void> | undefined;
   const halt = () =>
     (halting ??= (async () => {
-      await terminate(started.child);
+      await terminate(started.child, Number(options.env?.DRAIN_GRACE_SECONDS ?? 0) * 1000);
       handedOut = readHandedOut();
       fs.rmSync(secretsFile, { force: true });
     })());
@@ -361,11 +363,12 @@ function killTree(pid: number): void {
   }
 }
 
-async function terminate(child: ChildProcess): Promise<void> {
+/** Stops a server as its host does: SIGTERM, then SIGKILL once it has had 5 s more than its drain's grace. */
+async function terminate(child: ChildProcess, graceMs: number): Promise<void> {
   if (child.exitCode !== null || child.signalCode !== null) return;
   const exited = new Promise((resolve) => child.once("exit", resolve));
   child.kill("SIGTERM");
-  const timer = setTimeout(() => child.kill("SIGKILL"), 5_000);
+  const timer = setTimeout(() => child.kill("SIGKILL"), graceMs + 5_000);
   await exited;
   clearTimeout(timer);
 }
