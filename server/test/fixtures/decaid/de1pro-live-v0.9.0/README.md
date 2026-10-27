@@ -70,9 +70,12 @@ Each fixture is `{ "frames": [...] }`. Each frame is `{ ms, source, frame }`:
 - `frame`: Decaid's JSON as Decaid sent it, parsed and written again, as the
   plugin forwards it, so a number Decaid wrote as `4.0` reads `4`.
 
-A `timestamp` in a frame is the tablet's local time without an offset
-(UTC-4, EDT), as Decaid writes it. The tablet's clock and the recording
-computer's differ, so a `timestamp` and an arrival time can't be compared.
+A `timestamp` in a machine, scale or shot state frame is the tablet's local
+time without an offset (UTC-4, EDT), as Decaid writes it. A devices frame's
+is UTC, ending in `Z` (`_buildSnapshot` in
+`decaid:lib/src/services/webserver/devices_handler.dart`). The tablet's clock
+and the recording computer's differ, so a `timestamp` and an arrival time
+can't be compared.
 
 | File | What it holds |
 |---|---|
