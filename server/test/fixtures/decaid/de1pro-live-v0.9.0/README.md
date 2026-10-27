@@ -26,8 +26,8 @@ Its only request was `GET /api/v1/sensors` every 30 s, which listed no
 sensor all along. The Steam Records were read afterwards with
 `GET /api/v1/steams/latest` and `/api/v1/steams/{id}`, and every other request
 to the tablet in the run was a `GET` too. The machine socket sends what the
-plugin's `stateUpdate` carries. Both are `MachineSnapshot.toJson()` of the machine's
-`currentSnapshot`: `_handleSnapshot` in
+plugin's `stateUpdate` carries. Both are `MachineSnapshot.toJson()` of the
+machine's `currentSnapshot`: `_handleSnapshot` in
 `decaid:lib/src/services/webserver/de1handler.dart` sends one, and
 `broadcastEvent('stateUpdate', …)` in
 `decaid:lib/src/plugins/plugin_manager.dart` the other.
@@ -43,9 +43,11 @@ Mode Normal (`steamPurgeMode` 0):
 - left it idle for 2 min;
 - put it to sleep, and turned the Tablet's screen off with its power button.
 
-A second recording took one more steaming with Two Tap Stop
-(`steamPurgeMode` 1). The owner set Two Tap Stop with a Settings Edit from the
-management interface, tapped stop twice, and set Normal back the same way.
+A second recording took a steaming with Two Tap Stop (`steamPurgeMode` 1).
+The owner set Two Tap Stop with a Settings Edit from the management interface,
+tapped stop twice, and set Normal back the same way. It also holds an earlier
+steaming with Normal, after the first attempt was put back as below, which ran
+as the first recording's did; `trim.mjs` takes the one with `puffing`.
 In Streamline's own settings page, choosing Two Tap Stop showed Normal again
 at once, so it looked refused (decentespresso/streamline-js#175). Its
 `onchange` stores the select's string `"1"`, and the page drawn again finds
@@ -84,13 +86,13 @@ can't be compared.
 | `opening.json` | The frame each socket sent as it opened, the Machine asleep and the scale off: the latest snapshot, shot settings, devices, water levels and shot state, and the scale's `{"status":"disconnected"}` |
 | `opening-scale-connected.json` | The same at the second recording's start, the scale on: its frame is `{"status":"connected"}`, and its weights follow live |
 | `scale-connects.json` | The scale connecting while the Machine warmed up (`idle` / `preparingForShot`): `{"status":"connected"}`, then its weights |
-| `wake.json` | The Machine waking: `sleeping`, then `idle` / `preparingForShot` for 18.7 s while it warmed up, then `idle` |
+| `wake.json` | The Machine waking: `sleeping`, then `idle` / `preparingForShot` for 18.7 s, until the group reached about 74 °C against its target of 84 °C, then 3 s of `idle` while it went on heating |
 | `shot.json` | A shot: `espresso` with `preparingForShot` 2.9 s, `preinfusion` 7.7 s, `pouring` 23.8 s and `pouringDone` 4.2 s, with its `shotState` events and the scale's weights |
 | `steam.json` | Steaming with Normal: `preparingForShot` 2 s, `pouring` 16.9 s, then `pouringDone` 6.3 s from the stop, holding the purge, then `idle` as the purge tails off |
 | `steam-two-tap-stop.json` | Steaming with Two Tap Stop: `preparingForShot` 3.1 s, `pouring` 21.8 s, `puffing` 4.6 s after the first tap, `pouringDone` 4.8 s after the second, holding the purge, then `idle` |
 | `flush.json` | A flush: `flush` / `pouring` 5 s |
 | `hot-water.json` | Hot water: `hotWater` with `preparingForShot` 0.4 s and `pouring` 10.7 s |
-| `needs-water.json` | The tank taken out and refilled: its reading falls from 4.7 mm to 0, then nothing for 25.8 s, through 14.8 s of `needsWater` that began 12 s after the 0. Then `idle` as the refilled tank's reading climbs to about 34 mm |
+| `needs-water.json` | The tank taken out and refilled, at the end of the first warm-up: `idle` / `preparingForShot` for 5.4 s, then `idle`. The tank's reading falls from 4.7 mm to 0, then nothing for 25.8 s, through 14.8 s of `needsWater` that began 12 s after the 0. Then `idle` as the refilled tank's reading climbs, to 32.3 mm in the window |
 | `idle.json` | 30 s idle, ending 5 s before the Machine went to sleep |
 | `asleep.json` | The Machine going to sleep: 5 s idle, then 30 s `sleeping` |
 | `steam-record.json` | `GET /api/v1/steams/{id}` of `steam.json`'s steaming: 10 `preparingForShot`, 81 `pouring`, 30 `pouringDone` and 1 `idle` sample |
@@ -151,11 +153,17 @@ prints them:
   105 to 115, water levels 43, a devices frame 718 and a shot state frame 352.
   Asleep with the scale on, all sources came to 1.7 KB/s.
 - **Waking.** After each wake the Machine reported `idle` with
-  `preparingForShot` while it warmed up: for 111 s, 55.6 s and 18.7 s after
-  the three wakes recorded (`wake.json` holds the last). Decaid maps the DE1's
-  heating substates to `preparingForShot` (`mapDe1SubToMachineSubstate` in
-  `decaid:lib/src/models/device/impl/de1/de1.utils.dart`). A shot's own
-  warm-up was `espresso` with `preparingForShot`, 2.9 s.
+  `preparingForShot` for the first part of its warm-up: 111 s, 55.6 s and
+  18.7 s after the three wakes recorded (`wake.json` holds the last). Decaid
+  maps the DE1's heating substates to `preparingForShot`
+  (`mapDe1SubToMachineSubstate` in
+  `decaid:lib/src/models/device/impl/de1/de1.utils.dart`). Each time, the
+  substate ended with the group at about 73.7 °C against its target of 84 °C.
+  The group then went on heating under plain `idle`, reaching its target 50
+  to 58 s later. After the first wake the steam heater, at 75 °C, took 108 s
+  more to reach 150 °C. So `idle` doesn't mean the Machine is up to
+  temperature: only the temperatures against their targets show that. A
+  shot's own warm-up was `espresso` with `preparingForShot`, 2.9 s.
 - **Water level and refill level.** For the first 106 s of the first
   warm-up, until the tank was taken out, it read 4.64 to 4.86 mm against a
   refill level of 5 mm, and the Machine didn't report `needsWater`. It did so
@@ -183,7 +191,7 @@ prints them:
     The state turned `idle` 6.3 s after the stop, at 2.8 ml/s, and the purge
     tailed off in `idle` over 2 s.
   - **Two Tap Stop:** the first tap set the target flow to 0. Flow fell over
-    2 s still in `pouring`, then `puffing` held a target of 0.1 ml/s for
+    2 s still in `pouring`, then `puffing` held a target of 0.125 ml/s for
     4.6 s, a small puff about every 1.5 s. The second tap began
     `pouringDone`: flow fell for 2 s, then the purge ran as in Normal and
     tailed off in `idle`.
