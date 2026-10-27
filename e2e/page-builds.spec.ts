@@ -82,6 +82,18 @@ function pageBuild(page: Page): Promise<string | null> {
   return page.evaluate(() => document.querySelector('meta[name="decent-sync-build"]')?.getAttribute("content") ?? null);
 }
 
+/**
+ * The build the page runs, or null while it reloads, for a poll waiting
+ * across a reload: an evaluation the reload cuts short rejects, and
+ * `expect.poll` fails at a rejection rather than polling again.
+ */
+function buildWhileReloading(page: Page): Promise<string | null> {
+  return pageBuild(page).catch((error: unknown) => {
+    if (error instanceof Error && error.message.includes("Execution context was destroyed")) return null;
+    throw error;
+  });
+}
+
 /** Marks the document the page shows, so `sameDocument` can tell whether it loaded another since. */
 async function markDocument(page: Page): Promise<void> {
   await page.evaluate(() => {
@@ -142,7 +154,7 @@ test("a page open while the server restarts with another build stays as it is un
   expect(await pageBuild(page)).toBe(built);
 
   await mainNav(page).getByRole("link", { name: "Locations" }).click();
-  await expect.poll(() => pageBuild(page)).toBe(another);
+  await expect.poll(() => buildWhileReloading(page)).toBe(another);
   expect(await sameDocument(page)).toBe(false);
   await expect(page).toHaveURL(`${after.url}/locations`);
   await expect(heading(page, "Locations")).toBeVisible();
@@ -199,7 +211,7 @@ test("a chunk that fails after a deploy reloads the page into the new build, tho
   });
   await afterPollNaming(page, another);
   await mainNav(page).getByRole("link", { name: "Steam Records" }).click();
-  await expect.poll(() => pageBuild(page)).toBe(another);
+  await expect.poll(() => buildWhileReloading(page)).toBe(another);
   await expect(page).toHaveURL(`${after.url}/steam-records`);
   await expect(heading(page, "Steam Records")).toBeVisible();
   expect(movedFailed).toBe(true);
