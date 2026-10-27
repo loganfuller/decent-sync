@@ -90,6 +90,9 @@ export function stopOnSignals(app: INestApplication, config: Config): void {
       // A request begun before the drain left its connection open after it; `close` closed only those idle then.
       server.closeIdleConnections();
       await closed;
+      // No request starts once no connection is left, but one begun since on a connection still sending its headers may
+      // be running, its client gone.
+      await drain.finished();
       await app.close();
     } catch (error) {
       logger.error(`Could not stop cleanly: ${error instanceof Error ? (error.stack ?? error.message) : String(error)}`);

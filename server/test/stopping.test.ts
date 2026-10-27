@@ -1,3 +1,5 @@
+import { once } from "node:events";
+import net from "node:net";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, admin, signIn } from "./support/admin-api.js";
@@ -47,6 +49,7 @@ describe("stopping an instance", () => {
     const holdingHandOver = await staying.connectDatabase();
     const holdingAnswered = await staying.connectDatabase();
     const holdingAbandoned = await staying.connectDatabase();
+    let leaving: net.Socket | undefined;
     const hold = async (client: pg.Client, machineId: string) => {
       await client.query("BEGIN");
       await client.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [machineId]);
@@ -57,24 +60,23 @@ describe("stopping an instance", () => {
       await api.waitForOnline(created);
       expect(proxy.routed).toEqual([stopping.url]);
 
-      // Two requests under way, each reissuing another Machine's token, waiting inside its transaction for that Machine's
-      // row: one answered, and one whose client goes.
+      // Two requests reissuing other Machines' tokens, each to wait inside its transaction for that Machine's row: one
+      // answered, and one whose client sends the end of its headers only once the instance no longer listens, then goes.
       const answered = await api.createMachine("Reissued while stopping");
       const abandoned = await api.createMachine("Reissued for a client that left");
       const cookie = await signIn(staying.url, admin);
       await hold(holdingAnswered, answered.machine.id);
       await hold(holdingAbandoned, abandoned.machine.id);
       const reissuing = api.at(stopping.url).call("POST", `/machines/${answered.machine.id}/token`);
-      const leaving = new AbortController();
-      const left = fetch(`${stopping.url}/api/machines/${abandoned.machine.id}/token`, { method: "POST", headers: { Cookie: cookie }, signal: leaving.signal });
+      leaving = net.connect(Number(new URL(stopping.url).port), "127.0.0.1");
+      await once(leaving, "connect");
+      leaving.write(`POST /api/machines/${abandoned.machine.id}/token HTTP/1.1\r\nHost: 127.0.0.1\r\nCookie: ${cookie}\r\n`);
       // A hello still being accepted, waiting for its Machine's row: the hand-over waits for it.
       const late = await api.createMachine("Accepted while stopping");
       await hold(holdingHandOver, late.machine.id);
       const raw = await RawConnection.open(stopping.url);
       raw.send(helloWith(late.token, { machine: { model: "DE1Pro", serial: "28201", firmware: "1333" } }));
-      await waitForLockWaits(staying, { count: 3 });
-      leaving.abort();
-      await expect(left).rejects.toThrow();
+      await waitForLockWaits(staying, { count: 2 });
 
       const stopped = stopping.stop();
       // Its routing check answers 503 at once, while it still answers other requests.
@@ -84,12 +86,18 @@ describe("stopping an instance", () => {
       await expect.poll(() => proxy.routed.at(-1), { timeout: 5_000 }).toBe(staying.url);
       await api.waitForMachine(created.machine.name, (machine) => machine.online, 5_000);
 
-      // Once its hand-over and grace are over it no longer listens, and the requests under way still finish.
+      // Once its hand-over and grace are over it no longer listens, and the request under way still finishes.
       await holdingHandOver.query("COMMIT");
       await expect.poll(() => health(stopping), { timeout: 5_000 }).toBeUndefined();
       await holdingAnswered.query("COMMIT");
       expect((await reissuing).status).toBe(201);
-      // It waits for the request whose client went too, still waiting for its row, before it lets go of the database.
+      // Half a second on, it has finished the requests it knew of and waits for its last connection to close. That one's
+      // request now starts, and its client goes while it waits for its row.
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      leaving.write("Content-Length: 0\r\n\r\n");
+      await waitForLockWaits(staying);
+      leaving.destroy();
+      // It waits for that request too before it lets go of the database.
       const exited = await Promise.race([stopped.then(() => true), new Promise((resolve) => setTimeout(() => resolve(false), 500))]);
       expect(exited).toBe(false);
       await holdingAbandoned.query("COMMIT");
@@ -105,6 +113,7 @@ describe("stopping an instance", () => {
       await expect.poll(async () => (await api.call("GET", `/shots/${pulled.id}`)).status, { timeout: 5_000 }).toBe(200);
       expect(proxy.routed.slice(1).every((url) => url === staying.url)).toBe(true);
     } finally {
+      leaving?.destroy();
       await Promise.all([holdingHandOver.end(), holdingAnswered.end(), holdingAbandoned.end()]);
       await proxy.close();
       await stopping.stop();
