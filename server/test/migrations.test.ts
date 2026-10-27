@@ -153,7 +153,8 @@ describe("migrations", () => {
   it("keep the lock while migrating past its idle timeout, and lose it once their network goes silent, though a proxy between them and PostgreSQL answers its TCP keepalives", { timeout: 90_000 }, async () => {
     const owner = await start();
     const holder = await connect(owner);
-    await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    // Held past the database's idle-in-transaction timeout, 30 s, which would otherwise end it.
+    await holder.query("SET idle_in_transaction_session_timeout = 0; BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
     const watcher = await connect(owner);
     const proxy = await startOutageProxy();
     try {
