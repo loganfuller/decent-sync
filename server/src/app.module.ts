@@ -1,4 +1,5 @@
 import { type DynamicModule, Module } from "@nestjs/common";
+import { APP_INTERCEPTOR } from "@nestjs/core";
 import { AccountsModule } from "./accounts/accounts.module.js";
 import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
@@ -28,7 +29,7 @@ export class AppModule {
         SyncModule,
       ],
       controllers: [HealthController],
-      providers: [ManagementInterface, Drain],
+      providers: [ManagementInterface, Drain, { provide: APP_INTERCEPTOR, useExisting: Drain }],
     };
   }
 }

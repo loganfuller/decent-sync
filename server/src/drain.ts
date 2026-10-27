@@ -1,6 +1,7 @@
 import type { Server } from "node:http";
-import { Injectable, type INestApplication, Logger } from "@nestjs/common";
+import { type CallHandler, type ExecutionContext, Injectable, type INestApplication, Logger, type NestInterceptor } from "@nestjs/common";
 import type { NextFunction, Request, Response } from "express";
+import { type Observable, finalize } from "rxjs";
 import type { Config } from "./config.js";
 import { SyncGateway } from "./sync/sync.gateway.js";
 
@@ -13,29 +14,48 @@ const STOPPING_SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
  * answers 503 once it is stopping.
  */
 @Injectable()
-export class Drain {
+export class Drain implements NestInterceptor {
   stopping = false;
-  private requests = 0;
+  /** Responses not yet closed. */
+  private responses = 0;
+  /** Route handlers still running, which go on after their response closes when its client goes. */
+  private handlers = 0;
   private idle: (() => void) | undefined;
 
   /**
-   * Middleware counting the requests under way. Once stopping, each response
+   * Middleware counting the responses under way. Once stopping, each response
    * closes its connection, so a client's next request opens another, which
    * the proxy can send elsewhere, and no connection is left between
    * requests once those under way finish.
    */
   readonly track = (_req: Request, res: Response, next: NextFunction): void => {
-    this.requests++;
+    this.responses++;
     if (this.stopping) res.setHeader("Connection", "close");
     res.once("close", () => {
-      if (--this.requests === 0) this.idle?.();
+      this.responses--;
+      this.settle();
     });
     next();
   };
 
+  /** Counts each route handler until it finishes (`APP_INTERCEPTOR`), so one whose client has gone still finishes before the database disconnects. */
+  intercept(_context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    this.handlers++;
+    return next.handle().pipe(
+      finalize(() => {
+        this.handlers--;
+        this.settle();
+      }),
+    );
+  }
+
   /** Resolves once no request is under way. */
   async finished(): Promise<void> {
-    while (this.requests > 0) await new Promise<void>((resolve) => (this.idle = resolve));
+    while (this.responses > 0 || this.handlers > 0) await new Promise<void>((resolve) => (this.idle = resolve));
+  }
+
+  private settle(): void {
+    if (this.responses === 0 && this.handlers === 0) this.idle?.();
   }
 }
 

@@ -105,6 +105,7 @@
   "server/test/steam-record-extraction.test.ts": 0,
   "server/test/steam-record-lists.test.ts": 4,
   "server/test/steam-records.test.ts": 38,
+  "server/test/stopping.test.ts": 4,
   "server/test/sync-connection-limits.test.ts": 4,
   "server/test/sync.test.ts": 29,
   "server/test/tablet-settings-edits.test.ts": 5,
