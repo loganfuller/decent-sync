@@ -1,6 +1,7 @@
+import { Logger } from "@nestjs/common";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import type { Config } from "../src/config.js";
 import { databaseUnreachable, poolConfig } from "../src/database.js";
 import { PrismaClient } from "../src/generated/prisma/client.js";
@@ -140,6 +141,7 @@ describe("the server's database client", () => {
   });
 
   it("has the notifications listener notice its connection gone silent behind a hop that stays up, and listen again", async () => {
+    const warned = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => {});
     const notifications = new Notifications({ databaseUrl: throughProxy(), heartbeatIntervalMs: 200 } as Config);
     const heard: (string | null)[] = [];
     notifications.subscribe("library_changes", (payload) => heard.push(payload));
@@ -153,11 +155,13 @@ describe("the server's database client", () => {
       proxy.silence();
       proxy.restore();
       await expect.poll(() => heard, { timeout: 10_000 }).toEqual([null, null]);
+      expect(warned).toHaveBeenCalledExactlyOnceWith(expect.stringContaining("Not listening for access changes, Library changes, moves or Settings Edits (Query read timeout)"));
       await admin.query("SELECT pg_notify('library_changes', 'after the outage')");
       await expect.poll(() => heard).toEqual([null, null, "after the outage"]);
     } finally {
       await admin.end();
       await notifications.onModuleDestroy();
+      warned.mockRestore();
     }
   });
 });
