@@ -491,8 +491,8 @@ export const NOT_WRITTEN = "Not written: ";
 /**
  * Whether a plugin refused an edit by its own definitions though these
  * allow it: a plugin at another release, whose definitions differ, such as
- * the previous release's beside this one (ADR-0025), which put a weight flow
- * multiplier of 0.86 off a step of 0.1 (#343). Nothing was written, and the
+ * the previous release's beside this one (ADR-0025), as 1.3.1's put a weight
+ * flow multiplier of 0.86 off a step of 0.1 (#343). Nothing was written, and the
  * plugin takes the edit once it updates. Judged as the plugin judges, as an
  * Admin's.
  */
