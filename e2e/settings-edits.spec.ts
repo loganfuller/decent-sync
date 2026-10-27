@@ -456,15 +456,24 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     await form.getByLabel("Night mode morning time (UTC+5:30)").fill("06:15:00");
     await form.getByRole("combobox", { name: "Charging mode" }).click();
     await ravisPage.getByRole("option", { name: "Charge up to 80%" }).click();
+    // In hundredths, finer than Streamline's ± buttons move it (#343).
+    await form.getByLabel("Weight flow multiplier").fill("0.86");
     await form.getByRole("button", { name: "Save" }).click();
     const status = tabletSettings.getByRole("status");
     await expect(status).toContainText("Applied");
     await expect(status).toContainText("Night mode sleep time: 23:30 (UTC+5:30)");
     await expect(field(tabletSettings, "Night mode sleep time")).toHaveText("23:30 (UTC+5:30)");
     await expect(field(tabletSettings, "Charging mode")).toHaveText("Charge up to 80%");
+    await expect(field(tabletSettings, "Weight flow multiplier")).toHaveText("0.86");
   });
   // Sent as minutes after midnight, as Decaid keeps them, and only the fields changed.
-  expect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ nightModeEnabled: true, nightModeSleepTime: 1410, nightModeMorningTime: 375, chargingMode: "balanced" });
+  expect((await tablet.callApi("GET", "/settings")).body).toMatchObject({
+    nightModeEnabled: true,
+    nightModeSleepTime: 1410,
+    nightModeMorningTime: 375,
+    chargingMode: "balanced",
+    weightFlowMultiplier: 0.86,
+  });
   expect(settingsWrites()).toHaveLength(1);
 
   await page.goto(`/machines/${machine.id}`);

@@ -148,9 +148,13 @@ var __decentSync = (() => {
       { path: "blockOnNoScale", label: "Block Shots with no scale", kind: "onOff", editableBy: "staff" },
       { path: "blockTareDuringShot", label: "Block taring during a Shot", kind: "onOff", editableBy: "staff" },
       { path: "stopHotWaterAtWeight", label: "Stop hot water at weight", kind: "onOff", editableBy: "staff" },
-      { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.1, editableBy: "staff" },
-      { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
-      { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
+      // Each a lead time in seconds: Decaid stops a Shot, or hot water, that long before its target at the flow it is
+      // pouring (`ShotSequencer`, `HotWaterSequencer`). Decaid takes any number, and Streamline's page any of 0 or more: its
+      // ± buttons' 0.1 and 0.05 are increments, not limits. Upstream sets no step; this one is chosen here, 0.01 s being
+      // 0.05 g at 5 g/s (#343).
+      { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+      { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+      { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
       { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "staff" },
       {
         path: "chargingMode",
@@ -295,6 +299,7 @@ var __decentSync = (() => {
         return `${name} must be a multiple of ${editable?.step}`;
     }
   }
+  var NOT_WRITTEN = "Not written: ";
   function kindText(field) {
     switch (field?.kind) {
       case "onOff":
@@ -3806,7 +3811,7 @@ var __decentSync = (() => {
       if (tooLate()) return expired(edit);
       if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
       const refusals = validateSettingsEdit(edit, "admin");
-      if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
+      if (refusals.length > 0) return refusedByDecaid(edit, null, `${NOT_WRITTEN}${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
       const state = await request("GET", "/machine/state");
       if (state.ok) {
         const machineState = stateOf(state.text);

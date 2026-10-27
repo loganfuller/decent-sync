@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
 import {
   COLLECTION_NAMES,
+  NOT_WRITTEN,
   SETTINGS_COLLECTION_NAMES,
   SETTINGS_FIELDS,
   decimalPlaces,
   isEditable,
   onStep,
+  refusedByOtherDefinitions,
   settingsRefusalText,
   validateSettingsEdit,
 } from "../src/index.js";
@@ -58,14 +60,19 @@ describe("validateSettingsEdit", () => {
     }
   });
 
-  it("refuses a value off a 0.05 step, checked in hundredths", () => {
-    // 0.35 / 0.05 is 6.999999999999999 in floating point; 35 hundredths are seven steps.
-    expect(0.35 / 0.05).not.toBe(7);
-    expect(validateSettingsEdit({ collection: "appSettings", fields: { volumeFlowMultiplier: 0.35, hotWaterFlowMultiplier: 0.3 } }, "staff")).toEqual([]);
-    expect(validateSettingsEdit({ collection: "appSettings", fields: { volumeFlowMultiplier: 0.33, hotWaterFlowMultiplier: 0.355 } }, "staff")).toEqual([
+  it("takes the flow multipliers in hundredths, finer than Streamline's ± buttons move them, and refuses thousandths", () => {
+    expect(
+      validateSettingsEdit({ collection: "appSettings", fields: { weightFlowMultiplier: 0.86, volumeFlowMultiplier: 0.33, hotWaterFlowMultiplier: 0.33 } }, "staff"),
+    ).toEqual([]);
+    expect(validateSettingsEdit({ collection: "appSettings", fields: { weightFlowMultiplier: 0, volumeFlowMultiplier: 1.07, hotWaterFlowMultiplier: 12 } }, "staff")).toEqual([]);
+    expect(
+      validateSettingsEdit({ collection: "appSettings", fields: { weightFlowMultiplier: 0.865, volumeFlowMultiplier: 0.335, hotWaterFlowMultiplier: 0.331 } }, "staff"),
+    ).toEqual([
+      { reason: "offStep", field: "weightFlowMultiplier" },
       { reason: "offStep", field: "volumeFlowMultiplier" },
       { reason: "offStep", field: "hotWaterFlowMultiplier" },
     ]);
+    expect(settingsRefusalText("appSettings", { reason: "offStep", field: "weightFlowMultiplier" })).toBe("Weight flow multiplier must be a multiple of 0.01");
   });
 
   it("refuses a flow multiplier off its thousandths", () => {
@@ -194,7 +201,11 @@ describe("onStep", () => {
     expect(onStep(1.00002, 0.0001)).toBe(false);
   });
 
-  it("takes only multiples of its step, negative ones too", () => {
+  it("takes only multiples of its step, negative ones too, checked in its least decimal place", () => {
+    // 0.35 / 0.05 is 6.999999999999999 in floating point; 35 hundredths are seven steps.
+    expect(0.35 / 0.05).not.toBe(7);
+    expect(onStep(0.35, 0.05)).toBe(true);
+    expect(onStep(0.33, 0.05)).toBe(false);
     expect(onStep(-0.15, 0.05)).toBe(true);
     expect(onStep(-0.12, 0.05)).toBe(false);
     expect(onStep(0, 0.05)).toBe(true);
@@ -209,9 +220,30 @@ describe("onStep", () => {
     // Written in exponent notation, and a multiple of every step.
     expect(onStep(1e21, 0.05)).toBe(true);
     expect(onStep(1e21, 0.001)).toBe(true);
-    expect(validateSettingsEdit({ collection: "appSettings", fields: { volumeFlowMultiplier: 90071992547410.11 } }, "staff")).toEqual([
-      { reason: "offStep", field: "volumeFlowMultiplier" },
+    expect(validateSettingsEdit({ collection: "appSettings", fields: { volumeFlowMultiplier: 90071992547410.11, hotWaterFlowMultiplier: 4398046511104.125 } }, "staff")).toEqual([
+      { reason: "offStep", field: "hotWaterFlowMultiplier" },
     ]);
+  });
+});
+
+describe("refusedByOtherDefinitions", () => {
+  const edit = { collection: "appSettings", fields: { weightFlowMultiplier: 0.86 } };
+  // As the plugin of 1.3.1 refused it, by its step of 0.1.
+  const earlier = { reason: "decaid", status: null, message: `${NOT_WRITTEN}Weight flow multiplier must be a multiple of 0.1` };
+
+  it("takes a plugin's refusal by its own definitions of an edit these allow as a plugin at another release's", () => {
+    expect(refusedByOtherDefinitions(edit, earlier)).toBe(true);
+    // A field its definitions lacked, among others.
+    expect(refusedByOtherDefinitions({ collection: "appSettings", fields: { themeMode: "dark", weightFlowMultiplier: 0.86 } }, { ...earlier, message: `${NOT_WRITTEN}There is no setting named themeMode` })).toBe(true);
+  });
+
+  it("leaves a refusal these definitions make too, and any other refusal, as it is", () => {
+    expect(refusedByOtherDefinitions({ ...edit, fields: { weightFlowMultiplier: 0.865 } }, { ...earlier, message: `${NOT_WRITTEN}Weight flow multiplier must be a multiple of 0.01` })).toBe(false);
+    // Decaid's own refusals, and the plugin's of what it does not write or could not ask.
+    expect(refusedByOtherDefinitions(edit, { ...earlier, status: 400 })).toBe(false);
+    expect(refusedByOtherDefinitions(edit, { ...earlier, message: "Decaid did not answer: timed out" })).toBe(false);
+    expect(refusedByOtherDefinitions(edit, { ...earlier, message: null })).toBe(false);
+    expect(refusedByOtherDefinitions(edit, { reason: "changedSince" })).toBe(false);
   });
 });
 

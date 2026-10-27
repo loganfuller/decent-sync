@@ -118,7 +118,11 @@ who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: reset when the Machine
 reconnects, put back by Streamline's settings page, or to restart the Machine
 after a change. Labels, units, ranges, steps and choices follow Streamline's
-settings page at `cec5664`, and Decaid's own limits where it has none. A
+settings page at `cec5664`, and Decaid's own limits where it has none. A ±
+button's increment is no step: Streamline's move the flow multipliers of the
+Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
+of 0 or more, so their step of 0.01 is chosen here (ticket
+[#343](https://github.com/loganfuller/decent-sync/issues/343)). A
 wake schedule's fields, which an edit adding or changing one sets, are
 defined apart (`WAKE_SCHEDULE_FIELDS`): its time, `HH:MM`; its days, ISO
 weekdays 1 to 7, each once and in order, none for every day; whether it is
@@ -239,7 +243,11 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   unanswered, and no write is started after it. For each edit the
   plugin:
   1. checks the fields against their definitions again, writing none without
-     one;
+     one, and refuses an edit they refuse by `decaid`, with a null status and
+     a message of `NOT_WRITTEN` followed by what they refuse. A plugin at
+     another release, whose definitions differ, refuses so an edit the
+     server's allow, as the previous release's plugin refuses a weight flow
+     multiplier of 0.86 off its step of 0.1 (#343);
   2. reads `GET /machine/state`, going ahead only while the state is `idle`,
      `schedIdle`, `sleeping` or `needsWater` (`SETTINGS_EDIT_STATES`), and
      refusing it as `machineBusy`, naming the state, otherwise, or with
@@ -379,7 +387,10 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   pending, reads it every second until it has an outcome, shows the outcome
   in place, and loads the reports again, so its values come from the latest
   one. An edit not confirmed is shown so, and read every 5 s until a late
-  answer replaces the mark, shown as answered late.
+  answer replaces the mark, shown as answered late. A refusal by the plugin's
+  own definitions of an edit the page's allow (`refusedByOtherDefinitions`)
+  says the Tablet's plugin must update before it takes the change, rather
+  than repeating the plugin's reason, such as a step the page no longer has.
 - **The Settings Edits card** (`web/src/components/settings-edit-log.tsx`)
   lists the Machine's edits, newest first, 20 a page: when each was made, who
   made it ("You" for the account's own, the account's name to Admins, and

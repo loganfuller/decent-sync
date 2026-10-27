@@ -236,9 +236,13 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     { path: "blockOnNoScale", label: "Block Shots with no scale", kind: "onOff", editableBy: "staff" },
     { path: "blockTareDuringShot", label: "Block taring during a Shot", kind: "onOff", editableBy: "staff" },
     { path: "stopHotWaterAtWeight", label: "Stop hot water at weight", kind: "onOff", editableBy: "staff" },
-    { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.1, editableBy: "staff" },
-    { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
-    { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.05, editableBy: "staff" },
+    // Each a lead time in seconds: Decaid stops a Shot, or hot water, that long before its target at the flow it is
+    // pouring (`ShotSequencer`, `HotWaterSequencer`). Decaid takes any number, and Streamline's page any of 0 or more: its
+    // ± buttons' 0.1 and 0.05 are increments, not limits. Upstream sets no step; this one is chosen here, 0.01 s being
+    // 0.05 g at 5 g/s (#343).
+    { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+    { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
+    { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
     { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "staff" },
     {
       path: "chargingMode",
@@ -475,6 +479,25 @@ export function settingsRefusalText(collection: string, refusal: SettingsEditRef
     case "offStep":
       return `${name} must be a multiple of ${editable?.step}`;
   }
+}
+
+/**
+ * How the plugin begins its refusal of an edit its own definitions refuse,
+ * as `decaid` with no status, before each refusal's text
+ * (`settingsRefusalText`), joined by "; ".
+ */
+export const NOT_WRITTEN = "Not written: ";
+
+/**
+ * Whether a plugin refused an edit by its own definitions though these
+ * allow it: a plugin at another release, whose definitions differ, such as
+ * the previous release's beside this one (ADR-0025), which put a weight flow
+ * multiplier of 0.86 off a step of 0.1 (#343). Nothing was written, and the
+ * plugin takes the edit once it updates. Judged as the plugin judges, as an
+ * Admin's.
+ */
+export function refusedByOtherDefinitions(edit: SettingsEditFields, refusal: { reason?: string; status?: number | null; message?: string | null }): boolean {
+  return refusal.reason === "decaid" && refusal.status === null && (refusal.message?.startsWith(NOT_WRITTEN) ?? false) && validateSettingsEdit(edit, "admin").length === 0;
 }
 
 function kindText(field: EditableSettingsField | undefined): string {

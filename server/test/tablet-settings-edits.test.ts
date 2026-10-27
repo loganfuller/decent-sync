@@ -4,7 +4,7 @@ import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #230: Settings Edits of a Tablet's Tablet Settings,
+// Seam 1 for tickets #230 and #343: Settings Edits of a Tablet's Tablet Settings,
 // Decaid's own settings (`appSettings`), Staff's to change but for gateway
 // mode, an Admin's, made through the REST API and carried out by the built
 // plugin in a simulated tablet, whose Decaid applies `POST /settings` one
@@ -29,6 +29,9 @@ const AS_REPORTED = {
   nightModeSleepTime: 1320,
   nightModeMorningTime: 420,
   themeMode: "system",
+  weightFlowMultiplier: 1,
+  volumeFlowMultiplier: 0.3,
+  hotWaterFlowMultiplier: 0.3,
 };
 
 describe("Settings Edits of the Tablet Settings", () => {
@@ -90,6 +93,24 @@ describe("Settings Edits of the Tablet Settings", () => {
     expect(writes(tablet)).toEqual(["POST /settings"]);
     // The read-back is reported with the Tablet's offset, which its night mode's times are in.
     expect(await reported(machine)).toMatchObject({ value: night, utcOffsetMinutes: -240 });
+  });
+
+  it("applies Staff's edit of the flow multipliers in hundredths, finer than Streamline's ± buttons, and refuses thousandths at once", async () => {
+    const { machine, tablet } = await connected("Tablet flow multipliers");
+    // As a stop-at-weight fit found for one of Roux's Machines (#343).
+    const multipliers = { weightFlowMultiplier: 0.86, volumeFlowMultiplier: 0.33, hotWaterFlowMultiplier: 0.33 };
+    const made = await make(machine, multipliers, staff);
+    expect(await answered(machine, made.id)).toMatchObject({ outcome: "applied", adjusted: [], refusal: null, readBack: multipliers });
+    expect(await held(tablet)).toMatchObject(multipliers);
+
+    for (const [field, value] of [["weightFlowMultiplier", 0.865], ["volumeFlowMultiplier", 0.335], ["hotWaterFlowMultiplier", 0.331]] as const) {
+      const response = await staff.call("POST", path(machine), { collection: "appSettings", fields: { [field]: value }, expected: { [field]: multipliers[field] } });
+      const text = await response.text();
+      expect(response.status, text).toBe(400);
+      expect(text).toMatch(/flow multiplier must be a multiple of 0.01/);
+    }
+    expect(writes(tablet)).toEqual(["POST /settings"]);
+    expect(await held(tablet)).toMatchObject(multipliers);
   });
 
   it("refuses Staff gateway mode with 403, writing nothing, and applies an Admin's change of it", async () => {
