@@ -72,12 +72,16 @@ export class Drain implements NestInterceptor {
  * - then the server stops listening, finishes the requests under way, and
  *   shuts Nest down, disconnecting from the database last.
  *
- * A second signal ends the server at once, as no listener is left for it.
+ * Signals that arrive meanwhile are ignored, as Nest's hooks ignored them: a
+ * terminal's Ctrl-C reaches the server twice under `npm start`, from the
+ * terminal and from npm. The host's kill still ends a drain that runs too long.
  */
 export function stopOnSignals(app: INestApplication, config: Config): void {
   const logger = new Logger("DecentSync");
+  let stopping = false;
   const stop = async (signal: NodeJS.Signals) => {
-    for (const each of STOPPING_SIGNALS) process.off(each, stop);
+    if (stopping) return;
+    stopping = true;
     logger.log(`Stopping on ${signal}: answering requests for ${config.drainGraceMs / 1000} s more, then finishing those under way`);
     try {
       const drain = app.get(Drain);
@@ -99,6 +103,7 @@ export function stopOnSignals(app: INestApplication, config: Config): void {
       process.exit(1);
     }
     // Ends as the signal would have, with no listener left for it.
+    for (const each of STOPPING_SIGNALS) process.off(each, stop);
     process.kill(process.pid, signal);
   };
   for (const signal of STOPPING_SIGNALS) process.on(signal, stop);

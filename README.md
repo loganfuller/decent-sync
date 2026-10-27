@@ -178,8 +178,12 @@ environment variables (see [Development](#development)):
 docker run -d -p 3000:3000 \
   -e DATABASE_URL=postgresql://user:password@db.example.com:5432/decent_sync \
   -e PUBLIC_URL=https://sync.example.com \
+  -e DRAIN_GRACE_SECONDS=0 \
   ghcr.io/loganfuller/decent-sync:1.0.0
 ```
+
+`DRAIN_GRACE_SECONDS=0` stops it at once: with one instance there is no proxy
+to wait for, and Docker kills a container 10 s after asking it to stop.
 
 The user in `DATABASE_URL` should own its database: a migration sets the
 database's `idle_in_transaction_session_timeout`, so that a transaction left
