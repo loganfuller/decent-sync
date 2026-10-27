@@ -159,9 +159,10 @@ prints them:
   (`mapDe1SubToMachineSubstate` in
   `decaid:lib/src/models/device/impl/de1/de1.utils.dart`). Each time, the
   substate ended with the group at about 73.7 °C against its target of 84 °C.
-  The group then went on heating under plain `idle`, reaching its target 50
-  to 58 s later. After the first wake the steam heater, at 75 °C, took 108 s
-  more to reach 150 °C. So `idle` doesn't mean the Machine is up to
+  The group then went on heating under plain `idle`. It came within 1 °C of
+  its target 50 to 58 s later, and reached it after 88 and 92 s; after the
+  third wake, steaming began first. After the first wake the steam heater, at
+  75 °C, took 108 s more to reach 150 °C. So `idle` doesn't mean the Machine is up to
   temperature: only the temperatures against their targets show that. A
   shot's own warm-up was `espresso` with `preparingForShot`, 2.9 s.
 - **Water level and refill level.** For the first 106 s of the first
