@@ -74,6 +74,14 @@ Workflow follows and which follows the changes made on it, its steam, hot
 water and flush settings included. Each Shot is linked to its Recipe and
 Basket.
 
+[Milestone 5](https://github.com/loganfuller/decent-sync/issues/277) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built
+for the release after 1.3.1: each release runs beside the previous one
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so
+several server instances upgrade without taking anything offline, and a plugin
+and server a release apart work together, whichever is upgraded first (see
+[Upgrading](#upgrading)).
+
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
 
@@ -126,9 +134,8 @@ The server needs only PostgreSQL 14 or newer. Each release publishes a Docker
 image of the server and the built management interface to
 `ghcr.io/loganfuller/decent-sync`, tagged with its version (`1.0.0`), its minor
 series (`1.0`) and `latest`. On startup the server applies any pending database
-migrations, so upgrading is running a newer image. A release may change the
-database incompatibly: stop the running server before starting a new version,
-and read its upgrade notes, which say when to recreate the database.
+migrations, so upgrading is running a newer image (see
+[Upgrading](#upgrading)).
 
 ### Docker Compose
 
@@ -162,11 +169,16 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
 | `CLIENT_ADDRESS_HEADER` | optional: the request header a reverse proxy puts the tablet's address in, such as `X-Forwarded-For` (see [On the internet](#on-the-internet)) |
 
-To upgrade, pull the newer image and restart:
+To upgrade, pull the newer image and restart. The server is offline until
+the new one has started and migrated the database, usually a few seconds:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+With `DECENT_SYNC_VERSION` at `latest`, a pull takes the newest release, so
+upgrade after each release, or set each version in turn (see
+[Upgrading](#upgrading)).
 
 In a checkout of this repo, `docker compose up` builds the image from source
 when it cannot pull one.
@@ -261,7 +273,8 @@ Two changes to that URL are needed:
   View Pooler Settings on the cluster's Connect tab in fly.io's dashboard. Even
   in session mode, the pooler cannot carry the timeout below, so the direct
   host is the one to use. The server needs only a few connections per
-  instance, well within the cluster's limit without a pooler.
+  instance, 11 at most, so it can go without a pooler; what a deploy needs
+  is below.
 - Managed Postgres's databases are owned by `postgres`, so the migration cannot
   set the database's idle-in-transaction timeout (see above), and Managed
   Postgres refuses role settings too. Send the timeout at connection startup
@@ -288,29 +301,65 @@ fly ssh console --app my-decent-sync -q -C 'node -e "const u = new URL(process.e
 ```
 
 Save a `fly.toml` like this one, with your app's name, the region nearest the
-database and the image version to run, then deploy one machine. The server can
-run as several instances on one database
-([ADR-0016](docs/adr/0016-instances-share-only-postgresql.md)), but a new
-version must not run beside the old one, and fly.io deploys to several
-machines one at a time, so skip its default second machine:
+database and the image version to run, then deploy it on two VMs:
 
 ```bash
-fly deploy --ha=false
+fly deploy
+fly scale count 2
 fly ips list --app my-decent-sync
 ```
 
-If the app has no addresses after its first deploy, as can happen when
+A first deploy starts two VMs already, and `fly scale count 2` then changes
+nothing; an app running one, such as one deployed with `--ha=false`, gets its
+second. If the app has no addresses after its first deploy, as can happen when
 deploying from a script, allocate them with `fly ips allocate-v4 --shared` and
 `fly ips allocate-v6`. Once the app is reachable, anyone can open it and create
 the first Admin, so do that straight away.
+
+The server runs as two instances on one database
+([ADR-0016](docs/adr/0016-instances-share-only-postgresql.md)), on VMs in one
+region, which fly.io normally places on separate hosts, though it doesn't
+promise to. Losing a host then usually leaves the other VM serving, and the
+tablets reconnect to it within seconds.
+
+Each deploy is blue-green (`[deploy]` below), which works as each release runs
+beside the previous one ([Upgrading](#upgrading)). fly.io starts a VM of the
+new release beside each old one and waits for its health check, which the
+server passes only once it has migrated the database. It then moves traffic to
+the new VMs over some 10 to 20 seconds and stops the old ones, whose tablets
+reconnect to the new ones within about a second. Nothing goes offline, and a
+page left open loads the new release at its next navigation. A new VM that
+doesn't pass its check fails the deploy, and the old ones keep serving.
+
+A deploy briefly doubles the VMs, to four, and the database must take all
+their connections at once. Each instance holds up to 11, a pool of 10 and one
+listening for notifications, so the database's `max_connections` must allow 44
+beyond whatever else uses it, such as another app on the same cluster.
 
 ```toml
 # fly.toml
 app = "my-decent-sync"
 primary_region = "yyz"
+# How long a stopping VM has before fly.io kills it. On fly.io's signal the
+# server answers 503 to its health check, hands its tablets to the other VMs
+# and still answers requests for 15 s (DRAIN_GRACE_SECONDS), until the proxy
+# has noticed. It then finishes the requests under way and its background
+# jobs' batches: usually at once, but a large change, such as one to a long
+# Location History, can take a minute or two. Work that outlasts this is cut
+# off, and its transaction rolls back. fly.io's default of 5 s would cut off
+# even the 15 s.
+kill_timeout = 150
 
 [build]
   image = "ghcr.io/loganfuller/decent-sync:1.0.0"
+
+[deploy]
+  # A new VM starts beside each old one, and takes its traffic once healthy.
+  strategy = "bluegreen"
+  # How long a new VM has to pass its health check before fly.io fails the
+  # deploy: above the release's migrations plus another new VM's, which it
+  # waits for. A release whose migrations take longer says so in its notes.
+  wait_timeout = "10m"
 
 [env]
   PUBLIC_URL = "https://my-decent-sync.fly.dev"
@@ -321,33 +370,66 @@ primary_region = "yyz"
 [http_service]
   internal_port = 3000
   force_https = true
-  # Tablets hold a WebSocket open; keep one machine running for them.
+  # Tablets hold a WebSocket open; keep every VM running for them.
   auto_stop_machines = "off"
-  min_machines_running = 1
 
   # Optional: the most connections, tablets' included, the proxy sends this
-  # machine at once; it holds back the rest. fly.io sets no limit by default.
+  # VM at once; it holds back the rest. fly.io sets no limit by default.
   [http_service.concurrency]
     type = "connections"
     soft_limit = 100
     hard_limit = 200
 
+  # The check the proxy routes by. A stopping server answers requests for
+  # 15 s (DRAIN_GRACE_SECONDS), this interval plus the timeout, so change
+  # them together.
   [[http_service.checks]]
     method = "GET"
     path = "/api/health"
-    interval = "30s"
+    interval = "10s"
     timeout = "5s"
     grace_period = "30s"
 ```
 
-To upgrade, change the image version in `fly.toml` and deploy again. With a
-custom domain, set `PUBLIC_URL` to it.
+To upgrade, change the image version in `fly.toml` and deploy again, one
+release at a time ([Upgrading](#upgrading)). With a custom domain, set
+`PUBLIC_URL` to it.
+
+### Upgrading
+
+Each release from the one after 1.3.1 runs beside the release before it
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)): the
+new release migrates the database in place while the old one may still serve
+from it, so no upgrade asks to stop the server first or to recreate the
+database. With two instances or more behind a proxy that routes by
+`/api/health`, as in the fly.io example, the new release starts beside the
+old one and takes the traffic once it has migrated, and the old one then
+stops, so nothing goes offline. One instance, as with Docker Compose, stops
+and then starts the new release, and is offline until it has migrated:
+usually a few seconds.
+
+Decaid checks for plugin releases every 12 hours while it runs, and updates
+each tablet's plugin whatever its server runs. A plugin and server a release
+apart work together, whichever is upgraded first, but two releases apart they
+may not. So keep the server within one release of the newest plugin, upgrading
+it to each release soon after it is published. A server that skipped a release
+is taken up one release at a time, each run until its background work is done,
+such as rewriting stored data in batches: a release whose migrations need that
+work done checks that it is, and otherwise refuses to start, naming the
+release to run until it is. With Docker Compose, set `DECENT_SYNC_VERSION` to
+each release in turn; on fly.io, the image version in `fly.toml`.
+
+Each release's notes start with what it needs beyond its image
+([UPGRADING.md](UPGRADING.md)).
 
 ## Installing the plugin
 
 The plugin needs Decaid v0.9.0 or newer. The server refuses a tablet running
-an older Decaid, and the Machine's page says why. Run the plugin and server
-from the same release ([ADR-0017](docs/adr/0017-supported-versions.md)).
+an older Decaid, and the Machine's page says why. A plugin works with a server
+of its own release or of the release before or after it
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so a
+tablet may take a plugin update before or after its server is upgraded (see
+[Upgrading](#upgrading)).
 
 Decaid installs the plugin from this repo's GitHub releases by repo name. On
 the tablet, open Decaid's Settings, then Plugins; choose **Install Plugin**,
@@ -367,7 +449,8 @@ Plugins, saying it needs approval and which permissions it adds, until someone
 at that tablet presses **Review**, then **Approve and update**, or sends
 `POST /api/v1/plugins/decent-sync.reaplugin/update/approve` to the tablet's API.
 Each tablet needs its own approval. Until a tablet's update is approved, it
-runs the plugin it has, which a newer server may refuse.
+runs the plugin it has, which a server more than one release newer may refuse.
+Each Machine's page shows the plugin release its tablet runs.
 [UPGRADING.md](UPGRADING.md) lists what each release needs.
 
 Then enter the server URL and the Machine's token in the plugin's settings.
@@ -508,6 +591,10 @@ plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 2. Tag the resulting commit on `main` `v0.3.0` and push the tag. A tag on any
    other commit fails the release, since pull request CI tests a merge with
    `main` rather than the tagged commit.
+3. Once it is published, deploy the release to every server you run, before
+   tagging the next. Decaid installs the new plugin on every tablet within 12
+   hours, and a plugin two releases ahead of its server falls outside what the
+   two support together.
 
 The [release workflow](.github/workflows/release.yml) then fails unless the tag
 is `vX.Y.Z` matching the committed manifest's version, `UPGRADING.md` has no
@@ -520,6 +607,30 @@ version's section of `UPGRADING.md` (`scripts/release-notes.mjs`), followed by
 GitHub's notes generated from the pull requests merged since the last release.
 Anything owners must do when upgrading, such as approving a plugin update that
 adds a permission on every tablet, goes in `UPGRADING.md` under Unreleased.
+No note asks to stop the server, recreate the database or redo anything: each
+step is done while everything runs
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)). Two
+come before the deploy, and the release's notes name them:
+
+- A release that raises the Decaid, DYE2 or Streamline minimum
+  ([ADR-0017](docs/adr/0017-supported-versions.md)): update each tablet first.
+- A release that raises the wire revision (`WIRE_REVISION` in
+  `protocol/src/index.ts` above the previous release's): the server refuses a
+  plugin more than one revision behind it. See on each Machine's page that its
+  tablet runs the previous release's plugin, or this one's. Where it doesn't,
+  update it from the tablet's network with
+  `POST http://<tablet>:8080/api/v1/plugins/update`, or approve an update that
+  adds a permission with
+  `POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve`.
+
+A release that can't run beside the previous one is made only with the owner's
+approval. The pull requests that break the rule carry the `breaking-release`
+label, which only the owner applies, and from the first one's merge until the
+release is tagged, CI's checks against the latest release skip
+(`docs/AI_BUILD_NOTES.md`). The release takes a new major version, and its
+notes open with its downtime and how to deploy it: stop every instance, then
+start the new release.
+
 Decaid's release install and update read the latest release, and refuse
 prerelease-style tags, so publish only versions meant for every Machine.
 

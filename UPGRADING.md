@@ -1,15 +1,38 @@
 # Upgrading
 
 What to do when upgrading to a release, beyond running its server image and
-letting Decaid update each tablet's plugin. Run the server and the plugin of
-the same release
-([ADR-0017](docs/adr/0017-supported-versions.md)).
+letting Decaid update each tablet's plugin. From the release after 1.3.1, the
+plugin and server of adjacent releases work together, upgraded in either
+order, and the new server runs beside the old one as it upgrades, so nothing
+here stops the server or recreates the database
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)).
+Earlier releases' notes may still ask that. A server that skipped a release
+takes each release in turn (the README's Upgrading section).
 
 Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see the README's Releasing
 section).
 
 ## Unreleased
+
+### Upgrade without going offline from now on
+
+This release runs beside 1.3.1, and each release from now on runs beside the
+one before it. Pages opened from 1.3.1 don't reload into the new release by
+themselves, as later pages do at their next navigation: reload them once after
+upgrading.
+
+On fly.io, set `fly.toml` up as the README's fly.io section now shows: a
+blue-green deploy, a `wait_timeout`, a 10 s check interval and a
+`kill_timeout` of 150 s. Deploy this release, then run `fly scale count 2`.
+That deploy takes nothing offline, though 1.3.1 doesn't drain as it stops, so
+a request under way on it then may fail.
+
+A stopping server now still answers requests for 15 s
+(`DRAIN_GRACE_SECONDS`), which a single instance has no use for. Set it to 0
+there: with Docker Compose, add `DRAIN_GRACE_SECONDS: "0"` to the server's
+`environment` in `docker-compose.yml`, as this release's file does. Otherwise
+each later restart waits 10 s, until Docker kills the server.
 
 ### The health check reports the database in its body
 
