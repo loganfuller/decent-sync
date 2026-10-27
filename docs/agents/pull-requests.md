@@ -2,7 +2,7 @@
 
 Open a pull request only when asked (`AGENTS.md`). Its description says what changed and why, how it was verified, and what it does not cover.
 
-CI skips a pull request that changes only docs (anything under `docs/`, and Markdown other than `UPGRADING.md` and any in `decent-sync.reaplugin/`, which the plugin ZIP packs), so don't wait for its run or report one as missing. A cancelled run on an older commit was superseded by a newer push, not failed: read the newest run.
+Branch protection on `main` requires CI's `ci` check, which passes once every other job has, and binds admins. On a pull request that changes only docs (anything under `docs/`, and Markdown other than `UPGRADING.md` and any in `decent-sync.reaplugin/`, which the plugin ZIP packs), every job but `changes` and `ci` skips, so its run passes within a minute. A cancelled run on an older commit was superseded by a newer push, not failed: read the newest run.
 
 ## Screenshots
 

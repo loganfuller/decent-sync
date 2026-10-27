@@ -1,28 +1,22 @@
 name: CI
 
 # Pull requests run on their merge result; main runs again after each merge,
-# docs-only merges included. Branches without a pull request get no CI, and
-# neither do pull requests that change only docs. A newer push to a pull
-# request cancels its older run. The release workflow publishes only a commit
-# this workflow has passed on.
+# docs-only merges included. Branches without a pull request get no CI. A pull
+# request that changes only docs skips every job but `changes` and `ci` (see
+# `changes`). A newer push to a pull request cancels its older run. The release
+# workflow publishes only a commit this workflow has passed on.
+#
+# Branch protection on main requires the `ci` job, which passes only once every
+# other job has, and binds admins (ADR-0025).
 on:
   push:
     branches: [main]
-  # Docs-only means everything under docs/ and any Markdown file but
-  # UPGRADING.md, which scripts/release-notes.mjs reads at release time, and
-  # those in decent-sync.reaplugin/, which the plugin ZIP packs whole. The
-  # filter looks at the pull request's whole diff, so once it touches anything
-  # else, every later push runs CI. A check from a workflow this filter skips
-  # stays pending: if these jobs ever become required checks, docs-only pull
-  # requests would be blocked, so replace the filter with job-level skips then.
-  #
   # Labelling or unlabelling a pull request runs it again, for the
   # breaking-release label (scripts/breaking-release.mjs). Every job runs on
   # those events too: a job skipped there would report as passing over an
   # earlier failure.
   pull_request:
     types: [opened, synchronize, reopened, labeled, unlabeled]
-    paths: ['**', '!docs/**', '!**/*.md', 'UPGRADING.md', 'decent-sync.reaplugin/**']
 
 # pull-requests: read lets scripts/breaking-release.mjs read pull requests' labels.
 permissions:
@@ -40,7 +34,38 @@ concurrency:
 # takes about as long as its slowest shard rather than all of them in turn.
 # The release waits for the whole run.
 jobs:
+  # Whether the pull request changes only docs: everything under docs/ and any
+  # Markdown file but UPGRADING.md, which scripts/release-notes.mjs reads at
+  # release time, and those in decent-sync.reaplugin/, which the plugin ZIP
+  # packs whole. It reads the pull request's whole diff, so once it touches
+  # anything else, every later push runs CI. Every other job skips on
+  # docs-only, which `ci` passes; a workflow-level `paths` filter would leave
+  # the required check pending instead. A push to main is never docs-only.
+  changes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.files.outputs.docs-only }}
+
+    steps:
+      - id: files
+        name: Check whether the pull request changes only docs
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST/files" --jq '.[] | .filename, (.previous_filename // empty)')
+          if [ -n "$files" ] \
+              && ! printf '%s\n' "$files" | grep --quiet --invert-match --extended-regexp '^docs/|\.md$' \
+              && ! printf '%s\n' "$files" | grep --quiet --extended-regexp '^(UPGRADING\.md$|decent-sync\.reaplugin/)'; then
+            echo "::notice title=Docs only::This pull request changes only docs, so the other jobs skip."
+            echo "docs-only=true" >> "$GITHUB_OUTPUT"
+          fi
+
   checks:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -95,6 +120,8 @@ jobs:
   # matrix's one dimension.
   vitest:
     name: vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
@@ -198,6 +225,8 @@ jobs:
   # waits for it with the rest of this workflow.
   latest-release:
     name: vitest (latest release)
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -254,6 +283,8 @@ jobs:
   # release (the schema step).
   latest-release-suite:
     name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
@@ -313,6 +344,8 @@ jobs:
 
   playwright:
     name: playwright (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
     strategy:
@@ -359,6 +392,8 @@ jobs:
   # Builds what a release publishes without publishing it: the plugin ZIP, and
   # the server image run the way a self-hoster runs it.
   package:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
     runs-on: ubuntu-26.04
     timeout-minutes: 20
 
@@ -395,3 +430,28 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose down --volumes
+
+  # The one check branch protection on main requires. It passes once every job
+  # above has passed, or skipped on a docs-only pull request, so the required
+  # check never waits on a job that skipped and never changes with the shard
+  # counts. It runs whatever happened before it, so a failed or cancelled job,
+  # a superseded run's included, fails it rather than leaving it skipped, which
+  # branch protection would count as passing.
+  ci:
+    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package]
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check every job passed, or skipped on docs only
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
+        run: |
+          failed=$(echo "$NEEDS" | jq -r --arg docs "$DOCS_ONLY" \
+            'to_entries[] | select(.value.result != "success" and (.value.result != "skipped" or $docs != "true")) | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            echo "::error title=CI failed::$(echo $failed)"
+            exit 1
+          fi
