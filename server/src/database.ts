@@ -84,7 +84,7 @@ export function poolConfig(databaseUrl: string, queryTimeoutMs = QUERY_TIMEOUT_M
   return { connectionString: databaseUrl, ...CONNECTION, query_timeout: queryTimeoutMs, Client: TimingOutClient };
 }
 
-/** The notifications listener's connection, whose statements, `LISTEN`, take no time, so they time out with a connection. */
+/** The notifications listener's connection, whose statements, `LISTEN` and its checks, take no time, so they time out with a connection. */
 export function listenerConfig(databaseUrl: string): pg.ClientConfig {
   return { connectionString: databaseUrl, ...CONNECTION, query_timeout: CONNECT_TIMEOUT_MS };
 }
@@ -98,11 +98,13 @@ const UNREACHABLE_KINDS = new Set(["DatabaseNotReachable", "ConnectionClosed", "
 
 /**
  * PostgreSQL's errors (SQLSTATE) for a server going away or not taking
- * connections: class 08 (connection exception), 57P01 to 57P03 (shut down by
- * an administrator or a crash, or not yet accepting connections, as while it
- * starts or is promoted) and 53300 (too many connections).
+ * connections: class 08's connection exceptions, but for 08P01, a protocol
+ * violation, which the request's own query causes, as with too few values
+ * bound; 57P01 to 57P03 (shut down by an administrator or a crash, or not
+ * yet accepting connections, as while it starts or is promoted); and 53300
+ * (too many connections).
  */
-const UNREACHABLE_STATES = /^(?:08[0-9A-Z]{3}|57P0[1-3]|53300)$/;
+const UNREACHABLE_STATES = new Set(["08000", "08001", "08003", "08004", "08006", "08007", "57P01", "57P02", "57P03", "53300"]);
 
 /**
  * Node's socket errors for a host refusing, unreachable or gone, or a
@@ -142,7 +144,7 @@ export function databaseUnreachable(error: unknown): boolean {
     if (error.code === "P2028") return error.message.includes("Unable to start a transaction in the given time");
     const cause = (error.meta?.driverAdapterError as { cause?: { kind?: unknown; originalCode?: unknown } } | undefined)?.cause;
     if (typeof cause?.kind === "string" && UNREACHABLE_KINDS.has(cause.kind)) return true;
-    return typeof cause?.originalCode === "string" && UNREACHABLE_STATES.test(cause.originalCode);
+    return typeof cause?.originalCode === "string" && UNREACHABLE_STATES.has(cause.originalCode);
   }
   return UNREACHABLE_MESSAGES.has(error.message);
 }

@@ -1,17 +1,20 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import type { Config } from "../src/config.js";
 import { databaseUnreachable, poolConfig } from "../src/database.js";
 import { PrismaClient } from "../src/generated/prisma/client.js";
+import { Notifications } from "../src/notifications.js";
 import { type OutageProxy, startOutageProxy } from "./support/outage-proxy.js";
 import { adminDatabaseUrl } from "./support/test-server.js";
 
-// The server's database client (`server/src/database.ts`) on the PostgreSQL
-// server tests use, through a proxy that takes it away
+// The server's connections to the PostgreSQL server tests use
+// (`server/src/database.ts`), through a proxy that takes it away
 // (`outage-proxy.ts`): what each way of losing it fails with, which a
-// request answers with 503, and that a statement outlasting its query
-// timeout leaves behind no connection for a later query to wait on. Its
-// timeouts are shortened here; it runs only `SELECT`s.
+// request answers with 503, that a statement outlasting its query timeout
+// leaves behind no connection for a later query to wait on, and that the
+// notifications listener notices a connection gone silent. The pool's
+// timeouts are shortened here. It runs only `SELECT`s and notifications.
 
 const QUERY_TIMEOUT_MS = 1_000;
 const CONNECT_TIMEOUT_MS = 500;
@@ -31,12 +34,16 @@ describe("the server's database client", () => {
     await proxy?.close();
   });
 
-  /** A client of the server's pool through the proxy, its timeouts short, holding at most `max` connections. */
-  function connect(max = 10): PrismaClient {
+  /** The database's URL through the proxy. */
+  function throughProxy(): string {
     const url = new URL(adminDatabaseUrl());
     url.host = proxy.host;
+    return url.href;
+  }
+  /** A client of the server's pool through the proxy, its timeouts short, holding at most `max` connections. */
+  function connect(max = 10): PrismaClient {
     const prisma = new PrismaClient({
-      adapter: new PrismaPg({ ...poolConfig(url.href, QUERY_TIMEOUT_MS), connectionTimeoutMillis: CONNECT_TIMEOUT_MS, max }),
+      adapter: new PrismaPg({ ...poolConfig(throughProxy(), QUERY_TIMEOUT_MS), connectionTimeoutMillis: CONNECT_TIMEOUT_MS, max }),
     });
     clients.push(prisma);
     return prisma;
@@ -125,8 +132,32 @@ describe("the server's database client", () => {
     const prisma = connect();
     expect(databaseUnreachable(await failure(prisma.$queryRaw`SELECT 1 / 0`))).toBe(false);
     expect(databaseUnreachable(await failure(prisma.$queryRaw`SELECT * FROM no_such_table`))).toBe(false);
+    // Too few values bound: a protocol violation (08P01), of the request's own making.
+    expect(databaseUnreachable(await failure(prisma.$queryRawUnsafe("SELECT $1::int + $2::int", 1)))).toBe(false);
     expect(databaseUnreachable(await failure(prisma.$transaction(async () => { throw new Error("Not the database's"); })))).toBe(false);
     // A transaction that outlasts its own limit is the request's doing.
     expect(databaseUnreachable(await failure(prisma.$transaction((tx) => tx.$executeRaw`SELECT pg_sleep(0.3)`, { timeout: 100 })))).toBe(false);
+  });
+
+  it("has the notifications listener notice its connection gone silent behind a hop that stays up, and listen again", async () => {
+    const notifications = new Notifications({ databaseUrl: throughProxy(), heartbeatIntervalMs: 200 } as Config);
+    const heard: (string | null)[] = [];
+    notifications.subscribe("library_changes", (payload) => heard.push(payload));
+    await notifications.onModuleInit();
+    const admin = new pg.Client({ connectionString: adminDatabaseUrl() });
+    await admin.connect();
+    try {
+      expect(heard).toEqual([null]);
+      // New connections are relayed again at once, but the listener's stays silent, as through a pooler whose own
+      // connection to the database went silent: keepalive, answered by the proxy, never ends it.
+      proxy.silence();
+      proxy.restore();
+      await expect.poll(() => heard, { timeout: 10_000 }).toEqual([null, null]);
+      await admin.query("SELECT pg_notify('library_changes', 'after the outage')");
+      await expect.poll(() => heard).toEqual([null, null, "after the outage"]);
+    } finally {
+      await admin.end();
+      await notifications.onModuleDestroy();
+    }
   });
 });
