@@ -150,7 +150,7 @@ describe("migrations", () => {
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
   });
 
-  it("lose the lock once their network goes silent while migrating, though a proxy between them and PostgreSQL answers its TCP keepalives", { timeout: 90_000 }, async () => {
+  it("keep the lock while migrating past its idle timeout, and lose it once their network goes silent, though a proxy between them and PostgreSQL answers its TCP keepalives", { timeout: 90_000 }, async () => {
     const owner = await start();
     const holder = await connect(owner);
     await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
@@ -162,6 +162,8 @@ describe("migrations", () => {
       const vanishing = startStaged(owner, { databaseHost: proxy.host, readyTimeoutMs: 80_000, starting: (kill) => void (crash = kill) });
       vanishing.catch(() => {});
       await waitForLockWaits(owner, { relation: "shots" });
+      // Past the lock connection's idle timeout, 15 s, which its pings keep it from reaching while Prisma migrates.
+      await new Promise((resolve) => setTimeout(resolve, 16_000));
       expect(await lockHeld(watcher)).toBe(true);
       // As a host that vanished, closing nothing.
       proxy.silence();
@@ -183,7 +185,7 @@ describe("migrations", () => {
     await holder.query("SELECT 1 FROM _prisma_migrations WHERE migration_name = $1 FOR UPDATE", [COLUMN]);
 
     const failure = await startStaged(owner).then(() => "started", (error: Error) => error.message);
-    expect(failure).toContain("canceling statement due to statement timeout");
+    expect(failure).toContain("Recording migrations left unfinished as rolled back failed (canceling statement due to statement timeout)");
     expect(await lockHeld(database)).toBe(false);
   });
 

@@ -66,7 +66,11 @@ export async function runMigrations(config: Config): Promise<void> {
   await requirePostgres14(config);
   const lock = await takeMigrationLock(config);
   try {
-    for (const { name } of await recordUnfinishedAsRolledBack(lock)) {
+    const unfinished = await recordUnfinishedAsRolledBack(lock).catch((error: unknown) => {
+      // Such as on waiting longer than MIGRATION_LOCK_STATEMENT_TIMEOUT for a record another transaction holds.
+      throw new StartupError(`Recording migrations left unfinished as rolled back failed (${messageOf(error)}), so the next start tries again`);
+    });
+    for (const { name } of unfinished) {
       logger.warn(`Recorded migration ${name}, left unfinished by an instance that failed or was killed partway through it, as rolled back, so it is applied again`);
     }
     const { code, lost } = await migrateDeploy(config, lock);
