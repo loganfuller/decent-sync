@@ -11,6 +11,14 @@ section).
 
 ## Unreleased
 
+### The health check reports the database in its body
+
+`/api/health` answers 503 only while the server is stopping. While the server
+can't reach its database, it answers 200 with `"database": "unreachable"` in
+its body, so a proxy routing by it sends the server traffic again as soon as
+the database is back, as after a failover. A monitor that took the 503 for the
+database being down reads the body instead.
+
 ## 1.1.0
 
 ### Update DYE2 and Streamline on every tablet

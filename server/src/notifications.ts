@@ -2,6 +2,7 @@ import { Inject, Injectable, Logger, type OnModuleDestroy, type OnModuleInit } f
 import pg from "pg";
 import { CONFIG } from "./config.module.js";
 import type { Config } from "./config.js";
+import { listenerConfig } from "./database.js";
 import type { Prisma } from "./generated/prisma/client.js";
 
 /**
@@ -70,7 +71,8 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
   }
 
   private async listen(): Promise<void> {
-    const client = new pg.Client({ connectionString: this.config.databaseUrl });
+    // A connect that hangs, or a connection lost without a reset, fails in time, so it is retried (`database.ts`).
+    const client = new pg.Client(listenerConfig(this.config.databaseUrl));
     client.on("notification", (message) => {
       const listeners = this.listeners.get(message.channel as Channel);
       if (listeners && message.payload) for (const listener of listeners) listener(message.payload);
