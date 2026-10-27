@@ -1,4 +1,4 @@
-import { type ChildProcess, spawn } from "node:child_process";
+import { type ChildProcess, execFileSync, spawn } from "node:child_process";
 import { randomBytes } from "node:crypto";
 import fs from "node:fs";
 import net from "node:net";
@@ -40,7 +40,10 @@ export interface TestServer {
    * that sharer. Calling it again, or while it runs, does no harm.
    */
   stop(): Promise<void>;
-  /** Kills the server without letting it shut down, as a crash does. */
+  /**
+   * Kills the server without letting it shut down, with every process it
+   * started, such as Prisma's while it migrates, as its host crashing does.
+   */
   kill(): Promise<void>;
   /**
    * A client of its database, for changes the server is not told about, or
@@ -86,6 +89,12 @@ export interface TestServerOptions {
    * the other way round.
    */
   latestRelease?: boolean;
+  /** Runs the server built in this tree instead, such as a copy with migrations staged (`stageMigrations`). */
+  buildDir?: string;
+  /** Called once the server process starts, before it is ready, with its `kill`, to crash it partway through starting. */
+  starting?: (kill: () => Promise<void>) => void;
+  /** How long it may take to listen, such as while it waits for the migration lock. Defaults to 30 s. */
+  readyTimeoutMs?: number;
 }
 
 /**
@@ -97,7 +106,7 @@ const sharerHalts = new WeakMap<TestServer, (() => Promise<void>)[]>();
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   if (!options.latestRelease) assertBuilt("protocol", "server");
-  const buildDir = options.latestRelease ? latestReleaseDir() : repoDir;
+  const buildDir = options.buildDir ?? (options.latestRelease ? latestReleaseDir() : repoDir);
   const main = path.join(buildDir, "server/dist/main.js");
   // The role's grant would outlive it on a shared database, which stays, so the role could not be dropped.
   if (options.notOwner && options.sharing) throw new Error("notOwner needs a fresh database; it cannot be combined with sharing");
@@ -192,13 +201,14 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
     const { child } = started;
     if (child.exitCode !== null || child.signalCode !== null) return;
     const exited = new Promise((resolve) => child.once("exit", resolve));
-    child.kill("SIGKILL");
+    killTree(child.pid!);
     await exited;
   };
+  options.starting?.(kill);
 
   for (let attempt = 1; ; attempt++) {
     try {
-      await waitForListening(started);
+      await waitForListening(started, options.readyTimeoutMs);
       break;
     } catch (error) {
       if (error instanceof PortTaken && attempt < 5) {
@@ -289,9 +299,12 @@ class PortTaken extends Error {}
  * and no other. A server already on that port, such as another test file's,
  * would answer a health check there, and the test would run against it.
  */
-async function waitForListening({ port, child, output, closed }: { port: number; child: ChildProcess; output: string[]; closed: () => boolean }): Promise<void> {
+async function waitForListening(
+  { port, child, output, closed }: { port: number; child: ChildProcess; output: string[]; closed: () => boolean },
+  timeoutMs = 30_000,
+): Promise<void> {
   const listening = new RegExp(`\\bListening on 127\\.0\\.0\\.1:${port};`);
-  const deadline = Date.now() + 30_000;
+  const deadline = Date.now() + timeoutMs;
   while (Date.now() < deadline) {
     const log = stripVTControlCharacters(output.join(""));
     if (listening.test(log)) return;
@@ -301,7 +314,29 @@ async function waitForListening({ port, child, output, closed }: { port: number;
     }
     await new Promise((resolve) => setTimeout(resolve, 100));
   }
-  throw new Error(`The server was not ready within 30 seconds:\n${output.join("")}`);
+  throw new Error(`The server was not ready within ${timeoutMs / 1000} seconds:\n${output.join("")}`);
+}
+
+/**
+ * Kills a process and every process it started, at once, as its host crashing
+ * does. Killed alone, the server would leave Prisma's CLI, and the schema
+ * engine it runs, to finish a migration.
+ */
+function killTree(pid: number): void {
+  const children = new Map<number, number[]>();
+  for (const line of execFileSync("ps", ["-A", "-o", "pid=,ppid="], { encoding: "utf8" }).trim().split("\n")) {
+    const [child, parent] = line.trim().split(/\s+/).map(Number);
+    children.set(parent!, [...(children.get(parent!) ?? []), child!]);
+  }
+  const tree = [pid];
+  for (const each of tree) tree.push(...(children.get(each) ?? []));
+  for (const each of tree) {
+    try {
+      process.kill(each, "SIGKILL");
+    } catch {
+      // It has exited already.
+    }
+  }
 }
 
 async function terminate(child: ChildProcess): Promise<void> {
