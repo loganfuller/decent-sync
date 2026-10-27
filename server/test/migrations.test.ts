@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import type pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { waitForLockWaits } from "./support/lock-waits.js";
+import { startOutageProxy } from "./support/outage-proxy.js";
 import { type StagedMigrations, migrationRecords, stageMigrations } from "./support/staged-migrations.js";
 import { type TestServer, type TestServerOptions, adminDatabaseUrl, startTestServer } from "./support/test-server.js";
 
@@ -62,6 +63,14 @@ describe("migrations", () => {
         [MIGRATION_LOCK_CONNECTION],
       )
     ).rows[0]!.count;
+  /** Whether any session holds the migration lock: a lock on one bigint keeps its low half in `objid`. */
+  const lockHeld = async (database: pg.Client) =>
+    (
+      await database.query(
+        "SELECT 1 FROM pg_locks WHERE locktype = 'advisory' AND database = (SELECT oid FROM pg_database WHERE datname = current_database()) AND classid = 0 AND objid = $1 AND objsubid = 1 AND granted",
+        [MIGRATION_LOCK],
+      )
+    ).rowCount === 1;
   const hasColumn = async (database: pg.Client, table: string) =>
     (await database.query("SELECT 1 FROM information_schema.columns WHERE table_name = $1 AND column_name = 'staged'", [table])).rowCount === 1;
 
@@ -139,6 +148,29 @@ describe("migrations", () => {
     await holder.query("COMMIT");
     await startStaged(owner);
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
+  });
+
+  it("lose the lock once their network goes silent while migrating, though a proxy between them and PostgreSQL answers its TCP keepalives", { timeout: 90_000 }, async () => {
+    const owner = await start();
+    const holder = await connect(owner);
+    await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    const watcher = await connect(owner);
+    const proxy = await startOutageProxy();
+    try {
+      let crash = async () => {};
+      // Not given up on for not being ready, which would close its connections.
+      const vanishing = startStaged(owner, { databaseHost: proxy.host, readyTimeoutMs: 80_000, starting: (kill) => void (crash = kill) });
+      vanishing.catch(() => {});
+      await waitForLockWaits(owner, { relation: "shots" });
+      expect(await lockHeld(watcher)).toBe(true);
+      // As a host that vanished, closing nothing.
+      proxy.silence();
+      // Within the lock's idle timeout, 15 s, of its last query, which came less than 5 s before.
+      await expect.poll(() => lockHeld(watcher), { timeout: 25_000, interval: 500 }).toBe(false);
+      await crash();
+    } finally {
+      await proxy.close();
+    }
   });
 
   it("stop Prisma's engine when its CLI dies alone, before recording the migration as rolled back and letting go of the lock", async () => {

@@ -32,6 +32,14 @@ const STOPPING_SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
 export const MIGRATION_LOCK_CONNECTION = "decent-sync migration lock";
 
 /**
+ * How long PostgreSQL lets the migration lock's connection go without a query
+ * before it ends it, letting go of the lock. The server queries it more often
+ * (`MIGRATION_LOCK_PING_MS`), so only a holder that vanished reaches it.
+ */
+const MIGRATION_LOCK_IDLE_TIMEOUT = "15s";
+const MIGRATION_LOCK_PING_MS = 5_000;
+
+/**
  * Applies pending database migrations, so upgrading the server is starting a
  * newer build. Runs Prisma's own `migrate deploy`, which never resets data.
  *
@@ -111,7 +119,10 @@ function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number 
     lock.on("error", onError);
     lock.on("end", onEnd);
     for (const signal of STOPPING_SIGNALS) process.on(signal, onSignal);
+    // Otherwise idle while Prisma migrates, so PostgreSQL would end it (`MIGRATION_LOCK_IDLE_TIMEOUT`).
+    const ping = setInterval(() => void lock.query("SELECT 1").catch(() => {}), MIGRATION_LOCK_PING_MS);
     const settle = () => {
+      clearInterval(ping);
       lock.off("error", onError);
       lock.off("end", onEnd);
       for (const signal of STOPPING_SIGNALS) process.off(signal, onSignal);
@@ -160,9 +171,11 @@ async function migrationFailure(lock: pg.Client, code: number | string | null): 
 /**
  * Takes the migration lock on a connection of its own, named
  * `MIGRATION_LOCK_CONNECTION`, waiting however long another instance holds
- * it. PostgreSQL probes the connection with TCP keepalives, so it drops the
- * lock of a holder whose host vanished within a minute, and the server probes
- * it too, so a database that vanished doesn't leave it waiting for good.
+ * it. PostgreSQL ends the connection once it has gone 15 s without a query,
+ * so it drops the lock of a holder whose host vanished, even through a proxy,
+ * which would answer PostgreSQL's TCP keepalives itself: fly.io has one in
+ * front of its Managed Postgres. The server probes it with TCP keepalives, so
+ * a database that vanished doesn't leave it waiting for good.
  */
 async function takeMigrationLock(config: Config): Promise<pg.Client> {
   const lock = new pg.Client({ connectionString: config.databaseUrl, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
@@ -170,11 +183,10 @@ async function takeMigrationLock(config: Config): Promise<pg.Client> {
   lock.on("error", () => {});
   try {
     await lock.connect();
-    // Set once connected, as a pooler may refuse startup parameters. A host's timeouts would end the wait, or the lock while Prisma migrates.
+    // Set once connected, as a pooler may refuse startup parameters. A host's other timeouts would end the wait, or the lock while Prisma migrates.
     await lock.query(
       `SET application_name = '${MIGRATION_LOCK_CONNECTION}'; ` +
-        "SET tcp_keepalives_idle = 10; SET tcp_keepalives_interval = 5; SET tcp_keepalives_count = 3; " +
-        "SET statement_timeout = 0; SET lock_timeout = 0; SET idle_session_timeout = 0",
+        `SET statement_timeout = 0; SET lock_timeout = 0; SET idle_session_timeout = '${MIGRATION_LOCK_IDLE_TIMEOUT}'`,
     );
     // Tried each second rather than waited for in one query, which would hold a snapshot all the while: a concurrent
     // index build among the holder's migrations waits for every older snapshot, so it would fail on its lock_timeout.
