@@ -1,6 +1,7 @@
-import { type ReactNode, Suspense, lazy } from "react";
+import { type ReactNode, Suspense } from "react";
 import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-router";
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
+import { lazyPage, useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
@@ -27,14 +28,16 @@ import { ToolPage } from "@/pages/ToolPage";
 import { ToolsPage } from "@/pages/ToolsPage";
 
 // The Shot and Steam Record pages load their charts and calendar only when opened, which keeps them out of every other page.
-const ShotsPage = lazy(() => import("@/pages/ShotsPage").then((page) => ({ default: page.ShotsPage })));
-const ShotPage = lazy(() => import("@/pages/ShotPage").then((page) => ({ default: page.ShotPage })));
-const SteamRecordsPage = lazy(() => import("@/pages/SteamRecordsPage").then((page) => ({ default: page.SteamRecordsPage })));
-const SteamRecordPage = lazy(() => import("@/pages/SteamRecordPage").then((page) => ({ default: page.SteamRecordPage })));
+// One whose chunk fails to load reloads as it is shown (`src/lib/build.ts`).
+const ShotsPage = lazyPage(() => import("@/pages/ShotsPage").then((page) => page.ShotsPage));
+const ShotPage = lazyPage(() => import("@/pages/ShotPage").then((page) => page.ShotPage));
+const SteamRecordsPage = lazyPage(() => import("@/pages/SteamRecordsPage").then((page) => page.SteamRecordsPage));
+const SteamRecordPage = lazyPage(() => import("@/pages/SteamRecordPage").then((page) => page.SteamRecordPage));
 
 export function App() {
   return (
     <BrowserRouter>
+      <NewBuildOnNavigation />
       <AuthProvider>
         <Routes>
           <Route path="/setup" element={<Gate page="setup" />} />
@@ -108,6 +111,16 @@ export function App() {
       </AuthProvider>
     </BrowserRouter>
   );
+}
+
+/**
+ * Loads the build the server serves at the next navigation once it is another
+ * (`src/lib/build.ts`). It stays the router's first child, so its layout effect
+ * runs before a failed page's stand-in committed with the same navigation.
+ */
+function NewBuildOnNavigation(): null {
+  useNewBuildOnNavigation();
+  return null;
 }
 
 interface ReturnTo {
