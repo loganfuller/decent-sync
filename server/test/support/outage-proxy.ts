@@ -11,10 +11,11 @@ import { adminDatabaseUrl } from "./test-server.js";
 //   ones but never answers them, closing nothing, as a primary that vanished
 //   does;
 // - `resetConnections()` resets the connections open, and changes nothing
-//   for new ones. While silenced, it stands in for the server's TCP
-//   keepalive giving up on its idle connections, which a proxy in the
-//   server's own process can't show, as its socket answers the probes
-//   itself;
+//   for new ones. While silenced, it stands in for the server giving up on
+//   its silent connections in time, through their query timeouts, the
+//   listener's check or TCP keepalive, so a test needn't wait them out.
+//   Keepalive itself a proxy in the test's process can't show, as its
+//   socket answers the probes;
 // - `restore()` relays new connections again. Connections it silenced stay
 //   silent, as a vanished primary's do, until their client closes them.
 

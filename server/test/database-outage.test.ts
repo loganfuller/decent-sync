@@ -175,14 +175,14 @@ describe("a server whose database goes away", () => {
       const meanwhile = await changeMeanwhile(tablets.location, tablets.idle, "Silenced Guji");
       const pulled = shot("pulled-while-silenced");
       tablets.pullingTablet.pullShot(pulled);
-      // On a connection the pool holds, which the server's keepalive would give up on in time.
+      // On a connection the pool holds, which waits for an answer that never comes.
       const onHeldConnection = timed(listMachines());
       const check = await timed(fetch(`${behind.url}/api/health`));
       expect(check.status).toBe(200);
       expect(check.ms).toBeLessThan(3_000);
       expect((await routingCheck()).body.database).toBe("unreachable");
 
-      // Standing in for keepalive, which this proxy answers itself.
+      // Standing in for the server giving up on its silent connections in time, rather than waiting out their timeouts.
       proxy.resetConnections();
       expect((await onHeldConnection).status).toBe(503);
       // On a new connection, which is accepted and never answered.

@@ -20,22 +20,26 @@ export const CONNECT_TIMEOUT_MS = 5_000;
  * How long a statement of Prisma's pool may run before it fails as though
  * its connection were lost, as it may have been: a query sent to a database
  * that vanished without closing the connection gets no answer, and TCP
- * keepalive probes only idle connections. It sits above the longest
- * statements, such as those crediting a Machine's long history again after a
- * change of its Location History, which took up to 15 s together for 250,000
- * Shots and as many Steam Records on the development database
- * (`CREDITING_TRANSACTION`), and the batches of the curves refresh and the
- * delivery id cleanup.
+ * keepalive probes only idle connections. The pool closes a connection idle
+ * for 10 s itself (pg-pool's default), so one used within the last 10 s,
+ * when the database went silent, fails only at this timeout. It sits above
+ * the longest statements, such as those crediting a Machine's long history
+ * again after a change of its Location History, which took up to 15 s
+ * together for 250,000 Shots and as many Steam Records on the development
+ * database (`CREDITING_TRANSACTION`), and the batches of the curves refresh
+ * and the delivery id cleanup. A statement waiting longer than this for a
+ * lock fails the same way, and its request answers 503.
  */
 export const QUERY_TIMEOUT_MS = 30_000;
 
 /**
  * How long a connection sits idle before TCP keepalive probes it. Node then
  * probes it every second and gives up after 10 unanswered (Node 24.22 on
- * Linux, libuv 1.52), so a connection to a database that vanished without
- * closing it fails some 20 s after it was last used. Keepalive sees only
- * the first hop: a connection through a pooler or proxy that stays up is
- * left to its query timeout.
+ * Linux, libuv 1.52), so the notifications listener's connection to a
+ * database that vanished without closing it fails some 20 s after it was
+ * last used, if its check (`Notifications.check`) has not failed first. The
+ * pool's connections rarely sit idle that long. Keepalive sees only the
+ * first hop, not a database behind a pooler or proxy that stays up.
  */
 const KEEPALIVE_DELAY_MS = 10_000;
 
@@ -100,11 +104,19 @@ const UNREACHABLE_KINDS = new Set(["DatabaseNotReachable", "ConnectionClosed", "
  * PostgreSQL's errors (SQLSTATE) for a server going away or not taking
  * connections: class 08's connection exceptions, but for 08P01, a protocol
  * violation, which the request's own query causes, as with too few values
- * bound; 57P01 to 57P03 (shut down by an administrator or a crash, or not
+ * bound, unless a pooler sent it (`POOLER_FAILURE`); 57P01 to 57P03 (shut down by an administrator or a crash, or not
  * yet accepting connections, as while it starts or is promoted); and 53300
  * (too many connections).
  */
 const UNREACHABLE_STATES = new Set(["08000", "08001", "08003", "08004", "08006", "08007", "57P01", "57P02", "57P03", "53300"]);
+
+/**
+ * PgBouncer's code for a failure of its own, such as `server_login_retry`
+ * while its logins to a database that went away fail, which it sends as
+ * FATAL, ending the client's connection. A request's own protocol
+ * violation comes as an ERROR.
+ */
+const POOLER_FAILURE = "08P01";
 
 /**
  * Node's socket errors for a host refusing, unreachable or gone, or a
@@ -124,6 +136,8 @@ const UNREACHABLE_MESSAGES = new Set([
   "Connection terminated due to connection timeout",
   "timeout exceeded when trying to connect",
   "Connection terminated unexpectedly",
+  // A query queued behind one that timed out, on a connection that ended itself for it (`TimingOutClient`).
+  "Connection terminated",
   "Client has encountered a connection error and is not queryable",
   "Client was closed and is not queryable",
 ]);
@@ -142,8 +156,9 @@ export function databaseUnreachable(error: unknown): boolean {
   if (typeof code === "string" && SOCKET_ERRORS.has(code)) return true;
   if (error instanceof Prisma.PrismaClientKnownRequestError) {
     if (error.code === "P2028") return error.message.includes("Unable to start a transaction in the given time");
-    const cause = (error.meta?.driverAdapterError as { cause?: { kind?: unknown; originalCode?: unknown } } | undefined)?.cause;
+    const cause = (error.meta?.driverAdapterError as { cause?: { kind?: unknown; originalCode?: unknown; severity?: unknown } } | undefined)?.cause;
     if (typeof cause?.kind === "string" && UNREACHABLE_KINDS.has(cause.kind)) return true;
+    if (cause?.originalCode === POOLER_FAILURE) return cause.severity === "FATAL";
     return typeof cause?.originalCode === "string" && UNREACHABLE_STATES.has(cause.originalCode);
   }
   return UNREACHABLE_MESSAGES.has(error.message);
@@ -164,7 +179,7 @@ export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   override catch(exception: unknown, host: ArgumentsHost): void {
     if (!databaseUnreachable(exception)) return super.catch(exception, host);
     // Prisma's message ends with the driver's.
-    this.logger.warn(`Answered a request with 503: the database is unreachable (${(exception as Error).message.trim().split("\n").at(-1)})`);
+    this.logger.warn(`Answered a request with 503: the database could not be reached, or did not answer in time (${(exception as Error).message.trim().split("\n").at(-1)})`);
     super.catch(new ServiceUnavailableException("The database can't be reached right now. Try again in a moment."), host);
   }
 }

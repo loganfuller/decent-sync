@@ -1,4 +1,5 @@
 import { Logger } from "@nestjs/common";
+import net from "node:net";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -126,6 +127,23 @@ describe("the server's database client", () => {
     expect(databaseUnreachable(await failure(busy.$queryRaw`SELECT 1`))).toBe(true);
     await holding;
 
+    // A pooler refusing new connections as its own to the database fail, as PgBouncer does with FATAL 08P01.
+    const pooler = net.createServer((socket) => {
+      socket.on("error", () => socket.destroy());
+      socket.once("data", () => socket.end(fatalError("08P01", "server login has been failing, cached error: connect failed (server_login_retry)")));
+    });
+    await new Promise<void>((resolve) => pooler.listen(0, "127.0.0.1", resolve));
+    try {
+      const url = new URL(databaseUrl());
+      url.host = `127.0.0.1:${(pooler.address() as net.AddressInfo).port}`;
+      const pooled = new PrismaClient({ adapter: new PrismaPg(poolConfig(url.href, QUERY_TIMEOUT_MS)) });
+      clients.push(pooled);
+      expect(databaseUnreachable(await failure(pooled.$queryRaw`SELECT 1`))).toBe(true);
+      expect(databaseUnreachable(await failure(pooled.$transaction((tx) => tx.$queryRaw`SELECT 1`)))).toBe(true);
+    } finally {
+      await new Promise((resolve) => pooler.close(resolve));
+    }
+
     // PostgreSQL ending the connection mid-statement, as a database shutting down for a failover does (57P01).
     const admin = new pg.Client({ connectionString: databaseUrl() });
     await admin.connect();
@@ -181,3 +199,12 @@ describe("the server's database client", () => {
     }
   });
 });
+
+/** A FATAL ErrorResponse, as PostgreSQL or a pooler sends one before closing the connection. */
+function fatalError(code: string, message: string): Buffer {
+  const fields = Buffer.from(`SFATAL\0VFATAL\0C${code}\0M${message}\0\0`, "utf8");
+  const header = Buffer.alloc(5);
+  header.write("E", 0);
+  header.writeInt32BE(4 + fields.length, 1);
+  return Buffer.concat([header, fields]);
+}
