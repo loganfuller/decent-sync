@@ -31,7 +31,7 @@ Both directions matter for the plugin. Decaid checks for plugin releases every 1
   - **The REST API serves N-1's pages.** A page of N reaching an instance of N-1 while a deploy moves traffic over may have a request fail once.
   - **Reloading.** Every response names the build of the management interface the server serves, so two unreleased builds of one version differ. A page reloads itself at its next navigation once that differs from its own build, or once loading one of its chunks fails, since a server of another build doesn't have them. It never reloads in the middle of a form, and a page or server without a build, as in development, never reloads.
 - **Checks.** CI holds every pull request and every push to `main` to the latest release, built from its tag. Both checks are required, by branch protection that binds the owner too.
-  - That release's server test suite runs against databases copied from a `template1` migrated by the change. Tests that need an empty database start from `template0` from now on. Releases from before that change have three such tests, which are left out.
+  - That release's server test suite runs against databases copied from a `template1` migrated by the change. Tests that need an empty database start from `template0`.
   - A mixed-versions suite runs that release's plugin against the change's server, the change's plugin against that release's server, and both servers as two instances on one database.
 - **The escape hatch.** A release may break this rule only with the owner's approval, never on an agent's judgment.
   - It bumps the major version.
