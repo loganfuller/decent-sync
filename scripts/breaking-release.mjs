@@ -9,7 +9,10 @@
 //
 // The pull requests are found through GitHub's API: those labelled and merged
 // into main whose merge commit is among the commits from the latest release's
-// tag to main, and on a pull request, its own labels. It needs main's history
+// tag to the commit under test (main's, or a pull request's merge with main),
+// and on a pull request, its own labels. They are read directly, not through
+// GitHub's search, which can miss a pull request for a while after its merge:
+// just when the push run of its merge commit asks. It needs main's history
 // and the tags (actions/checkout with `fetch-depth: 0`), GH_TOKEN with
 // `pull-requests: read`, GITHUB_REPOSITORY and GITHUB_OUTPUT, and on a pull
 // request PULL_REQUEST, its number. Only the owner applies the label (AGENTS.md).
@@ -28,9 +31,18 @@ const repo = process.env.GITHUB_REPOSITORY;
 const pullRequest = process.env.PULL_REQUEST;
 
 const tag = latestReleaseTag();
-const since = new Set(run("git", "rev-list", `${tag}..origin/main`).split("\n").filter(Boolean));
+const since = new Set(run("git", "rev-list", `${tag}..HEAD`).split("\n").filter(Boolean));
+// The most recently updated first: a pull request merged since the tag is among them.
+const query = `query($owner: String!, $name: String!, $label: String!) {
+  repository(owner: $owner, name: $name) {
+    pullRequests(labels: [$label], states: MERGED, baseRefName: "main", first: 100, orderBy: { field: UPDATED_AT, direction: DESC }) {
+      nodes { number mergeCommit { oid } }
+    }
+  }
+}`;
+const [owner, name] = repo.split("/");
 const labelled = JSON.parse(
-  run("gh", "pr", "list", "--repo", repo, "--base", "main", "--state", "merged", "--label", LABEL, "--limit", "1000", "--json", "number,mergeCommit"),
+  run("gh", "api", "graphql", "-f", `query=${query}`, "-f", `owner=${owner}`, "-f", `name=${name}`, "-f", `label=${LABEL}`, "--jq", ".data.repository.pullRequests.nodes"),
 );
 const merged = labelled.filter((pr) => since.has(pr.mergeCommit?.oid)).map((pr) => `#${pr.number}`);
 const own = pullRequest

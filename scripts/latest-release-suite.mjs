@@ -1,5 +1,5 @@
 // Runs the latest release's Vitest suite on databases with this checkout's
-// schema, as CI's `latest release's suite` jobs do, so a migration the
+// schema, as CI's `latest release's vitest` jobs do, so a migration the
 // running release would break on fails before it merges (ADR-0025). It
 // migrates a PostgreSQL server's template1 with this checkout's migrations,
 // so every database the suite creates there is a copy its server finds
