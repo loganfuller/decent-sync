@@ -51,18 +51,23 @@ function read(file) {
 }
 
 const stateOf = (line) => line.frame.state.state;
+const inState = (...states) => (line) => states.includes(stateOf(line));
+/** A Machine warming up after waking reports `idle` with `preparingForShot`. */
+const warming = (line) => stateOf(line) === "idle" && line.frame.state.substate === "preparingForShot";
+/** The state, with a warm-up told apart from `idle`. */
+const phaseOf = (line) => (warming(line) ? "idle` / `preparingForShot" : stateOf(line));
 
-/** The runs of machine frames in one of the states, each as [first, last]. */
-function runs({ machine }, states) {
+/** The runs of machine frames that match, each as [first, last]. */
+function runs({ machine }, matches, what) {
   const found = [];
   for (let i = 0; i < machine.length; i++) {
-    if (!states.includes(stateOf(machine[i]))) continue;
+    if (!matches(machine[i])) continue;
     let end = i;
-    while (end + 1 < machine.length && states.includes(stateOf(machine[end + 1]))) end++;
+    while (end + 1 < machine.length && matches(machine[end + 1])) end++;
     found.push([machine[i], machine[end]]);
     i = end;
   }
-  if (found.length === 0) throw new Error(`No ${states.join(" or ")} was recorded`);
+  if (found.length === 0) throw new Error(`No ${what} was recorded`);
   return found;
 }
 
@@ -102,52 +107,65 @@ const twoTap = read(twoTapFile);
 
 const slept = normal.machine.find((line, i) => i > 0 && stateOf(line) === "sleeping" && stateOf(normal.machine[i - 1]) !== "sleeping");
 if (!slept) throw new Error("The Machine was not recorded going to sleep");
-const twoTapSteaming = runs(twoTap, ["steam"]).find(([first, last]) =>
+const twoTapSteaming = runs(twoTap, inState("steam"), "steaming").find(([first, last]) =>
   twoTap.machine.some((line) => line.ms >= first.ms && line.ms <= last.ms && line.frame.state.substate === "puffing"),
 );
 if (!twoTapSteaming) throw new Error("No steaming with puffing was recorded");
 const scaleConnected = normal.frames.find((line) => line.source === "scale" && line.frame.status === "connected");
 if (!scaleConnected) throw new Error("The scale was not recorded connecting");
+// The second recording's last wake, the shortest warm-up recorded whole.
+const wake = runs(twoTap, warming, "warm-up")
+  .filter(([first]) => stateOf(twoTap.machine[twoTap.machine.indexOf(first) - 1]) === "sleeping")
+  .at(-1);
+if (!wake) throw new Error("No wake from sleep was recorded");
+// The tank's reading falls to 0 as it is taken out, before the Machine reports needing water.
+const needingWater = runs(normal, inState("needsWater"), "needsWater")[0];
+const emptied = normal.frames.find((line) => line.source === "waterLevels" && line.frame.currentLevel === 0);
+if (!emptied || emptied.ms > needingWater[0].ms) throw new Error("The tank was not recorded reading 0 before needsWater");
 
 writeFrames("opening.json", opening(normal));
 writeFrames("opening-scale-connected.json", opening(twoTap));
 writeFrames("scale-connects.json", window(normal, scaleConnected.ms - 2000, scaleConnected.ms + 3000));
-writeFrames("shot.json", around(normal, runs(normal, ["espresso", "skipStep"])[0]));
-writeFrames("steam.json", around(normal, runs(normal, ["steam"])[0]));
+writeFrames("wake.json", around(twoTap, wake));
+writeFrames("shot.json", around(normal, runs(normal, inState("espresso", "skipStep"), "shot")[0]));
+writeFrames("steam.json", around(normal, runs(normal, inState("steam"), "steaming")[0]));
 writeFrames("steam-two-tap-stop.json", around(twoTap, twoTapSteaming));
-writeFrames("flush.json", around(normal, runs(normal, ["flush"])[0]));
-writeFrames("hot-water.json", around(normal, runs(normal, ["hotWater"])[0]));
-writeFrames("needs-water.json", around(normal, runs(normal, ["needsWater"])[0]));
+writeFrames("flush.json", around(normal, runs(normal, inState("flush"), "flush")[0]));
+writeFrames("hot-water.json", around(normal, runs(normal, inState("hotWater"), "hot water")[0]));
+writeFrames("needs-water.json", window(normal, emptied.ms - 4000, needingWater[1].ms + 3000));
 writeFrames("idle.json", window(normal, slept.ms - 35_000, slept.ms - 5000));
 writeFrames("asleep.json", window(normal, slept.ms - 5000, slept.ms + 30_000));
 writeSteamRecord("steam-record.json", normalSteamRecordFile);
 writeSteamRecord("steam-record-two-tap-stop.json", twoTapSteamRecordFile);
 
-// Rates: each source's frames a second while the Machine was in each state, by the state of the latest machine frame
-// before each one, over the whole of the first recording.
+// Rates: each source's frames a second, and all sources' bytes, while the Machine was in each state, by the state of the
+// latest machine frame before each one, over the whole of the first recording.
 const spans = new Map();
 const counts = new Map();
+const bytes = new Map();
 let current = null;
 for (const line of normal.frames) {
   if (line.source === "machine") {
     if (current) spans.set(current.state, (spans.get(current.state) ?? 0) + (line.ms - current.ms));
-    current = { state: stateOf(line), ms: line.ms };
+    current = { state: phaseOf(line), ms: line.ms };
   }
   if (!current) continue;
   const key = `${current.state} ${line.source}`;
   counts.set(key, (counts.get(key) ?? 0) + 1);
+  bytes.set(current.state, (bytes.get(current.state) ?? 0) + Buffer.byteLength(JSON.stringify(line.frame)));
 }
 const intervals = new Map();
 for (let i = 1; i < normal.machine.length; i++) {
-  const state = stateOf(normal.machine[i]);
-  if (state !== stateOf(normal.machine[i - 1])) continue;
+  const state = phaseOf(normal.machine[i]);
+  if (state !== phaseOf(normal.machine[i - 1])) continue;
   intervals.set(state, [...(intervals.get(state) ?? []), normal.machine[i].ms - normal.machine[i - 1].ms]);
 }
 const median = (values) => [...values].sort((a, b) => a - b)[Math.floor(values.length / 2)];
 const sources = ["machine", "waterLevels", "scale", "devices", "shotState", "shotSettings"];
-console.log(`| State | Seconds | ${sources.map((source) => `\`${source}\``).join(" | ")} | \`machine\`'s median interval |`);
-console.log(`|---|---|${sources.map(() => "---|").join("")}---|`);
+console.log(`| State | Seconds | ${sources.map((source) => `\`${source}\``).join(" | ")} | \`machine\`'s median interval | KB/s |`);
+console.log(`|---|---|${sources.map(() => "---|").join("")}---|---|`);
 for (const [state, span] of spans) {
   const rates = sources.map((source) => ((counts.get(`${state} ${source}`) ?? 0) / (span / 1000)).toFixed(2));
-  console.log(`| \`${state}\` | ${(span / 1000).toFixed(0)} | ${rates.join(" | ")} | ${median(intervals.get(state) ?? [0])} ms |`);
+  const throughput = (bytes.get(state) / span).toFixed(1);
+  console.log(`| \`${state}\` | ${(span / 1000).toFixed(0)} | ${rates.join(" | ")} | ${median(intervals.get(state) ?? [0])} ms | ${throughput} |`);
 }
