@@ -15,6 +15,8 @@ section).
 
 ## Unreleased
 
+## 1.4.0
+
 ### Upgrade without going offline from now on
 
 This release runs beside 1.3.1, and each release from now on runs beside the
