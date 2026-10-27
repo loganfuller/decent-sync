@@ -25,6 +25,9 @@ const IDLE_IN_TRANSACTION_TIMEOUT = "30s";
  */
 export const MIGRATION_LOCK_ID = 72707369;
 
+/** The signals that stop the server while it migrates, and Prisma's CLI and engine with it. */
+const STOPPING_SIGNALS: NodeJS.Signals[] = ["SIGINT", "SIGTERM", "SIGHUP"];
+
 /** The `application_name` of the connection holding, or waiting for, the migration lock. */
 export const MIGRATION_LOCK_CONNECTION = "decent-sync migration lock";
 
@@ -49,7 +52,7 @@ export async function runMigrations(config: Config): Promise<void> {
   await requirePostgres14(config);
   const lock = await takeMigrationLock(config);
   try {
-    for (const name of await recordUnfinishedAsRolledBack(lock)) {
+    for (const { name } of await recordUnfinishedAsRolledBack(lock)) {
       logger.warn(`Recorded migration ${name}, left unfinished by an instance that failed or was killed partway through it, as rolled back, so it is applied again`);
     }
     const { code, lost } = await migrateDeploy(config, lock);
@@ -68,12 +71,13 @@ export async function runMigrations(config: Config): Promise<void> {
 /**
  * Runs `prisma migrate deploy` with Prisma's own lock off, the server holding
  * it on `lock`. Prisma's CLI runs in a process group of its own, with the
- * schema engine it starts, which is stopped whole if the lock's connection is
+ * schema engine it starts, which is stopped whole: if the lock's connection is
  * lost, as another instance may then take the lock and find the migration
- * unfinished, if the server is told to stop, and once the CLI exits, before
- * the server records anything or lets go of the lock: the CLI stopped or dying
- * alone would leave the engine to finish the migration. Resolves with the CLI's exit
- * code, or the signal that ended it, and why the lock was lost, if it was.
+ * unfinished; if the server is told to stop (`STOPPING_SIGNALS`); and once the
+ * CLI exits, before the server records anything or lets go of the lock. The
+ * CLI stopped or dying alone would leave the engine to finish the migration.
+ * Resolves with the CLI's exit code, or the signal that ended it, and why the
+ * lock was lost, if it was.
  */
 function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number | string | null; lost?: string }> {
   const prismaCli = createRequire(import.meta.url).resolve("prisma/build/index.js");
@@ -98,7 +102,7 @@ function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number 
     };
     const onError = (error: Error) => onLost(error.message);
     const onEnd = () => onLost("the connection ended");
-    // A process group of its own no longer hears a terminal's Ctrl-C, so the server passes signals on.
+    // A process group of its own no longer hears a terminal's Ctrl-C or hangup, so the server passes those on.
     const onSignal = (signal: NodeJS.Signals) => {
       stopPrisma();
       logger.warn(`Stopped by ${signal} while migrating; the next start records any migration left unfinished as rolled back`);
@@ -106,13 +110,11 @@ function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number 
     };
     lock.on("error", onError);
     lock.on("end", onEnd);
-    process.on("SIGINT", onSignal);
-    process.on("SIGTERM", onSignal);
+    for (const signal of STOPPING_SIGNALS) process.on(signal, onSignal);
     const settle = () => {
       lock.off("error", onError);
       lock.off("end", onEnd);
-      process.off("SIGINT", onSignal);
-      process.off("SIGTERM", onSignal);
+      for (const signal of STOPPING_SIGNALS) process.off(signal, onSignal);
     };
     child.on("error", (error) => {
       settle();
@@ -130,21 +132,26 @@ function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number 
 /** Why migrating failed, once the migration that failed is recorded as rolled back. */
 async function migrationFailure(lock: pg.Client, code: number | string | null): Promise<StartupError> {
   const failed = `Database migrations failed (prisma migrate deploy exited with ${code})`;
-  let names: string[];
+  let recorded: { name: string; attempts: number }[];
   try {
-    names = await recordUnfinishedAsRolledBack(lock);
+    recorded = await recordUnfinishedAsRolledBack(lock);
   } catch (error) {
     return new StartupError(`${failed}, and recording the migration as rolled back failed too (${messageOf(error)}), so the next start records it`);
   }
-  // Prisma stops at the first migration that fails, so there is one at most.
+  // Prisma stops at the first migration that fails, so there is one at most. One applied by an instance killed before
+  // Prisma recorded it was tried before, by that instance, so only then can it have been applied already.
   return new StartupError(
     [
       failed,
-      ...names.map(
-        (name) =>
-          `Recorded ${name} as rolled back, so the next start applies it again. If it had in fact been applied, by an instance killed ` +
-          `after its commit but before Prisma recorded it, every retry fails on what it creates already existing: once you have checked ` +
-          `it was applied whole, record it by running \`npx prisma migrate resolve --applied ${name}\` in the server's directory, with its DATABASE_URL`,
+      ...recorded.map(
+        ({ name, attempts }) =>
+          `Recorded ${name} as rolled back, so the next start applies it again` +
+          (attempts < 2
+            ? ""
+            : `. If it had in fact been applied, by an instance killed after its commit but before Prisma recorded it, every retry ` +
+              `fails on what it creates already existing: once you have checked it was applied whole, record it by running ` +
+              `\`npx prisma migrate resolve --applied ${name}\` with this release, in its server directory (\`/app/server\` in the ` +
+              `Docker image), with its DATABASE_URL`),
       ),
     ].join(". "),
   );
@@ -186,17 +193,20 @@ async function takeMigrationLock(config: Config): Promise<pg.Client> {
 
 /**
  * Records every migration Prisma left unfinished as rolled back, as `prisma
- * migrate resolve --rolled-back` would, and names them. Only while holding the
- * migration lock, so no instance still running is applying one.
+ * migrate resolve --rolled-back` would, and names them, with how many times
+ * each has been tried. Only while holding the migration lock, so no instance
+ * still running is applying one.
  */
-async function recordUnfinishedAsRolledBack(lock: pg.Client): Promise<string[]> {
+async function recordUnfinishedAsRolledBack(lock: pg.Client): Promise<{ name: string; attempts: number }[]> {
   // A fresh database has no record of migrations yet.
   const { rows: [table] } = await lock.query<{ exists: boolean }>("SELECT to_regclass('_prisma_migrations') IS NOT NULL AS exists");
   if (!table?.exists) return [];
-  const { rows } = await lock.query<{ name: string }>(
-    "UPDATE _prisma_migrations SET rolled_back_at = now() WHERE finished_at IS NULL AND rolled_back_at IS NULL RETURNING migration_name AS name",
+  const { rows } = await lock.query<{ name: string; attempts: number }>(
+    `UPDATE _prisma_migrations AS failed SET rolled_back_at = now() WHERE finished_at IS NULL AND rolled_back_at IS NULL
+     RETURNING migration_name AS name,
+       (SELECT count(*)::int FROM _prisma_migrations AS attempt WHERE attempt.migration_name = failed.migration_name) AS attempts`,
   );
-  return rows.map((row) => row.name);
+  return rows;
 }
 
 /**

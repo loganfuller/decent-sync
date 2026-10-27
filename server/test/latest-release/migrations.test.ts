@@ -34,6 +34,8 @@ describe("a migration that fails on its lock_timeout beside the latest release",
     await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
     const failure = await startTestServer({ sharing: release, buildDir: staged.buildDir }).then(() => "started", (error: Error) => error.message);
     expect(failure).toContain(`Database migrations failed (prisma migrate deploy exited with 1). Recorded ${COLUMN} as rolled back, so the next start applies it again`);
+    // Tried once, it can't have been applied by an instance killed before Prisma recorded it.
+    expect(failure).not.toContain("migrate resolve --applied");
     expect(await migrationRecords(release, COLUMN)).toEqual([{ finished: false, rolledBack: true }]);
     // Its first statement, on machines, went with it.
     const machines = await holder.query("SELECT 1 FROM information_schema.columns WHERE table_name = 'machines' AND column_name = 'staged'");

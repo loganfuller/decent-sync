@@ -146,8 +146,26 @@ describe("migrations", () => {
     await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
     const failure = startStaged(owner).then(() => "started", (error: Error) => error.message);
     await waitForLockWaits(owner, { relation: "shots" });
-    process.kill(prismaCliOf(staged.buildDir), "SIGKILL");
+    process.kill(migratingProcesses(staged.buildDir).cli, "SIGKILL");
     expect(await failure).toContain(`Database migrations failed (prisma migrate deploy exited with SIGKILL). Recorded ${COLUMN} as rolled back`);
+
+    // Left running, the engine would now take shots and finish the migration without the lock.
+    await holder.query("COMMIT");
+    await startStaged(owner);
+    expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
+  });
+
+  it.each([
+    ["SIGTERM", 143],
+    ["SIGHUP", 129],
+  ] as const)("stop Prisma's CLI and engine with them on %s while migrating, as their own process group doesn't get the signal", async (signal, code) => {
+    const owner = await start();
+    const holder = await connect(owner);
+    await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    const stopped = startStaged(owner).then(() => "started", (error: Error) => error.message);
+    await waitForLockWaits(owner, { relation: "shots" });
+    process.kill(migratingProcesses(staged.buildDir).server, signal);
+    expect(await stopped).toContain(`The server exited with ${code} before it was ready`);
 
     // Left running, the engine would now take shots and finish the migration without the lock.
     await holder.query("COMMIT");
@@ -164,7 +182,7 @@ describe("migrations", () => {
 
     const failure = await startStaged(owner).then(() => "started", (error: Error) => error.message);
     expect(failure).toContain(`Recorded ${COLUMN} as rolled back, so the next start applies it again`);
-    expect(failure).toContain(`record it by running \`npx prisma migrate resolve --applied ${COLUMN}\` in the server's directory`);
+    expect(failure).toContain(`record it by running \`npx prisma migrate resolve --applied ${COLUMN}\` with this release`);
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: false, rolledBack: true }]);
 
     // What the message says to do, once checked, then starts the next deploy normally.
@@ -177,13 +195,21 @@ describe("migrations", () => {
   });
 });
 
-/** The Prisma CLI running the staged migrations in `buildDir`: the parent of the schema engine reading its schema. */
-function prismaCliOf(buildDir: string): number {
-  const engine = execFileSync("ps", ["-A", "-o", "ppid=,command="], { encoding: "utf8" })
+/**
+ * The Prisma CLI running the staged migrations in `buildDir`, the parent of the
+ * schema engine reading its schema, and the server that started it.
+ */
+function migratingProcesses(buildDir: string): { cli: number; server: number } {
+  const processes = execFileSync("ps", ["-A", "-o", "pid=,ppid=,command="], { encoding: "utf8" })
     .split("\n")
-    .find((line) => line.includes("schema-engine") && line.includes(buildDir));
+    .map((line) => /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line))
+    .filter((match) => match !== null)
+    .map(([, pid, ppid, command]) => ({ pid: Number(pid), ppid: Number(ppid), command: command! }));
+  const engine = processes.find(({ command }) => command.includes("schema-engine") && command.includes(buildDir));
   if (!engine) throw new Error(`No schema engine runs the migrations staged in ${buildDir}`);
-  return Number(engine.trim().split(/\s+/)[0]);
+  const server = processes.find(({ pid }) => pid === engine.ppid)?.ppid;
+  if (!server) throw new Error("The schema engine's Prisma CLI has gone");
+  return { cli: engine.ppid, server };
 }
 
 /** Runs the checkout's Prisma CLI in `cwd`, which names the migrations through its prisma.config.ts, on the server's database. */
