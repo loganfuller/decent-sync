@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it, and released in v1.0.0.
+Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it and released in v1.0.0, and Milestone 5 in v1.4.0.
 
 ## Before implementation
 
