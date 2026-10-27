@@ -104,9 +104,10 @@ const UNREACHABLE_KINDS = new Set(["DatabaseNotReachable", "ConnectionClosed", "
  * PostgreSQL's errors (SQLSTATE) for a server going away or not taking
  * connections: class 08's connection exceptions, but for 08P01, a protocol
  * violation, which the request's own query causes, as with too few values
- * bound, unless a pooler sent it (`POOLER_FAILURE`); 57P01 to 57P03 (shut down by an administrator or a crash, or not
- * yet accepting connections, as while it starts or is promoted); and 53300
- * (too many connections).
+ * bound, unless sent as FATAL, as a pooler's own failures are
+ * (`POOLER_FAILURE`); 57P01 to 57P03 (shut down by an administrator or a
+ * crash, or not yet accepting connections, as while it starts or is
+ * promoted); and 53300 (too many connections).
  */
 const UNREACHABLE_STATES = new Set(["08000", "08001", "08003", "08004", "08006", "08007", "57P01", "57P02", "57P03", "53300"]);
 
