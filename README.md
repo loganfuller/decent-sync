@@ -16,7 +16,9 @@ business with a roastery lab and several cafes.
 ## Status
 
 **Milestones 1 to 3 are built, and released in
-[v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0).**
+[v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0),
+and Milestone 5 in
+[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0).**
 Admins sign in, manage Locations, and adopt Machines, which are identified by
 their hardware and record where they were in a Location History. Adopted
 tablets send their Shots and Steam Records, which the REST API serves, each
@@ -75,8 +77,10 @@ water and flush settings included. Each Shot is linked to its Recipe and
 Basket.
 
 [Milestone 5](https://github.com/loganfuller/decent-sync/issues/277) ([GitHub
-milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built
-for the release after 1.3.1: each release runs beside the previous one
+milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built,
+and released in
+[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0): from
+1.4.0, each release runs beside the previous one
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so
 several server instances upgrade without taking anything offline, and a plugin
 and server a release apart work together, whichever is upgraded first (see
@@ -397,7 +401,7 @@ release at a time ([Upgrading](#upgrading)). With a custom domain, set
 
 ### Upgrading
 
-Each release from the one after 1.3.1 runs beside the release before it
+Each release from 1.4.0 runs beside the release before it
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)): the
 new release migrates the database in place while the old one may still serve
 from it, so no upgrade asks to stop the server first or to recreate the

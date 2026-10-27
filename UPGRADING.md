@@ -1,7 +1,7 @@
 # Upgrading
 
 What to do when upgrading to a release, beyond running its server image and
-letting Decaid update each tablet's plugin. From the release after 1.3.1, the
+letting Decaid update each tablet's plugin. From 1.4.0, the
 plugin and server of adjacent releases work together, upgraded in either
 order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
