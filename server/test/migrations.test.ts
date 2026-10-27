@@ -31,7 +31,8 @@ describe("migrations", () => {
 
   beforeAll(() => {
     staged = stageMigrations({
-      [COLUMN]: `BEGIN;\nSET LOCAL lock_timeout = '5s';\n\nALTER TABLE "machines" ADD COLUMN "staged" INTEGER;\nALTER TABLE "shots" ADD COLUMN "staged" INTEGER;\n\nCOMMIT;\n`,
+      // Waiting longer than the format's 5 s for a table a test holds, so that only the server can end the wait in time.
+      [COLUMN]: `BEGIN;\nSET LOCAL lock_timeout = '1min';\n\nALTER TABLE "machines" ADD COLUMN "staged" INTEGER;\nALTER TABLE "shots" ADD COLUMN "staged" INTEGER;\n\nCOMMIT;\n`,
       [INDEX]: `SET lock_timeout = '5s';\nDROP INDEX IF EXISTS "shots_staged_idx";\nCREATE INDEX CONCURRENTLY "shots_staged_idx" ON "shots" ("staged");\n`,
     });
   });
@@ -73,8 +74,8 @@ describe("migrations", () => {
     const owner = await start();
     const holder = await connect(owner);
     await holder.query("SELECT pg_advisory_lock($1)", [MIGRATION_LOCK]);
-    const instances = Promise.all([1, 2].map(() => startStaged(owner, { readyTimeoutMs: 90_000 })));
-    instances.catch(() => {});
+    // Settled together, so neither is still starting when the test ends.
+    const instances = Promise.allSettled([1, 2].map(() => startStaged(owner, { readyTimeoutMs: 90_000 })));
     await expect.poll(() => lockConnections(holder)).toBe(2);
 
     // Prisma takes the same lock, as the latest release's instances do, and gives up after 10 s: this fails if a Prisma upgrade changes the lock.
@@ -85,7 +86,10 @@ describe("migrations", () => {
     expect(await lockConnections(holder)).toBe(2);
 
     await holder.query("SELECT pg_advisory_unlock($1)", [MIGRATION_LOCK]);
-    for (const instance of await instances) expect(instance.output()).toContain("Waiting for another instance's migrations to finish");
+    for (const instance of await instances) {
+      if (instance.status === "rejected") throw instance.reason;
+      expect(instance.value.output()).toContain("Waiting for another instance's migrations to finish");
+    }
     // The first to take the lock migrated, and the other then found nothing to do. It built the concurrent index while
     // the other waited, which a wait holding a snapshot all the while would have failed on its lock_timeout.
     expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: true, rolledBack: false }]);
@@ -113,6 +117,27 @@ describe("migrations", () => {
     expect(await migrationRecords(owner, INDEX)).toEqual([{ finished: true, rolledBack: false }]);
     // In one transaction, Prisma would have failed it: a transaction refuses CREATE INDEX CONCURRENTLY.
     expect(await indexBuilt(holder)).toBe(true);
+  });
+
+  it("stop Prisma's migration and fail on losing the lock's connection alone, as another instance may then take the lock", async () => {
+    const owner = await start();
+    const holder = await connect(owner);
+    await holder.query("BEGIN; LOCK TABLE shots IN ACCESS SHARE MODE");
+    const losing = startStaged(owner);
+    losing.catch(() => {});
+    await waitForLockWaits(owner, { relation: "shots" });
+    // As an administrator, or a lost network path, ends that connection and no other.
+    await (await connect(owner)).query(
+      "SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND application_name = $1",
+      [MIGRATION_LOCK_CONNECTION],
+    );
+    // Before the migration's own lock_timeout, a minute, could end it.
+    await expect(losing).rejects.toThrow("Lost the migration lock's connection while migrating");
+
+    // Left running, Prisma's engine would now take shots and finish the migration without the lock.
+    await holder.query("COMMIT");
+    await startStaged(owner);
+    expect(await migrationRecords(owner, COLUMN)).toEqual([{ finished: false, rolledBack: true }, { finished: true, rolledBack: false }]);
   });
 
   it("name `migrate resolve --applied` when a migration fails, for one an instance killed after its commit left applied but unfinished", async () => {

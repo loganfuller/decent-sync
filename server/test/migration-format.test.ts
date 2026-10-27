@@ -12,14 +12,22 @@ import { describe, expect, it } from "vitest";
 const migrationsDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations");
 const LATEST_AT_1_2_0 = "20261025200000_wake_schedule_edits";
 
+/**
+ * Comments, strings, quoted identifiers and dollar-quoted bodies, matched from
+ * the left, so that each hides what looks like another inside it.
+ */
+const LEXEMES = /--[^\n]*|\/\*[\s\S]*?\*\/|'(?:[^']|'')*'|"(?:[^"]|"")*"|\$(\w*)\$[\s\S]*?\$\1\$/g;
+
 /** The form a migration's SQL is written in, or undefined if neither. */
 function migrationForm(sql: string): "transaction" | "concurrent index" | undefined {
-  const code = sql.replace(/--.*$/gm, "").replace(/\s+/g, " ").trim();
+  const code = sql.replace(LEXEMES, (lexeme) => (/^(--|\/\*)/.test(lexeme) ? " " : lexeme)).replace(/\s+/g, " ").trim();
   const transaction = /^BEGIN; SET LOCAL lock_timeout = '5s'; (.+) COMMIT;$/.exec(code);
   if (transaction) {
-    // Nothing in between ends the transaction, or builds an index concurrently, which a transaction refuses.
-    const statements = transaction[1]!.replace(/\$(\w*)\$.*?\$\1\$/g, "$$").replace(/'(?:[^']|'')*'/g, "''");
-    return /(^|;)\s*(BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b/i.test(statements) || /\bCONCURRENTLY\b/i.test(statements) ? undefined : "transaction";
+    // Nothing in between ends the transaction, builds an index concurrently, which a transaction refuses, or changes the timeout.
+    const statements = transaction[1]!.replace(LEXEMES, "''");
+    return /(^|;)\s*(BEGIN|START|COMMIT|END|ROLLBACK|ABORT)\b/i.test(statements) || /\b(CONCURRENTLY|lock_timeout|RESET ALL)\b/i.test(statements)
+      ? undefined
+      : "transaction";
   }
   const index = /^SET lock_timeout = '5s'; DROP INDEX IF EXISTS ("[^"]+"); CREATE (?:UNIQUE )?INDEX CONCURRENTLY ("[^"]+") ON [^;]+;$/.exec(code);
   return index && index[1] === index[2] ? "concurrent index" : undefined;
@@ -40,8 +48,9 @@ describe("migrations", () => {
     expect(migrationForm(`-- Why.\n\nBEGIN;\nSET LOCAL lock_timeout = '5s';\n\nALTER TABLE "shots" ADD COLUMN "a" TEXT DEFAULT 'x;';\nCREATE INDEX "b" ON "shots" ("a");\n\nCOMMIT;\n`)).toBe("transaction");
     expect(migrationForm(`-- Why.\nSET lock_timeout = '5s';\nDROP INDEX IF EXISTS "shots_a_idx";\nCREATE INDEX CONCURRENTLY "shots_a_idx" ON "shots" ("a");\n`)).toBe("concurrent index");
     expect(migrationForm(`SET lock_timeout = '5s';\nDROP INDEX IF EXISTS "shots_a_key";\nCREATE UNIQUE INDEX CONCURRENTLY "shots_a_key" ON "shots" ("a") WHERE "a" IS NOT NULL;\n`)).toBe("concurrent index");
-    // A function's body may hold its own BEGIN and END.
+    // A function's body may hold its own BEGIN and END, and a string or comment anything.
     expect(migrationForm(`BEGIN;\nSET LOCAL lock_timeout = '5s';\nCREATE FUNCTION f() RETURNS void AS $$\nBEGIN\n  RETURN;\nEND;\n$$ LANGUAGE plpgsql;\nCOMMIT;\n`)).toBe("transaction");
+    expect(migrationForm(`BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT DEFAULT '--; COMMIT;'; /* COMMIT; */\nCOMMIT;\n`)).toBe("transaction");
   });
 
   it("are refused in any other form", () => {
@@ -56,6 +65,13 @@ describe("migrations", () => {
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\n`,
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\nALTER TABLE "shots" ADD COLUMN "b" TEXT;\n`,
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\nBEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "b" TEXT;\nCOMMIT;\n`,
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\n/* done */ COMMIT;\nALTER TABLE "shots" ADD COLUMN "b" TEXT;\nCOMMIT;\n`,
+      // A string hiding the code after it from a comment's dash.
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nALTER TABLE "shots" ADD COLUMN "a" TEXT DEFAULT '--'; COMMIT; ALTER TABLE "shots" ADD COLUMN "b" TEXT;\nCOMMIT;\n`,
+      // The timeout changed or reset after it is set.
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nSET LOCAL lock_timeout = '0';\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nRESET lock_timeout;\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
+      `BEGIN;\nSET LOCAL lock_timeout = '5s';\nRESET ALL;\nALTER TABLE "shots" ADD COLUMN "a" TEXT;\nCOMMIT;\n`,
       // A concurrent build in a transaction, which refuses it.
       `BEGIN;\nSET LOCAL lock_timeout = '5s';\nCREATE INDEX CONCURRENTLY "shots_a_idx" ON "shots" ("a");\nCOMMIT;\n`,
       // A concurrent drop, which Prisma can't split out, so runs the file in one transaction; no drop; another index dropped; no lock_timeout.

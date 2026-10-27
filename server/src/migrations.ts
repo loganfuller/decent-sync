@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import { createRequire } from "node:module";
+import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { Logger } from "@nestjs/common";
@@ -51,20 +52,76 @@ export async function runMigrations(config: Config): Promise<void> {
     for (const name of await recordUnfinishedAsRolledBack(lock)) {
       logger.warn(`Recorded migration ${name}, left unfinished by an instance that failed or was killed partway through it, as rolled back, so it is applied again`);
     }
-    const prismaCli = createRequire(import.meta.url).resolve("prisma/build/index.js");
-    const code = await new Promise<number | null>((resolve, reject) => {
-      const child = spawn(process.execPath, [prismaCli, "migrate", "deploy"], {
-        cwd: serverDir,
-        env: { ...process.env, DATABASE_URL: config.databaseUrl, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" },
-        stdio: "inherit",
-      });
-      child.on("error", reject);
-      child.on("exit", resolve);
-    });
+    const { code, lost } = await migrateDeploy(config, lock);
+    if (lost !== undefined) {
+      throw new StartupError(
+        `Lost the migration lock's connection while migrating (${lost}), so stopped Prisma's migration, as another instance may take the lock; ` +
+          "the next start records any migration it left unfinished as rolled back",
+      );
+    }
     if (code !== 0) throw await migrationFailure(lock, code);
   } finally {
     await lock.end().catch(() => {});
   }
+}
+
+/**
+ * Runs `prisma migrate deploy` with Prisma's own lock off, the server holding
+ * it on `lock`. Prisma's CLI runs in a process group of its own, with the
+ * schema engine it starts, which is stopped whole if the lock's connection is
+ * lost, as another instance may then take the lock and find the migration
+ * unfinished, or if the server is told to stop: the CLI stopped alone would
+ * leave the engine to finish the migration. Resolves with the CLI's exit
+ * code, and why the lock was lost, if it was.
+ */
+function migrateDeploy(config: Config, lock: pg.Client): Promise<{ code: number | null; lost?: string }> {
+  const prismaCli = createRequire(import.meta.url).resolve("prisma/build/index.js");
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [prismaCli, "migrate", "deploy"], {
+      cwd: serverDir,
+      env: { ...process.env, DATABASE_URL: config.databaseUrl, PRISMA_SCHEMA_DISABLE_ADVISORY_LOCK: "1" },
+      stdio: "inherit",
+      detached: true,
+    });
+    const stopPrisma = () => {
+      try {
+        process.kill(-child.pid!, "SIGKILL");
+      } catch {
+        // It has exited already.
+      }
+    };
+    let lost: string | undefined;
+    const onLost = (reason: string) => {
+      lost ??= reason;
+      stopPrisma();
+    };
+    const onError = (error: Error) => onLost(error.message);
+    const onEnd = () => onLost("the connection ended");
+    // A process group of its own no longer hears a terminal's Ctrl-C, so the server passes signals on.
+    const onSignal = (signal: NodeJS.Signals) => {
+      stopPrisma();
+      logger.warn(`Stopped by ${signal} while migrating; the next start records any migration left unfinished as rolled back`);
+      process.exit(128 + os.constants.signals[signal]);
+    };
+    lock.on("error", onError);
+    lock.on("end", onEnd);
+    process.on("SIGINT", onSignal);
+    process.on("SIGTERM", onSignal);
+    const settle = () => {
+      lock.off("error", onError);
+      lock.off("end", onEnd);
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    };
+    child.on("error", (error) => {
+      settle();
+      reject(error);
+    });
+    child.on("exit", (code) => {
+      settle();
+      resolve({ code, lost });
+    });
+  });
 }
 
 /** Why migrating failed, once the migration that failed is recorded as rolled back. */
@@ -99,8 +156,8 @@ async function migrationFailure(lock: pg.Client, code: number | null): Promise<S
  */
 async function takeMigrationLock(config: Config): Promise<pg.Client> {
   const lock = new pg.Client({ connectionString: config.databaseUrl, keepAlive: true, keepAliveInitialDelayMillis: 10_000 });
-  // Without a listener, a connection lost while Prisma migrates would crash the server; queries on it fail instead.
-  lock.on("error", (error) => logger.warn(`Lost the migration lock's connection: ${error.message}`));
+  // Without a listener, losing the connection would crash the server. Queries on it fail instead, and while Prisma migrates, `migrateDeploy` stops it.
+  lock.on("error", () => {});
   try {
     await lock.connect();
     // Set once connected, as a pooler may refuse startup parameters. A host's timeouts would end the wait, or the lock while Prisma migrates.

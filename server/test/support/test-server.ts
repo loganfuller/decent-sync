@@ -103,6 +103,8 @@ export interface TestServerOptions {
  * dropping the database, so none is cut off from it while shutting down.
  */
 const sharerHalts = new WeakMap<TestServer, (() => Promise<void>)[]>();
+/** The halts of databases whose owner has begun to stop: an instance sharing one that is ready only after then stops at once. */
+const stoppedHalts = new WeakSet<(() => Promise<void>)[]>();
 
 export async function startTestServer(options: TestServerOptions = {}): Promise<TestServer> {
   if (!options.latestRelease) assertBuilt("protocol", "server");
@@ -194,6 +196,7 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   const sharers: (() => Promise<void>)[] = [];
   const stop = async () => {
     if (options.sharing) return halt();
+    stoppedHalts.add(sharers);
     await Promise.all([halt(), ...sharers.map((sharerHalt) => sharerHalt())]);
     await drop();
   };
@@ -227,6 +230,10 @@ export async function startTestServer(options: TestServerOptions = {}): Promise<
   };
   const server: TestServer = { url, database, buildDir, output: () => output.join(""), stop, kill, connectDatabase };
   // Only once it has started: a start that fails has stopped itself.
+  if (halts && stoppedHalts.has(halts)) {
+    await halt();
+    throw new Error("The server's owner stopped while it was starting, so it has stopped too");
+  }
   if (halts) halts.push(halt);
   sharerHalts.set(server, halts || sharers);
   return server;
