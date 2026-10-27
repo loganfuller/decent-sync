@@ -38,6 +38,13 @@ const NEEDING_EMPTY_DATABASES = [
   // server/test/library-recipe-management.test.ts
   "keeps each Recipe's slot number as its record id",
 ];
+/**
+ * The test of releases from before #348 that takes EST5EDT for an alias of
+ * America/New_York, left out by name: tzdata 2026d, which Node 24.22.1
+ * carries, made EST5EDT a zone of its own, which PostgreSQL's time zone data
+ * may lack. Delete this once the latest release holds #348.
+ */
+const TAKING_EST5EDT_FOR_AN_ALIAS = "accepts IANA aliases PostgreSQL may not know, stored under a name it does";
 const IMAGE = "postgres:17";
 const readyWithinMs = 60_000;
 
@@ -162,10 +169,13 @@ async function migrateTemplate1(url) {
 
 /** Runs the latest release's Vitest suite with its test databases on the server, resolving with its exit code. */
 async function runSuite(url) {
-  const leftOut = fs.existsSync(path.join(releaseDir, "scripts/latest-release-suite.mjs")) ? [] : NEEDING_EMPTY_DATABASES;
+  const leftOut = [
+    ...(fs.existsSync(path.join(releaseDir, "scripts/latest-release-suite.mjs")) ? [] : NEEDING_EMPTY_DATABASES),
+    TAKING_EST5EDT_FOR_AN_ALIAS,
+  ];
   const filter = leftOut.length === 0 ? [] : ["--testNamePattern", `^(?!.*(?:${leftOut.map(escapeRegExp).join("|")}))`];
   console.log(`Running the Vitest suite of ${tag}, built in ${releaseDir}, but server/test/latest-release/.`);
-  if (leftOut.length > 0) console.log(`Leaving out the tests of ${tag} that need an empty database: ${leftOut.map((name) => `"${name}"`).join(", ")}.`);
+  if (leftOut.length > 0) console.log(`Leaving out these tests of ${tag}, for the reasons this script gives: ${leftOut.map((name) => `"${name}"`).join(", ")}.`);
   // The variables npm sets for a script it runs describe this checkout, not the release's.
   const env = Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith("npm_") && name !== "INIT_CWD"));
   return run(
