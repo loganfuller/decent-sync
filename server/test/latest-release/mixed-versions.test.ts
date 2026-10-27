@@ -1,5 +1,5 @@
 import path from "node:path";
-import { WIRE_REVISION, globalIdOf } from "@decent-sync/protocol";
+import { WIRE_REVISION, globalIdOf, refusedByOtherDefinitions } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
@@ -58,6 +58,7 @@ const wireRevisions = (): Record<Release, number> => ({ change: WIRE_REVISION, "
 interface SettingsEditView {
   id: string;
   outcome: string | null;
+  refusal: { reason: string; status?: number | null; message?: string | null } | null;
 }
 
 describe("the latest release beside the change", () => {
@@ -199,6 +200,31 @@ describe("the latest release beside the change", () => {
       expect(await editFan(machine, server)).toBe("applied");
       expect(await heldFan(tablet)).toBe(40);
     });
+  });
+
+  // Until a release has #343's steps, whose plugin then applies the edit: the test skips then, and is to be deleted.
+  it("has the latest release's plugin refuse a weight flow multiplier off its own step, writing nothing, shown as the plugin needing an update", async (context) => {
+    const edit = { collection: "appSettings", fields: { weightFlowMultiplier: 0.86 }, expected: { weightFlowMultiplier: 1 } };
+    const release = (await import(path.join(latestReleaseDir(), "protocol/dist/index.js"))) as typeof import("@decent-sync/protocol");
+    if (release.validateSettingsEdit(edit, "admin").length === 0) context.skip("the latest release's definitions take 0.86");
+
+    const location = await apis.change.createLocation("Settings off the release's step", "America/Chicago");
+    const { machine, tablet } = await connected("Settings off the release's step", "latest release", "change", { location });
+    const appSettings = async () =>
+      (await apis.change.get<{ collection: { value: Record<string, unknown> } | null }>(`/machines/${machine.machine.id}/collections/appSettings`)).collection?.value;
+    await expect.poll(async () => (await appSettings())?.weightFlowMultiplier).toBe(1);
+    const edits = `/machines/${machine.machine.id}/settings-edits`;
+    const made = (await apis.change.send<{ settingsEdit: SettingsEditView }>("POST", edits, edit, 201)).settingsEdit;
+    const read = async () => (await apis.change.get<{ settingsEdit: SettingsEditView }>(`${edits}/${made.id}`)).settingsEdit;
+    await expect.poll(async () => (await read()).outcome).not.toBeNull();
+
+    const { outcome, refusal } = await read();
+    expect(outcome).toBe("refused");
+    expect(refusal).toMatchObject({ reason: "decaid", status: null, message: expect.stringMatching(/^Not written: Weight flow multiplier must be a multiple of /) });
+    expect(tablet.writes.filter((write) => write === "POST /settings")).toEqual([]);
+    expect(((await tablet.callApi("GET", "/settings")).body as { weightFlowMultiplier?: unknown }).weightFlowMultiplier).toBe(1);
+    // The management interface shows that the Tablet's plugin must update, rather than the step it refused by.
+    expect(refusedByOtherDefinitions(edit, refusal!)).toBe(true);
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

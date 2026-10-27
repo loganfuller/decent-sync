@@ -1,6 +1,7 @@
 import {
   type EditableSettingsCollection,
   MAX_REFUSAL_LENGTH,
+  NOT_WRITTEN,
   SETTINGS_EDIT_STATES,
   SETTINGS_EDIT_WRITE_MARGIN_MS,
   type SettingsEdit,
@@ -157,7 +158,7 @@ export class SettingsEdits {
     if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
     // The server checked them as it took the edit; never is a field without a definition written.
     const refusals = validateSettingsEdit(edit, "admin");
-    if (refusals.length > 0) return refusedByDecaid(edit, null, `Not written: ${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
+    if (refusals.length > 0) return refusedByDecaid(edit, null, `${NOT_WRITTEN}${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
     const state = await request("GET", "/machine/state");
     if (state.ok) {
       const machineState = stateOf(state.text);

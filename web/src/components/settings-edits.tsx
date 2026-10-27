@@ -29,6 +29,7 @@ import {
   decimalPlaces,
   isEditable,
   isEditableSettingsCollection,
+  refusedByOtherDefinitions,
   sameValue,
   settingsField,
   settingsRefusalText,
@@ -529,6 +530,10 @@ export function outcomeText(edit: SettingsEdit, utcOffsetMinutes: number | null 
     case "expired":
       return { title: "Not changed", description: "The Tablet got the edit too late to make it." };
     case "decaid": {
+      const schedule = edit.schedule ? { ...edit.schedule, id: edit.schedule.id ?? "" } : undefined;
+      if (refusedByOtherDefinitions({ collection: name, schedule, fields: edit.fields }, refusal)) {
+        return { title: "Not changed", description: "The Tablet's plugin must update before it takes this change." };
+      }
       const said = refusal.status === null ? (refusal.message ?? "Decaid did not answer") : `Decaid refused it (${refusal.status}): ${refusal.message ?? "no reason given"}`;
       const changed = Object.fromEntries(refusal.changed.map((field) => [field, edit.readBack?.[field]]));
       return { title: "Not changed", description: `${said}.${refusal.changed.length > 0 ? ` Changed before it refused: ${valuesText(name, changed, utcOffsetMinutes, scheduled)}.` : ""}` };
