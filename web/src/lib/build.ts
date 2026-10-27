@@ -17,9 +17,9 @@ const pageBuild = document.querySelector<HTMLMetaElement>('meta[name="decent-syn
 let serverBuild: string | null = null;
 
 /**
- * Whether this page has asked to reload, at a navigation or for a chunk: what
- * happens in it after that, a chunk failing or loading of a navigation it
- * left, changes nothing the reloaded page reads.
+ * Whether this page has asked to reload, at a navigation or for a chunk: a
+ * chunk failing or loading in it after that changes nothing the reloaded page
+ * reads.
  */
 let reloading = false;
 
@@ -88,7 +88,8 @@ function FailedChunk({ error }: { error: unknown }): null {
 const RELOADED_FOR_CHUNK = "decent-sync:reloaded-for-chunk";
 
 /**
- * Reloads the page for a chunk that failed to load, and says whether it did.
+ * Reloads the page for a chunk that failed to load, and says whether the page
+ * is reloading, which it leaves to a reload already asked for.
  * A chunk failing again before one has loaded since the reload is left to
  * fail, so this never loops. It reloads whatever the server names, none
  * included, as the page is broken until it does.

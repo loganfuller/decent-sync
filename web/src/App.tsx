@@ -113,7 +113,11 @@ export function App() {
   );
 }
 
-/** Loads the build the server serves at the next navigation once it is another (`src/lib/build.ts`). */
+/**
+ * Loads the build the server serves at the next navigation once it is another
+ * (`src/lib/build.ts`). It stays the router's first child, so its layout effect
+ * runs before a failed page's stand-in committed with the same navigation.
+ */
 function NewBuildOnNavigation(): null {
   useNewBuildOnNavigation();
   return null;

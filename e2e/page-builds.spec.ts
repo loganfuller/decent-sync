@@ -189,7 +189,7 @@ test("a chunk that fails after a deploy reloads the page into the new build, tho
 
   // A deploy moves the Steam Records page's chunk. A navigation to that lazily loaded page from the Shots page, also
   // lazily loaded, waits for the chunk this page knows, which is gone. The new build's chunk then fails once too:
-  // the reload into it, at the same time as the navigation's, used none of the page's one reload for a chunk.
+  // the stand-in, shown with the navigation that reloads, used none of the page's one reload for a chunk.
   const after = await restart(before, buildMovingChunk(another, "SteamRecordsPage"));
   let movedFailed = false;
   await page.route(/\/assets\/SteamRecordsPage-moved\.js$/, (route) => {
