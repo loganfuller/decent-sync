@@ -2,6 +2,8 @@ import {
   CHUNK_LIMITS,
   CLOSE_CODES,
   type ErrorCode,
+  FIRST_WIRE_REVISION,
+  LIVE_VIEW_WIRE_REVISION,
   MISSED_HEARTBEATS,
   type MachineHardware,
   PROTOCOL_VERSION,
@@ -12,6 +14,7 @@ import {
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
+  peerHasWireRevision,
   sameHardware,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -20,6 +23,7 @@ import { readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent } from "./host.js";
 import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
+import { LiveView } from "./live-view.js";
 import { LoadedRecipes } from "./loaded-recipes.js";
 import { MachineEvents } from "./machine-events.js";
 import { ShotGate } from "./shot-gate.js";
@@ -130,6 +134,8 @@ export class SyncConnection {
   private connecting = false;
   private stopped = false;
   private welcomed = false;
+  /** The wire revision of the server that welcomed the open handle (ADR-0025). */
+  private serverRevision = FIRST_WIRE_REVISION;
   /** How long a welcomed connection may go without hearing from the server, from its `welcome`. */
   private silenceMs = 0;
   private reconnectDelayMs = MIN_RECONNECT_MS;
@@ -167,6 +173,8 @@ export class SyncConnection {
   private readonly settingsEdits: SettingsEdits;
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
   private readonly shot = new ShotGate();
+  /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024). */
+  private readonly liveView: LiveView;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
   private checkingHardware = false;
@@ -241,6 +249,7 @@ export class SyncConnection {
       this.shot,
     );
     this.tabletId = new TabletId(this.storage, log);
+    this.liveView = new LiveView(log);
   }
 
   /**
@@ -258,11 +267,13 @@ export class SyncConnection {
 
   /**
    * A machine state update, sent only while a machine is connected: a change
-   * of state is recorded, and the machine may have just reported its hardware.
+   * of state is recorded, the snapshot is streamed to the Live View while the
+   * server asks, and the machine may have just reported its hardware.
    */
   stateUpdate(payload: unknown): void {
     if (this.stopped) return;
     this.machineEvents.stateUpdate(payload);
+    this.liveView.stateUpdate(payload);
     this.checkHardwareSoon();
   }
 
@@ -287,6 +298,7 @@ export class SyncConnection {
     this.loadedRecipes.stop();
     this.settingsEdits.stop();
     this.shot.stop();
+    this.liveView.stop();
     this.tabletId.stop();
     // Sends the writes still waiting their turn, such as of a delivery just acknowledged.
     this.storage.stop();
@@ -437,6 +449,7 @@ export class SyncConnection {
             `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`,
           );
         }
+        this.serverRevision = wireRevisionOf(message);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
@@ -499,6 +512,18 @@ export class SyncConnection {
         // write is refused as expired; a write under way finishes, and the next connection takes its answer, which any
         // instance records.
         void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
+        break;
+      case "liveStart":
+        // Streams on this connection until liveStop or its end. A server below the revision never asks.
+        if (this.welcomed && peerHasWireRevision(this.serverRevision, LIVE_VIEW_WIRE_REVISION)) {
+          this.liveView.start((frame) => this.send(handle, frame));
+        }
+        break;
+      case "liveStop":
+        this.liveView.stop();
+        break;
+      case "liveReceived":
+        // Live frames have no budget yet, so there is nothing to free.
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -642,6 +667,8 @@ export class SyncConnection {
     const handle = this.handle;
     this.handle = undefined;
     this.welcomed = false;
+    this.serverRevision = FIRST_WIRE_REVISION;
+    this.liveView.stop();
     // A message cut off here is sent again whole, from its first chunk, on the next connection.
     this.sender?.close();
     this.sender = undefined;

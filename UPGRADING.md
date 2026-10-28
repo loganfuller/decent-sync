@@ -15,6 +15,19 @@ section).
 
 ## Unreleased
 
+### Check every tablet runs the 1.4.0 plugin before deploying
+
+This release is the first to raise the wire revision, for the Live View's
+messages ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+1.4.0 plugin, the previous release's. Where one doesn't, update it at the
+tablet, or through Decaid's API from its network with
+`POST /api/v1/plugins/update`, or approve an update that adds a permission
+with `POST /api/v1/plugins/decent-sync.reaplugin/update/approve`.
+
+A Machine's Live View shows nothing live while its tablet runs the 1.4.0
+plugin, or while an instance of 1.4.0 holds its connection during the deploy.
+
 ## 1.4.0
 
 ### Upgrade without going offline from now on

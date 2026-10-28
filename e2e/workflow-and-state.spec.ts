@@ -29,13 +29,14 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   await page.clock.install();
   await page.goto("/machines");
   const row = machineRow(page, "Bar 1");
-  await expect(row).toContainText("Espresso: pouring");
+  // Named as the Live View names it.
+  await expect(row).toContainText("Pulling a shot · Pouring");
   // Pulled at 14:14:10 by the tablet's clock, four hours behind UTC, as is New York's.
   await expect(row).toContainText("Oct 4, 2026, 2:14:10 PM");
 
   await row.getByRole("link", { name: "Bar 1" }).click();
   await expect(page.getByRole("heading", { name: "Bar 1", level: 1 })).toBeVisible();
-  await expect(field(page, "Machine state")).toHaveText(/^Espresso: pouring, since \w{3} \d+, \d{4}/);
+  await expect(field(page, "Machine state")).toHaveText(/^Pulling a shot · Pouring, since \w{3} \d+, \d{4}/);
   await expect(field(page, "Last Shot")).toHaveText("Oct 4, 2026, 2:14:10 PM");
   const workflow = page.getByRole("region", { name: "Workflow" });
   await workflow.getByRole("button", { name: "About Workflow", exact: true }).hover();

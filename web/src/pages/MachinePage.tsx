@@ -19,6 +19,7 @@ import {
 import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
+import { LiveViewCard } from "@/components/live-view";
 import { LoadedRecipeCard } from "@/components/loaded-recipes";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
@@ -66,7 +67,7 @@ interface Reports {
 
 /**
  * One Machine: its identity, versions and status, deliveries from its tablet
- * set aside, its tablets, its Loaded Recipe and those it had, its Workflow,
+ * set aside, its Live View, its tablets, its Loaded Recipe and those it had, its Workflow,
  * paired devices, settings and library,
  * its Location, its token, and resolving its identity. Staff see all of it,
  * and can move it between the Locations they work at; every other change is
@@ -214,6 +215,7 @@ function MachineDetails({ id }: { id: string }) {
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
           <SetAsideDeliveriesCard machineId={machine.id} />
+          <LiveViewCard machineId={machine.id} profile={data?.workflow?.workflow.profile} />
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>

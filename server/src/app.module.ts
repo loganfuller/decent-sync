@@ -7,6 +7,7 @@ import { DatabaseUnreachableFilter } from "./database.js";
 import { Drain } from "./drain.js";
 import { HealthController } from "./health.controller.js";
 import { LibraryModule } from "./library/library.module.js";
+import { LiveViewModule } from "./live-view/live-view.module.js";
 import { LocationsModule } from "./locations/locations.module.js";
 import { MachinesModule } from "./machines/machines.module.js";
 import { ManagementInterface } from "./management-interface.js";
@@ -27,6 +28,7 @@ export class AppModule {
         LocationsModule,
         MachinesModule,
         LibraryModule,
+        LiveViewModule,
         SyncModule,
       ],
       controllers: [HealthController],

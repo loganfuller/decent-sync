@@ -3,6 +3,7 @@ import { type CallHandler, type ExecutionContext, Injectable, type INestApplicat
 import type { NextFunction, Request, Response } from "express";
 import { type Observable, finalize } from "rxjs";
 import type { Config } from "./config.js";
+import { LiveViews } from "./live-view/live-views.js";
 import { SyncGateway } from "./sync/sync.gateway.js";
 
 /** The signals that stop the server: fly.io's default, Docker's and a terminal's. */
@@ -65,8 +66,9 @@ export class Drain implements NestInterceptor {
  * `onModuleDestroy` hooks, Prisma's disconnect among them, run before the
  * HTTP server closes. Once a signal arrives:
  *
- * - the routing check answers 503, and the tablets are handed to another
- *   instance (`SyncGateway.handOver`);
+ * - the routing check answers 503, the tablets are handed to another
+ *   instance (`SyncGateway.handOver`), and the Live Views' streams end, which
+ *   the browser opens again (`LiveViews.end`);
  * - requests that still arrive are answered for the grace
  *   (`DRAIN_GRACE_SECONDS`), until the proxy has noticed;
  * - then the server stops listening, finishes the requests under way, and
@@ -86,8 +88,8 @@ export function stopOnSignals(app: INestApplication, config: Config): void {
     try {
       const drain = app.get(Drain);
       drain.stopping = true;
-      // Long-lived streams, such as the Live View's (#258), end here too, at once.
-      await Promise.all([app.get(SyncGateway).handOver(), new Promise((resolve) => setTimeout(resolve, config.drainGraceMs))]);
+      // Long-lived streams end here too, at once: a response still open would hold up `drain.finished()`.
+      await Promise.all([app.get(SyncGateway).handOver(), app.get(LiveViews).end(), new Promise((resolve) => setTimeout(resolve, config.drainGraceMs))]);
       const server = app.getHttpServer() as Server;
       const closed = new Promise((resolve) => server.close(resolve));
       await drain.finished();

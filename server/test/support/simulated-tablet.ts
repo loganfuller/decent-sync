@@ -7,7 +7,7 @@ import { EventEmitter } from "node:events";
 import WebSocket from "ws";
 import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
-import { type DecaidAnswer, createBean, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
+import { type DecaidAnswer, createBean, decaidNow, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
@@ -72,12 +72,18 @@ import { opened } from "./test-scope.js";
 // - The plugin's local time, as JavaScript reads it, is this process's time
 //   zone: set `process.env.TZ` to put the tablet in another one. Its clock is
 //   the test's, unless `setPluginClockOffset` corrects it.
+// - `reportSnapshot` sends a machine snapshot, such as one recorded
+//   (live-fixtures.ts), in a `stateUpdate` event, its `timestamp` the
+//   tablet's local time as Decaid writes it, and `reportSnapshots` a series
+//   of them at the rate the test sets.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
 //   rejects a send that would take the pending outbound bytes past 1 MiB,
 //   closes a transport whose undelivered inbound bytes pass 1 MiB, and
-//   delivers events asynchronously and in order, ending with a close event.
+//   delivers events asynchronously and in order, ending with a close event:
+//   `received` lists the server's frames as they arrive, and `delivered` as
+//   the plugin is given them.
 //   `dropConnectionsUnnoticed` ends them for the plugin while leaving them
 //   open, and silent, for the server, and `cutConnectionAfter` ends one right
 //   after a frame the server sent.
@@ -808,6 +814,8 @@ export class SimulatedTablet {
   readonly sent: unknown[] = [];
   /** Every text frame the server sent the plugin, parsed, in order. */
   readonly received: unknown[] = [];
+  /** Every text frame from the server the plugin has been given, parsed, in order: `received` records each as it arrives, before Decaid hands it over in a later turn. */
+  readonly delivered: unknown[] = [];
   /** The most bytes any transport has had pending at once. */
   peakPendingOutboundBytes = 0;
   /** Sends refused for going past the pending outbound limit. */
@@ -1018,6 +1026,36 @@ export class SimulatedTablet {
     const snapshot = machineSnapshot(state, substate);
     this.api = { ...this.api, "/machine/state": snapshot };
     this.fire("stateUpdate", snapshot);
+  }
+
+  /**
+   * The connected machine sends a machine snapshot, such as one recorded
+   * (live-fixtures.ts), as Decaid does in a `stateUpdate` event several times
+   * a second: its `timestamp` is the tablet's local time as it is sent,
+   * without an offset, as Decaid writes it, and /machine/state answers with
+   * it from now on. Resolves with the snapshot as sent.
+   */
+  reportSnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
+    if (!this.machineConnected) throw new Error("Decaid sends machine state updates only while a machine is connected");
+    const sent = { ...snapshot, timestamp: decaidNow() };
+    this.api = { ...this.api, "/machine/state": sent };
+    this.fire("stateUpdate", sent);
+    return sent;
+  }
+
+  /**
+   * Sends each snapshot in turn, as `reportSnapshot` does, at the rate the
+   * test sets: one every `intervalMs` of real time, the first at once.
+   * Resolves with them as sent, once the last is, or the tablet unloads.
+   */
+  async reportSnapshots(snapshots: Record<string, unknown>[], { intervalMs }: { intervalMs: number }): Promise<Record<string, unknown>[]> {
+    const sent: Record<string, unknown>[] = [];
+    for (const [index, snapshot] of snapshots.entries()) {
+      if (index > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs));
+      if (this.unloaded) break;
+      sent.push(this.reportSnapshot(snapshot));
+    }
+    return sent;
   }
 
   /**
@@ -2191,6 +2229,7 @@ export class SimulatedTablet {
       } catch (error) {
         this.logs.push(`Transport listener error: ${String(error)}`);
       }
+      if (!record.local && next.event.type === "data" && next.event.dataType === "text") this.delivered.push(parsed(String(next.event.data)));
       this.drain(record);
     });
   }

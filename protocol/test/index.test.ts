@@ -14,6 +14,12 @@ import {
   LIBRARY_ITEM_KINDS,
   LIBRARY_KINDS,
   LIBRARY_LISTS,
+  LIVE_SOURCES,
+  type LiveFrame,
+  MAX_NOTIFICATION_BYTES,
+  liveFrameFits,
+  relayedLiveFrame,
+  utf8Length,
   type LeaveOut,
   type LibraryDelete,
   type LibraryRemove,
@@ -460,6 +466,85 @@ describe("Workflow and machine state envelopes", () => {
       ok: false,
       problem: "workflow.recipeNamedAt must be a UTC time such as 2026-10-05T14:07:03.341Z",
     });
+  });
+});
+
+describe("Live View messages", () => {
+  // The test tablet's DE1Pro pulling a shot, as Decaid sent it (server/test/fixtures/decaid/de1pro-live-v0.9.0/shot.json).
+  const snapshot = {
+    timestamp: "2026-10-27T17:05:09.833108",
+    state: { state: "espresso", substate: "pouring" },
+    flow: 1.011474609375,
+    pressure: 3.06640625,
+    targetFlow: 0,
+    targetPressure: 2.9375,
+    mixTemperature: 82.84375,
+    groupTemperature: 79.6656494140625,
+    targetMixTemperature: 88,
+    targetGroupTemperature: 82,
+    profileFrame: 2,
+    steamTemperature: 160,
+  };
+  const live: LiveFrame = {
+    type: "liveFrame",
+    source: "machine",
+    receivedAt: "2026-10-27T21:05:09.881Z",
+    stateSince: "2026-10-27T21:04:59.250Z",
+    frame: snapshot,
+  };
+
+  it("reads a live frame, validating its envelope but not Decaid's data, and keeping fields it does not know", () => {
+    for (const message of [live, { ...live, frame: {} }, { ...live, future: true }, { ...live, source: "scale", stateSince: undefined, frame: { weight: 2.1 } }]) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message: JSON.parse(frame(message)) });
+    }
+    const sensor = { ...live, source: "sensor", sensorId: "de1-2c1b-milkprobe", stateSince: undefined };
+    expect(decodePluginMessage(frame(sensor)).ok).toBe(true);
+    expect(LIVE_SOURCES).toEqual(["machine", "waterLevels", "scale", "shotSettings", "devices", "sensor"]);
+  });
+
+  it("refuses a live frame without its source, times or data, naming each and repeating none", () => {
+    const refused = (message: unknown) => {
+      const result = decodePluginMessage(frame(message));
+      return result.ok ? null : result.problem;
+    };
+    expect(refused({ ...live, source: "shotState" })).toBe(`liveFrame.source must be one of ${LIVE_SOURCES.join(", ")}`);
+    expect(refused({ ...live, source: "sensor" })).toBe("liveFrame.sensorId must be a string");
+    expect(refused({ ...live, source: "sensor", sensorId: "x".repeat(MAX_RECORD_ID_LENGTH + 1) })).toBe(
+      `liveFrame.sensorId must be at most ${MAX_RECORD_ID_LENGTH} characters`,
+    );
+    // Decaid's own timestamp, the tablet's local time without an offset, is no UTC time.
+    expect(refused({ ...live, receivedAt: snapshot.timestamp })).toBe("liveFrame.receivedAt must be a UTC time such as 2026-10-05T14:07:03.341Z");
+    expect(refused({ ...live, stateSince: undefined })).toBe("liveFrame.stateSince must be a UTC time such as 2026-10-05T14:07:03.341Z");
+    expect(refused({ ...live, frame: [snapshot] })).toBe("liveFrame.frame must be an object");
+    expect(refused({ ...live, frame: "secret" })).not.toContain("secret");
+  });
+
+  it("reads the server's live messages, each without a payload", () => {
+    for (const type of ["liveStart", "liveStop", "liveReceived"]) {
+      expect(decodeServerMessage(frame({ type }))).toEqual({ ok: true, message: { type } });
+      expect(decodePluginMessage(frame({ type }))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    expect(decodeServerMessage(encode(live))).toMatchObject({ ok: false, problem: "Unknown message type" });
+  });
+
+  it("relays a live frame with its Machine's id, and tells whether it fits a notification", () => {
+    const machineId = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70";
+    expect(JSON.parse(relayedLiveFrame(machineId, { ...live, future: true } as LiveFrame))).toEqual({
+      machineId,
+      source: "machine",
+      receivedAt: live.receivedAt,
+      stateSince: live.stateSince,
+      frame: snapshot,
+    });
+    expect(liveFrameFits(live)).toBe(true);
+    // The longest that fits: its notification is one byte short of PostgreSQL's 8000.
+    const room = MAX_NOTIFICATION_BYTES - utf8Length(relayedLiveFrame(machineId, { ...live, frame: { ...snapshot, padding: "" } }));
+    const longest = { ...live, frame: { ...snapshot, padding: "x".repeat(room) } };
+    expect(utf8Length(relayedLiveFrame(machineId, longest))).toBe(7999);
+    expect(liveFrameFits(longest)).toBe(true);
+    expect(liveFrameFits({ ...live, frame: { ...snapshot, padding: "x".repeat(room + 1) } })).toBe(false);
+    // Measured in UTF-8, as PostgreSQL does.
+    expect(liveFrameFits({ ...live, frame: { ...snapshot, padding: "é".repeat(Math.ceil((room + 1) / 2)) } })).toBe(false);
   });
 });
 

@@ -54,13 +54,18 @@ export function steamPhases(measurements: unknown): SteamPhase[] {
   const phases: SteamPhase[] = [];
   let before: SteamPhase = "steaming";
   for (const measurement of measurements) {
-    before = samplePhase(record(record(measurement).machine), before);
+    before = steamPhaseOf(record(measurement).machine) ?? before;
     phases.push(before);
   }
   return phases;
 }
 
-function samplePhase(machine: Record<string, unknown>, before: SteamPhase): SteamPhase {
+/**
+ * The phase of one machine snapshot under `steam`, by the rule `steamPhases`
+ * gives, or null for a substate the rule doesn't name, such as `idle`.
+ */
+export function steamPhaseOf(snapshot: unknown): SteamPhase | null {
+  const machine = record(snapshot);
   const targetFlow = machine.targetFlow;
   const flowing = !(typeof targetFlow === "number" && Number.isFinite(targetFlow) && targetFlow <= 0);
   switch (record(machine.state).substate) {
@@ -75,7 +80,7 @@ function samplePhase(machine: Record<string, unknown>, before: SteamPhase): Stea
     case "puffing":
       return "puffing";
     default:
-      return before;
+      return null;
   }
 }
 

@@ -20,11 +20,18 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   changed, or its sharing was turned off or on, so its tablet's Library is
  *   to be taken in afresh, or no longer;
  * - `settings_edits`, a Machine's id: a Settings Edit was made for the
- *   connection holding it, which its instance is to send.
+ *   connection holding it, which its instance is to send;
+ * - `live_views`, a Machine's id: a Live View of it opened or closed, so the
+ *   instance holding its connection checks whether its plugin is to stream
+ *   (ADR-0024);
+ * - `live_frames`, a live frame the instance holding its Machine's
+ *   connection relays to every instance's Live Views of it
+ *   (`relayedLiveFrame`), sent outside any transaction: nothing waits on it,
+ *   and one lost costs nothing, as the next replaces it.
  */
-export type Channel = "machine_access" | "library_changes" | "machine_locations" | "settings_edits";
+export type Channel = "machine_access" | "library_changes" | "machine_locations" | "settings_edits" | "live_views" | "live_frames";
 
-const CHANNELS: readonly Channel[] = ["machine_access", "library_changes", "machine_locations", "settings_edits"];
+const CHANNELS: readonly Channel[] = ["machine_access", "library_changes", "machine_locations", "settings_edits", "live_views", "live_frames"];
 const MIN_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
 
@@ -129,7 +136,7 @@ export class Notifications implements OnModuleInit, OnModuleDestroy {
     client.end().catch(() => {});
     if (this.retryTimer) return;
     this.logger.warn(
-      `Not listening for access changes, Library changes, moves or Settings Edits (${reason}); retrying in ${this.retryMs / 1000} s. Heartbeats still check every connection, a tablet that reconnects is written what it lacks, and Settings Edits made meanwhile are sent once listening again.`,
+      `Not listening for access changes, Library changes, moves or Settings Edits (${reason}); retrying in ${this.retryMs / 1000} s. Heartbeats still check every connection, a tablet that reconnects is written what it lacks, and Settings Edits made meanwhile are sent once listening again. Live Views show nothing new until then.`,
     );
     this.retryTimer = setTimeout(() => {
       this.retryTimer = undefined;

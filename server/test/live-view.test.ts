@@ -1,0 +1,287 @@
+import { randomUUID } from "node:crypto";
+import { type RelayedLiveFrame, nameMachineState } from "@decent-sync/protocol";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { machineSnapshots, stateOf } from "./support/live-fixtures.js";
+import { type LiveViewStream, openLiveView } from "./support/live-views.js";
+import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
+import { quiesced } from "./support/quiet.js";
+import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { type TestServer, startTestServer } from "./support/test-server.js";
+
+// Seam 1: the Live View (#260) through the built plugin on simulated tablets,
+// which send the test tablet's DE1Pro's recorded machine snapshots (#259) as
+// Decaid's `stateUpdate`, each stamped with the tablet's local time as it is
+// sent. Viewers read `GET /api/machines/:id/live` as the browser's
+// EventSource does. Serials are made up, from 26001.
+
+/**
+ * The simulated tablets' time zone: four hours behind UTC in daylight time,
+ * five in standard time. Decaid's own timestamps are the tablet's local time
+ * without an offset, so one read as UTC is hours out.
+ */
+const TABLET_TIME_ZONE = "America/Toronto";
+
+const shot = machineSnapshots("shot.json");
+const idle = machineSnapshots("idle.json");
+const espresso = shot.filter((snapshot) => stateOf(snapshot).state === "espresso");
+const firstOf = (substate: string) => espresso.find((snapshot) => stateOf(snapshot).substate === substate)!;
+
+type Message = { type?: string };
+const isLiveFrame = (frame: unknown) => (frame as Message).type === "liveFrame";
+const count = (frames: unknown[], type: string) => frames.filter((frame) => (frame as Message).type === type).length;
+
+/** The Machine State a relayed frame reports, on one line. */
+function named(event: RelayedLiveFrame): string {
+  const { state, substate } = stateOf(event.frame);
+  return nameMachineState(state, substate, event.frame).name;
+}
+
+describe("the Live View", () => {
+  let server: TestServer;
+  let api: AdminApi;
+  let timeZone: string | undefined;
+  let serial = 26_001;
+
+  beforeAll(async () => {
+    timeZone = process.env.TZ;
+    process.env.TZ = TABLET_TIME_ZONE;
+    expect(new Date(2026, 9, 27).getTimezoneOffset()).toBe(240);
+    server = await startTestServer();
+    api = await AdminApi.setUp(server.url);
+  });
+  afterAll(async () => {
+    await server?.stop();
+    if (timeZone === undefined) delete process.env.TZ;
+    else process.env.TZ = timeZone;
+  });
+
+  /** A Machine whose simulated tablet, its machine's serial given, is connected, once it is online. */
+  async function connected(name: string, options: { timeScale?: number } = {}): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet; serial: number }> {
+    const machine = await api.createMachine(name);
+    const tabletSerial = serial++;
+    const tablet = syncingTablet(machine, server, { api: emptyLibrary(tabletSerial), ...options });
+    await api.waitForOnline(machine);
+    return { machine, tablet, serial: tabletSerial };
+  }
+
+  /** Opens the Machine's Live View, and waits for the plugin to have been told to stream. */
+  async function watching(machine: CreatedMachine, tablet: SimulatedTablet, as = api): Promise<LiveViewStream> {
+    const starts = count(tablet.delivered, "liveStart");
+    const stream = await openLiveView(as, machine.machine.id);
+    expect(stream.status).toBe(200);
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBeGreaterThan(starts);
+    return stream;
+  }
+
+  /** The events of the stream that carry one of these snapshots as sent, by Decaid's own timestamp in it. */
+  const carrying = (stream: LiveViewStream, sent: Record<string, unknown>[]) =>
+    stream.events.filter((event) => sent.some((snapshot) => snapshot.timestamp === event.frame.timestamp));
+
+  /** The machine snapshots in the live frames the plugin sent, from its `from`th frame on. */
+  const liveFramesSent = (tablet: SimulatedTablet, from: number) =>
+    tablet.sent
+      .slice(from)
+      .filter(isLiveFrame)
+      .map((frame) => (frame as { frame: Record<string, unknown> }).frame);
+
+  /**
+   * Sends each snapshot in turn, each once the streams have the last: the
+   * server relays a connection's frames one at a time, the latest of a burst
+   * waiting, so a burst may reach a viewer as fewer. Resolves with them as sent.
+   */
+  async function seen(tablet: SimulatedTablet, snapshots: Record<string, unknown>[], ...streams: LiveViewStream[]): Promise<Record<string, unknown>[]> {
+    const sent: Record<string, unknown>[] = [];
+    for (const snapshot of snapshots) {
+      sent.push(tablet.reportSnapshot(snapshot));
+      for (const stream of streams) await expect.poll(() => carrying(stream, [sent.at(-1)!]).length).toBe(1);
+    }
+    return sent;
+  }
+
+  it("streams each machine snapshot as the tablet sends it, with when the plugin received it and when its Machine State began", async () => {
+    const { machine, tablet } = await connected("Basics");
+    const stream = await watching(machine, tablet);
+    expect(stream.contentType).toBe("text/event-stream; charset=utf-8");
+
+    const before = Date.now();
+    // The start of a shot: preparing, then preinfusion.
+    const sent = await seen(tablet, espresso.slice(10, 20), stream);
+    const after = Date.now();
+    const events = carrying(stream, sent);
+    expect(events.map((event) => event.frame)).toEqual(sent);
+    expect(events.every((event) => event.machineId === machine.machine.id && event.source === "machine")).toBe(true);
+    for (const event of events) {
+      const received = Date.parse(event.receivedAt);
+      expect(received).toBeGreaterThanOrEqual(before);
+      expect(received).toBeLessThanOrEqual(after);
+      // Decaid's own timestamp is the tablet's local time without an offset, hours from the plugin's UTC.
+      expect(String(event.frame.timestamp)).not.toMatch(/Z$/);
+      expect(Math.abs(Date.parse(`${String(event.frame.timestamp)}Z`) - received)).toBeGreaterThan(3 * 3_600_000);
+    }
+    expect(events.map((event) => stateOf(event.frame).substate)).toContain("preparingForShot");
+    expect(events.map((event) => stateOf(event.frame).substate)).toContain("preinfusion");
+    // One Machine State, from its first frame.
+    expect(new Set(events.map(named))).toEqual(new Set(["Pulling a shot"]));
+    expect(new Set(events.map((event) => event.stateSince))).toEqual(new Set([events[0]!.receivedAt]));
+  });
+
+  it("shares one stream between viewers, starting the plugin once, and stops it once the last closes", async () => {
+    const { machine, tablet } = await connected("Shared");
+    const first = await watching(machine, tablet);
+    const second = await openLiveView(api, machine.machine.id);
+    await seen(tablet, espresso.slice(0, 3), first, second);
+
+    await first.close();
+    await seen(tablet, espresso.slice(3, 6), second);
+
+    await second.close();
+    await expect.poll(() => count(tablet.delivered, "liveStop")).toBe(1);
+    // Decided in turn, so the plugin was started only for the first viewer, and stopped only for the last.
+    expect(count(tablet.delivered, "liveStart")).toBe(1);
+    const sends = tablet.sent.length;
+    tablet.reportSnapshot(firstOf("pouring"));
+    tablet.reportSnapshot(idle[0]!);
+    expect(tablet.sent.slice(sends).filter(isLiveFrame)).toEqual([]);
+  });
+
+  it("sends every frame of a shot, but one a second while idle, the latest winning, and a change of Machine State at once", async () => {
+    // At real time, so the plugin's second is one.
+    const { machine, tablet } = await connected("Rate", { timeScale: 1 });
+    const stream = await watching(machine, tablet);
+
+    // Idle, many frames at once: the first goes, and the latest a second later.
+    let from = tablet.sent.length;
+    const idling = idle.slice(0, 10).map((snapshot) => tablet.reportSnapshot(snapshot));
+    expect(liveFramesSent(tablet, from)).toEqual([idling[0]]);
+    await expect.poll(() => liveFramesSent(tablet, from)).toHaveLength(2);
+    expect(liveFramesSent(tablet, from)).toEqual([idling[0], idling.at(-1)]);
+    await expect.poll(() => carrying(stream, [idling.at(-1)!]).length).toBe(1);
+
+    // A shot, all at once: its first frame is a change of Machine State, and every frame of it goes. So does the change
+    // back to idle, at once; the rest of idle waits its second, the latest going.
+    from = tablet.sent.length;
+    const pulled = shot.slice(shot.indexOf(espresso[0]!)).map((snapshot) => tablet.reportSnapshot(snapshot));
+    const shotFrames = pulled.filter((snapshot) => stateOf(snapshot).state === "espresso");
+    const backToIdle = pulled[shotFrames.length]!;
+    expect(stateOf(backToIdle).state).toBe("idle");
+    expect(liveFramesSent(tablet, from)).toEqual([...shotFrames, backToIdle]);
+    await expect.poll(() => liveFramesSent(tablet, from)).toHaveLength(shotFrames.length + 2);
+    expect(liveFramesSent(tablet, from).at(-1)).toEqual(pulled.at(-1));
+    // The server relays one at a time, the latest of a burst waiting, so the viewer sees the latest.
+    await expect.poll(() => carrying(stream, [pulled.at(-1)!]).length).toBe(1);
+  });
+
+  it("keeps the time in state across a reconnect, and through a change of detail", async () => {
+    const { machine, tablet } = await connected("Reconnect");
+    const stream = await watching(machine, tablet);
+    const preinfusion = tablet.reportSnapshot(firstOf("preinfusion"));
+    await expect.poll(() => carrying(stream, [preinfusion]).length).toBe(1);
+    const since = carrying(stream, [preinfusion])[0]!.stateSince!;
+
+    // The tablet's network drops; its plugin connects again, and is started again.
+    tablet.dropConnections();
+    await tablet.waitForLogs(/^Connected to /, 2);
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(2);
+    const pouring = tablet.reportSnapshot(firstOf("pouring"));
+    await expect.poll(() => carrying(stream, [pouring]).length).toBe(1);
+    const event = carrying(stream, [pouring])[0]!;
+    expect(named(event)).toBe("Pulling a shot");
+    expect(event.stateSince).toBe(since);
+    expect(Date.parse(event.receivedAt)).toBeGreaterThan(Date.parse(since));
+  });
+
+  it("drops a frame too large to relay before sending it, and sends the next", async () => {
+    const { machine, tablet } = await connected("Large frame");
+    const stream = await watching(machine, tablet);
+    // A snapshot of a future Decaid with far more in it than today's, derived from a recorded one.
+    const large = tablet.reportSnapshot({ ...firstOf("preinfusion"), future: "x".repeat(8_000) });
+    const next = tablet.reportSnapshot(firstOf("pouring"));
+    await expect.poll(() => carrying(stream, [next]).length).toBe(1);
+    expect(carrying(stream, [large])).toEqual([]);
+    expect(tablet.sent.filter((frame) => isLiveFrame(frame) && (frame as { frame: { future?: unknown } }).frame.future !== undefined)).toEqual([]);
+    expect(tablet.logs).toContain("Dropped a machine frame too large to relay to the Live View; any more are dropped too.");
+  });
+
+  it("drops the frames of a connection once another holds its Machine, even one received before", async () => {
+    const { machine, tablet, serial: hardware } = await connected("Replaced");
+    const stream = await watching(machine, tablet);
+    const held = tablet.reportSnapshot(firstOf("preinfusion"));
+    await expect.poll(() => carrying(stream, [held]).length).toBe(1);
+    // Nothing else under way, so the one query that waits for the lock below is the frame's relay.
+    await quiesced(api, { tablets: { tablet } });
+
+    // A frame received while its connection held the Machine, relayed only once another hello has taken it, as through
+    // another instance whose notification hasn't reached this one yet.
+    const database = await server.connectDatabase();
+    let late: Record<string, unknown>;
+    try {
+      await database.query("BEGIN");
+      await database.query("LOCK TABLE machines IN ACCESS EXCLUSIVE MODE");
+      late = tablet.reportSnapshot(firstOf("pouring"));
+      await waitForLockWaits(server, { relation: "machines" });
+      await database.query("UPDATE machines SET connected_session_id = $1 WHERE id = $2", [randomUUID(), machine.machine.id]);
+      await database.query("COMMIT");
+    } finally {
+      await database.end();
+    }
+    const afterwards = tablet.reportSnapshot(firstOf("pouringDone"));
+
+    // Another tablet with the Machine's token takes it over, and its frames reach the viewer.
+    const other = syncingTablet(machine, server, { api: emptyLibrary(hardware) });
+    await expect.poll(() => count(other.delivered, "liveStart")).toBe(1);
+    const taken = other.reportSnapshot(idle[0]!);
+    await expect.poll(() => carrying(stream, [taken]).length).toBe(1);
+    expect(carrying(stream, [late!, afterwards])).toEqual([]);
+  });
+
+  it("never starts a connection whose tablet reports other hardware than its Machine's", async () => {
+    const { machine, tablet } = await connected("Mismatch");
+    // Bound to its tablet's hardware; then the token is entered on a tablet with another machine.
+    await tablet.unload();
+    const mismatched = syncingTablet(machine, server, { api: emptyLibrary(serial++) });
+    await api.waitForMachine(machine.machine.name, (viewed) => viewed.online && viewed.identification === "mismatch");
+    const stream = await openLiveView(api, machine.machine.id);
+    expect(stream.status).toBe(200);
+
+    // A Machine on the same instance, watched after it: once its plugin is started, the mismatched one's lease was
+    // announced and decided first.
+    const control = await connected("Mismatch control");
+    await watching(control.machine, control.tablet);
+    mismatched.reportSnapshot(firstOf("preinfusion"));
+    expect(count(mismatched.delivered, "liveStart")).toBe(0);
+    expect(mismatched.sent.filter(isLiveFrame)).toEqual([]);
+    expect(stream.events).toEqual([]);
+  });
+
+  it("opens for an offline Machine, whose frames arrive once it connects", async () => {
+    const machine = await api.createMachine("Offline at first");
+    const stream = await openLiveView(api, machine.machine.id);
+    expect(stream.status).toBe(200);
+    const tablet = syncingTablet(machine, server, { api: emptyLibrary(serial++) });
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
+    const sent = tablet.reportSnapshot(idle[0]!);
+    await expect.poll(() => carrying(stream, [sent]).length).toBe(1);
+  });
+
+  it("answers 404 for a Machine there is none of", async () => {
+    for (const id of [randomUUID(), "not-a-machine"]) {
+      const response = await api.call("GET", `/machines/${id}/live`);
+      expect(response.status).toBe(404);
+      expect(await response.json()).toMatchObject({ message: "No such Machine" });
+    }
+  });
+
+  it("lets Staff watch any Machine, wherever they work", async () => {
+    const theirs = await api.createLocation("Live View, Staff's own", "America/Toronto");
+    const elsewhere = await api.createLocation("Live View elsewhere", "America/Toronto");
+    const staff = await api.staffAt("live-view-staff@example.com", theirs);
+    const machine = await api.createMachine("Staff's view", elsewhere.id);
+    const tablet = syncingTablet(machine, server, { api: emptyLibrary(serial++) });
+    await api.waitForOnline(machine);
+    const stream = await watching(machine, tablet, staff);
+    const sent = tablet.reportSnapshot(idle[0]!);
+    await expect.poll(() => carrying(stream, [sent]).length).toBe(1);
+  });
+});
