@@ -139,8 +139,9 @@ export class LiveViews implements OnModuleDestroy {
    * Opens a Live View of the Machine for the viewer's session on the
    * response, which stays open until the viewer closes it, or the lease can't
    * be kept. Throws for an unknown Machine, before anything is sent. Its
-   * headers are sent once its lease is held. One opened offline receives
-   * frames once its Machine connects.
+   * headers are sent once its lease is held, or at once with its end if it
+   * ends without one. One opened offline receives frames once its Machine
+   * connects.
    */
   async open(machineId: string, viewerSessionId: string, response: Response): Promise<void> {
     const stream: Stream = { machineId, response, ended: false };
