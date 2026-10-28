@@ -2,14 +2,36 @@ import { describe, expect, it } from "vitest";
 import opening from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/opening.json" with { type: "json" };
 import scaleConnects from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/scale-connects.json" with { type: "json" };
 import shot from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/shot.json" with { type: "json" };
-import { liveMachineOf, machineConnectedOf, readLiveEvent, reported, scaleOf, timeInState, waterLevelOf, withLiveFrame } from "../src/lib/live-view";
+import asleep from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/asleep.json" with { type: "json" };
+import machineDisconnects from "../../server/test/fixtures/decaid/simulated-devices-v0.9.0/machine-disconnects.json" with { type: "json" };
+import {
+  type LiveState,
+  STALE_AFTER_MS,
+  liveConditionOf,
+  liveMachineOf,
+  machineConnectedOf,
+  readLiveEvent,
+  reported,
+  scaleOf,
+  staleAtOf,
+  timeInState,
+  waterLevelOf,
+  withLiveFrame,
+} from "../src/lib/live-view";
 
 // Reading the Live View's events, each a live frame as the server relays it,
 // on the test tablet's DE1Pro's recorded frames
 // (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259) where Decaid's data
-// is read.
+// is read, and Decaid's device lists as its simulated machine was
+// disconnected and connected again (simulated-devices-v0.9.0/, #264).
 
-const recordings = { "opening.json": opening, "scale-connects.json": scaleConnects, "shot.json": shot };
+const recordings = {
+  "opening.json": opening,
+  "scale-connects.json": scaleConnects,
+  "shot.json": shot,
+  "asleep.json": asleep,
+  "machine-disconnects.json": machineDisconnects,
+};
 
 /** A recording's frames from one source, in order, as Decaid sent them. */
 function framesOf(file: keyof typeof recordings, source: string): Record<string, unknown>[] {
@@ -63,19 +85,21 @@ describe("the Live View's events", () => {
       readLiveEvent(JSON.stringify({ ...event, source, frame, stateSince }))!;
     const [levels, later] = framesOf("shot.json", "waterLevels");
     // Nothing it shows: still nothing.
-    expect(withLiveFrame(undefined, relayed("sensor", { temperature: 40 }))).toBeUndefined();
-    let live = withLiveFrame(undefined, relayed("waterLevels", levels!));
-    live = withLiveFrame(live, relayed("scale", { status: "disconnected" }));
-    live = withLiveFrame(live, relayed("machine", snapshot, event.stateSince));
-    live = withLiveFrame(live, relayed("waterLevels", later!));
+    expect(withLiveFrame(undefined, relayed("sensor", { temperature: 40 }), 0)).toBeUndefined();
+    let live = withLiveFrame(undefined, relayed("waterLevels", levels!), 1_000);
+    live = withLiveFrame(live, relayed("scale", { status: "disconnected" }), 2_000);
+    live = withLiveFrame(live, relayed("machine", snapshot, event.stateSince), 3_000);
+    live = withLiveFrame(live, relayed("waterLevels", later!), 4_000);
+    // With when the page received the machine snapshot, by its own clock.
     expect(live).toEqual({
       waterLevels: later,
       scale: { status: "disconnected" },
       machine: { snapshot, receivedAt: event.receivedAt, stateSince: event.stateSince },
+      machineArrivedAt: 3_000,
     });
-    expect(withLiveFrame(live, relayed("sensor", { temperature: 40 }))).toBe(live);
+    expect(withLiveFrame(live, relayed("sensor", { temperature: 40 }), 5_000)).toBe(live);
     // A machine frame without its times changes nothing.
-    expect(withLiveFrame(live, relayed("machine", { state: { state: "idle", substate: "idle" } }))).toBe(live);
+    expect(withLiveFrame(live, relayed("machine", { state: { state: "idle", substate: "idle" } }), 5_000)).toBe(live);
   });
 
   it("reads the water level against the refill level, low at or below it", () => {
@@ -105,5 +129,69 @@ describe("the Live View's events", () => {
     expect(machineConnectedOf({ ...devices, devices: listed.filter((device) => device.type !== "machine") })).toBe(false);
     expect(machineConnectedOf({ ...devices, devices: undefined })).toBeNull();
     expect(machineConnectedOf(undefined)).toBeNull();
+  });
+});
+
+describe("what the Live View can show", () => {
+  const [devicesConnected, devicesDisconnected] = framesOf("machine-disconnects.json", "devices");
+  const [awake] = framesOf("shot.json", "machine");
+  const sleeping = framesOf("asleep.json", "machine").find((frame) => (frame.state as { state: string }).state === "sleeping")!;
+  /** The Live View with a machine snapshot the page received at `arrivedAt`, and a device list. */
+  const liveWith = (frame: Record<string, unknown>, arrivedAt: number, devices = devicesConnected): LiveState => ({
+    machine: { snapshot: frame, receivedAt: event.receivedAt, stateSince: event.stateSince },
+    machineArrivedAt: arrivedAt,
+    devices,
+  });
+  const openedAt = 10_000;
+  const judged = (live: LiveState | undefined, now: number, online = true, mismatched = false) =>
+    liveConditionOf({ online, mismatched, live, openedAt, now });
+
+  it("is offline, then mismatched, as the page last polled the Machine, but for a machine snapshot come within 5 s", () => {
+    expect(judged(undefined, 20_000, false)).toBe("offline");
+    expect(judged(undefined, 20_000, false, true)).toBe("offline");
+    expect(judged({ devices: devicesConnected }, openedAt, false)).toBe("offline");
+    // One that has connected since the page's last poll sends its snapshots before the next poll finds it online.
+    const live = liveWith(awake!, 20_000);
+    expect(judged(live, 25_000, false)).toBe("live");
+    expect(judged(live, 25_001, false)).toBe("offline");
+    expect(judged(live, 20_000, true, true)).toBe("mismatch");
+    expect(judged(live, 20_000, false, true)).toBe("mismatch");
+  });
+
+  it("waits until something has come, and says when the Tablet lists its machine not connected", () => {
+    expect(judged(undefined, openedAt + 60_000)).toBe("waiting");
+    expect(machineConnectedOf(devicesDisconnected)).toBe(false);
+    expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 20_000)).toBe("notConnected");
+    // However long ago its last snapshot came.
+    expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 90_000)).toBe("notConnected");
+    expect(judged({ devices: devicesDisconnected }, 20_000)).toBe("notConnected");
+    // A device list that names no machine at all says nothing of it.
+    expect(judged(liveWith(awake!, 20_000, { ...devicesConnected, devices: undefined }), 20_000)).toBe("live");
+  });
+
+  it("is stale once more than 5 s has passed since the latest machine snapshot came, by the page's clock", () => {
+    const live = liveWith(awake!, 20_000);
+    expect(staleAtOf(live, openedAt)).toBe(20_000 + STALE_AFTER_MS);
+    expect(judged(live, 20_000)).toBe("live");
+    expect(judged(live, 25_000)).toBe("live");
+    expect(judged(live, 25_001)).toBe("stale");
+    // The tablet's times in it count for nothing.
+    expect(judged({ ...live, machine: { ...live.machine!, receivedAt: "2020-01-01T00:00:00.000Z" } }, 25_000)).toBe("live");
+  });
+
+  it("counts from when the page last opened its stream until the first machine snapshot comes", () => {
+    const live: LiveState = { waterLevels: framesOf("opening.json", "waterLevels")[0], devices: devicesConnected };
+    expect(staleAtOf(live, openedAt)).toBe(openedAt + STALE_AFTER_MS);
+    expect(judged(live, openedAt + STALE_AFTER_MS)).toBe("live");
+    expect(judged(live, openedAt + STALE_AFTER_MS + 1)).toBe("stale");
+  });
+
+  it("shows a Machine whose latest snapshot said it was asleep as asleep rather than stale", () => {
+    const live = liveWith(sleeping, 20_000);
+    expect(judged(live, 25_000)).toBe("live");
+    expect(judged(live, 25_001)).toBe("asleep");
+    expect(judged(live, 600_000)).toBe("asleep");
+    // Woken, it is stale again once it stops sending.
+    expect(judged(liveWith(awake!, 30_000), 35_001)).toBe("stale");
   });
 });

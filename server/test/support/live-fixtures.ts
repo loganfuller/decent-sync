@@ -6,8 +6,10 @@ import { fileURLToPath } from "node:url";
 // local sockets in #259's supervised capture (fixtures/decaid/de1pro-live-v0.9.0/,
 // whose README says how and what each holds). Its machine socket sends what
 // the plugin's `stateUpdate` carries: Decaid's `MachineSnapshot.toJson()`.
+// Also Decaid v0.9.0's sockets as its simulated machine was disconnected and
+// connected again (fixtures/decaid/simulated-devices-v0.9.0/, #264).
 
-const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid/de1pro-live-v0.9.0");
+const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid");
 
 /** One frame of a recording: when it arrived, in ms from the first, the socket it came from, and Decaid's JSON. */
 export interface LiveFixtureFrame {
@@ -16,9 +18,20 @@ export interface LiveFixtureFrame {
   frame: Record<string, unknown>;
 }
 
-/** A recording's frames, such as `shot.json`'s, in the order they arrived. */
-export function liveFixture(file: string): LiveFixtureFrame[] {
-  return (JSON.parse(fs.readFileSync(path.join(fixturesDir, file), "utf8")) as { frames: LiveFixtureFrame[] }).frames;
+/** A recording's frames, such as `shot.json`'s, in the order they arrived, from the test tablet's unless another directory is named. */
+export function liveFixture(file: string, directory = "de1pro-live-v0.9.0"): LiveFixtureFrame[] {
+  return (JSON.parse(fs.readFileSync(path.join(fixturesDir, directory, file), "utf8")) as { frames: LiveFixtureFrame[] }).frames;
+}
+
+/**
+ * The device lists Decaid v0.9.0's devices socket sent as its simulated
+ * machine was disconnected and connected again (`machine-disconnects.json`):
+ * the machine connected, then disconnected, then connected again.
+ */
+export function machineDisconnects(): Record<"connected" | "disconnected" | "reconnected", Record<string, unknown>> {
+  const lists = liveFixture("machine-disconnects.json", "simulated-devices-v0.9.0").filter((frame) => frame.source === "devices");
+  const [connected, disconnected, reconnected] = lists.map((frame) => frame.frame);
+  return { connected: connected!, disconnected: disconnected!, reconnected: reconnected! };
 }
 
 /** A recording's machine snapshots, in order, each as `stateUpdate` carries it. */

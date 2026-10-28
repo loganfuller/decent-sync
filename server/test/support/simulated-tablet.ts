@@ -1005,10 +1005,13 @@ export class SimulatedTablet {
    * answers from now on, the fan threshold is 50 and the refill kit set to
    * auto, as Decaid sets them on every connect, and Decaid starts sending
    * machine state updates, of which this delivers one, with the state
-   * /machine/state answers.
+   * /machine/state answers. Given `devices`, the device list saying it is
+   * connected, such as Decaid's recorded one (`machineDisconnects` in
+   * live-fixtures.ts), Decaid's devices socket sends it first.
    */
-  connectMachine(): void {
+  connectMachine(devices?: Record<string, unknown>): void {
     this.machineConnected = true;
+    if (devices) this.reportOnSocket("devices", devices);
     // A machine connecting to Decaid has its fan threshold and refill kit set to Decaid's defaults (decaid-settings.ts).
     const { settings, advanced } = reconnected(this.api["/machine/settings"], this.api["/machine/settings/advanced"]);
     if ("/machine/settings" in this.api) this.api = { ...this.api, "/machine/settings": settings };
@@ -1016,6 +1019,19 @@ export class SimulatedTablet {
     this.fire("stateUpdate", this.api["/machine/state"]);
     // Decaid's sockets of the machine bind to it as it connects, and send its latest.
     for (const source of ["waterLevels", "shotSettings"] as const) this.sendOnSocket(source, this.socketState[source]);
+  }
+
+  /**
+   * Disconnects the machine from the tablet, as when it is switched off or
+   * out of reach: /machine/info, /machine/state and the machine's settings
+   * fail from now on, and Decaid sends no machine state updates, water levels
+   * or shot settings. Decaid's devices socket sends `devices`, the device list
+   * saying so, such as Decaid's recorded one (`machineDisconnects` in
+   * live-fixtures.ts), and sends it as it opens from now on.
+   */
+  disconnectMachine(devices: Record<string, unknown>): void {
+    this.machineConnected = false;
+    this.reportOnSocket("devices", devices);
   }
 
   /**

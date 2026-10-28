@@ -10,7 +10,6 @@ import {
   PendingMachineActions,
   StatusBadge,
   describeHardware,
-  describeMachineState,
   formatTime,
   lastShotText,
   needsHardware,
@@ -215,7 +214,7 @@ function MachineDetails({ id }: { id: string }) {
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
           <SetAsideDeliveriesCard machineId={machine.id} />
-          <LiveViewCard machineId={machine.id} profile={data?.workflow?.workflow.profile} lastShotId={machine.lastShot?.id ?? null} />
+          <LiveViewCard machine={machine} profile={data?.workflow?.workflow.profile} />
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -245,11 +244,6 @@ function MachineDetails({ id }: { id: string }) {
                 <Fields label="Status">
                   <Field term="Status">{machine.online ? "Online" : "Offline"}</Field>
                   <Field term="Last seen">{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</Field>
-                  <Field term="Machine state">
-                    {machine.machineState
-                      ? `${describeMachineState(machine.machineState)}, since ${formatTime(machine.machineState.observedAt)}`
-                      : "Not reported yet"}
-                  </Field>
                   <Field term="Last Shot">
                     {machine.lastShot ? (
                       <Link to={`/shots/${encodeURIComponent(machine.lastShot.id)}`} className="underline underline-offset-4">
