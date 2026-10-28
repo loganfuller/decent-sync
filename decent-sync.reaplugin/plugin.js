@@ -872,6 +872,9 @@ var __decentSync = (() => {
   var SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWater"];
   var MAX_REFUSAL_LENGTH = 1e3;
   var LIVE_VIEW_WIRE_REVISION = 2;
+  function liveSourceOf(live) {
+    return live.source === "sensor" ? `sensor ${live.sensorId}` : live.source;
+  }
   var MAX_NOTIFICATION_BYTES = 7999;
   function relayedLiveFrame(machineId, live) {
     const relayed = {
@@ -1017,8 +1020,7 @@ var __decentSync = (() => {
         return check(object3, "liveStop", () => {
         });
       case "liveReceived":
-        return check(object3, "liveReceived", () => {
-        });
+        return check(object3, "liveReceived", (fields) => fields.integer("bytes", { nonNegative: true }));
       default:
         return invalid("Unknown message type");
     }
@@ -3360,6 +3362,51 @@ var __decentSync = (() => {
       this.forward(frame);
     }
   };
+  var LIVE_BUDGET_BYTES = 64 * 1024;
+  var LiveBudget = class {
+    constructor(send) {
+      __publicField(this, "send", send);
+      /** The bytes of live frames sent on the connection, less those Decaid refused. */
+      __publicField(this, "sent", 0);
+      /** The bytes of them the server has said it received. */
+      __publicField(this, "receivedBytes", 0);
+      /** The frames held, the latest of each source, in the order they came. */
+      __publicField(this, "held", /* @__PURE__ */ new Map());
+    }
+    /** Sends the frame, of `bytes` as sent, or holds it as its source's latest. */
+    offer(source, frame, bytes) {
+      if (this.held.size === 0 && this.fits(bytes)) return this.forward(frame, bytes);
+      this.held.delete(source);
+      this.held.set(source, { frame, bytes });
+    }
+    /** The server's `liveReceived`: the bytes of live frames it has received on the connection, in all. */
+    received(bytes) {
+      this.receivedBytes = Math.max(this.receivedBytes, bytes);
+      this.release();
+    }
+    /** Drops the frames it holds, as streaming stops. What was sent stays counted until the server receives it. */
+    clear() {
+      this.held.clear();
+    }
+    fits(bytes) {
+      return this.sent - this.receivedBytes + bytes <= LIVE_BUDGET_BYTES;
+    }
+    /** Sends what is held, in order, while it fits. */
+    release() {
+      for (const [source, { frame, bytes }] of this.held) {
+        if (!this.fits(bytes)) return;
+        this.held.delete(source);
+        this.forward(frame, bytes);
+      }
+    }
+    forward(frame, bytes) {
+      this.sent += bytes;
+      this.send(frame).catch(() => {
+        this.sent -= bytes;
+        this.release();
+      });
+    }
+  };
   var LiveView = class {
     constructor(log) {
       __publicField(this, "log", log);
@@ -3367,6 +3414,8 @@ var __decentSync = (() => {
       __publicField(this, "streaming");
       __publicField(this, "timeInState", new TimeInState());
       __publicField(this, "rate", new LiveRate((frame) => this.send(frame)));
+      /** The live budget of the connection, which the next connection starts afresh. */
+      __publicField(this, "budget", this.newBudget());
       /** Set once a frame too large to relay was dropped while streaming, so the log says so once a stream. */
       __publicField(this, "droppedLarge", false);
     }
@@ -3376,10 +3425,23 @@ var __decentSync = (() => {
       this.streaming = send;
       this.droppedLarge = false;
     }
-    /** The server's `liveStop`, or the end of the connection streaming. */
+    /**
+     * The server's `liveStop`: drops the frames held. The bytes the server has
+     * yet to receive stay counted, as it may start the same connection again.
+     */
     stop() {
       this.streaming = void 0;
       this.rate.clear();
+      this.budget.clear();
+    }
+    /** The end of the connection, streaming or not: the next connection's budget starts afresh. */
+    disconnected() {
+      this.stop();
+      this.budget = this.newBudget();
+    }
+    /** The server's `liveReceived`: the bytes of live frames it has received on this connection, in all. */
+    received(bytes) {
+      this.budget.received(bytes);
     }
     /** Decaid's `stateUpdate`: the machine snapshot, several times a second while a machine is connected. */
     stateUpdate(payload) {
@@ -3392,15 +3454,16 @@ var __decentSync = (() => {
       this.rate.offer("machine", frame, { now: activity || named.changed });
     }
     send(frame) {
-      const send = this.streaming;
-      if (!send) return;
+      if (!this.streaming) return;
       if (!liveFrameFits(frame)) {
         if (!this.droppedLarge) this.log(`Dropped a ${frame.source} frame too large to relay to the Live View; any more are dropped too.`);
         this.droppedLarge = true;
         return;
       }
-      send(frame).catch(() => {
-      });
+      this.budget.offer(liveSourceOf(frame), frame, utf8Length(encode(frame)));
+    }
+    newBudget() {
+      return new LiveBudget((frame) => this.streaming ? this.streaming(frame) : Promise.reject(new Error("Not streaming")));
     }
   };
 
@@ -5025,6 +5088,7 @@ var __decentSync = (() => {
           this.liveView.stop();
           break;
         case "liveReceived":
+          this.liveView.received(message.bytes);
           break;
         case "heartbeat":
           break;
@@ -5152,7 +5216,7 @@ var __decentSync = (() => {
       this.handle = void 0;
       this.welcomed = false;
       this.serverRevision = FIRST_WIRE_REVISION;
-      this.liveView.stop();
+      this.liveView.disconnected();
       this.sender?.close();
       this.sender = void 0;
       this.outbox.disconnected();

@@ -1666,11 +1666,14 @@ export interface LiveStop {
 }
 
 /**
- * Says the server has received the plugin's live frames sent before it,
- * freeing the plugin's budget for them (ADR-0024).
+ * Says how much of the plugin's live frames the server has received on this
+ * connection, freeing the plugin's budget for them (ADR-0024). Sent as live
+ * frames arrive, at most once a second, whether or not they are relayed.
  */
 export interface LiveReceived {
   type: "liveReceived";
+  /** The UTF-8 bytes of the live frames received on this connection, in all, each frame's text as sent. */
+  bytes: number;
 }
 
 /** Where a live frame came from in Decaid: its `stateUpdate` event, or one of its local sockets (ADR-0024). */
@@ -1695,6 +1698,15 @@ export interface LiveFrame {
   stateSince?: string;
   /** Decaid's data, opaque: for `machine`, the machine snapshot `stateUpdate` carries. */
   frame: Record<string, unknown>;
+}
+
+/**
+ * The source a live frame is the latest of, where only the latest of each
+ * waits its turn: its `source`, and for a sensor its id too, as each sensor
+ * is a source of its own.
+ */
+export function liveSourceOf(live: Pick<LiveFrame, "source" | "sensorId">): string {
+  return live.source === "sensor" ? `sensor ${live.sensorId}` : live.source;
 }
 
 /**
@@ -2140,7 +2152,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
     case "liveStop":
       return check<LiveStop>(object, "liveStop", () => {});
     case "liveReceived":
-      return check<LiveReceived>(object, "liveReceived", () => {});
+      return check<LiveReceived>(object, "liveReceived", (fields) => fields.integer("bytes", { nonNegative: true }));
     default:
       return invalid("Unknown message type");
   }

@@ -1,7 +1,16 @@
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import type { Response } from "express";
-import { type LiveFrame, type LiveStart, type LiveStop, MAX_NOTIFICATION_BYTES, relayedLiveFrame, utf8Length } from "@decent-sync/protocol";
+import {
+  type LiveFrame,
+  type LiveReceived,
+  type LiveStart,
+  type LiveStop,
+  MAX_NOTIFICATION_BYTES,
+  liveSourceOf,
+  relayedLiveFrame,
+  utf8Length,
+} from "@decent-sync/protocol";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { machineNotFound } from "../machines/input.js";
@@ -20,6 +29,18 @@ const MAX_UNSENT_BYTES = 64 * 1024;
 const EXPIRY_MARGIN_MS = 50;
 /** How long after a failed check of the leases it is tried again. */
 const CHECK_RETRY_MS = 5_000;
+/** How often, at most, a connection is told with `liveReceived` how much of its live frames have arrived. */
+const RECEIVED_INTERVAL_MS = 1_000;
+/**
+ * How many live frames a connection may send a second; those past it are
+ * dropped. The plugin's own never reach it. Decaid sends about 10 a second
+ * from each source by its docs, and 30 a second from all sources together
+ * during a shot on the test tablet (#259). The most to arrive at once, as a
+ * stalled link recovers, is the plugin's live budget of 64 KiB, which holds
+ * fewer than 750 frames, as a frame's envelope alone takes 88 bytes. Counted
+ * in each instance's memory (ADR-0016).
+ */
+const MAX_LIVE_FRAMES_PER_SECOND = 1_000;
 
 /** A plugin connection this instance welcomed, which may stream for the Live View: not mismatched, and at its wire revision. */
 export interface LiveViewConnection {
@@ -28,7 +49,7 @@ export interface LiveViewConnection {
   /** For log lines, such as "Machine Bar 1 (203.0.113.7)". */
   description: string;
   /** Sends the plugin a message, unless its connection is closing. */
-  send(message: LiveStart | LiveStop): void;
+  send(message: LiveStart | LiveStop | LiveReceived): void;
 }
 
 interface Holder {
@@ -48,6 +69,17 @@ interface Holder {
   failing: boolean;
   /** Set once a frame too large to relay was dropped, so that is logged once. */
   droppedLarge: boolean;
+  /** The UTF-8 bytes of the live frames received from it, in all, which `liveReceived` tells the plugin. */
+  receivedBytes: number;
+  /** When it was last sent `liveReceived`, by `performance.now()`. */
+  answeredAt: number;
+  /** Sends `liveReceived` once RECEIVED_INTERVAL_MS has passed since the last, for the frames received meanwhile. */
+  answer?: NodeJS.Timeout;
+  /** When the second its frames are counted in began, by `performance.now()`, and how many came in it. */
+  secondFrom: number;
+  framesThisSecond: number;
+  /** Set once a frame past MAX_LIVE_FRAMES_PER_SECOND was dropped, so that is logged once. */
+  droppedOverCap: boolean;
 }
 
 interface Stream {
@@ -88,9 +120,14 @@ interface Stream {
  *   holds its Machine as it is relayed, goes to every instance by NOTIFY on
  *   `live_frames`, outside any transaction, one at a time for each connection,
  *   the latest frame of each source waiting its turn. One too large for a
- *   notification, or unrequested, is dropped, and a failed relay is logged
- *   and dropped; none closes the connection. Every instance forwards each to
- *   its own streams of that Machine.
+ *   notification, unrequested, or past the connection's
+ *   MAX_LIVE_FRAMES_PER_SECOND is dropped, and a failed relay is logged and
+ *   dropped; none closes the connection. Every instance forwards each to its
+ *   own streams of that Machine.
+ * - **Backpressure.** Each connection is told how many bytes of its live
+ *   frames have arrived, relayed or not, with `liveReceived`, as they arrive
+ *   but at most once a RECEIVED_INTERVAL_MS, which frees the plugin's live
+ *   budget for them.
  *
  * Its memory holds only this instance's own streams and connections
  * (ADR-0016).
@@ -190,7 +227,21 @@ export class LiveViews implements OnModuleDestroy {
 
   /** A connection this instance welcomed that may stream: whether it is to stream is decided now. */
   welcomed(connection: LiveViewConnection): void {
-    const holder: Holder = { connection, started: false, deciding: Promise.resolve(), closed: false, relaying: false, waiting: new Map(), failing: false, droppedLarge: false };
+    const holder: Holder = {
+      connection,
+      started: false,
+      deciding: Promise.resolve(),
+      closed: false,
+      relaying: false,
+      waiting: new Map(),
+      failing: false,
+      droppedLarge: false,
+      receivedBytes: 0,
+      answeredAt: -Infinity,
+      secondFrom: -Infinity,
+      framesThisSecond: 0,
+      droppedOverCap: false,
+    };
     this.holders.set(connection.sessionId, holder);
     this.check(holder);
   }
@@ -201,15 +252,22 @@ export class LiveViews implements OnModuleDestroy {
     if (!holder) return;
     holder.closed = true;
     clearTimeout(holder.expiry);
+    clearTimeout(holder.answer);
     holder.waiting.clear();
     this.holders.delete(sessionId);
   }
 
-  /** A live frame the connection sent, handled as it arrives. */
-  frame(sessionId: string, live: LiveFrame): void {
+  /** A live frame the connection sent, `bytes` long as received, handled as it arrives. */
+  frame(sessionId: string, live: LiveFrame, bytes: number): void {
     const holder = this.holders.get(sessionId);
-    // Unrequested: from a connection never started, or stopped since, or one that never streams.
-    if (!holder?.started || holder.closed) return;
+    // From a connection that never streams.
+    if (!holder || holder.closed) return;
+    // Received, whatever becomes of it, so the plugin's budget is freed for it.
+    holder.receivedBytes += bytes;
+    this.answer(holder);
+    // Unrequested: from a connection never started, or stopped since.
+    if (!holder.started) return;
+    if (this.overCap(holder)) return;
     const payload = relayedLiveFrame(holder.connection.machineId, live);
     if (utf8Length(payload) > MAX_NOTIFICATION_BYTES) {
       if (!holder.droppedLarge) this.logger.warn(`Dropped a live frame from ${holder.connection.description} too large to relay; any more are dropped too`);
@@ -217,9 +275,42 @@ export class LiveViews implements OnModuleDestroy {
       return;
     }
     if (!holder.relaying) return void this.track(this.relay(holder, payload));
-    const source = live.source === "sensor" ? `sensor ${live.sensorId}` : live.source;
+    const source = liveSourceOf(live);
     holder.waiting.delete(source);
     holder.waiting.set(source, payload);
+  }
+
+  /** Tells the connection how much of its live frames have arrived: at once, or once RECEIVED_INTERVAL_MS has passed since it was last told. */
+  private answer(holder: Holder): void {
+    if (holder.answer !== undefined) return;
+    const wait = holder.answeredAt + RECEIVED_INTERVAL_MS - performance.now();
+    if (wait <= 0) return this.sendReceived(holder);
+    // A timer may fire a little early, by the loop's cached clock, so the time is checked again then.
+    holder.answer = setTimeout(() => {
+      holder.answer = undefined;
+      this.answer(holder);
+    }, Math.ceil(wait));
+  }
+
+  private sendReceived(holder: Holder): void {
+    if (holder.closed) return;
+    holder.answeredAt = performance.now();
+    holder.connection.send({ type: "liveReceived", bytes: holder.receivedBytes });
+  }
+
+  /** Counts a frame toward the connection's MAX_LIVE_FRAMES_PER_SECOND, saying whether it is past it, and so dropped. */
+  private overCap(holder: Holder): boolean {
+    const now = performance.now();
+    if (now - holder.secondFrom >= 1_000) {
+      holder.secondFrom = now;
+      holder.framesThisSecond = 0;
+    }
+    if (++holder.framesThisSecond <= MAX_LIVE_FRAMES_PER_SECOND) return false;
+    if (!holder.droppedOverCap) {
+      this.logger.warn(`Dropped live frames from ${holder.connection.description} past ${MAX_LIVE_FRAMES_PER_SECOND} a second; any more past it are dropped too`);
+    }
+    holder.droppedOverCap = true;
+    return true;
   }
 
   /** Decides whether the connection is to stream, in turn. */

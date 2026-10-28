@@ -60,6 +60,7 @@
   "server/test/library-recipe-copies.test.ts": 10,
   "server/test/library-recipe-management.test.ts": 20,
   "server/test/library-recipes.test.ts": 20,
+  "server/test/live-view-backpressure.test.ts": 6,
   "server/test/live-view.test.ts": 8,
   "server/test/loaded-recipe-following.test.ts": 83,
   "server/test/loaded-recipe-intake.test.ts": 0,

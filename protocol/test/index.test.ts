@@ -519,10 +519,13 @@ describe("Live View messages", () => {
     expect(refused({ ...live, frame: "secret" })).not.toContain("secret");
   });
 
-  it("reads the server's live messages, each without a payload", () => {
-    for (const type of ["liveStart", "liveStop", "liveReceived"]) {
-      expect(decodeServerMessage(frame({ type }))).toEqual({ ok: true, message: { type } });
-      expect(decodePluginMessage(frame({ type }))).toMatchObject({ ok: false, problem: "Unknown message type" });
+  it("reads the server's live messages: a start and a stop without a payload, and the bytes of live frames received", () => {
+    for (const message of [{ type: "liveStart" }, { type: "liveStop" }, { type: "liveReceived", bytes: 0 }, { type: "liveReceived", bytes: 70_000 }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodePluginMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    for (const bytes of [undefined, -1, 1.5, "512"]) {
+      expect(decodeServerMessage(frame({ type: "liveReceived", bytes }))).toMatchObject({ ok: false, problem: expect.stringMatching(/^liveReceived\.bytes must /) });
     }
     expect(decodeServerMessage(encode(live))).toMatchObject({ ok: false, problem: "Unknown message type" });
   });

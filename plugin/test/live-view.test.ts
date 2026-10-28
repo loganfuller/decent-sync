@@ -1,11 +1,11 @@
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import type { LiveFrame } from "@decent-sync/protocol";
-import { LIVE_INTERVAL_MS, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
+import { type LiveFrame, encode, utf8Length } from "@decent-sync/protocol";
+import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LiveBudget, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
 
 // The plugin's side of the Live View: when time in state restarts, the rate
-// rule, and what it streams, on the test tablet's DE1Pro's machine snapshots
-// (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259).
+// rule, the live budget, and what it streams, on the test tablet's DE1Pro's
+// machine snapshots (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259).
 
 function machineFrames(file: string): Record<string, unknown>[] {
   const url = new URL(`../../server/test/fixtures/decaid/de1pro-live-v0.9.0/${file}`, import.meta.url);
@@ -123,6 +123,85 @@ describe("LiveRate", () => {
   });
 });
 
+describe("LiveBudget", () => {
+  /** A budget whose sends are recorded, refused while `refusing` holds. */
+  function budget(): { budget: LiveBudget<string>; sent: string[]; refusing: { now: boolean } } {
+    const sent: string[] = [];
+    const refusing = { now: false };
+    const budget = new LiveBudget<string>(async (frame) => {
+      if (refusing.now) throw Object.assign(new Error("Outbound data limit exceeded; send rejected"), { code: "transport_resource_limit" });
+      sent.push(frame);
+    });
+    return { budget, sent, refusing };
+  }
+  const quarter = LIVE_BUDGET_BYTES / 4;
+
+  it("sends frames while the bytes the server has yet to receive stay within the budget, then holds the latest of each source", () => {
+    const { budget: live, sent } = budget();
+    for (const frame of ["machine 1", "scale 1", "machine 2", "scale 2"]) live.offer(frame.split(" ")[0]!, frame, quarter);
+    expect(sent).toEqual(["machine 1", "scale 1", "machine 2", "scale 2"]);
+    live.offer("machine", "machine 3", 1);
+    live.offer("scale", "scale 3", 1);
+    live.offer("machine", "machine 4", 1);
+    live.offer("waterLevels", "water 1", 1);
+    expect(sent).toHaveLength(4);
+    // The server has the first two: room for the held, in the order each source's latest came.
+    live.received(2 * quarter);
+    expect(sent.slice(4)).toEqual(["scale 3", "machine 4", "water 1"]);
+  });
+
+  it("holds every frame behind those held, even one that would fit, and sends what was held only as it fits", () => {
+    const { budget: live, sent } = budget();
+    live.offer("machine", "machine 1", LIVE_BUDGET_BYTES - 100);
+    live.offer("machine", "machine 2", 200);
+    // It would fit, but waits its turn.
+    live.offer("scale", "scale 1", 50);
+    expect(sent).toEqual(["machine 1"]);
+    // Received in part: still no room for the held machine frame, so the scale frame behind it waits too.
+    live.received(50);
+    expect(sent).toEqual(["machine 1"]);
+    live.received(LIVE_BUDGET_BYTES - 100);
+    expect(sent).toEqual(["machine 1", "machine 2", "scale 1"]);
+    // Nothing held, so the next goes at once.
+    live.offer("machine", "machine 3", 200);
+    expect(sent.at(-1)).toBe("machine 3");
+  });
+
+  it("takes the server's count of what it received, in all, ignoring one older than the last", () => {
+    const { budget: live, sent } = budget();
+    live.offer("machine", "machine 1", LIVE_BUDGET_BYTES);
+    live.received(LIVE_BUDGET_BYTES);
+    live.offer("machine", "machine 2", LIVE_BUDGET_BYTES);
+    expect(sent).toEqual(["machine 1", "machine 2"]);
+    live.offer("machine", "machine 3", 1);
+    // A count from before the last, as one overtaken, frees nothing.
+    live.received(LIVE_BUDGET_BYTES - 1);
+    expect(sent).toHaveLength(2);
+    live.received(2 * LIVE_BUDGET_BYTES);
+    expect(sent).toEqual(["machine 1", "machine 2", "machine 3"]);
+  });
+
+  it("frees a frame Decaid refuses, which never leaves the tablet, and sends what it held", async () => {
+    const { budget: live, sent, refusing } = budget();
+    refusing.now = true;
+    live.offer("machine", "refused", LIVE_BUDGET_BYTES);
+    live.offer("machine", "held", 1);
+    refusing.now = false;
+    await vi.waitFor(() => expect(sent).toEqual(["held"]));
+  });
+
+  it("drops what it holds once cleared, keeping what was sent counted until the server receives it", () => {
+    const { budget: live, sent } = budget();
+    live.offer("machine", "machine 1", LIVE_BUDGET_BYTES);
+    live.offer("machine", "dropped", 1);
+    live.clear();
+    live.offer("machine", "machine 2", 1);
+    expect(sent).toEqual(["machine 1"]);
+    live.received(LIVE_BUDGET_BYTES);
+    expect(sent).toEqual(["machine 1", "machine 2"]);
+  });
+});
+
 describe("LiveView", () => {
   beforeEach(() => vi.useFakeTimers({ now: new Date("2026-10-27T21:04:57.000Z") }));
   afterEach(() => vi.useRealTimers());
@@ -163,7 +242,11 @@ describe("LiveView", () => {
     // Idle, 0.8 s of frames at 10 a second: one sent, the latest held.
     expect(sent.map((frame) => frame.stateSince)).toEqual([idleSince]);
     const espresso = frames.filter((snapshot) => (snapshot.state as { state: string }).state === "espresso");
-    for (const snapshot of espresso) live.stateUpdate(snapshot);
+    // The server receives each as it is sent, so the live budget holds none back.
+    for (const snapshot of espresso) {
+      live.stateUpdate(snapshot);
+      live.received(sent.reduce((sum, frame) => sum + utf8Length(encode(frame)), 0));
+    }
     expect(sent.slice(1).map((frame) => frame.frame)).toEqual(espresso);
   });
 
@@ -190,6 +273,36 @@ describe("LiveView", () => {
     vi.advanceTimersByTime(LIVE_INTERVAL_MS * 2);
     live.stateUpdate(first);
     expect(sent.map((frame) => frame.frame)).toEqual([first]);
+  });
+
+  it("holds the latest frame past its budget until the server says it received the rest, and starts afresh on the next connection", () => {
+    const { live, sent } = streaming();
+    const espresso = machineFrames("shot.json").filter((snapshot) => (snapshot.state as { state: string }).state === "espresso");
+    // Every frame of a shot goes, until the budget is spent.
+    const offered: Record<string, unknown>[] = [];
+    while (sent.length === offered.length) {
+      offered.push(espresso[offered.length % espresso.length]!);
+      live.stateUpdate(offered.at(-1));
+    }
+    const bytes = (frames: LiveFrame[]) => frames.reduce((sum, frame) => sum + utf8Length(encode(frame)), 0);
+    expect(bytes(sent)).toBeLessThanOrEqual(LIVE_BUDGET_BYTES);
+    expect(bytes(sent) + utf8Length(encode({ ...sent[0]!, frame: offered.at(-1)! }))).toBeGreaterThan(LIVE_BUDGET_BYTES);
+    const held = sent.length;
+    for (const snapshot of espresso.slice(0, 5)) live.stateUpdate(snapshot);
+    expect(sent).toHaveLength(held);
+
+    // The server has received them all: only the latest held goes.
+    live.received(bytes(sent));
+    expect(sent.slice(held).map((frame) => frame.frame)).toEqual([espresso[4]]);
+
+    // Held again, then the connection ends: the next starts with nothing counted and nothing held.
+    live.received(bytes(sent) - 1);
+    for (let n = 0; n < 200; n++) live.stateUpdate(espresso[n % espresso.length]);
+    live.disconnected();
+    const next: LiveFrame[] = [];
+    live.start(async (frame) => void next.push(frame));
+    live.stateUpdate(espresso[0]);
+    expect(next.map((frame) => frame.frame)).toEqual([espresso[0]]);
   });
 
   it("drops a frame Decaid's transport refuses, and goes on", async () => {
