@@ -19,11 +19,13 @@ import {
   type ItemLeftOut,
   type ItemRemoved,
   type ItemWritten,
+  LIVE_VIEW_WIRE_REVISION,
   type LeaveOut,
   type LibraryDelete,
   type LibraryRemove,
   type LibraryWrite,
   type ListUnrecognised,
+  type LiveFrame,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
@@ -45,6 +47,8 @@ import {
   isLibraryKind,
   isLibraryList,
   isWrittenKind,
+  peerHasWireRevision,
+  wireRevisionOf,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
 import { CollectionsService } from "../collections/collections.service.js";
@@ -57,6 +61,7 @@ import type { SeenDecision } from "../library/intake.js";
 import { deleteKey, leaveOutKey, removeKey, writeKey } from "../library/holdings.js";
 import { writtenKind } from "../library/kinds.js";
 import { forgetRefusal, recordApplied, recordRefused } from "../library/sharing-status.js";
+import { LiveViews } from "../live-view/live-views.js";
 import { MachineEventsService } from "../machine-events/machine-events.service.js";
 import { type LiveConnection, LiveConnections } from "../machines/connections.js";
 import { MachinesService, type Refusal } from "../machines/machines.service.js";
@@ -177,6 +182,11 @@ interface Session {
  * (`SettingsEditsService`); its answer is recorded by whichever instance it
  * reaches.
  *
+ * A welcomed connection that may stream for the Live View, one not
+ * mismatched from a plugin at its wire revision, is handed to `LiveViews`,
+ * which starts and stops it, and so is each of its live frames as it arrives,
+ * ahead of its deliveries (ADR-0024).
+ *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
  * accepted or closes. Connections that hold a Machine are not counted. The
@@ -211,6 +221,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly setAside: SetAsideDeliveriesService,
     private readonly settingsEdits: SettingsEditsService,
     private readonly prisma: PrismaService,
+    private readonly liveViews: LiveViews,
     notifications: Notifications,
   ) {
     notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
@@ -320,6 +331,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     socket.on("message", (data, isBinary) => {
       const text = isBinary ? undefined : rawToString(data);
       const decoded = text === undefined ? undefined : decodePluginFrame(text);
+      if (decoded?.ok === true && decoded.message.type === "liveFrame" && this.liveFrame(session, decoded.message)) return;
       const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
@@ -345,6 +357,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (!session.welcomed || session.closing) return false;
     this.resetIdleTimer(session);
     this.send(session, { type: "heartbeat" });
+    return true;
+  }
+
+  /**
+   * Hands a welcomed connection's live frame to the Live View as it arrives,
+   * ahead of the deliveries queued before it, as a heartbeat is answered
+   * (ADR-0024). Says whether it did: one arriving before the connection was
+   * welcomed waits its turn, and is refused there before a hello, or dropped.
+   */
+  private liveFrame(session: Session, live: LiveFrame): boolean {
+    if (!session.welcomed || session.closing) return false;
+    this.liveViews.frame(session.id, live);
     return true;
   }
 
@@ -396,6 +420,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       if (message.type !== "hello") return this.refuse(session, "protocol_error", "The first message must be hello");
       return this.hello(session, message);
     }
+    // Unrequested, as it came before the connection was welcomed, or in chunks, which live frames never are.
+    if (message.type === "liveFrame") return;
     if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
       const request = session.handled.get(message.id);
       if (request) this.send(session, request);
@@ -831,6 +857,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     // An edit made while this hello was being accepted was notified before the session could be found.
     this.sendSettingsEdits(session);
+    // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's, or
+    // its plugin is from before the Live View's messages.
+    if (identity.kind !== "mismatch" && peerHasWireRevision(wireRevisionOf(hello), LIVE_VIEW_WIRE_REVISION)) {
+      this.liveViews.welcomed({
+        sessionId: session.id,
+        machineId: machine.id,
+        description: this.describe(session),
+        send: (message) => {
+          if (!session.closing) this.send(session, message);
+        },
+      });
+    }
     this.logger.log(
       `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
     );
@@ -883,6 +921,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.clearTimers(session);
     session.closing = true;
     session.writer?.stop();
+    this.liveViews.closed(session.id);
     if (!session.live) return;
     this.live.delete(session.live);
     // Released together on shutdown.

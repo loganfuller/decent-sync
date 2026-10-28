@@ -9,10 +9,11 @@
 // they report, apart from a Decaid version's release numbers: a `hello`
 // carries the Machine's token.
 
-import type { Chunk } from "./chunking.js";
+import { type Chunk, utf8Length } from "./chunking.js";
 import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.js";
 
 export * from "./chunking.js";
+export * from "./machine-states.js";
 export * from "./settings-fields.js";
 export * from "./steam-phases.js";
 
@@ -44,7 +45,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 1;
+export const WIRE_REVISION = 2;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -1642,6 +1643,97 @@ export interface ChunkReceived {
   index: number;
 }
 
+/**
+ * The wire revision that brought the Live View's messages (ADR-0024): the
+ * server sends `liveStart` and `liveStop` only to a plugin at it, and the
+ * plugin sends `liveFrame` only to a server at it (`peerHasWireRevision`).
+ */
+export const LIVE_VIEW_WIRE_REVISION = 2;
+
+/**
+ * Asks the plugin to stream its live frames (`liveFrame`) until `liveStop`,
+ * or until its connection closes: sent by the instance holding the
+ * Machine's connection while anyone has its Live View open. One while
+ * streaming changes nothing.
+ */
+export interface LiveStart {
+  type: "liveStart";
+}
+
+/** Asks the plugin to stop streaming its live frames, once nobody has the Machine's Live View open. */
+export interface LiveStop {
+  type: "liveStop";
+}
+
+/**
+ * Says the server has received the plugin's live frames sent before it,
+ * freeing the plugin's budget for them (ADR-0024).
+ */
+export interface LiveReceived {
+  type: "liveReceived";
+}
+
+/** Where a live frame came from in Decaid: its `stateUpdate` event, or one of its local sockets (ADR-0024). */
+export const LIVE_SOURCES = ["machine", "waterLevels", "scale", "shotSettings", "devices", "sensor"] as const;
+
+export type LiveSource = (typeof LIVE_SOURCES)[number];
+
+/**
+ * One of Decaid's live frames, as Decaid sent it, which the plugin streams
+ * between `liveStart` and `liveStop`. It is the one thing the plugin sends
+ * outside its outbox: it has no id, is never acknowledged, chunked, kept or
+ * sent again, and only its envelope is validated.
+ */
+export interface LiveFrame {
+  type: "liveFrame";
+  source: LiveSource;
+  /** For `sensor`, the sensor's id in Decaid. */
+  sensorId?: string;
+  /** When the plugin received it, by the tablet's clock, in UTC. Decaid's own `timestamp` in it is the tablet's local time without an offset. */
+  receivedAt: string;
+  /** For `machine`, when the plugin saw the Machine State's name begin (`nameMachineState`), by the tablet's clock, in UTC. */
+  stateSince?: string;
+  /** Decaid's data, opaque: for `machine`, the machine snapshot `stateUpdate` carries. */
+  frame: Record<string, unknown>;
+}
+
+/**
+ * The longest payload, in UTF-8 bytes, a PostgreSQL notification may carry,
+ * which must be shorter than 8000 bytes.
+ */
+export const MAX_NOTIFICATION_BYTES = 7999;
+
+/**
+ * A live frame as the server relays it, by NOTIFY on `live_frames` to every
+ * instance and on to each Live View of its Machine as one event: its
+ * Machine's id and its envelope as the plugin sent it, without its type.
+ */
+export interface RelayedLiveFrame extends Omit<LiveFrame, "type"> {
+  machineId: string;
+}
+
+/** The notification payload, and event, the server relays a live frame from the Machine with this id in. */
+export function relayedLiveFrame(machineId: string, live: LiveFrame): string {
+  const relayed: RelayedLiveFrame = {
+    machineId,
+    source: live.source,
+    ...(live.sensorId !== undefined ? { sensorId: live.sensorId } : {}),
+    receivedAt: live.receivedAt,
+    ...(live.stateSince !== undefined ? { stateSince: live.stateSince } : {}),
+    frame: live.frame,
+  };
+  return JSON.stringify(relayed);
+}
+
+/**
+ * Whether the server can relay a live frame: whether its notification
+ * (`relayedLiveFrame`) fits PostgreSQL's limit. Every Machine's id is a UUID,
+ * of one length, so the plugin can tell before sending it.
+ */
+export function liveFrameFits(live: LiveFrame): boolean {
+  return utf8Length(relayedLiveFrame("00000000-0000-0000-0000-000000000000", live)) <= MAX_NOTIFICATION_BYTES;
+}
+
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage =
   | Hello
@@ -1659,7 +1751,8 @@ export type PluginMessage =
   | ItemLeftOut
   | ListUnrecognised
   | WriteRefused
-  | SettingsEdited;
+  | SettingsEdited
+  | LiveFrame;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
   | Welcome
@@ -1675,7 +1768,10 @@ export type ServerMessage =
   | LibraryDelete
   | LibraryRemove
   | LeaveOut
-  | SettingsEdit;
+  | SettingsEdit
+  | LiveStart
+  | LiveStop
+  | LiveReceived;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -1924,6 +2020,14 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       });
     case "heartbeat":
       return check<Heartbeat>(object, "heartbeat", () => {});
+    case "liveFrame":
+      return check<LiveFrame>(object, "liveFrame", (fields) => {
+        fields.oneOf("source", LIVE_SOURCES);
+        if (object.source === "sensor") fields.string("sensorId", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
+        fields.instant("receivedAt");
+        if (object.source === "machine") fields.instant("stateSince");
+        fields.objectField("frame");
+      });
     default:
       return invalid("Unknown message type");
   }
@@ -2031,6 +2135,12 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           else schedule.string("id", { nonEmpty: true, maxLength: MAX_RECORD_ID_LENGTH });
         });
       });
+    case "liveStart":
+      return check<LiveStart>(object, "liveStart", () => {});
+    case "liveStop":
+      return check<LiveStop>(object, "liveStop", () => {});
+    case "liveReceived":
+      return check<LiveReceived>(object, "liveReceived", () => {});
     default:
       return invalid("Unknown message type");
   }

@@ -4,6 +4,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
+import { openLiveView } from "../support/live-views.js";
 import { emptyLibrary, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
@@ -198,6 +199,24 @@ describe("the latest release beside the change", () => {
       const { machine, tablet } = await connected(`Settings, the ${plugin}'s plugin`, plugin, server, { location });
       expect(await editFan(machine, server)).toBe("applied");
       expect(await heldFan(tablet)).toBe(40);
+    });
+
+    it("sends the plugin no live message, and it sends none, while its Machine's Live View is open", async () => {
+      const { machine, tablet } = await connected(`Live View, the ${plugin}'s plugin`, plugin, server);
+      // Through the change's server, as the latest release has no Live View; their database is one.
+      const stream = await openLiveView(apis.change, machine.machine.id);
+      expect(stream.status).toBe(200);
+      // A Machine whose tablet runs the change's plugin on the change's server, connected and watched after it. Each
+      // connection's decisions are its own, so its plugin's start orders them only as their queries were made: a decision
+      // on the lease above would be one query, made before the control's tablet even connected. The test fails when the
+      // change's server lets the latest release's plugin stream.
+      const control = await connected(`Live View control, the ${plugin}'s plugin`, "change", "change");
+      await openLiveView(apis.change, control.machine.machine.id);
+      await expect.poll(() => control.tablet.delivered).toContainEqual({ type: "liveStart" });
+      tablet.reportState("espresso", "pouring");
+      expect(tablet.received.filter((frame) => String((frame as { type?: unknown }).type).startsWith("live"))).toEqual([]);
+      expect(tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "liveFrame")).toEqual([]);
+      expect(stream.events).toEqual([]);
     });
   });
 

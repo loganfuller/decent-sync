@@ -141,6 +141,11 @@ export class AdminApi {
     });
   }
 
+  /** Opens a route as a browser's `EventSource` does, with the session cookie, until `signal` aborts. */
+  eventStream(path: string, signal: AbortSignal): Promise<Response> {
+    return fetch(`${this.serverUrl}/api${path}`, { headers: { Cookie: this.cookie, Accept: "text/event-stream" }, signal });
+  }
+
   /** Reads a route, expecting 200, and resolves with the JSON it answers. */
   get<T>(path: string): Promise<T> {
     return this.send<T>("GET", path);

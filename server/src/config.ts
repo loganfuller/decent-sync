@@ -30,6 +30,8 @@ export interface Config {
    * the check's interval plus its timeout (`drain.ts`).
    */
   drainGraceMs: number;
+  /** How long a Live View's stream goes with nothing to send before it sends a comment, so proxies don't close it as idle. */
+  liveViewKeepAliveMs: number;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -72,6 +74,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const clientAddressHeader = parseHeaderName("CLIENT_ADDRESS_HEADER", env.CLIENT_ADDRESS_HEADER, problems);
   // fly.io's routing check every 10 s, with a timeout of 5 s.
   const drainGraceMs = parseSeconds("DRAIN_GRACE_SECONDS", env.DRAIN_GRACE_SECONDS, 15, problems, { zero: true });
+  const liveViewKeepAliveMs = parseSeconds("LIVE_VIEW_KEEP_ALIVE_SECONDS", env.LIVE_VIEW_KEEP_ALIVE_SECONDS, 15, problems);
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -85,6 +88,7 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     heartbeatIntervalMs,
     clientAddressHeader,
     drainGraceMs,
+    liveViewKeepAliveMs,
   };
 }
 

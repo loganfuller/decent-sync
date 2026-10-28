@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { machineStateText, nameMachineState } from "@decent-sync/protocol";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -74,19 +75,12 @@ export function machineModel(machine: Machine): string | null {
 }
 
 /**
- * A machine state in words, from Decaid's names: "Espresso: preinfusion", or
- * just "Sleeping" when the substate is idle.
+ * A Machine State on one line, as the Live View names it from Decaid's state
+ * and substate (`nameMachineState`): "Pulling a shot · Preinfusion", or just
+ * "Asleep".
  */
 export function describeMachineState({ state, substate }: Pick<MachineState, "state" | "substate">): string {
-  const named = words(state);
-  const sentence = named.charAt(0).toUpperCase() + named.slice(1);
-  return substate === "idle" ? sentence : `${sentence}: ${words(substate)}`;
-}
-
-/** Decaid's camelCase names as words, such as "hotWater" as "hot water"; abbreviations such as "OOM" and "NaN" stay. */
-function words(name: string): string {
-  const parts = name.match(/NaN|[A-Z]+(?![a-z])|[A-Z]?[a-z]+|\d+/g) ?? [name];
-  return parts.map((part) => (/^[A-Z][a-z]+$/.test(part) ? part.toLowerCase() : part)).join(" ");
+  return machineStateText(nameMachineState(state, substate));
 }
 
 /** When the Machine's last Shot was pulled, or that it has none. */

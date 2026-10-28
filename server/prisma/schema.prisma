@@ -133,9 +133,31 @@ model Session {
   /// Pushed forward as the session is used, so a device in use stays signed in.
   expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
 
+  liveViewLeases LiveViewLease[]
+
   @@index([accountId])
   @@index([expiresAt])
   @@map("sessions")
+}
+
+/// A Live View open on a Machine's page (ADR-0024): while any of a Machine's
+/// is unexpired, the instance holding its connection has its plugin stream.
+/// It records who is watching, never what the Machine reports. Its stream's
+/// instance renews it, and its times are PostgreSQL's. See
+/// server/src/live-view/live-views.ts.
+model LiveViewLease {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  machineId String   @map("machine_id") @db.Uuid
+  machine   Machine  @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  /// The viewer's session, whose end ends its leases.
+  sessionId String   @map("session_id") @db.Uuid
+  session   Session  @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  openedAt  DateTime @default(dbgenerated("transaction_timestamp()")) @map("opened_at") @db.Timestamptz(3)
+  expiresAt DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([machineId, expiresAt])
+  @@index([sessionId])
+  @@map("live_view_leases")
 }
 
 /// Recent sign-in attempts for one email, shared by every server instance.
@@ -266,6 +288,7 @@ model Machine {
   takeover           Takeover?
   loadedRecipes      LoadedRecipe[]
   settingsEdits      SettingsEdit[]
+  liveViewLeases     LiveViewLease[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])

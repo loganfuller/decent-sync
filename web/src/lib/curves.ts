@@ -181,7 +181,7 @@ function timedSamples<C extends string>(
  * The step a `profileFrame` indexes among a Profile's steps, by its name, or
  * "Step N", counting from 1, for a step with none or a frame past the last.
  */
-function profileStep(frame: unknown, steps: unknown[]): Step | null {
+export function profileStep(frame: unknown, steps: unknown[]): Step | null {
   if (typeof frame !== "number" || !Number.isInteger(frame) || frame < 0) return null;
   const name = record(steps[frame])?.name;
   return { frame, name: typeof name === "string" && name.trim() !== "" ? name.trim() : `Step ${frame + 1}` };
