@@ -5,11 +5,12 @@ import type { Transports } from "./host.js";
 // `liveStart` until its `liveStop`, or until the connection closes, it
 // forwards Decaid's live frames as Decaid sent them, each tagged with the
 // plugin's time it received it: the machine snapshots of `stateUpdate`, and
-// the frames of Decaid's local sockets (`LIVE_SOCKETS`), which it opens only
-// while streaming. Nothing here is kept across an unload. Live frames skip
-// the outbox: they have no id, are never acknowledged or sent again, and one
-// that can't be sent is dropped. They have a budget of their own instead
-// (`LiveBudget`), so a slow link never fills Decaid's queue with them.
+// the frames of Decaid's local sockets (`LIVE_SOCKETS`, and a Bengle's milk
+// probe's), which it opens only while streaming. Nothing here is kept across
+// an unload. Live frames skip the outbox: they have no id, are never
+// acknowledged or sent again, and one that can't be sent is dropped. They
+// have a budget of their own instead (`LiveBudget`), so a slow link never
+// fills Decaid's queue with them.
 
 /**
  * Decaid's states during which every live frame is forwarded: a shot,
@@ -187,38 +188,57 @@ export const LIVE_SOCKETS = {
 
 export type SocketSource = keyof typeof LIVE_SOCKETS;
 
-const SOCKET_SOURCES = Object.keys(LIVE_SOCKETS) as SocketSource[];
+/** Decaid's local sockets the Live View reads: those of LIVE_SOCKETS, and a Bengle's milk probe's, `sensor`. */
+type LiveSocket = SocketSource | "sensor";
+
+const SOCKETS: readonly LiveSocket[] = [...(Object.keys(LIVE_SOCKETS) as SocketSource[]), "sensor"];
+
+/**
+ * The socket of a sensor Decaid lists, which sends its data, its latest as it
+ * opens (`SensorsHandler` in decaid:lib/src/services/webserver/sensors_handler.dart).
+ */
+export function sensorSocket(sensorId: string): string {
+  return `ws://localhost:8080/ws/v1/sensors/${encodeURIComponent(sensorId)}/snapshot`;
+}
 
 /**
  * How long after a socket fails to open, as for want of a transport, or
- * closes, it is opened again while streaming.
+ * closes, it is opened again while streaming, and after Decaid lists no milk
+ * probe, it is looked for again.
  */
 export const LIVE_SOCKET_RETRY_MS = 5_000;
 
 /**
  * Decaid's local sockets (LIVE_SOCKETS), open while the Live View streams:
- * each text frame one sends is passed to `received`. A socket that can't
- * open, as where that would leave no transport free for a connection to the
- * server (`Transports`), or that closes, is opened again after
- * LIVE_SOCKET_RETRY_MS while they are wanted.
+ * each text frame one sends is passed to `received`. So is each a milk probe
+ * sends, with its id, once Decaid lists one, as it does on a Bengle while one
+ * is attached. A probe's socket stays open as the probe is detached and
+ * attached again; opened while none is attached, it answers that it isn't
+ * found, and closes. A socket that can't open, as where that would leave no
+ * transport free for a connection to the server (`Transports`), or that
+ * closes, is opened again after LIVE_SOCKET_RETRY_MS while they are wanted,
+ * and Decaid's sensors are looked through again as long as no probe's is
+ * open.
  */
 export class LiveSockets {
   private wanted = false;
   /** Bumped by every close, so an open that ends after it is closed at once. */
   private generation = 0;
-  private readonly handles = new Map<SocketSource, string>();
-  private readonly opening = new Set<SocketSource>();
+  private readonly handles = new Map<LiveSocket, string>();
+  private readonly opening = new Set<LiveSocket>();
   private retry: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     private readonly transports: Transports,
-    private readonly received: (source: SocketSource, text: string) => void,
+    /** Decaid's milk probe's id, as it lists it, or null for none (`findMilkProbe` in decaid.ts). */
+    private readonly findMilkProbe: () => Promise<string | null>,
+    private readonly received: (source: LiveSocket, text: string, sensorId?: string) => void,
   ) {}
 
   /** Opens each socket not open or opening. */
   open(): void {
     this.wanted = true;
-    for (const source of SOCKET_SOURCES) this.openSocket(source);
+    for (const socket of SOCKETS) this.openSocket(socket);
   }
 
   /** Closes every socket, and one still opening once it opens. */
@@ -232,39 +252,52 @@ export class LiveSockets {
     this.handles.clear();
   }
 
-  private openSocket(source: SocketSource): void {
-    if (!this.wanted || this.handles.has(source) || this.opening.has(source)) return;
+  private openSocket(socket: LiveSocket): void {
+    if (!this.wanted || this.handles.has(socket) || this.opening.has(socket)) return;
     const generation = this.generation;
-    this.opening.add(source);
-    this.transports.open(LIVE_SOCKETS[source]).then(
+    this.opening.add(socket);
+    if (socket !== "sensor") return this.connect(socket, LIVE_SOCKETS[socket], generation);
+    void this.findMilkProbe().then((sensorId) => {
+      if (generation !== this.generation) return;
+      if (sensorId === null) return this.failed(socket);
+      this.connect(socket, sensorSocket(sensorId), generation, sensorId);
+    });
+  }
+
+  private connect(socket: LiveSocket, url: string, generation: number, sensorId?: string): void {
+    this.transports.open(url).then(
       (handle) => {
         if (generation !== this.generation) return void this.transports.close(handle);
-        this.opening.delete(source);
-        this.handles.set(source, handle);
+        this.opening.delete(socket);
+        this.handles.set(socket, handle);
         this.transports.onEvent(handle, (event) => {
-          if (this.handles.get(source) !== handle) return;
+          if (this.handles.get(socket) !== handle) return;
           if (event.type !== "data") {
-            this.handles.delete(source);
+            this.handles.delete(socket);
             this.transports.close(handle);
             this.retryLater();
           } else if (event.dataType === "text") {
-            this.received(source, event.data);
+            this.received(socket, event.data, sensorId);
           }
         });
       },
       () => {
-        if (generation !== this.generation) return;
-        this.opening.delete(source);
-        this.retryLater();
+        if (generation === this.generation) this.failed(socket);
       },
     );
+  }
+
+  /** A socket that couldn't open, or a probe not listed, tried again later. */
+  private failed(socket: LiveSocket): void {
+    this.opening.delete(socket);
+    this.retryLater();
   }
 
   private retryLater(): void {
     if (this.retry !== undefined) return;
     this.retry = setTimeout(() => {
       this.retry = undefined;
-      for (const source of SOCKET_SOURCES) this.openSocket(source);
+      for (const socket of SOCKETS) this.openSocket(socket);
     }, LIVE_SOCKET_RETRY_MS);
   }
 }
@@ -275,10 +308,10 @@ export class LiveSockets {
  * source on its own: the machine, each `stateUpdate`, Decaid's machine
  * snapshot, with when its Machine State began (`TimeInState`), which is
  * tracked whether or not it streams, and across reconnects; and Decaid's
- * local sockets (`LiveSockets`), open only while streaming. A frame whose
- * notification would pass PostgreSQL's limit (`liveFrameFits`), or that
- * Decaid's transport refuses, is dropped, as is a socket's frame that isn't
- * a JSON object.
+ * local sockets (`LiveSockets`), a Bengle's milk probe's among them, open
+ * only while streaming. A frame whose notification would pass PostgreSQL's
+ * limit (`liveFrameFits`), or that Decaid's transport refuses, is dropped, as
+ * is a socket's frame that isn't a JSON object.
  */
 export class LiveView {
   /** Sends on the connection streaming, while one is. */
@@ -294,8 +327,10 @@ export class LiveView {
   constructor(
     private readonly log: (message: string) => void,
     transports: Transports,
+    /** Decaid's milk probe's id, as it lists it, or null for none (`findMilkProbe` in decaid.ts). */
+    findMilkProbe: () => Promise<string | null>,
   ) {
-    this.sockets = new LiveSockets(transports, (source, text) => this.socketFrame(source, text));
+    this.sockets = new LiveSockets(transports, findMilkProbe, (source, text, sensorId) => this.socketFrame(source, text, sensorId));
   }
 
   /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
@@ -339,8 +374,8 @@ export class LiveView {
     this.rate.offer("machine", frame, { now: this.inActivity() || named.changed });
   }
 
-  /** A text frame one of Decaid's sockets sent: forwarded as it is, if a JSON object. */
-  private socketFrame(source: SocketSource, text: string): void {
+  /** A text frame one of Decaid's sockets sent, a sensor's with its id: forwarded as it is, if a JSON object. */
+  private socketFrame(source: SocketSource | "sensor", text: string, sensorId?: string): void {
     if (!this.streaming) return;
     const receivedAt = new Date().toISOString();
     let payload: unknown;
@@ -350,7 +385,8 @@ export class LiveView {
       return;
     }
     if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
-    this.rate.offer(source, { type: "liveFrame", source, receivedAt, frame: payload as Record<string, unknown> }, { now: this.inActivity() });
+    const frame: LiveFrame = { type: "liveFrame", source, ...(sensorId !== undefined ? { sensorId } : {}), receivedAt, frame: payload as Record<string, unknown> };
+    this.rate.offer(liveSourceOf(frame), frame, { now: this.inActivity() });
   }
 
   /** Whether the latest machine snapshot reported an activity (LIVE_ACTIVITIES), during which every frame goes. */

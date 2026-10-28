@@ -19,7 +19,7 @@ import {
   wireRevisionOf,
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
-import { readMachineHardware, readTabletIdentity } from "./decaid.js";
+import { findMilkProbe, readMachineHardware, readTabletIdentity } from "./decaid.js";
 import type { PluginHost, TransportEvent, Transports } from "./host.js";
 import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
@@ -251,7 +251,7 @@ export class SyncConnection {
       this.shot,
     );
     this.tabletId = new TabletId(this.storage, log);
-    this.liveView = new LiveView(log, localTransports);
+    this.liveView = new LiveView(log, localTransports, findMilkProbe);
   }
 
   /**

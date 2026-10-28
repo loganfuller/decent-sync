@@ -7,14 +7,16 @@ import { fileURLToPath } from "node:url";
 // whose README says how and what each holds). Its machine socket sends what
 // the plugin's `stateUpdate` carries: Decaid's `MachineSnapshot.toJson()`.
 // Also Decaid v0.9.0's sockets as its simulated machine was disconnected and
-// connected again (fixtures/decaid/simulated-devices-v0.9.0/, #264).
+// connected again (fixtures/decaid/simulated-devices-v0.9.0/, #264), and as
+// its simulated Bengle steamed, with its milk probe (fixtures/decaid/bengle-live-v0.9.0/, #265).
 
 const fixturesDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../fixtures/decaid");
 
-/** One frame of a recording: when it arrived, in ms from the first, the socket it came from, and Decaid's JSON. */
+/** One frame of a recording: when it arrived, in ms from the first, the socket it came from, a sensor's with its id, and Decaid's JSON. */
 export interface LiveFixtureFrame {
   ms: number;
   source: string;
+  sensorId?: string;
   frame: Record<string, unknown>;
 }
 
@@ -32,6 +34,22 @@ export function machineDisconnects(): Record<"connected" | "disconnected" | "rec
   const lists = liveFixture("machine-disconnects.json", "simulated-devices-v0.9.0").filter((frame) => frame.source === "devices");
   const [connected, disconnected, reconnected] = lists.map((frame) => frame.frame);
   return { connected: connected!, disconnected: disconnected!, reconnected: reconnected! };
+}
+
+/**
+ * Decaid v0.9.0's simulated Bengle steaming, its milk probe attached
+ * (`steam.json` in bengle-live-v0.9.0/): idle, 8 s of steaming, through which
+ * the probe sends its temperature with each machine snapshot, rising from
+ * 7 °C to 40.5 °C, then idle. Its integrated scale sends a battery of 100.
+ */
+export function bengleSteam(): LiveFixtureFrame[] {
+  return liveFixture("steam.json", "bengle-live-v0.9.0");
+}
+
+/** The milk probe as Decaid v0.9.0 lists it among its sensors, on its simulated Bengle (`sensors.json` in bengle-live-v0.9.0/). */
+export function milkProbeListing(): { id: string; info: Record<string, unknown> } {
+  const sensors = JSON.parse(fs.readFileSync(path.join(fixturesDir, "bengle-live-v0.9.0", "sensors.json"), "utf8")) as { attached: { id: string; info: Record<string, unknown> }[] };
+  return sensors.attached[0]!;
 }
 
 /** A recording's machine snapshots, in order, each as `stateUpdate` carries it. */

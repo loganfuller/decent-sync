@@ -8,19 +8,21 @@ import steamRecordTwoTapStop from "../../server/test/fixtures/decaid/de1pro-live
 import steamRecord from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record.json" with { type: "json" };
 import steamTwoTapStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-two-tap-stop.json" with { type: "json" };
 import steam from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam.json" with { type: "json" };
+import bengleSteam from "../../server/test/fixtures/decaid/bengle-live-v0.9.0/steam.json" with { type: "json" };
 import { steamSamples } from "../src/lib/curves";
-import { type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamGap } from "../src/lib/live-curves";
+import { type LiveCurve, type LiveCurves, liveSamples, liveSteamCurves, withCurvesFrame, withStreamGap } from "../src/lib/live-curves";
 
 // The Live View's curves (#263), built from the test tablet's DE1Pro's
 // recorded streams (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259),
 // relayed as its plugin streams them, and, for steaming, compared with the
-// Steam Record Decaid stored of the same steaming.
+// Steam Record Decaid stored of the same steaming; and Decaid's simulated
+// Bengle steaming with its milk probe (bengle-live-v0.9.0/, #265).
 
-type Recording = { frames: { ms: number; source: string; frame: Record<string, unknown> }[] };
+type Recording = { frames: { ms: number; source: string; sensorId?: string; frame: Record<string, unknown> }[] };
 const MACHINE_ID = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70";
 /** When the plugin received each recording's first frame, an hour apart, so recordings relayed one after another follow on. */
 const RECORDINGS = new Map<Recording, number>(
-  [shot, steam, steamTwoTapStop, flush, hotWater, idle].map((recording, n) => [recording as Recording, Date.parse("2026-10-27T21:00:00Z") + n * 3_600_000]),
+  [shot, steam, steamTwoTapStop, flush, hotWater, idle, bengleSteam].map((recording, n) => [recording as Recording, Date.parse("2026-10-27T21:00:00Z") + n * 3_600_000]),
 );
 
 /**
@@ -32,9 +34,9 @@ function relayed(recording: unknown): RelayedLiveFrame[] {
   const at = RECORDINGS.get(recording as Recording)!;
   let name: string | undefined;
   let since = "";
-  return (recording as Recording).frames.map(({ ms, source, frame }) => {
+  return (recording as Recording).frames.map(({ ms, source, sensorId, frame }) => {
     const receivedAt = new Date(at + ms).toISOString();
-    if (source !== "machine") return { machineId: MACHINE_ID, source, receivedAt, frame } as RelayedLiveFrame;
+    if (source !== "machine") return { machineId: MACHINE_ID, source, ...(sensorId ? { sensorId } : {}), receivedAt, frame } as RelayedLiveFrame;
     const named = machineStateOf(frame)!;
     if (named.name !== name) [name, since] = [named.name, receivedAt];
     return { machineId: MACHINE_ID, source: "machine", receivedAt, stateSince: since, frame };
@@ -210,5 +212,30 @@ describe("the Live View's curves", () => {
     const noState = { machineId: MACHINE_ID, source: "machine", receivedAt: frames[start]!.receivedAt, stateSince: frames[start]!.receivedAt, frame: { pressure: 1 } } as RelayedLiveFrame;
     expect(withCurvesFrame(curves, noState)).toBe(curves);
     expect(withCurvesFrame(curves, { ...noState, source: "waterLevels", frame: { currentLevel: 20 } })).toBe(curves);
+  });
+
+  it("takes a Bengle's milk probe's current temperature into each snapshot of its steaming, drawing its curve only where it reported one", () => {
+    const frames = relayed(bengleSteam);
+    const readings = frames.filter(({ source }) => source === "sensor").map(({ frame }) => frame.temperature);
+    const { curve } = take(frames);
+    expect(curve).toMatchObject({ activity: "steaming", ended: true });
+    // Each snapshot with the probe's latest reading: none before its first, which came just after the second snapshot.
+    const milk = curve!.measurements.map(({ milkTemperature }) => milkTemperature ?? null);
+    expect(milk.slice(0, 3)).toEqual([null, null, readings[0]]);
+    // Its last reading came after steaming's last snapshot.
+    expect(milk.slice(2)).toEqual(readings.slice(0, -1));
+    const live = liveSamples(curve!);
+    expect(live.activity === "steaming" && live.samples.map((sample) => sample.values.milkTemperature)).toEqual(milk);
+    expect(Object.keys(liveSteamCurves(live.activity === "steaming" ? live.samples : []))).toEqual(["milkTemperature", "steamTemperature", "pressure", "flow"]);
+
+    // A reading from before a gap in the stream is dropped, as it may be long gone.
+    const steaming = first(frames, "steam", "idle");
+    const afterGap = take(frames.slice(steaming + 6).filter(({ source }) => source === "machine"), withStreamGap(take(frames.slice(0, steaming + 6))));
+    expect(afterGap.milkProbe).toBeUndefined();
+    expect(afterGap.curve!.measurements.at(-1)!.milkTemperature).toBeUndefined();
+
+    // A DE1 has no milk probe: no milk temperature, and no curve of it.
+    const de1 = liveSamples(take(relayed(steam)).curve!);
+    expect(Object.keys(liveSteamCurves(de1.activity === "steaming" ? de1.samples : []))).toEqual(["steamTemperature", "pressure", "flow"]);
   });
 });

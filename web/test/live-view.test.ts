@@ -4,12 +4,15 @@ import scaleConnects from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/
 import shot from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/shot.json" with { type: "json" };
 import asleep from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/asleep.json" with { type: "json" };
 import machineDisconnects from "../../server/test/fixtures/decaid/simulated-devices-v0.9.0/machine-disconnects.json" with { type: "json" };
+import bengleSteam from "../../server/test/fixtures/decaid/bengle-live-v0.9.0/steam.json" with { type: "json" };
+import probeSocket from "../../server/test/fixtures/decaid/bengle-live-v0.9.0/probe-socket.json" with { type: "json" };
 import {
   type LiveState,
   STALE_AFTER_MS,
   liveConditionOf,
   liveMachineOf,
   machineConnectedOf,
+  milkTemperatureOf,
   readLiveEvent,
   reported,
   scaleOf,
@@ -22,8 +25,9 @@ import {
 // Reading the Live View's events, each a live frame as the server relays it,
 // on the test tablet's DE1Pro's recorded frames
 // (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259) where Decaid's data
-// is read, and Decaid's device lists as its simulated machine was
-// disconnected and connected again (simulated-devices-v0.9.0/, #264).
+// is read, Decaid's device lists as its simulated machine was disconnected
+// and connected again (simulated-devices-v0.9.0/, #264), and its simulated
+// Bengle steaming with its milk probe (bengle-live-v0.9.0/, #265).
 
 const recordings = {
   "opening.json": opening,
@@ -31,6 +35,7 @@ const recordings = {
   "shot.json": shot,
   "asleep.json": asleep,
   "machine-disconnects.json": machineDisconnects,
+  "bengle-steam.json": bengleSteam,
 };
 
 /** A recording's frames from one source, in order, as Decaid sent them. */
@@ -100,6 +105,40 @@ describe("the Live View's events", () => {
     expect(withLiveFrame(live, relayed("sensor", { temperature: 40 }), 5_000)).toBe(live);
     // A machine frame without its times changes nothing.
     expect(withLiveFrame(live, relayed("machine", { state: { state: "idle", substate: "idle" } }), 5_000)).toBe(live);
+  });
+
+  it("keeps a milk probe's latest frame, of no other sensor, and reads its temperature only while current by Decaid's own times", () => {
+    const sensor = (sensorId: string, frame: Record<string, unknown>) => readLiveEvent(JSON.stringify({ ...event, source: "sensor", sensorId, frame }))!;
+    const { sensorId } = (bengleSteam as { frames: { sensorId?: string }[] }).frames.find((frame) => frame.sensorId)!;
+    const readings = framesOf("bengle-steam.json", "sensor");
+    const snapshots = framesOf("bengle-steam.json", "machine");
+    let live = withLiveFrame(undefined, sensor(sensorId!, readings[0]!), 1_000);
+    expect(live).toEqual({ milkProbe: readings[0] });
+    live = withLiveFrame(live, sensor(sensorId!, readings[1]!), 2_000);
+    expect(live).toEqual({ milkProbe: readings[1] });
+    // Another sensor, such as Decaid's simulated sensor basket, which also sends a temperature: not a milk probe's.
+    expect(withLiveFrame(live, sensor("mockSensorBasket", { timestamp: readings[2]!.timestamp, temperature: 93 }), 3_000)).toBe(live);
+
+    // Steaming, each reading sent just after the snapshot it was taken with, both in Decaid's local time without an offset: current.
+    const { frames } = bengleSteam as { frames: { source: string; frame: Record<string, unknown> }[] };
+    const steaming = frames.slice(0, frames.findIndex(({ frame }) => frame === readings[1])).filter(({ source }) => source === "machine").at(-1)!.frame;
+    expect(String(steaming.timestamp).slice(0, 21)).toBe(String(readings[1]!.timestamp).slice(0, 21));
+    expect(milkTemperatureOf(readings[1], steaming)).toBe(readings[1]!.temperature);
+    // A reading taken after the snapshot is current too, as frames of two sources may come in either order.
+    expect(milkTemperatureOf(readings[2], steaming)).toBe(readings[2]!.temperature);
+
+    // What the probe's socket sent as it opened after steaming: its last reading, current only up to 5 s after it was
+    // taken. Derived: a snapshot of the recording, its time moved to 5 s and to 5.001 s after the reading.
+    const [last] = (probeSocket as { opening: { frames: { frame: Record<string, unknown> }[] } }).opening.frames.map((frame) => frame.frame);
+    const after = (ms: number) => ({ ...snapshots.at(-1), timestamp: new Date(Date.parse(`${String(last!.timestamp)}Z`) + ms).toISOString().slice(0, -1) });
+    expect(milkTemperatureOf(last, after(STALE_AFTER_MS))).toBe(last!.temperature);
+    expect(milkTemperatureOf(last, after(STALE_AFTER_MS + 1))).toBeNull();
+
+    // No snapshot to judge it by, no probe, or a frame that isn't a reading, such as the socket's answer while none is listed.
+    expect(milkTemperatureOf(readings[1], undefined)).toBeNull();
+    expect(milkTemperatureOf(undefined, steaming)).toBeNull();
+    const [notFound] = (probeSocket as { notFound: { frames: { frame: Record<string, unknown> }[] } }).notFound.frames.map((frame) => frame.frame);
+    expect(milkTemperatureOf(notFound, steaming)).toBeNull();
   });
 
   it("reads the water level against the refill level, low at or below it", () => {

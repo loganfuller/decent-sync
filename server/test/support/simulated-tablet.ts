@@ -13,7 +13,7 @@ import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, s
 import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
-import { type DecaidSocket, type DecaidSocketState, type LiveFixtureFrame, openingFrames } from "./live-fixtures.js";
+import { type DecaidSocket, type DecaidSocketState, type LiveFixtureFrame, milkProbeListing, openingFrames } from "./live-fixtures.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -86,6 +86,14 @@ import { opened } from "./test-scope.js";
 //   shot settings only while a machine is connected, and once it connects.
 //   `reportOnSocket` sends a frame on those of a source, and
 //   `openDecaidSockets` lists those open.
+// - A Bengle's milk probe, as Decaid v0.9.0 serves it (`SensorsHandler` in
+//   sensors_handler.dart, `BengleProbeBridge`): `attachMilkProbe` has
+//   `GET /sensors` list it as recorded (live-fixtures.ts, `milkProbeListing`),
+//   and `detachMilkProbe` takes it off the list. Its socket,
+//   `/ws/v1/sensors/{id}/snapshot`, sends the probe's latest frame since it
+//   was attached as it opens, and each it reports (`reportMilkProbe`); it
+//   stays open, silent, while the probe is detached, and one opened while the
+//   probe isn't listed answers `{"error":"not found"}` and closes.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -825,6 +833,10 @@ export class SimulatedTablet {
   private readonly localSockets = new Map<LocalSocket, { pluginId: string; endpoint: string }>();
   /** Decaid's own sockets open, by the source of their frames. */
   private readonly decaidSockets = new Map<LocalSocket, DecaidSocket>();
+  /** Sockets open on a sensor's snapshot, by the sensor's id. */
+  private readonly sensorSockets = new Map<LocalSocket, string>();
+  /** A Bengle's milk probe while it is attached: its latest frame since, which its socket sends as it opens. */
+  private milkProbe: { latest?: Record<string, unknown> } | undefined;
   /** What Decaid's own sockets send as each opens. */
   private readonly socketState: DecaidSocketState;
   /** The plugin's manifest, as `GET /plugins` lists it. */
@@ -1110,9 +1122,10 @@ export class SimulatedTablet {
    * `speed` times as fast as they were recorded, in parts the test plays one
    * at a time (`LiveReplay.to`): machine snapshots in `stateUpdate` events,
    * as `reportSnapshot` sends them, and the frames of Decaid's own sockets the
-   * Live View reads, as `reportOnSocket` sends them, leaving out any other,
-   * such as `shotState`. Each snapshot's `timestamp` is as far from the
-   * first's as recorded, the first's being the tablet's local time as the
+   * Live View reads, as `reportOnSocket` sends them, and a milk probe's as
+   * `reportMilkProbe` does, leaving out any other, such as `shotState`. Each
+   * snapshot's and probe frame's `timestamp` is as far from the first
+   * snapshot's as recorded, the first's being the tablet's local time as the
    * replay is made, so curves drawn from them read as recorded, whatever the
    * speed and however long the test waits between parts.
    */
@@ -1130,8 +1143,10 @@ export class SimulatedTablet {
           const { ms, source, frame } = frames[next]!;
           const wait = startedAt + (ms - from) / speed - performance.now();
           if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
-          if (source === "machine") this.sendSnapshot({ ...frame, timestamp: new Date(local(frame.timestamp) + shift).toISOString().slice(0, -1) });
+          const shifted = () => ({ ...frame, timestamp: new Date(local(frame.timestamp) + shift).toISOString().slice(0, -1) });
+          if (source === "machine") this.sendSnapshot(shifted());
           else if (DECAID_SOURCES.has(source)) this.reportOnSocket(source as DecaidSocket, frame);
+          else if (source === "sensor") this.sendMilkProbe(shifted());
         }
       },
     };
@@ -1166,9 +1181,54 @@ export class SimulatedTablet {
     this.sendOnSocket(source, frame);
   }
 
-  /** The sources of Decaid's own sockets open now, in order, once each, such as ["devices", "scale"]. */
-  openDecaidSockets(): DecaidSocket[] {
-    return [...new Set(this.decaidSockets.values())].sort();
+  /** The sources of Decaid's own sockets open now, a sensor's as `sensor`, in order, once each, such as ["devices", "scale"]. */
+  openDecaidSockets(): (DecaidSocket | "sensor")[] {
+    return [...new Set([...this.decaidSockets.values(), ...(this.sensorSockets.size > 0 ? ["sensor" as const] : [])])].sort();
+  }
+
+  /**
+   * Attaches a Bengle's milk probe, as plugging one in does: `GET /sensors`
+   * lists it from now on, as Decaid's simulated Bengle's was recorded
+   * (`milkProbeListing`), and its sockets, those left open since it was
+   * detached among them, send its frames (`reportMilkProbe`). Until it
+   * reports, one opening sends nothing.
+   */
+  attachMilkProbe(): void {
+    const listing = milkProbeListing();
+    const sensors = this.api["/sensors"];
+    const others = Array.isArray(sensors) ? sensors.filter((sensor) => (sensor as { id?: unknown }).id !== listing.id) : [];
+    this.api = { ...this.api, "/sensors": [...others, listing] };
+    this.milkProbe = {};
+  }
+
+  /**
+   * Detaches the milk probe, as unplugging it does: `GET /sensors` no longer
+   * lists it, and its sockets stay open, but send nothing until it is
+   * attached again.
+   */
+  detachMilkProbe(): void {
+    const { id } = milkProbeListing();
+    const sensors = this.api["/sensors"];
+    if (Array.isArray(sensors)) this.api = { ...this.api, "/sensors": sensors.filter((sensor) => (sensor as { id?: unknown }).id !== id) };
+    this.milkProbe = undefined;
+  }
+
+  /**
+   * The attached milk probe reports a frame, such as one recorded
+   * (`bengleSteam`), on its sockets, its `timestamp` the tablet's local time
+   * as it is sent, as Decaid writes it. A socket opened later sends it as it
+   * opens, until the next. Returns the frame as sent.
+   */
+  reportMilkProbe(frame: Record<string, unknown>): Record<string, unknown> {
+    return this.sendMilkProbe({ ...frame, timestamp: decaidNow() });
+  }
+
+  private sendMilkProbe(sent: Record<string, unknown>): Record<string, unknown> {
+    if (!this.milkProbe) throw new Error("Decaid sends a milk probe's frames only while it is attached");
+    this.milkProbe.latest = sent;
+    const { id } = milkProbeListing();
+    for (const [socket, sensorId] of this.sensorSockets) if (sensorId === id) socket.receive(JSON.stringify(sent));
+    return sent;
   }
 
   /** Sends a frame through JSON on each of Decaid's own sockets of that source that is open. */
@@ -1176,8 +1236,17 @@ export class SimulatedTablet {
     for (const [socket, opened] of this.decaidSockets) if (opened === source) socket.receive(JSON.stringify(frame));
   }
 
-  /** What one of Decaid's own sockets sends as it opens. */
+  /** What one of Decaid's own sockets sends as it opens: a sensor's, its latest, or that it isn't found, closing, while it isn't listed. */
   private greet(socket: LocalSocket): void {
+    const sensorId = this.sensorSockets.get(socket);
+    if (sensorId !== undefined) {
+      if (!this.milkProbe || sensorId !== milkProbeListing().id) {
+        socket.receive(JSON.stringify({ error: "not found" }));
+        return socket.close(1005);
+      }
+      if (this.milkProbe.latest) socket.receive(JSON.stringify(this.milkProbe.latest));
+      return;
+    }
     const source = this.decaidSockets.get(socket);
     if (source === undefined) return;
     if (source === "scale") return socket.receive(JSON.stringify({ status: this.socketState.scale }));
@@ -1431,6 +1500,17 @@ export class SimulatedTablet {
     if (decaid !== undefined) {
       const socket = new LocalSocket();
       this.decaidSockets.set(socket, decaid);
+      return socket;
+    }
+    const sensor = /^\/ws\/v1\/sensors\/([^/]+)\/snapshot$/.exec(new URL(url).pathname);
+    if (sensor) {
+      const sensorId = decodeURIComponent(sensor[1]!);
+      const listed = this.api["/sensors"];
+      if (sensorId !== milkProbeListing().id && Array.isArray(listed) && listed.some((other) => (other as { id?: unknown }).id === sensorId)) {
+        throw new Error(`The simulated tablet serves no socket for the sensor ${sensorId}, only a milk probe's`);
+      }
+      const socket = new LocalSocket();
+      this.sensorSockets.set(socket, sensorId);
       return socket;
     }
     const [, ws, v1, plugins, pluginId, endpoint, ...rest] = new URL(url).pathname.split("/");
@@ -2200,6 +2280,7 @@ export class SimulatedTablet {
       local.on("close", (code: number) => {
         this.localSockets.delete(local);
         this.decaidSockets.delete(local);
+        this.sensorSockets.delete(local);
         this.terminate(record, undefined, "transport_error", code);
       });
       this.greet(local);

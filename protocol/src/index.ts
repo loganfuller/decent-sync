@@ -1710,6 +1710,17 @@ export function liveSourceOf(live: Pick<LiveFrame, "source" | "sensorId">): stri
 }
 
 /**
+ * Whether a sensor's id in Decaid is a Bengle's milk probe's, the one sensor
+ * the plugin streams (#265): the Bengle's device id, a Connection Id rather
+ * than the Machine's id, then `-milkprobe` (`BengleMilkProbe` in
+ * decaid:lib/src/models/device/impl/bengle/bengle_milk_probe.dart). Only an
+ * id a live frame's envelope takes counts.
+ */
+export function isMilkProbe(sensorId: unknown): sensorId is string {
+  return typeof sensorId === "string" && sensorId.endsWith("-milkprobe") && sensorId.length <= MAX_RECORD_ID_LENGTH;
+}
+
+/**
  * The longest payload, in UTF-8 bytes, a PostgreSQL notification may carry,
  * which must be shorter than 8000 bytes.
  */

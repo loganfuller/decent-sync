@@ -1,4 +1,4 @@
-import { type RelayedLiveFrame, machineStateOf } from "@decent-sync/protocol";
+import { type RelayedLiveFrame, isMilkProbe, machineStateOf } from "@decent-sync/protocol";
 
 // Reading the Live View's events (ADR-0024): each is a live frame as the
 // server relays it, Decaid's data inside left as Decaid sent it, so every
@@ -26,6 +26,8 @@ export interface LiveState {
   shotSettings?: Record<string, unknown>;
   /** The Tablet's devices (`devices`), and whether each is connected. */
   devices?: Record<string, unknown>;
+  /** A Bengle's milk probe's latest frame (`temperature`, °C, and `timestamp`), which may be old (`milkTemperatureOf`). */
+  milkProbe?: Record<string, unknown>;
 }
 
 /** The Machine's latest machine snapshot, as its plugin streamed it. */
@@ -68,6 +70,8 @@ export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveF
     case "shotSettings":
     case "devices":
       return { ...live, [relayed.source]: relayed.frame };
+    case "sensor":
+      return isMilkProbe(relayed.sensorId) ? { ...live, milkProbe: relayed.frame } : live;
     default:
       return live;
   }
@@ -96,6 +100,31 @@ export function scaleOf(frame: Record<string, unknown> | undefined): {
   if (frame.status === "disconnected") return { connected: false, ...none };
   if (frame.status === "connected") return { connected: true, ...none };
   return { connected: true, weight: reported(frame, "weight"), weightFlow: reported(frame, "weightFlow"), battery: reported(frame, "battery") };
+}
+
+/**
+ * A milk probe's temperature, in °C, while it reports: where its frame was
+ * taken no more than STALE_AFTER_MS before the machine snapshot. Decaid's
+ * simulated Bengle sends a reading with each snapshot while it steams. The
+ * probe's socket sends its last reading as it opens, which may be from long
+ * before, and nothing once it is detached. Both times are Decaid's
+ * `timestamp`, the Tablet's local time without an offset, so they are
+ * compared with each other only, read alike. Null with no snapshot, or for
+ * a reading not current or not sent.
+ */
+export function milkTemperatureOf(probe: Record<string, unknown> | undefined, snapshot: Record<string, unknown> | undefined): number | null {
+  if (!probe || !snapshot) return null;
+  const taken = localTime(probe.timestamp);
+  const now = localTime(snapshot.timestamp);
+  if (taken === null || now === null || now - taken > STALE_AFTER_MS) return null;
+  return reported(probe, "temperature");
+}
+
+/** A time Decaid wrote in the Tablet's local time without an offset, in ms as if it were UTC, so two such differ exactly; null for anything else. */
+function localTime(text: unknown): number | null {
+  if (typeof text !== "string" || !/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(\.\d+)?$/.test(text)) return null;
+  const ms = Date.parse(`${text}Z`);
+  return Number.isFinite(ms) ? ms : null;
 }
 
 /** Whether the Machine is connected to its Tablet: whether the devices frame lists a machine connected, or null with none. */

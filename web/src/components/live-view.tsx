@@ -8,13 +8,14 @@ import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type Machine, type SteamRecordPage } from "@/lib/api";
 import { SHOT_CURVES, profileStep } from "@/lib/curves";
-import { LIVE_STEAM_CURVES, type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamGap } from "@/lib/live-curves";
+import { type LiveCurve, type LiveCurves, type LiveSteamCurve, liveSamples, liveSteamCurves, withCurvesFrame, withStreamGap } from "@/lib/live-curves";
 import {
   STALE_AFTER_MS,
   type LiveCondition,
   type LiveState,
   liveConditionOf,
   machineConnectedOf,
+  milkTemperatureOf,
   readLiveEvent,
   reported,
   scaleOf,
@@ -61,7 +62,7 @@ export function LiveViewCard({ machine, profile }: { machine: Machine; profile?:
       </CardHeader>
       {shown && (
         <CardContent className={cn("grid gap-6", condition === "stale" && "opacity-50")}>
-          <LiveTiles live={live} profile={profile} />
+          <LiveTiles live={live} profile={profile} integratedScale={machine.model === "Bengle"} />
           {/* Keyed, so each shot or steaming starts with what the page held as it began. */}
           {curves.curve && (
             <LiveCurvesSection
@@ -266,7 +267,7 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
       {live.activity === "shot" ? (
         <Curves curves={SHOT_CURVES} label="This shot" current={live.samples} />
       ) : (
-        <Curves curves={LIVE_STEAM_CURVES} label="This steaming" current={live.samples} />
+        <Curves<LiveSteamCurve> curves={liveSteamCurves(live.samples)} label="This steaming" current={live.samples} />
       )}
     </section>
   );
@@ -343,7 +344,13 @@ function useStoredRecord(machineId: string, curve: LiveCurve, settled: boolean, 
 /** Decaid's states while a shot is pulled. */
 const SHOT_STATES = new Set(["espresso", "skipStep"]);
 
-function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
+/**
+ * The tiles of what the Machine measures now. `integratedScale` says its
+ * scale is a Bengle's own, as Decaid connects no other to a Bengle
+ * (`_runScalePhase` in decaid:lib/src/controllers/connection_manager.dart),
+ * whose battery always reads 100 (`IntegratedScaleCapability`), so isn't shown.
+ */
+function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profile?: unknown; integratedScale: boolean }) {
   const snapshot = live.machine?.snapshot ?? {};
   const named = machineStateOf(snapshot);
   const value = (key: string) => reported(snapshot, key);
@@ -354,6 +361,8 @@ function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
   const steps = (profile as { steps?: unknown } | null | undefined)?.steps;
   const step = pulling && !preheat ? profileStep(snapshot.profileFrame, Array.isArray(steps) ? steps : []) : null;
   const stepText = preheat ? "Preheat" : step?.name;
+  // A Bengle's milk probe, while it reports.
+  const milkTemperature = milkTemperatureOf(live.milkProbe, live.machine?.snapshot);
   return (
     <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
       <Tile label="Machine State" wide>
@@ -377,6 +386,7 @@ function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
       <Measurement label="Mix temperature" value={value("mixTemperature")} target={value("targetMixTemperature")} unit="°C" />
       {/* The steam heater's target is in the machine's shot settings, which Decaid sends on a socket of their own. */}
       <Measurement label="Steam temperature" value={value("steamTemperature")} target={steamTarget} unit="°C" />
+      {milkTemperature !== null && <Measurement label="Milk temperature" value={milkTemperature} unit="°C" />}
       {/* A target of zero is a profile step that sets none, as a pressure step's flow target, as the Shot page's curves read it. */}
       <Measurement label="Pressure" value={value("pressure")} target={value("targetPressure")} unit="bar" zeroIsNone />
       <Measurement label="Flow" value={value("flow")} target={value("targetFlow")} unit="ml/s" zeroIsNone />
@@ -385,7 +395,7 @@ function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
         <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling ? "Not reported" : "Not pulling a shot"}</span>}</dd>
       </Tile>
       <WaterLevel frame={live.waterLevels} />
-      <Scale frame={live.scale} />
+      <Scale frame={live.scale} battery={!integratedScale} />
       <Tile label="Tablet">
         <TileTerm>Connection to Tablet</TileTerm>
         <dd className="text-lg font-medium">{connectionText(machineConnectedOf(live.devices))}</dd>
@@ -418,15 +428,15 @@ function WaterLevel({ frame }: { frame: Record<string, unknown> | undefined }) {
   );
 }
 
-/** The scale's weight, weight flow and battery, and whether it is connected. */
-function Scale({ frame }: { frame: Record<string, unknown> | undefined }) {
+/** The scale's weight, weight flow and, unless `battery` is false, its battery, and whether it is connected. */
+function Scale({ frame, battery: showBattery }: { frame: Record<string, unknown> | undefined; battery: boolean }) {
   const { connected, weight, weightFlow, battery } = scaleOf(frame);
   return (
     <Tile label="Scale">
       <TileTerm>Weight</TileTerm>
       <dd className="text-lg font-medium tabular-nums">{weight === null ? <NotReported /> : `${weight.toFixed(1)} g`}</dd>
       <TileLine term="Weight flow">{weightFlow === null ? <NotReported /> : `${weightFlow.toFixed(1)} g/s`}</TileLine>
-      <TileLine term="Battery">{battery === null ? <NotReported /> : `${Math.round(battery)} %`}</TileLine>
+      {showBattery && <TileLine term="Battery">{battery === null ? <NotReported /> : `${Math.round(battery)} %`}</TileLine>}
       <TileLine term="Scale">{connectionText(connected)}</TileLine>
     </Tile>
   );

@@ -875,6 +875,9 @@ var __decentSync = (() => {
   function liveSourceOf(live) {
     return live.source === "sensor" ? `sensor ${live.sensorId}` : live.source;
   }
+  function isMilkProbe(sensorId) {
+    return typeof sensorId === "string" && sensorId.endsWith("-milkprobe") && sensorId.length <= MAX_RECORD_ID_LENGTH;
+  }
   var MAX_NOTIFICATION_BYTES = 7999;
   function relayedLiveFrame(machineId, live) {
     const relayed = {
@@ -1246,6 +1249,17 @@ var __decentSync = (() => {
   function stringField(object3, key) {
     const value = object3?.[key];
     return typeof value === "string" && value !== "" ? value : null;
+  }
+  async function findMilkProbe() {
+    try {
+      const response = await fetch(`${API}/sensors`);
+      const sensors = response.ok ? await response.json() : null;
+      if (!Array.isArray(sensors)) return null;
+      const probe = sensors.find((sensor) => isMilkProbe(sensor?.id));
+      return probe ? probe.id : null;
+    } catch {
+      return null;
+    }
   }
   async function readShotPage(limit, offset) {
     const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
@@ -3413,11 +3427,15 @@ var __decentSync = (() => {
     shotSettings: "ws://localhost:8080/ws/v1/machine/shotSettings",
     devices: "ws://localhost:8080/ws/v1/devices"
   };
-  var SOCKET_SOURCES = Object.keys(LIVE_SOCKETS);
+  var SOCKETS = [...Object.keys(LIVE_SOCKETS), "sensor"];
+  function sensorSocket(sensorId) {
+    return `ws://localhost:8080/ws/v1/sensors/${encodeURIComponent(sensorId)}/snapshot`;
+  }
   var LIVE_SOCKET_RETRY_MS = 5e3;
   var LiveSockets = class {
-    constructor(transports, received) {
+    constructor(transports, findMilkProbe2, received) {
       __publicField(this, "transports", transports);
+      __publicField(this, "findMilkProbe", findMilkProbe2);
       __publicField(this, "received", received);
       __publicField(this, "wanted", false);
       /** Bumped by every close, so an open that ends after it is closed at once. */
@@ -3429,7 +3447,7 @@ var __decentSync = (() => {
     /** Opens each socket not open or opening. */
     open() {
       this.wanted = true;
-      for (const source of SOCKET_SOURCES) this.openSocket(source);
+      for (const socket of SOCKETS) this.openSocket(socket);
     }
     /** Closes every socket, and one still opening once it opens. */
     close() {
@@ -3441,43 +3459,54 @@ var __decentSync = (() => {
       for (const handle of this.handles.values()) this.transports.close(handle);
       this.handles.clear();
     }
-    openSocket(source) {
-      if (!this.wanted || this.handles.has(source) || this.opening.has(source)) return;
+    openSocket(socket) {
+      if (!this.wanted || this.handles.has(socket) || this.opening.has(socket)) return;
       const generation = this.generation;
-      this.opening.add(source);
-      this.transports.open(LIVE_SOCKETS[source]).then(
+      this.opening.add(socket);
+      if (socket !== "sensor") return this.connect(socket, LIVE_SOCKETS[socket], generation);
+      void this.findMilkProbe().then((sensorId) => {
+        if (generation !== this.generation) return;
+        if (sensorId === null) return this.failed(socket);
+        this.connect(socket, sensorSocket(sensorId), generation, sensorId);
+      });
+    }
+    connect(socket, url, generation, sensorId) {
+      this.transports.open(url).then(
         (handle) => {
           if (generation !== this.generation) return void this.transports.close(handle);
-          this.opening.delete(source);
-          this.handles.set(source, handle);
+          this.opening.delete(socket);
+          this.handles.set(socket, handle);
           this.transports.onEvent(handle, (event) => {
-            if (this.handles.get(source) !== handle) return;
+            if (this.handles.get(socket) !== handle) return;
             if (event.type !== "data") {
-              this.handles.delete(source);
+              this.handles.delete(socket);
               this.transports.close(handle);
               this.retryLater();
             } else if (event.dataType === "text") {
-              this.received(source, event.data);
+              this.received(socket, event.data, sensorId);
             }
           });
         },
         () => {
-          if (generation !== this.generation) return;
-          this.opening.delete(source);
-          this.retryLater();
+          if (generation === this.generation) this.failed(socket);
         }
       );
+    }
+    /** A socket that couldn't open, or a probe not listed, tried again later. */
+    failed(socket) {
+      this.opening.delete(socket);
+      this.retryLater();
     }
     retryLater() {
       if (this.retry !== void 0) return;
       this.retry = setTimeout(() => {
         this.retry = void 0;
-        for (const source of SOCKET_SOURCES) this.openSocket(source);
+        for (const socket of SOCKETS) this.openSocket(socket);
       }, LIVE_SOCKET_RETRY_MS);
     }
   };
   var LiveView = class {
-    constructor(log, transports) {
+    constructor(log, transports, findMilkProbe2) {
       __publicField(this, "log", log);
       /** Sends on the connection streaming, while one is. */
       __publicField(this, "streaming");
@@ -3488,7 +3517,7 @@ var __decentSync = (() => {
       /** Set once a frame too large to relay was dropped while streaming, so the log says so once a stream. */
       __publicField(this, "droppedLarge", false);
       __publicField(this, "sockets");
-      this.sockets = new LiveSockets(transports, (source, text) => this.socketFrame(source, text));
+      this.sockets = new LiveSockets(transports, findMilkProbe2, (source, text, sensorId) => this.socketFrame(source, text, sensorId));
     }
     /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
     start(send) {
@@ -3526,8 +3555,8 @@ var __decentSync = (() => {
       const frame = { type: "liveFrame", source: "machine", receivedAt, stateSince: named.since, frame: payload };
       this.rate.offer("machine", frame, { now: this.inActivity() || named.changed });
     }
-    /** A text frame one of Decaid's sockets sent: forwarded as it is, if a JSON object. */
-    socketFrame(source, text) {
+    /** A text frame one of Decaid's sockets sent, a sensor's with its id: forwarded as it is, if a JSON object. */
+    socketFrame(source, text, sensorId) {
       if (!this.streaming) return;
       const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
       let payload;
@@ -3537,7 +3566,8 @@ var __decentSync = (() => {
         return;
       }
       if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
-      this.rate.offer(source, { type: "liveFrame", source, receivedAt, frame: payload }, { now: this.inActivity() });
+      const frame = { type: "liveFrame", source, ...sensorId !== void 0 ? { sensorId } : {}, receivedAt, frame: payload };
+      this.rate.offer(liveSourceOf(frame), frame, { now: this.inActivity() });
     }
     /** Whether the latest machine snapshot reported an activity (LIVE_ACTIVITIES), during which every frame goes. */
     inActivity() {
@@ -4936,7 +4966,7 @@ var __decentSync = (() => {
         this.shot
       );
       this.tabletId = new TabletId(this.storage, log);
-      this.liveView = new LiveView(log, localTransports);
+      this.liveView = new LiveView(log, localTransports, findMilkProbe);
     }
     /**
      * Reads back the outbox's deliveries kept by earlier loads, and connects,

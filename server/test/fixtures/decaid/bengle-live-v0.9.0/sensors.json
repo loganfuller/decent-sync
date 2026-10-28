@@ -1,0 +1,25 @@
+{
+  "attached": [
+    {
+      "id": "00:00:5E:00:53:21-milkprobe",
+      "info": {
+        "name": "Bengle Milk Probe",
+        "vendor": "DecentEspresso",
+        "data": [
+          {
+            "key": "timestamp",
+            "type": "string",
+            "unit": null
+          },
+          {
+            "key": "temperature",
+            "type": "number",
+            "unit": "°C"
+          }
+        ],
+        "commands": []
+      }
+    }
+  ],
+  "machineDisconnected": []
+}

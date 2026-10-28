@@ -2,19 +2,20 @@ import { randomUUID } from "node:crypto";
 import { type RelayedLiveFrame, nameMachineState } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { machineDisconnects, machineSnapshots, openingFrames, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
+import { bengleSteam, machineDisconnects, machineSnapshots, milkProbeListing, openingFrames, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
 import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { quiesced } from "./support/quiet.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, derivedDe1Pro, simulatedDevices } from "./support/simulated-tablet.js";
 import { startStallingProxy } from "./support/stalling-proxy.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: the Live View (#260, #262) through the built plugin on simulated
 // tablets, which send the test tablet's DE1Pro's recorded machine snapshots
 // (#259) as Decaid's `stateUpdate`, each stamped with the tablet's local time
-// as it is sent, and serve its local sockets' recorded frames. Viewers read
+// as it is sent, and serve its local sockets' recorded frames, and a Bengle's
+// milk probe's from Decaid's simulated one (#265). Viewers read
 // `GET /api/machines/:id/live` as the browser's EventSource does. Serials are
 // made up, from 26001.
 
@@ -68,15 +69,18 @@ describe("the Live View", () => {
     else process.env.TZ = timeZone;
   });
 
-  /** A Machine whose simulated tablet, its machine's serial given, is connected, once it is online. */
+  /** A Machine whose simulated tablet, its machine's serial given, is connected, once it is online: a DE1Pro, or a Bengle. */
   async function connected(
     name: string,
-    options: { timeScale?: number; upgradeAtTabletPace?: boolean; through?: { url: string } } = {},
+    options: { timeScale?: number; upgradeAtTabletPace?: boolean; through?: { url: string }; bengle?: boolean; sensors?: unknown } = {},
   ): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet; serial: number }> {
-    const { through = server, ...rest } = options;
+    const { through = server, bengle = false, sensors, ...rest } = options;
     const machine = await api.createMachine(name);
     const tabletSerial = serial++;
-    const tablet = syncingTablet(machine, through, { api: emptyLibrary(tabletSerial), ...rest });
+    const library = emptyLibrary(tabletSerial);
+    if (bengle) library["/machine/info"] = derivedDe1Pro({ model: "Bengle", serial: String(tabletSerial) })["/machine/info"];
+    if (sensors !== undefined) library["/sensors"] = sensors;
+    const tablet = syncingTablet(machine, through, { api: library, ...rest });
     await api.waitForOnline(machine);
     return { machine, tablet, serial: tabletSerial };
   }
@@ -103,6 +107,10 @@ describe("the Live View", () => {
 
   /** The stream's events from Decaid's sockets, rather than the machine's snapshots, as each one's source and frame. */
   const fromSockets = (stream: LiveViewStream) => sourcesAndFrames(stream).filter((event) => event.source !== "machine");
+
+  /** The stream's events from a sensor, as each one's sensor id and frame. */
+  const fromSensors = (stream: LiveViewStream) =>
+    stream.events.filter((event) => event.source === "sensor").map(({ sensorId, frame }) => ({ sensorId, frame }));
 
   /**
    * Sends each snapshot in turn, each once the streams have the last: the
@@ -274,6 +282,80 @@ describe("the Live View", () => {
     tablet.reportSnapshot(idle[1]!);
     tablet.reportOnSocket("scale", { status: "disconnected" });
     await expect.poll(() => fromSockets(stream).filter((event) => event.source === "scale").at(-1)).toEqual({ source: "scale", frame: { status: "disconnected" } });
+  });
+
+  it("streams a Bengle's milk probe, its id with each frame, from the last reading its socket sends as it opens, leaving a transport free for the server connection", async () => {
+    // Two attempts the server never answers hold their transports, the third connects: three of Decaid's eight.
+    const proxy = await startStallingProxy(server.url, 2);
+    try {
+      const { machine, tablet } = await connected("Bengle", { bengle: true, through: proxy, timeScale: 25, upgradeAtTabletPace: true });
+      const steam = bengleSteam();
+      const readings = steam.filter((frame) => frame.source === "sensor").map((frame) => frame.frame);
+      tablet.attachMilkProbe();
+      // A reading from before anyone watched, which its socket sends as it opens.
+      const earlier = tablet.reportMilkProbe(readings[0]!);
+      const stream = await watching(machine, tablet);
+      // Decaid's four sockets open at once, holding seven. The probe's, found once Decaid's sensors have been read, would take the eighth: skipped.
+      await expect.poll(() => fromSockets(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
+      expect(tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+      expect(tablet.peakTransports).toBe(7);
+
+      // The attempts end at last, and the probe's socket opens as it is tried again: its last reading, by its id.
+      for (const socket of proxy.stalled) socket.destroy();
+      await expect.poll(() => tablet.openDecaidSockets()).toEqual([...ALL_SOCKETS, "sensor"].sort());
+      const { id } = milkProbeListing();
+      expect(id).toMatch(/^00:00:5E:00:53:21-milkprobe$/);
+      await expect.poll(() => fromSensors(stream)).toEqual([{ sensorId: id, frame: earlier }]);
+
+      // Steaming, as recorded: every reading goes, each as Decaid sent it, the last reaching the viewer.
+      const from = tablet.sent.length;
+      await tablet.replayLive(steam, { speed: 10 }).to();
+      const sent = liveFramesSent(tablet, from, "sensor");
+      expect(sent.map((frame) => frame.temperature)).toEqual(readings.map((frame) => frame.temperature));
+      await expect.poll(() => fromSensors(stream).at(-1)).toEqual({ sensorId: id, frame: sent.at(-1) });
+      expect(tablet.peakTransports).toBe(7);
+      expect(tablet.logs.join("\n")).not.toContain("Too many open transports");
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("finds a milk probe attached while streaming, and keeps its socket through a detach", async () => {
+    const { machine, tablet } = await connected("Probe attached", { bengle: true });
+    const stream = await watching(machine, tablet);
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+
+    // Attached: found as the plugin looks through Decaid's sensors again, and streamed.
+    const [first, second] = bengleSteam().filter((frame) => frame.source === "sensor");
+    tablet.attachMilkProbe();
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual([...ALL_SOCKETS, "sensor"].sort());
+    const { id } = milkProbeListing();
+    const reading = tablet.reportMilkProbe(first!.frame);
+    await expect.poll(() => fromSensors(stream)).toEqual([{ sensorId: id, frame: reading }]);
+
+    // Detached, then attached again: its socket stays open, and sends the probe's readings again.
+    tablet.detachMilkProbe();
+    tablet.attachMilkProbe();
+    const next = tablet.reportMilkProbe(second!.frame);
+    await expect.poll(() => fromSensors(stream)).toEqual([
+      { sensorId: id, frame: reading },
+      { sensorId: id, frame: next },
+    ]);
+    expect(tablet.openDecaidSockets()).toEqual([...ALL_SOCKETS, "sensor"].sort());
+  });
+
+  it("opens no sensor's socket on a DE1's tablet, whatever other sensors Decaid lists", async () => {
+    // Decaid's simulated sensors, a sensor basket and a debug port, but no milk probe.
+    const { machine, tablet } = await connected("No probe", { sensors: simulatedDevices()["/sensors"] });
+    const stream = await watching(machine, tablet);
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+    // Long enough for the plugin to look through Decaid's sensors again three times: every 5 s at the tablet's 50 times pace.
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+    // Its connection, and Decaid's four sockets: never another.
+    expect(tablet.peakTransports).toBe(5);
+    expect(liveFramesSent(tablet, 0, "sensor")).toEqual([]);
+    expect(fromSensors(stream)).toEqual([]);
   });
 
   it("keeps the time in state across a reconnect, and through a change of detail", async () => {

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type LiveFrame, encode, utf8Length } from "@decent-sync/protocol";
 import type { TransportEvent, Transports } from "../src/host.js";
-import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LIVE_SOCKETS, LIVE_SOCKET_RETRY_MS, LiveBudget, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
+import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LIVE_SOCKETS, LIVE_SOCKET_RETRY_MS, LiveBudget, LiveRate, LiveView, TimeInState, sensorSocket } from "../src/live-view.js";
 
 // The plugin's side of the Live View: when time in state restarts, the rate
 // rule, the live budget, and what it streams, on the test tablet's DE1Pro's
@@ -22,11 +22,13 @@ function machineFrames(file: string): Record<string, unknown>[] {
 /**
  * Decaid's sockets as the Live View opens them, each opening at once and
  * quiet until `push` sends a frame on those open on a URL. An open of a URL
- * in `refused` fails, as for want of a transport.
+ * in `refused` fails, as for want of a transport. Decaid lists the milk
+ * probe `probe.id`, none while it is null.
  */
 function decaidSockets() {
   const open = new Map<string, { url: string; listener?: (event: TransportEvent) => void }>();
   const refused = new Set<string>();
+  const probe: { id: string | null } = { id: null };
   let handles = 0;
   const transports: Transports = {
     open: async (url) => {
@@ -45,6 +47,8 @@ function decaidSockets() {
   return {
     transports,
     refused,
+    probe,
+    findMilkProbe: async () => probe.id,
     /** The URLs of the sockets open now. */
     urls: () => [...open.values()].map((socket) => socket.url).sort(),
     push: (url: string, frame: unknown) => {
@@ -254,7 +258,7 @@ describe("LiveView", () => {
     const sent: LiveFrame[] = [];
     const logs: string[] = [];
     const sockets = decaidSockets();
-    const live = new LiveView((line) => logs.push(line), sockets.transports);
+    const live = new LiveView((line) => logs.push(line), sockets.transports, sockets.findMilkProbe);
     live.start(async (frame) => void sent.push(frame));
     return { live, sent, logs, sockets };
   }
@@ -273,7 +277,8 @@ describe("LiveView", () => {
 
   it("sends every frame of a shot, but one a second while idle, and tracks the time in state while not streaming", () => {
     const sent: LiveFrame[] = [];
-    const live = new LiveView(() => {}, decaidSockets().transports);
+    const sockets = decaidSockets();
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     const frames = machineFrames("shot.json");
     // Not streaming yet: its time in state is tracked all the same.
     live.stateUpdate(frames[0]);
@@ -349,7 +354,7 @@ describe("LiveView", () => {
 
   it("opens a socket that couldn't open, or that Decaid closed, again a while later, until it stops", async () => {
     const sockets = decaidSockets();
-    const live = new LiveView(() => {}, sockets.transports);
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     sockets.refused.add(LIVE_SOCKETS.devices);
     live.start(async () => {});
     await vi.advanceTimersByTimeAsync(0);
@@ -369,6 +374,38 @@ describe("LiveView", () => {
     sockets.end(LIVE_SOCKETS.scale);
     live.stop();
     await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.urls()).toEqual([]);
+  });
+
+  it("opens a milk probe's socket once Decaid lists one, forwarding its frames tagged with its id, and looks again while none is", async () => {
+    const { live, sent, sockets } = streaming();
+    await vi.advanceTimersByTimeAsync(0);
+    // No probe listed, as on a DE1: no socket for one.
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+
+    // One attached: found as Decaid lists it next, by an id that names its Bengle's device, and its socket opened.
+    const id = "00:00:5E:00:53:21-milkprobe";
+    const url = sensorSocket(id);
+    expect(url).toBe("ws://localhost:8080/ws/v1/sensors/00%3A00%3A5E%3A00%3A53%3A21-milkprobe/snapshot");
+    sockets.probe.id = id;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS);
+    expect(sockets.urls()).toEqual([...Object.values(LIVE_SOCKETS), url].sort());
+    const reading = { timestamp: "2026-10-28T11:05:55.430551", temperature: 7.0 };
+    sockets.push(url, reading);
+    expect(sent.at(-1)).toEqual({ type: "liveFrame", source: "sensor", sensorId: id, receivedAt: expect.any(String), frame: reading });
+
+    // Its socket closes, as one opened while the probe isn't listed does: Decaid is looked through again, a while later.
+    sockets.push(url, { error: "not found" });
+    sockets.end(url);
+    sockets.probe.id = null;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.urls()).not.toContain(url);
+    sockets.probe.id = id;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS);
+    expect(sockets.urls()).toContain(url);
+
+    // Stopped: it closes with the rest.
+    live.stop();
     expect(sockets.urls()).toEqual([]);
   });
 
@@ -428,7 +465,8 @@ describe("LiveView", () => {
   });
 
   it("drops a frame Decaid's transport refuses, and goes on", async () => {
-    const live = new LiveView(() => {}, decaidSockets().transports);
+    const sockets = decaidSockets();
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     let refuse = true;
     const sent: LiveFrame[] = [];
     live.start(async (frame) => {
@@ -437,7 +475,8 @@ describe("LiveView", () => {
     });
     const [idle] = machineFrames("idle.json");
     live.stateUpdate({ ...idle, state: { state: "espresso", substate: "preinfusion" } });
-    await vi.runAllTimersAsync();
+    // Not every timer: while streaming with no milk probe listed, the plugin looks for one again and again.
+    await vi.advanceTimersByTimeAsync(LIVE_INTERVAL_MS);
     refuse = false;
     live.stateUpdate({ ...idle, state: { state: "espresso", substate: "pouring" } });
     expect(sent.map((frame) => frame.frame.state)).toEqual([{ state: "espresso", substate: "pouring" }]);
