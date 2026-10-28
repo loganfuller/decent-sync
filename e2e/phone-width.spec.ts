@@ -65,6 +65,21 @@ test("on a phone, every page fits the screen for Staff too", async ({ page, brow
   }
 });
 
+test("on a small phone held sideways, the menu scrolls to Sign out", async ({ browser }) => {
+  // A Galaxy S5's, below md, too short for the Admin's menu, which ends at about 414 px.
+  const context = await browser.newContext({ baseURL: server.url(), ...PHONE, viewport: { width: 640, height: 360 } });
+  try {
+    const page = await context.newPage();
+    await signInAsAdmin(page);
+    await page.goto("/");
+    const menu = await openMenu(page, { name: admin.name, links: [...MAIN_LINKS, "Accounts"] });
+    await menu.getByRole("button", { name: "Sign out" }).click();
+    await expect(page).toHaveURL(/\/sign-in$/);
+  } finally {
+    await context.close();
+  }
+});
+
 test("on a wider screen, the top bar is one row with no menu", async ({ browser }) => {
   // md, where the row starts, and a desktop's.
   for (const width of [768, 1280]) {

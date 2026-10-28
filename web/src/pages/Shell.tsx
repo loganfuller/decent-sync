@@ -47,10 +47,11 @@ export function Shell() {
                 <span className="sr-only">Menu</span>
               </Button>
             </SheetTrigger>
-            <SheetContent>
+            {/* Scrolls on a small phone held sideways, which still gets the menu, so Sign out stays in reach. */}
+            <SheetContent className="overflow-y-auto">
               <SheetHeader>
                 <SheetTitle>Decent Sync</SheetTitle>
-                {account && <SheetDescription>Signed in as {account.name}</SheetDescription>}
+                {account && <SheetDescription className="wrap-anywhere">Signed in as {account.name}</SheetDescription>}
               </SheetHeader>
               <MainNav className="grid px-4 text-base *:py-2" onNavigate={() => setMenuOpen(false)} />
               <SheetFooter>
@@ -108,7 +109,7 @@ export function HomePage() {
 
   return (
     <section className="grid gap-2">
-      <h1 className="text-2xl font-semibold">Welcome, {name}</h1>
+      <h1 className="text-2xl font-semibold wrap-anywhere">Welcome, {name}</h1>
       <p className="text-muted-foreground">Locations, Machines and Shots will appear here.</p>
     </section>
   );
