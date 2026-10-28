@@ -537,8 +537,10 @@ lets its DYE strip apply a recipe holding a grinder or Basket
 
 ## Development
 
-Needs Node.js 22.12 or newer and PostgreSQL 14 or newer. `docker-compose.yml`
-runs a local PostgreSQL.
+Needs Node.js 26 or newer and PostgreSQL 14 or newer. Node must have Temporal,
+as nodejs.org's builds do; some packaged builds, such as Homebrew's, leave it
+out, and the server refuses to start on one. `docker-compose.yml` runs a local
+PostgreSQL.
 
 ```bash
 npm install

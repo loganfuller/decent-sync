@@ -29,11 +29,11 @@
     "dev:web": "npm run dev -w web"
   },
   "engines": {
-    "node": ">=22.12"
+    "node": ">=26"
   },
   "devDependencies": {
     "@playwright/test": "^1.62.0",
-    "@types/node": "^24.0.0",
+    "@types/node": "^26.6.5",
     "@types/pg": "^8.23.1",
     "pg": "^8.23.0",
     "typescript": "~6.0.2",

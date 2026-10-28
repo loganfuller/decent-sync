@@ -8,6 +8,12 @@ import { ManagementInterface } from "./management-interface.js";
 import { checkIdleInTransactionTimeout, runMigrations } from "./migrations.js";
 
 async function main(): Promise<void> {
+  // Locations' time zones are resolved with Temporal (`locations/time-zones.ts`), which some Node 26 builds lack.
+  if (typeof Temporal === "undefined") {
+    throw new StartupError(
+      `Decent Sync needs Node.js 26 or newer with Temporal, as the builds from nodejs.org and the server image have; Node.js ${process.version} here lacks it`,
+    );
+  }
   const config = loadConfig(process.env);
   await runMigrations(config);
   await checkIdleInTransactionTimeout(config);
