@@ -8,9 +8,12 @@ import { type RelayedLiveFrame, machineStateOf } from "@decent-sync/protocol";
 
 /**
  * The latest frame of each source the Live View has had, as the Machine's
- * plugin streamed them: its machine snapshot, and what Decaid's sockets sent.
+ * plugin streamed them: its machine snapshot, and what Decaid's sockets sent,
+ * all from one Tablet's connection.
  */
 export interface LiveState {
+  /** The Tablet whose connection sent them, by its id. */
+  tabletId: string;
   machine?: LiveMachine;
   /**
    * When the page received `machine`, by its own clock, in ms since the
@@ -47,30 +50,46 @@ export function readLiveEvent(data: unknown): RelayedLiveFrame | null {
     return null;
   }
   const relayed = record(value);
-  if (!relayed || typeof relayed.source !== "string" || typeof relayed.receivedAt !== "string" || !record(relayed.frame)) return null;
+  const envelope = relayed && typeof relayed.tabletId === "string" && typeof relayed.source === "string" && typeof relayed.receivedAt === "string";
+  if (!envelope || !record(relayed.frame)) return null;
   return relayed as unknown as RelayedLiveFrame;
 }
 
 /**
  * The Live View with a relayed frame taken in, as the latest of its source,
- * the page having received it at `arrivedAt` by its own clock. A frame it
- * doesn't show changes nothing: undefined, while no frame it shows has come,
- * stays undefined.
+ * the page having received it at `arrivedAt` by its own clock. The server
+ * relays only the frames of the connection holding the Machine, so one from
+ * another Tablet than the rest shows it has taken the Machine over: what the
+ * last one sent is dropped. Otherwise a frame it doesn't show changes nothing:
+ * undefined, while no frame it shows has come, stays undefined.
  */
 export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveFrame, arrivedAt: number): LiveState | undefined {
+  const { tabletId } = relayed;
+  const held = live?.tabletId === tabletId ? live : undefined;
   switch (relayed.source) {
     case "machine": {
       const machine = liveMachineOf(relayed);
-      return machine ? { ...live, machine, machineArrivedAt: arrivedAt } : live;
+      return machine ? { ...held, tabletId, machine, machineArrivedAt: arrivedAt } : held;
     }
     case "waterLevels":
     case "scale":
     case "shotSettings":
     case "devices":
-      return { ...live, [relayed.source]: relayed.frame };
+      return { ...held, tabletId, [relayed.source]: relayed.frame };
     default:
-      return live;
+      return held;
   }
+}
+
+/**
+ * The Live View once the page's polling finds `tabletId` holding the
+ * Machine, as after a takeover: what another Tablet sent is dropped, as a
+ * Tablet that sends nothing, such as one on the previous release, would
+ * otherwise leave it standing. The new one's frames that came before the
+ * poll are kept.
+ */
+export function withHolder(live: LiveState | undefined, tabletId: string): LiveState | undefined {
+  return live?.tabletId === tabletId ? live : undefined;
 }
 
 /** The tank's water level and refill level, in mm, each null where not sent, and whether it is low: at or below the refill level. */

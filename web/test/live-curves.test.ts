@@ -18,6 +18,7 @@ import { type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStre
 
 type Recording = { frames: { ms: number; source: string; frame: Record<string, unknown> }[] };
 const MACHINE_ID = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70";
+const TABLET_ID = "019a2f3e-8b52-7c0f-9e2a-6a4d3f5c7b81";
 /** When the plugin received each recording's first frame, an hour apart, so recordings relayed one after another follow on. */
 const RECORDINGS = new Map<Recording, number>(
   [shot, steam, steamTwoTapStop, flush, hotWater, idle].map((recording, n) => [recording as Recording, Date.parse("2026-10-27T21:00:00Z") + n * 3_600_000]),
@@ -34,10 +35,10 @@ function relayed(recording: unknown): RelayedLiveFrame[] {
   let since = "";
   return (recording as Recording).frames.map(({ ms, source, frame }) => {
     const receivedAt = new Date(at + ms).toISOString();
-    if (source !== "machine") return { machineId: MACHINE_ID, source, receivedAt, frame } as RelayedLiveFrame;
+    if (source !== "machine") return { machineId: MACHINE_ID, tabletId: TABLET_ID, source, receivedAt, frame } as RelayedLiveFrame;
     const named = machineStateOf(frame)!;
     if (named.name !== name) [name, since] = [named.name, receivedAt];
-    return { machineId: MACHINE_ID, source: "machine", receivedAt, stateSince: since, frame };
+    return { machineId: MACHINE_ID, tabletId: TABLET_ID, source: "machine", receivedAt, stateSince: since, frame };
   });
 }
 
@@ -125,7 +126,7 @@ describe("the Live View's curves", () => {
     for (const from of [purge, purge + 1]) expect(take(steamFrames.slice(from)).curve).toMatchObject({ activity: "steaming", partial: true });
 
     // Earlier frames of other sources, which the server sends a joining viewer again, don't count.
-    const shotSettings = { machineId: MACHINE_ID, source: "shotSettings", receivedAt: "2026-10-27T20:00:00.000Z", frame: { targetSteamTemp: 160 } } as RelayedLiveFrame;
+    const shotSettings = { machineId: MACHINE_ID, tabletId: TABLET_ID, source: "shotSettings", receivedAt: "2026-10-27T20:00:00.000Z", frame: { targetSteamTemp: 160 } } as RelayedLiveFrame;
     expect(take([shotSettings, ...shotFrames.slice(pouring)]).curve!.partial).toBe(true);
   });
 
@@ -202,12 +203,12 @@ describe("the Live View's curves", () => {
 
     const frames = relayed(shot);
     const start = first(frames, "espresso", "preparingForShot");
-    const disconnected = { machineId: MACHINE_ID, source: "scale", receivedAt: frames[start]!.receivedAt, frame: { status: "disconnected" } } as RelayedLiveFrame;
+    const disconnected = { machineId: MACHINE_ID, tabletId: TABLET_ID, source: "scale", receivedAt: frames[start]!.receivedAt, frame: { status: "disconnected" } } as RelayedLiveFrame;
     const { curve } = take([...frames.slice(0, start), disconnected, ...frames.slice(start).filter(({ source }) => source === "machine")]);
     expect(curve!.measurements.every(({ scale }) => scale === undefined)).toBe(true);
     // A frame without a Machine State, or of a source the curves don't read, changes nothing.
     const curves: LiveCurves = { curve: curve as LiveCurve };
-    const noState = { machineId: MACHINE_ID, source: "machine", receivedAt: frames[start]!.receivedAt, stateSince: frames[start]!.receivedAt, frame: { pressure: 1 } } as RelayedLiveFrame;
+    const noState = { machineId: MACHINE_ID, tabletId: TABLET_ID, source: "machine", receivedAt: frames[start]!.receivedAt, stateSince: frames[start]!.receivedAt, frame: { pressure: 1 } } as RelayedLiveFrame;
     expect(withCurvesFrame(curves, noState)).toBe(curves);
     expect(withCurvesFrame(curves, { ...noState, source: "waterLevels", frame: { currentLevel: 20 } })).toBe(curves);
   });

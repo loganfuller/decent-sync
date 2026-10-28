@@ -21,6 +21,7 @@ import {
   staleAtOf,
   timeInState,
   waterLevelOf,
+  withHolder,
   withLiveFrame,
 } from "@/lib/live-view";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
@@ -151,20 +152,17 @@ function useTimeAfter(at: number): number {
  * REOPEN_MS. `openedAt` is when the page last opened it, by its own clock.
  *
  * `tabletId` is the Tablet holding the Machine, as the page last polled it.
- * Once another takes it over, what the last one sent is dropped, and the
- * stream opened again, so the server sends the latest from the new one's
- * sockets, as to any viewer joining. The Tablet first seen holding it drops
- * nothing.
+ * Once its polling finds another, what a Tablet other than that one sent is
+ * dropped (`withHolder`).
  */
 function useLiveView(machineId: string, tabletId: string | null): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
   const [live, setLive] = useState<LiveState>();
   const [curves, setCurves] = useState<LiveCurves>({});
   const [openedAt, setOpenedAt] = useState(Date.now);
-  const [holder, setHolder] = useState({ tabletId, takeovers: 0 });
-  if (tabletId !== null && tabletId !== holder.tabletId) {
-    const takeover = holder.tabletId !== null;
-    if (takeover) setLive(undefined);
-    setHolder({ tabletId, takeovers: holder.takeovers + (takeover ? 1 : 0) });
+  const [holder, setHolder] = useState(tabletId);
+  if (tabletId !== holder) {
+    setHolder(tabletId);
+    if (tabletId !== null) setLive((latest) => withHolder(latest, tabletId));
   }
   useEffect(() => {
     let source: EventSource | undefined;
@@ -207,7 +205,7 @@ function useLiveView(machineId: string, tabletId: string | null): { live: LiveSt
       document.removeEventListener("visibilitychange", visibilityChanged);
       close();
     };
-  }, [machineId, holder.takeovers]);
+  }, [machineId]);
   return { live, curves, openedAt };
 }
 
