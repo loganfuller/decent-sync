@@ -7,6 +7,8 @@ import machineDisconnects from "../../server/test/fixtures/decaid/simulated-devi
 import {
   type LiveState,
   STALE_AFTER_MS,
+  type StoredMachineState,
+  asleepSinceOf,
   liveConditionOf,
   liveMachineOf,
   machineConnectedOf,
@@ -169,8 +171,8 @@ describe("what the Live View can show", () => {
   });
   const openedAt = 10_000;
   /** The condition at `now`, the page's latest poll having found the Machine offline at `offlineAt`, or online. */
-  const judged = (live: LiveState | undefined, now: number, offlineAt: number | null = null, mismatched = false) =>
-    liveConditionOf({ offlineAt, mismatched, live, openedAt, now });
+  const judged = (live: LiveState | undefined, now: number, offlineAt: number | null = null, mismatched = false, stored: StoredMachineState | null = null) =>
+    liveConditionOf({ offlineAt, mismatched, stored, live, openedAt, now });
 
   it("is offline, then mismatched, as the page last polled the Machine, but for a current machine snapshot come since", () => {
     expect(judged(undefined, 20_000, 15_000)).toBe("offline");
@@ -222,5 +224,24 @@ describe("what the Live View can show", () => {
     expect(judged(live, 600_000)).toBe("asleep");
     // Woken, it is stale again once it stops sending.
     expect(judged(liveWith(awake!, 30_000), 35_001)).toBe("stale");
+  });
+
+  it("takes the stored Machine State where it was observed after the latest snapshot, or none has come, as a page opened while the Machine sleeps", () => {
+    /** A stored Machine State, observed `ms` after the plugin received the snapshot in `liveWith`. */
+    const storedAfter = (state: string, ms: number): StoredMachineState => ({ state, observedAt: new Date(Date.parse(event.receivedAt) + ms).toISOString() });
+    // Opened while it sleeps: the replayed socket frames, but no snapshot.
+    const opened: LiveState = { tabletId: TABLET_ID, arrivedAt: openedAt, devices: devicesConnected };
+    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, storedAfter("sleeping", -60_000))).toBe("asleep");
+    expect(asleepSinceOf(opened, storedAfter("sleeping", -60_000))).toBe(storedAfter("sleeping", -60_000).observedAt);
+    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, storedAfter("idle", -60_000))).toBe("stale");
+    // Gone to sleep after the last snapshot the page had, as with its tab hidden.
+    const idle = liveWith(awake!, 20_000);
+    expect(judged(idle, 25_001, null, false, storedAfter("sleeping", 1_000))).toBe("asleep");
+    expect(judged(idle, 25_001, null, false, storedAfter("sleeping", -1_000))).toBe("stale");
+    // The latest snapshot said asleep, though a stored state from before it didn't.
+    expect(judged(liveWith(sleeping, 20_000), 25_001, null, false, storedAfter("idle", -1_000))).toBe("asleep");
+    expect(asleepSinceOf(liveWith(sleeping, 20_000), null)).toBe(event.stateSince);
+    // Woken since: the stored state wins over an older sleeping snapshot.
+    expect(judged(liveWith(sleeping, 20_000), 25_001, null, false, storedAfter("idle", 1_000))).toBe("stale");
   });
 });

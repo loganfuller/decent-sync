@@ -145,9 +145,9 @@ export const STALE_AFTER_MS = 5_000;
  * - `notConnected`: its Tablet's latest device list has its machine not
  *   connected;
  * - `asleep` or `stale`: by the page's clock, more than STALE_AFTER_MS has
- *   passed since the latest machine frame came (`staleAtOf`). Asleep where it
- *   said the Machine was asleep, as some firmware sends nothing while it
- *   sleeps; stale otherwise;
+ *   passed since the latest machine frame came (`staleAtOf`). Asleep where
+ *   the latest Machine State known is asleep (`asleepSinceOf`), as some
+ *   firmware sends nothing while it sleeps; stale otherwise;
  * - `live`.
  */
 export type LiveCondition = "offline" | "mismatch" | "waiting" | "notConnected" | "asleep" | "stale" | "live";
@@ -155,6 +155,7 @@ export type LiveCondition = "offline" | "mismatch" | "waiting" | "notConnected" 
 export function liveConditionOf({
   offlineAt,
   mismatched,
+  stored,
   live,
   openedAt,
   now,
@@ -163,6 +164,8 @@ export function liveConditionOf({
   offlineAt: number | null;
   /** Whether its connection reports other hardware, as the page last polled it. */
   mismatched: boolean;
+  /** Its latest stored Machine State, as the page last polled it, or null for none. */
+  stored: StoredMachineState | null;
   live: LiveState | undefined;
   /** When the page last opened its stream, by its own clock, in ms, which counts as the latest machine frame until one comes. */
   openedAt: number;
@@ -175,7 +178,29 @@ export function liveConditionOf({
   if (!live) return "waiting";
   if (machineConnectedOf(live.devices) === false) return "notConnected";
   if (current) return "live";
-  return machineStateOf(live.machine?.snapshot)?.state === "sleeping" ? "asleep" : "stale";
+  return asleepSinceOf(live, stored) !== null ? "asleep" : "stale";
+}
+
+/** A stored Machine State: Decaid's state, and when the plugin observed it, by the tablet's clock. */
+export interface StoredMachineState {
+  state: string;
+  observedAt: string;
+}
+
+/**
+ * When the Machine went to sleep, by the tablet's clock, if the latest
+ * Machine State known says it is asleep, or null. That is the latest machine
+ * frame's, unless the stored one was observed after the plugin received it,
+ * or none has come: a page opened, or shown again, while the Machine sleeps
+ * on firmware that sends nothing then gets no frame from it, though its
+ * plugin stored the change. Both times are the plugin's.
+ */
+export function asleepSinceOf(live: LiveState | undefined, stored: StoredMachineState | null): string | null {
+  const machine = live?.machine;
+  if (stored && (!machine || Date.parse(stored.observedAt) > Date.parse(machine.receivedAt))) {
+    return stored.state === "sleeping" ? stored.observedAt : null;
+  }
+  return machine && machineStateOf(machine.snapshot)?.state === "sleeping" ? machine.stateSince : null;
 }
 
 /**
