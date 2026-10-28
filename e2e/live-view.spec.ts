@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { type Page, type Request, expect, test } from "@playwright/test";
 import { machineSnapshots, stateOf } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { type SimulatedTablet, derivedDe1Pro, workflowFixture } from "../server/test/support/simulated-tablet.js";
@@ -7,8 +7,8 @@ import { field, machineRow } from "./support/locators.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
-// The Live View on a Machine's page (#260), as an Admin and as Staff in New
-// York. A simulated tablet running the built plugin sends the test tablet's
+// The Live View on a Machine's page (#260, #261), as an Admin and as Staff in
+// New York. A simulated tablet running the built plugin sends the test tablet's
 // DE1Pro's recorded machine snapshots (server/test/fixtures/decaid/de1pro-live-v0.9.0/)
 // as Decaid's `stateUpdate`. Serials are made up, from 27001.
 const server = useFreshServer();
@@ -99,6 +99,47 @@ test("the Live View names each Machine State of a shot and a hot water pour, wit
     await expect(field(state, "Time in state")).toHaveText(/^\d+ s$/);
   }
   await expect(field(card, "Profile step")).toHaveText("Not pulling a shot");
+});
+
+/**
+ * Hides the page's tab, or shows it again, as switching to another tab and
+ * back does: the page's visibility as it reads it, and the event telling it.
+ */
+async function setTabHidden(page: Page, hidden: boolean): Promise<void> {
+  await page.evaluate((hidden) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+}
+
+test("the Live View closes its stream while its tab is hidden, and opens it again once the tab is shown", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 4");
+  const tablet = await connectedTablet(token, "27004");
+  const isStream = (request: Request) => new URL(request.url()).pathname === `/api/machines/${machine.id}/live`;
+  const opened: Request[] = [];
+  const closed: Request[] = [];
+  page.on("request", (request) => isStream(request) && opened.push(request));
+  page.on("requestfailed", (request) => isStream(request) && closed.push(request));
+  await page.goto(`/machines/${machine.id}`);
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  const state = page.getByRole("region", { name: "Live View" }).getByRole("group", { name: "Machine State" });
+  tablet.reportSnapshot(first(shot, "espresso", "preinfusion"));
+  await expect(field(state, "Machine State")).toHaveText("Pulling a shot Preinfusion");
+
+  await setTabHidden(page, true);
+  await expect.poll(() => closed.length).toBe(1);
+  expect(opened).toHaveLength(1);
+
+  // Shown again within the stream's linger, it continues without the plugin being stopped and started.
+  await setTabHidden(page, false);
+  await expect.poll(() => opened.length).toBe(2);
+  // Answered once its lease is held: what is relayed before then doesn't reach it.
+  await opened[1]!.response();
+  tablet.reportSnapshot(first(shot, "espresso", "pouring"));
+  await expect(field(state, "Machine State")).toHaveText("Pulling a shot Pouring");
+  expect(tablet.delivered.filter((frame) => (frame as { type?: string }).type === "liveStart")).toHaveLength(1);
+  expect(tablet.delivered).not.toContainEqual({ type: "liveStop" });
 });
 
 test("the Machines list names each Machine State as the Live View does", async ({ page }) => {

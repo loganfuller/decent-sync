@@ -61,6 +61,8 @@
   "server/test/library-recipe-management.test.ts": 20,
   "server/test/library-recipes.test.ts": 20,
   "server/test/live-view-backpressure.test.ts": 6,
+  "server/test/live-view-instances.test.ts": 37,
+  "server/test/live-view-lifetime.test.ts": 40,
   "server/test/live-view.test.ts": 8,
   "server/test/loaded-recipe-following.test.ts": 83,
   "server/test/loaded-recipe-intake.test.ts": 0,

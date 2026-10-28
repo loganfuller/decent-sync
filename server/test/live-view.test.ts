@@ -134,24 +134,18 @@ describe("the Live View", () => {
     expect(new Set(events.map((event) => event.stateSince))).toEqual(new Set([events[0]!.receivedAt]));
   });
 
-  it("shares one stream between viewers, starting the plugin once, and stops it once the last closes", async () => {
+  // Stopping it once the last viewer has gone, after the linger, is in live-view-lifetime.test.ts.
+  it("shares one stream between viewers, starting the plugin once", async () => {
     const { machine, tablet } = await connected("Shared");
     const first = await watching(machine, tablet);
-    // Answered once its lease is held, so the plugin isn't stopped as the first closes.
     const second = await openLiveView(api, machine.machine.id);
     await seen(tablet, espresso.slice(0, 3), first, second);
 
     await first.close();
     await seen(tablet, espresso.slice(3, 6), second);
-
-    await second.close();
-    await expect.poll(() => count(tablet.delivered, "liveStop")).toBe(1);
-    // Decided in turn, so the plugin was started only for the first viewer, and stopped only for the last.
+    // Decided in turn, so the plugin was started only for the first viewer.
     expect(count(tablet.delivered, "liveStart")).toBe(1);
-    const sends = tablet.sent.length;
-    tablet.reportSnapshot(firstOf("pouring"));
-    tablet.reportSnapshot(idle[0]!);
-    expect(tablet.sent.slice(sends).filter(isLiveFrame)).toEqual([]);
+    expect(count(tablet.delivered, "liveStop")).toBe(0);
   });
 
   it("sends every frame of a shot, but one a second while idle, the latest winning, and a change of Machine State at once", async () => {
@@ -298,11 +292,13 @@ describe("the Live View", () => {
     } finally {
       await database.end();
     }
-    // A viewer who stays starts the plugin, which stops once that viewer leaves, as no other Live View is left.
-    const stream = await watching(machine, tablet);
-    await stream.close();
-    await expect.poll(() => count(tablet.delivered, "liveStop")).toBe(1);
-    expect(count(tablet.delivered, "liveStart")).toBe(1);
+    // Kept, its lease would have started the plugin, and been renewed for good. A Machine connected and watched after
+    // it on the same instance has its plugin started many queries later than a decision on that lease would have been:
+    // after a Machine's creation, its tablet's hello and another Live View's lease. The test fails when the route keeps
+    // a viewer gone already.
+    const control = await connected("Left early control");
+    await watching(control.machine, control.tablet);
+    expect(count(tablet.delivered, "liveStart")).toBe(0);
   });
 
   it("streams a Machine named by its id in capitals as any other", async () => {
