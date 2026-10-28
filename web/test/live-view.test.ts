@@ -20,6 +20,7 @@ import {
   waterLevelOf,
   withHolder,
   withLiveFrame,
+  withStreamOpened,
 } from "../src/lib/live-view";
 
 // Reading the Live View's events, each a live frame as the server relays it,
@@ -226,22 +227,24 @@ describe("what the Live View can show", () => {
     expect(judged(liveWith(awake!, 30_000), 35_001)).toBe("stale");
   });
 
-  it("takes the stored Machine State where it was observed after the latest snapshot, or none has come, as a page opened while the Machine sleeps", () => {
-    /** A stored Machine State, observed `ms` after the plugin received the snapshot in `liveWith`. */
-    const storedAfter = (state: string, ms: number): StoredMachineState => ({ state, observedAt: new Date(Date.parse(event.receivedAt) + ms).toISOString() });
+  it("takes the stored Machine State where no snapshot has come since the stream opened, as a page opened or shown again while the Machine sleeps", () => {
+    const stored = (state: string): StoredMachineState => ({ state, observedAt: "2026-10-27T21:20:00.000Z" });
     // Opened while it sleeps: the replayed socket frames, but no snapshot.
     const opened: LiveState = { tabletId: TABLET_ID, arrivedAt: openedAt, devices: devicesConnected };
-    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, storedAfter("sleeping", -60_000))).toBe("asleep");
-    expect(asleepSinceOf(opened, storedAfter("sleeping", -60_000))).toBe(storedAfter("sleeping", -60_000).observedAt);
-    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, storedAfter("idle", -60_000))).toBe("stale");
-    // Gone to sleep after the last snapshot the page had, as with its tab hidden.
+    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, stored("sleeping"))).toBe("asleep");
+    expect(asleepSinceOf(opened, stored("sleeping"))).toBe(stored("sleeping").observedAt);
+    expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, stored("idle"))).toBe("stale");
+    expect(judged(opened, openedAt + STALE_AFTER_MS + 1)).toBe("stale");
+    // Shown again: the last snapshot, from before it may have gone to sleep unseen, is dropped as the stream opens.
     const idle = liveWith(awake!, 20_000);
-    expect(judged(idle, 25_001, null, false, storedAfter("sleeping", 1_000))).toBe("asleep");
-    expect(judged(idle, 25_001, null, false, storedAfter("sleeping", -1_000))).toBe("stale");
-    // The latest snapshot said asleep, though a stored state from before it didn't.
-    expect(judged(liveWith(sleeping, 20_000), 25_001, null, false, storedAfter("idle", -1_000))).toBe("asleep");
-    expect(asleepSinceOf(liveWith(sleeping, 20_000), null)).toBe(event.stateSince);
-    // Woken since: the stored state wins over an older sleeping snapshot.
-    expect(judged(liveWith(sleeping, 20_000), 25_001, null, false, storedAfter("idle", 1_000))).toBe("stale");
+    const shown = withStreamOpened(idle)!;
+    expect(shown).toEqual({ tabletId: TABLET_ID, arrivedAt: 20_000, devices: devicesConnected });
+    expect(judged(shown, 25_001, null, false, stored("sleeping"))).toBe("asleep");
+    expect(withStreamOpened(shown)).toBe(shown);
+    expect(withStreamOpened(undefined)).toBeUndefined();
+    // A snapshot that has come decides, whatever was stored: the stored state may lag it.
+    expect(judged(idle, 25_001, null, false, stored("sleeping"))).toBe("stale");
+    expect(judged(liveWith(sleeping, 20_000), 25_001, null, false, stored("idle"))).toBe("asleep");
+    expect(asleepSinceOf(liveWith(sleeping, 20_000), stored("idle"))).toBe(event.stateSince);
   });
 });

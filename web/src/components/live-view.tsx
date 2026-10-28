@@ -24,6 +24,7 @@ import {
   waterLevelOf,
   withHolder,
   withLiveFrame,
+  withStreamOpened,
 } from "@/lib/live-view";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
 import { cn } from "@/lib/utils";
@@ -106,7 +107,12 @@ function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCo
         <CardDescription className="flex items-center gap-1.5">
           Asleep since {formatTime(asleepSinceOf(live, machine.machineState)!)}
           <InfoTip label="About an asleep Machine">
-            <p>Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.</p>
+            <p>
+              Some Machines send nothing while asleep.{" "}
+              {live?.machine
+                ? "These are the values it sent as it went to sleep."
+                : "Its Tablet stored that it went to sleep, but has sent no values since this page opened."}
+            </p>
           </InfoTip>
         </CardDescription>
       );
@@ -190,6 +196,7 @@ function useLiveView(
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
       setOpenedAt(Date.now());
+      setLive(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
         if (!relayed) return;

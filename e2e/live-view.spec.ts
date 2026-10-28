@@ -333,7 +333,7 @@ test("the Live View shows a Machine whose last snapshot said it was asleep as as
   await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));
   await expect(card).not.toContainText("No data since");
   await expect(liveContent(card)).toHaveCSS("opacity", "1");
-  await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.");
+  await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep. These are the values it sent as it went to sleep.");
 });
 
 test("the Live View of a page opened while the Machine sleeps, on firmware that then sends nothing, shows it asleep from its stored Machine State", async ({ page }) => {
@@ -355,6 +355,34 @@ test("the Live View of a page opened while the Machine sleeps, on firmware that 
   await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));
   await expect(card).not.toContainText("No data");
   await expect(liveContent(card)).toHaveCSS("opacity", "1");
+});
+
+test("the Live View of a tab shown again after the Machine went to sleep unseen shows it asleep, without the values from before", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 12");
+  const tablet = await connectedTablet(token, "27013");
+  await page.clock.install();
+  await page.goto(`/machines/${machine.id}`);
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  const card = page.getByRole("region", { name: "Live View" });
+  const state = card.getByRole("group", { name: "Machine State" });
+  tablet.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "idle")!);
+  await expect(field(state, "Machine State")).toHaveText("Idle");
+
+  // Hidden, and meanwhile the Machine goes to sleep, on firmware that then sends nothing: its plugin stores the change.
+  await setTabHidden(page, true);
+  tablet.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
+  type Viewed = { machine: { machineState: { state: string } | null } };
+  const storedState = async () => ((await (await page.request.get(`/api/machines/${machine.id}`)).json()) as Viewed).machine.machineState?.state;
+  await expect.poll(storedState).toBe("sleeping");
+
+  // Shown again: the snapshot from before is dropped as the stream opens, and the stored Machine State says asleep.
+  await setTabHidden(page, false);
+  await expect(field(state, "Machine State")).toHaveText("Not reported");
+  await page.clock.fastForward(5_500);
+  await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));
+  await expect(field(state, "Machine State")).toHaveText("Not reported");
+  await expect(liveContent(card)).toHaveCSS("opacity", "1");
+  await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep. Its Tablet stored that it went to sleep, but has sent no values since this page opened.");
 });
 
 test("the Live View follows Tablets taking its Machine over: it drops what the last one sent, but not what a new one sent after a poll was asked", async ({ page }) => {
