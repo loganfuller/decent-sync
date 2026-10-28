@@ -1,7 +1,9 @@
 import { randomUUID } from "node:crypto";
-import { Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
+import { Inject, Injectable, Logger, type OnModuleDestroy } from "@nestjs/common";
 import type { Response } from "express";
 import { type LiveFrame, type LiveStart, type LiveStop, MAX_NOTIFICATION_BYTES, relayedLiveFrame, utf8Length } from "@decent-sync/protocol";
+import { CONFIG } from "../config.module.js";
+import type { Config } from "../config.js";
 import { machineNotFound } from "../machines/input.js";
 import { Notifications, notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
@@ -10,8 +12,6 @@ import { PrismaService } from "../prisma.service.js";
 const RENEW_MS = 10_000;
 /** How long after its last renewal a lease expires, by PostgreSQL's clock. */
 const LEASE_SECONDS = 30;
-/** A stream with nothing else to send this long sends a comment, so proxies don't close it as idle. */
-const KEEP_ALIVE_MS = 15_000;
 /** How soon the browser's `EventSource` reconnects after a stream ends, as the stream tells it. */
 const RECONNECT_MS = 1_000;
 /** A stream whose viewer has this many bytes still unsent drops live frames until it catches up: the next replaces them. */
@@ -72,8 +72,10 @@ interface Stream {
  *   every RENEW_MS, to expire LEASE_SECONDS after, by PostgreSQL's clock; a
  *   renewal that finds it expired or gone ends the stream, which the browser
  *   then opens again. Closing a stream deletes its lease and announces that.
- *   Each relayed live frame is one event; a comment follows KEEP_ALIVE_MS
- *   with nothing to send.
+ *   Its headers wait for its lease, so a viewer that has them is counted.
+ *   Each relayed live frame is one event; a comment follows
+ *   `LIVE_VIEW_KEEP_ALIVE_SECONDS` with nothing to send, so proxies don't
+ *   close it as idle.
  * - **Starting the plugin.** Each connection this instance holds that may
  *   stream is sent `liveStart` while it holds its Machine and any of the
  *   Machine's leases is unexpired, and `liveStop` once not, only as that
@@ -106,6 +108,7 @@ export class LiveViews implements OnModuleDestroy {
 
   constructor(
     private readonly prisma: PrismaService,
+    @Inject(CONFIG) private readonly config: Config,
     notifications: Notifications,
   ) {
     // After listening anew, every connection is checked, as an announcement may have been missed.
@@ -135,8 +138,9 @@ export class LiveViews implements OnModuleDestroy {
   /**
    * Opens a Live View of the Machine for the viewer's session on the
    * response, which stays open until the viewer closes it, or the lease can't
-   * be kept. Throws for an unknown Machine, before anything is sent. One
-   * opened offline receives frames once its Machine connects.
+   * be kept. Throws for an unknown Machine, before anything is sent. Its
+   * headers are sent once its lease is held. One opened offline receives
+   * frames once its Machine connects.
    */
   async open(machineId: string, viewerSessionId: string, response: Response): Promise<void> {
     const stream: Stream = { machineId, response, ended: false };
@@ -149,10 +153,9 @@ export class LiveViews implements OnModuleDestroy {
     if (!machine) throw machineNotFound();
     if (stream.ended) return;
     stream.machineId = machine.id;
+    // Sent with the first thing written: a frame relayed for another viewer meanwhile, or once the lease is held.
     response.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
-    response.flushHeaders();
-    response.write(`retry: ${RECONNECT_MS}\n\n`);
-    if (this.ending) return void response.end();
+    if (this.ending) return void this.endStream(stream);
     const streams = this.streams.get(machine.id) ?? new Set();
     streams.add(stream);
     this.streams.set(machine.id, streams);
@@ -175,10 +178,12 @@ export class LiveViews implements OnModuleDestroy {
     } catch (error) {
       this.logger.error(`Could not open a Live View: ${String(error)}`);
     }
-    if (leaseId === undefined) return void response.end();
+    if (leaseId === undefined) return void this.endStream(stream);
     stream.leaseId = leaseId;
     // Closed while its lease was being inserted.
     if (stream.ended) return void this.release(leaseId, machine.id);
+    response.flushHeaders();
+    response.write(`retry: ${RECONNECT_MS}\n\n`);
     stream.renewal = setInterval(() => void this.track(this.renew(stream)), RENEW_MS);
   }
 
@@ -291,14 +296,14 @@ export class LiveViews implements OnModuleDestroy {
     }
   }
 
-  /** Sends a comment once the stream has had nothing to send for KEEP_ALIVE_MS. */
+  /** Sends a comment once the stream has had nothing to send for `LIVE_VIEW_KEEP_ALIVE_SECONDS`. */
   private keepAlive(stream: Stream): void {
     clearTimeout(stream.keepAlive);
     stream.keepAlive = setTimeout(() => {
       if (stream.ended) return;
       stream.response.write(": keep-alive\n\n");
       this.keepAlive(stream);
-    }, KEEP_ALIVE_MS);
+    }, this.config.liveViewKeepAliveMs);
   }
 
   /** Renews the stream's lease, or ends the stream if it expired or is gone, as after a stall or with its session. */
@@ -313,10 +318,10 @@ export class LiveViews implements OnModuleDestroy {
     }
   }
 
-  /** Ends a stream on this side, which the browser then opens again. */
+  /** Ends a stream on this side, which the browser then opens again after RECONNECT_MS. */
   private endStream(stream: Stream): void {
     this.streamClosed(stream);
-    stream.response.end();
+    stream.response.end(`retry: ${RECONNECT_MS}\n\n`);
   }
 
   private streamClosed(stream: Stream): void {

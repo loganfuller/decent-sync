@@ -23,6 +23,13 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
  */
 const TABLET_TIME_ZONE = "America/Toronto";
 
+/**
+ * Heartbeats every 300 s, so no tablet's heartbeat writes its Machine's row
+ * while a test holds the machines table; and a stream's comment after 0.2 s
+ * with nothing to send, rather than 15 s.
+ */
+const env = { SYNC_HEARTBEAT_SECONDS: "300", LIVE_VIEW_KEEP_ALIVE_SECONDS: "0.2" };
+
 const shot = machineSnapshots("shot.json");
 const idle = machineSnapshots("idle.json");
 const espresso = shot.filter((snapshot) => stateOf(snapshot).state === "espresso");
@@ -48,7 +55,7 @@ describe("the Live View", () => {
     timeZone = process.env.TZ;
     process.env.TZ = TABLET_TIME_ZONE;
     expect(new Date(2026, 9, 27).getTimezoneOffset()).toBe(240);
-    server = await startTestServer();
+    server = await startTestServer({ env });
     api = await AdminApi.setUp(server.url);
   });
   afterAll(async () => {
@@ -130,6 +137,7 @@ describe("the Live View", () => {
   it("shares one stream between viewers, starting the plugin once, and stops it once the last closes", async () => {
     const { machine, tablet } = await connected("Shared");
     const first = await watching(machine, tablet);
+    // Answered once its lease is held, so the plugin isn't stopped as the first closes.
     const second = await openLiveView(api, machine.machine.id);
     await seen(tablet, espresso.slice(0, 3), first, second);
 
@@ -297,6 +305,14 @@ describe("the Live View", () => {
     await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
     await seen(tablet, [idle[0]!], stream);
     expect(stream.events.every((event) => event.machineId === machine.machine.id)).toBe(true);
+  });
+
+  it("sends a comment once it has had nothing else to send for a while, so proxies keep it open", async () => {
+    const machine = await api.createMachine("Quiet");
+    const stream = await openLiveView(api, machine.machine.id);
+    await expect.poll(() => stream.comments.filter((comment) => comment === "keep-alive").length).toBeGreaterThanOrEqual(2);
+    expect(stream.events).toEqual([]);
+    expect(stream.ended).toBe(false);
   });
 
   it("answers 404 for a Machine there is none of", async () => {

@@ -74,8 +74,7 @@ import { opened } from "./test-scope.js";
 //   the test's, unless `setPluginClockOffset` corrects it.
 // - `reportSnapshot` sends a machine snapshot, such as one recorded
 //   (live-fixtures.ts), in a `stateUpdate` event, its `timestamp` the
-//   tablet's local time as Decaid writes it, and `reportSnapshots` a series
-//   of them at the rate the test sets.
+//   tablet's local time as Decaid writes it.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -1033,28 +1032,13 @@ export class SimulatedTablet {
    * (live-fixtures.ts), as Decaid does in a `stateUpdate` event several times
    * a second: its `timestamp` is the tablet's local time as it is sent,
    * without an offset, as Decaid writes it, and /machine/state answers with
-   * it from now on. Resolves with the snapshot as sent.
+   * it from now on. Returns the snapshot as sent.
    */
   reportSnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
     if (!this.machineConnected) throw new Error("Decaid sends machine state updates only while a machine is connected");
     const sent = { ...snapshot, timestamp: decaidNow() };
     this.api = { ...this.api, "/machine/state": sent };
     this.fire("stateUpdate", sent);
-    return sent;
-  }
-
-  /**
-   * Sends each snapshot in turn, as `reportSnapshot` does, at the rate the
-   * test sets: one every `intervalMs` of real time, the first at once.
-   * Resolves with them as sent, once the last is, or the tablet unloads.
-   */
-  async reportSnapshots(snapshots: Record<string, unknown>[], { intervalMs }: { intervalMs: number }): Promise<Record<string, unknown>[]> {
-    const sent: Record<string, unknown>[] = [];
-    for (const [index, snapshot] of snapshots.entries()) {
-      if (index > 0) await new Promise((resolve) => setTimeout(resolve, intervalMs));
-      if (this.unloaded) break;
-      sent.push(this.reportSnapshot(snapshot));
-    }
     return sent;
   }
 

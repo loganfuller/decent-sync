@@ -3,6 +3,7 @@ import net from "node:net";
 import type pg from "pg";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, admin, signIn } from "./support/admin-api.js";
+import { openLiveView } from "./support/live-views.js";
 import { syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { startRoutingProxy } from "./support/routing-proxy.js";
@@ -116,6 +117,26 @@ describe("stopping an instance", () => {
       leaving?.destroy();
       await Promise.all([holdingHandOver.end(), holdingAnswered.end(), holdingAbandoned.end()]);
       await proxy.close();
+      await stopping.stop();
+    }
+  });
+
+  it("ends its Live Views at once, and any opened during its grace, which the browser opens again elsewhere", async () => {
+    const stopping = await startTestServer({ env: graced, sharing: staying });
+    try {
+      const machine = await api.createMachine("Watched through a deploy");
+      const watched = await openLiveView(api.at(stopping.url), machine.machine.id);
+      expect(watched.status).toBe(200);
+      const stopped = stopping.stop();
+      // Ended while it still answers requests, rather than when it exits: an open stream would hold up its finish.
+      await expect.poll(() => watched.ended).toBe(true);
+      expect(await health(stopping)).toBe(503);
+      const opened = await openLiveView(api.at(stopping.url), machine.machine.id);
+      expect(opened.status).toBe(200);
+      await expect.poll(() => opened.ended).toBe(true);
+      expect(await health(stopping)).toBe(503);
+      await stopped;
+    } finally {
       await stopping.stop();
     }
   });
