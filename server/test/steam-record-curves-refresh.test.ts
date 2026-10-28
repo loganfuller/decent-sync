@@ -63,5 +63,13 @@ describe("A Steam Record's duration", () => {
     } finally {
       await other.stop();
     }
+    // The whole recording is kept as 1.4.0 stores and shows it.
+    const after = await server.connectDatabase();
+    try {
+      const { rows } = await after.query("SELECT duration, steaming, curves_revision FROM steam_records WHERE id = 'steam-refresh-old'");
+      expect(rows).toEqual([{ duration: 25.2, steaming: 16.915, curves_revision: 1 }]);
+    } finally {
+      await after.end();
+    }
   });
 });

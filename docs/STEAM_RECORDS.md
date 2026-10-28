@@ -175,16 +175,16 @@ without a probe) and Barista. Duration adds up the gaps between consecutive
 samples' local times, leaving out the whole quarter hours a daylight-saving
 change adds or takes away; a gap where the tablet's clock was otherwise
 corrected counts for nothing (`elapsedMilliseconds`, which Shots share). The
-final temperature is
-the last reading. Decaid starts each Steam Record with the probe's latest
-reading, which, until the probe reports again, is the last one of the record
-before: `SteamSequencer` subscribes to the probe afresh for each record, and
-`BengleMilkProbe` replays its latest reading to a new subscriber. Steamed milk
-warms, so when the probe's next reading is lower, the first is taken to be
-carried over and left out of the peak; whether or not it was, that changes the
-peak only if no later reading is as high. The extraction is tested against a
-real DE1Pro record and two from Decaid's simulated Bengle, one of which starts
-with the reading carried over.
+final temperature is the last reading. Decaid starts each Steam Record with
+the probe's latest reading, which, until the probe reports again, is the last
+one of the record before: `SteamSequencer` subscribes to the probe afresh for
+each record, and `BengleMilkProbe` replays its latest reading to a new
+subscriber. Steamed milk warms, so when the probe's next reading is lower, the
+first is taken to be carried over and left out of the peak; whether or not it
+was, that changes the peak only if no later reading is as high. The extraction
+is tested against a real DE1Pro record and two from Decaid's simulated Bengle,
+one of which starts with the reading carried over, and its steaming time
+against the test tablet's four records from firmware 1358 too.
 
 ### Phases and the steaming time
 
