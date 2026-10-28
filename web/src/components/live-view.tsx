@@ -40,16 +40,25 @@ export function LiveViewCard({ machineId, profile }: { machineId: string; profil
 
 /**
  * The Live View's latest machine snapshot, from the Machine's stream, which
- * stays open while the page shows it. The browser opens a stream that ended
- * again by itself; one it gave up on, as when refused, is opened again after
- * REOPEN_MS.
+ * is open while the page shows it in a visible tab, as the page's polling
+ * runs: it is closed while the tab is hidden, and opened again once it is
+ * shown, so the plugin stops streaming once nobody sees it. The browser
+ * opens a stream that ended again by itself; one it gave up on, as when
+ * refused, is opened again after REOPEN_MS.
  */
 function useLiveMachine(machineId: string): LiveMachine | undefined {
   const [live, setLive] = useState<LiveMachine>();
   useEffect(() => {
     let source: EventSource | undefined;
     let reopen: ReturnType<typeof setTimeout> | undefined;
+    const close = () => {
+      clearTimeout(reopen);
+      source?.close();
+      source = undefined;
+    };
     const open = () => {
+      close();
+      if (document.hidden) return;
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
       opened.onmessage = (event: MessageEvent) => {
@@ -59,13 +68,20 @@ function useLiveMachine(machineId: string): LiveMachine | undefined {
       };
       opened.onerror = () => {
         if (opened.readyState !== EventSource.CLOSED) return;
+        source = undefined;
         reopen = setTimeout(open, REOPEN_MS);
       };
     };
+    // One given up on is opened at once as the tab is shown.
+    const visibilityChanged = () => {
+      if (document.hidden) close();
+      else if (!source) open();
+    };
+    document.addEventListener("visibilitychange", visibilityChanged);
     open();
     return () => {
-      clearTimeout(reopen);
-      source?.close();
+      document.removeEventListener("visibilitychange", visibilityChanged);
+      close();
     };
   }, [machineId]);
   return live;

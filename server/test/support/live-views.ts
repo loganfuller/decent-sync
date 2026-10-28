@@ -18,7 +18,7 @@ export interface LiveViewStream {
   readonly comments: string[];
   /** Set once the server ended the stream. */
   readonly ended: boolean;
-  /** Closes the stream, as leaving the page does. */
+  /** Closes the stream, as leaving the page does. Rejects, once, if it failed, as when its instance was lost. */
   close(): Promise<void>;
 }
 
@@ -44,7 +44,9 @@ export async function openLiveView(api: AdminApi, machineId: string): Promise<Li
     async close() {
       abort.abort();
       await reading;
-      if (failure) throw failure;
+      const failed = failure;
+      failure = undefined;
+      if (failed) throw failed;
     },
   };
   opened({ end: () => stream.close() });

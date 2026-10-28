@@ -19,7 +19,7 @@ import { PrismaService } from "../prisma.service.js";
 
 /** How often a stream's instance renews its lease. */
 const RENEW_MS = 10_000;
-/** How long after its last renewal a lease expires, by PostgreSQL's clock. */
+/** How long after its last renewal, or its stream's close, a lease expires, by PostgreSQL's clock. */
 const LEASE_SECONDS = 30;
 /** How soon the browser's `EventSource` reconnects after a stream ends, as the stream tells it. */
 const RECONNECT_MS = 1_000;
@@ -85,6 +85,8 @@ interface Holder {
 interface Stream {
   /** Its Machine's id, as PostgreSQL writes it once the Machine is found. */
   machineId: string;
+  /** The viewer's session, which each renewal checks. */
+  viewerSessionId: string;
   response: Response;
   /** Its lease, once inserted. */
   leaseId?: string;
@@ -100,14 +102,23 @@ interface Stream {
  *
  * - **Streams.** Each Live View open on this instance is a Server-Sent
  *   Events stream, holding a lease on its Machine in `live_view_leases`,
- *   announced on `live_views` as it is inserted. The instance renews it
- *   every RENEW_MS, to expire LEASE_SECONDS after, by PostgreSQL's clock; a
- *   renewal that finds it expired or gone ends the stream, which the browser
- *   then opens again. Closing a stream deletes its lease and announces that.
- *   Its headers wait for its lease, so a viewer that has them is counted.
- *   Each relayed live frame is one event; a comment follows
- *   `LIVE_VIEW_KEEP_ALIVE_SECONDS` with nothing to send, so proxies don't
- *   close it as idle.
+ *   announced on `live_views` as it is inserted. Its headers wait for its
+ *   lease, so a viewer that has them is counted. Each relayed live frame is
+ *   one event; a comment follows `LIVE_VIEW_KEEP_ALIVE_SECONDS` with nothing
+ *   to send, so proxies don't close it as idle.
+ * - **Leases.** The stream's instance renews its lease every RENEW_MS, to
+ *   expire LEASE_SECONDS after, by PostgreSQL's clock, so a lost instance's
+ *   leases lapse by themselves. Each renewal checks the viewer's session
+ *   first, and once it has ended, as by signing out or the account's
+ *   deactivation, ends the stream, deleting its lease and announcing that;
+ *   the browser's reconnect is then refused. A renewal puts back a lease it
+ *   finds expired or gone, as after this instance stalled. Closing a stream
+ *   sets its lease to expire LEASE_SECONDS later, so a reload within that
+ *   linger continues without the plugin being stopped and started. Each
+ *   renewal and linger is announced: each judges expiry by its transaction's
+ *   clock, from before any wait, so the instance holding the Machine's
+ *   connection may have found the lease expired meanwhile and stopped the
+ *   plugin.
  * - **Starting the plugin.** Each connection this instance holds that may
  *   stream is sent `liveStart` while it holds its Machine and any of the
  *   Machine's leases is unexpired, and `liveStop` once not, only as that
@@ -163,8 +174,9 @@ export class LiveViews implements OnModuleDestroy {
 
   /**
    * Ends every stream, as the instance stops: the browser opens it again,
-   * through another instance once the proxy has noticed. Streams opened from
-   * now on end at once too. Resolves once their leases are deleted.
+   * through another instance once the proxy has noticed, within its lease's
+   * linger. Streams opened from now on end at once too. Resolves once their
+   * leases are set to linger.
    */
   async end(): Promise<void> {
     this.ending = true;
@@ -181,7 +193,7 @@ export class LiveViews implements OnModuleDestroy {
    * connects.
    */
   async open(machineId: string, viewerSessionId: string, response: Response): Promise<void> {
-    const stream: Stream = { machineId, response, ended: false };
+    const stream: Stream = { machineId, viewerSessionId, response, ended: false };
     // Before anything is awaited, so a viewer gone meanwhile is never kept, nor its lease renewed. One gone already, as
     // while its session was checked, closed before this could hear it.
     response.once("close", () => this.streamClosed(stream));
@@ -199,10 +211,12 @@ export class LiveViews implements OnModuleDestroy {
     this.streams.set(machine.id, streams);
     let leaseId: string | undefined;
     try {
+      // In a statement of its own, outside the insert's transaction, skipping leases locked by another's deletion or
+      // renewal: it waits on no one. Its locks held through the insert, a session deleted meanwhile, whose lease it had
+      // locked, would wait on the insert while the insert waited on the session.
+      await this.prisma.$executeRaw`
+        DELETE FROM live_view_leases WHERE id IN (SELECT id FROM live_view_leases WHERE expires_at <= now() FOR UPDATE SKIP LOCKED)`;
       leaseId = await this.prisma.$transaction(async (tx) => {
-        // In a statement of its own, skipping leases locked by another's deletion or renewal: no one waits on it.
-        await tx.$executeRaw`
-          DELETE FROM live_view_leases WHERE id IN (SELECT id FROM live_view_leases WHERE expires_at <= now() FOR UPDATE SKIP LOCKED)`;
         const id = randomUUID();
         // Inserted only while the viewer's session lasts, as its end deletes its leases.
         const inserted = await tx.$executeRaw`
@@ -218,7 +232,7 @@ export class LiveViews implements OnModuleDestroy {
     if (leaseId === undefined) return void this.endStream(stream);
     stream.leaseId = leaseId;
     // Closed while its lease was being inserted.
-    if (stream.ended) return void this.release(leaseId, machine.id);
+    if (stream.ended) return void this.linger(leaseId, machine.id);
     response.flushHeaders();
     response.write(`retry: ${RECONNECT_MS}\n\n`);
     this.keepAlive(stream);
@@ -399,25 +413,50 @@ export class LiveViews implements OnModuleDestroy {
     }, this.config.liveViewKeepAliveMs);
   }
 
-  /** Renews the stream's lease, or ends the stream if it expired or is gone, as after a stall or with its session. */
+  /**
+   * Renews the stream's lease while its viewer's session lasts, or ends the
+   * stream once the session has ended: signed out, its account deactivated,
+   * or expired. A lease expired or gone, as after this instance stalled, is
+   * put back. Each is announced, as the class's comment explains.
+   */
   private async renew(stream: Stream): Promise<void> {
-    if (stream.ended || stream.leaseId === undefined) return;
+    const { leaseId, machineId, viewerSessionId } = stream;
+    if (stream.ended || leaseId === undefined) return;
+    let signedIn: boolean;
     try {
-      const renewed = await this.prisma.$executeRaw`
-        UPDATE live_view_leases SET expires_at = now() + make_interval(secs => ${LEASE_SECONDS}) WHERE id = ${stream.leaseId}::uuid AND expires_at > now()`;
-      if (renewed === 0) this.endStream(stream);
+      signedIn = await this.prisma.$transaction(async (tx) => {
+        // FOR KEY SHARE: a sign-out or deactivation deleting the session meanwhile waits, then deletes the lease with it.
+        const [viewer] = await tx.$queryRaw<unknown[]>`
+          SELECT 1 FROM sessions JOIN accounts ON accounts.id = sessions.account_id
+          WHERE sessions.id = ${viewerSessionId}::uuid AND sessions.expires_at > now() AND accounts.deactivated_at IS NULL
+          FOR KEY SHARE OF sessions`;
+        if (!viewer) return false;
+        // Never earlier than it was: the stream may have closed meanwhile, setting it to linger from later.
+        await tx.$executeRaw`
+          INSERT INTO live_view_leases (id, machine_id, session_id, expires_at)
+          VALUES (${leaseId}::uuid, ${machineId}::uuid, ${viewerSessionId}::uuid, now() + make_interval(secs => ${LEASE_SECONDS}))
+          ON CONFLICT (id) DO UPDATE SET expires_at = GREATEST(live_view_leases.expires_at, EXCLUDED.expires_at)`;
+        await notify(tx, "live_views", machineId);
+        return true;
+      });
     } catch (error) {
-      this.logger.warn(`Could not renew a Live View's lease: ${String(error)}`);
+      return void this.logger.warn(`Could not renew a Live View's lease: ${String(error)}`);
     }
+    // One closed meanwhile keeps its lease's linger, a lease put back included.
+    if (!signedIn && !stream.ended) this.endStream(stream, { linger: false });
   }
 
-  /** Ends a stream on this side, which the browser then opens again after RECONNECT_MS. */
-  private endStream(stream: Stream): void {
-    this.streamClosed(stream);
+  /**
+   * Ends a stream on this side, which the browser then opens again after
+   * RECONNECT_MS. Its lease lingers, unless `linger` is false, as for a
+   * session that has ended, whose reconnect is refused.
+   */
+  private endStream(stream: Stream, { linger = true } = {}): void {
+    this.streamClosed(stream, linger);
     stream.response.end(`retry: ${RECONNECT_MS}\n\n`);
   }
 
-  private streamClosed(stream: Stream): void {
+  private streamClosed(stream: Stream, linger = true): void {
     if (stream.ended) return;
     stream.ended = true;
     clearInterval(stream.renewal);
@@ -425,10 +464,28 @@ export class LiveViews implements OnModuleDestroy {
     const streams = this.streams.get(stream.machineId);
     streams?.delete(stream);
     if (streams?.size === 0) this.streams.delete(stream.machineId);
-    if (stream.leaseId !== undefined) this.release(stream.leaseId, stream.machineId);
+    if (stream.leaseId === undefined) return;
+    if (linger) this.linger(stream.leaseId, stream.machineId);
+    else this.release(stream.leaseId, stream.machineId);
   }
 
-  /** Deletes a closed stream's lease, and announces it, so the plugin stops once no other is left. */
+  /**
+   * Sets a closed stream's lease to expire LEASE_SECONDS from now, unless it
+   * has expired already, and announces it, as a renewal is.
+   */
+  private linger(leaseId: string, machineId: string): void {
+    void this.track(
+      this.prisma.$executeRaw`
+        WITH lingering AS (
+          UPDATE live_view_leases SET expires_at = now() + make_interval(secs => ${LEASE_SECONDS}) WHERE id = ${leaseId}::uuid AND expires_at > now())
+        SELECT pg_notify('live_views', ${machineId})`.then(
+        () => {},
+        (error: unknown) => this.logger.warn(`Could not set a closed Live View's lease to linger; it expires by itself: ${String(error)}`),
+      ),
+    );
+  }
+
+  /** Deletes a stream's lease, and announces it, so the plugin stops once no other is left. */
   private release(leaseId: string, machineId: string): void {
     void this.track(
       this.prisma
@@ -436,7 +493,7 @@ export class LiveViews implements OnModuleDestroy {
           await tx.$executeRaw`DELETE FROM live_view_leases WHERE id = ${leaseId}::uuid`;
           await notify(tx, "live_views", machineId);
         })
-        .catch((error: unknown) => this.logger.warn(`Could not delete a closed Live View's lease, which expires by itself: ${String(error)}`)),
+        .catch((error: unknown) => this.logger.warn(`Could not delete a Live View's lease, which expires by itself: ${String(error)}`)),
     );
   }
 
