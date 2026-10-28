@@ -879,9 +879,10 @@ var __decentSync = (() => {
     return typeof sensorId === "string" && sensorId.endsWith("-milkprobe") && sensorId.length <= MAX_RECORD_ID_LENGTH;
   }
   var MAX_NOTIFICATION_BYTES = 7999;
-  function relayedLiveFrame(machineId, live) {
+  function relayedLiveFrame(machineId, tabletId, live) {
     const relayed = {
       machineId,
+      tabletId,
       source: live.source,
       ...live.sensorId !== void 0 ? { sensorId: live.sensorId } : {},
       receivedAt: live.receivedAt,
@@ -891,7 +892,8 @@ var __decentSync = (() => {
     return JSON.stringify(relayed);
   }
   function liveFrameFits(live) {
-    return utf8Length(relayedLiveFrame("00000000-0000-0000-0000-000000000000", live)) <= MAX_NOTIFICATION_BYTES;
+    const uuid = "00000000-0000-0000-0000-000000000000";
+    return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
   }
   function encode(message) {
     return JSON.stringify(message);

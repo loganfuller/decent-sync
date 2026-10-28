@@ -213,8 +213,9 @@ describe("the Live View", () => {
     // The current water levels, shot settings and devices, and the scale's status, tagged with their source.
     await expect.poll(() => fromSockets(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
     const after = Date.now();
+    const tabletId = (await api.machineNamed("Sockets"))!.tablet!.id;
     for (const event of stream.events.filter((event) => event.source !== "machine")) {
-      expect(event).toEqual({ machineId: machine.machine.id, source: event.source, receivedAt: expect.any(String), frame: event.frame });
+      expect(event).toEqual({ machineId: machine.machine.id, tabletId, source: event.source, receivedAt: expect.any(String), frame: event.frame });
       expect(Date.parse(event.receivedAt)).toBeGreaterThanOrEqual(before);
       expect(Date.parse(event.receivedAt)).toBeLessThanOrEqual(after);
     }
@@ -421,10 +422,12 @@ describe("the Live View", () => {
     expect(carrying(stream, [late!, afterwards])).toEqual([]);
   });
 
-  it("follows a Tablet swap: the viewer receives the new Tablet's frames, and none from the one it replaced", async () => {
+  it("follows a Tablet swap: the viewer receives the new Tablet's frames, each naming it, and none from the one it replaced", async () => {
     const { machine, tablet, serial: hardware } = await connected("Swapped");
     const stream = await watching(machine, tablet);
-    await seen(tablet, [idle[0]!], stream);
+    const [before] = await seen(tablet, [idle[0]!], stream);
+    const first = (await api.machineNamed("Swapped"))!.tablet!.id;
+    expect(carrying(stream, [before!]).map((event) => event.tabletId)).toEqual([first]);
 
     // Another Tablet connects with the Machine's token while the first is still connected, and takes it over.
     const swapped = syncingTablet(machine, server, { api: emptyLibrary(hardware) });
@@ -434,7 +437,9 @@ describe("the Live View", () => {
     const replaced = tablet.reportSnapshot(firstOf("preinfusion"));
     const taken = await seen(swapped, [idle[1]!, idle[2]!], stream);
     expect(carrying(stream, [replaced])).toEqual([]);
-    expect(carrying(stream, taken)).toHaveLength(2);
+    const holder = (await api.machineNamed("Swapped"))!.tablet!.id;
+    expect(holder).not.toBe(first);
+    expect(carrying(stream, taken).map((event) => event.tabletId)).toEqual([holder, holder]);
     expect(liveFramesSent(tablet, 0).filter((snapshot) => snapshot.timestamp === replaced.timestamp)).toEqual([]);
   });
 

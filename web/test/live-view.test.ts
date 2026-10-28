@@ -19,6 +19,7 @@ import {
   staleAtOf,
   timeInState,
   waterLevelOf,
+  withHolder,
   withLiveFrame,
 } from "../src/lib/live-view";
 
@@ -45,8 +46,10 @@ function framesOf(file: keyof typeof recordings, source: string): Record<string,
 }
 
 const snapshot = { state: { state: "espresso", substate: "pouring" }, pressure: 3.06640625, targetPressure: 2.9375, flow: null };
+const TABLET_ID = "019a2f3e-8b52-7c0f-9e2a-6a4d3f5c7b81";
 const event = {
   machineId: "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70",
+  tabletId: TABLET_ID,
   source: "machine",
   receivedAt: "2026-10-27T21:05:09.881Z",
   stateSince: "2026-10-27T21:04:59.250Z",
@@ -59,7 +62,8 @@ describe("the Live View's events", () => {
     expect(liveMachineOf(relayed)).toEqual({ snapshot, receivedAt: event.receivedAt, stateSince: event.stateSince });
     expect(liveMachineOf(readLiveEvent(JSON.stringify({ ...event, source: "scale", stateSince: undefined }))!)).toBeNull();
     expect(liveMachineOf(readLiveEvent(JSON.stringify({ ...event, stateSince: undefined }))!)).toBeNull();
-    for (const data of ["", "not JSON", "[]", JSON.stringify({ ...event, frame: [] }), JSON.stringify({ ...event, receivedAt: 1 }), undefined]) {
+    const malformed = [JSON.stringify({ ...event, frame: [] }), JSON.stringify({ ...event, receivedAt: 1 }), JSON.stringify({ ...event, tabletId: undefined })];
+    for (const data of ["", "not JSON", "[]", ...malformed, undefined]) {
       expect(readLiveEvent(data)).toBeNull();
     }
   });
@@ -97,6 +101,7 @@ describe("the Live View's events", () => {
     live = withLiveFrame(live, relayed("waterLevels", later!), 4_000);
     // With when the page received the machine snapshot, by its own clock.
     expect(live).toEqual({
+      tabletId: TABLET_ID,
       waterLevels: later,
       scale: { status: "disconnected" },
       machine: { snapshot, receivedAt: event.receivedAt, stateSince: event.stateSince },
@@ -113,9 +118,9 @@ describe("the Live View's events", () => {
     const readings = framesOf("bengle-steam.json", "sensor");
     const snapshots = framesOf("bengle-steam.json", "machine");
     let live = withLiveFrame(undefined, sensor(sensorId!, readings[0]!), 1_000);
-    expect(live).toEqual({ milkProbe: readings[0] });
+    expect(live).toEqual({ tabletId: TABLET_ID, milkProbe: readings[0] });
     live = withLiveFrame(live, sensor(sensorId!, readings[1]!), 2_000);
-    expect(live).toEqual({ milkProbe: readings[1] });
+    expect(live).toEqual({ tabletId: TABLET_ID, milkProbe: readings[1] });
     // Another sensor, such as Decaid's simulated sensor basket, which also sends a temperature: not a milk probe's.
     expect(withLiveFrame(live, sensor("mockSensorBasket", { timestamp: readings[2]!.timestamp, temperature: 93 }), 3_000)).toBe(live);
 
@@ -139,6 +144,20 @@ describe("the Live View's events", () => {
     expect(milkTemperatureOf(undefined, steaming)).toBeNull();
     const [notFound] = (probeSocket as { notFound: { frames: { frame: Record<string, unknown> }[] } }).notFound.frames.map((frame) => frame.frame);
     expect(milkTemperatureOf(notFound, steaming)).toBeNull();
+  });
+
+  it("drops what a Tablet sent once a frame comes from another, which has taken the Machine over, or the page's poll finds another holding it", () => {
+    const other = "019a2f3e-9c63-7d1a-8f3b-7b5e4a6d8c92";
+    const fromOther = readLiveEvent(JSON.stringify({ ...event, tabletId: other, source: "devices", frame: { devices: [] } }))!;
+    let live = withLiveFrame(undefined, readLiveEvent(JSON.stringify(event))!, 1_000);
+    live = withLiveFrame(live, readLiveEvent(JSON.stringify({ ...event, source: "scale", frame: { status: "connected" } }))!, 2_000);
+    expect(withLiveFrame(live, fromOther, 3_000)).toEqual({ tabletId: other, devices: { devices: [] } });
+    // Even one of a source it doesn't show.
+    expect(withLiveFrame(live, readLiveEvent(JSON.stringify({ ...event, tabletId: other, source: "sensor", frame: {} }))!, 3_000)).toBeUndefined();
+    // The poll: another Tablet's frames are dropped, as one on the previous release never sends any; its own are kept.
+    expect(withHolder(live, other)).toBeUndefined();
+    expect(withHolder(live, TABLET_ID)).toBe(live);
+    expect(withHolder(undefined, TABLET_ID)).toBeUndefined();
   });
 
   it("reads the water level against the refill level, low at or below it", () => {
@@ -177,24 +196,29 @@ describe("what the Live View can show", () => {
   const sleeping = framesOf("asleep.json", "machine").find((frame) => (frame.state as { state: string }).state === "sleeping")!;
   /** The Live View with a machine snapshot the page received at `arrivedAt`, and a device list. */
   const liveWith = (frame: Record<string, unknown>, arrivedAt: number, devices = devicesConnected): LiveState => ({
+    tabletId: TABLET_ID,
     machine: { snapshot: frame, receivedAt: event.receivedAt, stateSince: event.stateSince },
     machineArrivedAt: arrivedAt,
     devices,
   });
   const openedAt = 10_000;
-  const judged = (live: LiveState | undefined, now: number, online = true, mismatched = false) =>
-    liveConditionOf({ online, mismatched, live, openedAt, now });
+  /** The condition at `now`, the page's latest poll having found the Machine offline at `offlineAt`, or online. */
+  const judged = (live: LiveState | undefined, now: number, offlineAt: number | null = null, mismatched = false) =>
+    liveConditionOf({ offlineAt, mismatched, live, openedAt, now });
 
-  it("is offline, then mismatched, as the page last polled the Machine, but for a machine snapshot come within 5 s", () => {
-    expect(judged(undefined, 20_000, false)).toBe("offline");
-    expect(judged(undefined, 20_000, false, true)).toBe("offline");
-    expect(judged({ devices: devicesConnected }, openedAt, false)).toBe("offline");
+  it("is offline, then mismatched, as the page last polled the Machine, but for a current machine snapshot come since", () => {
+    expect(judged(undefined, 20_000, 15_000)).toBe("offline");
+    expect(judged(undefined, 20_000, 15_000, true)).toBe("offline");
+    expect(judged({ tabletId: TABLET_ID, devices: devicesConnected }, openedAt, openedAt)).toBe("offline");
     // One that has connected since the page's last poll sends its snapshots before the next poll finds it online.
     const live = liveWith(awake!, 20_000);
-    expect(judged(live, 25_000, false)).toBe("live");
-    expect(judged(live, 25_001, false)).toBe("offline");
-    expect(judged(live, 20_000, true, true)).toBe("mismatch");
-    expect(judged(live, 20_000, false, true)).toBe("mismatch");
+    expect(judged(live, 25_000, 15_000)).toBe("live");
+    expect(judged(live, 25_001, 15_000)).toBe("offline");
+    // A poll had after the snapshot came, finding it offline, as after a Tablet that left cleanly: offline at once.
+    expect(judged(live, 21_000, 20_500)).toBe("offline");
+    expect(judged(live, 20_000, 20_000)).toBe("offline");
+    expect(judged(live, 20_000, null, true)).toBe("mismatch");
+    expect(judged(live, 20_000, 15_000, true)).toBe("mismatch");
   });
 
   it("waits until something has come, and says when the Tablet lists its machine not connected", () => {
@@ -203,7 +227,7 @@ describe("what the Live View can show", () => {
     expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 20_000)).toBe("notConnected");
     // However long ago its last snapshot came.
     expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 90_000)).toBe("notConnected");
-    expect(judged({ devices: devicesDisconnected }, 20_000)).toBe("notConnected");
+    expect(judged({ tabletId: TABLET_ID, devices: devicesDisconnected }, 20_000)).toBe("notConnected");
     // A device list that names no machine at all says nothing of it.
     expect(judged(liveWith(awake!, 20_000, { ...devicesConnected, devices: undefined }), 20_000)).toBe("live");
   });
@@ -219,7 +243,7 @@ describe("what the Live View can show", () => {
   });
 
   it("counts from when the page last opened its stream until the first machine snapshot comes", () => {
-    const live: LiveState = { waterLevels: framesOf("opening.json", "waterLevels")[0], devices: devicesConnected };
+    const live: LiveState = { tabletId: TABLET_ID, waterLevels: framesOf("opening.json", "waterLevels")[0], devices: devicesConnected };
     expect(staleAtOf(live, openedAt)).toBe(openedAt + STALE_AFTER_MS);
     expect(judged(live, openedAt + STALE_AFTER_MS)).toBe("live");
     expect(judged(live, openedAt + STALE_AFTER_MS + 1)).toBe("stale");

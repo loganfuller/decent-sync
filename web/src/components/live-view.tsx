@@ -22,6 +22,7 @@ import {
   staleAtOf,
   timeInState,
   waterLevelOf,
+  withHolder,
   withLiveFrame,
 } from "@/lib/live-view";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
@@ -39,15 +40,17 @@ const REOPEN_MS = 5_000;
  *
  * With nothing live to show, the card shrinks to one line saying why: the
  * Machine is offline, its connection reports other hardware, nothing has come
- * yet, or its Tablet isn't connected to it. Values with no machine frame for
- * more than 5 s are dimmed, but for a Machine that said it was asleep
- * (`liveConditionOf`).
+ * yet, or its Tablet isn't connected to it. What it showed is hidden then,
+ * not dropped, so the curves keep the record they link. Values with no
+ * machine frame for more than 5 s are dimmed, but for a Machine that said it
+ * was asleep (`liveConditionOf`).
  */
 export function LiveViewCard({ machine, profile }: { machine: Machine; profile?: unknown }) {
-  const { live, curves, openedAt } = useLiveView(machine.id);
+  const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null);
+  const offlineAt = useOfflineAt(machine);
   const now = useTimeAfter(staleAtOf(live, openedAt));
-  const condition = liveConditionOf({ online: machine.online, mismatched: machine.mismatch !== null, live, openedAt, now });
-  const shown = live && (condition === "live" || condition === "stale" || condition === "asleep");
+  const condition = liveConditionOf({ offlineAt, mismatched: machine.mismatch !== null, live, openedAt, now });
+  const shown = condition === "live" || condition === "stale" || condition === "asleep";
   return (
     <Card role="region" aria-label="Live View">
       <CardHeader>
@@ -60,9 +63,9 @@ export function LiveViewCard({ machine, profile }: { machine: Machine; profile?:
         </CardTitle>
         {condition !== "live" && <ConditionLine condition={condition} machine={machine} live={live} />}
       </CardHeader>
-      {shown && (
-        <CardContent className={cn("grid gap-6", condition === "stale" && "opacity-50")}>
-          <LiveTiles live={live} profile={profile} integratedScale={machine.model === "Bengle"} />
+      {(live || curves.curve) && (
+        <CardContent className={cn("grid gap-6", !shown && "hidden", condition === "stale" && "opacity-50")}>
+          {live && <LiveTiles live={live} profile={profile} integratedScale={machine.model === "Bengle"} />}
           {/* Keyed, so each shot or steaming starts with what the page held as it began. */}
           {curves.curve && (
             <LiveCurvesSection
@@ -119,6 +122,17 @@ function offlineText({ lastSeenAt, machineState }: Machine): string {
   return `Offline, last seen ${formatTime(lastSeenAt)}, last Machine State: ${state}.`;
 }
 
+/**
+ * When the page had its latest poll of the Machine, by its own clock, if that
+ * found it offline, or null if it found it online. Each poll brings a new
+ * Machine.
+ */
+function useOfflineAt(machine: Machine): number | null {
+  const [offlineAt, setOfflineAt] = useState(() => (machine.online ? null : Date.now()));
+  useEffect(() => setOfflineAt(machine.online ? null : Date.now()), [machine]);
+  return offlineAt;
+}
+
 /** The page's time, as of the last render, rendering again once it passes `at`, by the same clock. */
 function useTimeAfter(at: number): number {
   const [now, setNow] = useState(Date.now);
@@ -137,11 +151,20 @@ function useTimeAfter(at: number): number {
  * stops streaming once nobody sees it. The browser opens a stream that ended
  * again by itself; one it gave up on, as when refused, is opened again after
  * REOPEN_MS. `openedAt` is when the page last opened it, by its own clock.
+ *
+ * `tabletId` is the Tablet holding the Machine, as the page last polled it.
+ * Once its polling finds another, what a Tablet other than that one sent is
+ * dropped (`withHolder`).
  */
-function useLiveView(machineId: string): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
+function useLiveView(machineId: string, tabletId: string | null): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
   const [live, setLive] = useState<LiveState>();
   const [curves, setCurves] = useState<LiveCurves>({});
   const [openedAt, setOpenedAt] = useState(Date.now);
+  const [holder, setHolder] = useState(tabletId);
+  if (tabletId !== holder) {
+    setHolder(tabletId);
+    if (tabletId !== null) setLive((latest) => withHolder(latest, tabletId));
+  }
   useEffect(() => {
     let source: EventSource | undefined;
     let reopen: ReturnType<typeof setTimeout> | undefined;

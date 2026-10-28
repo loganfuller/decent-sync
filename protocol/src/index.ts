@@ -1729,16 +1729,20 @@ export const MAX_NOTIFICATION_BYTES = 7999;
 /**
  * A live frame as the server relays it, by NOTIFY on `live_frames` to every
  * instance and on to each Live View of its Machine as one event: its
- * Machine's id and its envelope as the plugin sent it, without its type.
+ * Machine's id, the id of the tablet whose connection held the Machine and
+ * sent it, and its envelope as the plugin sent it, without its type.
  */
 export interface RelayedLiveFrame extends Omit<LiveFrame, "type"> {
   machineId: string;
+  /** The tablet id, as its hello gave it, in lower case. */
+  tabletId: string;
 }
 
-/** The notification payload, and event, the server relays a live frame from the Machine with this id in. */
-export function relayedLiveFrame(machineId: string, live: LiveFrame): string {
+/** The notification payload, and event, the server relays a live frame in, from the Machine and tablet with these ids. */
+export function relayedLiveFrame(machineId: string, tabletId: string, live: LiveFrame): string {
   const relayed: RelayedLiveFrame = {
     machineId,
+    tabletId,
     source: live.source,
     ...(live.sensorId !== undefined ? { sensorId: live.sensorId } : {}),
     receivedAt: live.receivedAt,
@@ -1750,11 +1754,12 @@ export function relayedLiveFrame(machineId: string, live: LiveFrame): string {
 
 /**
  * Whether the server can relay a live frame: whether its notification
- * (`relayedLiveFrame`) fits PostgreSQL's limit. Every Machine's id is a UUID,
- * of one length, so the plugin can tell before sending it.
+ * (`relayedLiveFrame`) fits PostgreSQL's limit. Every Machine's id and tablet
+ * id is a UUID, of one length, so the plugin can tell before sending it.
  */
 export function liveFrameFits(live: LiveFrame): boolean {
-  return utf8Length(relayedLiveFrame("00000000-0000-0000-0000-000000000000", live)) <= MAX_NOTIFICATION_BYTES;
+  const uuid = "00000000-0000-0000-0000-000000000000";
+  return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
 }
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */

@@ -865,6 +865,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       this.liveViews.welcomed({
         sessionId: session.id,
         machineId: machine.id,
+        tabletId: live.tabletId,
         description: this.describe(session),
         send: (message) => {
           if (!session.closing) this.send(session, message);

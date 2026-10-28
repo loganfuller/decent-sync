@@ -530,10 +530,12 @@ describe("Live View messages", () => {
     expect(decodeServerMessage(encode(live))).toMatchObject({ ok: false, problem: "Unknown message type" });
   });
 
-  it("relays a live frame with its Machine's id, and tells whether it fits a notification", () => {
+  it("relays a live frame with its Machine's id and its tablet's, and tells whether it fits a notification", () => {
     const machineId = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70";
-    expect(JSON.parse(relayedLiveFrame(machineId, { ...live, future: true } as LiveFrame))).toEqual({
+    const tabletId = "019a2f3e-8b52-7c0f-9e2a-6a4d3f5c7b81";
+    expect(JSON.parse(relayedLiveFrame(machineId, tabletId, { ...live, future: true } as LiveFrame))).toEqual({
       machineId,
+      tabletId,
       source: "machine",
       receivedAt: live.receivedAt,
       stateSince: live.stateSince,
@@ -541,9 +543,9 @@ describe("Live View messages", () => {
     });
     expect(liveFrameFits(live)).toBe(true);
     // The longest that fits: its notification is one byte short of PostgreSQL's 8000.
-    const room = MAX_NOTIFICATION_BYTES - utf8Length(relayedLiveFrame(machineId, { ...live, frame: { ...snapshot, padding: "" } }));
+    const room = MAX_NOTIFICATION_BYTES - utf8Length(relayedLiveFrame(machineId, tabletId, { ...live, frame: { ...snapshot, padding: "" } }));
     const longest = { ...live, frame: { ...snapshot, padding: "x".repeat(room) } };
-    expect(utf8Length(relayedLiveFrame(machineId, longest))).toBe(7999);
+    expect(utf8Length(relayedLiveFrame(machineId, tabletId, longest))).toBe(7999);
     expect(liveFrameFits(longest)).toBe(true);
     expect(liveFrameFits({ ...live, frame: { ...snapshot, padding: "x".repeat(room + 1) } })).toBe(false);
     // Measured in UTF-8, as PostgreSQL does.
