@@ -1,0 +1,777 @@
+import { randomUUID } from "node:crypto";
+import type pg from "pg";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
+import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { derivedSteam } from "./support/steam-fixtures.js";
+import { startTestServer, type TestServer } from "./support/test-server.js";
+
+// Seam 1: Machines' Location History, and the Location each Shot and Steam
+// Record is credited to by it, through the built plugin, raw connections and
+// the REST API, on two server instances sharing one database. Shots and
+// Steam Records are derived from scrubbed real records, changing only their
+// id, time and recorded hardware. Hardware ids are made up.
+
+/** A Shot or Steam Record as stored: when it was recorded, and the Location credited to it. */
+interface Credited {
+  id: string;
+  recordedAt: Date | null;
+  locationId: string | null;
+}
+
+type Hardware = { model: string; serial: string };
+type Place = "Lab" | "Uptown" | "Belmont" | "Cart";
+/** A change to a Location History, naming entries by their index and times by their day. */
+type Change = { move: Place; at: string } | { correct: number; location?: Place; at?: string } | { remove: number };
+
+/** Midnight UTC starting a day, as the REST API writes it. */
+function midnight(day: string): string {
+  return `${day}T00:00:00.000Z`;
+}
+
+/**
+ * When the records a change may affect were recorded: at the start of each
+ * month from December 2025 to July 2026, when entries start, and at noon on
+ * its 15th, between them.
+ */
+const RECORDED = ["2025-12", "2026-01", "2026-02", "2026-03", "2026-04", "2026-05", "2026-06", "2026-07"].flatMap((month) => [
+  midnight(`${month}-01`),
+  `${month}-15T12:00:00.000Z`,
+]);
+
+const HISTORY: [Place, string][] = [
+  ["Lab", "2026-01-01"],
+  ["Uptown", "2026-03-01"],
+  ["Belmont", "2026-05-01"],
+];
+
+/**
+ * Each kind of change to a Location History, made to HISTORY unless another
+ * is given, and the span of recorded times it credits again: from its first
+ * day, and before its second unless that is null.
+ */
+const CHANGES: { name: string; history?: [Place, string][]; change: Change; span: [string, string | null] }[] = [
+  { name: "a move", change: { move: "Lab", at: "2026-06-01" }, span: ["2026-06-01", null] },
+  { name: "an earlier time", change: { correct: 1, at: "2026-02-01" }, span: ["2026-02-01", "2026-03-01"] },
+  { name: "a later time", change: { correct: 1, at: "2026-04-01" }, span: ["2026-03-01", "2026-04-01"] },
+  { name: "another Location", change: { correct: 1, location: "Cart" }, span: ["2026-03-01", "2026-05-01"] },
+  { name: "another Location from an earlier time", change: { correct: 1, location: "Cart", at: "2026-02-01" }, span: ["2026-02-01", "2026-05-01"] },
+  { name: "another Location from a later time", change: { correct: 1, location: "Cart", at: "2026-04-01" }, span: ["2026-03-01", "2026-05-01"] },
+  { name: "an earlier first entry", change: { correct: 0, at: "2025-12-01" }, span: ["2025-12-01", "2026-01-01"] },
+  { name: "a later first entry", change: { correct: 0, at: "2026-02-01" }, span: ["2026-01-01", "2026-02-01"] },
+  { name: "a later last entry", change: { correct: 2, at: "2026-06-01" }, span: ["2026-05-01", "2026-06-01"] },
+  { name: "another Location for the last entry", change: { correct: 2, location: "Cart" }, span: ["2026-05-01", null] },
+  { name: "removing a middle entry", change: { remove: 1 }, span: ["2026-03-01", "2026-05-01"] },
+  { name: "removing the first entry", change: { remove: 0 }, span: ["2026-01-01", "2026-03-01"] },
+  { name: "removing the last entry", change: { remove: 2 }, span: ["2026-05-01", null] },
+  {
+    // The Machine never left the Lab, so the move back is removed too.
+    name: "removing an entry and the move back after it",
+    history: [
+      ["Lab", "2026-01-01"],
+      ["Uptown", "2026-03-01"],
+      ["Lab", "2026-05-01"],
+      ["Belmont", "2026-07-01"],
+    ],
+    change: { remove: 1 },
+    span: ["2026-03-01", "2026-07-01"],
+  },
+];
+
+/**
+ * Where a Location History says its Machine was at a time, as crediting
+ * every record would: the latest entry's Location from or before that time,
+ * if there is one and a time.
+ */
+function locationAt(history: MachineView["locationHistory"], at: Date | null): string | null {
+  if (at === null) return null;
+  return history.filter((entry) => Date.parse(entry.effectiveFrom) <= at.getTime()).at(-1)?.location.id ?? null;
+}
+
+interface ShotView {
+  id: string;
+  machineId: string | null;
+  pendingMachineId: string | null;
+  machineInferred: boolean;
+  locationId: string | null;
+  location: LocationView | null;
+  locationInferred: boolean;
+  pulledAt: string | null;
+  record?: Record<string, unknown>;
+}
+
+describe("Location History", () => {
+  let server: TestServer;
+  let other: TestServer;
+  let api: AdminApi;
+  let lab: LocationView;
+  let uptown: LocationView;
+  let belmont: LocationView;
+  let cart: LocationView;
+  /** Where no Machine ever was: records set to it keep it only if nothing credits them again. */
+  let elsewhere: LocationView;
+  const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
+
+  beforeAll(async () => {
+    server = await startTestServer({ env });
+    other = await startTestServer({ env, sharing: server });
+    api = await AdminApi.setUp(server.url);
+    lab = await api.createLocation("Lab", "America/Denver");
+    uptown = await api.createLocation("Uptown", "America/Chicago");
+    belmont = await api.createLocation("Belmont", "America/Chicago");
+    cart = await api.createLocation("Cart", "America/Chicago");
+    elsewhere = await api.createLocation("Elsewhere", "America/Chicago");
+  });
+  afterAll(async () => {
+    await server?.stop();
+  });
+
+  /** A Shot pulled at a UTC time, recording no hardware (so credited as inferred) unless given some. */
+  function shotAt(id: string, pulledAt: string, hardware?: { model: string; serial: string }) {
+    const { machine, ...workflow } = shotFixture().workflow as Record<string, unknown>;
+    return derivedShot(id, {
+      timestamp: pulledAt,
+      workflow: hardware ? { ...workflow, machine: { ...(machine as object), model: hardware.model, serialNumber: hardware.serial } } : workflow,
+    });
+  }
+  /** The hardware a Machine's simulated tablet reports, unique to the Machine. */
+  function hardwareOf(machine: CreatedMachine) {
+    return { model: "DE1Pro", serial: machine.machine.id.replaceAll("-", "") };
+  }
+  function load(machine: CreatedMachine, shots: Record<string, unknown>[]) {
+    return SimulatedTablet.load({
+      settings: settingsFor(machine),
+      api: withShots(derivedDe1Pro({ serial: hardwareOf(machine).serial }), shots),
+      timeScale: 50,
+    });
+  }
+  function connect(machine: CreatedMachine, url = server.url, hardware?: { model: string; serial: string }) {
+    return RawConnection.welcomed(url, helloWith(machine.token, hardware ? { machine: hardware } : {}));
+  }
+  function sendShot(raw: RawConnection, record: Record<string, unknown>, id = randomUUID()) {
+    raw.send({ type: "shot", id, shotId: String(record.id), shot: record });
+    return id;
+  }
+  function sendSteam(raw: RawConnection, record: Record<string, unknown>, steamedAt: string, id = randomUUID()) {
+    raw.send({ type: "steam", id, steamId: String(record.id), steamedAt, steam: record });
+    return id;
+  }
+  /**
+   * Sends a Shot and a Steam Record recorded at each time, and a Shot with no
+   * pull time, and waits until they are stored.
+   */
+  async function sendRecords(raw: RawConnection, key: string, times: string[]) {
+    const deliveries = times.flatMap((at) => [sendShot(raw, shotAt(`${key}-shot-${at}`, at)), sendSteam(raw, derivedSteam(`${key}-steam-${at}`), at)]);
+    deliveries.push(sendShot(raw, shotAt(`${key}-shot-untimed`, "2026-03-15T12:00:00Z")));
+    for (const delivery of deliveries) await raw.acknowledged(delivery);
+    // Every Shot supported Decaid versions send can be placed in time, so this one loses its pull
+    // time, and with it any Location, behind the server's back.
+    const database = await server.connectDatabase();
+    try {
+      await database.query("UPDATE shots SET pulled_at = NULL, location_id = NULL WHERE id = $1", [`${key}-shot-untimed`]);
+    } finally {
+      await database.end();
+    }
+  }
+  /**
+   * Holds records for hardware no Machine has, sent at each time through a
+   * connection of another Machine reporting that hardware.
+   */
+  async function holdFor(hardware: Hardware, key: string, times: string[]) {
+    const reporter = await api.createMachine(`Reports ${hardware.serial}`);
+    await (await connect(reporter, server.url, hardwareOf(reporter))).close();
+    const raw = await connect(reporter, server.url, hardware);
+    await sendRecords(raw, key, times);
+    await raw.close();
+  }
+  /** The Machine's Shots and Steam Records as stored. */
+  async function credited(database: pg.Client, machineId: string): Promise<Credited[]> {
+    const { rows } = await database.query<Credited>(
+      `SELECT id, pulled_at AS "recordedAt", location_id AS "locationId" FROM shots WHERE machine_id = $1
+       UNION ALL SELECT id, steamed_at, location_id FROM steam_records WHERE machine_id = $1`,
+      [machineId],
+    );
+    return rows;
+  }
+  /** Each record's Location by name, null when unknown: the one stored, unless another is given. */
+  function named(records: Credited[], locationOf = (record: Credited) => record.locationId): Record<string, string | null> {
+    const places = [lab, uptown, belmont, cart, elsewhere];
+    return Object.fromEntries(records.map((record) => [record.id, places.find((place) => place.id === locationOf(record))?.name ?? null]));
+  }
+  /** Sets the records' Location to where their Machine never was, behind the server's back. */
+  async function misplace(database: pg.Client, ids: string[]) {
+    for (const table of ["shots", "steam_records"]) {
+      await database.query(`UPDATE ${table} SET location_id = $1 WHERE id = ANY($2)`, [elsewhere.id, ids]);
+    }
+  }
+  /** Which version of each of the Machine's records' rows is stored, by the transaction that wrote it. */
+  async function rowVersions(database: pg.Client, machineId: string) {
+    const { rows } = await database.query<{ id: string; version: string }>(
+      `SELECT id, xmin::text AS version FROM shots WHERE machine_id = $1
+       UNION ALL SELECT id, xmin::text FROM steam_records WHERE machine_id = $1
+       ORDER BY id`,
+      [machineId],
+    );
+    return rows;
+  }
+  async function detail(id: string): Promise<ShotView> {
+    return (await api.get<{ shot: ShotView }>(`/shots/${encodeURIComponent(id)}`)).shot;
+  }
+  async function waitShot(id: string): Promise<ShotView> {
+    await expect.poll(async () => (await api.call("GET", `/shots/${encodeURIComponent(id)}`)).status).toBe(200);
+    return detail(id);
+  }
+  /** Each Shot's Location by name, null when unknown. */
+  async function locations(ids: string[]): Promise<Record<string, string | null>> {
+    return Object.fromEntries(await Promise.all(ids.map(async (id) => [id, (await detail(id)).location?.name ?? null])));
+  }
+  async function machine(id: string, at = api): Promise<MachineView> {
+    return (await at.get<{ machine: MachineView }>(`/machines/${id}`)).machine;
+  }
+  function move(machineId: string, locationId: string, effectiveFrom?: string, at = api) {
+    return at.call("POST", `/machines/${machineId}/location-history`, { locationId, effectiveFrom });
+  }
+  function correct(machineId: string, entryId: string, effectiveFrom: string, at = api) {
+    return at.call("PATCH", `/machines/${machineId}/location-history/${entryId}`, { effectiveFrom });
+  }
+  function remove(machineId: string, entryId: string, at = api) {
+    return at.call("DELETE", `/machines/${machineId}/location-history/${entryId}`);
+  }
+  /** A Machine's Location History as Location names and times. */
+  function entries(machine: MachineView) {
+    return machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom]);
+  }
+  async function moved(response: Response): Promise<MachineView> {
+    const body = (await response.json()) as { machine: MachineView; message?: unknown };
+    expect(response.status, JSON.stringify(body.message)).toBeLessThan(300);
+    return body.machine;
+  }
+  async function problem(response: Response) {
+    return { status: response.status, message: ((await response.json()) as { message: unknown }).message };
+  }
+  /** Makes a change to the Machine's Location History, whose entries are as given. */
+  function changeHistory(machineId: string, history: MachineView["locationHistory"], change: Change, places: Record<Place, LocationView>) {
+    if ("move" in change) return move(machineId, places[change.move].id, midnight(change.at));
+    if ("remove" in change) return remove(machineId, history[change.remove]!.id);
+    return api.call("PATCH", `/machines/${machineId}/location-history/${history[change.correct]!.id}`, {
+      locationId: change.location && places[change.location].id,
+      effectiveFrom: change.at && midnight(change.at),
+    });
+  }
+
+  it("creates a machine entry at a Location from now, or unassigned, refusing a Location the server lacks", async () => {
+    const before = Date.now();
+    const created = await api.createMachine("Arrives at the Lab", lab.id);
+    expect(created.machine.location).toEqual(lab);
+    expect(created.machine.locationHistory).toEqual([{ id: expect.any(String), location: lab, effectiveFrom: expect.any(String) }]);
+    const from = Date.parse(created.machine.locationHistory[0]!.effectiveFrom);
+    expect(from).toBeGreaterThanOrEqual(before - 2_000);
+    expect(from).toBeLessThanOrEqual(Date.now() + 2_000);
+    expect((await api.machineNamed("Arrives at the Lab"))!.location).toEqual(lab);
+
+    const unassigned = await api.createMachine("Unassigned");
+    expect(unassigned.machine).toMatchObject({ location: null, locationHistory: [] });
+
+    for (const locationId of [randomUUID(), "Lab", 7]) {
+      expect(await problem(await api.call("POST", "/machines", { name: `Nowhere ${String(locationId)}`, locationId }))).toEqual({
+        status: 400,
+        message: ["Choose a Location from the list"],
+      });
+    }
+    expect(await problem(await api.call("POST", "/machines", { name: " ", locationId: "Lab" }))).toEqual({
+      status: 400,
+      message: ["Enter a name", "Choose a Location from the list"],
+    });
+    expect((await api.machines()).filter((machine) => machine.name.startsWith("Nowhere"))).toEqual([]);
+  });
+
+  it("credits Shots its tablet pulls from a machine entry created at a Location, but not its earlier history", async () => {
+    const created = await api.createMachine("Uptown espresso", uptown.id);
+    const earlier = shotAt("before-the-entry", "2026-01-10T15:00:00Z");
+    const tablet = load(created, [earlier]);
+    await tablet.waitForLog(/^Connected to /);
+    expect(await waitShot("before-the-entry")).toMatchObject({ location: null, locationInferred: false });
+
+    const live = shotAt("after-the-entry", new Date().toISOString());
+    tablet.serve(withShots(derivedDe1Pro({ serial: hardwareOf(created).serial }), [earlier, live]));
+    tablet.fire("shotStored", { id: live.id });
+    expect(await waitShot("after-the-entry")).toMatchObject({
+      machineId: created.machine.id,
+      location: uptown,
+      locationId: uptown.id,
+      locationInferred: true,
+    });
+  });
+
+  it("credits Shots pulled before and after a move to where the Machine was, and re-credits them when the move's time is corrected", async () => {
+    const created = await api.createMachine("Mover", lab.id);
+    const id = created.machine.id;
+    const first = created.machine.locationHistory[0]!.id;
+    await moved(await correct(id, first, "2026-01-01T00:00:00Z"));
+    const afterMove = await moved(await move(id, uptown.id, "2026-03-01T00:00:00Z", api.at(other.url)));
+    expect(afterMove.location).toEqual(uptown);
+    expect(afterMove.locationHistory).toEqual([
+      { id: first, location: lab, effectiveFrom: "2026-01-01T00:00:00.000Z" },
+      { id: expect.any(String), location: uptown, effectiveFrom: "2026-03-01T00:00:00.000Z" },
+    ]);
+    const moveEntry = afterMove.locationHistory[1]!.id;
+
+    const shots = [
+      shotAt("mover-december", "2025-12-15T12:00:00Z"),
+      shotAt("mover-february", "2026-02-15T12:00:00Z"),
+      shotAt("mover-at-the-move", "2026-03-01T00:00:00Z"),
+      shotAt("mover-march", "2026-03-15T12:00:00Z", hardwareOf(created)),
+    ];
+    load(created, shots);
+    const ids = shots.map((shot) => String(shot.id));
+    for (const shot of ids) await waitShot(shot);
+    expect(await locations(ids)).toEqual({ "mover-december": null, "mover-february": "Lab", "mover-at-the-move": "Uptown", "mover-march": "Uptown" });
+    expect(await detail("mover-february")).toMatchObject({ location: lab, locationInferred: true });
+    // Recorded hardware credits the Machine, and so its Location, without inference.
+    expect(await detail("mover-march")).toMatchObject({ machineInferred: false, location: uptown, locationInferred: false });
+    const records = Object.fromEntries(await Promise.all(ids.map(async (shot) => [shot, (await detail(shot)).record])));
+
+    // It moved earlier than recorded.
+    expect((await moved(await correct(id, moveEntry, "2026-02-01T00:00:00Z", api.at(other.url)))).location).toEqual(uptown);
+    expect(await locations(ids)).toEqual({ "mover-december": null, "mover-february": "Uptown", "mover-at-the-move": "Uptown", "mover-march": "Uptown" });
+    // Later than recorded.
+    await moved(await correct(id, moveEntry, "2026-04-01T00:00:00Z"));
+    expect(await locations(ids)).toEqual({ "mover-december": null, "mover-february": "Lab", "mover-at-the-move": "Lab", "mover-march": "Lab" });
+    // And it was at the Lab earlier than recorded.
+    await moved(await correct(id, first, "2025-12-01T00:00:00Z"));
+    expect(await locations(ids)).toEqual({ "mover-december": "Lab", "mover-february": "Lab", "mover-at-the-move": "Lab", "mover-march": "Lab" });
+    expect(await detail("mover-december")).toMatchObject({ machineInferred: true, location: lab, locationInferred: true });
+    expect(await detail("mover-march")).toMatchObject({ machineInferred: false, location: lab, locationInferred: false });
+
+    // Corrections change credit only, never the record as Decaid sent it.
+    for (const shot of ids) expect((await detail(shot)).record).toEqual(records[shot]);
+    expect((await machine(id)).locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom])).toEqual([
+      ["Lab", "2025-12-01T00:00:00.000Z"],
+      ["Uptown", "2026-04-01T00:00:00.000Z"],
+    ]);
+  });
+
+  it("keeps a backfilled Machine's earlier Shots at an unknown Location until its first entry starts earlier", async () => {
+    const created = await api.createMachine("Adopted with history", belmont.id);
+    const history = [
+      shotAt("adopted-january", "2026-01-05T08:00:00Z"),
+      shotAt("adopted-february", "2026-02-05T08:00:00Z"),
+      shotAt("adopted-march", "2026-03-05T08:00:00Z"),
+    ];
+    const ids = history.map((shot) => String(shot.id));
+    load(created, history);
+    for (const shot of ids) await waitShot(shot);
+    // Not silently credited to where the Machine is now, even after it moves again.
+    expect(await locations(ids)).toEqual({ "adopted-january": null, "adopted-february": null, "adopted-march": null });
+    const afterMove = await moved(await move(created.machine.id, lab.id));
+    expect(afterMove.location).toEqual(lab);
+    expect(await locations(ids)).toEqual({ "adopted-january": null, "adopted-february": null, "adopted-march": null });
+
+    await moved(await correct(created.machine.id, afterMove.locationHistory[0]!.id, "2026-02-01T00:00:00Z", api.at(other.url)));
+    expect(await locations(ids)).toEqual({ "adopted-january": null, "adopted-february": "Belmont", "adopted-march": "Belmont" });
+    await moved(await correct(created.machine.id, afterMove.locationHistory[0]!.id, "2025-06-01T00:00:00-05:00"));
+    expect(await locations(ids)).toEqual({ "adopted-january": "Belmont", "adopted-february": "Belmont", "adopted-march": "Belmont" });
+    const listed = (await api.get<{ shots: ShotView[] }>(`/shots?limit=100&machineId=${created.machine.id}`)).shots;
+    expect(listed.map((shot) => [shot.id, shot.location?.name, shot.locationInferred])).toEqual([
+      ["adopted-march", "Belmont", true],
+      ["adopted-february", "Belmont", true],
+      ["adopted-january", "Belmont", true],
+    ]);
+  });
+
+  it("gives a Pending Machine's Shots no Location, then credits them by the Location History of the Machine that takes them over", async () => {
+    const reporter = await api.createMachine("Reports others' hardware", lab.id);
+    await moved(await correct(reporter.machine.id, reporter.machine.locationHistory[0]!.id, "2025-01-01T00:00:00Z"));
+    const adoptedHardware = { model: "DE1Pro", serial: "60001" };
+    const boundHardware = { model: "DE1Pro", serial: "60002" };
+    const raw = await connect(reporter);
+    for (const record of [shotAt("pending-adopted", "2026-02-10T09:00:00Z", adoptedHardware), shotAt("pending-bound", "2026-02-10T09:00:00Z", boundHardware)]) {
+      await raw.acknowledged(sendShot(raw, record));
+    }
+    // Held for hardware without a machine entry, whatever the reporting Machine's Location.
+    expect(await detail("pending-adopted")).toMatchObject({ machineId: null, pendingMachineId: expect.any(String), location: null, locationInferred: false });
+    expect(await detail("pending-bound")).toMatchObject({ machineId: null, location: null });
+
+    // A machine entry created for the hardware, at a Location from now, takes the Shot over.
+    const pending = (await detail("pending-adopted")).pendingMachineId!;
+    const adopted = await api.issued(await api.call("POST", `/pending-machines/${pending}/machine`, { name: "Adopted pending", locationId: uptown.id }));
+    expect(adopted.machine).toMatchObject({ location: uptown, locationHistory: [{ location: uptown }] });
+    expect(await detail("pending-adopted")).toMatchObject({ machineId: adopted.machine.id, location: null });
+    await moved(await correct(adopted.machine.id, adopted.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    expect(await detail("pending-adopted")).toMatchObject({ location: uptown, locationInferred: false });
+
+    // A Machine whose first connection binds the hardware takes it over too, credited by its own history.
+    const bound = await api.createMachine("Binds pending hardware", belmont.id);
+    await moved(await correct(bound.machine.id, bound.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z", api.at(other.url)));
+    await (await connect(bound, other.url, boundHardware)).close();
+    expect(await detail("pending-bound")).toMatchObject({ machineId: bound.machine.id, location: belmont, locationInferred: false });
+  });
+
+  it("credits a Shot stored during a change to its Machine's Location History, on another instance, by the changed history", async () => {
+    const created = await api.createMachine("Concurrent move", lab.id);
+    await moved(await correct(created.machine.id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    const raw = await connect(created, other.url);
+    const database = await server.connectDatabase();
+    let moving: Promise<Response> | undefined;
+    try {
+      await database.query("BEGIN");
+      // Holds the Shot's storage, once it has been credited, until the move is under way.
+      await database.query("LOCK TABLE shot_measurements IN ACCESS EXCLUSIVE MODE");
+      const delivery = sendShot(raw, shotAt("stored-during-a-move", "2026-03-15T12:00:00Z"));
+      await waitForLockWaits(server, { relation: "shot_measurements" });
+      moving = move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z");
+      // The move waits for the Shot's storage, which holds the Machine.
+      await waitForLockWaits(server, { count: 2 });
+      await database.query("ROLLBACK");
+      await raw.acknowledged(delivery);
+    } finally {
+      await database.query("ROLLBACK").catch(() => undefined);
+      await database.end();
+    }
+    expect((await moved(await moving!)).location).toEqual(uptown);
+    expect(await detail("stored-during-a-move")).toMatchObject({ location: uptown });
+  });
+
+  it("stores an edit to a Shot while its Machine's Location History changes, on another instance, without either waiting on the other in a cycle", async () => {
+    const created = await api.createMachine("Edited during a correction", lab.id);
+    const first = created.machine.locationHistory[0]!.id;
+    await moved(await correct(created.machine.id, first, "2026-01-01T00:00:00Z"));
+    const raw = await connect(created, other.url);
+    const record = shotAt("edited-during-a-correction", "2026-02-15T12:00:00Z");
+    await raw.acknowledged(sendShot(raw, record));
+    expect(await detail(String(record.id))).toMatchObject({ location: lab });
+    const database = await server.connectDatabase();
+    let correcting: Promise<Response> | undefined;
+    let edit: string | undefined;
+    try {
+      await database.query("BEGIN");
+      // Holds the correction after it has locked the Machine, before it credits the Shot again.
+      await database.query("LOCK TABLE location_assignments IN ACCESS EXCLUSIVE MODE");
+      // Holds the edit before it reads the Shot until the correction holds the Machine, so the edit is
+      // under way first: a connection's frames are handled in turn, and a heartbeat handled while the
+      // correction holds the Machine waits for it. Rolling back to the savepoint releases this lock alone.
+      await database.query("SAVEPOINT edit");
+      await database.query("LOCK TABLE shots IN ACCESS EXCLUSIVE MODE");
+      const { measurements: omitted, ...summary } = record;
+      edit = randomUUID();
+      raw.send({ type: "shotUpdated", id: edit, shotId: record.id, shot: { ...summary, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 64 } } });
+      await waitForLockWaits(server, { relation: "shots" });
+      correcting = api.call("PATCH", `/machines/${created.machine.id}/location-history/${first}`, { locationId: uptown.id });
+      await waitForLockWaits(server, { relation: "location_assignments" });
+      await database.query("ROLLBACK TO SAVEPOINT edit");
+      // While the correction holds the Machine, the edit writes the Shot twice, checking its Machine's
+      // key the second time: it is stored without waiting for the correction, which then waits for it.
+      await raw.acknowledged(edit);
+      await database.query("ROLLBACK");
+    } finally {
+      await database.query("ROLLBACK").catch(() => undefined);
+      await database.end();
+    }
+    expect((await moved(await correcting!)).location).toEqual(uptown);
+    expect(await detail(String(record.id))).toMatchObject({ enjoyment: 64, location: uptown });
+  });
+
+  it("keeps a Shot's pull time, and so its Location, when a newer full record arrives", async () => {
+    const created = await api.createMachine("Pulled once", lab.id);
+    await moved(await correct(created.machine.id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    await moved(await move(created.machine.id, uptown.id, "2026-03-01T00:00:00Z"));
+    const raw = await connect(created);
+    const record = shotAt("pulled-once", "2026-02-15T12:00:00Z");
+    await raw.acknowledged(sendShot(raw, record));
+    // Derived: the same Shot, edited, as a full record whose time reads differently.
+    await raw.acknowledged(sendShot(raw, { ...record, timestamp: "2026-04-15T12:00:00Z", updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 71 } }));
+    expect(await detail("pulled-once")).toMatchObject({ enjoyment: 71, pulledAt: "2026-02-15T12:00:00.000Z", location: lab });
+  });
+
+  it("removes a mistaken entry, and the move back too when the Machine never left, re-crediting its Shots", async () => {
+    const created = await api.createMachine("Mistaken moves", lab.id);
+    const id = created.machine.id;
+    await moved(await correct(id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    await moved(await move(id, uptown.id, "2026-02-01T00:00:00Z"));
+    await moved(await move(id, lab.id, "2026-03-01T00:00:00Z"));
+    const recorded = await moved(await move(id, belmont.id, "2026-04-01T00:00:00Z", api.at(other.url)));
+    const [first, toUptown, , toBelmont] = recorded.locationHistory.map((entry) => entry.id);
+    const raw = await connect(created, other.url);
+    const shots = ["2026-01-15", "2026-02-15", "2026-03-15", "2026-04-15"].map((day) => shotAt(`mistaken-${day}`, `${day}T12:00:00Z`));
+    for (const shot of shots) await raw.acknowledged(sendShot(raw, shot));
+    const ids = shots.map((shot) => String(shot.id));
+    expect(Object.values(await locations(ids))).toEqual(["Lab", "Uptown", "Lab", "Belmont"]);
+
+    // It never went to Uptown, so it never came back to the Lab either.
+    const withoutUptown = await moved(await remove(id, toUptown!));
+    expect(entries(withoutUptown)).toEqual([
+      ["Lab", "2026-01-01T00:00:00.000Z"],
+      ["Belmont", "2026-04-01T00:00:00.000Z"],
+    ]);
+    expect(Object.values(await locations(ids))).toEqual(["Lab", "Lab", "Lab", "Belmont"]);
+
+    // Nor to Belmont: it is still at the Lab.
+    const withoutBelmont = await moved(await remove(id, toBelmont!, api.at(other.url)));
+    expect(withoutBelmont.location).toEqual(lab);
+    expect(entries(withoutBelmont)).toEqual([["Lab", "2026-01-01T00:00:00.000Z"]]);
+    expect(Object.values(await locations(ids))).toEqual(["Lab", "Lab", "Lab", "Lab"]);
+
+    // And the machine entry was never at the Lab: where it was is unknown.
+    const unassigned = await moved(await remove(id, first!));
+    expect(unassigned).toMatchObject({ location: null, locationHistory: [] });
+    expect(Object.values(await locations(ids))).toEqual([null, null, null, null]);
+    expect(await detail(ids[0]!)).toMatchObject({ machineId: id, locationInferred: false });
+  });
+
+  it("corrects the Location an entry names, keeping its time unless that is corrected too, and re-credits Shots", async () => {
+    const created = await api.createMachine("Wrong Location", lab.id);
+    const id = created.machine.id;
+    const first = created.machine.locationHistory[0]!.id;
+    const raw = await connect(created);
+    for (const shot of [shotAt("wrong-january", "2026-01-15T12:00:00Z"), shotAt("wrong-february", "2026-02-15T12:00:00Z")]) {
+      await raw.acknowledged(sendShot(raw, shot));
+    }
+    expect(await locations(["wrong-january", "wrong-february"])).toEqual({ "wrong-january": null, "wrong-february": null });
+
+    // It was created at the wrong Location, and was there earlier than that.
+    const corrected = await moved(await api.call("PATCH", `/machines/${id}/location-history/${first}`, { locationId: uptown.id, effectiveFrom: "2026-01-01T00:00:00Z" }));
+    expect(entries(corrected)).toEqual([["Uptown", "2026-01-01T00:00:00.000Z"]]);
+    expect(await locations(["wrong-january", "wrong-february"])).toEqual({ "wrong-january": "Uptown", "wrong-february": "Uptown" });
+
+    // A move to the wrong Location keeps its time when only the Location is corrected.
+    const toBelmont = (await moved(await move(id, belmont.id, "2026-02-01T00:00:00Z"))).locationHistory[1]!.id;
+    const toLab = await moved(await api.at(other.url).call("PATCH", `/machines/${id}/location-history/${toBelmont}`, { locationId: lab.id }));
+    expect(toLab.location).toEqual(lab);
+    expect(entries(toLab)).toEqual([
+      ["Uptown", "2026-01-01T00:00:00.000Z"],
+      ["Lab", "2026-02-01T00:00:00.000Z"],
+    ]);
+    expect(await locations(["wrong-january", "wrong-february"])).toEqual({ "wrong-january": "Uptown", "wrong-february": "Lab" });
+  });
+
+  it("refuses moves and corrections that would not make a Location History", async () => {
+    const created = await api.createMachine("Checked", uptown.id);
+    const id = created.machine.id;
+    const first = created.machine.locationHistory[0]!.id;
+    const unassigned = await api.createMachine("Checked unassigned");
+
+    expect(await problem(await move(id, uptown.id))).toEqual({ status: 409, message: "It is already at Uptown" });
+    expect(await problem(await move(id, randomUUID()))).toEqual({ status: 400, message: ["Choose a Location from the list"] });
+    expect(await problem(await api.call("POST", `/machines/${id}/location-history`, {}))).toEqual({ status: 400, message: ["Choose a Location from the list"] });
+    expect(await problem(await move(id, lab.id, "2026-13-01T00:00:00Z"))).toEqual({
+      status: 400,
+      message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
+    });
+    // Times without an offset, and dates and times that do not exist, which Date would roll over.
+    for (const time of ["2026-01-01T00:00:00", "2026-02-30T15:00:00Z", "2026-02-29T15:00:00Z", "2026-01-01T24:00:00Z", "2026-01-01T12:00:00+24:00"]) {
+      expect(await problem(await move(id, lab.id, time)), time).toEqual({
+        status: 400,
+        message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
+      });
+    }
+    expect(await problem(await move(id, lab.id, new Date(Date.now() + 3_600_000).toISOString()))).toEqual({
+      status: 400,
+      message: ["Choose a time that is not in the future"],
+    });
+    expect(await problem(await move(id, lab.id, "2026-01-01T00:00:00Z"))).toEqual({ status: 409, message: "Choose a time after it arrived at Uptown" });
+    expect((await problem(await move(randomUUID(), lab.id))).status).toBe(404);
+    expect((await problem(await move("not-a-machine", lab.id))).status).toBe(404);
+
+    await moved(await correct(id, first, "2026-01-01T00:00:00Z"));
+    const second = (await moved(await move(id, lab.id, "2026-02-01T00:00:00Z"))).locationHistory[1]!.id;
+    const third = (await moved(await move(id, belmont.id, "2026-03-01T00:00:00Z"))).locationHistory[2]!.id;
+    expect(await problem(await correct(id, second, "2026-01-01T00:00:00Z"))).toEqual({ status: 409, message: "Choose a time after it arrived at Uptown" });
+    expect(await problem(await correct(id, second, "2026-03-01T00:00:00Z"))).toEqual({ status: 409, message: "Choose a time before it moved to Belmont" });
+    expect(await problem(await correct(id, third, new Date(Date.now() + 3_600_000).toISOString()))).toEqual({
+      status: 400,
+      message: ["Choose a time that is not in the future"],
+    });
+    expect(await problem(await correct(id, first, "yesterday"))).toEqual({
+      status: 400,
+      message: ["Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
+    });
+    const patch = (entry: string, body: unknown) => api.call("PATCH", `/machines/${id}/location-history/${entry}`, body);
+    expect(await problem(await patch(second, {}))).toEqual({ status: 400, message: "Send a new Location or time" });
+    expect(await problem(await patch(second, { locationId: randomUUID() }))).toEqual({ status: 400, message: ["Choose a Location from the list"] });
+    expect(await problem(await patch(second, { locationId: "Lab", effectiveFrom: "soon" }))).toEqual({
+      status: 400,
+      message: ["Choose a Location from the list", "Enter a date and time with its offset, such as 2026-10-04T15:00:00Z"],
+    });
+    expect(await problem(await patch(second, { locationId: uptown.id }))).toEqual({
+      status: 409,
+      message: "It was already at Uptown before this; remove this entry instead",
+    });
+    expect(await problem(await patch(second, { locationId: belmont.id }))).toEqual({
+      status: 409,
+      message: "It moved to Belmont after this; choose another Location, or remove that entry",
+    });
+    // An entry belongs to its own Machine.
+    expect((await problem(await correct(unassigned.machine.id, first, "2025-01-01T00:00:00Z"))).status).toBe(404);
+    expect((await problem(await remove(unassigned.machine.id, first))).status).toBe(404);
+    expect((await problem(await remove(id, randomUUID()))).status).toBe(404);
+    expect((await problem(await remove(id, "not-an-entry"))).status).toBe(404);
+    expect((await problem(await remove(randomUUID(), first))).status).toBe(404);
+    expect((await problem(await correct(id, randomUUID(), "2025-01-01T00:00:00Z"))).status).toBe(404);
+    expect((await problem(await correct(id, "not-an-entry", "2025-01-01T00:00:00Z"))).status).toBe(404);
+
+    expect((await machine(id)).locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom])).toEqual([
+      ["Uptown", "2026-01-01T00:00:00.000Z"],
+      ["Lab", "2026-02-01T00:00:00.000Z"],
+      ["Belmont", "2026-03-01T00:00:00.000Z"],
+    ]);
+  });
+
+  it.each(CHANGES)(
+    "credits only the records in the span $name changes, as crediting every record would",
+    async ({ name, history = HISTORY, change, span }) => {
+      const places = { Lab: lab, Uptown: uptown, Belmont: belmont, Cart: cart };
+      const key = `span-${name.replaceAll(" ", "-")}`;
+      const created = await api.createMachine(`Changed by ${name}`, places[history[0]![0]].id);
+      const id = created.machine.id;
+      await moved(await correct(id, created.machine.locationHistory[0]!.id, midnight(history[0]![1])));
+      for (const [place, day] of history.slice(1)) await moved(await move(id, places[place].id, midnight(day)));
+      await sendRecords(await connect(created), key, RECORDED);
+      const database = await server.connectDatabase();
+      try {
+        const before = (await machine(id)).locationHistory;
+        const records = await credited(database, id);
+        expect(records).toHaveLength(RECORDED.length * 2 + 1);
+        expect(named(records)).toEqual(named(records, (record) => locationAt(before, record.recordedAt)));
+        const from = Date.parse(midnight(span[0]));
+        const until = span[1] === null ? Infinity : Date.parse(midnight(span[1]));
+        const inSpan = ({ recordedAt }: Credited) => recordedAt !== null && recordedAt.getTime() >= from && recordedAt.getTime() < until;
+        await misplace(database, records.filter((record) => !inSpan(record)).map((record) => record.id));
+
+        const after = (await moved(await changeHistory(id, before, change, places))).locationHistory;
+        // Every record whose Location the change moves is in its span.
+        const relocated = records.filter((record) => locationAt(before, record.recordedAt) !== locationAt(after, record.recordedAt));
+        expect(relocated.length).toBeGreaterThan(0);
+        expect(relocated.filter((record) => !inSpan(record))).toEqual([]);
+        // Those in the span are credited by the changed history; the others were neither read nor written.
+        expect(named(await credited(database, id))).toEqual(
+          named(records, (record) => (inSpan(record) ? locationAt(after, record.recordedAt) : elsewhere.id)),
+        );
+      } finally {
+        await database.end();
+      }
+    },
+    20_000,
+  );
+
+  it("commits a Location History change that runs past Prisma's default 5 s limit on a transaction", async () => {
+    const created = await api.createMachine("Slow correction", lab.id);
+    const raw = await connect(created);
+    await raw.acknowledged(sendShot(raw, shotAt("slow-correction", "2026-02-15T12:00:00Z")));
+    const database = await server.connectDatabase();
+    let correcting: Promise<Response> | undefined;
+    try {
+      await database.query("BEGIN");
+      // Holds the correction, with the Machine locked, before it credits the Shot.
+      await database.query("LOCK TABLE shots IN ACCESS EXCLUSIVE MODE");
+      correcting = correct(created.machine.id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z");
+      await waitForLockWaits(server, { relation: "shots" });
+      await new Promise((resolve) => setTimeout(resolve, 5_500));
+      await database.query("ROLLBACK");
+    } finally {
+      await database.query("ROLLBACK").catch(() => undefined);
+      await database.end();
+    }
+    expect(entries(await moved(await correcting!))).toEqual([["Lab", "2026-01-01T00:00:00.000Z"]]);
+    expect(await detail("slow-correction")).toMatchObject({ location: lab });
+  });
+
+  it.each([
+    {
+      by: "a hello binding the hardware",
+      serial: "60011",
+      adopt: async (created: CreatedMachine, hardware: Hardware) => (await connect(created, other.url, hardware)).close(),
+    },
+    {
+      by: "an Admin entering the hardware",
+      serial: "60012",
+      adopt: async (created: CreatedMachine, hardware: Hardware) => moved(await api.call("PUT", `/machines/${created.machine.id}/hardware`, hardware)),
+    },
+  ])("credits only the records $by hands over, by the Machine's Location History", async ({ by, serial, adopt }) => {
+    const hardware = { model: "DE1Pro", serial };
+    const key = `adopted-${serial}`;
+    await holdFor(hardware, `${key}-held`, ["2025-12-15T12:00:00.000Z", "2026-02-15T12:00:00.000Z", "2026-03-15T12:00:00.000Z"]);
+    const created = await api.createMachine(`Adopts by ${by}`, lab.id);
+    const id = created.machine.id;
+    await moved(await correct(id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"));
+    const history = (await moved(await move(id, uptown.id, "2026-03-01T00:00:00Z"))).locationHistory;
+    // Its own records, from its tablet before its machine reported its hardware.
+    const own = await connect(created, server.url, { model: "DE1Pro", serial: "0" });
+    await sendRecords(own, `${key}-own`, ["2026-02-15T12:00:00.000Z", "2026-03-15T12:00:00.000Z"]);
+    await own.close();
+    const database = await server.connectDatabase();
+    try {
+      const mine = await credited(database, id);
+      expect(named(mine)).toEqual(named(mine, (record) => locationAt(history, record.recordedAt)));
+      await misplace(database, mine.map((record) => record.id));
+
+      await adopt(created, hardware);
+      const records = await credited(database, id);
+      expect(records).toHaveLength(mine.length + 7);
+      // Its own records were neither read nor written; those handed over are credited by its history.
+      const ownIds = new Set(mine.map((record) => record.id));
+      const isMine = (record: Credited) => ownIds.has(record.id);
+      expect(named(records)).toEqual(named(records, (record) => (isMine(record) ? elsewhere.id : locationAt(history, record.recordedAt))));
+      expect(named(records.filter((record) => !isMine(record)))).toEqual({
+        [`${key}-held-shot-2025-12-15T12:00:00.000Z`]: null,
+        [`${key}-held-steam-2025-12-15T12:00:00.000Z`]: null,
+        [`${key}-held-shot-2026-02-15T12:00:00.000Z`]: "Lab",
+        [`${key}-held-steam-2026-02-15T12:00:00.000Z`]: "Lab",
+        [`${key}-held-shot-2026-03-15T12:00:00.000Z`]: "Uptown",
+        [`${key}-held-steam-2026-03-15T12:00:00.000Z`]: "Uptown",
+        [`${key}-held-shot-untimed`]: null,
+      });
+    } finally {
+      await database.end();
+    }
+    expect((await api.pendingMachines()).filter((pending) => pending.serial === serial)).toEqual([]);
+  });
+
+  it("commits a binding hello its plugin stopped waiting for, then welcomes the plugin's next hello without handing anything over again", async () => {
+    const hardware = { model: "DE1Pro", serial: "60021" };
+    await holdFor(hardware, "outlasted", ["2025-12-15T12:00:00.000Z", "2026-02-15T12:00:00.000Z"]);
+    const created = await api.createMachine("Bound after its plugin gave up", lab.id);
+    const id = created.machine.id;
+    const history = (await moved(await correct(id, created.machine.locationHistory[0]!.id, "2026-01-01T00:00:00Z"))).locationHistory;
+    const database = await server.connectDatabase();
+    try {
+      await database.query("BEGIN");
+      // Holds the hello partway through handing the records over, past Prisma's default 5 s limit on a transaction.
+      await database.query("LOCK TABLE steam_records IN ACCESS EXCLUSIVE MODE");
+      const abandoned = await RawConnection.open(server.url);
+      abandoned.send(helloWith(created.token, { machine: hardware }));
+      await waitForLockWaits(server, { relation: "steam_records" });
+      // Counted from here, when the hello's transaction has certainly begun.
+      const held = Date.now();
+      // The plugin gives up waiting for welcome (after 15 s) and closes the connection.
+      await abandoned.close();
+      await new Promise((resolve) => setTimeout(resolve, 5_500 - (Date.now() - held)));
+      await database.query("ROLLBACK");
+      expect(abandoned.messages).toEqual([]);
+
+      // The hello still commits, and the Machine it gave the closed connection is released again.
+      await expect.poll(async () => (await machine(id)).identification).toBe("identified");
+      await expect.poll(async () => (await machine(id)).online).toBe(false);
+      expect(await machine(id)).toMatchObject(hardware);
+      const records = await credited(database, id);
+      expect(named(records)).toEqual({
+        "outlasted-shot-2025-12-15T12:00:00.000Z": null,
+        "outlasted-steam-2025-12-15T12:00:00.000Z": null,
+        "outlasted-shot-2026-02-15T12:00:00.000Z": "Lab",
+        "outlasted-steam-2026-02-15T12:00:00.000Z": "Lab",
+        "outlasted-shot-untimed": null,
+      });
+      expect(named(records)).toEqual(named(records, (record) => locationAt(history, record.recordedAt)));
+      const versions = await rowVersions(database, id);
+
+      // The plugin's next hello, on any instance, finds the hardware bound and nothing to hand over.
+      await (await connect(created, other.url, hardware)).close();
+      expect(await rowVersions(database, id)).toEqual(versions);
+    } finally {
+      await database.query("ROLLBACK").catch(() => undefined);
+      await database.end();
+    }
+    expect((await api.pendingMachines()).filter((pending) => pending.serial === hardware.serial)).toEqual([]);
+  });
+});

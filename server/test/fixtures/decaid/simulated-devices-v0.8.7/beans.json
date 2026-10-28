@@ -1,0 +1,22 @@
+[
+  {
+    "id": "877a2e9d-8016-43f0-9c43-c0f8866c0a6d",
+    "roaster": "Fixture Roaster",
+    "name": "Fixture Archived Bean",
+    "decaf": false,
+    "country": "Ethiopia",
+    "processing": "washed",
+    "archived": true,
+    "createdAt": "2026-10-05T14:03:13.009125",
+    "updatedAt": "2026-10-05T14:03:13.132738"
+  },
+  {
+    "id": "79699013-0984-4a1a-842a-5b84f36e612d",
+    "roaster": "Fixture Roaster",
+    "name": "Fixture Bean",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-10-05T14:03:13.044376",
+    "updatedAt": "2026-10-05T14:03:13.044376"
+  }
+]

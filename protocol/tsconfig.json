@@ -4,5 +4,5 @@
     "lib": ["ES2020"],
     "types": []
   },
-  "include": ["src", "test"]
+  "include": ["src"]
 }

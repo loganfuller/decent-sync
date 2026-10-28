@@ -1,0 +1,446 @@
+[
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Bean",
+        "country": "Ethiopia",
+        "processing": "washed",
+        "extras": {
+          "bcUuid": "fixture-bc-1"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Bean",
+        "decaf": false,
+        "country": "Ethiopia",
+        "processing": "washed",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.829258",
+        "updatedAt": "2026-10-07T22:16:48.829258",
+        "extras": {
+          "bcUuid": "fixture-bc-1"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/8ac511b9-81a6-4066-9a5e-5b67da092efc",
+      "body": {
+        "extras": {
+          "bcUuid": "fixture-bc-1",
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Bean",
+        "decaf": false,
+        "country": "Ethiopia",
+        "processing": "washed",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.829258",
+        "updatedAt": "2026-10-07T22:16:48.842308",
+        "extras": {
+          "bcUuid": "fixture-bc-1",
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/8ac511b9-81a6-4066-9a5e-5b67da092efc",
+      "body": {
+        "extras": {
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Bean",
+        "decaf": false,
+        "country": "Ethiopia",
+        "processing": "washed",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.829258",
+        "updatedAt": "2026-10-07T22:16:48.853892",
+        "extras": {
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Written Bean",
+        "species": "Arabica",
+        "decaf": false,
+        "decafProcess": null,
+        "country": "Colombia",
+        "region": "Huila",
+        "producer": "Fixture Producer",
+        "variety": [
+          "Caturra",
+          "Castillo"
+        ],
+        "altitude": [
+          1700,
+          1900
+        ],
+        "processing": "natural",
+        "notes": "Fixture notes",
+        "extras": {
+          "decentSyncId": "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "05c737b7-592c-4144-800a-e72a59d0f73f",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Written Bean",
+        "species": "Arabica",
+        "decaf": false,
+        "country": "Colombia",
+        "region": "Huila",
+        "producer": "Fixture Producer",
+        "variety": [
+          "Caturra",
+          "Castillo"
+        ],
+        "altitude": [
+          1700,
+          1900
+        ],
+        "processing": "natural",
+        "notes": "Fixture notes",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.862481",
+        "updatedAt": "2026-10-07T22:16:48.862481",
+        "extras": {
+          "decentSyncId": "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Archived On Create",
+        "archived": true,
+        "fixtureUnknown": 1
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "5966d941-28a8-4b74-95df-af52cc3a50e6",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Archived On Create",
+        "decaf": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.871234",
+        "updatedAt": "2026-10-07T22:16:48.871234"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/05c737b7-592c-4144-800a-e72a59d0f73f",
+      "body": {
+        "species": null,
+        "notes": "Fixture notes, edited",
+        "fixtureUnknown": 1
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "05c737b7-592c-4144-800a-e72a59d0f73f",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Written Bean",
+        "decaf": false,
+        "country": "Colombia",
+        "region": "Huila",
+        "producer": "Fixture Producer",
+        "variety": [
+          "Caturra",
+          "Castillo"
+        ],
+        "altitude": [
+          1700,
+          1900
+        ],
+        "processing": "natural",
+        "notes": "Fixture notes, edited",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.862481",
+        "updatedAt": "2026-10-07T22:16:48.881071",
+        "extras": {
+          "decentSyncId": "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/05c737b7-592c-4144-800a-e72a59d0f73f",
+      "body": {
+        "archived": true
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "05c737b7-592c-4144-800a-e72a59d0f73f",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Written Bean",
+        "decaf": false,
+        "country": "Colombia",
+        "region": "Huila",
+        "producer": "Fixture Producer",
+        "variety": [
+          "Caturra",
+          "Castillo"
+        ],
+        "altitude": [
+          1700,
+          1900
+        ],
+        "processing": "natural",
+        "notes": "Fixture notes, edited",
+        "archived": true,
+        "createdAt": "2026-10-07T22:16:48.862481",
+        "updatedAt": "2026-10-07T22:16:48.892227",
+        "extras": {
+          "decentSyncId": "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'Null' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": 7
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'int' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/00000000-0000-4000-8000-000000000000",
+      "body": {
+        "extras": {
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Bean not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/05c737b7-592c-4144-800a-e72a59d0f73f",
+      "body": {
+        "roaster": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"roaster\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/05c737b7-592c-4144-800a-e72a59d0f73f",
+      "body": {
+        "altitude": [
+          "high"
+        ]
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"altitude\" must be an array of integers or null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/8ac511b9-81a6-4066-9a5e-5b67da092efc"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+        "roaster": "Fixture Roaster",
+        "name": "Fixture Bean",
+        "decaf": false,
+        "country": "Ethiopia",
+        "processing": "washed",
+        "archived": false,
+        "createdAt": "2026-10-07T22:16:48.829258",
+        "updatedAt": "2026-10-07T22:16:48.853892",
+        "extras": {
+          "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "05c737b7-592c-4144-800a-e72a59d0f73f",
+          "roaster": "Fixture Roaster",
+          "name": "Fixture Written Bean",
+          "decaf": false,
+          "country": "Colombia",
+          "region": "Huila",
+          "producer": "Fixture Producer",
+          "variety": [
+            "Caturra",
+            "Castillo"
+          ],
+          "altitude": [
+            1700,
+            1900
+          ],
+          "processing": "natural",
+          "notes": "Fixture notes, edited",
+          "archived": true,
+          "createdAt": "2026-10-07T22:16:48.862481",
+          "updatedAt": "2026-10-07T22:16:48.892227",
+          "extras": {
+            "decentSyncId": "7b2d4e3f-5c6a-4b8f-8d9e-1f2a3b4c5d6e"
+          }
+        },
+        {
+          "id": "5966d941-28a8-4b74-95df-af52cc3a50e6",
+          "roaster": "Fixture Roaster",
+          "name": "Fixture Archived On Create",
+          "decaf": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:16:48.871234",
+          "updatedAt": "2026-10-07T22:16:48.871234"
+        },
+        {
+          "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+          "roaster": "Fixture Roaster",
+          "name": "Fixture Bean",
+          "decaf": false,
+          "country": "Ethiopia",
+          "processing": "washed",
+          "archived": false,
+          "createdAt": "2026-10-07T22:16:48.829258",
+          "updatedAt": "2026-10-07T22:16:48.853892",
+          "extras": {
+            "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "5966d941-28a8-4b74-95df-af52cc3a50e6",
+          "roaster": "Fixture Roaster",
+          "name": "Fixture Archived On Create",
+          "decaf": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:16:48.871234",
+          "updatedAt": "2026-10-07T22:16:48.871234"
+        },
+        {
+          "id": "8ac511b9-81a6-4066-9a5e-5b67da092efc",
+          "roaster": "Fixture Roaster",
+          "name": "Fixture Bean",
+          "decaf": false,
+          "country": "Ethiopia",
+          "processing": "washed",
+          "archived": false,
+          "createdAt": "2026-10-07T22:16:48.829258",
+          "updatedAt": "2026-10-07T22:16:48.853892",
+          "extras": {
+            "decentSyncId": "6a1c3d2e-4b5f-4a7e-9c8d-0e1f2a3b4c5d"
+          }
+        }
+      ]
+    }
+  }
+]

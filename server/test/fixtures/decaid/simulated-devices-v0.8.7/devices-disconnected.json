@@ -1,0 +1,37 @@
+[
+  {
+    "name": "Mock Scale",
+    "id": "MockScale",
+    "state": "disconnected",
+    "type": "scale",
+    "available": true
+  },
+  {
+    "name": "MockBengle",
+    "id": "MockBengle",
+    "state": "discovered",
+    "type": "machine",
+    "available": true
+  },
+  {
+    "name": "MockDe1",
+    "id": "MockDe1",
+    "state": "disconnected",
+    "type": "machine",
+    "available": true
+  },
+  {
+    "name": "DebugPort",
+    "id": "mockDebugPort",
+    "state": "connected",
+    "type": "sensor",
+    "available": true
+  },
+  {
+    "name": "SensorBasket",
+    "id": "mockSensorBasket",
+    "state": "connected",
+    "type": "sensor",
+    "available": true
+  }
+]

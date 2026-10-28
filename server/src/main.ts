@@ -3,15 +3,24 @@ import { Logger } from "@nestjs/common";
 import { NestFactory } from "@nestjs/core";
 import { AppModule } from "./app.module.js";
 import { StartupError, loadConfig } from "./config.js";
-import { runMigrations } from "./migrations.js";
+import { Drain, stopOnSignals } from "./drain.js";
+import { ManagementInterface } from "./management-interface.js";
+import { checkIdleInTransactionTimeout, runMigrations } from "./migrations.js";
 
 async function main(): Promise<void> {
   const config = loadConfig(process.env);
   await runMigrations(config);
+  await checkIdleInTransactionTimeout(config);
 
   const app = await NestFactory.create(AppModule.register(config));
-  app.enableShutdownHooks();
+  // Every response names the build of the management interface. Added before `listen()` initializes the app, this
+  // runs before Nest's body parsers, which answer a malformed or oversized body themselves, and every other middleware.
+  app.use(app.get(ManagementInterface).nameBuild);
+  app.use(app.get(Drain).track);
   await app.listen(config.port, config.host);
+  // Not Nest's `enableShutdownHooks()`, which would disconnect from the database before the requests under way finish.
+  stopOnSignals(app, config);
+  // Test servers are ready once this is logged (`server/test/support/test-server.ts`).
   new Logger("DecentSync").log(
     `Listening on ${config.host}:${config.port}; public URL ${config.publicUrl.origin}`,
   );

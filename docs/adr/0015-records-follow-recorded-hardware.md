@@ -4,7 +4,7 @@ ADR-0004 credits each shot to the machine whose model and serial it recorded. De
 
 A Shot is credited by its own `workflow.machine` when that names real hardware: a non-empty serial other than `"0"`, and a `provenanceStatus` other than `unavailable`. Model and serial together are the identity, so the same serial on a different model is different hardware. If no Machine has that identity, the Shot is credited to a **Pending Machine** for it, the same record a mismatched connection creates. An Admin either creates a machine entry for that hardware, which takes over its Shots, or dismisses it. Dismissing keeps the Shots but leaves them out of lists; creating a machine entry for the same hardware later brings them back. Capture never deletes data.
 
-Every other Shot (no `workflow.machine`, serial `"0"`, or `provenanceStatus: unavailable`) is credited to the Machine whose tablet reported it and marked as inferred. That covers legacy `de1app` imports and every Shot recorded before Decaid v0.7.6, when `workflow.machine` was introduced.
+Every other Shot (no `workflow.machine`, serial `"0"`, or `provenanceStatus: unavailable`) is credited to the Machine whose tablet reported it and marked as inferred. That covers every Shot recorded before Decaid v0.7.6, when `workflow.machine` was introduced. Decaid's imports from the legacy Tcl app are not captured (ADR-0004).
 
 We rejected crediting unknown hardware to the reporting Machine, because a tablet that moved between machines would refile the old machine's history under the new one, which ADR-0004 exists to prevent. We rejected creating machine entries automatically, because Machines would then appear that nobody adopted.
 

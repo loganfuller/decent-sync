@@ -1,0 +1,516 @@
+{
+  "id": "1bec3908-e160-41c7-9b68-05de6d44b637",
+  "timestamp": "2026-09-28T19:23:40.559198",
+  "measurements": [
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:40.558578",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 0.27685546875,
+        "pressure": 0.009521484375,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.33984375,
+        "groupTemperature": 89.911376953125,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:40.751276",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 0.96435546875,
+        "pressure": 0.01025390625,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.375,
+        "groupTemperature": 89.89695739746094,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:40.945864",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 1.3916015625,
+        "pressure": 0.01025390625,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2734375,
+        "groupTemperature": 89.87654113769531,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:41.192850",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 1.760986328125,
+        "pressure": 0.010498046875,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2421875,
+        "groupTemperature": 89.86605834960938,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:41.387874",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 2.156005859375,
+        "pressure": 0.01025390625,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.30859375,
+        "groupTemperature": 89.90774536132812,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:41.581796",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 2.435546875,
+        "pressure": 0.010009765625,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2421875,
+        "groupTemperature": 89.86512756347656,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:41.828127",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 2.784423828125,
+        "pressure": 0.010498046875,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.33984375,
+        "groupTemperature": 89.82777404785156,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:42.024569",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 2.89501953125,
+        "pressure": 0.01025390625,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2734375,
+        "groupTemperature": 89.88247680664062,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:42.218202",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 3.114990234375,
+        "pressure": 0.010498046875,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.17578125,
+        "groupTemperature": 89.85421752929688,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:42.413128",
+        "state": {
+          "state": "steam",
+          "substate": "preparingForShot"
+        },
+        "flow": 3.19287109375,
+        "pressure": 0.01171875,
+        "targetFlow": 4.0,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2734375,
+        "groupTemperature": 89.83503723144531,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:42.657034",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.2490234375,
+        "pressure": 0.64453125,
+        "targetFlow": 4.625,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2734375,
+        "groupTemperature": 89.86318969726562,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:42.853494",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.48876953125,
+        "pressure": 2.40234375,
+        "targetFlow": 4.0625,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.30859375,
+        "groupTemperature": 89.83049011230469,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:43.048337",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.576171875,
+        "pressure": 0.0,
+        "targetFlow": 3.8125,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2421875,
+        "groupTemperature": 89.84132385253906,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:43.289204",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.56787109375,
+        "pressure": 1.2861328125,
+        "targetFlow": 2.5625,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.07421875,
+        "groupTemperature": 89.82949829101562,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:43.484203",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.401123046875,
+        "pressure": 1.85546875,
+        "targetFlow": 2.3125,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.30859375,
+        "groupTemperature": 89.80877685546875,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:43.682187",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 3.119873046875,
+        "pressure": 1.4189453125,
+        "targetFlow": 2.625,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.2421875,
+        "groupTemperature": 89.87287902832031,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:43.877914",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 2.860595703125,
+        "pressure": 1.619873046875,
+        "targetFlow": 2.3125,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.20703125,
+        "groupTemperature": 89.89796447753906,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:44.117962",
+        "state": {
+          "state": "steam",
+          "substate": "pouring"
+        },
+        "flow": 2.692138671875,
+        "pressure": 1.904296875,
+        "targetFlow": 2.5,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.20703125,
+        "groupTemperature": 89.90386962890625,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    },
+    {
+      "machine": {
+        "timestamp": "2026-09-28T19:23:44.316115",
+        "state": {
+          "state": "idle",
+          "substate": "idle"
+        },
+        "flow": 2.494384765625,
+        "pressure": 1.96630859375,
+        "targetFlow": 2.375,
+        "targetPressure": 0.0,
+        "mixTemperature": 90.20703125,
+        "groupTemperature": 89.90097045898438,
+        "targetMixTemperature": 95.0,
+        "targetGroupTemperature": 90.0,
+        "profileFrame": 4,
+        "steamTemperature": 158
+      },
+      "milkTemperature": null
+    }
+  ],
+  "workflow": {
+    "id": "1d778c03-7fbf-448e-99c3-9ae6b6dfe713",
+    "name": "Workflow",
+    "description": "Description",
+    "profile": {
+      "version": "2",
+      "title": "Best practice (light roast)",
+      "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. Your grind should be coarser for light roasts, aiming for a flow rate around 2.5 ml/s at peak pressure. 18g in, 50g out, in 60 seconds is a typical recipe.   Grind fine enough to keep dripping during preinfusion to around 8g.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Preinfusion fill",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 3.0
+          },
+          "volume": 100.0,
+          "seconds": 12.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": null
+        },
+        {
+          "name": "Preinfusion fill end",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 1.0
+          },
+          "volume": 100.0,
+          "seconds": 12.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": null
+        },
+        {
+          "name": "Preinfusion dripping",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 12.0,
+          "seconds": 13.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "pressure": 1.5,
+          "limiter": null
+        },
+        {
+          "name": "Pressurize",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 8.0
+          },
+          "volume": 100.0,
+          "seconds": 6.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "pressure": 10.5,
+          "limiter": null
+        },
+        {
+          "name": "Extraction",
+          "pump": "flow",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 30.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "flow": 3.4,
+          "limiter": {
+            "value": 9.5,
+            "range": 0.6
+          }
+        }
+      ],
+      "target_volume": 36.0,
+      "target_weight": 48.0,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0.0
+    },
+    "context": {
+      "targetDoseWeight": 18.0,
+      "targetYield": 45.0,
+      "grinderSetting": "4.50",
+      "beanBatchId": "40be120d-62f9-4785-98af-aedfc42a341f",
+      "coffeeName": "Roest #24 Eth",
+      "coffeeRoaster": "Roux Bakehouse",
+      "baristaName": "Fixture Barista",
+      "extras": {
+        "rpm": null,
+        "basketId": "bskt-1790543325397",
+        "basketName": "Decent 18g Ridgeless",
+        "note": null
+      }
+    },
+    "steamSettings": {
+      "targetTemperature": 160,
+      "duration": 120,
+      "flow": 2.500000000000001,
+      "stopAtTemperature": 0.0
+    },
+    "hotWaterData": {
+      "targetTemperature": 50,
+      "duration": 30,
+      "volume": 100,
+      "flow": 10.0
+    },
+    "rinseData": {
+      "targetTemperature": 90,
+      "duration": 5,
+      "flow": 6.0
+    }
+  }
+}

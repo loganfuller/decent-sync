@@ -1,0 +1,86 @@
+[
+  {
+    "id": "a82defed-0c69-4434-a7d3-513fcbb7e50e",
+    "roaster": "Roux Bakehouse",
+    "name": "Roest #25 Eth",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-10-03T08:52:44.614665",
+    "updatedAt": "2026-10-03T08:52:44.614665"
+  },
+  {
+    "id": "ff88eefb-2dc2-400f-804e-249d6b782c3c",
+    "roaster": "Roux Bakehouse",
+    "name": "PR-0469 Guava Banana",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-10-02T11:17:58.649064",
+    "updatedAt": "2026-10-02T11:17:58.649064"
+  },
+  {
+    "id": "015bc64c-9ec7-4931-9e3b-8460854d3aa8",
+    "roaster": "Sandbox Coffee Roasters",
+    "name": "Washed Heirloom",
+    "species": "Heirloom",
+    "decaf": false,
+    "country": "Ethiopia",
+    "processing": "washed",
+    "archived": false,
+    "createdAt": "2026-10-01T15:06:01.906072",
+    "updatedAt": "2026-10-01T15:06:01.906072"
+  },
+  {
+    "id": "add10397-8055-487f-bd5d-2949f66427b1",
+    "roaster": "Roux Bakehouse",
+    "name": "Roest #24 Eth",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-28T19:20:29.688041",
+    "updatedAt": "2026-09-28T19:20:29.688041"
+  },
+  {
+    "id": "037a9603-f9be-4fdc-9e99-9a682c6c0580",
+    "roaster": "Roux Bakehouse",
+    "name": "Roest #25 Eth",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-28T16:02:49.857254",
+    "updatedAt": "2026-09-28T16:02:49.857254"
+  },
+  {
+    "id": "aaa67fee-cad8-4adb-aaef-35905e5e0c27",
+    "roaster": "Roux Bakehouse",
+    "name": "Roest #20 Eth",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-28T10:29:38.854270",
+    "updatedAt": "2026-09-28T10:29:38.854270"
+  },
+  {
+    "id": "2b6a0e2c-1697-4a2c-903e-a3d3f8abbaa7",
+    "roaster": "Roux Bakehouse",
+    "name": "PR-0470 Guava Banana",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-27T17:26:14.675524",
+    "updatedAt": "2026-09-27T17:26:14.675524"
+  },
+  {
+    "id": "84a24d9b-6fb9-4c89-83fc-87e84635b9ea",
+    "roaster": "Roux Bakehouse",
+    "name": "Ethiopia Generic 50g Sample",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-27T17:15:52.289621",
+    "updatedAt": "2026-09-27T17:15:52.289621"
+  },
+  {
+    "id": "1d5a68ed-115a-4201-b4e8-e39fd0d5ccdc",
+    "roaster": "Roux Bakehouse",
+    "name": "Ethiopia Generic 100g Sample",
+    "decaf": false,
+    "archived": false,
+    "createdAt": "2026-09-26T20:04:43.416828",
+    "updatedAt": "2026-09-26T20:04:43.416828"
+  }
+]

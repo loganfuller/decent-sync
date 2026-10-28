@@ -1,0 +1,718 @@
+[
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": "3f6c1a52-8d1e-4b7a-9c21-6e0f4d2b8a71",
+          "grinderModel": "Niche Zero",
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36",
+          "coffeeName": "Guji Hambela",
+          "coffeeRoaster": "Roux",
+          "baristaName": "Ana",
+          "unknownContextField": "made up",
+          "extras": {
+            "madeUp": 1
+          }
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderId": "3f6c1a52-8d1e-4b7a-9c21-6e0f4d2b8a71",
+          "grinderModel": "Niche Zero",
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36",
+          "coffeeName": "Guji Hambela",
+          "coffeeRoaster": "Roux",
+          "baristaName": "Ana",
+          "extras": {
+            "madeUp": 1
+          }
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": null,
+          "grinderModel": null
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36",
+          "coffeeName": "Guji Hambela",
+          "coffeeRoaster": "Roux",
+          "baristaName": "Ana",
+          "extras": {
+            "madeUp": 1
+          }
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "beanBatchId": null,
+          "coffeeName": null,
+          "coffeeRoaster": null
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "12",
+          "baristaName": "Ana",
+          "extras": {
+            "madeUp": 1
+          }
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": null,
+          "grinderModel": null,
+          "beanBatchId": null,
+          "coffeeName": null,
+          "coffeeRoaster": null
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "12",
+          "baristaName": "Ana",
+          "extras": {
+            "madeUp": 1
+          }
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": 42,
+          "grinderModel": "Niche Zero",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36",
+          "targetDoseWeight": "18.5"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18.5,
+          "targetYield": 36,
+          "grinderId": "42",
+          "grinderModel": "Niche Zero",
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36",
+          "baristaName": "Ana",
+          "extras": {
+            "madeUp": 1
+          }
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "baristaName": null,
+          "extras": null
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18.5,
+          "targetYield": 36,
+          "grinderId": "42",
+          "grinderModel": "Niche Zero",
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36"
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18.5,
+          "targetYield": 36,
+          "grinderId": "42",
+          "grinderModel": "Niche Zero",
+          "grinderSetting": "12",
+          "beanBatchId": "a84f2c09-5e3b-4d6a-b1f7-2c9e8d0a4b36"
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/workflow",
+      "body": {
+        "context": {
+          "grinderId": null,
+          "grinderModel": null,
+          "beanBatchId": null,
+          "coffeeName": null,
+          "coffeeRoaster": null
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18.5,
+          "targetYield": 36,
+          "grinderSetting": "12"
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/workflow"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "e44d5965-dc94-48eb-9951-0117673591af",
+        "name": "Workflow",
+        "description": "Description",
+        "profile": {
+          "version": "1.0",
+          "title": "Default",
+          "notes": "Default notes",
+          "author": "Decent",
+          "beverage_type": "espresso",
+          "steps": [
+            {
+              "name": "Free flow",
+              "pump": "pressure",
+              "transition": "fast",
+              "exit": null,
+              "volume": 0,
+              "seconds": 120,
+              "weight": null,
+              "temperature": 90,
+              "sensor": "coffee",
+              "pressure": 7.5,
+              "limiter": null
+            }
+          ],
+          "target_volume": null,
+          "target_weight": null,
+          "target_volume_count_start": 0,
+          "tank_temperature": 0
+        },
+        "context": {
+          "targetDoseWeight": 18.5,
+          "targetYield": 36,
+          "grinderSetting": "12"
+        },
+        "steamSettings": {
+          "targetTemperature": 150,
+          "duration": 50,
+          "flow": 0.8,
+          "stopAtTemperature": 0
+        },
+        "hotWaterData": {
+          "targetTemperature": 75,
+          "duration": 30,
+          "volume": 50,
+          "flow": 10
+        },
+        "rinseData": {
+          "targetTemperature": 90,
+          "duration": 10,
+          "flow": 6
+        }
+      }
+    }
+  }
+]

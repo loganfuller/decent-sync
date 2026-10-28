@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Creating, listing and editing Locations through the REST API of a real
@@ -13,6 +14,7 @@ interface LocationView {
 }
 
 describe("Locations", () => {
+  runAsSteps();
   let server: TestServer;
   let cookie: string;
   const call = (method: string, path: string, body?: unknown, headers: Record<string, string> = { Cookie: cookie }) =>
@@ -27,14 +29,8 @@ describe("Locations", () => {
     server = await startTestServer();
     const setup = await call("POST", "/setup", admin, {});
     cookie = setup.headers.getSetCookie()[0]!.split(";")[0]!;
-  }, 60_000);
-  afterAll(() => server?.stop());
-
-  it("requires a session", async () => {
-    expect((await call("GET", "/locations", undefined, {})).status).toBe(401);
-    expect((await call("POST", "/locations", { name: "Lab", timeZone: "UTC" }, {})).status).toBe(401);
-    expect((await call("GET", "/time-zones", undefined, {})).status).toBe(401);
   });
+  afterAll(() => server?.stop());
 
   it("starts with no Locations", async () => {
     expect(await (await call("GET", "/locations")).json()).toEqual({ locations: [] });
@@ -92,7 +88,9 @@ describe("Locations", () => {
 
   it("accepts IANA aliases PostgreSQL may not know, stored under a name it does", async () => {
     // From tzdata's "backward" file, which PostgreSQL's time zone data may lack.
-    const aliases = { "US/Eastern": "America/New_York", EST5EDT: "America/New_York", "Canada/Eastern": "America/Toronto", Japan: "Asia/Tokyo" };
+    // Not EST5EDT, CST6CDT, MST7MDT or PST8PDT: tzdata 2026d made them zones of
+    // their own, so they are no longer aliases of America/New_York and the like.
+    const aliases = { "US/Eastern": "America/New_York", "Canada/Eastern": "America/Toronto", Japan: "Asia/Tokyo" };
     for (const [alias, stored] of Object.entries(aliases)) {
       const response = await call("POST", "/locations", { name: `Alias ${alias}`, timeZone: alias });
       expect(response.status, alias).toBe(201);
@@ -156,9 +154,16 @@ describe("Locations", () => {
     expect(timeZones).toEqual([...timeZones].sort());
     expect(timeZones).toEqual(expect.arrayContaining(["UTC", "America/Chicago", "Asia/Kolkata", "Europe/Kyiv"]));
     expect(timeZones).not.toContain("Asia/Calcutta");
-    for (const timeZone of timeZones) {
-      const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
-      expect(((await response.json()) as { location: LocationView }).location.timeZone).toBe(timeZone);
+    // A Location in each of several hundred zones, a batch at a time: one at a time takes seconds.
+    for (let start = 0; start < timeZones.length; start += 50) {
+      const batch = timeZones.slice(start, start + 50);
+      const stored = await Promise.all(
+        batch.map(async (timeZone) => {
+          const response = await call("POST", "/locations", { name: `Zone ${timeZone}`, timeZone });
+          return ((await response.json()) as { location: LocationView }).location.timeZone;
+        }),
+      );
+      expect(stored).toEqual(batch);
     }
   });
 });

@@ -1,0 +1,403 @@
+[
+  {
+    "id": "profile:a582ef47a76f99f56912",
+    "profile": {
+      "version": "2",
+      "title": "Default",
+      "notes": "This profile is gentle on the coffee puck and not too demanding on the barista.  Produces a very acceptable espresso in a wide variety of settings.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "preinfusion temp boost",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4.0
+          },
+          "volume": 0.0,
+          "seconds": 2.0,
+          "weight": 0.0,
+          "temperature": 90.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": null
+        },
+        {
+          "name": "preinfusion",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 4.0
+          },
+          "volume": 0.0,
+          "seconds": 18.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0.0,
+          "seconds": 3.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 8.6,
+          "limiter": null
+        },
+        {
+          "name": "rise and hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0.0,
+          "seconds": 1.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 8.6,
+          "limiter": null
+        },
+        {
+          "name": "forced rise without limit",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0.0,
+          "seconds": 3.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 8.6,
+          "limiter": null
+        },
+        {
+          "name": "decline",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 0.0,
+          "seconds": 32.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 6.0,
+          "limiter": null
+        }
+      ],
+      "target_volume": 36.0,
+      "target_weight": 36.0,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0.0
+    },
+    "metadataHash": "b6a8748c6f65575f27548aa46d2c5db3b861b9983b5e558f20c4973b2d6dda0b",
+    "compoundHash": "c16fbae6718cd99d4e2491a0b0fb03709c21c4bcd1641864a815a9c1131517c0",
+    "parentId": null,
+    "visibility": "hidden",
+    "isDefault": true,
+    "createdAt": "2026-10-05T14:02:08.646403",
+    "updatedAt": "2026-10-05T14:03:18.190898",
+    "metadata": {
+      "source": "bundled",
+      "filename": "Default1.json"
+    }
+  },
+  {
+    "id": "profile:98fa00c191551b435845",
+    "profile": {
+      "version": "2",
+      "title": "Adaptive v3",
+      "notes": "This profile aims to unite the best practices in espresso extraction that we have learned so far with the Decent. It unites Brakel's Londonium, Rao's Blooming and Gagné's Adaptive profiles. The flow rate during extraction will automatically adjust itself from the flow rate actually happening during the Pressurize step and then gently increase it from there.  A 15g dose is typical.  Aim for a flow rate around 1.5 ml/s at the Pressurize step. 15g in, 33g out, in 32 seconds is a typical recipe for a medium roast.  Grind fine enough to keep dripping during preinfusion to around 4g. If you have a bluetooth scale, you can keep track of how much dripping into the cup there is before the ramp stage.  4 grams of total dripping, within 1 gram, seems to give the best tasting results. Try adusting your grind and dose to get that amount of dripping, and see if you like how it tastes.",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Prefill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 5.0,
+          "weight": 0.0,
+          "temperature": 93.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Fill",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 3.0
+          },
+          "volume": 100.0,
+          "seconds": 12.0,
+          "weight": 0.0,
+          "temperature": 93.0,
+          "sensor": "coffee",
+          "flow": 8.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Compressing",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "under",
+            "value": 3.0
+          },
+          "volume": 100.0,
+          "seconds": 12.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Dripping",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 0.0,
+          "seconds": 6.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 0.1,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Pressurize",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 7.7
+          },
+          "volume": 100.0,
+          "seconds": 6.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 11.0,
+          "limiter": {
+            "value": 3.5,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction start",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 0.0
+          },
+          "volume": 0.0,
+          "seconds": 0.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "flow": 1.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Extraction",
+          "pump": "flow",
+          "transition": "smooth",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 60.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "flow": 3.5,
+          "limiter": {
+            "value": 8.6,
+            "range": 0.6
+          }
+        }
+      ],
+      "target_volume": 36.0,
+      "target_weight": 36.0,
+      "target_volume_count_start": 3,
+      "tank_temperature": 0.0
+    },
+    "metadataHash": "89838196dd39f5fd8d77bdfd789c6260ba8881dcab1d86f6b87754594f34ff96",
+    "compoundHash": "6b56e20d8646c14a6a3c77ffb4a4bc068d5c676787e5d7218e1551e43827e8ae",
+    "parentId": "profile:b73ce54592d667d00b31",
+    "visibility": "visible",
+    "isDefault": true,
+    "createdAt": "2026-10-05T14:02:08.832461",
+    "updatedAt": "2026-10-05T14:02:09.004913",
+    "metadata": {
+      "source": "bundled",
+      "filename": "best_practice_v3.json"
+    }
+  },
+  {
+    "id": "profile:729d284747718d27c93a",
+    "profile": {
+      "version": "2",
+      "title": "Londonium",
+      "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition.  This is identical to the LRv2 profile, but renamed to be easier to understand. By Damian Brakel",
+      "author": "Decent",
+      "beverage_type": "espresso",
+      "steps": [
+        {
+          "name": "Fill start",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 2.0,
+          "weight": 0.0,
+          "temperature": 89.0,
+          "sensor": "coffee",
+          "pressure": 2.0,
+          "limiter": {
+            "value": 0.0,
+            "range": 0.6
+          }
+        },
+        {
+          "name": "Fill",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "pressure",
+            "condition": "over",
+            "value": 1.5
+          },
+          "volume": 100.0,
+          "seconds": 25.0,
+          "weight": 0.0,
+          "temperature": 89.0,
+          "sensor": "coffee",
+          "pressure": 2.0,
+          "limiter": null
+        },
+        {
+          "name": "Infuse",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 12.0,
+          "weight": 0.0,
+          "temperature": 88.5,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": null
+        },
+        {
+          "name": "Pressure Up",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 8.0,
+          "weight": 0.0,
+          "temperature": 88.5,
+          "sensor": "coffee",
+          "pressure": 9.0,
+          "limiter": null
+        },
+        {
+          "name": "Pressure Decline",
+          "pump": "pressure",
+          "transition": "smooth",
+          "exit": {
+            "type": "flow",
+            "condition": "over",
+            "value": 2.8
+          },
+          "volume": 100.0,
+          "seconds": 55.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": null
+        },
+        {
+          "name": "Pressure Hold",
+          "pump": "pressure",
+          "transition": "fast",
+          "exit": {
+            "type": "flow",
+            "condition": "over",
+            "value": 2.8
+          },
+          "volume": 100.0,
+          "seconds": 127.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "pressure": 3.0,
+          "limiter": null
+        },
+        {
+          "name": "Flow Limit",
+          "pump": "flow",
+          "transition": "fast",
+          "exit": null,
+          "volume": 100.0,
+          "seconds": 127.0,
+          "weight": 0.0,
+          "temperature": 88.0,
+          "sensor": "coffee",
+          "flow": 2.5,
+          "limiter": null
+        }
+      ],
+      "target_volume": 0.0,
+      "target_weight": 42.0,
+      "target_volume_count_start": 2,
+      "tank_temperature": 0.0
+    },
+    "metadataHash": "59dfbce27f69a14eef99845ff0cf7306f6fbf961f41c4614de42c9350d8721e5",
+    "compoundHash": "555bb61ae562956247747b75e41fc9a61e3a39b114a9c62b8d67f7c484913ca9",
+    "parentId": null,
+    "visibility": "visible",
+    "isDefault": true,
+    "createdAt": "2026-10-05T14:02:08.701707",
+    "updatedAt": "2026-10-05T14:02:08.701707",
+    "metadata": {
+      "source": "bundled",
+      "filename": "Londonium.json"
+    }
+  }
+]

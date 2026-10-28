@@ -1,0 +1,11 @@
+{
+  "fan": 55,
+  "usb": false,
+  "flushTemp": 25.0,
+  "flushTimeout": 10.0,
+  "flushFlow": 6.0,
+  "hotWaterFlow": 10.0,
+  "steamFlow": 0.8,
+  "tankTemp": 20,
+  "steamPurgeMode": 0
+}

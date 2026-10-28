@@ -1,25 +1,22 @@
 import { expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signInAsAdmin } from "./support/seed.js";
+import { expectTip } from "./support/tooltips.js";
 
 // Creating and editing Locations, as an Admin whose browser is in Chicago
 // while the server runs in UTC.
 useFreshServer();
 test.use({ timezoneId: "America/Chicago" });
 
-const admin = { name: "Ada Admin", email: "ada@example.com", password: "correct horse battery" };
-
-test.beforeEach(async ({ page }) => {
-  // The first test sets the server up; later ones sign in. Both sign the page's context in.
-  const setup = await page.request.post("/api/setup", { data: admin });
-  if (setup.status() === 409) await page.request.post("/api/session", { data: admin });
-  else expect(setup.status()).toBe(201);
-});
+test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("creating a Location defaults its time zone to the browser's", async ({ page }) => {
   await page.goto("/");
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Locations" }).click();
 
   await expect(page.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
+  await expectTip(page.getByRole("main"), "Locations", /^The sites where your machines are used\./);
+  await expectTip(page.getByRole("main"), "New Location", "The time zone starts as this browser's.");
   await expect(page.getByText("No Locations yet.")).toBeVisible();
   const form = page.getByRole("form", { name: "New Location" });
   await expect(form.getByLabel("Time zone")).toHaveValue("America/Chicago");

@@ -1,0 +1,1159 @@
+[
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": "Batch Fixture Bean"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roaster": "Fixture Roaster",
+        "name": "Batch Fixture Bean",
+        "decaf": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.421675",
+        "updatedAt": "2026-10-07T22:11:19.421675"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches",
+      "body": {
+        "roastDate": "2026-10-01",
+        "roastLevel": "medium",
+        "weight": 250,
+        "notes": "first",
+        "archived": true,
+        "weightRemaining": 100,
+        "unknownField": "kept?",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 250,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.437952",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches",
+      "body": {
+        "roastDate": "2026-09-28T07:30:00",
+        "roastLevel": "light",
+        "harvestDate": "2026",
+        "qualityScore": 86.5,
+        "price": 18.5,
+        "currency": "USD",
+        "weight": 1000,
+        "buyDate": "2026-09-30",
+        "openDate": "2026-10-02T09:15:00Z",
+        "bestBeforeDate": "2026-12-28T00:00:00+02:00",
+        "freezeDate": "2026-10-03",
+        "unfreezeDate": "2026-10-05",
+        "frozen": true,
+        "notes": "every field",
+        "extras": {}
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-09-28T07:30:00.000",
+        "roastLevel": "light",
+        "harvestDate": "2026",
+        "qualityScore": 86.5,
+        "price": 18.5,
+        "currency": "USD",
+        "weight": 1000,
+        "weightRemaining": 1000,
+        "buyDate": "2026-09-30T00:00:00.000",
+        "openDate": "2026-10-02T09:15:00.000Z",
+        "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+        "freezeDate": "2026-10-03T00:00:00.000",
+        "unfreezeDate": "2026-10-05T00:00:00.000",
+        "frozen": true,
+        "archived": false,
+        "notes": "every field",
+        "createdAt": "2026-10-07T22:11:19.449243",
+        "updatedAt": "2026-10-07T22:11:19.449243",
+        "extras": {}
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches",
+      "body": {}
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "frozen": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.457912",
+        "updatedAt": "2026-10-07T22:11:19.457912"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+      "body": {
+        "weightRemaining": 180.5
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 180.5,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.470131",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+      "body": {
+        "archived": true
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 180.5,
+        "frozen": false,
+        "archived": true,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.481796",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+      "body": {
+        "archived": false,
+        "weightRemaining": 0
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 0,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.493524",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+      "body": {
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c",
+          "other": 1
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 0,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.504792",
+        "extras": {
+          "bcUuid": "fixture-bc-batch-1",
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c",
+          "other": 1
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+      "body": {
+        "extras": {
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 0,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.515084",
+        "extras": {
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "notes": null,
+        "weightRemaining": null,
+        "roastDate": "2026-09-29"
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-09-29T00:00:00.000",
+        "roastLevel": "light",
+        "harvestDate": "2026",
+        "qualityScore": 86.5,
+        "price": 18.5,
+        "currency": "USD",
+        "weight": 1000,
+        "buyDate": "2026-09-30T00:00:00.000",
+        "openDate": "2026-10-02T09:15:00.000Z",
+        "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+        "freezeDate": "2026-10-03T00:00:00.000",
+        "unfreezeDate": "2026-10-05T00:00:00.000",
+        "frozen": true,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.449243",
+        "updatedAt": "2026-10-07T22:11:19.525592",
+        "extras": {}
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "beanId": "00000000-0000-4000-8000-000000000000",
+        "id": "other",
+        "createdAt": "2020-01-01T00:00:00.000",
+        "unknownField": 1,
+        "frozen": false
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-09-29T00:00:00.000",
+        "roastLevel": "light",
+        "harvestDate": "2026",
+        "qualityScore": 86.5,
+        "price": 18.5,
+        "currency": "USD",
+        "weight": 1000,
+        "buyDate": "2026-09-30T00:00:00.000",
+        "openDate": "2026-10-02T09:15:00.000Z",
+        "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+        "freezeDate": "2026-10-03T00:00:00.000",
+        "unfreezeDate": "2026-10-05T00:00:00.000",
+        "frozen": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.449243",
+        "updatedAt": "2026-10-07T22:11:19.535397",
+        "extras": {}
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "archived": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"archived\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "frozen": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"frozen\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "weight": "heavy"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"weight\" must be a number or null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "roastDate": 5
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'int' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "roastDate": "not a date"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Invalid date format\nnot a date"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+      "body": {
+        "frozen": "yes"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'String' is not a subtype of type 'bool?' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/00000000-0000-4000-8000-000000000001",
+      "body": {
+        "notes": "missing"
+      }
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Batch not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/00000000-0000-4000-8000-000000000002/batches",
+      "body": {
+        "weight": 250
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)\n  Causing statement: INSERT INTO \"bean_batches\" (\"id\", \"bean_id\", \"roast_date\", \"roast_level\", \"harvest_date\", \"quality_score\", \"price\", \"currency\", \"weight\", \"weight_remaining\", \"buy_date\", \"open_date\", \"best_before_date\", \"freeze_date\", \"unfreeze_date\", \"frozen\", \"archived\", \"notes\", \"created_at\", \"updated_at\", \"extras\") VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?), parameters: 9b7ac501-06f2-46e0-bc67-f9a0ad779b33, 00000000-0000-4000-8000-000000000002, null, null, null, null, null, null, 250.0, 250.0, null, null, null, null, null, 0, 0, null, 2026-10-07T22:11:19.576667 -05:00, 2026-10-07T22:11:19.576667 -05:00, null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches",
+      "body": {
+        "roastDate": "nope"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Invalid date format\nnope"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches",
+      "body": {
+        "weight": "heavy"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'String' is not a subtype of type 'num?' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roastDate": "2026-10-01T00:00:00.000",
+        "roastLevel": "medium",
+        "weight": 250,
+        "weightRemaining": 0,
+        "frozen": false,
+        "archived": false,
+        "notes": "first",
+        "createdAt": "2026-10-07T22:11:19.437952",
+        "updatedAt": "2026-10-07T22:11:19.515084",
+        "extras": {
+          "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches/00000000-0000-4000-8000-000000000001"
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Batch not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/bean-batches/54579ba5-a309-4a69-81e2-1610fd95d4ff",
+      "body": {
+        "archived": true,
+        "extras": {
+          "decentSyncId": "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff",
+        "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "frozen": false,
+        "archived": true,
+        "createdAt": "2026-10-07T22:11:19.457912",
+        "updatedAt": "2026-10-07T22:11:19.619268",
+        "extras": {
+          "decentSyncId": "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "frozen": false,
+          "archived": true,
+          "createdAt": "2026-10-07T22:11:19.457912",
+          "updatedAt": "2026-10-07T22:11:19.619268",
+          "extras": {
+            "decentSyncId": "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"
+          }
+        },
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "frozen": false,
+          "archived": true,
+          "createdAt": "2026-10-07T22:11:19.457912",
+          "updatedAt": "2026-10-07T22:11:19.619268",
+          "extras": {
+            "decentSyncId": "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"
+          }
+        },
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans",
+      "body": {
+        "roaster": "Fixture Roaster",
+        "name": "Archived Fixture Bean"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+        "roaster": "Fixture Roaster",
+        "name": "Archived Fixture Bean",
+        "decaf": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.640152",
+        "updatedAt": "2026-10-07T22:11:19.640152"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/beans/72a68d6e-7986-43c7-9134-a9a78b6803ed/batches",
+      "body": {
+        "weight": 500
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "52136769-5ae5-44a3-b9ba-0baf27beef68",
+        "beanId": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+        "weight": 500,
+        "weightRemaining": 500,
+        "frozen": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.645749",
+        "updatedAt": "2026-10-07T22:11:19.645749"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/beans/72a68d6e-7986-43c7-9134-a9a78b6803ed",
+      "body": {
+        "archived": true
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+        "roaster": "Fixture Roaster",
+        "name": "Archived Fixture Bean",
+        "decaf": false,
+        "archived": true,
+        "createdAt": "2026-10-07T22:11:19.640152",
+        "updatedAt": "2026-10-07T22:11:19.653441"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "52136769-5ae5-44a3-b9ba-0baf27beef68",
+          "beanId": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+          "weight": 500,
+          "weightRemaining": 500,
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.645749",
+          "updatedAt": "2026-10-07T22:11:19.645749"
+        },
+        {
+          "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "frozen": false,
+          "archived": true,
+          "createdAt": "2026-10-07T22:11:19.457912",
+          "updatedAt": "2026-10-07T22:11:19.619268",
+          "extras": {
+            "decentSyncId": "5a7c9e1b-2d3f-4a5b-8c6d-9e0f1a2b3c4d"
+          }
+        },
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/bean-batches/54579ba5-a309-4a69-81e2-1610fd95d4ff"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/bean-batches/54579ba5-a309-4a69-81e2-1610fd95d4ff"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "54579ba5-a309-4a69-81e2-1610fd95d4ff"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+    },
+    "response": {
+      "status": 500,
+      "body": {
+        "error": "SqliteException(787): while executing statement, FOREIGN KEY constraint failed, constraint failed (code 787)\n  Causing statement: DELETE FROM \"beans\" WHERE \"id\" = ?;, parameters: 1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+        "roaster": "Fixture Roaster",
+        "name": "Batch Fixture Bean",
+        "decaf": false,
+        "archived": false,
+        "createdAt": "2026-10-07T22:11:19.421675",
+        "updatedAt": "2026-10-07T22:11:19.421675"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b/batches?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-09-29T00:00:00.000",
+          "roastLevel": "light",
+          "harvestDate": "2026",
+          "qualityScore": 86.5,
+          "price": 18.5,
+          "currency": "USD",
+          "weight": 1000,
+          "buyDate": "2026-09-30T00:00:00.000",
+          "openDate": "2026-10-02T09:15:00.000Z",
+          "bestBeforeDate": "2026-12-27T22:00:00.000Z",
+          "freezeDate": "2026-10-03T00:00:00.000",
+          "unfreezeDate": "2026-10-05T00:00:00.000",
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.449243",
+          "updatedAt": "2026-10-07T22:11:19.535397",
+          "extras": {}
+        },
+        {
+          "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca",
+          "beanId": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b",
+          "roastDate": "2026-10-01T00:00:00.000",
+          "roastLevel": "medium",
+          "weight": 250,
+          "weightRemaining": 0,
+          "frozen": false,
+          "archived": false,
+          "notes": "first",
+          "createdAt": "2026-10-07T22:11:19.437952",
+          "updatedAt": "2026-10-07T22:11:19.515084",
+          "extras": {
+            "decentSyncId": "3f6b2a1c-8d4e-4f5a-9b6c-7d8e9f0a1b2c"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/bean-batches/eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "eee958b7-d2cf-49a8-9d0b-3ec5ec4cabca"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/bean-batches/f01cd028-ab46-466f-9e8e-6f80e3d0e9d9"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "f01cd028-ab46-466f-9e8e-6f80e3d0e9d9"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans/1ebec875-1533-46d3-bc5f-9de5c85d9c2b"
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Bean not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/bean-batches?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "52136769-5ae5-44a3-b9ba-0baf27beef68",
+          "beanId": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+          "weight": 500,
+          "weightRemaining": 500,
+          "frozen": false,
+          "archived": false,
+          "createdAt": "2026-10-07T22:11:19.645749",
+          "updatedAt": "2026-10-07T22:11:19.645749"
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/beans?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "72a68d6e-7986-43c7-9134-a9a78b6803ed",
+          "roaster": "Fixture Roaster",
+          "name": "Archived Fixture Bean",
+          "decaf": false,
+          "archived": true,
+          "createdAt": "2026-10-07T22:11:19.640152",
+          "updatedAt": "2026-10-07T22:11:19.653441"
+        }
+      ]
+    }
+  }
+]

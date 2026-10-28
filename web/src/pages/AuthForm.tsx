@@ -12,11 +12,14 @@ export interface Field {
   autoComplete: string;
   minLength?: number;
   hint?: string;
+  /** A value that cannot be changed, such as the email an invite is for. */
+  fixedValue?: string;
 }
 
 /**
- * A centred card with one form: first-run setup and sign-in. Shows the
- * server's message when submitting fails.
+ * A centred card with one form: first-run setup, sign-in, accepting an
+ * invite and choosing a new password. Shows the server's message when
+ * submitting fails.
  */
 export function AuthForm({
   title,
@@ -81,6 +84,8 @@ export function AuthForm({
                   autoComplete={field.autoComplete}
                   minLength={field.minLength}
                   aria-describedby={field.hint ? `${field.name}-hint` : undefined}
+                  defaultValue={field.fixedValue}
+                  readOnly={field.fixedValue !== undefined}
                   required
                 />
                 {field.hint && (
@@ -95,6 +100,23 @@ export function AuthForm({
             </Button>
           </form>
         </CardContent>
+      </Card>
+    </main>
+  );
+}
+
+/** A centred card with a message instead of a form, such as a one-time link that can no longer be used. */
+export function AuthMessage({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
+  return (
+    <main className="flex min-h-svh items-center justify-center bg-background p-4">
+      <Card className="w-full max-w-sm">
+        <CardHeader>
+          <CardTitle>
+            <h1>{title}</h1>
+          </CardTitle>
+          {description && <CardDescription>{description}</CardDescription>}
+        </CardHeader>
+        <CardContent className="grid gap-4">{children}</CardContent>
       </Card>
     </main>
   );

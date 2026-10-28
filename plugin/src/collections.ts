@@ -1,0 +1,426 @@
+import {
+  type CollectionDelivery,
+  type CollectionName,
+  LIBRARY_ITEM_KINDS,
+  LIBRARY_KINDS,
+  LIBRARY_LISTS,
+  SETTINGS_COLLECTION_NAMES,
+  dye2Key,
+  hasUtcOffset,
+  isDye2List,
+  isLibraryList,
+  listKind,
+  parentList,
+} from "@decent-sync/protocol";
+import { FirstReads, type Fingerprint, type Reading, decide, ifNoneMatch, pairedDevices } from "./change-detection.js";
+import { readCollection } from "./decaid.js";
+import { type LibraryAccess, libraryListPath } from "./library-writes.js";
+import { utcTime } from "./local-time.js";
+import type { Outbox } from "./outbox.js";
+import { SENSOR_CALIBRATION_TARGETS } from "./sensor-calibration.js";
+import type { SettingsAccess } from "./settings-edits.js";
+
+type Source = {
+  name: CollectionName;
+  /** Turns Decaid's response into the collection, or null if it has nothing to report. */
+  select?: (value: unknown) => unknown;
+} & (
+  | {
+      /** The route under Decaid's API, with its query. */
+      path: string;
+    }
+  | {
+      /** Reads the collection where it is more than one route's answer. */
+      read: () => Promise<Reading>;
+    }
+);
+
+/**
+ * Where each collection is read, in Decaid v0.9.0's API (rest_v1.yml): the
+ * Library's lists first, each where its kind's records are written
+ * (`libraryListPath`), DYE2's baskets, tools and recipes among them, in its
+ * lists in Decaid's store (ADR-0005). Decaid's own lists send ETags; the rest
+ * are compared by content.
+ */
+const SOURCES: readonly Source[] = [
+  ...LIBRARY_KINDS.map((kind) => ({ name: LIBRARY_ITEM_KINDS[kind].list, path: libraryListPath(kind) })),
+  { name: "appSettings", path: "/settings" },
+  { name: "presenceSettings", path: "/presence/settings" },
+  { name: "machineSettings", path: "/machine/settings" },
+  { name: "advancedSettings", path: "/machine/settings/advanced" },
+  { name: "machineCalibration", path: "/machine/calibration" },
+  { name: "sensorCalibration", read: readSensorCalibration },
+  { name: "plugins", path: "/plugins" },
+  { name: "skins", read: readSkins },
+  { name: "pairedDevices", path: "/devices", select: pairedDevices },
+  { name: "scaleInfo", path: "/scale/info" },
+  { name: "sensors", path: "/sensors" },
+];
+
+/** Where DYE2's recipes are read. */
+const RECIPES = SOURCES.find((source) => source.name === "dye2Recipes")!;
+
+/**
+ * The Library lists the server writes to, read only between its writes
+ * (`LibraryAccess`): a report of one of them must hold each write that began
+ * before it.
+ */
+const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
+
+/**
+ * The settings collections, read only between Settings Edits
+ * (`SettingsAccess`): a report of one either holds each edit that began
+ * before it, or is queued before that edit's read-back and answer.
+ */
+const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES);
+
+/**
+ * The machine's own settings, which Decaid v0.9.0 answers on each request by
+ * reading the machine's values one at a time over its Bluetooth or USB
+ * connection, 14 reads for the three, on the link the scale also uses
+ * (`de1handler.dart`). Only the advanced settings' `heaterVoltage` and
+ * `refillKitSetting` are what Decaid holds rather than reads (`UnifiedDe1`).
+ * Decaid also keeps the flow calibration it reads, which each Shot records
+ * (`UnifiedDe1.cachedFlowEstimation`).
+ */
+const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
+/** How often the machine's own settings are read while connected, unless the poll interval is longer. */
+const MACHINE_SETTINGS_MS = 60_000;
+
+/**
+ * Collections read only on full reads (`sendAll`): the sensor calibration,
+ * three requests the machine answers one at a time on the link the scale also
+ * uses, which change only through a deliberate calibration.
+ */
+const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
+
+/**
+ * The tablet's library, settings, presence settings, paired devices, plugins and Skins, through the outbox.
+ * Decaid has no event for them, so while connected the plugin reads each one
+ * every poll interval and sends it, whole, when it changed
+ * (change-detection.ts), but for the machine's own settings
+ * (`MACHINE_SETTINGS`), read every 60 s, or every poll interval if longer,
+ * and whenever a Workflow change wrote them (`readMachineSettings`), and the
+ * sensor calibration (`FULL_READS_ONLY`), read only on full reads.
+ * On every welcome it reads every one again and sends it whatever it is,
+ * which also covers whatever changed while the plugin was disconnected, and
+ * counts as a read of the machine's settings for their interval. Reads run
+ * one at a time, one collection after another, and a read asked for while
+ * one runs waits for it.
+ *
+ * A Library list the server writes to is read, and its report queued,
+ * between the server's writes to the tablet (`LibraryAccess`), so a report
+ * holds each write that began before it, and a settings collection between
+ * Settings Edits (`SettingsAccess`), which report what they read
+ * (`reportSettings`). And whenever a list was sent, the
+ * lists of the kinds made under it (`childLists`) are sent in full after it,
+ * changed or not: whenever the beans were, the bean batches are, as the
+ * server takes in a batch only once it knows its bean, which may have been
+ * added since the batches were last sent.
+ */
+export class CollectionCapture {
+  /** What was last queued for each collection. */
+  private readonly last = new Map<CollectionName, Fingerprint>();
+  /** When each record of each of DYE2's lists that is a Library list was first read in its current content. */
+  private readonly firstReads = new Map<CollectionName, FirstReads>();
+  /** For each collection, the latest delivery queued, and the latest queued with a value. */
+  private readonly queued = new Map<CollectionName, { latest: string; value: string | undefined }>();
+  /** The sensor calibration as last read, by target, or undefined where that read was unavailable, or none was made yet. */
+  private sensorCalibration: Record<string, unknown> | undefined;
+  private wanted: "changes" | "full" | undefined;
+  /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
+  private recipesWanted = false;
+  /** Whether the machine's own settings are to be read, on their interval or after the Workflow wrote them (`readMachineSettings`). */
+  private machineSettingsWanted = false;
+  private reading = false;
+  private stopped = false;
+  private pollTimer?: number;
+  private machineSettingsTimer?: number;
+  /** How often the machine's own settings are read while connected. */
+  private readonly machineSettingsMs: number;
+
+  constructor(
+    private readonly outbox: Outbox,
+    private readonly library: LibraryAccess,
+    private readonly settings: SettingsAccess,
+    private readonly pollMs: number,
+    /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
+    private readonly sawRecipes: (value: unknown) => void = () => {},
+  ) {
+    // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
+    library.onWrite((list) => this.last.delete(list));
+    this.machineSettingsMs = Math.max(MACHINE_SETTINGS_MS, pollMs);
+  }
+
+  start(): void {
+    this.schedulePoll();
+    this.scheduleMachineSettings();
+  }
+
+  stop(): void {
+    this.stopped = true;
+    if (this.pollTimer !== undefined) clearTimeout(this.pollTimer);
+    if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+  }
+
+  /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
+  sendAll(): void {
+    this.read("full");
+  }
+
+  /**
+   * DYE2's recipes, read again and sent if they changed, while connected: on
+   * each push from DYE2, which pushes after it saves into a recipe, so a save
+   * made other than through the plugin, as Streamline's Save changes,
+   * reaches the server then, not only on the poll (ADR-0022).
+   */
+  readRecipes(): void {
+    if (this.stopped || !this.outbox.connected) return;
+    this.recipesWanted = true;
+    void this.run();
+  }
+
+  /**
+   * DYE2's recipes, read now and queued if they changed, connected or not,
+   * resolving once queued: as DYE2 saved into the Loaded Recipe a change of
+   * the Workflow the plugin holds back until then, so the server takes in
+   * the edit before the Workflow that brought it (ADR-0022). Made within the
+   * reads and writes of the tablet's lists (`LibraryAccess.run`), as every
+   * read of a list the server writes to is.
+   */
+  async recipesNow(): Promise<void> {
+    if (this.stopped) return;
+    await this.capture(RECIPES, false);
+  }
+
+  /**
+   * The machine's own settings, read again and sent if they changed, while
+   * connected: after a Workflow change of its steam, hot water or flush
+   * settings, which Decaid writes to the machine before it reports the
+   * Workflow (`MachineEvents`), so the change reaches the server then, not
+   * only on their interval.
+   */
+  readMachineSettings(): void {
+    if (this.stopped || !this.outbox.connected) return;
+    this.machineSettingsWanted = true;
+    void this.run();
+  }
+
+  private schedulePoll(): void {
+    this.pollTimer = setTimeout(() => {
+      this.pollTimer = undefined;
+      // While disconnected, changes wait for the next welcome, which sends everything.
+      if (this.outbox.connected) this.read("changes");
+      if (!this.stopped) this.schedulePoll();
+    }, this.pollMs);
+  }
+
+  /** Reads the machine's own settings once their interval has passed since the end of their latest read. */
+  private scheduleMachineSettings(): void {
+    if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+    this.machineSettingsTimer = setTimeout(() => {
+      this.machineSettingsTimer = undefined;
+      // While disconnected, they wait for the next welcome, which reads everything.
+      if (this.outbox.connected) this.readMachineSettings();
+      else if (!this.stopped) this.scheduleMachineSettings();
+    }, this.machineSettingsMs);
+  }
+
+  private read(kind: "changes" | "full"): void {
+    if (this.stopped) return;
+    if (kind === "full" || this.wanted === undefined) this.wanted = kind;
+    void this.run();
+  }
+
+  private async run(): Promise<void> {
+    if (this.reading) return;
+    this.reading = true;
+    try {
+      while ((this.wanted !== undefined || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
+        const full = this.wanted === "full";
+        // A poll reads DYE2's recipes too.
+        const polled = this.wanted !== undefined;
+        const recipes = polled || this.recipesWanted;
+        this.wanted = undefined;
+        this.recipesWanted = false;
+        let machineSettings = false;
+        const sentLists = new Set<CollectionName>();
+        for (const source of SOURCES) {
+          if (this.stopped) return;
+          if (MACHINE_SETTINGS.has(source.name)) {
+            // Read on a full read or when wanted, decided as the pass reaches them, which may be long after it began, behind
+            // the server's writes: so any read asked for until then is this one. Their interval waits meanwhile.
+            if (!machineSettings && (full || this.machineSettingsWanted)) {
+              machineSettings = true;
+              this.machineSettingsWanted = false;
+              if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+              this.machineSettingsTimer = undefined;
+            }
+            if (!machineSettings) continue;
+          } else if (FULL_READS_ONLY.has(source.name)) {
+            if (!full) continue;
+          } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
+          const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
+          const sent = await (WRITTEN_LISTS.has(source.name)
+            ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
+            : SETTINGS.has(source.name)
+              ? this.settings.run(() => this.capture(source, full))
+              : this.capture(source, full));
+          if (sent) sentLists.add(source.name);
+          // Their interval runs from the end of their latest read, so a slow read of one shortens neither's.
+          if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
+        }
+      }
+    } finally {
+      this.reading = false;
+    }
+  }
+
+  /**
+   * Queues a report of a settings collection a Settings Edit read, within
+   * `SettingsAccess.run`: if it changed since the last one queued, or, when
+   * `always`, whatever it holds, as an edit's read-back is. The edit's answer
+   * follows it, so it is kept where it is: a later report of the collection
+   * is queued after it rather than superseding it, which would put the answer
+   * ahead of the read-back it reports. A read of the machine's own settings
+   * counts for their interval.
+   */
+  reportSettings(name: CollectionName, reading: Reading, always: boolean): void {
+    if (this.stopped) return;
+    this.queueReading(name, reading, always);
+    this.queued.delete(name);
+    if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
+  }
+
+  /**
+   * The sensor calibration with one target read again, within
+   * `SettingsAccess.run`, as a Settings Edit of it reads it: that read in
+   * place of the target's last, beside the other targets as last read.
+   * Where the last read was unavailable, every target is read again when
+   * `readAll`, as after the edit's write, and otherwise there is none to
+   * report, so the edit's check spends none of its time on reads.
+   */
+  async sensorCalibrationWith(target: string, read: Record<string, unknown>, readAll: boolean): Promise<Reading | undefined> {
+    if (this.sensorCalibration === undefined) return readAll ? readSensorCalibration() : undefined;
+    return { kind: "value", value: { ...this.sensorCalibration, [target]: read }, etag: null };
+  }
+
+  /** Reads a collection, and queues it if it is to be sent. Says whether a value was queued. */
+  private async capture(source: Source, full: boolean): Promise<boolean> {
+    const last = this.last.get(source.name);
+    // A key of Decaid's store DYE2 never wrote is an empty list, as DYE2 reads it (ADR-0005).
+    const reading = selected(
+      source,
+      await ("read" in source ? source.read() : readCollection(source.path, full ? null : ifNoneMatch(last), isDye2List(source.name))),
+    );
+    if (this.stopped) return false;
+    if (source.name === "dye2Recipes" && reading.kind === "value") this.sawRecipes(reading.value);
+    return this.queueReading(source.name, reading, full);
+  }
+
+  /**
+   * Queues a collection read if it is to be sent: if it changed since the
+   * last one queued, or whatever it holds when `full`. A value of one of the
+   * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
+   * compared with it, so a daylight saving change is sent too. Says whether
+   * a value was queued.
+   */
+  private queueReading(name: CollectionName, reading: Reading, full: boolean): boolean {
+    // Its reads are each an object by target (`readSensorCalibration`).
+    if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? (reading.value as Record<string, unknown>) : undefined;
+    const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : undefined;
+    const last = this.last.get(name);
+    // Decaid sends these no ETag, so their content, offset included, is compared.
+    const compared: Reading = utcOffsetMinutes === undefined || reading.kind !== "value" ? reading : { kind: "value", value: [reading.value, utcOffsetMinutes], etag: null };
+    const decision = decide(last, compared, full);
+    if (decision.next) this.last.set(name, decision.next);
+    if (!decision.send || reading.kind === "notModified") return false;
+
+    const id = this.outbox.nextId();
+    const delivery: CollectionDelivery =
+      reading.kind === "value"
+        ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value), ...(utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes }) }
+        : { type: "collection", id, name, available: false };
+    // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
+    // reconnect, except that a value stays ahead of a report that the collection became unavailable:
+    // the server keeps the value it gets, and otherwise would never get this one.
+    const earlier = this.queued.get(name);
+    if (earlier) {
+      if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
+      if (delivery.available && earlier.value !== undefined && earlier.value !== earlier.latest) this.outbox.supersede(earlier.value);
+    }
+    this.queued.set(name, { latest: id, value: delivery.available ? id : earlier?.value });
+    this.outbox.enqueue(delivery);
+    return delivery.available;
+  }
+
+  /**
+   * For a Library list, each record's `updatedAt` placed in UTC, beside the
+   * list: Decaid writes it in the tablet's local time without an offset,
+   * which only the plugin, running in the tablet's time zone, can place.
+   * DYE2's records carry no edit time, so for a list of a kind DYE2 keeps,
+   * when the plugin first read each record's current content
+   * (`FirstReads`, ADR-0005).
+   */
+  private placedInTime(name: CollectionName, value: unknown): Pick<CollectionDelivery, "updatedAt"> {
+    if (!isLibraryList(name) || !Array.isArray(value)) return {};
+    if (dye2Key(listKind(name)) !== undefined) {
+      let reads = this.firstReads.get(name);
+      if (!reads) this.firstReads.set(name, (reads = new FirstReads()));
+      return { updatedAt: reads.times(value, new Date().toISOString()) };
+    }
+    return { updatedAt: value.map((record: unknown) => utcTime((record as { updatedAt?: unknown } | null)?.updatedAt)) };
+  }
+}
+
+/**
+ * The firmware's current calibration of each sensor: Decaid's answer to
+ * `GET /machine/calibration/{target}` as sent, by target, such as
+ * `{ flow, pressure, temperature }`. Not the factory calibration
+ * (`?source=factory`), which DE1 firmware answers with the current one
+ * (COLLECTIONS.md). Read one at a time, and unavailable if any read fails,
+ * as a partial set would be compared with another Machine's complete one.
+ */
+async function readSensorCalibration(): Promise<Reading> {
+  const value: Record<string, unknown> = {};
+  for (const target of SENSOR_CALIBRATION_TARGETS) {
+    const reading = await readCollection(`/machine/calibration/${target}`, null);
+    if (reading.kind !== "value") return { kind: "unavailable" };
+    value[target] = reading.value;
+  }
+  return { kind: "value", value, etag: null };
+}
+
+/**
+ * Decaid's Skins: its list (`GET /webui/skins`), its default Skin
+ * (`/webui/skins/default`) and what its WebUI server serves
+ * (`/webui/server/status`), as sent, as `{ skins, default, server }`. With
+ * no Skin installed Decaid has no default, and answers its read 404, so it
+ * is not read, and is null. Read one at a time, and unavailable if any read
+ * fails, as a partial set could name another Skin active than the tablet's.
+ */
+async function readSkins(): Promise<Reading> {
+  const skins = await readCollection("/webui/skins", null);
+  if (skins.kind !== "value") return { kind: "unavailable" };
+  const defaultSkin = Array.isArray(skins.value) && skins.value.length === 0 ? null : await readCollection("/webui/skins/default", null);
+  if (defaultSkin !== null && defaultSkin.kind !== "value") return { kind: "unavailable" };
+  const server = await readCollection("/webui/server/status", null);
+  if (server.kind !== "value") return { kind: "unavailable" };
+  return { kind: "value", value: { skins: skins.value, default: defaultSkin?.value ?? null, server: server.value }, etag: null };
+}
+
+/**
+ * The tablet's UTC offset now, in minutes east of UTC: the plugin runs in
+ * the tablet's time zone (AI_RUNTIME_NOTES.md). `getTimezoneOffset` counts
+ * the other way, minutes behind UTC.
+ */
+function utcOffset(): number {
+  // Adding 0 makes UTC's -0 a plain 0.
+  return -new Date().getTimezoneOffset() + 0;
+}
+
+function selected(source: Source, reading: Reading): Reading {
+  if (reading.kind !== "value" || !source.select) return reading;
+  const value = source.select(reading.value);
+  return value === null ? { kind: "unavailable" } : { ...reading, value };
+}

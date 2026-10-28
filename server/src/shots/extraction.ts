@@ -1,0 +1,235 @@
+import { MAX_HARDWARE_LENGTH, dye2RecipeIdOf, realHardware, type Hardware } from "@decent-sync/protocol";
+
+/** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
+export function extractShot(record: unknown) {
+  const shot = object(record);
+  const workflow = object(shot.workflow);
+  const context = object(workflow.context);
+  const profile = object(workflow.profile);
+  const annotations = object(shot.annotations);
+  return {
+    beanBatchId: string(context.beanBatchId),
+    grinderId: string(context.grinderId),
+    grinderBurrs: string(context.grinderBurrs),
+    basketId: shotBasketId(annotations, context),
+    toolIds: shotToolIds(annotations, context),
+    recipeRecordId: dye2RecipeIdOf(workflow),
+    coffeeName: string(context.coffeeName),
+    coffeeRoaster: string(context.coffeeRoaster),
+    profileTitle: string(profile.title),
+    profileId: string(object(object(context.extras).workflowSkin).selectedProfileId),
+    targetDose: number(context.targetDoseWeight),
+    targetYield: number(context.targetYield) ?? number(profile.target_weight),
+    actualDose: number(annotations.actualDoseWeight),
+    actualYield: number(annotations.actualYield),
+    enjoyment: number(annotations.enjoyment),
+    barista: string(context.baristaName),
+  };
+}
+
+/**
+ * The Basket DYE2 recorded for a Shot, by its id on the tablet, as DYE2 reads
+ * it (`shotBasketRpm` in dye2:dye2-plugin/src/utils/recorded-shot.ts): its
+ * Edit Shot page's, in the annotations' extras, wherever that page set a
+ * Basket, or else the Workflow's as the Shot was pulled, in its context's
+ * extras.
+ */
+function shotBasketId(annotations: Record<string, unknown>, context: Record<string, unknown>): string | null {
+  const edited = object(annotations.extras);
+  const recorded = edited.basketId != null || edited.basketName != null ? edited : object(context.extras);
+  return string(recorded.basketId) || null;
+}
+
+/**
+ * The Tools DYE2 recorded for a Shot, by their ids on the tablet: its Edit
+ * Shot page's, in the annotations' extras, as a list or a single id, as
+ * that page reads them (`equipmentArrays` in
+ * dye2:dye2-plugin/src/pages/edit-shot.ts), and the Workflow's, in its
+ * context's extras, read the same way. Both are kept, as they only keep a
+ * Tool from being hard-deleted.
+ */
+function shotToolIds(annotations: Record<string, unknown>, context: Record<string, unknown>): string[] {
+  const ids = (extras: Record<string, unknown>) =>
+    Array.isArray(extras.equipmentIds) ? extras.equipmentIds : extras.equipmentId != null ? [extras.equipmentId] : [];
+  const all = [...ids(object(annotations.extras)), ...ids(object(context.extras))];
+  return [...new Set(all.filter((id): id is string => typeof id === "string" && id !== ""))];
+}
+
+/**
+ * A Shot's edit time, as sent, so PostgreSQL compares Decaid's microseconds.
+ * Decaid v0.9.0 and later write it on every Shot, in UTC with a Z; null marks
+ * a record without one, which is ignored.
+ */
+export function shotVersion(record: unknown): string | null {
+  const updatedAt = object(record).updatedAt;
+  return typeof updatedAt === "string" && /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?Z$/.test(updatedAt) && date(updatedAt)
+    ? updatedAt
+    : null;
+}
+
+/**
+ * The hardware a Shot recorded, if it names real hardware. A model or serial
+ * longer than a `hello` may report (MAX_HARDWARE_LENGTH) names none: no
+ * Machine or Pending Machine could hold it.
+ */
+export function shotHardware(record: unknown): Hardware | null {
+  const machine = object(object(object(record).workflow).machine);
+  if (machine.provenanceStatus === "unavailable") return null;
+  if (typeof machine.model !== "string" || typeof machine.serialNumber !== "string") return null;
+  if (machine.model.length > MAX_HARDWARE_LENGTH || machine.serialNumber.length > MAX_HARDWARE_LENGTH) return null;
+  return realHardware({ model: machine.model, serial: machine.serialNumber });
+}
+
+export function object(value: unknown): Record<string, unknown> {
+  return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
+}
+
+export function string(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
+}
+
+export function number(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+/**
+ * Times without an offset are the tablet's local wall-clock times. Read as
+ * UTC, their differences are exact, except across a change of the tablet's
+ * clock, such as daylight saving's (see `elapsedSeconds`).
+ */
+export function date(value: unknown): Date | null {
+  if (typeof value !== "string") return null;
+  const normalized = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?$/.test(value) ? `${value}Z` : value;
+  const ms = Date.parse(normalized);
+  return Number.isFinite(ms) ? new Date(ms) : null;
+}
+
+const QUARTER_HOUR = 15 * 60_000;
+
+/**
+ * Decaid records a sample with every machine snapshot, a fraction of a second
+ * apart, so a longer jump between two samples is the tablet's clock changing.
+ */
+const CLOCK_CHANGE_MS = 60_000;
+
+/**
+ * The time from a record's first sample to its last, in seconds, from their
+ * local times in the order Decaid recorded them, or null without any, as
+ * `elapsedMilliseconds` counts it.
+ */
+export function elapsedSeconds(times: readonly number[]): number | null {
+  return times.length === 0 ? null : elapsedMilliseconds(times).at(-1)! / 1000;
+}
+
+/**
+ * Each sample's time from the first, in milliseconds, from their local times
+ * in the order Decaid recorded them. The gaps between consecutive samples are
+ * added up. Across a daylight-saving change the local time jumps by whole
+ * quarter hours, usually an hour, which are left out of that gap. A gap that
+ * still runs backwards, or that leaves more than a minute, is a correction of
+ * the tablet's clock by an unknown amount, and counts for nothing.
+ */
+export function elapsedMilliseconds(times: readonly number[]): number[] {
+  let elapsed = 0;
+  return times.map((at, n) => {
+    if (n === 0) return 0;
+    const gap = at - times[n - 1]!;
+    const real = Math.abs(gap) <= CLOCK_CHANGE_MS ? gap : gap - quarterHours(gap);
+    if (real >= 0 && real <= CLOCK_CHANGE_MS) elapsed += real;
+    return elapsed;
+  });
+}
+
+/**
+ * The revision of the values `extractCurves` stores, raised whenever it
+ * changes them, so that the Shots stored with an earlier revision's are
+ * computed again (`CurvesRefresh`). Revision 1 adds Preheat and leaves it
+ * out of the peaks.
+ */
+export const CURVES_REVISION = 1;
+
+/**
+ * A Shot's duration as `shots.duration` keeps it: the whole recording, its
+ * Preheat and then its profile, as the release before this one stores and
+ * reads it, so the two agree while both run.
+ */
+export function recordingSeconds({ preheat, duration }: { preheat: number | null; duration: number | null }): number | null {
+  return preheat === null || duration === null ? null : preheat + duration;
+}
+
+/**
+ * The duration a Shot shows, from the stored recording and its Preheat, to
+ * the millisecond its sample times have. A Shot not computed again since an
+ * earlier revision has no Preheat stored, and shows the whole recording
+ * until it is.
+ */
+export function shownDuration(recording: number | null, preheat: number | null): number | null {
+  return recording === null || preheat === null ? recording : Math.round((recording - preheat) * 1000) / 1000;
+}
+
+/**
+ * Values that need the Shot's curves: when it was pulled, how long its
+ * Preheat lasted, its duration and its peaks. Preheat is the Shot's leading
+ * samples whose substate is `preparingForShot`, which Decaid maps from the
+ * DE1's heating states before the profile starts; it ends at the first sample
+ * with any other substate, or none. The duration counts from that sample to
+ * the last, 0 if there is none, and the peaks leave Preheat out, so the
+ * heater test's flow is not counted. Preheat lasts until that first sample,
+ * or to the last, so it and the duration add up to the whole recording. The
+ * pull time is still when the recording started.
+ */
+export function extractCurves(record: unknown, measurements: unknown) {
+  const samples = Array.isArray(measurements) ? measurements : [];
+  const times: number[] = [];
+  let preheatTimes = 0;
+  let preheat = true;
+  let first: number | null = null;
+  let last: number | null = null;
+  let peakPressure: number | null = null;
+  let peakFlow: number | null = null;
+  for (const sample of samples) {
+    const machine = object(object(sample).machine);
+    if (preheat && object(machine.state).substate !== "preparingForShot") preheat = false;
+    const at = date(machine.timestamp)?.getTime();
+    if (at !== undefined) {
+      times.push(at);
+      if (preheat) preheatTimes++;
+      first = first === null ? at : Math.min(first, at);
+      last = last === null ? at : Math.max(last, at);
+    }
+    if (preheat) continue;
+    const pressure = number(machine.pressure);
+    const flow = number(machine.flow);
+    if (pressure !== null) peakPressure = peakPressure === null ? pressure : Math.max(peakPressure, pressure);
+    if (flow !== null) peakFlow = peakFlow === null ? flow : Math.max(peakFlow, flow);
+  }
+  return {
+    pulledAt: pulledAt(object(record), first, last),
+    preheat: elapsedSeconds(times.slice(0, preheatTimes + 1)),
+    duration: times.length === 0 ? null : (elapsedSeconds(times.slice(preheatTimes)) ?? 0),
+    peakPressure,
+    peakFlow,
+  };
+}
+
+/**
+ * Decaid writes a Shot's `timestamp` and sample times in the tablet's local
+ * time without an offset, and `createdAt` in UTC as it saves the Shot, just
+ * after the last sample. That gap, rounded to a quarter hour, is the samples'
+ * offset. Decaid reads `timestamp` back in the tablet's current zone, while
+ * samples keep the zone they were recorded in, so any whole-quarter-hour gap
+ * between `timestamp` and the first sample is a zone change, removed first.
+ */
+function pulledAt(shot: Record<string, unknown>, firstSample: number | null, lastSample: number | null): Date | null {
+  const start = date(shot.timestamp);
+  if (!start || typeof shot.timestamp !== "string") return null;
+  if (/(?:Z|[+-]\d\d:\d\d)$/.test(shot.timestamp)) return start;
+  const created = date(shot.createdAt);
+  if (!created || firstSample === null || lastSample === null) return null;
+  const zoneChange = quarterHours(start.getTime() - firstSample);
+  return new Date(start.getTime() - zoneChange + quarterHours(created.getTime() - lastSample));
+}
+
+function quarterHours(ms: number): number {
+  return Math.round(ms / QUARTER_HOUR) * QUARTER_HOUR;
+}

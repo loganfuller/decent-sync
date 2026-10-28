@@ -1,0 +1,198 @@
+{
+  "installed": {
+    "request": {
+      "method": "POST",
+      "path": "/plugins/install/github-release",
+      "body": {
+        "repo": "decentespresso/dye2"
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "message": "Plugin installed",
+        "id": "dye2.reaplugin",
+        "version": "0.1.26",
+        "loaded": true
+      }
+    }
+  },
+  "listed": [
+    {
+      "id": "dye2.reaplugin",
+      "name": "Streamline/DYE2",
+      "author": "Streamline",
+      "description": "Beans, grinders, and shot workflow for Decent Espresso. Track roast batches and freshness, pick a bean and grinder before pulling, edit and rate shots afterwards, and manage auto-favourite recipes. Dashboard: http://localhost:8080/api/v1/plugins/dye2.reaplugin/dashboard",
+      "version": "0.1.26",
+      "apiVersion": 1,
+      "permissions": [
+        "log",
+        "api",
+        "emit",
+        "pluginStorage",
+        "events.shots",
+        "events.workflow"
+      ],
+      "drivers": [],
+      "settings": {},
+      "api": [
+        {
+          "id": "dashboard",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinders",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "baskets",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "equipment",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "grinder-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "basket-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bean-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "roasters",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "add-bean",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "profile-picker",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "edit-shot",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "auto-fav-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recipe-edit",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "select-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "bc-import",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "recent-favs",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "selection",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "record",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "save-recipe",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "skin",
+          "type": "http",
+          "data": {}
+        },
+        {
+          "id": "changed",
+          "type": "websocket",
+          "data": {}
+        },
+        {
+          "id": "plotly",
+          "type": "http",
+          "data": {}
+        }
+      ],
+      "loaded": true,
+      "autoLoad": true,
+      "source": {
+        "kind": "github_release",
+        "repo": "decentespresso/dye2",
+        "branch": null,
+        "commit": null,
+        "releaseTag": "v0.1.26",
+        "assetName": null,
+        "includePrerelease": false,
+        "installedAt": "2026-10-24T21:00:22.000602",
+        "lastChecked": "2026-10-24T21:00:22.000602",
+        "lastError": null
+      },
+      "pendingUpdate": null
+    }
+  ],
+  "selection": {
+    "request": {
+      "method": "GET",
+      "path": "/plugins/dye2.reaplugin/selection"
+    },
+    "response": {
+      "status": 200,
+      "body": null
+    }
+  },
+  "skin": {
+    "request": {
+      "method": "GET",
+      "path": "/plugins/dye2.reaplugin/skin"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "version": 1,
+        "surfaces": [],
+        "live": {
+          "endpoint": "changed"
+        }
+      }
+    }
+  }
+}

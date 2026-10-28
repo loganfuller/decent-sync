@@ -2,9 +2,10 @@ name: Release
 
 # Pushing a vX.Y.Z tag releases the whole repo at that version (ADR-0012): the
 # server image goes to GitHub's container registry, then a GitHub release
-# attaches the one plugin ZIP that Decaid's release install downloads. Nothing
-# is published unless the tag matches the committed plugin manifest's version
-# and CI has passed on the tagged commit.
+# attaches the one plugin ZIP that Decaid's release install downloads, its
+# notes starting with the version's upgrade notes from UPGRADING.md. Nothing
+# is published unless the tag matches the committed plugin manifest's version,
+# no upgrade notes wait unreleased, and CI has passed on the tagged commit.
 on:
   push:
     tags: ["v*"]
@@ -17,7 +18,7 @@ concurrency:
 
 jobs:
   publish:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-26.04
     timeout-minutes: 60
     permissions:
       actions: read
@@ -25,14 +26,18 @@ jobs:
       packages: write
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
 
       - name: Check the tag matches the plugin manifest's version
         run: node scripts/check-release-tag.mjs "$GITHUB_REF_NAME"
+
+      # Read before anything is published: notes still under Unreleased stop the release.
+      - name: Read the release's upgrade notes
+        run: node scripts/release-notes.mjs "$GITHUB_REF_NAME" > "$RUNNER_TEMP/upgrade-notes.md"
 
       # CI has already run on the tagged commit when it landed on main, so use
       # that result instead of running it again. Only main's push runs count:
@@ -59,11 +64,11 @@ jobs:
       - name: Package the plugin ZIP
         run: npm run package:plugin
 
-      - uses: docker/setup-qemu-action@v3
+      - uses: docker/setup-qemu-action@v4
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
-      - uses: docker/login-action@v3
+      - uses: docker/login-action@v4
         with:
           registry: ghcr.io
           username: ${{ github.actor }}
@@ -71,7 +76,7 @@ jobs:
 
       # vX.Y.Z publishes X.Y.Z, X.Y and latest.
       - id: meta
-        uses: docker/metadata-action@v5
+        uses: docker/metadata-action@v6
         with:
           images: ghcr.io/${{ github.repository }}
           tags: |
@@ -79,7 +84,7 @@ jobs:
             type=semver,pattern={{major}}.{{minor}}
 
       - name: Build and push the server image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           platforms: linux/amd64,linux/arm64
@@ -88,10 +93,11 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
 
       # Last, so a tablet never sees a release whose server image is missing.
+      # The upgrade notes, if any, come before the generated notes.
       - name: Create the GitHub release with the plugin ZIP
         env:
           GH_TOKEN: ${{ github.token }}
-        run: >-
-          gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME"
-          --notes "Self-hosting from source with npm start requires Node.js 26 or newer. The Docker image includes the required runtime."
-          --generate-notes
+        run: |
+          notes=()
+          if [ -s "$RUNNER_TEMP/upgrade-notes.md" ]; then notes=(--notes "$(cat "$RUNNER_TEMP/upgrade-notes.md")"); fi
+          gh release create "$GITHUB_REF_NAME" dist/*.zip --verify-tag --title "$GITHUB_REF_NAME" --generate-notes "${notes[@]}"

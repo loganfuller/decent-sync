@@ -1,0 +1,47 @@
+[
+  {
+    "name": "Sep 26th Eth",
+    "beverage": "",
+    "barista": "Fixture Barista",
+    "drinker": "",
+    "beanId": "1d5a68ed-115a-4201-b4e8-e39fd0d5ccdc",
+    "beanName": "Ethiopia Generic 100g Sample",
+    "profileId": "profile:990c28a4ecac8e5bf6ba",
+    "profileTitle": "Best practice (light roast)",
+    "showOnStreamlineDashboard": true,
+    "dashboardVariables": {
+      "dose": 18,
+      "drink": 52,
+      "brewC": 90,
+      "steamMode": "flow",
+      "steamFlowMls": 1.5,
+      "flushS": 5,
+      "hotWaterMode": "vol",
+      "hotWaterMl": 75,
+      "grind": 2.5,
+      "rpm": 0,
+      "grinderId": "e2d50b3d-a6d9-48bb-9b50-1efb4df60229"
+    },
+    "id": "1",
+    "capturedAt": "2026-09-27T00:29:40.403Z",
+    "title": "Sep 26th Eth",
+    "subtitle": "Ethiopia Generic 100g Sample",
+    "workflow": {
+      "context": {
+        "targetDoseWeight": 18,
+        "targetYield": 52,
+        "grinderSetting": "2.5",
+        "extras": {
+          "rpm": 0
+        },
+        "grinderId": "e2d50b3d-a6d9-48bb-9b50-1efb4df60229",
+        "coffeeName": "Ethiopia Generic 100g Sample",
+        "baristaName": "Fixture Barista"
+      },
+      "profile": {
+        "id": "profile:990c28a4ecac8e5bf6ba",
+        "title": "Best practice (light roast)"
+      }
+    }
+  }
+]

@@ -1,0 +1,247 @@
+import { useCallback, useState } from "react";
+import { Link } from "react-router";
+import { useIsAdmin } from "@/auth";
+import {
+  IdentificationBadge,
+  type MachineEntry,
+  MachineEntryForm,
+  PendingMachineActions,
+  StatusBadge,
+  describeHardware,
+  describeMachineState,
+  formatTime,
+  lastShotText,
+  machineModel,
+} from "@/components/machines";
+import { TokenNotice } from "@/components/TokenNotice";
+import { CardTitleWithInfo, InfoTip, PageTitleWithInfo } from "@/components/info-tip";
+import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
+import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { api, type IssuedToken, type Machine, type PendingMachine } from "@/lib/api";
+import { usePolled } from "@/lib/use-polled";
+
+interface Machines {
+  machines: Machine[];
+  pendingMachines: PendingMachine[];
+}
+
+/**
+ * Machines and their status, creating machine entries, and resolving Pending
+ * Machines. Staff see all of it, but only Admins create or resolve anything.
+ */
+export function MachinesPage() {
+  const isAdmin = useIsAdmin();
+  const load = useCallback(async (): Promise<Machines> => {
+    const [{ machines }, { pendingMachines }] = await Promise.all([
+      api<{ machines: Machine[] }>("GET", "/machines"),
+      api<{ pendingMachines: PendingMachine[] }>("GET", "/pending-machines"),
+    ]);
+    return { machines, pendingMachines };
+  }, []);
+  const { data, error, reload } = usePolled(load);
+  // Kept here, not with the form or Pending Machine that issued it, which a reload may remove.
+  const [issued, setIssued] = useState<IssuedToken>();
+
+  async function create(entry: MachineEntry) {
+    setIssued(await api<IssuedToken>("POST", "/machines", entry));
+    await reload();
+  }
+
+  function created(token: IssuedToken) {
+    setIssued(token);
+    void reload();
+  }
+
+  const pending = data?.pendingMachines.filter((machine) => !machine.dismissed) ?? [];
+  const dismissed = data?.pendingMachines.filter((machine) => machine.dismissed) ?? [];
+
+  return (
+    <section className="grid gap-6">
+      <div className="grid gap-1">
+        <PageTitleWithInfo title="Machines">
+          <p>
+            The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync
+            plugin on its tablet.
+          </p>
+        </PageTitleWithInfo>
+      </div>
+
+      {/* Keyed, so a new token never inherits the last one's "Copied". */}
+      {issued && <TokenNotice key={issued.token} issued={issued} onDone={() => setIssued(undefined)} />}
+
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>{error}</AlertDescription>
+        </Alert>
+      )}
+
+      {pending.length > 0 && (
+        <PendingMachines
+          title="Pending Machines"
+          description={`Hardware a tablet reported that no machine entry covers. ${isAdmin ? "Create" : "An Admin can create"} a machine entry for it, or dismiss it.`}
+          pendingMachines={pending}
+          isAdmin={isAdmin}
+          onCreated={created}
+          onDismissed={reload}
+        />
+      )}
+
+      {isAdmin && (
+        <Card className="max-w-xl">
+          <CardHeader>
+            <CardTitleWithInfo title="New Machine">
+              <p>Its hardware is recorded from the first connection with its token.</p>
+            </CardTitleWithInfo>
+            <CardDescription>It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
+          </CardContent>
+        </Card>
+      )}
+
+      {data?.machines.length === 0 && <p className="text-muted-foreground">No Machines yet.</p>}
+      {data && data.machines.length > 0 && <MachineTable machines={data.machines} />}
+
+      {dismissed.length > 0 && (
+        <PendingMachines
+          title="Dismissed Pending Machines"
+          about="Hardware an Admin dismissed. Anything received for it is kept and comes back if it gets a machine entry."
+          pendingMachines={dismissed}
+          isAdmin={isAdmin}
+          onCreated={created}
+          onDismissed={reload}
+        />
+      )}
+    </section>
+  );
+}
+
+function MachineTable({ machines }: { machines: Machine[] }) {
+  return (
+    <div className="rounded-lg border">
+      <Table aria-label="Machines">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Name</TableHead>
+            <TableHead>Model</TableHead>
+            <TableHead>Location</TableHead>
+            <TableHead>Status</TableHead>
+            <TableHead>State</TableHead>
+            <TableHead>Last seen</TableHead>
+            <TableHead>Last Shot</TableHead>
+            <TableHead>Attention</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {machines.map((machine) => (
+            <TableRow key={machine.id}>
+              <TableCell className="font-medium">
+                <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
+                  {machine.name}
+                </Link>
+              </TableCell>
+              <TableCell>{machineModel(machine) ?? <span className="text-muted-foreground">Not reported</span>}</TableCell>
+              <TableCell>{machine.location?.name ?? <span className="text-muted-foreground">No Location</span>}</TableCell>
+              <TableCell>
+                <StatusBadge machine={machine} />
+              </TableCell>
+              <TableCell>
+                {machine.machineState ? (
+                  describeMachineState(machine.machineState)
+                ) : (
+                  <span className="text-muted-foreground">Not reported</span>
+                )}
+              </TableCell>
+              <TableCell>{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</TableCell>
+              <TableCell>{lastShotText(machine)}</TableCell>
+              <TableCell>
+                <div className="flex flex-wrap gap-1">
+                  <IdentificationBadge identification={machine.identification} />
+                  {machine.lastRefusal && <Badge variant="destructive">Refused</Badge>}
+                </div>
+              </TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+function PendingMachines({
+  title,
+  description,
+  about,
+  pendingMachines,
+  isAdmin,
+  onCreated,
+  onDismissed,
+}: {
+  title: string;
+  /** What asks for action, on the page. */
+  description?: string;
+  /** What explains the list, in a tooltip beside its title. */
+  about?: string;
+  pendingMachines: PendingMachine[];
+  isAdmin: boolean;
+  onCreated(issued: IssuedToken): void;
+  onDismissed(): Promise<void>;
+}) {
+  return (
+    <section className="grid gap-3">
+      <div className="grid gap-1">
+        <div className="flex items-center gap-2">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            {title} <Badge variant="secondary">{pendingMachines.length}</Badge>
+          </h2>
+          {about && (
+            <InfoTip label={`About ${title}`}>
+              <p>{about}</p>
+            </InfoTip>
+          )}
+        </div>
+        {description && <p className="text-sm text-muted-foreground">{description}</p>}
+      </div>
+      <ul aria-label={title} className="grid max-w-2xl divide-y rounded-lg border">
+        {pendingMachines.map((pending) => (
+          <li key={pending.id} className="grid gap-3 p-4">
+            <div className="grid gap-0.5">
+              <span className="font-medium">{describeHardware(pending)}</span>
+              {pending.mismatchedMachines.length > 0 && (
+                <span className="text-sm">
+                  Reported with the token of{" "}
+                  {pending.mismatchedMachines.map((machine, index) => (
+                    <span key={machine.id}>
+                      {index > 0 && ", "}
+                      <Link to={`/machines/${machine.id}`} className="underline underline-offset-4">
+                        {machine.name}
+                      </Link>
+                    </span>
+                  ))}
+                </span>
+              )}
+              <span className="text-sm text-muted-foreground">
+                First seen {formatTime(pending.firstSeenAt)}
+                {pending.lastSeenAt && `, last reported ${formatTime(pending.lastSeenAt)}`}
+              </span>
+              {!pending.dismissed && (
+                <span className="flex flex-wrap gap-x-4 text-sm">
+                  <Link to={`/shots?pendingMachineId=${pending.id}`} className="underline underline-offset-4">
+                    Review the Shots it holds
+                  </Link>
+                  <Link to={`/steam-records?pendingMachineId=${pending.id}`} className="underline underline-offset-4">
+                    Review the Steam Records it holds
+                  </Link>
+                </span>
+              )}
+            </div>
+            {isAdmin && <PendingMachineActions pending={pending} onCreated={onCreated} onDismissed={onDismissed} />}
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}

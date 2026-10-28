@@ -1,3 +1,7 @@
+---
+status: accepted (amended by ADR-0016)
+---
+
 # TypeScript throughout: NestJS and Prisma on the server, a React SPA with shadcn/ui
 
 The plugin and the server are both written in TypeScript. The server uses NestJS with Prisma over PostgreSQL (ADR-0007). The management interface is a React single-page app built with Vite and shadcn/ui, served as static files by the Nest server. This replaces the prototype's plain JavaScript with no build step: the server now needs a database, a REST API, auth and a UI, and the plugin and server share one wire contract that types can check.

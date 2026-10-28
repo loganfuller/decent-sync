@@ -37,6 +37,63 @@ describe("the release tag check", () => {
   });
 });
 
+describe("a release's upgrade notes", () => {
+  const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-upgrading-"));
+  afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));
+
+  /** Writes an UPGRADING.md and runs the script on it for a tag. */
+  function notesFor(tag: string, upgrading: string) {
+    const file = path.join(scratch, "UPGRADING.md");
+    fs.writeFileSync(file, upgrading);
+    return run("release-notes.mjs", tag, file);
+  }
+
+  const upgrading = [
+    "# Upgrading",
+    "",
+    "What to do.",
+    "",
+    "## 0.3.0",
+    "",
+    "### Approve the plugin update on every tablet",
+    "",
+    "It adds `pluginStorage`.",
+    "",
+    "## 0.2.0",
+    "",
+    "Recreate the database.",
+    "",
+  ].join("\n");
+
+  it("are the section headed with the tag's version, without its heading", () => {
+    const result = notesFor("v0.3.0", upgrading);
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("### Approve the plugin update on every tablet\n\nIt adds `pluginStorage`.\n");
+    expect(notesFor("v0.2.0", upgrading).stdout).toBe("Recreate the database.\n");
+  });
+
+  it("are nothing for a version without a section", () => {
+    const result = notesFor("v0.2.1", upgrading);
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("");
+  });
+
+  it("stop the release while notes wait under Unreleased", () => {
+    const result = notesFor("v0.3.0", upgrading.replace("## 0.3.0", "## Unreleased"));
+    expect(result.status).toBe(1);
+    expect(result.stdout).toBe("");
+    expect(result.stderr).toContain("Retitle them 0.3.0, the version being released");
+  });
+
+  it("let the release go on under an Unreleased heading with no notes", () => {
+    const result = notesFor("v0.3.0", upgrading.replace("## 0.3.0", "## Unreleased\n\n## 0.3.0"));
+    expect(result.stderr).toBe("");
+    expect(result.status).toBe(0);
+    expect(result.stdout).toBe("### Approve the plugin update on every tablet\n\nIt adds `pluginStorage`.\n");
+  });
+});
+
 describe("the plugin release ZIP", () => {
   const scratch = fs.mkdtempSync(path.join(os.tmpdir(), "decent-sync-release-"));
   afterAll(() => fs.rmSync(scratch, { recursive: true, force: true }));

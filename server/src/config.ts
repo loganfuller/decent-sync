@@ -14,6 +14,24 @@ export interface Config {
   port: number;
   /** The built management interface (web/dist). */
   webDistDir: string;
+  /** How long a new plugin connection has to send `hello`. */
+  helloTimeoutMs: number;
+  /** How often plugins send a heartbeat; a connection silent for three intervals is closed. */
+  heartbeatIntervalMs: number;
+  /**
+   * The request header, lower-cased, whose last comma-separated entry, if an
+   * IP address, is a sync connection's address instead of its socket's. Set
+   * only behind a proxy that sets or overwrites it, as any client can send it.
+   */
+  clientAddressHeader?: string;
+  /**
+   * How long a stopping instance still answers requests that arrive, so a
+   * proxy's routing check sees it stopping and sends them elsewhere: at least
+   * the check's interval plus its timeout (`drain.ts`).
+   */
+  drainGraceMs: number;
+  /** How long a Live View's stream goes with nothing to send before it sends a comment, so proxies don't close it as idle. */
+  liveViewKeepAliveMs: number;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -21,7 +39,7 @@ export class StartupError extends Error {
   override name = "StartupError";
 }
 
-export class ConfigError extends StartupError {
+class ConfigError extends StartupError {
   override name = "ConfigError";
 
   constructor(public readonly problems: string[]) {
@@ -51,6 +69,12 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   const publicUrl = parsePublicUrl(env.PUBLIC_URL, problems);
 
   const port = parsePort(env.PORT, problems);
+  const helloTimeoutMs = parseSeconds("SYNC_HELLO_TIMEOUT_SECONDS", env.SYNC_HELLO_TIMEOUT_SECONDS, 10, problems);
+  const heartbeatIntervalMs = parseSeconds("SYNC_HEARTBEAT_SECONDS", env.SYNC_HEARTBEAT_SECONDS, 30, problems);
+  const clientAddressHeader = parseHeaderName("CLIENT_ADDRESS_HEADER", env.CLIENT_ADDRESS_HEADER, problems);
+  // fly.io's routing check every 10 s, with a timeout of 5 s.
+  const drainGraceMs = parseSeconds("DRAIN_GRACE_SECONDS", env.DRAIN_GRACE_SECONDS, 15, problems, { zero: true });
+  const liveViewKeepAliveMs = parseSeconds("LIVE_VIEW_KEEP_ALIVE_SECONDS", env.LIVE_VIEW_KEEP_ALIVE_SECONDS, 15, problems);
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -60,6 +84,11 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     host: env.HOST?.trim() || "0.0.0.0",
     port,
     webDistDir: path.resolve(env.WEB_DIST_DIR?.trim() || path.join(serverDir, "../web/dist")),
+    helloTimeoutMs,
+    heartbeatIntervalMs,
+    clientAddressHeader,
+    drainGraceMs,
+    liveViewKeepAliveMs,
   };
 }
 
@@ -95,4 +124,31 @@ function parsePort(value: string | undefined, problems: string[]): number {
     problems.push(`PORT must be a whole number from 1 to 65535, not ${raw}`);
   }
   return port;
+}
+
+/** A positive number of seconds, or with `zero` also 0, possibly fractional, in milliseconds. */
+function parseSeconds(
+  name: string,
+  value: string | undefined,
+  defaultSeconds: number,
+  problems: string[],
+  { zero = false }: { zero?: boolean } = {},
+): number {
+  const raw = value?.trim();
+  if (!raw) return defaultSeconds * 1000;
+  const seconds = Number(raw);
+  if (!Number.isFinite(seconds) || seconds < 0 || (seconds === 0 && !zero)) {
+    problems.push(`${name} must be a ${zero ? "non-negative" : "positive"} number of seconds, not ${raw}`);
+  }
+  return Math.round(seconds * 1000);
+}
+
+/** An HTTP header name (a token, RFC 9110), lower-cased, or undefined when blank. */
+function parseHeaderName(name: string, value: string | undefined, problems: string[]): string | undefined {
+  const raw = value?.trim();
+  if (!raw) return undefined;
+  if (!/^[!#$%&'*+\-.^_`|~0-9A-Za-z]+$/.test(raw)) {
+    problems.push(`${name} must be an HTTP header name, such as X-Forwarded-For or X-Real-IP, not ${raw}`);
+  }
+  return raw.toLowerCase();
 }

@@ -1,0 +1,32 @@
+{
+  "gatewayMode": "tracking",
+  "webUiPath": "/data/user/0/net.tadel.reaprime/app_flutter/web-ui/streamline.js",
+  "logLevel": "INFO",
+  "weightFlowMultiplier": 1.0,
+  "volumeFlowMultiplier": 0.3,
+  "hotWaterFlowMultiplier": 0.3,
+  "scalePowerMode": "disconnect",
+  "blockOnNoScale": true,
+  "blockTareDuringShot": false,
+  "stopHotWaterAtWeight": true,
+  "preferredMachineId": "00:00:5E:00:53:01",
+  "preferredScaleId": "00:00:5E:00:53:02",
+  "defaultSkinId": "streamline.js",
+  "automaticUpdateCheck": true,
+  "chargingMode": "disabled",
+  "nightModeEnabled": false,
+  "nightModeSleepTime": 1320,
+  "nightModeMorningTime": 420,
+  "lowBatteryBrightnessLimit": true,
+  "keepAwake": true,
+  "simulatedDevices": [],
+  "themeMode": "system",
+  "chargingState": {
+    "mode": "disabled",
+    "nightModeEnabled": false,
+    "currentPhase": "inactive",
+    "batteryPercent": 79,
+    "usbChargerOn": true,
+    "isEmergency": false
+  }
+}

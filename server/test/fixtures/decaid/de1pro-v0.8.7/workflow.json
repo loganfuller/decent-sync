@@ -1,0 +1,159 @@
+{
+  "id": "1d778c03-7fbf-448e-99c3-9ae6b6dfe713",
+  "name": "Workflow",
+  "description": "Description",
+  "profile": {
+    "version": "2",
+    "title": "Londonium",
+    "notes": "This profile simulates a Londinium R machines extraction style. This is an advanced profile with some added steps to assist with less than ideal puck prep. Christee-Lee described it as like having a milkshake with extra syrup. Great body and flavour range. 2nd edition.  This is identical to the LRv2 profile, but renamed to be easier to understand. By Damian Brakel",
+    "author": "Decent",
+    "beverage_type": "espresso",
+    "steps": [
+      {
+        "name": "Fill start",
+        "pump": "pressure",
+        "transition": "fast",
+        "exit": null,
+        "volume": 100.0,
+        "seconds": 2.0,
+        "weight": 0.0,
+        "temperature": 89.0,
+        "sensor": "coffee",
+        "pressure": 2.0,
+        "limiter": null
+      },
+      {
+        "name": "Fill",
+        "pump": "pressure",
+        "transition": "fast",
+        "exit": {
+          "type": "pressure",
+          "condition": "over",
+          "value": 1.5
+        },
+        "volume": 100.0,
+        "seconds": 25.0,
+        "weight": 0.0,
+        "temperature": 89.0,
+        "sensor": "coffee",
+        "pressure": 2.0,
+        "limiter": null
+      },
+      {
+        "name": "Infuse",
+        "pump": "pressure",
+        "transition": "fast",
+        "exit": null,
+        "volume": 100.0,
+        "seconds": 12.0,
+        "weight": 0.0,
+        "temperature": 88.5,
+        "sensor": "coffee",
+        "pressure": 3.0,
+        "limiter": null
+      },
+      {
+        "name": "Pressure Up",
+        "pump": "pressure",
+        "transition": "fast",
+        "exit": null,
+        "volume": 100.0,
+        "seconds": 8.0,
+        "weight": 0.0,
+        "temperature": 88.5,
+        "sensor": "coffee",
+        "pressure": 9.0,
+        "limiter": null
+      },
+      {
+        "name": "Pressure Decline",
+        "pump": "pressure",
+        "transition": "smooth",
+        "exit": {
+          "type": "flow",
+          "condition": "over",
+          "value": 2.8
+        },
+        "volume": 100.0,
+        "seconds": 55.0,
+        "weight": 0.0,
+        "temperature": 88.0,
+        "sensor": "coffee",
+        "pressure": 3.0,
+        "limiter": null
+      },
+      {
+        "name": "Pressure Hold",
+        "pump": "pressure",
+        "transition": "fast",
+        "exit": {
+          "type": "flow",
+          "condition": "over",
+          "value": 2.8
+        },
+        "volume": 100.0,
+        "seconds": 127.0,
+        "weight": 0.0,
+        "temperature": 88.0,
+        "sensor": "coffee",
+        "pressure": 3.0,
+        "limiter": null
+      },
+      {
+        "name": "Flow Limit",
+        "pump": "flow",
+        "transition": "fast",
+        "exit": null,
+        "volume": 100.0,
+        "seconds": 127.0,
+        "weight": 0.0,
+        "temperature": 88.0,
+        "sensor": "coffee",
+        "flow": 2.5,
+        "limiter": null
+      }
+    ],
+    "target_volume": 0.0,
+    "target_weight": 36.0,
+    "target_volume_count_start": 2,
+    "tank_temperature": 0.0
+  },
+  "context": {
+    "targetDoseWeight": 18.0,
+    "targetYield": 36.0,
+    "grinderId": "e2d50b3d-a6d9-48bb-9b50-1efb4df60229",
+    "grinderModel": "DF64 v2",
+    "grinderSetting": "8",
+    "beanBatchId": "416d62df-2554-4a8a-b266-c0029bc459b2",
+    "coffeeName": "Ethiopia Generic 100g Sample",
+    "coffeeRoaster": "Roux Bakehouse",
+    "baristaName": "Fixture Barista",
+    "drinkerName": "Fixture Barista",
+    "extras": {
+      "rpm": null,
+      "basketId": "bskt-1790543325397",
+      "basketName": "Decent 18g Ridgeless",
+      "note": null,
+      "workflowSkin": {
+        "selectedProfileId": "profile:98fa00c191551b435845"
+      }
+    }
+  },
+  "steamSettings": {
+    "targetTemperature": 160,
+    "duration": 120,
+    "flow": 2.500000000000001,
+    "stopAtTemperature": 0.0
+  },
+  "hotWaterData": {
+    "targetTemperature": 65,
+    "duration": 30,
+    "volume": 100,
+    "flow": 10.0
+  },
+  "rinseData": {
+    "targetTemperature": 90,
+    "duration": 5,
+    "flow": 6.0
+  }
+}

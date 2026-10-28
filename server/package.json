@@ -8,22 +8,26 @@
     "build": "prisma generate && nest build",
     "typecheck": "prisma generate && tsc -p tsconfig.json --noEmit",
     "start": "node --env-file-if-exists=../.env dist/main.js",
-    "dev": "prisma generate && nest start --watch --exec \"node --env-file-if-exists=../.env\""
+    "dev": "prisma generate && DRAIN_GRACE_SECONDS=0 nest start --watch --exec \"node --env-file-if-exists=../.env\""
   },
   "dependencies": {
     "@decent-sync/protocol": "*",
     "@nestjs/common": "^12.0.0",
     "@nestjs/core": "^12.0.0",
     "@nestjs/platform-express": "^12.0.0",
-    "@nestjs/serve-static": "^12.0.0",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
+    "express": "^5.2.1",
+    "pg": "^8.23.0",
     "prisma": "7.10.0",
     "reflect-metadata": "^0.2.2",
-    "rxjs": "^7.8.0"
+    "rxjs": "^7.8.0",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@nestjs/cli": "^12.0.0",
-    "@types/express": "^5.0.6"
+    "@types/express": "^5.0.6",
+    "@types/pg": "^8.23.1",
+    "@types/ws": "^8.18.1"
   }
 }

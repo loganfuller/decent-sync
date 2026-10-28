@@ -1,0 +1,756 @@
+import { ConflictException, Inject, Injectable } from "@nestjs/common";
+import { type ErrorCode, type Hello, MISSED_HEARTBEATS } from "@decent-sync/protocol";
+import { transferPendingCollections } from "../collections/transfer.js";
+import { CONFIG } from "../config.module.js";
+import type { Config } from "../config.js";
+import { type Machine, MachineIdentification, Prisma } from "../generated/prisma/client.js";
+import type { LocationView } from "../locations/locations.service.js";
+import { type LoadedRecipeView, currentLoadedRecipes } from "../machine-events/loaded-recipes.js";
+import { PrismaService } from "../prisma.service.js";
+import { hashSecret, newSecret } from "../secrets.js";
+import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdentity, sameHardware } from "../sync/identity.js";
+import { notifyAccessChanged } from "./access-changes.js";
+import type { LiveConnection } from "./connections.js";
+import { type NewMachine, machineNotFound } from "./input.js";
+import {
+  CREDITING_TRANSACTION,
+  type LocationHistoryEntryView,
+  handOverRecords,
+  startLocationHistory,
+  viewLocationHistory,
+  withLocationHistory,
+} from "./location-history.js";
+import { type TabletHolder, type TabletView, recordOf, recordTablet, tabletsOf, transferPendingTablets } from "./tablets.js";
+import { type TakeoverConnectionView, type TakeoverView, recordTakeover, takeoversOf } from "./takeovers.js";
+
+/** How a Machine's identity stands, as the REST API names it. */
+export type IdentificationView = "identified" | "hardwareNotReported" | "unidentified" | "mismatch";
+
+/** A Machine as the REST API returns it. */
+export interface MachineView {
+  id: string;
+  name: string;
+  /** The hardware the Machine's token is bound to, or null until a connection reports it or an Admin enters it. */
+  model: string | null;
+  serial: string | null;
+  identification: IdentificationView;
+  /**
+   * The hardware the latest connection that reported any did, as reported:
+   * the Machine's own, the other hardware of a mismatch, or the "0" serial
+   * of an Unidentified Machine.
+   */
+  reported: { model: string; serial: string; firmware: string | null } | null;
+  /** The connection id and versions of the latest accepted connection. */
+  connectionId: string | null;
+  pluginVersion: string | null;
+  decaidVersion: string | null;
+  /** Connection ids known to be this Machine's, oldest first. */
+  aliases: string[];
+  /** While identification is mismatch: the hardware reported, and whose it is. */
+  mismatch: {
+    model: string;
+    serial: string;
+    /** The Pending Machine holding what the connection sends, while no Machine has the hardware. */
+    pendingMachineId: string | null;
+    /** The Machine that has the hardware, if one does. */
+    machine: { id: string; name: string } | null;
+  } | null;
+  /** Why a connection with its token was last refused, until one is accepted. */
+  lastRefusal: { reason: string; at: string } | null;
+  /**
+   * The latest time a connection with its token took it over from a live
+   * connection from another tablet, or null if none ever has. Kept until
+   * the next takeover.
+   */
+  takeover: TakeoverView | null;
+  /** Whether a plugin is connected with the Machine's token right now, to any server instance. */
+  online: boolean;
+  /** When a plugin connected with its token was last heard from, or null if never. */
+  lastSeenAt: string | null;
+  lastShot: { id: string; pulledAt: string | null } | null;
+  /** What it is doing: the latest machine state stored for it, or null before any. */
+  machineState: MachineStateView | null;
+  /** The Recipe its Workflow has loaded (ADR-0022), since when, or null for none. */
+  loadedRecipe: LoadedRecipeView | null;
+  /** Where it is now: the Location of its Location History's latest entry, or null if it has none. */
+  location: LocationView | null;
+  /** Where it has been, oldest first. Each entry lasts until the next one's time. */
+  locationHistory: LocationHistoryEntryView[];
+  /** Whether it shares the Library at its Location: on unless an Admin turned it off, making it a Capture-only Machine. */
+  sharing: boolean;
+  /**
+   * Why it is a Capture-only Machine, taking no part in the Library: it has
+   * no Location, or its sharing is turned off, or both. Empty while it takes part.
+   */
+  captureOnly: CaptureOnlyReason[];
+  /**
+   * The tablet its latest connection came from, or null before any; a reset
+   * or replaced tablet is a new one. Its connections are those resolved to
+   * it, as their records are: with its token, unless they report other
+   * hardware, or with another Machine's token while reporting its hardware.
+   */
+  tablet: TabletView | null;
+  /** The tablets its connections came from before, the one whose connection was accepted most recently first. */
+  earlierTablets: TabletView[];
+}
+
+/** Why a Machine is a Capture-only Machine: it has no Location, or an Admin turned its sharing off. */
+export type CaptureOnlyReason = "noLocation" | "sharingOff";
+
+/** A machine state as Decaid names it, and when the plugin observed it, by the tablet's clock. */
+export interface MachineStateView {
+  state: string;
+  substate: string;
+  observedAt: string;
+}
+
+/** The connection a `hello` came on. */
+export interface HelloConnection {
+  /** Written to its Machine's row if the hello is accepted, marking the connection that holds the Machine. */
+  sessionId: string;
+  /** The address it came from: its socket's, or the client's as CLIENT_ADDRESS_HEADER gives it (`clientAddress`). */
+  remoteAddress: string;
+}
+
+/** What became of a `hello`, decided and recorded while its Machine was locked. */
+export type HelloOutcome =
+  | { accepted: false; code: Extract<ErrorCode, "bad_token" | "hardware_dismissed" | "machine_held">; reason: string }
+  | {
+      accepted: true;
+      machine: { id: string; name: string };
+      identity: Exclude<Identity, { kind: "rejected" }>;
+      /** The real hardware the `hello` reported, if any. */
+      hardware: Hardware | null;
+      /** The live connection from another tablet it took the Machine over from, if it did. */
+      tookOverFrom: TakeoverConnectionView | null;
+    };
+
+/** Why a welcomed connection may no longer stay. */
+export interface Refusal {
+  code: Extract<ErrorCode, "bad_token" | "hardware_dismissed" | "replaced" | "superseded">;
+  reason: string;
+}
+
+const BAD_TOKEN = "No Machine on this server has this token; it may have been replaced by a newer one";
+const REPLACED_TOKEN = "This Machine's token was replaced by a newer one; enter the new token in the plugin's settings";
+const REPLACED_CONNECTION = "A newer connection with this Machine's token, from another tablet, took over";
+const SUPERSEDED_CONNECTION = "Another connection from this tablet holds this Machine now";
+const RELEASED_CONNECTION = "This connection no longer holds its Machine, and no other connection does";
+const HELD = "A connection from another tablet holds this Machine, and this hello asked not to replace it";
+const REVOKED_TOKEN = "A tablet connected with a token that was replaced by a newer one; enter the new token in its plugin's settings";
+
+const withAliases = { aliases: { orderBy: { createdAt: "asc" }, select: { connectionId: true } } } as const;
+const listed = { ...withAliases, ...withLocationHistory } as const satisfies Prisma.MachineInclude;
+type ListedMachine = Prisma.MachineGetPayload<{ include: typeof listed }>;
+
+const IDENTIFICATION: Record<MachineIdentification, IdentificationView> = {
+  HARDWARE_NOT_REPORTED: "hardwareNotReported",
+  IDENTIFIED: "identified",
+  UNIDENTIFIED: "unidentified",
+  MISMATCH: "mismatch",
+};
+
+@Injectable()
+export class MachinesService {
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CONFIG) private readonly config: Config,
+  ) {}
+
+  /** Every Machine, by name. */
+  async list(): Promise<MachineView[]> {
+    return this.views(await this.prisma.machine.findMany({ orderBy: { name: "asc" }, include: listed }));
+  }
+
+  async get(id: string): Promise<MachineView> {
+    const machine = await this.prisma.machine.findUnique({ where: { id }, include: listed });
+    if (!machine) throw machineNotFound();
+    return (await this.views([machine]))[0]!;
+  }
+
+  /**
+   * Creates a machine entry and its first token, at its Location from now if
+   * it is given one. The token is returned only here.
+   */
+  async create(fields: NewMachine): Promise<{ machine: MachineView; token: string }> {
+    const token = newSecret();
+    const machine = await this.prisma
+      .$transaction(async (tx) => {
+        const machine = await tx.machine.create({ data: { name: fields.name, tokens: { create: { tokenHash: hashSecret(token) } } } });
+        await startLocationHistory(tx, machine.id, fields.locationId);
+        return machine;
+      })
+      .catch(refuseDuplicateName(fields.name));
+    return { machine: await this.get(machine.id), token };
+  }
+
+  /** Issues the Machine a new token and revokes the old one, closing any connection that uses it. */
+  async reissueToken(id: string): Promise<{ machine: MachineView; token: string }> {
+    const token = newSecret();
+    // Locked, so a concurrent reissue revokes this one's token rather than missing it.
+    await this.prisma.$transaction(async (tx) => {
+      if (!(await lockMachine(tx, id))) throw machineNotFound();
+      await tx.$executeRaw`UPDATE machine_tokens SET revoked_at = now() WHERE machine_id = ${id}::uuid AND revoked_at IS NULL`;
+      await tx.machineToken.create({ data: { machineId: id, tokenHash: hashSecret(token) } });
+      // Delivered on commit: every instance closes the connections using the old token.
+      await notifyAccessChanged(tx, id);
+    });
+    return { machine: await this.get(id), token };
+  }
+
+  /**
+   * An Admin enters an Unidentified Machine's model and serial, which makes it
+   * identified. The connection id its machine reported no real serial from is
+   * remembered as its alias, so its tablet is recognised again.
+   */
+  async identify(id: string, hardware: Hardware): Promise<MachineView> {
+    await this.prisma
+      .$transaction(async (tx) => {
+        // Locked, so a hello binding other hardware, or reporting this hardware, cannot interleave.
+        await lockHardware(tx, hardware);
+        if (!(await lockMachine(tx, id))) throw machineNotFound();
+        const machine = (await tx.machine.findUnique({ where: { id } }))!;
+        const binding = bindingOf(machine);
+        // Unbound, it is still the Unidentified Machine it was while its tablet starts before its machine.
+        const reportedNoSerial = machine.reportedSerial !== null && !isRealSerial(machine.reportedSerial);
+        if (machine.identification !== MachineIdentification.UNIDENTIFIED && !(binding === null && reportedNoSerial)) {
+          throw new ConflictException(`Only an Unidentified Machine's model and serial can be entered; ${machine.name} is not one`);
+        }
+        if (binding && !sameHardware(binding, hardware)) {
+          throw new ConflictException(
+            `${machine.name} is bound to ${describeHardware(binding)}. Create a machine entry for other hardware instead`,
+          );
+        }
+        const owner = await tx.machine.findFirst({ where: { ...hardware, NOT: { id } }, select: { name: true } });
+        if (owner) throw hardwareTaken(owner.name, hardware);
+
+        await tx.machine.update({ where: { id }, data: { ...hardware, identification: MachineIdentification.IDENTIFIED } });
+        // Only an unidentified hello was the one reporting no serial. Hardware not reported since
+        // means a later hello's connection id, maybe another tablet's; the one that reported "0"
+        // was remembered then, as an unbound Machine's always is.
+        if (machine.identification === MachineIdentification.UNIDENTIFIED && machine.connectionId) {
+          await tx.machineAlias.createMany({ data: [{ machineId: id, connectionId: machine.connectionId }], skipDuplicates: true });
+        }
+        // The Machine takes over whatever was held for its hardware.
+        await transferPendingRecords(tx, hardware, id);
+        await tx.pendingMachine.deleteMany({ where: hardware });
+      }, CREDITING_TRANSACTION)
+      .catch(async (error: unknown) => {
+        // A hello bound the hardware to another Machine meanwhile.
+        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+          const owner = await this.prisma.machine.findFirst({ where: hardware, select: { name: true } });
+          throw hardwareTaken(owner ? owner.name : null, hardware);
+        }
+        throw error;
+      });
+    return this.get(id);
+  }
+
+  /** The Machine a token belongs to, unless the token is unknown or revoked. */
+  async findByToken(token: string): Promise<Machine | null> {
+    const found = await this.prisma.machineToken.findUnique({ where: { tokenHash: hashSecret(token) }, include: { machine: true } });
+    return found && found.revokedAt === null ? found.machine : null;
+  }
+
+  /**
+   * Decides who a tablet is and records it, with its Machine locked: binding
+   * the hardware, remembering the connection id, holding a mismatch's
+   * hardware as a Pending Machine, or recording why it was refused. Two
+   * hellos with the same token, a token reissue and an Admin entering the
+   * hardware are therefore decided one at a time, each seeing what the one
+   * before it committed, on whichever instance they run.
+   *
+   * An accepted hello makes its connection the one holding the Machine, and
+   * keeps its tablet beside it, and notifies every instance, which closes the
+   * one it replaces. If that one was live and from another tablet, the hello
+   * took the Machine over, which is recorded on it (`recordTakeover`); a
+   * `yielding` hello is refused instead. A refused hello changes neither, so
+   * it never replaces a connection.
+   *
+   * A hello binding hardware hands over what its Pending Machine holds, which
+   * may outlast the plugin's wait for `welcome`. It still commits, and the
+   * plugin's next hello finds the hardware bound, with nothing left to hand
+   * over.
+   */
+  async acceptHello(hello: Hello, connection: HelloConnection): Promise<HelloOutcome> {
+    try {
+      return await this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection), CREDITING_TRANSACTION);
+    } catch (error) {
+      // Another Machine bound the same hardware meanwhile; decided again, this is a mismatch.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+        return this.prisma.$transaction((tx) => this.decideHello(tx, hello, connection), CREDITING_TRANSACTION);
+      }
+      throw error;
+    }
+  }
+
+  /**
+   * Whether each welcomed connection may stay (`refusalOf`), in the order
+   * given. Read from the database, so it reflects changes made on any
+   * instance, in the same three queries however many connections there are.
+   */
+  async standings(connections: readonly LiveConnection[]): Promise<(Refusal | null)[]> {
+    if (connections.length === 0) return [];
+    const mismatched = connections.flatMap((connection) =>
+      connection.mismatch ? [{ machineId: connection.machineId, ...connection.mismatch }] : [],
+    );
+    const [tokens, machines, dismissed] = await Promise.all([
+      this.prisma.machineToken.findMany({
+        where: { tokenHash: { in: connections.map((connection) => connection.tokenHash) }, revokedAt: null },
+        select: { tokenHash: true },
+      }),
+      this.prisma.machine.findMany({
+        where: { id: { in: [...new Set(connections.map((connection) => connection.machineId))] } },
+        select: { id: true, connectedSessionId: true, connectedTabletId: true },
+      }),
+      mismatched.length === 0
+        ? []
+        : this.prisma.dismissedHardware.findMany({ where: { OR: mismatched }, select: { machineId: true, model: true, serial: true } }),
+    ]);
+    const currentTokens = new Set(tokens.map((token) => hex(token.tokenHash)));
+    const holders = new Map(machines.map((machine) => [machine.id, machine]));
+    return connections.map((connection) =>
+      refusalOf(connection, {
+        tokenCurrent: currentTokens.has(hex(connection.tokenHash)),
+        dismissed: dismissed.some((hardware) => hardware.machineId === connection.machineId && sameHardware(hardware, connection.mismatch)),
+        holds: holders.get(connection.machineId)?.connectedSessionId === connection.sessionId,
+        holderTabletId: holders.get(connection.machineId)?.connectedTabletId ?? null,
+      }),
+    );
+  }
+
+  /**
+   * A heartbeat: the connection's Machine and its tablet were seen, if the
+   * connection still holds the Machine, and whether the connection may stay,
+   * in one query.
+   *
+   * A heartbeat that waited for adoption to take over its tablet's record
+   * finds it gone: its query looked up whoever holds the hardware before
+   * the adoption committed. It looks again in a query of its own, which
+   * finds the record where the adoption put it.
+   *
+   * A connection that no longer holds its Machine is judged by `standings`
+   * instead, whose queries see who holds it now: this one's may have looked
+   * before the hello that replaced it committed, though its update waited
+   * for that hello.
+   */
+  async heard(connection: LiveConnection): Promise<Refusal | null> {
+    const [standing] = await this.prisma.$queryRaw<[Omit<Standing, "holderTabletId"> & { tabletSeen: boolean }]>`
+      WITH seen AS (
+        UPDATE machines SET last_seen_at = now()
+        WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid
+        RETURNING id
+      ), tablet AS (
+        UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
+        WHERE ${recordOf(connection)} AND EXISTS (SELECT 1 FROM seen)
+        RETURNING id
+      )
+      SELECT
+        EXISTS (SELECT 1 FROM machine_tokens WHERE token_hash = ${connection.tokenHash} AND revoked_at IS NULL) AS "tokenCurrent",
+        EXISTS (
+          SELECT 1 FROM dismissed_hardware
+          WHERE machine_id = ${connection.machineId}::uuid
+            AND model = ${connection.mismatch?.model ?? null}::text AND serial = ${connection.mismatch?.serial ?? null}::text
+        ) AS dismissed,
+        EXISTS (SELECT 1 FROM seen) AS holds,
+        EXISTS (SELECT 1 FROM tablet) AS "tabletSeen"`;
+    if (standing.holds && !standing.tabletSeen) {
+      await this.prisma.$executeRaw`
+        UPDATE machine_tablets SET last_seen_at = GREATEST(last_seen_at, now())
+        WHERE ${recordOf(connection)}
+          AND EXISTS (SELECT 1 FROM machines WHERE id = ${connection.machineId}::uuid AND connected_session_id = ${connection.sessionId}::uuid)`;
+    }
+    if (!standing.holds) return (await this.standings([connection]))[0]!;
+    return refusalOf(connection, { ...standing, holderTabletId: connection.tabletId });
+  }
+
+  /**
+   * Releases the Machine a closed connection held, if it still held it, and
+   * says whether it did: a replaced connection's close leaves its Machine
+   * to the connection that replaced it. A close frame was heard from the
+   * plugin, so it is the last time it was seen; a dropped connection was last
+   * seen at its last heartbeat.
+   */
+  async released(sessionId: string, closeFrameHeard: boolean): Promise<boolean> {
+    const count = await this.prisma.$executeRaw`
+      UPDATE machines
+      SET connected_session_id = NULL, connected_tablet_id = NULL,
+        last_seen_at = CASE WHEN ${closeFrameHeard} THEN now() ELSE last_seen_at END
+      WHERE connected_session_id = ${sessionId}::uuid`;
+    return count > 0;
+  }
+
+  /** Releases every Machine these connections hold, as when their instance shuts down. */
+  async releaseAll(sessionIds: string[]): Promise<void> {
+    if (sessionIds.length === 0) return;
+    await this.prisma.machine.updateMany({
+      where: { connectedSessionId: { in: sessionIds } },
+      data: { connectedSessionId: null, connectedTabletId: null },
+    });
+  }
+
+  private async decideHello(tx: Prisma.TransactionClient, hello: Hello, connection: HelloConnection): Promise<HelloOutcome> {
+    const token = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { machineId: true } });
+    if (!token) return { accepted: false, code: "bad_token", reason: BAD_TOKEN };
+    const hardware = realHardware(hello.machine);
+    // The hardware before the Machine, the order everything taking both takes them in.
+    if (hardware) await lockHardware(tx, hardware);
+    await lockMachine(tx, token.machineId);
+    // Read again under the lock: a reissue may have revoked it since.
+    const current = await tx.machineToken.findUnique({ where: { tokenHash: hashSecret(hello.token) }, select: { revokedAt: true } });
+    if (!current || current.revokedAt !== null) {
+      // A tablet still using the Machine's old token: its page shows why it cannot connect.
+      await recordRefusals(tx, [token.machineId], REVOKED_TOKEN);
+      return { accepted: false, code: "bad_token", reason: REPLACED_TOKEN };
+    }
+
+    const machine = (await tx.machine.findUnique({
+      where: { id: token.machineId },
+      include: { ...withAliases, dismissedHardware: { select: { model: true, serial: true } } },
+    }))!;
+    // The Machine that has the hardware, if not this one. It cannot change while the hardware's lock is held.
+    const owner = hardware === null ? null : await tx.machine.findFirst({ where: { ...hardware, NOT: { id: machine.id } }, select: { id: true } });
+    const identity = resolveIdentity(
+      hello,
+      {
+        binding: bindingOf(machine),
+        aliases: machine.aliases.map((alias) => alias.connectionId),
+        dismissed: machine.dismissedHardware,
+      },
+      owner !== null,
+    );
+
+    if (identity.kind === "rejected") {
+      const reason = dismissedReason(identity.hardware);
+      await recordRefusals(tx, [machine.id], reason);
+      return { accepted: false, code: "hardware_dismissed", reason };
+    }
+
+    // A live connection from another tablet is taken over, unless this hello yields to it. Live is heard from
+    // within MISSED_HEARTBEATS intervals by PostgreSQL's clock, which wrote its last-seen time, as the Machine's
+    // view judges online. Replacing a dead connection, or one from this tablet, takes nothing over.
+    const tabletId = hello.tabletId.toLowerCase();
+    const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT clock_timestamp() AS now`;
+    const tookOverFrom = liveHolderFromAnotherTablet(machine, tabletId, now.getTime() - this.config.heartbeatIntervalMs * MISSED_HEARTBEATS);
+    // A refusal the plugin expects while another tablet stays connected, so not recorded on the Machine.
+    if (tookOverFrom && hello.yielding) return { accepted: false, code: "machine_held", reason: HELD };
+
+    const reported = hello.machine;
+    const connectionId = hello.connectionId?.trim() || null;
+    await tx.machine.update({
+      where: { id: machine.id },
+      data: {
+        identification: identificationOf(identity),
+        ...(reported
+          ? { reportedModel: reported.model.trim(), reportedSerial: reported.serial.trim(), firmware: reported.firmware ?? null }
+          : {}),
+        ...(identity.kind === "identified" && identity.bind ? hardware! : {}),
+        connectionId,
+        pluginVersion: hello.pluginVersion,
+        decaidVersion: hello.decaidVersion,
+        remoteAddress: connection.remoteAddress,
+        refusalReason: null,
+        refusedAt: null,
+        connectedSessionId: connection.sessionId,
+        connectedTabletId: tabletId,
+      },
+    });
+    if (tookOverFrom) {
+      const replacement = { tabletId, remoteAddress: connection.remoteAddress, connectionId, pluginVersion: hello.pluginVersion, decaidVersion: hello.decaidVersion };
+      await recordTakeover(tx, machine.id, now, tookOverFrom, replacement);
+    }
+    // Delivered on commit: the instance holding the connection this replaces closes it.
+    await notifyAccessChanged(tx, machine.id);
+    if ("rememberAlias" in identity && identity.rememberAlias && connectionId) {
+      await tx.machineAlias.createMany({ data: [{ machineId: machine.id, connectionId }], skipDuplicates: true });
+    }
+    if (identity.kind === "identified" && identity.bind) {
+      // The Machine takes over whatever was held for its hardware.
+      await transferPendingRecords(tx, hardware!, machine.id);
+      await tx.pendingMachine.deleteMany({ where: hardware! });
+    }
+    // The tablet is recorded against whoever the connection's records go to: for a mismatch, the reported hardware.
+    let holder: TabletHolder = { machineId: machine.id };
+    if (identity.kind === "mismatch") {
+      if (owner) {
+        holder = { machineId: owner.id };
+      } else {
+        // No Machine can be given the hardware meanwhile: that takes the hardware's lock, held here.
+        // Seen by the database's clock, as Machines are, whatever the instances' clocks say.
+        const [{ now }] = await tx.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+        const pending = await tx.pendingMachine.upsert({
+          where: { model_serial: identity.hardware },
+          create: { ...identity.hardware, lastSeenAt: now },
+          update: { lastSeenAt: now },
+        });
+        holder = { pendingMachineId: pending.id };
+      }
+    }
+    await recordTablet(tx, hello.tabletId, holder);
+    // Seen last, once nothing is left to wait for but the commit: its own row, held already, under the lock that
+    // numbered its tablet. A hello that waited longer than a connection stays live must not make a holder the next
+    // hello finds dead.
+    await touch(tx, machine.id);
+    return { accepted: true, machine: { id: machine.id, name: machine.name }, identity, hardware, tookOverFrom };
+  }
+
+  /** Records why a connection with the Machine's token was refused, for its page. */
+  async recordRefusal(machineId: string, reason: string): Promise<void> {
+    await recordRefusals(this.prisma, [machineId], reason);
+  }
+
+  private async views(machines: ListedMachine[]): Promise<MachineView[]> {
+    // Last-seen times are written by the database's clock, so they are judged by it too, whatever the instances' clocks say.
+    const [{ now }] = await this.prisma.$queryRaw<[{ now: Date }]>`SELECT now() AS now`;
+    // A connection unheard for MISSED_HEARTBEATS intervals no longer keeps its Machine online, as when the instance holding it crashed.
+    const heardSince = now.getTime() - this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
+    // A mismatch's hardware belongs to a Machine, or else to a Pending Machine.
+    const mismatched = machines.flatMap((machine) => {
+      const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
+      return hardware ? [hardware] : [];
+    });
+    // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
+    const [owners, pending, lastShots, states, tablets, takeovers, loaded] = await Promise.all([
+      mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
+      mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
+      machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
+        SELECT last.id, listed.id AS "machineId", last.pulled_at AS "pulledAt"
+        FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
+        CROSS JOIN LATERAL (
+          -- Only full records are credited, so this needs no has_full_record check.
+          SELECT id, pulled_at FROM shots WHERE machine_id = listed.id
+          ORDER BY pulled_at DESC NULLS LAST, id ASC LIMIT 1
+        ) AS last`),
+      machines.length === 0 ? [] : this.prisma.$queryRaw<{ machineId: string; state: string; substate: string; observedAt: Date }[]>(Prisma.sql`
+        SELECT listed.id AS "machineId", latest.state, latest.substate, latest.observed_at AS "observedAt"
+        FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
+        CROSS JOIN LATERAL (
+          SELECT state, substate, observed_at FROM machine_state_events WHERE machine_id = listed.id
+          ORDER BY id DESC LIMIT 1
+        ) AS latest`),
+      tabletsOf(this.prisma, machines.map((machine) => machine.id)),
+      takeoversOf(this.prisma, machines.map((machine) => machine.id)),
+      currentLoadedRecipes(this.prisma, machines.map((machine) => machine.id)),
+    ]);
+    const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
+    const stateByMachine = new Map(
+      states.map(({ machineId, state, substate, observedAt }) => [machineId, { state, substate, observedAt: observedAt.toISOString() }]),
+    );
+    return machines.map((machine) => {
+      const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
+      const owner = hardware && owners.find((candidate) => sameHardware(bindingOf(candidate)!, hardware));
+      return {
+        id: machine.id,
+        name: machine.name,
+        model: machine.model,
+        serial: machine.serial,
+        identification: IDENTIFICATION[machine.identification],
+        reported:
+          machine.reportedModel !== null && machine.reportedSerial !== null
+            ? { model: machine.reportedModel, serial: machine.reportedSerial, firmware: machine.firmware }
+            : null,
+        connectionId: machine.connectionId,
+        pluginVersion: machine.pluginVersion,
+        decaidVersion: machine.decaidVersion,
+        aliases: machine.aliases.map((alias) => alias.connectionId),
+        mismatch: hardware
+          ? {
+              ...hardware,
+              pendingMachineId: pending.find((candidate) => sameHardware(candidate, hardware))?.id ?? null,
+              machine: owner ? { id: owner.id, name: owner.name } : null,
+            }
+          : null,
+        lastRefusal:
+          machine.refusalReason !== null && machine.refusedAt !== null
+            ? { reason: machine.refusalReason, at: machine.refusedAt.toISOString() }
+            : null,
+        takeover: takeovers.get(machine.id) ?? null,
+        online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
+        lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
+        lastShot: lastByMachine.get(machine.id) ?? null,
+        machineState: stateByMachine.get(machine.id) ?? null,
+        loadedRecipe: loaded.get(machine.id) ?? null,
+        ...viewLocationHistory(machine.locationHistory),
+        sharing: machine.sharing,
+        captureOnly: [
+          ...(machine.locationHistory.length === 0 ? (["noLocation"] as const) : []),
+          ...(machine.sharing ? [] : (["sharingOff"] as const)),
+        ],
+        tablet: tablets.get(machine.id)![0] ?? null,
+        earlierTablets: tablets.get(machine.id)!.slice(1),
+      };
+    });
+  }
+}
+
+/** What decides whether a welcomed connection may stay. */
+interface Standing {
+  /** Its token is not revoked. */
+  tokenCurrent: boolean;
+  /** Its mismatched hardware was dismissed for its token's Machine. */
+  dismissed: boolean;
+  /** It is still the connection holding its Machine. */
+  holds: boolean;
+  /** The tablet of the connection holding its Machine, or null while none does. */
+  holderTabletId: string | null;
+}
+
+/**
+ * Why a welcomed connection may no longer stay, if it may not: its token was
+ * replaced, its mismatched hardware dismissed, or another connection holds
+ * its Machine. One from another tablet replaced it, and its plugin yields to
+ * that tablet; otherwise the plugin reconnects, and takes the Machine back.
+ */
+function refusalOf(connection: LiveConnection, standing: Standing): Refusal | null {
+  if (!standing.tokenCurrent) return { code: "bad_token", reason: REPLACED_TOKEN };
+  if (connection.mismatch && standing.dismissed) return { code: "hardware_dismissed", reason: dismissedReason(connection.mismatch) };
+  if (standing.holds) return null;
+  if (standing.holderTabletId === null) return { code: "superseded", reason: RELEASED_CONNECTION };
+  if (standing.holderTabletId === connection.tabletId) return { code: "superseded", reason: SUPERSEDED_CONNECTION };
+  return { code: "replaced", reason: REPLACED_CONNECTION };
+}
+
+/**
+ * The connection holding the Machine, as a takeover records it, if it was
+ * heard from since `heardSince` (ms, by PostgreSQL's clock) and comes from
+ * another tablet than `tabletId`.
+ */
+function liveHolderFromAnotherTablet(machine: Machine, tabletId: string, heardSince: number): TakeoverConnectionView | null {
+  const { connectedSessionId, connectedTabletId, lastSeenAt } = machine;
+  if (connectedSessionId === null || connectedTabletId === null || connectedTabletId === tabletId) return null;
+  if (lastSeenAt === null || lastSeenAt.getTime() < heardSince) return null;
+  // The hello that made it the holder wrote these with its tablet.
+  return {
+    tabletId: connectedTabletId,
+    remoteAddress: machine.remoteAddress!,
+    connectionId: machine.connectionId,
+    pluginVersion: machine.pluginVersion!,
+    decaidVersion: machine.decaidVersion!,
+  };
+}
+
+function hex(bytes: Uint8Array): string {
+  return Buffer.from(bytes).toString("hex");
+}
+
+function describeHardware(hardware: Hardware): string {
+  return `${hardware.model} serial ${hardware.serial}`;
+}
+
+/** Refuses giving hardware to a Machine when another Machine, named if known, has it. */
+export function hardwareTaken(owner: string | null, hardware: Hardware): ConflictException {
+  return new ConflictException(`${owner === null ? "Another Machine" : `Machine ${owner}`} already has ${describeHardware(hardware)}`);
+}
+
+export function dismissedReason(hardware: Hardware): string {
+  return `An Admin dismissed ${describeHardware(hardware)}, which a tablet reported with this Machine's token`;
+}
+
+/**
+ * Records why connections with these Machines' tokens were refused, shown on
+ * their pages until one is accepted, at PostgreSQL's now().
+ */
+export async function recordRefusals(db: Prisma.TransactionClient, machineIds: string[], reason: string): Promise<void> {
+  await db.$executeRaw`UPDATE machines SET refusal_reason = ${reason}, refused_at = now() WHERE id = ANY(${machineIds}::uuid[])`;
+}
+
+/**
+ * Records that the Machine was seen now, by the database's clock, which
+ * every instance shares: as it reads now, not at the transaction's start,
+ * which waiting on locks may have left long past. Its row lock must be held,
+ * so this waits for nothing.
+ */
+async function touch(tx: Prisma.TransactionClient, id: string): Promise<void> {
+  await tx.$executeRaw`UPDATE machines SET last_seen_at = clock_timestamp() WHERE id = ${id}::uuid`;
+}
+
+// Advisory locks on hardware use this as their first key, and a hash of the
+// model and serial as their second. Any constant works; two-key locks never
+// clash with the single-key ones this server takes.
+const HARDWARE_LOCK = 4_000_002;
+
+/**
+ * Locks the hardware until the transaction ends, so whatever gives it to a
+ * Machine, holds it as a Pending Machine, or dismisses it runs one at a time,
+ * including a hello whose Machine's row does not yet show the hardware. Taken
+ * before any Machine's row, an order that cannot deadlock. Hardware whose
+ * hashes collide only waits for each other.
+ */
+export async function lockHardware(tx: Prisma.TransactionClient, hardware: Hardware): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${HARDWARE_LOCK}::int, hashtext(${hardware.model}::text || '/' || ${hardware.serial}::text))`;
+}
+
+/**
+ * Locks the Machine's row until the transaction ends, so whatever decides
+ * its identity or tokens, changes its Location History, or credits a record
+ * to it by that history, runs one at a time. Returns false if there is none.
+ *
+ * FOR NO KEY UPDATE, not FOR UPDATE: it excludes the others just the same,
+ * but lets foreign-key checks on rows referencing the Machine through. A
+ * Shot edit that writes its row twice checks that key again, and with FOR
+ * UPDATE it would wait for a Location History change that is itself waiting
+ * for the Shot's row.
+ *
+ * Those checks hold the row FOR KEY SHARE. An update changing the Machine's
+ * model or serial, even from NULL, takes it FOR UPDATE, as they carry a
+ * unique index, so it waits for them; a hello or an Admin binding hardware
+ * makes that update holding this lock. So whatever writes a row referencing
+ * a Machine takes this lock before the write, or the hardware's lock and
+ * then its owner's row (`credit.ts`), unless it can be shown not to matter,
+ * as for a Shot edit's repeated check, which waits for no lock after it. A
+ * write that referenced the Machine and then waited for this lock would
+ * deadlock with the binding.
+ */
+export async function lockMachine(tx: Prisma.TransactionClient, id: string): Promise<boolean> {
+  const rows = await tx.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${id}::uuid FOR NO KEY UPDATE`;
+  return rows.length > 0;
+}
+
+/** Turns a unique-name violation into a message naming the clash. */
+export function refuseDuplicateName(name: string): (error: unknown) => never {
+  return (error) => {
+    if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2002") {
+      throw new ConflictException(`A Machine named ${name} already exists`);
+    }
+    throw error;
+  };
+}
+
+function bindingOf(machine: { model: string | null; serial: string | null }): Hardware | null {
+  return machine.model !== null && machine.serial !== null ? { model: machine.model, serial: machine.serial } : null;
+}
+
+function reportedHardware(machine: Machine): Hardware | null {
+  if (machine.reportedModel === null || machine.reportedSerial === null) return null;
+  return realHardware({ model: machine.reportedModel, serial: machine.reportedSerial });
+}
+
+function identificationOf(identity: Exclude<Identity, { kind: "rejected" }>): MachineIdentification {
+  switch (identity.kind) {
+    case "identified":
+      return MachineIdentification.IDENTIFIED;
+    case "hardwareNotReported":
+      return MachineIdentification.HARDWARE_NOT_REPORTED;
+    case "unidentified":
+      return MachineIdentification.UNIDENTIFIED;
+    case "mismatch":
+      return MachineIdentification.MISMATCH;
+  }
+}
+
+/**
+ * Gives the Machine whatever is held for its hardware, even by a dismissed
+ * Pending Machine: its Shots and Steam Records, credited by its Location
+ * History, its Workflow and machine state events, its collections and its
+ * tablets. The Machine's own records are left as they are. Its row lock must
+ * be held, or the Machine created in this transaction, and the transaction
+ * given `CREDITING_TRANSACTION`'s limits.
+ */
+export async function transferPendingRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  await handOverRecords(tx, hardware, machineId);
+  const handover = { machineId, pendingMachineId: null };
+  await tx.workflowEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await tx.machineStateEvent.updateMany({ where: { pendingMachine: hardware }, data: handover });
+  await transferPendingCollections(tx, hardware, machineId);
+  await transferPendingTablets(tx, hardware, machineId);
+}

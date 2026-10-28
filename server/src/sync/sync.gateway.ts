@@ -1,0 +1,1082 @@
+import { randomUUID } from "node:crypto";
+import type { IncomingMessage, Server } from "node:http";
+import type { Duplex } from "node:stream";
+import { Inject, Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
+import { HttpAdapterHost } from "@nestjs/core";
+import {
+  ANOTHER_ITEMS_RECORD,
+  LIBRARY_ITEM_KINDS,
+  RECORD_CHANGED,
+  PULLING_SHOT,
+  SHOTS_STILL_TO_READ,
+  CHUNK_LIMITS,
+  CLOSE_CODES,
+  type Chunk,
+  type Decoded,
+  type ErrorCode,
+  type Hello,
+  type ItemDeleted,
+  type ItemLeftOut,
+  type ItemRemoved,
+  type ItemWritten,
+  LIVE_VIEW_WIRE_REVISION,
+  type LeaveOut,
+  type LibraryDelete,
+  type LibraryRemove,
+  type LibraryWrite,
+  type ListUnrecognised,
+  type LiveFrame,
+  MISSED_HEARTBEATS,
+  PROTOCOL_VERSION,
+  type PluginMessage,
+  Reassembly,
+  type ReassemblyLimits,
+  SYNC_PATH,
+  type ServerMessage,
+  type SettingsEdit,
+  type SettingsEdited,
+  type ShotDelivery,
+  type SteamDelivery,
+  WIRE_REVISION,
+  type WriteRefused,
+  decodePluginFrame,
+  decodePluginMessage,
+  encode,
+  frames,
+  isDeletedKind,
+  isLibraryKind,
+  isLibraryList,
+  isWrittenKind,
+  peerHasWireRevision,
+  utf8Length,
+  wireRevisionOf,
+} from "@decent-sync/protocol";
+import { type RawData, type WebSocket, WebSocketServer } from "ws";
+import { CollectionsService } from "../collections/collections.service.js";
+import { CONFIG } from "../config.module.js";
+import type { Config } from "../config.js";
+import { isDye2Kind, recordRemoved, recordUnrecognised } from "../library/dye2-lists.js";
+import { recordDeleted } from "../library/hard-deletes.js";
+import { recordLeftOut } from "../library/left-out.js";
+import type { SeenDecision } from "../library/intake.js";
+import { deleteKey, leaveOutKey, removeKey, writeKey } from "../library/holdings.js";
+import { writtenKind } from "../library/kinds.js";
+import { forgetRefusal, recordApplied, recordRefused } from "../library/sharing-status.js";
+import { LiveViews } from "../live-view/live-views.js";
+import { MachineEventsService } from "../machine-events/machine-events.service.js";
+import { type LiveConnection, LiveConnections } from "../machines/connections.js";
+import { MachinesService, type Refusal } from "../machines/machines.service.js";
+import type { TakeoverConnectionView } from "../machines/takeovers.js";
+import { Notifications } from "../notifications.js";
+import { PrismaService } from "../prisma.service.js";
+import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
+import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
+import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
+import { ShotsService } from "../shots/shots.service.js";
+import { SteamRecordsService } from "../steam-records/steam-records.service.js";
+import { hashSecret } from "../secrets.js";
+import { clientAddress } from "./client-address.js";
+import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
+import type { Hardware, Identity, Reporter } from "./identity.js";
+import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
+
+/** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
+const MAX_PAYLOAD_BYTES = 1 << 20;
+/**
+ * Before its hello is accepted, a connection may hold no more for chunked
+ * messages, ids included, than one frame could carry: 1 Mi characters. A
+ * hello goes through the same chunking as any other message, but is far
+ * smaller.
+ */
+const HELLO_CHUNK_LIMITS: ReassemblyLimits = { ...CHUNK_LIMITS, maxLength: MAX_PAYLOAD_BYTES };
+/**
+ * Connections whose hello has not been accepted that one instance holds at
+ * once. Each may hold a frame and chunks of up to 1 MiB until its hello
+ * timeout, and needs no token to open, so upgrades beyond these are refused.
+ */
+const MAX_AWAITING_HELLO = 64;
+/** Refusing upgrades over that cap is logged at most this often. */
+const REFUSAL_WARNING_INTERVAL_MS = 60_000;
+/** Received when the connection ended without a close frame. */
+const ABNORMAL_CLOSURE = 1006;
+const INTERNAL_ERROR = 1011;
+const GOING_AWAY = 1001;
+
+interface Session {
+  /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
+  id: string;
+  socket: WebSocket;
+  /** The address it came from (`clientAddress`). */
+  remote: string;
+  /** The token's Machine, once its `hello` is accepted. */
+  machine?: { id: string; name: string };
+  /**
+   * Who the tablet is, decided at `hello` and never changed for the session.
+   * What a mismatched session sends belongs to the reported hardware: to the
+   * Machine that has it, otherwise to the Pending Machine for it. Which is
+   * looked up when it is stored, as an Admin may create a machine entry for
+   * the hardware meanwhile.
+   */
+  identity?: Identity;
+  /** Set once its hello is accepted and the session holds its Machine. */
+  live?: LiveConnection;
+  /** Writes the Library to its tablet, once welcomed, unless it is mismatched. */
+  writer?: TabletWriter;
+  /** Frames are handled one at a time, in the order they arrived. */
+  queue: Promise<void>;
+  /** Claims of its Settings Edits, made one at a time, so they are sent in the order they were made. */
+  settingsEdits: Promise<void>;
+  /**
+   * Chunked messages still arriving. They belong to this connection alone: a
+   * plugin that reconnects sends a message again from its first chunk.
+   */
+  chunks: Reassembly;
+  /** The deliveries handled most recently on this connection, with the request each index was answered with. */
+  handled: HandledDeliveries;
+  /** Set once `welcome` is sent. */
+  welcomed: boolean;
+  closing: boolean;
+  helloTimer?: NodeJS.Timeout;
+  idleTimer?: NodeJS.Timeout;
+}
+
+/**
+ * The plugin's WebSocket endpoint at /sync (ADR-0009). A connection must send
+ * `hello` within the hello timeout; its token decides the Machine, and its
+ * reported hardware and connection id the session's identity (ADR-0004,
+ * ADR-0015), once. A newer connection with the same token replaces an older
+ * one: closed as replaced if it comes from another tablet, after which its
+ * plugin yields to that tablet, or as superseded if from the same one, which
+ * reconnects. Replacing a live connection from another tablet is recorded on
+ * the Machine as a takeover, and a `yielding` hello is refused with
+ * machine_held instead. Every refusal sends an `error`, then closes with that
+ * error's close code. Messages never reach the log: a `hello` carries the token. A message
+ * too large for one frame arrives in chunks, which are put back together for
+ * that connection alone and confirmed one by one; the whole message is then
+ * handled, and acknowledged, like any other.
+ *
+ * A delivery is acknowledged once stored. One whose storage fails in a way
+ * that would repeat is set aside as received and acknowledged as stored
+ * (`SetAsideDeliveriesService`); any other failure closes the connection with
+ * 1011, leaving the delivery for the plugin to send again. A Shot or Steam
+ * Record no supported Decaid sends is acknowledged and ignored, and logged
+ * by its id with what it lacks.
+ *
+ * Once its reports of the tablet's beans, bean batches, grinders and profiles are
+ * taken in, a connection that is not mismatched writes the Library its
+ * Machine's Location offers to its tablet (`TabletWriter`), one write at a
+ * time, each answered by the plugin, which the server acknowledges once it
+ * has recorded the answer. A write too large for one frame goes in chunks. When the
+ * Machine's Location changes, the writer asks the plugin for its
+ * collections afresh.
+ *
+ * Any number of server instances may run. Which connection holds a Machine is
+ * stored on its row; a change that may end a connection (another accepted
+ * hello, a reissued token, dismissed hardware) is notified to every
+ * instance, which checks its connections to that Machine against the
+ * database. Heartbeats check too, in case a notification was missed. A
+ * change to the Library is notified too, and every instance then has its
+ * connections' writers look for writes due.
+ *
+ * A Settings Edit made through any instance is notified to every instance,
+ * and sent by the one holding the connection it was made for, once welcomed
+ * (`SettingsEditsService`); its answer is recorded by whichever instance it
+ * reaches.
+ *
+ * A welcomed connection that may stream for the Live View, one not
+ * mismatched from a plugin at its wire revision, is handed to `LiveViews`,
+ * which starts and stops it, and so is each of its live frames as it arrives,
+ * ahead of its deliveries (ADR-0024).
+ *
+ * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
+ * has not been accepted, and refuses further upgrades with 503 until one is
+ * accepted or closes. Connections that hold a Machine are not counted. The
+ * count is this instance's own: it protects its memory and decides nothing
+ * shared (ADR-0016).
+ */
+@Injectable()
+export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
+  private readonly logger = new Logger("Sync");
+  private readonly server = new WebSocketServer({ noServer: true, maxPayload: MAX_PAYLOAD_BYTES });
+  /** Every open connection, welcomed or not. */
+  private readonly connections = new Set<Session>();
+  /** Open connections whose hello has not been accepted. */
+  private readonly awaitingHello = new Set<Session>();
+  /** Upgrades refused over that cap since it was last logged, and when that was (`performance.now()`). */
+  private refusedUpgrades = 0;
+  private refusalLoggedAt: number | undefined;
+  /** Message handling and releases still running, which shutdown waits for before the database disconnects. */
+  private readonly inFlight = new Set<Promise<void>>();
+  private shuttingDown = false;
+  private handingOver: Promise<void> | undefined;
+
+  constructor(
+    private readonly adapterHost: HttpAdapterHost,
+    @Inject(CONFIG) private readonly config: Config,
+    private readonly machines: MachinesService,
+    private readonly live: LiveConnections,
+    private readonly shots: ShotsService,
+    private readonly steamRecords: SteamRecordsService,
+    private readonly machineEvents: MachineEventsService,
+    private readonly collections: CollectionsService,
+    private readonly setAside: SetAsideDeliveriesService,
+    private readonly settingsEdits: SettingsEditsService,
+    private readonly prisma: PrismaService,
+    private readonly liveViews: LiveViews,
+    notifications: Notifications,
+  ) {
+    notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
+    // Each writer reads what its tablet is due, so every one looks, whichever Location changed.
+    notifications.subscribe("library_changes", () => {
+      for (const session of this.connections) session.writer?.wake();
+    });
+    // A moved Machine's writers find it at another Location than its tablet's report, and ask for the tablet's
+    // collections afresh, as do those of one whose sharing was turned back on; one turned off, they write nothing more.
+    // After listening anew, every writer looks, through the Library changes listener.
+    notifications.subscribe("machine_locations", (machineId) => {
+      for (const session of this.connections) if (machineId !== null && session.machine?.id === machineId) session.writer?.wake();
+    });
+    // After listening anew, every connection looks for edits made meanwhile.
+    notifications.subscribe("settings_edits", (machineId) => {
+      for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSettingsEdits(session);
+    });
+  }
+
+  onApplicationBootstrap(): void {
+    const httpServer = this.adapterHost.httpAdapter.getHttpServer() as Server;
+    httpServer.on("upgrade", (request: IncomingMessage, socket: Duplex, head: Buffer) => this.upgrade(request, socket, head));
+  }
+
+  /** Runs before the database disconnects, if the drain has not handed the tablets over already. */
+  async onModuleDestroy(): Promise<void> {
+    await this.handOver();
+  }
+
+  /**
+   * Hands this instance's tablets to another as it stops (`drain.ts`): closes
+   * every connection as going away, which the plugin reconnects after, and
+   * refuses new ones, waits for hellos still being accepted, then releases
+   * this instance's Machines. Done once, however many ask.
+   */
+  handOver(): Promise<void> {
+    return (this.handingOver ??= this.closeAll());
+  }
+
+  private async closeAll(): Promise<void> {
+    this.shuttingDown = true;
+    const sessions = [...this.connections];
+    const closed = sessions.map((session) => new Promise((resolve) => session.socket.once("close", resolve)));
+    for (const session of sessions) {
+      // A write awaiting its answer is abandoned; the tablet's next connection is written what it lacks.
+      session.writer?.stop();
+      this.clearTimers(session);
+      session.closing = true;
+      session.socket.close(GOING_AWAY, "Server shutting down");
+    }
+    const grace = setTimeout(() => {
+      for (const session of sessions) session.socket.terminate();
+    }, 1_000);
+    // A hello still being accepted may yet give its session a Machine, so the
+    // Machines held are known only once every hello has finished.
+    while (this.inFlight.size > 0) await Promise.all(this.inFlight);
+    const held = sessions.flatMap((session) => (session.live ? [session.id] : []));
+    await this.machines.releaseAll(held).catch((error: unknown) => {
+      this.logger.error(`Could not record this instance's Machines as offline: ${String(error)}`);
+    });
+    await Promise.all(closed);
+    clearTimeout(grace);
+    await new Promise((resolve) => this.server.close(resolve));
+  }
+
+  private upgrade(request: IncomingMessage, socket: Duplex, head: Buffer): void {
+    const path = (request.url ?? "").split("?")[0];
+    if (path !== SYNC_PATH || this.shuttingDown) return rejectUpgrade(socket, "404 Not Found");
+    if (this.awaitingHello.size >= MAX_AWAITING_HELLO) return this.refuseUpgrade(socket);
+    // Without verifyClient, ws upgrades and calls back synchronously, so the
+    // connection is counted before the next upgrade is judged.
+    this.server.handleUpgrade(request, socket, head, (ws) => this.open(ws, request));
+  }
+
+  /** Refuses an upgrade over the cap on connections awaiting hello, saying so at most once a minute. */
+  private refuseUpgrade(socket: Duplex): void {
+    rejectUpgrade(socket, "503 Service Unavailable");
+    this.refusedUpgrades++;
+    const now = performance.now();
+    if (this.refusalLoggedAt !== undefined && now - this.refusalLoggedAt < REFUSAL_WARNING_INTERVAL_MS) return;
+    const since = this.refusalLoggedAt === undefined ? "" : ` (${this.refusedUpgrades} refused since this was last logged)`;
+    this.logger.warn(`Refusing sync connections while ${MAX_AWAITING_HELLO} have not had a hello accepted${since}`);
+    this.refusalLoggedAt = now;
+    this.refusedUpgrades = 0;
+  }
+
+  private open(socket: WebSocket, request: IncomingMessage): void {
+    if (this.shuttingDown) return void socket.close(GOING_AWAY, "Server shutting down");
+    const session: Session = {
+      id: randomUUID(),
+      socket,
+      remote: clientAddress(request, this.config.clientAddressHeader),
+      queue: Promise.resolve(),
+      settingsEdits: Promise.resolve(),
+      chunks: new Reassembly(),
+      handled: new HandledDeliveries(),
+      welcomed: false,
+      closing: false,
+    };
+    this.connections.add(session);
+    this.awaitingHello.add(session);
+    session.helloTimer = setTimeout(
+      () => this.refuse(session, "protocol_error", `No hello within ${this.config.helloTimeoutMs / 1000} seconds`),
+      this.config.helloTimeoutMs,
+    );
+
+    socket.on("message", (data, isBinary) => {
+      const text = isBinary ? undefined : rawToString(data);
+      const decoded = text === undefined ? undefined : decodePluginFrame(text);
+      if (decoded?.ok === true && decoded.message.type === "liveFrame" && this.liveFrame(session, decoded.message, text!)) return;
+      const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
+      session.queue = this.track(
+        session.queue
+          .then(() => this.receive(session, decoded, text, answered))
+          .catch((error: unknown) => {
+            this.logger.error(`Failed handling a message from ${this.describe(session)}: ${String(error)}`);
+            this.end(session, INTERNAL_ERROR, "Server error");
+          }),
+      );
+    });
+    socket.on("close", (code) => this.closed(session, code));
+    // Failures such as an oversized frame; ws closes the connection after them.
+    socket.on("error", (error) => this.logger.warn(`Sync connection from ${this.describe(session)} failed: ${error.message}`));
+  }
+
+  /**
+   * Answers a welcomed connection's heartbeat as it arrives, rather than after
+   * earlier messages and the database work they wait on, so a slow database
+   * does not make either end give up on a working connection. Says whether
+   * it did.
+   */
+  private answerHeartbeat(session: Session): boolean {
+    if (!session.welcomed || session.closing) return false;
+    this.resetIdleTimer(session);
+    this.send(session, { type: "heartbeat" });
+    return true;
+  }
+
+  /**
+   * Hands a welcomed connection's live frame, `text` as received, to the Live
+   * View as it arrives, ahead of the deliveries queued before it, as a
+   * heartbeat is answered (ADR-0024). Says whether it did: one arriving
+   * before the connection was welcomed waits its turn, and is refused there
+   * before a hello, or dropped.
+   */
+  private liveFrame(session: Session, live: LiveFrame, text: string): boolean {
+    if (!session.welcomed || session.closing) return false;
+    this.liveViews.frame(session.id, live, utf8Length(text));
+    return true;
+  }
+
+  /**
+   * Handles a frame in turn: `frame` is undefined for a binary frame, `text`
+   * is the frame as received, and `answered` says a heartbeat was answered on
+   * arrival.
+   */
+  private async receive(
+    session: Session,
+    frame: Decoded<PluginMessage | Chunk> | undefined,
+    text: string | undefined,
+    answered: boolean,
+  ): Promise<void> {
+    if (session.closing) return;
+    if (!frame || text === undefined) return this.refuse(session, "protocol_error", "Messages must be sent as text frames");
+    if (!frame.ok) return this.handle(session, frame, text, answered);
+    const message = frame.message;
+    if (message.type !== "chunk") return this.handle(session, { ok: true, message }, text, answered);
+    const whole = this.reassemble(session, message);
+    if (whole) return this.handle(session, decodePluginMessage(whole), whole, false);
+  }
+
+  /**
+   * Adds a chunk to its message and confirms its receipt, so the plugin can
+   * send more. Returns the whole message's text once its last chunk is in,
+   * and null until then or if the chunks cannot be trusted.
+   */
+  private reassemble(session: Session, chunk: Chunk): string | null {
+    const added = session.chunks.add(chunk, session.machine ? CHUNK_LIMITS : HELLO_CHUNK_LIMITS);
+    if (added.status === "invalid") {
+      this.refuse(session, "protocol_error", added.problem);
+      return null;
+    }
+    this.send(session, { type: "chunkReceived", id: chunk.id, index: chunk.index });
+    return added.status === "complete" ? added.text : null;
+  }
+
+  /** Handles a whole message, from one frame or put back together from chunks, whose JSON text is `text`. */
+  private async handle(session: Session, decoded: Decoded<PluginMessage>, text: string, answered: boolean): Promise<void> {
+    if (!decoded.ok) {
+      // A hello of an unsupported version: its Machine, if the token is valid, shows why.
+      if (!session.machine && decoded.token !== undefined) await this.recordVersionRefusal(decoded.token, decoded.problem);
+      return this.refuse(session, decoded.error, decoded.problem);
+    }
+    const message = decoded.message;
+
+    if (!session.machine) {
+      if (message.type !== "hello") return this.refuse(session, "protocol_error", "The first message must be hello");
+      return this.hello(session, message);
+    }
+    // Unrequested, as it came before the connection was welcomed, or in chunks, which live frames never are.
+    if (message.type === "liveFrame") return;
+    if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
+      const request = session.handled.get(message.id);
+      if (request) this.send(session, request);
+      this.send(session, { type: "ack", id: message.id });
+      return;
+    }
+    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity!, tabletId: session.live!.tabletId };
+    switch (message.type) {
+      case "hello":
+        return this.refuse(session, "protocol_error", "hello was already sent on this connection");
+      case "shot":
+      case "shotUpdated":
+        return this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
+      case "steam":
+        return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
+      case "workflow":
+        return this.capture(
+          session,
+          message,
+          text,
+          async () => {
+            const takenInAt = await this.machineEvents.storeWorkflow(message, reporter);
+            if (takenInAt !== undefined) session.writer?.workflowReported(takenInAt);
+          },
+          // Set aside, it counts as stored, though taken in nowhere: the writer no longer waits for it.
+          () => session.writer?.workflowReported(undefined),
+        );
+      case "machineState":
+        return this.capture(session, message, text, () => this.machineEvents.storeMachineState(message, reporter));
+      case "collection":
+        // The plugin follows each report of the tablet's beans with one of its batches, and nothing is written between.
+        if (isLibraryList(message.name) && message.available) session.writer?.awaitChildren(message.name);
+        await this.capture(session, message, text, async () => {
+          const intake = await this.collections.store(message, reporter);
+          if (intake) session.writer?.reported(intake.list, intake.takenInAt);
+        });
+        // One set aside ends that wait all the same, as it does a wait for the list asked for again (`awaitReport`).
+        if (isLibraryList(message.name)) session.writer?.reported(message.name, undefined);
+        return;
+      case "written":
+      case "deleted":
+      case "removed":
+      case "writeRefused":
+        return this.answered(session, message);
+      case "leftOut":
+        return this.leftOut(session, message);
+      case "listUnrecognised":
+        return this.listUnrecognised(session, message);
+      case "settingsEdited":
+        return this.settingsEdited(session, message);
+      case "shotIndex": {
+        const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
+        return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
+      }
+      case "steamIndex": {
+        const steamIds = await this.steamRecords.requested(message, session.machine.id);
+        return this.acknowledge(session, message.id, { type: "requestSteams", steamIds });
+      }
+      case "heartbeat":
+        // One sent before its connection was welcomed is answered now.
+        if (!answered) {
+          this.resetIdleTimer(session);
+          this.send(session, { type: "heartbeat" });
+        }
+        if (session.live) {
+          const live = session.live;
+          await this.enforce([live], async () => [await this.machines.heard(live)]);
+        }
+        return;
+    }
+  }
+
+  /**
+   * Stores a delivery of what the tablet captured, then acknowledges it. If
+   * storing fails in a way that would repeat whenever the delivery was sent
+   * again, it is set aside, its text kept as received, and acknowledged as
+   * stored, so the deliveries queued behind it on the tablet still flow. Any
+   * other failure is thrown, which closes the connection with 1011 and leaves
+   * the delivery unacknowledged.
+   */
+  private async capture(session: Session, delivery: CaptureDelivery, text: string, store: () => Promise<void>, setAside?: () => void): Promise<void> {
+    try {
+      await store();
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      await this.setAside.record(session.machine!.id, delivery, text, failure);
+      this.logger.warn(`Set aside a ${delivery.type} delivery from ${this.describe(session)} that cannot be stored: ${failure.message} (${failure.sqlState})`);
+      setAside?.();
+    }
+    this.acknowledge(session, delivery.id, null);
+  }
+
+  /**
+   * Captures a Shot or Steam Record as `capture` does. One that is not a
+   * record any supported Decaid sends is acknowledged without being stored,
+   * and logged by its id, quoted, with what it lacks, but no field's value.
+   */
+  private captureRecord(session: Session, delivery: ShotDelivery | SteamDelivery, text: string, store: () => Promise<string | null>): Promise<void> {
+    return this.capture(session, delivery, text, async () => {
+      const lacking = await store();
+      if (lacking !== null) this.logger.warn(`Ignored ${describeRecord(delivery)} from ${this.describe(session)}: its ${delivery.type} delivery has ${lacking}`);
+    });
+  }
+
+  /**
+   * Records the plugin's answer to a `leaveOut`, then acknowledges it, and
+   * lets the connection's writer go on, as `answered` does a write's: the
+   * record is set aside on the tablet now, gone, or a Library item's, and so
+   * no longer due, whether or not its request is still awaited; set aside,
+   * it is the last change the tablet applied. A refusal of one awaited is
+   * logged, escaped, and kept in the tablet's sharing status with Decaid's
+   * answer, and the writer skips that record.
+   */
+  private async leftOut(session: Session, answer: ItemLeftOut): Promise<void> {
+    const awaitedWrite = session.writer?.awaited(answer.id);
+    const awaited = awaitedWrite?.write.type === "leaveOut";
+    let outcome: WriteOutcome = "refused";
+    if (answer.outcome === "refused") {
+      if (awaited && answer.status === null && answer.error === PULLING_SHOT) outcome = "again";
+      else if (awaited) {
+        const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
+        this.logger.warn(`The tablet of ${this.describe(session)} did not set aside ${quoted(answer.kind)} ${quoted(answer.localId)}: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
+        await recordRefused(this.prisma, session.live!.tabletId, awaitedWrite!.change, answer.status ?? null, answer.error ?? "");
+      }
+    } else if (session.writer && isDeletedKind(answer.kind)) {
+      const tabletId = session.live!.tabletId;
+      await recordLeftOut(this.prisma, tabletId, answer.kind, answer.localId, answer.outcome);
+      const key = leaveOutKey(answer.kind, answer.localId);
+      if (answer.outcome === "setAside") await recordApplied(this.prisma, tabletId, { key, change: "leaveOut", kind: answer.kind, itemId: null, localId: answer.localId });
+      else await forgetRefusal(this.prisma, tabletId, key);
+      if (awaited) outcome = "written";
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, outcome);
+  }
+
+  /**
+   * Records that the plugin found the tablet's list of one of DYE2's kinds in
+   * a shape it does not recognise as it carried out a write, removal, delete
+   * or leave-out, which it left undone, then acknowledges it, and lets the
+   * connection's writer go on: nothing more is written to that list on the
+   * tablet until it reports it in a shape that is recognised, and its
+   * Machine's sharing status shows it (ADR-0005). Recorded whether or not
+   * the request is still awaited, as it says only what the tablet holds.
+   */
+  private async listUnrecognised(session: Session, answer: ListUnrecognised): Promise<void> {
+    if (session.writer && isDye2Kind(answer.kind)) {
+      this.logger.warn(`The tablet of ${this.describe(session)} holds its ${quoted(answer.kind)} list in a shape that is not recognised; nothing more is written to it`);
+      await recordUnrecognised(this.prisma, session.live!.tabletId, answer.kind);
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, "refused");
+  }
+
+  /**
+   * Records the plugin's answer to a write, then acknowledges it, and lets
+   * the connection's writer go on. A record Decaid returned is the tablet's
+   * record of the item from now on, with any change the tablet made at its
+   * Location that it shows besides the fields the write set, which the
+   * answer names. A refusal is logged, escaped, as it repeats what Decaid
+   * answered, and one the connection awaits is kept in the tablet's sharing
+   * status with Decaid's answer; the writer skips that item while the same
+   * is due to it. A record recorded, or deleted, is the last change the
+   * tablet applied, and ends any refusal of it. An update Decaid answers with 404
+   * found the record gone, deleted on the tablet as it was written, which
+   * the tablet's next report shows: it is skipped the same way, but not
+   * logged as a refusal. A record that fails to store in a
+   * way that would repeat is logged and skipped the same way, so it cannot
+   * stop the tablet's other writes. A change the plugin held while its
+   * Machine pulled a Shot (PULLING_SHOT) is neither: the writer plans what
+   * is due afresh at once. Any other failure closes the connection
+   * with 1011, and the tablet's next connection is written the item again,
+   * which the plugin then finds it holds.
+   *
+   * An answer to no write its connection awaits, one arriving after its
+   * write timed out or one the plugin's outbox held across a reconnect, is
+   * recorded too, so the server's own write is not later read as the
+   * tablet's change: the outbox sends one delivery at a time, and every
+   * report read after the write waits behind the answer. Which Location's
+   * decision its write carried is not known, so its record says nothing new
+   * of what the tablet had seen of its Location's state; but it repeats when
+   * the latest edit of the item's content the write carried was decided
+   * (`contentDecidedAt`), which its record has seen. An answer is
+   * recorded only while its connection holds the Machine, so one an
+   * instance records late, after a newer connection has taken the Machine,
+   * never lands after that connection's reports. Nothing is recorded from a
+   * mismatched connection, which is never written to.
+   */
+  private async answered(session: Session, answer: ItemWritten | ItemDeleted | ItemRemoved | WriteRefused): Promise<void> {
+    let outcome: WriteOutcome = "refused";
+    const awaited = session.writer?.awaited(answer.id);
+    const write = awaited?.write;
+    if (write && answer.type === "writeRefused" && answer.status === null && answer.error === PULLING_SHOT) {
+      // Held while the Machine pulled a Shot: planned afresh at once, with whatever changed meanwhile.
+      outcome = "again";
+    } else if (answer.type === "removed") {
+      // The tablet holds the record no more, whether or not its removal is still awaited.
+      if (session.writer && isDye2Kind(answer.kind)) {
+        const tabletId = session.live!.tabletId;
+        await recordRemoved(this.prisma, answer.kind, tabletId, answer.localId);
+        session.writer.recordGone(answer.kind, answer.globalId);
+        const applied = { key: removeKey(answer.kind, answer.localId), change: "remove", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
+        await recordApplied(this.prisma, tabletId, applied);
+        if (write) outcome = "written";
+      }
+    } else if (write?.type === "remove") {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDye2Kind(write.kind)) {
+        // Not the item's record after all: the tablet's next report takes it in as any record carrying that id.
+        await recordRemoved(this.prisma, write.kind, session.live!.tabletId, write.localId);
+        session.writer?.recordGone(write.kind, write.globalId);
+        this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not removed`);
+      } else if (answer.type === "writeRefused" && answer.status === null && answer.error === RECORD_CHANGED && isDye2Kind(write.kind)) {
+        // Changed on the tablet since its list was last read: its report is asked for, so the change is taken in before the
+        // removal is asked again, with the record as changed.
+        this.logger.log(`The tablet of ${this.describe(session)} changed ${quoted(write.kind)} ${write.localId} since it was last read; its lists are read again`);
+        session.writer?.awaitReport(LIBRARY_ITEM_KINDS[write.kind].list);
+        if (!session.closing) this.send(session, { type: "requestCollections" });
+      } else if (answer.type === "writeRefused") {
+        this.logger.warn(
+          `The tablet of ${this.describe(session)} did not remove ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
+        );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
+      }
+    } else if (answer.type === "deleted") {
+      // The tablet holds the record no more, whether or not its delete is still awaited.
+      if (session.writer && isDeletedKind(answer.kind)) {
+        const tabletId = session.live!.tabletId;
+        await recordDeleted(this.prisma, tabletId, answer.kind, answer.localId);
+        const applied = { key: deleteKey(answer.kind, answer.localId), change: "delete", kind: answer.kind, itemId: answer.globalId, localId: answer.localId } as const;
+        await recordApplied(this.prisma, tabletId, applied);
+        if (write) outcome = "written";
+      }
+    } else if (write?.type === "delete") {
+      if (answer.type === "writeRefused" && answer.status === null && answer.error === ANOTHER_ITEMS_RECORD && isDeletedKind(write.kind)) {
+        // Not the deleted item's record after all: the tablet's next report takes it in as any record carrying that id.
+        await recordDeleted(this.prisma, session.live!.tabletId, write.kind, write.localId);
+        this.logger.log(`The tablet of ${this.describe(session)} holds ${quoted(write.kind)} ${write.localId} as another item's; it is not deleted`);
+      } else if (answer.type === "writeRefused" && answer.status === null && answer.error === SHOTS_STILL_TO_READ) {
+        // As during a backfill: asked again on this connection once its Shots have been sent.
+        outcome = "deferred";
+        this.logger.log(`The tablet of ${this.describe(session)} has Shots still to send; the delete of ${quoted(write.kind)} ${write.localId} is asked again later`);
+      } else if (answer.type === "writeRefused") {
+        this.logger.warn(
+          `The tablet of ${this.describe(session)} did not delete ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? quoted(answer.error.slice(0, 200)) : `Decaid answered ${answer.status}, ${quoted(answer.error.slice(0, 200))}`}`,
+        );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
+      }
+    } else if (answer.type === "writeRefused") {
+      if (write?.type === "write" && write.localId !== null && answer.status === 404) {
+        // The record is gone from the tablet, as when it was deleted there just as it was written: its next report shows it.
+        this.logger.log(`The tablet of ${this.describe(session)} no longer holds ${quoted(answer.kind)} ${answer.globalId}; its next report shows it gone`);
+      } else if (write) {
+        this.logger.warn(
+          `The tablet of ${this.describe(session)} did not write ${quoted(answer.kind)} ${answer.globalId}: ${answer.status === null ? "Decaid did not answer" : `Decaid answered ${answer.status}`}, ${quoted(answer.error.slice(0, 200))}`,
+        );
+        await recordRefused(this.prisma, session.live!.tabletId, awaited!.change, answer.status, answer.error);
+      }
+    } else if (awaited && write?.type === "write") {
+      // The write it answers names the item, whatever the answer says: its record must carry that item's global id.
+      if (await this.recordAnswer(session, write.kind, write.globalId, answer, awaited.change, awaited.seen, awaited.contentSeen)) outcome = "written";
+    } else if (session.writer && isWrittenKind(answer.kind)) {
+      // What the item's content its write carried the answer repeats; which Location's decision it carried is not known.
+      const contentSeen = answer.contentDecidedAt === undefined ? null : new Date(answer.contentDecidedAt);
+      await this.recordAnswer(session, answer.kind, answer.globalId, answer, null, null, contentSeen);
+    }
+    this.acknowledge(session, answer.id, null);
+    session.writer?.answered(answer.id, outcome);
+  }
+
+  /**
+   * Records the record a write's answer holds as the tablet's record of the
+   * item, and says whether it did. A record that is not the item's, or that
+   * fails to store in a way that would repeat, is logged, and, when its
+   * write was `awaited`, kept with the tablet's refusals: the writer skips
+   * the item as it does a refused one. The record has seen the Location's decision
+   * its write carried (`seen`), and the latest edit of the item's content it
+   * carried (`contentSeen`), by PostgreSQL's clock; one of a write no longer
+   * awaited says nothing new of either.
+   */
+  private async recordAnswer(
+    session: Session,
+    kind: string,
+    globalId: string,
+    answer: ItemWritten,
+    awaited: AwaitedWrite["change"] | null,
+    seen: SeenDecision | null,
+    contentSeen: Date | null,
+  ): Promise<boolean> {
+    // Only a kind the server writes is ever answered for.
+    if (!isWrittenKind(kind)) return false;
+    const description = writtenKind(kind);
+    const { name } = description;
+    const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
+    const { record, updatedAt } = answer;
+    try {
+      const written = new Set(answer.writtenFields);
+      const recorded = await description.recordWritten(this.prisma, tablet, { globalId, written, record, updatedAt, seen, contentSeen, linked: answer.linked === true });
+      if (recorded === "notTheItem" && awaited) {
+        this.logger.warn(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId} with a record that is not that ${name}'s`);
+        await recordRefused(this.prisma, tablet.tabletId, awaited, null, `Answered with a record that is not this ${name}'s`);
+      }
+      if (recorded === "deleted") this.logger.log(`The tablet of ${this.describe(session)} answered the write of ${name} ${globalId}, deleted since: its record there is to be deleted`);
+      if (recorded !== "recorded") return false;
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      this.logger.warn(`Could not record the ${name} ${globalId} written to the tablet of ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+      // Its refusal kept, so the write the server skips does not wait unexplained.
+      if (awaited) await recordRefused(this.prisma, tablet.tabletId, awaited, null, `The server could not take in the record it answered with: ${failure.message} (${failure.sqlState})`);
+      return false;
+    }
+    // The settings and a Workflow are no record of the tablet's Library lists, which have ids.
+    const localId = isLibraryKind(kind) && typeof record.id === "string" ? record.id : null;
+    await recordApplied(this.prisma, tablet.tabletId, { key: writeKey(kind, globalId), change: "write", kind, itemId: globalId, localId });
+    return true;
+  }
+
+  /**
+   * Sends the Settings Edits made for the connection that it has not sent,
+   * once welcomed, claiming them while it still holds its Machine. Claims
+   * run one at a time, so edits go in the order they were made.
+   */
+  private sendSettingsEdits(session: Session): void {
+    const live = session.live;
+    if (!live || !session.welcomed || session.closing) return;
+    session.settingsEdits = this.track(
+      session.settingsEdits.then(async () => {
+        if (session.closing) return;
+        try {
+          for (const edit of await this.settingsEdits.claim(live)) this.sendWrite(session, edit);
+        } catch (error) {
+          this.logger.error(`Could not send the Settings Edits of ${this.describe(session)}: ${String(error)}`);
+        }
+      }),
+    );
+  }
+
+  /**
+   * Records the plugin's answer to a Settings Edit of its Machine, whichever
+   * connection it was sent on, then acknowledges it. An answer to no edit of
+   * the Machine, or to one already answered, is acknowledged and changes
+   * nothing. One that fails to store in a way that would repeat is logged
+   * and acknowledged, so it cannot hold up the deliveries behind it.
+   */
+  private async settingsEdited(session: Session, answer: SettingsEdited): Promise<void> {
+    try {
+      const recorded = await this.settingsEdits.recordAnswer(session.machine!.id, answer);
+      const late = recorded?.late ? ", after it was marked not confirmed" : "";
+      if (recorded?.outcome === "refused") this.logger.log(`The tablet of ${this.describe(session)} refused Settings Edit ${answer.id}${late}: ${describeSettingsRefusal(answer)}`);
+      else if (recorded?.late) this.logger.log(`The tablet of ${this.describe(session)} answered Settings Edit ${answer.id}${late}: ${recorded.outcome}`);
+    } catch (error) {
+      const failure = repeatingFailure(error);
+      if (!failure) throw error;
+      this.logger.warn(`Could not record the answer to Settings Edit ${answer.id} from ${this.describe(session)}: ${failure.message} (${failure.sqlState})`);
+    }
+    this.acknowledge(session, answer.id, null);
+  }
+
+  /** Sends a write, delete, removal, leave-out or Settings Edit on the connection, in chunks if it is too large for one frame. */
+  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit): void {
+    if (session.closing) return;
+    for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
+  }
+
+  /**
+   * Acknowledges a delivery once stored, after the request answering it if it
+   * is an index. Both are remembered with the connection's recent deliveries:
+   * replaying an index after losing its request must still let the tablet
+   * continue backfill.
+   */
+  private acknowledge(session: Session, id: string, request: IndexRequest | null): void {
+    session.handled.add(id, request);
+    if (session.closing) return;
+    if (request) this.send(session, request);
+    this.send(session, { type: "ack", id });
+  }
+
+  private async hello(session: Session, hello: Hello): Promise<void> {
+    clearTimeout(session.helloTimer);
+    const outcome = await this.machines.acceptHello(hello, { sessionId: session.id, remoteAddress: session.remote });
+    if (!outcome.accepted) return this.refuse(session, outcome.code, outcome.reason);
+
+    const { machine, identity, hardware, tookOverFrom } = outcome;
+    this.awaitingHello.delete(session);
+    session.machine = machine;
+    session.identity = identity;
+    const live: LiveConnection = {
+      sessionId: session.id,
+      machineId: machine.id,
+      tokenHash: hashSecret(hello.token),
+      mismatch: identity.kind === "mismatch" ? identity.hardware : null,
+      tabletId: hello.tabletId.toLowerCase(),
+      end: (code, message) => this.refuse(session, code, message),
+    };
+    session.live = live;
+    // Closed while being accepted: the Machine it was just given is released again.
+    if (session.closing) return void this.release(session);
+    this.live.add(live);
+
+    // A change committed while this hello was being accepted was notified
+    // before the session could be found; checked once it can be, it is seen
+    // here or by the notification.
+    await this.check([live]);
+    if (session.closing) return;
+
+    this.send(session, {
+      type: "welcome",
+      protocolVersion: PROTOCOL_VERSION,
+      wireRevision: WIRE_REVISION,
+      heartbeatIntervalMs: this.config.heartbeatIntervalMs,
+    });
+    session.welcomed = true;
+    this.resetIdleTimer(session);
+    // A mismatched connection's tablet is not its token's Machine's, so nothing is written to it (ADR-0004). The
+    // writer starts once the connection's reports of the tablet's Library lists, sent on every welcome, are taken in.
+    if (identity.kind !== "mismatch") {
+      session.writer = new TabletWriter(
+        { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId },
+        this.prisma,
+        (write) => this.sendWrite(session, write),
+        () => {
+          if (!session.closing) this.send(session, { type: "requestCollections" });
+        },
+        this.logger,
+        (work) => this.track(work),
+        // A delete the plugin could not judge yet is asked again after two heartbeat intervals.
+        2 * this.config.heartbeatIntervalMs,
+        (captureOnly) => {
+          if (!session.closing) this.send(session, { type: "captureOnly", captureOnly });
+        },
+      );
+    }
+    // An edit made while this hello was being accepted was notified before the session could be found.
+    this.sendSettingsEdits(session);
+    // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's, or
+    // its plugin is from before the Live View's messages.
+    if (identity.kind !== "mismatch" && peerHasWireRevision(wireRevisionOf(hello), LIVE_VIEW_WIRE_REVISION)) {
+      this.liveViews.welcomed({
+        sessionId: session.id,
+        machineId: machine.id,
+        tabletId: live.tabletId,
+        description: this.describe(session),
+        send: (message) => {
+          if (!session.closing) this.send(session, message);
+        },
+      });
+    }
+    this.logger.log(
+      `Machine ${machine.name} connected from ${session.remote}: ${describeVersions(hello)}, ${describeIdentity(identity, hardware)}`,
+    );
+    if (tookOverFrom) {
+      this.logger.warn(
+        `Machine ${machine.name} was taken over by tablet ${live.tabletId} from ${session.remote}, from tablet ${describeTakenOver(tookOverFrom)}, which was still connected`,
+      );
+    }
+  }
+
+  /** Ends those of the connections that may no longer stay, read together. */
+  private check(connections: LiveConnection[]): Promise<void> {
+    if (connections.length === 0) return Promise.resolve();
+    return this.enforce(connections, () => this.machines.standings(connections));
+  }
+
+  /** Ends each connection whose refusal, read in the same order, says it may no longer stay. */
+  private async enforce(connections: LiveConnection[], read: () => Promise<(Refusal | null)[]>): Promise<void> {
+    try {
+      const refusals = await read();
+      // Shutting down closes every connection as going away, to be retried at
+      // once, not as replaced, after which the plugin would wait.
+      if (this.shuttingDown) return;
+      connections.forEach((connection, index) => {
+        const refusal = refusals[index];
+        if (refusal) connection.end(refusal.code, refusal.reason);
+      });
+    } catch (error) {
+      this.logger.error(`Could not check ${connections.length === 1 ? "a sync connection" : "sync connections"}: ${String(error)}`);
+    }
+  }
+
+  /**
+   * Shows why a hello of an unsupported protocol or Decaid version was refused
+   * on its token's Machine, if the token is valid. Failing to only logs: the
+   * plugin must still be told why, or it would retry instead of stopping.
+   */
+  private async recordVersionRefusal(token: string, reason: string): Promise<void> {
+    try {
+      const machine = await this.machines.findByToken(token);
+      if (machine) await this.machines.recordRefusal(machine.id, reason);
+    } catch (error) {
+      this.logger.error(`Could not record why a plugin was refused: ${String(error)}`);
+    }
+  }
+
+  private closed(session: Session, code: number): void {
+    this.connections.delete(session);
+    this.awaitingHello.delete(session);
+    this.clearTimers(session);
+    session.closing = true;
+    session.writer?.stop();
+    this.liveViews.closed(session.id);
+    if (!session.live) return;
+    this.live.delete(session.live);
+    // Released together on shutdown.
+    if (this.shuttingDown) return;
+    void this.release(session, code !== ABNORMAL_CLOSURE);
+  }
+
+  /** Releases the Machine the session held, unless a newer connection holds it now. */
+  private release(session: Session, closeFrameHeard = false): Promise<void> {
+    const name = session.machine?.name ?? "unknown";
+    return this.track(
+      this.machines.released(session.id, closeFrameHeard).then(
+        (released) => {
+          if (released) this.logger.log(`Machine ${name} disconnected`);
+        },
+        (error: unknown) => this.logger.error(`Could not record Machine ${name} as offline: ${String(error)}`),
+      ),
+    );
+  }
+
+  /** Keeps work that writes to the database in `inFlight` until it settles. The work must not reject. */
+  private track(work: Promise<void>): Promise<void> {
+    this.inFlight.add(work);
+    void work.then(() => this.inFlight.delete(work));
+    return work;
+  }
+
+  /**
+   * Tells the plugin why, then closes with the error's close code. The
+   * message may name hardware the tablet reported, so it is logged escaped.
+   */
+  private refuse(session: Session, code: ErrorCode, message: string): void {
+    if (session.closing) return;
+    const log = `Closing the sync connection of ${this.describe(session)}: ${escaped(message)}`;
+    // Routine: a tablet reconnecting, or yielding to another one, which the takeover was logged for.
+    if (code === "replaced" || code === "superseded" || code === "machine_held") this.logger.log(log);
+    else this.logger.warn(log);
+    this.send(session, { type: "error", code, message });
+    this.end(session, CLOSE_CODES[code], code);
+  }
+
+  private end(session: Session, closeCode: number, reason: string): void {
+    if (session.closing) return;
+    session.closing = true;
+    this.clearTimers(session);
+    session.socket.close(closeCode, reason);
+  }
+
+  private send(session: Session, message: ServerMessage): void {
+    session.socket.send(encode(message));
+  }
+
+  private resetIdleTimer(session: Session): void {
+    clearTimeout(session.idleTimer);
+    const silenceMs = this.config.heartbeatIntervalMs * MISSED_HEARTBEATS;
+    session.idleTimer = setTimeout(
+      () => this.refuse(session, "protocol_error", `No heartbeat for ${silenceMs / 1000} seconds`),
+      silenceMs,
+    );
+  }
+
+  private clearTimers(session: Session): void {
+    clearTimeout(session.helloTimer);
+    clearTimeout(session.idleTimer);
+  }
+
+  private describe(session: Session): string {
+    return session.machine ? `Machine ${session.machine.name} (${session.remote})` : session.remote;
+  }
+}
+
+/** Why the plugin refused a Settings Edit, as a log line shows it: what Decaid answered is escaped. */
+function describeSettingsRefusal(answer: SettingsEdited): string {
+  switch (answer.reason) {
+    case "machineBusy":
+      return `the machine was ${quoted(answer.state ?? "")}`;
+    case "changedSince":
+      return "a setting changed on the tablet since the report it was made over";
+    case "decaid":
+      return `${answer.status === null || answer.status === undefined ? "Decaid did not answer or was not asked" : `Decaid answered ${answer.status}`}, ${quoted((answer.message ?? "").slice(0, 200))}`;
+    default:
+      return "it came too late to write in time, or its connection closed";
+  }
+}
+
+function describeRecord(delivery: ShotDelivery | SteamDelivery): string {
+  return delivery.type === "steam" ? `Steam Record ${quoted(delivery.steamId)}` : `Shot ${quoted(delivery.shotId)}`;
+}
+
+/** Control, formatting, surrogate and line or paragraph separator characters. */
+const UNSAFE_IN_LOG = /[\p{Cc}\p{Cf}\p{Cs}\p{Zl}\p{Zp}]/gu;
+
+/**
+ * Text that may hold what the tablet chose, as a log line shows it: every
+ * character that could end the line or change how it displays is escaped
+ * as \uXXXX, so the tablet cannot forge log lines.
+ */
+function escaped(text: string): string {
+  return text.replace(UNSAFE_IN_LOG, (character) =>
+    Array.from({ length: character.length }, (_, unit) => `\\u${character.charCodeAt(unit).toString(16).padStart(4, "0")}`).join(""),
+  );
+}
+
+/** A string the tablet chose, such as a record id or its plugin's version, escaped and quoted, so where it ends is clear. */
+function quoted(value: string): string {
+  return escaped(JSON.stringify(value));
+}
+
+/** Hardware a tablet reported, as a log line shows it. */
+function describeReported(hardware: Hardware): string {
+  return `${quoted(hardware.model)} serial ${quoted(hardware.serial)}`;
+}
+
+/** The versions a hello reported, as a log line shows them. */
+function describeVersions({ pluginVersion, decaidVersion }: { pluginVersion: string; decaidVersion: string }): string {
+  return `plugin ${quoted(pluginVersion)}, Decaid ${quoted(decaidVersion)}`;
+}
+
+function describeTakenOver(connection: TakeoverConnectionView): string {
+  return `${connection.tabletId} at ${connection.remoteAddress}: ${describeVersions(connection)}`;
+}
+
+function describeIdentity(identity: Identity, hardware: Hardware | null): string {
+  switch (identity.kind) {
+    case "identified":
+      if (identity.recognisedBy === "alias" || !hardware) return "identified by its connection id";
+      return `${identity.bind ? "bound to" : "identified as"} ${describeReported(hardware)}`;
+    case "hardwareNotReported":
+      return "no machine connected to its tablet yet";
+    case "unidentified":
+      return "the machine reports no serial";
+    case "mismatch":
+      return `reports ${describeReported(identity.hardware)}, not the hardware its token is bound to`;
+    case "rejected":
+      return `reports dismissed hardware ${describeReported(identity.hardware)}`;
+  }
+}
+
+/**
+ * Answers an upgrade with an HTTP error instead of a WebSocket, then destroys
+ * the socket once that is sent, as ws does: a client that keeps its end open
+ * would otherwise hold it. The HTTP server stops handling a socket's errors
+ * once it is upgraded, so a client resetting the connection would otherwise
+ * crash the process.
+ */
+function rejectUpgrade(socket: Duplex, status: string): void {
+  socket.on("error", () => socket.destroy());
+  socket.once("finish", () => socket.destroy());
+  socket.end(`HTTP/1.1 ${status}\r\nConnection: close\r\nContent-Length: 0\r\n\r\n`);
+}
+
+function rawToString(data: RawData): string {
+  if (Array.isArray(data)) return Buffer.concat(data).toString("utf8");
+  return Buffer.from(data as ArrayBuffer).toString("utf8");
+}

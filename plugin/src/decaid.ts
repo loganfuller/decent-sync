@@ -1,0 +1,189 @@
+import { type MachineHardware, isMilkProbe, isRecordId } from "@decent-sync/protocol";
+import type { Reading } from "./change-detection.js";
+
+// Decaid's local API (assets/api/rest_v1.yml), through the plugin-scoped
+// fetch: everything the plugin captures is read from it, and the Library
+// items the server shares are written through it (library-writes.ts). Any
+// request can fail, as /machine/info does while no machine is connected, so
+// each value read may be missing.
+
+const API = "http://localhost:8080/api/v1";
+
+/** What `hello` reports about this tablet and its machine. */
+export interface TabletIdentity {
+  /** Null only if /info could not be read: every supported Decaid reports it. */
+  decaidVersion: string | null;
+  connectionId: string | null;
+  machine: MachineHardware | null;
+}
+
+export async function readTabletIdentity(): Promise<TabletIdentity> {
+  const [info, settings, machine] = await Promise.all([getObject("/info"), getObject("/settings"), readMachineHardware()]);
+  return {
+    decaidVersion: stringField(info, "fullVersion"),
+    // Decaid keeps the preferred machine's id, so it is known before the machine connects.
+    connectionId: stringField(settings, "preferredMachineId"),
+    machine,
+  };
+}
+
+/** The connected machine's hardware, or null while no machine is connected. */
+export async function readMachineHardware(): Promise<MachineHardware | null> {
+  return readHardware(await getObject("/machine/info"));
+}
+
+/** The machine's hardware as reported, including an empty or "0" serial: the server decides what identifies it. */
+function readHardware(info: Record<string, unknown> | null): MachineHardware | null {
+  const model = info?.model;
+  const serial = info?.serialNumber;
+  if (typeof model !== "string" || typeof serial !== "string") return null;
+  return { model, serial, firmware: stringField(info, "version") };
+}
+
+async function getObject(path: string): Promise<Record<string, unknown> | null> {
+  try {
+    const response = await fetch(API + path);
+    if (!response.ok) return null;
+    const body = await response.json();
+    return typeof body === "object" && body !== null && !Array.isArray(body) ? (body as Record<string, unknown>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function stringField(object: Record<string, unknown> | null, key: string): string | null {
+  const value = object?.[key];
+  return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * The id of the milk probe Decaid lists among its sensors (`isMilkProbe`),
+ * or null where none is, or the list can't be read. A Bengle's probe is
+ * listed only while attached (`BengleProbeBridge` in
+ * decaid:lib/src/controllers/bengle_probe_bridge.dart).
+ */
+export async function findMilkProbe(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API}/sensors`);
+    const sensors: unknown = response.ok ? await response.json() : null;
+    if (!Array.isArray(sensors)) return null;
+    const probe = sensors.find((sensor: unknown) => isMilkProbe((sensor as { id?: unknown } | null)?.id));
+    return probe ? (probe as { id: string }).id : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * A bounded page of metadata, newest first, with how many Shots the tablet
+ * holds as it answered; /shots/ids would make history one unbounded response.
+ */
+export async function readShotPage(limit: number, offset: number): Promise<{ items: unknown[]; total: number } | null> {
+  const page = await getObject(`/shots?limit=${limit}&offset=${offset}&order=desc`);
+  return Array.isArray(page?.items) && typeof page.total === "number" ? { items: page.items, total: page.total } : null;
+}
+
+export function readShot(id: string): Promise<Record<string, unknown> | null> {
+  return readRecord("shots", id);
+}
+
+export function readSteam(id: string): Promise<Record<string, unknown> | null> {
+  return readRecord("steams", id);
+}
+
+/**
+ * Every Steam Record id the server stores (`isRecordId`). Throws, saying
+ * why, if they cannot be read now: past about 268,900 Steam Records the list
+ * outgrows Decaid's 10 MiB fetch limit, which fails the fetch. Only this and
+ * `GET /steams` list Steam Records, and that returns every record, workflow
+ * included, in one response that outgrows the limit far sooner.
+ */
+export async function readSteamIds(): Promise<string[]> {
+  const response = await fetch(`${API}/steams/ids`);
+  if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+  const body: unknown = await response.json();
+  if (!Array.isArray(body)) throw new Error("Decaid's answer is not a list");
+  return body.filter(isRecordId);
+}
+
+/**
+ * The id of the newest Steam Record by its time, as `GET /steams/latest`
+ * answers it without measurements, or null if the tablet holds none or its
+ * id is not one the server stores. Throws if it cannot be read now.
+ */
+export async function readLatestSteamId(): Promise<string | null> {
+  const response = await fetch(`${API}/steams/latest`);
+  if (!response.ok) throw new Error(`Decaid answered ${response.status}`);
+  const body: unknown = await response.json();
+  if (body === null) return null;
+  if (typeof body !== "object" || Array.isArray(body)) throw new Error("Decaid's answer is not a Steam Record");
+  const id = (body as Record<string, unknown>).id;
+  return isRecordId(id) ? id : null;
+}
+
+/** One record, or null if the tablet no longer has it. Throws if it cannot be read now. */
+async function readRecord(collection: "shots" | "steams", id: string): Promise<Record<string, unknown> | null> {
+  const response = await fetch(`${API}/${collection}/${encodeURIComponent(id)}`);
+  if (response.status === 404) return null;
+  if (!response.ok) throw new Error("Record unavailable");
+  const body: unknown = await response.json();
+  if (body === null || typeof body !== "object" || Array.isArray(body)) throw new Error("Record response unavailable");
+  return body as Record<string, unknown>;
+}
+
+/**
+ * Has Decaid's store API read this plugin's storage, for the side effect
+ * alone, and says whether it answered. Decaid's backup (`GET
+ * /api/v1/data/export`) holds only the stores that API has opened since
+ * Decaid started (KvStoreExportSection, as of v0.9.0), and
+ * `host.storage` reaches the same storage without opening it there, so
+ * until this read is answered a backup leaves out the tablet's id.
+ */
+export async function keepStorageInBackups(): Promise<boolean> {
+  try {
+    return (await fetch(`${API}/store/${encodeURIComponent(__PLUGIN_ID__)}`)).ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * One read of a collection at `path`, a route under the API with its query.
+ * With an ETag, Decaid answers 304 if it is still current. A failed read and
+ * a refusal (such as 500 while no machine is connected, or 503 while no scale
+ * is) are unavailable, and so is `null`, but for a key of Decaid's store
+ * (`emptyWhenNull`), where it is a key never written, which DYE2 reads as an
+ * empty list, and so does this.
+ */
+export async function readCollection(path: string, etag: string | null, emptyWhenNull = false): Promise<Reading> {
+  try {
+    const response = await fetch(API + path, etag === null ? undefined : { headers: { "If-None-Match": etag } });
+    if (response.status === 304) return { kind: "notModified" };
+    if (!response.ok) return { kind: "unavailable" };
+    const value: unknown = await response.json();
+    if (value === null) return emptyWhenNull ? { kind: "value", value: [], etag: null } : { kind: "unavailable" };
+    return { kind: "value", value, etag: response.headers.get("etag") };
+  } catch {
+    return { kind: "unavailable" };
+  }
+}
+
+/** What Decaid's API answered a request: its status, and its body as text. */
+export interface Answer {
+  status: number;
+  ok: boolean;
+  text: string;
+}
+
+/**
+ * Sends a request to Decaid's API, with a JSON body if one is given, and
+ * resolves with its answer whatever its status. Throws if Decaid does not
+ * answer, as when its fetch times out after 30 s.
+ */
+export async function request(method: "GET" | "POST" | "PUT" | "DELETE", path: string, body?: unknown): Promise<Answer> {
+  const response = await fetch(
+    API + path,
+    body === undefined ? { method } : { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) },
+  );
+  return { status: response.status, ok: response.ok, text: await response.text() };
+}

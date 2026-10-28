@@ -2,9 +2,11 @@
 
 Decent Sync connects Decent espresso machines (any DE1 model or a Bengle)
 running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted
-server. The target design lets Machines at several Locations share a library
-of Beans, Bean Batches and Profiles. Machines at the same location share equipment, recipes and steam
-settings, working like the groups of one commercial espresso machine. The
+server. The target design lets Machines at several Locations share a Library
+of Beans, Bean Batches, Grinders and Profiles, each Location offering its own
+part of it.
+Machines at the same location share grinders and recipes, with the steam,
+hot water and flush settings each recipe holds, working like the groups of one commercial espresso machine. The
 server collects every shot and steam record they produce, and a web management
 interface shows machines, stock and analytics across all locations.
 
@@ -13,18 +15,79 @@ business with a roastery lab and several cafes.
 
 ## Status
 
-**Milestone 1 is in progress.** The workspace, stack and CI are in place
-([the scaffold ticket](https://github.com/loganfuller/decent-sync/issues/2)), with no
-domain behavior yet. The receive-only prototype (`server.mjs`) remains until
-[ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes it.
-[Milestone 1](https://github.com/loganfuller/decent-sync/issues/1) and its child tickets
-define the build scope. The shared-library behavior below comes in later milestones;
-milestone 1 captures data without pushing changes to tablets.
+**Milestones 1 to 3 are built, and released in
+[v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0),
+and Milestone 5 in
+[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0).**
+Admins sign in, manage Locations, and adopt Machines, which are identified by
+their hardware and record where they were in a Location History. Adopted
+tablets send their Shots and Steam Records, which the REST API serves, each
+credited to the Location its Machine was at when it was recorded, their
+Workflow changes and machine state transitions, and their library, settings
+and paired devices, so the management interface shows what each Machine is
+set up to pull next, what it is doing, and its scale, sensors and calibration.
+Admins and Staff list Shots across every Location, filter them, and open each
+one's curves beside the previous Shot on its Machine, and review Steam Records
+the same way, with each one's milk temperature and curves. Milestone 1's spec
+is [#1](https://github.com/loganfuller/decent-sync/issues/1), and its [GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/1) holds its
+tickets and their hardening.
 
-Releases publish the server image and the plugin ZIP, starting with
-[v0.1.0](https://github.com/loganfuller/decent-sync/releases/tag/v0.1.0). Until
-milestone 1's capture work lands, the plugin only loads and the server only
-serves a placeholder page.
+[Milestone 2](https://github.com/loganfuller/decent-sync/issues/77) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/2)) shares the
+Library with each Location's Machines: Beans, Bean Batches, Grinders and
+Profiles. A bean, batch, grinder or profile entered on a tablet at a Location
+joins the Library (a bean may become the Bean with the same roaster and name,
+and a profile is the Profile with the same steps) and is written to that
+Location's other tablets. A batch is at the Locations where it was added until
+it is finished there, with its own remaining weight at each, a Bean is offered
+where its batches are, a Grinder belongs to the Location where it was created,
+and a Profile is shown or hidden at each Location. Archiving, hiding or
+deleting one on a tablet acts at that tablet's Location only; a Grinder
+archived or deleted there is Archived. Each Machine keeps its own steam, hot
+water and flush settings, but those the Recipe it has loaded holds. An edit made on a tablet or in the management
+interface reaches every tablet that holds the item, merged field by field with
+the latest edit winning; each item keeps its history, and an edit that lost to one made without seeing it is kept as a
+Conflict, whose value the management interface uses or dismisses. The
+management interface's Library lists the Beans, the Bean Batches, the
+Grinders, the Profiles, and where each is, and creates, edits, Archives and
+restores Beans, Bean Batches and Grinders, adding and finishing batches at
+each Location; it shows and hides each Profile at each Location, which is how
+a lab Profile reaches a cafe, and Archives and restores Profiles; an Admin
+hard-deletes an item no Shot names, from every tablet too. Each Shot is linked
+to the Bean Batch, Grinder and Profile it used, Shots filter by them, and each
+item's page lists its Shots. A Machine adopted at a Location, moved there, or
+whose sharing an Admin turns back on after making it capture-only takes on
+that Location's Library: what its tablet held of its own stays
+out of the Library, archived or hidden on it, unless the Location had none of
+that kind yet. A write a tablet refuses is skipped, and tried again once its
+item changes or the tablet reconnects, while the others go on; each Machine's
+page shows its sharing status: the changes waiting for its tablet, the last it
+applied, and the writes it refused, with Decaid's answer. The Workflow changes
+and machine state transitions a tablet has yet to deliver are kept in Decaid's
+plugin storage, so unloading the plugin loses none. Everything else is
+captured without being written to tablets.
+
+[Milestone 3](https://github.com/loganfuller/decent-sync/issues/134) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/3)) shares
+each Location's DYE2 recipes, baskets and tools as Recipes, each in one of
+its five Recipe Slots or none, Baskets and Tools, and follows each Machine's Loaded Recipe, which its
+Workflow follows and which follows the changes made on it, its steam, hot
+water and flush settings included. Each Shot is linked to its Recipe and
+Basket.
+
+[Milestone 5](https://github.com/loganfuller/decent-sync/issues/277) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built,
+and released in
+[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0): from
+1.4.0, each release runs beside the previous one
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so
+several server instances upgrade without taking anything offline, and a plugin
+and server a release apart work together, whichever is upgraded first (see
+[Upgrading](#upgrading)).
+
+Releases publish the server image and the plugin ZIP. v1.0.0 starts the
+database afresh; nothing from earlier releases carries over.
 
 ## Design
 
@@ -36,19 +99,21 @@ The target sharing scopes are:
 
 | Shared | Across |
 |---|---|
-| Beans, bean batches, profiles | every location. Which profiles are shown, and each batch's stock, are tracked per location |
-| Equipment, recipe slots | machines at the same location |
-| Steam, hot water and rinse settings | machines of the same model at the same location. Turning steam on or off stays per machine |
-| Profile, dose, yield, batch and grinder in use | not shared: each machine has its own |
+| Beans, bean batches, profiles, baskets and tools | every location, each offering its own part: the profiles, baskets and tools shown there, the batches at that location and their beans, and each batch's stock there |
+| Grinders, recipes and their slots | machines at the same location |
+| Profile, dose, yield, batch, grinder, basket, and steam, hot water and flush settings in use | not shared: each machine has its own, which loading a recipe sets; turning steam off never changes a recipe |
 
 - A **machine** is the hardware, identified by model and serial. Replacing its
   tablet doesn't make it a new machine.
 - Machines are adopted by hand. An admin creates the machine in the management
   interface, which issues a token. Someone enters the server URL and token in
   the plugin's settings.
-- The server is the source of truth, and tablets can still edit. Conflicting
-  edits resolve by last-writer-wins on the time of the original edit, and the
-  management interface shows them. Sync never hard-deletes.
+- The server is the source of truth, and tablets can still edit. A tablet
+  holds only what its location offers, and what a tablet creates starts at its
+  location only. Edits resolve per field by last-writer-wins on the time of the
+  original edit, and the management interface keeps a losing edit as a
+  Conflict to review. A delete on a tablet acts only at its location, and sync
+  deletes nothing from tablets but what an admin hard-deletes.
 
 ## Layout
 
@@ -71,9 +136,10 @@ together, at one version for the whole repo.
 
 The server needs only PostgreSQL 14 or newer. Each release publishes a Docker
 image of the server and the built management interface to
-`ghcr.io/loganfuller/decent-sync`, tagged with its version (`0.1.0`), its minor
-series (`0.1`) and `latest`. On startup the server applies any pending database
-migrations, so upgrading is running a newer image.
+`ghcr.io/loganfuller/decent-sync`, tagged with its version (`1.0.0`), its minor
+series (`1.0`) and `latest`. On startup the server applies any pending database
+migrations, so upgrading is running a newer image (see
+[Upgrading](#upgrading)).
 
 ### Docker Compose
 
@@ -88,7 +154,12 @@ docker compose up -d
 
 The management interface is then at `PUBLIC_URL`. The first person to open it
 creates the first Admin account; after that, setup is closed and everyone
-signs in. Open it yourself before sharing the address. Use `PUBLIC_URL` or the
+signs in. Open it yourself before sharing the address. To bring others in, an
+Admin creates an invite under Accounts, as an Admin or as Staff at chosen
+Locations, and sends its one-time link themselves: the server sends no email.
+The link expires after 7 days. Accounts is also where an Admin changes
+someone's role, deactivates an account, and resets a forgotten password by
+issuing a one-time link that expires after a day. Use `PUBLIC_URL` or the
 server's IP address: to guard against cross-site attacks, the server refuses
 setup and sign-in from a page loaded under any other name. PostgreSQL's data lives
 in the `db-data` volume. These variables in `.env` configure the stack:
@@ -96,16 +167,22 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | Variable | |
 |---|---|
 | `PUBLIC_URL` | the `http(s)://` address people and tablets use to reach the server (default `http://localhost:3000`, which a tablet cannot reach) |
-| `DECENT_SYNC_VERSION` | the image tag to run (default `latest`); pin a version such as `0.1.0` to upgrade deliberately |
+| `DECENT_SYNC_VERSION` | the image tag to run (default `latest`); pin a version such as `1.0.0` to upgrade deliberately |
 | `DECENT_SYNC_PORT` | the host port the server is published on (default 3000); keep `PUBLIC_URL` in step |
 | `POSTGRES_PASSWORD` | the database password (default `decent_sync`); letters and digits only, since it goes into a URL. It takes effect only when the volume is first created |
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
+| `CLIENT_ADDRESS_HEADER` | optional: the request header a reverse proxy puts the tablet's address in, such as `X-Forwarded-For` (see [On the internet](#on-the-internet)) |
 
-To upgrade, pull the newer image and restart:
+To upgrade, pull the newer image and restart. The server is offline until
+the new one has started and migrated the database, usually a few seconds:
 
 ```bash
 docker compose pull && docker compose up -d
 ```
+
+With `DECENT_SYNC_VERSION` at `latest`, a pull takes the newest release, so
+upgrade after each release, or set each version in turn (see
+[Upgrading](#upgrading)).
 
 In a checkout of this repo, `docker compose up` builds the image from source
 when it cannot pull one.
@@ -117,8 +194,19 @@ environment variables (see [Development](#development)):
 docker run -d -p 3000:3000 \
   -e DATABASE_URL=postgresql://user:password@db.example.com:5432/decent_sync \
   -e PUBLIC_URL=https://sync.example.com \
-  ghcr.io/loganfuller/decent-sync:0.1.0
+  -e DRAIN_GRACE_SECONDS=0 \
+  ghcr.io/loganfuller/decent-sync:1.0.0
 ```
+
+`DRAIN_GRACE_SECONDS=0` skips the grace: with one instance there is nowhere
+else for requests to go, and Docker kills a container 10 s after asking it to
+stop.
+
+The user in `DATABASE_URL` should own its database: a migration sets the
+database's `idle_in_transaction_session_timeout`, so that a transaction left
+open by a vanished host releases its locks, and only the owner or a superuser
+may set it. If the user cannot, the server warns at startup and gives the
+statement for the owner to run.
 
 ### On a LAN, without TLS
 
@@ -132,62 +220,225 @@ Traffic on the LAN is then unencrypted, including each Machine's token, so use
 this only on a network you trust. To reach the server from outside the network,
 put it behind HTTPS instead.
 
+### On the internet
+
+Anyone who can reach the server can try to sign in or open a sync connection.
+Each server instance checks at most 2 passwords at once, with 16 more
+waiting, and refuses further sign-ins with 429. It also holds at most 64 sync
+connections that have not yet had a `hello` accepted, and refuses more with
+503. That keeps the instance running, but a flood can still keep real sign-ins
+and tablets out. In front of a server exposed to the internet, also limit, at
+the reverse proxy:
+
+- the rate of sign-in requests (`POST /api/session`), per client address if
+  the proxy sees it: people sign in rarely, so a few a minute is plenty;
+- concurrent connections to `/sync`, to well above your number of tablets.
+
+fly.io's proxy cannot limit one route's request rate, but it can cap the
+connections it sends each machine: see `[http_service.concurrency]` in the
+fly.io example below.
+
+Behind a reverse proxy, every tablet's connection comes from the proxy, so
+Machines show the proxy's address rather than the tablet's. Set
+`CLIENT_ADDRESS_HEADER` to the header the proxy puts the client's address in,
+usually `X-Forwarded-For`: Caddy sets it, and nginx does with
+`proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;`. The server
+takes the header's last comma-separated entry, the one the nearest proxy
+added, when it is an IP address, and the connection's own address otherwise.
+Any client can send that header, so set it only when every request reaches the
+server through a proxy that sets or overwrites it.
+
 ### fly.io
 
 [fly.io](https://fly.io) can host the server on the internet for machines at
-several sites. This example deploys the published image with a PostgreSQL
-database on fly.io; any PostgreSQL 14 or newer that fly.io can reach works.
+several sites. This example deploys the published image with a database on
+Fly Managed Postgres; any PostgreSQL 14 or newer that fly.io can reach works.
+
+Create the app, a cluster, and a database and user for the server, then attach
+them, which sets the app's `DATABASE_URL` secret. The user needs the
+`schema_admin` role: migrations create tables, which a `writer` may not.
 
 ```bash
 fly apps create my-decent-sync
-fly mpg create                  # Fly Managed Postgres; note its connection URL
-fly secrets set --app my-decent-sync DATABASE_URL='postgresql://...'
+fly mpg create                  # note the cluster's id
+fly mpg databases create <cluster id> --name decent_sync
+fly mpg users create <cluster id> --username decent_sync --role schema_admin
+fly mpg attach <cluster id> --app my-decent-sync --database decent_sync --username decent_sync
 ```
 
-Save a `fly.toml` like this one, with your app's name and the image version to
-run, then deploy one machine. Milestone 1 runs as a single server instance, so
-skip fly.io's default second machine:
+Two changes to that URL are needed:
+
+- `fly mpg attach` points it at the cluster's pooler,
+  `pgbouncer.<cluster id>.flympg.net`. Use the direct host,
+  `direct.<cluster id>.flympg.net`, instead. The server runs through the
+  pooler only in session mode, as it listens for PostgreSQL notifications,
+  which a pooler drops in transaction mode. Session mode is fly.io's documented
+  default, but a cluster has been found in transaction mode; the mode is under
+  View Pooler Settings on the cluster's Connect tab in fly.io's dashboard. Even
+  in session mode, the pooler cannot carry the timeout below, so the direct
+  host is the one to use. The server needs only a few connections per
+  instance, 11 at most, so it can go without a pooler; what a deploy needs
+  is below.
+- Managed Postgres's databases are owned by `postgres`, so the migration cannot
+  set the database's idle-in-transaction timeout (see above), and Managed
+  Postgres refuses role settings too. Send the timeout at connection startup
+  instead, by adding `options=-c idle_in_transaction_session_timeout=30s` to
+  the URL. The direct host accepts it; the pooler refuses any connection that
+  sends it. Without it the server warns at startup.
+
+fly.io does not show a secret again. Either set the whole URL yourself, with
+the user's password:
 
 ```bash
-fly deploy --ha=false
+fly secrets set --app my-decent-sync --stage \
+  DATABASE_URL='postgresql://decent_sync:<password>@direct.<cluster id>.flympg.net/decent_sync?options=-c+idle_in_transaction_session_timeout%3D30s'
 ```
+
+Or, before the first deploy, rewrite the attached one on a temporary machine,
+which keeps the password out of your terminal. The machine removes itself
+after 10 minutes:
+
+```bash
+fly machine run ghcr.io/loganfuller/decent-sync:1.0.0 sleep 600 --app my-decent-sync --rm
+fly ssh console --app my-decent-sync -q -C 'node -e "const u = new URL(process.env.DATABASE_URL); u.hostname = u.hostname.replace(/^pgbouncer[.]/, \"direct.\"); u.searchParams.set(\"options\", \"-c idle_in_transaction_session_timeout=30s\"); console.log(\"DATABASE_URL=\" + u)"' \
+  | tr -d '\r' | fly secrets import --app my-decent-sync --stage
+```
+
+Save a `fly.toml` like this one, with your app's name, the region nearest the
+database and the image version to run, then deploy it on two VMs:
+
+```bash
+fly deploy
+fly scale count 2
+fly ips list --app my-decent-sync
+```
+
+A first deploy starts two VMs already, and `fly scale count 2` then changes
+nothing; an app running one, such as one deployed with `--ha=false`, gets its
+second. If the app has no addresses after its first deploy, as can happen when
+deploying from a script, allocate them with `fly ips allocate-v4 --shared` and
+`fly ips allocate-v6`. Once the app is reachable, anyone can open it and create
+the first Admin, so do that straight away.
+
+The server runs as two instances on one database
+([ADR-0016](docs/adr/0016-instances-share-only-postgresql.md)), on VMs in one
+region, which fly.io normally places on separate hosts, though it doesn't
+promise to. Losing a host then usually leaves the other VM serving, and the
+tablets reconnect to it within seconds.
+
+Each deploy is blue-green (`[deploy]` below), which works as each release runs
+beside the previous one ([Upgrading](#upgrading)). fly.io starts a VM of the
+new release beside each old one and waits for its health check, which the
+server passes only once it has migrated the database. It then moves traffic to
+the new VMs over some 10 to 20 seconds and stops the old ones, whose tablets
+reconnect to the new ones within about a second. Nothing goes offline, and a
+page left open loads the new release at its next navigation. A new VM that
+doesn't pass its check fails the deploy, and the old ones keep serving.
+
+A deploy briefly doubles the VMs, to four, and the database must take all
+their connections at once. Each instance holds up to 11, a pool of 10 and one
+listening for notifications, so the database's `max_connections` must allow 44
+beyond whatever else uses it, such as another app on the same cluster.
 
 ```toml
 # fly.toml
 app = "my-decent-sync"
-primary_region = "ord"
+primary_region = "yyz"
+# How long a stopping VM has before fly.io kills it. On fly.io's signal the
+# server answers 503 to its health check, hands its tablets to the other VMs
+# and still answers requests for 15 s (DRAIN_GRACE_SECONDS), until the proxy
+# has noticed. It then finishes the requests under way and its background
+# jobs' batches: usually at once, but a large change, such as one to a long
+# Location History, can take a minute or two. Work that outlasts this is cut
+# off, and its transaction rolls back. fly.io's default of 5 s would cut off
+# even the 15 s.
+kill_timeout = 150
 
 [build]
-  image = "ghcr.io/loganfuller/decent-sync:0.1.0"
+  image = "ghcr.io/loganfuller/decent-sync:1.0.0"
+
+[deploy]
+  # A new VM starts beside each old one, and takes its traffic once healthy.
+  strategy = "bluegreen"
+  # How long a new VM has to pass its health check before fly.io fails the
+  # deploy: above the release's migrations plus another new VM's, which it
+  # waits for. A release whose migrations take longer says so in its notes.
+  wait_timeout = "10m"
 
 [env]
   PUBLIC_URL = "https://my-decent-sync.fly.dev"
+  # So Machines show each tablet's address, not fly.io's proxy's. fly.io puts
+  # the app's own address last in X-Forwarded-For, so use its own header.
+  CLIENT_ADDRESS_HEADER = "Fly-Client-IP"
 
 [http_service]
   internal_port = 3000
   force_https = true
-  # Tablets hold a WebSocket open; keep one machine running for them.
+  # Tablets hold a WebSocket open; keep every VM running for them.
   auto_stop_machines = "off"
-  min_machines_running = 1
 
+  # Optional: the most connections, tablets' included, the proxy sends this
+  # VM at once; it holds back the rest. fly.io sets no limit by default.
+  [http_service.concurrency]
+    type = "connections"
+    soft_limit = 100
+    hard_limit = 200
+
+  # The check the proxy routes by. A stopping server answers requests for
+  # 15 s (DRAIN_GRACE_SECONDS), this interval plus the timeout, so change
+  # them together.
   [[http_service.checks]]
     method = "GET"
     path = "/api/health"
-    interval = "30s"
+    interval = "10s"
     timeout = "5s"
     grace_period = "30s"
 ```
 
-To upgrade, change the image version in `fly.toml` and deploy again. With a
-custom domain, set `PUBLIC_URL` to it.
+To upgrade, change the image version in `fly.toml` and deploy again, one
+release at a time ([Upgrading](#upgrading)). With a custom domain, set
+`PUBLIC_URL` to it.
+
+### Upgrading
+
+Each release from 1.4.0 runs beside the release before it
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)): the
+new release migrates the database in place while the old one may still serve
+from it, so no upgrade asks to stop the server first or to recreate the
+database. With two instances or more behind a proxy that routes by
+`/api/health`, as in the fly.io example, the new release starts beside the
+old one and takes the traffic once it has migrated, and the old one then
+stops, so nothing goes offline. One instance, as with Docker Compose, stops
+and then starts the new release, and is offline until it has migrated:
+usually a few seconds.
+
+Decaid checks for plugin releases every 12 hours while it runs, and updates
+each tablet's plugin whatever its server runs. A plugin and server a release
+apart work together, whichever is upgraded first, but two releases apart they
+may not. So keep the server within one release of the newest plugin, upgrading
+it to each release soon after it is published. A server that skipped a release
+is taken up one release at a time, each run until its background work is done,
+such as rewriting stored data in batches: a release whose migrations need that
+work done checks that it is, and otherwise refuses to start, naming the
+release to run until it is. With Docker Compose, set `DECENT_SYNC_VERSION` to
+each release in turn; on fly.io, the image version in `fly.toml`.
+
+Each release's notes start with what it needs beyond its image
+([UPGRADING.md](UPGRADING.md)).
 
 ## Installing the plugin
 
-The plugin needs Decaid v0.8.7 or newer. Decaid installs it from this repo's
-GitHub releases by repo name. On the tablet, open Decaid's Settings, then
-Plugins; choose **Install Plugin**, then **GitHub Release**, and enter
-`loganfuller/decent-sync` as the repository. Or, from a computer on the same
-network:
+The plugin needs Decaid v0.9.0 or newer. The server refuses a tablet running
+an older Decaid, and the Machine's page says why. A plugin works with a server
+of its own release or of the release before or after it
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so a
+tablet may take a plugin update before or after its server is upgraded (see
+[Upgrading](#upgrading)).
+
+Decaid installs the plugin from this repo's GitHub releases by repo name. On
+the tablet, open Decaid's Settings, then Plugins; choose **Install Plugin**,
+then **GitHub Release**, and enter `loganfuller/decent-sync` as the repository.
+Or, from a computer on the same network:
 
 ```bash
 curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
@@ -196,10 +447,77 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 Decaid records where the plugin came from and updates it with its other update
 checks, or when you press **Check for updates** under Plugins
-(`POST /api/v1/plugins/update` does the same). An update that asks for new
-permissions waits under Plugins for approval.
+(`POST /api/v1/plugins/update` does the same). Decaid installs an update by
+itself only when it asks for no new permissions. One that does waits under
+Plugins, saying it needs approval and which permissions it adds, until someone
+at that tablet presses **Review**, then **Approve and update**, or sends
+`POST /api/v1/plugins/decent-sync.reaplugin/update/approve` to the tablet's API.
+Each tablet needs its own approval. Until a tablet's update is approved, it
+runs the plugin it has, which a server more than one release newer may refuse.
+Each Machine's page shows the plugin release its tablet runs.
+[UPGRADING.md](UPGRADING.md) lists what each release needs.
 
 Then enter the server URL and the Machine's token in the plugin's settings.
+Both are shown once, with copy buttons, when an Admin creates the Machine's
+entry under **Machines** in the management interface. A lost token can't be
+shown again: issue a new one from the Machine's page, which disconnects any
+tablet still using the old one. The plugin connects to
+`ws(s)://<server host>/sync`, derived from the server URL, and the Machine
+shows as online.
+
+On its first run on a tablet, the plugin gives the tablet an id, which it keeps
+in Decaid's plugin storage, where it survives plugin updates. The Machine's
+page shows the tablet its latest connection came from, and its earlier ones.
+Resetting the tablet's Decaid data, or replacing the tablet, makes a new tablet
+there. Decaid's backups hold the id only once Decaid's store API has read the
+plugin's storage since Decaid started, which the plugin asks for as it loads
+and again every 30 s until Decaid answers. Restoring such a backup brings back
+the tablet it came from, provided the restore puts the id back: restore before
+installing the plugin, as Decaid's onboarding does, or choose to overwrite
+existing data. Otherwise the tablet keeps the new id it was given, and shows
+up as a new tablet.
+
+The plugin also keeps the Workflow changes and machine state transitions the
+server has not yet acknowledged in Decaid's plugin storage, so disabling the
+plugin, changing its settings or restarting Decaid while the server can't be
+reached loses none of them: the next load sends them first, unless the token
+was changed meanwhile. While the server
+is unreachable for long, it keeps the newest 2,000 of them, up to 2 Mi
+characters, dropping the oldest. Shots and Steam Records need no keeping:
+every load sends the server an index of the tablet's records, and the server
+asks for those it lacks.
+
+A Machine at a Location shares its tablet's beans, bean batches, grinders and
+profiles with that Location's other Machines. The plugin writes to its
+tablet's Decaid: it adds the beans, batches, grinders and profiles another
+tablet at the Location entered, writes each bean's, batch's and grinder's id
+in the Library into the record's
+`extras`, keeping what other plugins keep there, sets each batch's remaining
+weight to its Location's, and shows each profile its Location shows. What the
+Location no longer offers, such as a batch finished there or a profile hidden
+there, is archived or hidden on the tablet, never deleted. A barista archiving
+a batch finishes it at that Location, un-archiving it adds it back, deleting
+or archiving a bean finishes its batches there, archiving or deleting a
+grinder archives it on every tablet at that Location, and hiding, deleting or
+changing a profile's steps hides it there. A Machine with no Location is only
+captured: its tablet is written nothing, and its library stays out of the
+Library. See [docs/LIBRARY.md](docs/LIBRARY.md).
+
+Recipes are shared through DYE2's storage, and a Machine's Loaded Recipe is
+the recipe DYE2 and Streamline name in its Workflow as a barista applies one,
+into which the plugin has DYE2 save each change made on the Machine
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)). So
+a Machine that follows Recipes needs DYE2 v0.1.26 or later, and streamline-js
+from `main` at `cec5664` or later where Streamline is its skin. That untagged
+build is Streamline's minimum until a tagged release contains `ea04f83`, which
+lets its DYE strip apply a recipe holding a grinder or Basket
+([ADR-0017](docs/adr/0017-supported-versions.md)).
+
+| Setting | |
+|---|---|
+| Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
+| Token | the Machine's token (stored securely by Decaid) |
+| Poll interval | seconds between checks for changes to the library, Tablet Settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
 
 ## Development
 
@@ -224,9 +542,15 @@ required variable is missing or invalid.
 | `PORT` | listen port (default 3000) |
 | `HOST` | bind address (default `0.0.0.0`) |
 | `WEB_DIST_DIR` | the built management interface (default `web/dist`) |
+| `SYNC_HELLO_TIMEOUT_SECONDS` | how long a plugin connection has to send `hello` (default 10) |
+| `SYNC_HEARTBEAT_SECONDS` | how often plugins send a heartbeat (default 30); a connection silent for three is closed |
+| `DRAIN_GRACE_SECONDS` | how long a stopping server, its health check answering 503, still answers requests, so a proxy that routes by that check notices and sends them elsewhere (default 15, a 10 s check interval plus a 5 s timeout; 0 with one instance). It then finishes those under way and exits |
+| `LIVE_VIEW_KEEP_ALIVE_SECONDS` | how long a Machine's Live View stream goes with nothing to send before the server sends a comment on it, so a proxy doesn't close it as idle (default 15) |
+| `CLIENT_ADDRESS_HEADER` | the request header, such as `X-Forwarded-For` or `X-Real-IP`, whose last entry, when an IP address, is a tablet's address instead of the connection's (default unset: the connection's). Set it only when every request reaches the server through a proxy that sets or overwrites that header ([On the internet](#on-the-internet)) |
 
 On startup the server applies pending database migrations, then serves the
-REST API under `/api` and the management interface everywhere else.
+REST API under `/api`, the plugin's WebSocket at `/sync`, and the management
+interface everywhere else.
 
 | Command | |
 |---|---|
@@ -234,16 +558,23 @@ REST API under `/api` and the management interface everywhere else.
 | `npm run dev:web` | Vite dev server for `web/`, proxying `/api` to the dev server |
 | `npm run typecheck` | typecheck every workspace |
 | `npm run build` | build every workspace, including `decent-sync.reaplugin/` |
+| `npm run build:stale` | rebuild only the workspaces whose builds are older than their sources |
+| `npm run build:latest-release` | build the latest release from its tag, outside the checkout, for the tests that run it beside the change |
+| `npm run db:test` | start the shared test PostgreSQL in Docker, and drop test databases left over 2 hours old |
 | `npm test` | Vitest (run `npm run build` first: tests use the built plugin and server) |
 | `npm run test:e2e` | Playwright against the built server (run `npm run build` first) |
+| `npm run test:latest-release-suite` | the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker (run `npm run build:latest-release` first) |
 | `npm run check:plugin-build` | fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | write the release ZIP of the committed plugin to `dist/` |
 | `docker compose up --build` | build the server image from this checkout and run it with PostgreSQL |
 
 Server tests and Playwright start the built server once per test file, each on
 a fresh database they create and drop on the PostgreSQL server named by
-`DATABASE_URL`, so they need it running and its user allowed to create
-databases (true of `npm run db:up`'s).
+`TEST_DATABASE_URL`, or else `DATABASE_URL`, so they need it running and its
+user allowed to create databases and roles (true of `npm run db:test`'s and
+`npm run db:up`'s). `npm run db:test` runs a PostgreSQL for tests alone, with
+more connections, keeping test databases out of development data
+(`.env.example`). `docs/AI_BUILD_NOTES.md` says how to run part of the tests.
 
 Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit the
 rebuilt plugin with every change to `plugin/` or `protocol/`. CI checks it, and
@@ -255,66 +586,100 @@ without publishing either.
 One version covers the whole repo. It lives in the root `package.json`, and the
 plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 
-1. Set the version and rebuild the plugin, then commit both and merge to `main`:
+1. Set the version, rebuild the plugin, and retitle the Unreleased notes in
+   `UPGRADING.md`, if any, with the version. Commit the changes and merge them
+   to `main`:
    ```bash
-   npm version 0.2.0 --no-git-tag-version
+   npm version 0.3.0 --no-git-tag-version
    npm run build -w plugin
    ```
-2. Tag the resulting commit on `main` `v0.2.0` and push the tag. A tag on any
+2. Tag the resulting commit on `main` `v0.3.0` and push the tag. A tag on any
    other commit fails the release, since pull request CI tests a merge with
    `main` rather than the tagged commit.
+3. Once it is published, deploy the release to every server you run, before
+   tagging the next. Decaid installs the new plugin on every tablet within 12
+   hours, and a plugin two releases ahead of its server falls outside what the
+   two support together.
 
 The [release workflow](.github/workflows/release.yml) then fails unless the tag
-is `vX.Y.Z` matching the committed manifest's version and CI has passed on the
-tagged commit as a push to `main` (waiting for it rather than running it
-again), publishes the server image (amd64 and arm64) to
-`ghcr.io/loganfuller/decent-sync` as `0.2.0`, `0.2` and `latest`, and finally
-creates the GitHub release with `decent-sync.reaplugin-v0.2.0.zip` as its only
-asset. Decaid's release install and update read the latest release, and refuse
+is `vX.Y.Z` matching the committed manifest's version, `UPGRADING.md` has no
+notes left under Unreleased, and CI has passed on the tagged commit as a push
+to `main` (waiting for it rather than running it again), publishes the server
+image (amd64 and arm64) to `ghcr.io/loganfuller/decent-sync` as `0.3.0`, `0.3`
+and `latest`, and finally creates the GitHub release with
+`decent-sync.reaplugin-v0.3.0.zip` as its only asset. Its notes start with the
+version's section of `UPGRADING.md` (`scripts/release-notes.mjs`), followed by
+GitHub's notes generated from the pull requests merged since the last release.
+Anything owners must do when upgrading, such as approving a plugin update that
+adds a permission on every tablet, goes in `UPGRADING.md` under Unreleased.
+No note asks to stop the server, recreate the database or redo anything: each
+step is done while everything runs
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)). Two
+come before the deploy, and the release's notes name them:
+
+- A release that raises the Decaid, DYE2 or Streamline minimum
+  ([ADR-0017](docs/adr/0017-supported-versions.md)): update each tablet first.
+- A release that raises the wire revision (`WIRE_REVISION` in
+  `protocol/src/index.ts` above the previous release's): the server refuses a
+  plugin more than one revision behind it. See on each Machine's page that its
+  tablet runs the previous release's plugin, or this one's. Where it doesn't,
+  update it from the tablet's network with
+  `POST http://<tablet>:8080/api/v1/plugins/update`, or approve an update that
+  adds a permission with
+  `POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve`.
+
+A release that can't run beside the previous one is made only with the owner's
+approval. The pull requests that break the rule carry the `breaking-release`
+label, which only the owner applies, and from the first one's merge until the
+release is tagged, CI's checks against the latest release skip
+(`docs/AI_BUILD_NOTES.md`). The release takes a new major version, and its
+notes open with its downtime and how to deploy it: stop every instance, then
+start the new release.
+
+Decaid's release install and update read the latest release, and refuse
 prerelease-style tags, so publish only versions meant for every Machine.
 
 ## Milestones
 
-1. **Foundation.** The new layout and stack, machine adoption and identity,
+Each milestone is a
+[GitHub milestone](https://github.com/loganfuller/decent-sync/milestones)
+holding its spec, tickets and pull requests.
+
+1. **[Foundation](https://github.com/loganfuller/decent-sync/milestone/1).** The new layout and stack, machine adoption and identity,
    Locations with time zones, Admin and Staff accounts. Captures Shots, Steam
    Records, Workflow changes and machine state transitions, the library (including DYE2 recipes and equipment), settings and paired
    devices from every Machine. Includes Shot and Steam Record lists and detail
    pages, Shot filters and comparison, and Machine Location history.
-2. **Shared library.** Beans, batches, grinders and profiles pushed to tablets,
-   plus shared steam, hot water and rinse settings and a durable outbox.
-3. **Location sharing.** DYE2 recipes and equipment, Recipe Slots, and the effects
-   of moving a Machine on its tablet. Recording Location moves is already in
-   milestone 1.
-4. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
-5. **Analytics.** Broader views across Machines and Locations, inferred Recipes
-   and Barista grouping. Machine status, Shot filtering and comparison with the
+2. **[Shared library](https://github.com/loganfuller/decent-sync/milestone/2).**
+   Beans, Bean Batches, Grinders and Profiles shared with each Location's
+   Machines, each Location offering its own part, Conflicts and history in
+   the management interface, Shots
+   linked to the Library, and a durable outbox. Spec:
+   [#77](https://github.com/loganfuller/decent-sync/issues/77).
+3. **[Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3).**
+   DYE2 recipes, baskets and tools shared through DYE2's storage, Recipe
+   Slots, each Machine's Loaded Recipe, which its Workflow follows and which
+   follows the changes made on it, and Shots linked to their Recipe and Basket.
+   Recording Location moves is in milestone 1, and what a move changes in a
+   tablet's Library is in milestone 2. Spec:
+   [#134](https://github.com/loganfuller/decent-sync/issues/134).
+4. **[Machine management](https://github.com/loganfuller/decent-sync/milestone/4).**
+   Each Machine's Machine Settings and its Tablet's Tablet Settings edited in
+   the management interface, live while its Tablet is connected (ADR-0023), each
+   Machine's Live View on its page (ADR-0024), then commands such as sleep and
+   wake. Specs:
+   [#220](https://github.com/loganfuller/decent-sync/issues/220) and, for the
+   Live View, [#258](https://github.com/loganfuller/decent-sync/issues/258).
+5. **[Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5).**
+   Each release runs beside the previous one (ADR-0025), so several server
+   instances upgrade without taking anything offline, and Roux's server runs
+   on two fly.io VMs deployed blue-green. Built before the Live View, whose
+   messages are the first to need it. Spec:
+   [#277](https://github.com/loganfuller/decent-sync/issues/277).
+6. **Analytics.** Broader views across Machines and Locations, and Barista
+   grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
-
-## The prototype
-
-`server.mjs` receives what the prototype plugin
-([decent-sync-plugin](https://github.com/loganfuller/decent-sync-plugin),
-archived and read-only) sends, prints it, and stores it as JSON files under `DATA_DIR`.
-Its unreleased wire format is in [docs/PROTOCOL.md](docs/PROTOCOL.md); it is not
-the new protocol version 1. The prototype is not a foundation for milestone 1.
-[Ticket #19](https://github.com/loganfuller/decent-sync/issues/19) removes it after
-the replacement works. See [build notes](docs/AI_BUILD_NOTES.md) for scratch runs
-and the real-tablet installation rule.
-
-```bash
-npm install
-npm run prototype            # ws://0.0.0.0:8787/sync, data in ./data
-node server.mjs --full --verbose
-```
-
-| | |
-|---|---|
-| `--full` | also pretty-print every payload |
-| `--verbose` | also show heartbeats and duplicate deliveries |
-| `PORT` | listen port (default 8787) |
-| `HOST` | bind address (default `0.0.0.0`) |
-| `SYNC_TOKEN` | require this token in each machine's `hello` |
-| `DATA_DIR` | storage root (default `./data`) |
+7. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 
 ## License
 

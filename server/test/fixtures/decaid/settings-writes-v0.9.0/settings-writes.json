@@ -1,0 +1,3200 @@
+{
+  "started": {
+    "exchanges": [],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 55,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 0
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 98,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 2
+        }
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "body": {
+          "flowMultiplier": 1
+        }
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "body": {
+          "target": "flow",
+          "source": "current",
+          "de1ReportedValue": 1,
+          "measuredValue": 1
+        }
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "body": {
+          "target": "pressure",
+          "source": "current",
+          "de1ReportedValue": 1,
+          "measuredValue": 9
+        }
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "body": {
+          "target": "temperature",
+          "source": "current",
+          "de1ReportedValue": 0,
+          "measuredValue": 93
+        }
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 30,
+          "keepAwakeUntil": null,
+          "schedules": []
+        }
+      }
+    }
+  },
+  "machineState": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/machine/state"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "timestamp": "2026-10-24T22:04:39.430136",
+            "state": {
+              "state": "idle",
+              "substate": "idle"
+            },
+            "flow": 0,
+            "pressure": 0,
+            "targetFlow": 0,
+            "targetPressure": 0,
+            "mixTemperature": 5.5,
+            "groupTemperature": 5.5,
+            "targetMixTemperature": 90,
+            "targetGroupTemperature": 90,
+            "profileFrame": 0,
+            "steamTemperature": 11
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "machineSettings": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": 45,
+            "steamPurgeMode": 1
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 45,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "machineSettingsFlows": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "usb": "enable",
+            "steamFlow": 1.5,
+            "hotWaterFlow": 8.5,
+            "flushFlow": 7.5
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 45,
+          "usb": true,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 7.5,
+          "hotWaterFlow": 8.5,
+          "steamFlow": 1.5,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "machineSettingsLenient": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": 42.9,
+            "usb": true,
+            "steamFlow": "1.25"
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 42,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 7.5,
+          "hotWaterFlow": 8.5,
+          "steamFlow": 1.25,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "machineSettingsRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": [
+            45
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "rawBody": "fan=45"
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Invalid JSON body"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": "warm"
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": "Internal Server Error"
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "advancedSettings": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterPh1Flow": 2,
+            "heaterPh2Flow": 4.5,
+            "heaterIdleTemp": 96,
+            "heaterPh2Timeout": 6,
+            "heaterVoltage": 230,
+            "refillKitSetting": 1
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2,
+          "heaterPh2Flow": 4.5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 6,
+          "heaterVoltage": 230,
+          "refillKitSetting": 1
+        }
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "heaterVoltage200": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterVoltage": 200
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "heaterVoltage1120": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterVoltage": 1120
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2,
+          "heaterPh2Flow": 4.5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 6,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "heaterVoltage300": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterVoltage": 300
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2,
+          "heaterPh2Flow": 4.5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 6,
+          "heaterVoltage": -1,
+          "refillKitSetting": 1
+        }
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "advancedSettingsRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "refillKitSetting": 3
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "refillKitSetting must be 0 (force off), 1 (force on) or 2 (auto)"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterPh1Flow": 3,
+            "refillKitSetting": 7
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "refillKitSetting must be 0 (force off), 1 (force on) or 2 (auto)"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": [
+            1
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "calibration": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/calibration",
+          "body": {
+            "flowMultiplier": 1.2
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "body": {
+          "flowMultiplier": 1.2
+        }
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "calibrationRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/calibration",
+          "body": [
+            1.2
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "sensorFlow": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": 1,
+            "measuredValue": 1.0625
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "body": {
+          "target": "flow",
+          "source": "current",
+          "de1ReportedValue": 1,
+          "measuredValue": 1.0625
+        }
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "sensorPressure": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/pressure",
+          "body": {
+            "de1ReportedValue": 8,
+            "measuredValue": 9
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "body": {
+          "target": "pressure",
+          "source": "current",
+          "de1ReportedValue": 1,
+          "measuredValue": 10.125
+        }
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "sensorTemperature": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/temperature",
+          "body": {
+            "de1ReportedValue": 92,
+            "measuredValue": 92.5
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "body": {
+          "target": "temperature",
+          "source": "current",
+          "de1ReportedValue": 0,
+          "measuredValue": 93.5
+        }
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "sensorRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": 0,
+            "measuredValue": 1
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Invalid argument (de1ReportedValue): must not encode as zero for flow or pressure: 0.0"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/humidity",
+          "body": {
+            "de1ReportedValue": 1,
+            "measuredValue": 1
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Unknown calibration target: humidity"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": "1",
+            "measuredValue": 1
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "de1ReportedValue must be a finite number"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": 1,
+            "measuredValue": 40000
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "calibration values must be within the signed Q16.16 range -32768..32767.9999"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": [
+            1,
+            1
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "appSettings": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "automaticUpdateCheck": false,
+            "gatewayMode": "tracking",
+            "logLevel": "FINE",
+            "weightFlowMultiplier": 1.5,
+            "volumeFlowMultiplier": 0.35,
+            "hotWaterFlowMultiplier": 0.25,
+            "scalePowerMode": "displayOff",
+            "blockOnNoScale": true,
+            "blockTareDuringShot": true,
+            "stopHotWaterAtWeight": false,
+            "chargingMode": "longevity",
+            "nightModeEnabled": true,
+            "nightModeSleepTime": 1380,
+            "nightModeMorningTime": 360,
+            "lowBatteryBrightnessLimit": false,
+            "keepAwake": false,
+            "themeMode": "dark"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "tracking",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "FINE",
+          "weightFlowMultiplier": 1.5,
+          "volumeFlowMultiplier": 0.35,
+          "hotWaterFlowMultiplier": 0.25,
+          "scalePowerMode": "displayOff",
+          "blockOnNoScale": true,
+          "blockTareDuringShot": true,
+          "stopHotWaterAtWeight": false,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "longevity",
+          "nightModeEnabled": true,
+          "nightModeSleepTime": 1380,
+          "nightModeMorningTime": 360,
+          "lowBatteryBrightnessLimit": false,
+          "keepAwake": false,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "appSettingsPartChargingMode": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "scalePowerMode": "disconnect",
+            "chargingMode": "fast"
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "fast is not a valid charging mode"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "tracking",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "FINE",
+          "weightFlowMultiplier": 1.5,
+          "volumeFlowMultiplier": 0.35,
+          "hotWaterFlowMultiplier": 0.25,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": true,
+          "blockTareDuringShot": true,
+          "stopHotWaterAtWeight": false,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "longevity",
+          "nightModeEnabled": true,
+          "nightModeSleepTime": 1380,
+          "nightModeMorningTime": 360,
+          "lowBatteryBrightnessLimit": false,
+          "keepAwake": false,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "appSettingsPartMorningTime": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "nightModeEnabled": false,
+            "nightModeMorningTime": 1440
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "nightModeMorningTime must be an integer 0-1439"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "tracking",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "FINE",
+          "weightFlowMultiplier": 1.5,
+          "volumeFlowMultiplier": 0.35,
+          "hotWaterFlowMultiplier": 0.25,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": true,
+          "blockTareDuringShot": true,
+          "stopHotWaterAtWeight": false,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "longevity",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1380,
+          "nightModeMorningTime": 360,
+          "lowBatteryBrightnessLimit": false,
+          "keepAwake": false,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "appSettingsRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "blockOnNoScale": "yes"
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "blockOnNoScale must be a boolean"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "weightFlowMultiplier": "1"
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "weightFlowMultiplier must be a number"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "gatewayMode": "remote"
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "remote is not a gateway mode"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "themeMode": "sepia"
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "message": "Invalid theme mode: sepia. Valid values: system, light, dark"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": [
+            true
+          ]
+        },
+        "response": {
+          "status": 500,
+          "body": "Internal Server Error"
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "rawBody": "themeMode=dark"
+        },
+        "response": {
+          "status": 500,
+          "body": "Internal Server Error"
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "appSettingsLenient": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "scalePowerMode": "DISPLAY_OFF",
+            "logLevel": "LOUD"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "tracking",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "FINE",
+          "weightFlowMultiplier": 1.5,
+          "volumeFlowMultiplier": 0.35,
+          "hotWaterFlowMultiplier": 0.25,
+          "scalePowerMode": "displayOff",
+          "blockOnNoScale": true,
+          "blockTareDuringShot": true,
+          "stopHotWaterAtWeight": false,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "longevity",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1380,
+          "nightModeMorningTime": 360,
+          "lowBatteryBrightnessLimit": false,
+          "keepAwake": false,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "presenceSettings": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "userPresenceEnabled": true,
+            "sleepTimeoutMinutes": 30
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "userPresenceEnabled": true,
+            "sleepTimeoutMinutes": 30
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "presenceClampedHigh": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "sleepTimeoutMinutes": 300
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "userPresenceEnabled": true,
+            "sleepTimeoutMinutes": 240
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 240,
+          "keepAwakeUntil": null,
+          "schedules": []
+        }
+      }
+    }
+  },
+  "presenceClampedLow": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "sleepTimeoutMinutes": -5
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "userPresenceEnabled": true,
+            "sleepTimeoutMinutes": 0
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": []
+        }
+      }
+    }
+  },
+  "presenceRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "sleepTimeoutMinutes": 12.5
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "sleepTimeoutMinutes must be an integer"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "userPresenceEnabled": "yes",
+            "sleepTimeoutMinutes": 20
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "userPresenceEnabled must be a boolean"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": [
+            true
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "rawBody": "sleep=20"
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Malformed JSON"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "scheduleAdded": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "time": "06:30",
+            "daysOfWeek": [
+              5,
+              1,
+              3,
+              1
+            ],
+            "enabled": true,
+            "keepAwakeFor": 120
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+            "time": "06:30",
+            "daysOfWeek": [
+              1,
+              3,
+              5
+            ],
+            "enabled": true,
+            "keepAwakeFor": 120
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "06:30",
+              "daysOfWeek": [
+                1,
+                3,
+                5
+              ],
+              "enabled": true,
+              "keepAwakeFor": 120
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleAddedEveryDay": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "hour": 7,
+            "minute": 5
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+            "time": "07:05",
+            "daysOfWeek": [],
+            "enabled": true
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "06:30",
+              "daysOfWeek": [
+                1,
+                3,
+                5
+              ],
+              "enabled": true,
+              "keepAwakeFor": 120
+            },
+            {
+              "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+              "time": "07:05",
+              "daysOfWeek": [],
+              "enabled": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleAddedOff": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "time": "21:15",
+            "daysOfWeek": [
+              6,
+              7
+            ],
+            "enabled": false,
+            "keepAwakeFor": 0
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+            "time": "21:15",
+            "daysOfWeek": [
+              6,
+              7
+            ],
+            "enabled": false
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "06:30",
+              "daysOfWeek": [
+                1,
+                3,
+                5
+              ],
+              "enabled": true,
+              "keepAwakeFor": 120
+            },
+            {
+              "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+              "time": "07:05",
+              "daysOfWeek": [],
+              "enabled": true
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "time": "06:30",
+            "keepAwakeFor": 721
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "keepAwakeFor must be 1-720 minutes, or 0/null to clear"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "hour": 24,
+            "minute": 0
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "time must be hour 0-23 and minute 0-59"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "time": "06:30",
+            "daysOfWeek": [
+              0
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "daysOfWeek must contain weekdays 1 to 7"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "scheduleChanged": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/71920b8d-b128-400e-9fc5-f717a43172a0",
+          "body": {
+            "enabled": false,
+            "keepAwakeFor": 0
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+            "time": "06:30",
+            "daysOfWeek": [
+              1,
+              3,
+              5
+            ],
+            "enabled": false
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "06:30",
+              "daysOfWeek": [
+                1,
+                3,
+                5
+              ],
+              "enabled": false
+            },
+            {
+              "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+              "time": "07:05",
+              "daysOfWeek": [],
+              "enabled": true
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleChangedTime": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/71920b8d-b128-400e-9fc5-f717a43172a0",
+          "body": {
+            "time": "05:45",
+            "minute": 50,
+            "daysOfWeek": [
+              4,
+              2
+            ],
+            "keepAwakeFor": 60
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+            "time": "05:50",
+            "daysOfWeek": [
+              2,
+              4
+            ],
+            "enabled": false,
+            "keepAwakeFor": 60
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+              "time": "07:05",
+              "daysOfWeek": [],
+              "enabled": true
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleChangeRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/71920b8d-b128-400e-9fc5-f717a43172a0",
+          "body": {
+            "hour": 25
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "time must be hour 0-23 and minute 0-59"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/71920b8d-b128-400e-9fc5-f717a43172a0",
+          "body": {
+            "daysOfWeek": [
+              8
+            ]
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "daysOfWeek must contain weekdays 1 to 7"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/71920b8d-b128-400e-9fc5-f717a43172a0",
+          "body": {
+            "keepAwakeFor": 721
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "keepAwakeFor must be 1-720 minutes, or 0/null to clear"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/00000000-0000-4000-8000-000000000000",
+          "body": {
+            "enabled": true
+          }
+        },
+        "response": {
+          "status": 404,
+          "body": {
+            "error": "Schedule not found",
+            "id": "00000000-0000-4000-8000-000000000000"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "schedulesListed": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/presence/schedules"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "6da9ae99-206f-48aa-97f2-8983cb14d107",
+              "time": "07:05",
+              "daysOfWeek": [],
+              "enabled": true
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "scheduleDeleted": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/presence/schedules/6da9ae99-206f-48aa-97f2-8983cb14d107"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "deleted": "6da9ae99-206f-48aa-97f2-8983cb14d107"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 0,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleGone": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/presence/schedules/6da9ae99-206f-48aa-97f2-8983cb14d107"
+        },
+        "response": {
+          "status": 404,
+          "body": {
+            "error": "Schedule not found",
+            "id": "6da9ae99-206f-48aa-97f2-8983cb14d107"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/presence/schedules/6da9ae99-206f-48aa-97f2-8983cb14d107",
+          "body": {
+            "enabled": false
+          }
+        },
+        "response": {
+          "status": 404,
+          "body": {
+            "error": "Schedule not found",
+            "id": "6da9ae99-206f-48aa-97f2-8983cb14d107"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "machineDisconnected": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/devices/disconnect",
+          "body": {
+            "deviceId": "MockDe1"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/calibration": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/calibration/flow": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/calibration/pressure": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/calibration/temperature": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "unchanged": true
+      }
+    }
+  },
+  "withoutMachine": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/machine/state"
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": 40
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": [
+            40
+          ]
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "Request body must be a JSON object"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterIdleTemp": 97
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "refillKitSetting": 9
+          }
+        },
+        "response": {
+          "status": 400,
+          "body": {
+            "error": "refillKitSetting must be 0 (force off), 1 (force on) or 2 (auto)"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/calibration",
+          "body": {
+            "flowMultiplier": 1.1
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": 1,
+            "measuredValue": 1
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/machine/calibration/flow",
+          "body": {
+            "de1ReportedValue": 0,
+            "measuredValue": 1
+          }
+        },
+        "response": {
+          "status": 500,
+          "body": {
+            "error": "DeviceNotConnectedException: machine not connected"
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "themeMode": "light"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/settings",
+          "body": {
+            "sleepTimeoutMinutes": 45
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "userPresenceEnabled": true,
+            "sleepTimeoutMinutes": 45
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "tracking",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "FINE",
+          "weightFlowMultiplier": 1.5,
+          "volumeFlowMultiplier": 0.35,
+          "hotWaterFlowMultiplier": 0.25,
+          "scalePowerMode": "displayOff",
+          "blockOnNoScale": true,
+          "blockTareDuringShot": true,
+          "stopHotWaterAtWeight": false,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "longevity",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1380,
+          "nightModeMorningTime": 360,
+          "lowBatteryBrightnessLimit": false,
+          "keepAwake": false,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "light"
+        }
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 45,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleAddedWithoutMachine": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/presence/schedules",
+          "body": {
+            "time": "08:00",
+            "daysOfWeek": [
+              1
+            ]
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "4b933825-8728-4c29-aa6b-9d0564f67bca",
+            "time": "08:00",
+            "daysOfWeek": [
+              1
+            ],
+            "enabled": true
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 45,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            },
+            {
+              "id": "4b933825-8728-4c29-aa6b-9d0564f67bca",
+              "time": "08:00",
+              "daysOfWeek": [
+                1
+              ],
+              "enabled": true
+            }
+          ]
+        }
+      }
+    }
+  },
+  "scheduleDeletedWithoutMachine": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/presence/schedules/4b933825-8728-4c29-aa6b-9d0564f67bca"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "deleted": "4b933825-8728-4c29-aa6b-9d0564f67bca"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/settings/advanced": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/flow": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/pressure": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/machine/calibration/temperature": {
+        "status": 500,
+        "unchanged": true
+      },
+      "/settings": {
+        "status": 200,
+        "unchanged": true
+      },
+      "/presence/settings": {
+        "status": 200,
+        "body": {
+          "userPresenceEnabled": true,
+          "sleepTimeoutMinutes": 45,
+          "keepAwakeUntil": null,
+          "schedules": [
+            {
+              "id": "71920b8d-b128-400e-9fc5-f717a43172a0",
+              "time": "05:50",
+              "daysOfWeek": [
+                2,
+                4
+              ],
+              "enabled": false,
+              "keepAwakeFor": 60
+            },
+            {
+              "id": "d756c08d-b697-4e31-9a14-f86aa224e048",
+              "time": "21:15",
+              "daysOfWeek": [
+                6,
+                7
+              ],
+              "enabled": false
+            }
+          ]
+        }
+      }
+    }
+  }
+}

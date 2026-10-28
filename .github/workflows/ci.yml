@@ -1,51 +1,111 @@
 name: CI
 
-# Pull requests run on their merge result; main runs again after each merge.
-# Branches without a pull request get no CI. The release workflow publishes
-# only a commit this workflow has passed on.
+# Pull requests run on their merge result; main runs again after each merge,
+# docs-only merges included. Branches without a pull request get no CI. A pull
+# request that changes only docs skips every job but `changes` and `ci` (see
+# `changes`). A newer push to a pull request cancels its older run. The release
+# workflow publishes only a commit this workflow has passed on.
+#
+# Branch protection on main requires the `ci` job, which passes only once every
+# other job has, and binds admins (ADR-0025).
 on:
   push:
     branches: [main]
+  # Labelling or unlabelling a pull request runs it again, for the
+  # breaking-release label (scripts/breaking-release.mjs). Every job runs on
+  # those events too: a job skipped there would report as passing over an
+  # earlier failure.
   pull_request:
+    types: [opened, synchronize, reopened, labeled, unlabeled]
 
+# pull-requests: read lets scripts/breaking-release.mjs read pull requests' labels.
 permissions:
   contents: read
+  pull-requests: read
 
+# Each push to main gets a group of its own through run_id, so its runs are
+# never cancelled and never wait for each other: the release workflow waits on
+# them. Each pull request has one group, and a newer push cancels its run.
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+# The checks and tests run as parallel jobs, the tests in shards, so the run
+# takes about as long as its slowest shard rather than all of them in turn.
+# The release waits for the whole run.
 jobs:
-  ci:
-    runs-on: ubuntu-latest
-    timeout-minutes: 20
-
-    services:
-      # Same major version as docker-compose.yml.
-      postgres:
-        image: postgres:17
-        env:
-          POSTGRES_USER: decent_sync
-          POSTGRES_PASSWORD: decent_sync
-          POSTGRES_DB: decent_sync
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd "pg_isready -U decent_sync -d decent_sync"
-          --health-interval 2s
-          --health-timeout 5s
-          --health-retries 30
-
-    env:
-      DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
-      PUBLIC_URL: http://localhost:3000
+  # Whether the pull request changes only docs: everything under docs/ and any
+  # Markdown file but UPGRADING.md, which scripts/release-notes.mjs reads at
+  # release time, and those in decent-sync.reaplugin/, which the plugin ZIP
+  # packs whole. It reads the pull request's whole diff, so once it touches
+  # anything else, every later push runs CI. Every other job skips on
+  # docs-only, which `ci` passes; a workflow-level `paths` filter would leave
+  # the required check pending instead. A push to main is never docs-only.
+  changes:
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+    outputs:
+      docs-only: ${{ steps.files.outputs.docs-only }}
 
     steps:
-      - uses: actions/checkout@v4
+      - id: files
+        name: Check whether the pull request changes only docs
+        if: github.event_name == 'pull_request'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: |
+          files=$(gh api --paginate "repos/$GITHUB_REPOSITORY/pulls/$PULL_REQUEST/files" --jq '.[] | .filename, (.previous_filename // empty)')
+          if [ -n "$files" ] \
+              && ! printf '%s\n' "$files" | grep --quiet --invert-match --extended-regexp '^docs/|\.md$' \
+              && ! printf '%s\n' "$files" | grep --quiet --extended-regexp '^(UPGRADING\.md$|decent-sync\.reaplugin/)'; then
+            echo "::notice title=Docs only::This pull request changes only docs, so the other jobs skip."
+            echo "docs-only=true" >> "$GITHUB_OUTPUT"
+          fi
 
-      - uses: actions/setup-node@v4
+  checks:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    steps:
+      - &checkout
+        uses: actions/checkout@v7
+
+      - &setup-node
+        id: node
+        uses: actions/setup-node@v7
         with:
           node-version: 26
-          cache: npm
 
       - name: Install
         run: npm ci
+
+      # The test jobs restore this node_modules, with any a workspace has of
+      # its own (npm nests one there when a version conflicts with the
+      # root's), and install only when there is nothing to restore. Only this
+      # job saves it, straight after a clean install and before anything
+      # builds, so nothing a build or test run writes gets into it.
+      - id: modules-lookup
+        uses: actions/cache/restore@v6
+        with:
+          path: &modules-path |
+            node_modules
+            */node_modules
+          key: &modules-key node-modules-ubuntu-26.04-node${{ steps.node.outputs.node-version }}-${{ hashFiles('package-lock.json') }}
+          lookup-only: true
+
+      - if: steps.modules-lookup.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v6
+        with:
+          path: *modules-path
+          key: *modules-key
+
+      # vitest.config.ts deals the test files out to the shards by this
+      # manifest, and a file it lacks falls back to an estimate from its size.
+      - name: Check every test file has a duration in vitest.durations.json
+        run: node scripts/update-test-durations.mjs --check
 
       # Decaid installs the committed build, so it must match its source.
       - name: Check the committed plugin build is fresh
@@ -54,45 +114,301 @@ jobs:
       - name: Typecheck
         run: npm run typecheck
 
-      - name: Build
+  # vitest.config.ts deals the test files out to the shards by their CI
+  # durations in vitest.durations.json, committed so every shard reads the
+  # same one. The job total is the shard count only while shard is the
+  # matrix's one dimension.
+  vitest:
+    name: vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    env: &env
+      DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
+      PUBLIC_URL: http://localhost:3000
+
+    steps:
+      # Same major version as docker-compose.yml. It starts in the background
+      # while the job installs and builds, and the wait step below waits for
+      # it; the process outlives this step until the job ends. A service
+      # container's pull is retried by the runner, but a bare docker run is
+      # not, so the pull is retried here.
+      #
+      # Only a crash of PostgreSQL itself would need what it writes to be on
+      # disk, and the test databases are thrown away. Each test file creates
+      # and drops a database, which flushes the disk, and the tests commit
+      # thousands of transactions.
+      - &start-postgres
+        name: Start PostgreSQL in the background
+        run: |
+          (
+            set +e
+            for try in 1 2 3; do
+              docker pull --quiet postgres:17 && break
+              [ "$try" = 3 ] || sleep 5
+            done
+            docker run --detach --name postgres -p 5432:5432 \
+              -e POSTGRES_USER=decent_sync -e POSTGRES_PASSWORD=decent_sync -e POSTGRES_DB=decent_sync \
+              postgres:17 -c fsync=off -c synchronous_commit=off -c full_page_writes=off
+            echo $? > "$RUNNER_TEMP/postgres.exit"
+          ) > "$RUNNER_TEMP/postgres.log" 2>&1 &
+
+      # The latest release is the newest vX.Y.Z tag on main, which needs
+      # main's history and the tags. The latest-release job below runs it,
+      # and the wire revision's test (protocol/test/wire-revision.test.ts),
+      # in whichever shard, reads its revision from its tag.
+      - &checkout-with-tags
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - *setup-node
+
+      - &restore-modules
+        id: modules
+        uses: actions/cache/restore@v6
+        with:
+          path: *modules-path
+          key: *modules-key
+
+      - &install
+        name: Install
+        if: steps.modules.outputs.cache-hit != 'true'
+        run: npm ci
+
+      # Per-core speed varies between runners, so compare timings knowing it.
+      - &runner-cpu
+        name: Runner CPU
+        run: nproc; lscpu | grep 'Model name'
+
+      - &build
+        name: Build
         run: npm run build
 
-      - name: Vitest
-        run: npm test
+      # -h 127.0.0.1, since the image's temporary initdb server listens only
+      # on a socket, so a check over the socket can pass before the real
+      # server is up.
+      - &wait-postgres
+        name: Wait for PostgreSQL
+        run: |
+          if ! timeout 180 bash -c '
+            until docker exec postgres pg_isready --quiet -h 127.0.0.1 -U decent_sync -d decent_sync 2> /dev/null; do
+              if [ -s "$RUNNER_TEMP/postgres.exit" ] && [ "$(cat "$RUNNER_TEMP/postgres.exit")" != 0 ]; then
+                exit 1
+              fi
+              sleep 1
+            done'; then
+            cat "$RUNNER_TEMP/postgres.log"
+            exit 1
+          fi
 
+      # The tests that run the latest release have a job of their own.
+      - name: Vitest
+        run: npx vitest run --shard=${{ matrix.shard }}/${{ strategy.job-total }} --exclude 'server/test/latest-release/**'
+
+      # The only record of server-side errors, such as running out of
+      # connections.
+      - &postgres-logs
+        name: PostgreSQL logs
+        if: always()
+        run: docker logs postgres || cat "$RUNNER_TEMP/postgres.log"
+
+  # Seam 1 tests that run the latest release beside the change
+  # (server/test/latest-release/), the mixed-versions suite among them, in a
+  # job of their own so the shards above need not build it. The release
+  # waits for it with the rest of this workflow.
+  latest-release:
+    name: vitest (latest release)
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    env: *env
+
+    steps:
+      - *start-postgres
+
+      - *checkout-with-tags
+      - *setup-node
+
+      # A job that checks the change against the latest release takes this
+      # step after checkout-with-tags and Node, and skips its checks on its
+      # `skip` output: while a breaking release is on its way they don't
+      # apply, and they skip with a notice saying why. They skip by step,
+      # not by job, so the check still reports.
+      - &breaking-release
+        id: breaking-release
+        name: Check for a breaking release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PULL_REQUEST: ${{ github.event.pull_request.number }}
+        run: node scripts/breaking-release.mjs
+
+      - *restore-modules
+      - *install
+      - *runner-cpu
+      - *build
+
+      # Any job that runs the latest release can take this step, after a
+      # checkout with the tags (checkout-with-tags), Node and the
+      # breaking-release step.
+      - &build-latest-release
+        name: Build the latest release
+        if: steps.breaking-release.outputs.skip != 'true'
+        run: npm run build:latest-release
+
+      - *wait-postgres
+
+      - name: Vitest
+        if: steps.breaking-release.outputs.skip != 'true'
+        run: npx vitest run server/test/latest-release
+
+      - *postgres-logs
+
+  # The latest release's own Vitest suite, run on databases with the change's
+  # schema, so a migration the running release would break on fails here
+  # (ADR-0025). scripts/latest-release-suite.mjs, which runs it locally on a
+  # throwaway PostgreSQL, migrates this job's template1 with the change's
+  # migrations, so every database the suite creates is a copy, and leaves out
+  # the release's tests that read the tags, which its build lacks: its
+  # server/test/latest-release/, as the shards above do, and its wire
+  # revision's test. Sharded as they are, by the release's own
+  # vitest.config.ts. It runs only when something it depends on differs from
+  # main, or on main from the latest release (the schema step).
+  latest-release-suite:
+    name: latest release's vitest (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+
+    env: *env
+
+    steps:
+      - *start-postgres
+      - *checkout-with-tags
+      - *setup-node
+
+      # The suite runs the latest release's own code and tests, so the change
+      # reaches it only through its migrations, what applies them (Prisma,
+      # from the lockfile) and this job's own scripts. It runs only when one
+      # of those differs: on a pull request, from main; on a push to main,
+      # from the latest release, so main runs it for as long as it holds
+      # anything that release lacks, whatever an earlier push found.
+      # Otherwise it skips with a notice. A base it can't find runs it.
+      - id: schema
+        name: Check for a change the latest release's suite depends on
+        env:
+          PULL_REQUEST: ${{ github.event_name == 'pull_request' }}
+        run: |
+          if [ "$PULL_REQUEST" = true ]; then
+            base=HEAD^1 since="main"
+          else
+            base=$(node --input-type=module -e 'import { latestReleaseTag } from "./server/test/support/latest-release.mjs"; console.log(latestReleaseTag())') || base=
+            since=$base
+          fi
+          if [ -n "$base" ] && git cat-file -e "$base^{commit}" 2> /dev/null && git diff --quiet "$base" HEAD -- \
+              server/prisma/migrations server/prisma.config.ts package-lock.json .github/workflows/ci.yml \
+              scripts/latest-release-suite.mjs scripts/build-latest-release.mjs \
+              server/test/support/latest-release.mjs server/test/support/build-table.mjs; then
+            echo "::notice title=Latest release's suite skipped::Nothing it depends on differs from $since: no migration, nor Prisma's version or this job's scripts."
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - *breaking-release
+      - *restore-modules
+      - *install
+      - *runner-cpu
+
+      - name: Build the latest release
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
+        run: node scripts/build-latest-release.mjs
+
+      - *wait-postgres
+
+      - name: Vitest of the latest release on this schema
+        if: steps.schema.outputs.skip != 'true' && steps.breaking-release.outputs.skip != 'true'
+        run: node scripts/latest-release-suite.mjs --database-url "$DATABASE_URL" --shard=${{ matrix.shard }}/${{ strategy.job-total }}
+
+      - *postgres-logs
+
+  playwright:
+    name: playwright (${{ matrix.shard }}/${{ strategy.job-total }})
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2]
+
+    env: *env
+
+    steps:
+      - *start-postgres
+      - *checkout
+      - *setup-node
+      - *restore-modules
+      - *install
+      - *runner-cpu
+      - *build
+
+      # The runner image already has every library Chromium needs, and the
+      # tests run headless with no channel, which launches only the headless
+      # shell. --with-deps added only fonts and xvfb, and apt's font download
+      # sometimes stalled for minutes. If Playwright reports "Host system is
+      # missing dependencies", add `npx playwright install-deps chromium` back.
       - name: Install Playwright browser
-        run: npx playwright install --with-deps chromium
+        run: npx playwright install --only-shell --no-progress chromium
+
+      - *wait-postgres
 
       - name: Playwright
-        run: npm run test:e2e
+        run: npx playwright test --shard=${{ matrix.shard }}/${{ strategy.job-total }}
 
       - name: Upload Playwright report
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
-          name: playwright-report
+          name: playwright-report-${{ matrix.shard }}
           path: |
             playwright-report/
             test-results/
           retention-days: 7
 
+      - *postgres-logs
+
   # Builds what a release publishes without publishing it: the plugin ZIP, and
   # the server image run the way a self-hoster runs it.
   package:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
     timeout-minutes: 20
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 26
 
       - name: Package the plugin ZIP
         run: npm run package:plugin
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: plugin-zip
           path: dist/*.zip
@@ -115,3 +431,28 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose down --volumes
+
+  # The one check branch protection on main requires. It passes once every job
+  # above has passed, or skipped on a docs-only pull request, so the required
+  # check never waits on a job that skipped and never changes with the shard
+  # counts. It runs whatever happened before it, so a failed or cancelled job,
+  # a superseded run's included, fails it rather than leaving it skipped, which
+  # branch protection would count as passing.
+  ci:
+    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package]
+    if: always()
+    runs-on: ubuntu-26.04
+    timeout-minutes: 5
+
+    steps:
+      - name: Check every job passed, or skipped on docs only
+        env:
+          NEEDS: ${{ toJSON(needs) }}
+          DOCS_ONLY: ${{ needs.changes.outputs.docs-only }}
+        run: |
+          failed=$(echo "$NEEDS" | jq -r --arg docs "$DOCS_ONLY" \
+            'to_entries[] | select(.value.result != "success" and (.value.result != "skipped" or $docs != "true")) | "\(.key): \(.value.result)"')
+          if [ -n "$failed" ]; then
+            echo "::error title=CI failed::$(echo $failed)"
+            exit 1
+          fi

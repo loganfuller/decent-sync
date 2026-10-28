@@ -1,0 +1,473 @@
+import { LIBRARY_KINDS, recordGlobalId, sameValue } from "@decent-sync/protocol";
+import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
+import { weightOf } from "./batch-intake.js";
+import { KINDS } from "./kinds.js";
+import { withHeldFieldFlags } from "./recipe-intake.js";
+import { isObject } from "./listed.js";
+
+// What a tablet should hold for its Location (ADR-0008), and the writes that
+// bring it there. A tablet holds only what its Location offers: each Bean,
+// Bean Batch and Grinder offered there, not archived, each batch with the
+// remaining weight entered there, and each Profile shown there, visible. What it holds
+// that the Location does not offer is archived or hidden on it, never
+// deleted, so its Shots still find it. Every record it holds is written the
+// item's content where it differs, so an edit reaches every tablet that
+// holds the item, at every Location (ADR-0020). It does no database work,
+// reading each kind's content and planner from its description (kinds.ts),
+// so module tests can drive it; tablet-due.ts reads what it needs.
+
+/** A Bean a Location offers, with its content. */
+export interface OfferedBean {
+  id: string;
+  content: Record<string, unknown>;
+  /** When the latest edit of its content was decided, by PostgreSQL's clock: a record written it has seen that. Null if none was. */
+  contentDecidedAt: Date | null;
+  /** When the Location last decided whether any of its batches is there, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
+}
+
+/** A Grinder a Location offers, with its content. */
+export interface OfferedGrinder {
+  id: string;
+  content: Record<string, unknown>;
+  contentDecidedAt: Date | null;
+}
+
+/** A Bean Batch, as the Location has it: offered there or not, and its remaining weight there. */
+export interface LocationBatch {
+  id: string;
+  beanId: string;
+  content: Record<string, unknown>;
+  contentDecidedAt: Date | null;
+  /** Whether the Location offers it: it is at the Location, and neither it nor its Bean is Archived. */
+  offered: boolean;
+  /** The remaining weight entered at the Location last, null if cleared; undefined if none ever was. */
+  remainingWeight: number | null | undefined;
+  /** When the Location last decided whether it is there, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
+}
+
+/** A Profile a Location shows (ADR-0008). */
+export interface ShownProfile {
+  /** Decaid's id, the same on every tablet. */
+  id: string;
+  /** One of Decaid's bundled Profiles, which a tablet has already or lacks for its Decaid's version: never written. */
+  bundled: boolean;
+  /** Its content, to create its record with; null where the tablet holds it already. */
+  content: Record<string, unknown> | null;
+  /** When the Location decided to show it, by PostgreSQL's clock. */
+  decidedAt: Date;
+  contentDecidedAt: Date | null;
+}
+
+/** A Basket or Tool a Location shows (ADR-0008), with its content. */
+export interface ShownEquipment {
+  id: string;
+  content: Record<string, unknown>;
+  /** When the Location decided to show it, by PostgreSQL's clock. */
+  decidedAt: Date;
+  contentDecidedAt: Date | null;
+}
+
+/** A Recipe of a Location, not Archived (ADR-0005), with the record each tablet there is to hold of it. */
+export interface OfferedRecipe {
+  id: string;
+  /** The id of its record on every tablet at its Location. */
+  recordId: string;
+  /** The record the tablet is to hold of it, by the paths the server writes (`recipeRecord` in recipe-intake.ts): naming what it uses by the tablet's ids. */
+  record: Record<string, unknown>;
+  contentDecidedAt: Date | null;
+}
+
+/** What a Location offers, and its state of each batch the tablet holds. Each list is in the order to write it: oldest first, but Recipes in slot order, then the rest. */
+export interface LocationOffer {
+  beans: readonly OfferedBean[];
+  /** The batches it offers, then the other batches the tablet holds. */
+  batches: readonly LocationBatch[];
+  /** The Grinders belonging to it, but those Archived. */
+  grinders: readonly OfferedGrinder[];
+  /** The Profiles it shows. */
+  profiles: readonly ShownProfile[];
+  /** The Baskets it shows, but those Archived. */
+  baskets: readonly ShownEquipment[];
+  /** The Tools it shows, but those Archived. */
+  tools: readonly ShownEquipment[];
+  /** Its Recipes not Archived, in slot order, then those in no slot. */
+  recipes: readonly OfferedRecipe[];
+}
+
+/** A Library item's record on the tablet, as its map holds it. */
+export interface HeldRecord {
+  itemId: string;
+  localId: string;
+  record: Record<string, unknown>;
+  /**
+   * For a Bean, when the tablet's Location last decided whether any of its
+   * batches is there; for a Profile, Basket or Tool, whether it shows it. By
+   * PostgreSQL's clock; null if it never did.
+   */
+  decidedAt?: Date | null;
+  /**
+   * The item's content as the Library has it, as edits merge it: a Bean's,
+   * a batch's or a Grinder's record fields (`beanContent`, `batchContent`,
+   * `grinderContent`), a Profile's title, author and notes (`profileText`),
+   * a Basket's or Tool's DYE2 record fields (`equipmentContent`).
+   * Null for one of Decaid's bundled Profiles, whose Decaid refuses changes,
+   * and for a Recipe, whose record differs by tablet (`OfferedRecipe`).
+   */
+  content: Record<string, unknown> | null;
+  /** When the latest edit of that content was decided, by PostgreSQL's clock; null if none was. */
+  contentDecidedAt: Date | null;
+}
+
+/** What the tablet holds, by its map. A Profile's local id is its id. */
+export interface TabletHoldings {
+  beans: readonly HeldRecord[];
+  batches: readonly HeldRecord[];
+  grinders: readonly HeldRecord[];
+  profiles: readonly HeldRecord[];
+  baskets: readonly HeldRecord[];
+  tools: readonly HeldRecord[];
+  /** Its records in DYE2's recipes, each under its id there. */
+  recipes: readonly HeldRecord[];
+}
+
+/** A write the tablet is due (tablet-due.ts). */
+export interface PlannedWrite {
+  kind: WrittenKind;
+  globalId: string;
+  /** The tablet's record to update, or null to create one. */
+  localId: string | null;
+  /** The fields to set, as Decaid names them: on creating, the item's content; otherwise only those that differ. */
+  fields: Record<string, unknown>;
+  /** On updating, the value the tablet's record holds for each of `fields`, as it last reported it: the plugin sets a field only while it still does. */
+  expected?: Record<string, unknown>;
+  /**
+   * The Location's latest decision of the batch's presence, of the presence
+   * of any of the Bean's batches, or of the Profile's showing, by
+   * PostgreSQL's clock, as the write was planned: Decaid answers it after
+   * that, so its answer has seen it. Null where the Location never decided
+   * it, and for a Grinder, which belongs to one Location.
+   */
+  decidedAt: Date | null;
+  /**
+   * When the latest edit of the item's content was decided, by PostgreSQL's
+   * clock, as the write was planned: once Decaid answers it, the record
+   * holds that content, but for what the tablet changed meanwhile, which
+   * its answer shows. Null if none was.
+   */
+  contentDecidedAt: Date | null;
+}
+
+/**
+ * A tablet's record of an item an Admin hard-deleted, to be deleted there
+ * (hard-deletes.ts): its global id, and its id on the tablet.
+ */
+export interface PlannedDelete {
+  delete: true;
+  kind: DeletedKind;
+  globalId: string;
+  localId: string;
+}
+
+/**
+ * A tablet's record of a Basket or Tool to be removed from DYE2's list, as
+ * its Location no longer shows the item, or it is Archived: DYE2 cannot
+ * archive or hide a record (ADR-0005).
+ */
+export interface PlannedRemove {
+  remove: true;
+  kind: DeletedKind;
+  globalId: string;
+  localId: string;
+  /** When the Location last decided whether it shows the item, by PostgreSQL's clock; null if it never did. */
+  decidedAt: Date | null;
+  /**
+   * The record as the map last knew the tablet to hold it, which the plugin
+   * removes only while the tablet's still is (RECORD_CHANGED): one a barista
+   * changed since is reported and taken in first, so the change is kept.
+   */
+  expected: Record<string, unknown>;
+}
+
+/** A tablet's record the Library leaves out, to be set aside there, archived or hidden (left-out.ts): its kind, and its id on the tablet. */
+export interface PlannedLeaveOut {
+  leaveOut: true;
+  kind: DeletedKind;
+  localId: string;
+}
+
+/** What the writer does next to a tablet: a write, a delete, a removal from DYE2's list, or setting aside a record the Library leaves out. */
+export type PlannedChange = PlannedWrite | PlannedDelete | PlannedRemove | PlannedLeaveOut;
+
+/** The key a planned delete is skipped and its refusal kept under. */
+export function deleteKey(kind: DeletedKind, localId: string): string {
+  return `delete:${kind}:${localId}`;
+}
+
+/** The key a planned removal from DYE2's list is skipped and its refusal kept under. */
+export function removeKey(kind: DeletedKind, localId: string): string {
+  return `remove:${kind}:${localId}`;
+}
+
+/** The key setting aside a record the Library leaves out is skipped and its refusal kept under. */
+export function leaveOutKey(kind: DeletedKind, localId: string): string {
+  return `leaveOut:${kind}:${localId}`;
+}
+
+/** The key a write's item is skipped and its refusal kept under. */
+export function writeKey(kind: WrittenKind, globalId: string): string {
+  return `${kind}:${globalId}`;
+}
+
+/**
+ * The writes due, in the order they are made: each kind's, in the order of
+ * LIBRARY_ITEM_KINDS, as its description plans them (`plan`, in kinds.ts):
+ * first each Bean the Location offers that the tablet lacks, holds archived,
+ * or holds without its global id; then each batch the tablet lacks, or holds
+ * archived, without its global id or with another remaining weight than the
+ * Location's; then each batch the tablet holds that the Location does not
+ * offer, archived, and each Bean the same way. Beans so come before their
+ * batches, and batches are archived before their Beans. Then each Grinder
+ * the Location offers that the tablet lacks, holds archived, or holds
+ * without its global id, and each the tablet holds that it does not offer,
+ * archived. Last, each Profile the Location shows that the tablet lacks,
+ * created, unless it is one of Decaid's bundled Profiles, after the Profile
+ * it was saved from if that is created too, so the tablet keeps its parent;
+ * or that the tablet holds hidden or deleted, made visible. Then each the
+ * tablet holds visible that the Location does not show, hidden. Then each
+ * Basket, and each Tool, the Location shows that the tablet lacks, created,
+ * and each the tablet holds that it does not show, removed from DYE2's
+ * list, as DYE2 cannot hide one (ADR-0005). Last, the Location's Recipes not
+ * Archived, which name those items by the tablet's ids
+ * (`recipeWrites`). Items in
+ * `skipped` (`writeKey`) are left out, and so is a batch whose Bean the
+ * tablet holds no record of yet: its Bean is written first. Every record the
+ * tablet holds whose content differs from the item's, offered there or not,
+ * is written the item's content, in the same update. Every update sets only
+ * the fields that differ, writing the global id beside them; a Profile's
+ * records carry none.
+ */
+export function plannedWrites(offer: LocationOffer, held: TabletHoldings, skipped: ReadonlySet<string> = new Set()): (PlannedWrite | PlannedRemove)[] {
+  const writes = LIBRARY_KINDS.flatMap((kind) => KINDS[kind].plan?.(offer, held) ?? []);
+  return writes.filter((write) => !skipped.has("remove" in write ? removeKey(write.kind, write.localId) : writeKey(write.kind, write.globalId)));
+}
+
+/** The writes of Beans and of their batches, which interleave: Beans before their batches are created, batches archived before their Beans. */
+export function beanWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
+  const beans = new Map(held.beans.map((record) => [record.itemId, record]));
+  const batches = new Map(held.batches.map((record) => [record.itemId, record]));
+  const offeredBeans = new Set(offer.beans.map((bean) => bean.id));
+  const writes: PlannedWrite[] = [];
+  for (const bean of offer.beans) {
+    const record = beans.get(bean.id);
+    if (!record) {
+      writes.push({ kind: "bean", globalId: bean.id, localId: null, fields: bean.content, decidedAt: bean.decidedAt, contentDecidedAt: bean.contentDecidedAt });
+    } else {
+      pushUpdate(writes, "bean", bean.id, record, record.record.archived === true ? { archived: false } : {}, bean.decidedAt);
+    }
+  }
+  for (const batch of offer.batches) {
+    const record = batches.get(batch.id);
+    const weight = batch.remainingWeight;
+    if (!record) {
+      const bean = beans.get(batch.beanId);
+      if (!batch.offered || !bean) continue;
+      writes.push({
+        kind: "beanBatch",
+        globalId: batch.id,
+        localId: null,
+        fields: { ...batch.content, beanId: bean.localId, ...(weight === undefined ? {} : { weightRemaining: weight }) },
+        decidedAt: batch.decidedAt,
+        contentDecidedAt: batch.contentDecidedAt,
+      });
+      continue;
+    }
+    const fields: Record<string, unknown> = {};
+    if ((record.record.archived === true) === batch.offered) fields.archived = !batch.offered;
+    if (weight !== undefined && weightOf(record.record) !== weight) fields.weightRemaining = weight;
+    pushUpdate(writes, "beanBatch", batch.id, record, fields, batch.decidedAt);
+  }
+  for (const record of held.beans) {
+    if (!offeredBeans.has(record.itemId)) pushUpdate(writes, "bean", record.itemId, record, record.record.archived === true ? {} : { archived: true }, record.decidedAt ?? null);
+  }
+  return writes;
+}
+
+/** The writes of Grinders, each of which belongs to one Location. */
+export function grinderWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
+  const writes: PlannedWrite[] = [];
+  const grinders = new Map(held.grinders.map((record) => [record.itemId, record]));
+  const offeredGrinders = new Set(offer.grinders.map((grinder) => grinder.id));
+  for (const grinder of offer.grinders) {
+    const record = grinders.get(grinder.id);
+    if (!record) writes.push({ kind: "grinder", globalId: grinder.id, localId: null, fields: grinder.content, decidedAt: null, contentDecidedAt: grinder.contentDecidedAt });
+    else pushUpdate(writes, "grinder", grinder.id, record, record.record.archived === true ? { archived: false } : {}, null);
+  }
+  for (const record of held.grinders) {
+    if (!offeredGrinders.has(record.itemId)) pushUpdate(writes, "grinder", record.itemId, record, record.record.archived === true ? {} : { archived: true }, null);
+  }
+  return writes;
+}
+
+/** The writes of Profiles, shown or hidden at the Location. */
+export function profileWrites(offer: LocationOffer, held: TabletHoldings): PlannedWrite[] {
+  const writes: PlannedWrite[] = [];
+  const profiles = new Map(held.profiles.map((record) => [record.itemId, record]));
+  const shownProfiles = new Set(offer.profiles.map((profile) => profile.id));
+  for (const profile of parentsFirst(offer.profiles)) {
+    const record = profiles.get(profile.id);
+    if (record) {
+      pushUpdate(writes, "profile", profile.id, record, record.record.visibility === "visible" ? {} : { visibility: "visible" }, profile.decidedAt);
+    } else if (!profile.bundled && profile.content !== null) {
+      writes.push({
+        kind: "profile",
+        globalId: profile.id,
+        localId: null,
+        fields: { ...profileToCreate(profile.content), visibility: "visible" },
+        decidedAt: profile.decidedAt,
+        contentDecidedAt: profile.contentDecidedAt,
+      });
+    }
+  }
+  for (const record of held.profiles) {
+    if (shownProfiles.has(record.itemId)) continue;
+    // One hidden or deleted on the tablet is not shown there already.
+    pushUpdate(writes, "profile", record.itemId, record, record.record.visibility === "visible" ? { visibility: "hidden" } : {}, record.decidedAt ?? null);
+  }
+  return writes;
+}
+
+/**
+ * The writes of a kind DYE2 keeps, Baskets or Tools, shown or hidden at the
+ * Location: each it shows that the tablet lacks, created; each the tablet
+ * holds that it does not show, as one Archived, removed from DYE2's list,
+ * which can neither archive nor hide one (ADR-0005).
+ */
+export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
+  const key = kind === "basket" ? "baskets" : "tools";
+  const writes: (PlannedWrite | PlannedRemove)[] = [];
+  const records = new Map(held[key].map((record) => [record.itemId, record]));
+  const shown = new Set(offer[key].map((item) => item.id));
+  for (const item of offer[key]) {
+    const record = records.get(item.id);
+    if (record) pushUpdate(writes, kind, item.id, record, {}, item.decidedAt);
+    else writes.push({ kind, globalId: item.id, localId: null, fields: item.content, decidedAt: item.decidedAt, contentDecidedAt: item.contentDecidedAt });
+  }
+  for (const record of held[key]) {
+    if (!shown.has(record.itemId)) {
+      writes.push({ remove: true, kind, globalId: record.itemId, localId: record.localId, decidedAt: record.decidedAt ?? null, expected: record.record });
+    }
+  }
+  return writes;
+}
+
+/**
+ * The writes of Recipes (ADR-0005): each record the tablet holds that is not
+ * of one of the Location's Recipes under its record id, as one Archived or
+ * another Location's, removed from DYE2's list first, so its id is free;
+ * then each Recipe the tablet lacks, created under its record id, and each
+ * it holds written where its record differs from what it is to hold
+ * (`OfferedRecipe.record`), its slot included.
+ */
+export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
+  const writes: (PlannedWrite | PlannedRemove)[] = [];
+  const offered = new Map(offer.recipes.map((recipe) => [recipe.id, recipe]));
+  const holds = new Map<string, HeldRecord>();
+  for (const record of held.recipes) {
+    const recipe = offered.get(record.itemId);
+    if (recipe && recipe.recordId === record.localId) holds.set(recipe.id, record);
+    else writes.push({ remove: true, kind: "recipe", globalId: record.itemId, localId: record.localId, decidedAt: null, expected: record.record });
+  }
+  for (const recipe of offer.recipes) {
+    const record = holds.get(recipe.id);
+    if (record) {
+      pushUpdate(writes, "recipe", recipe.id, { ...record, content: withHeldFieldFlags(recipe.record, record.record), contentDecidedAt: recipe.contentDecidedAt }, {}, null);
+    } else {
+      writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: recipe.recordId }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
+    }
+  }
+  return writes;
+}
+
+/**
+ * The Bean of each batch the Location offers that the tablet lacks while it
+ * lacks the Bean's record too, one for each such batch: `plannedWrites`
+ * plans the batch once the Bean's record is written, so it is waiting on
+ * that write.
+ */
+export function batchesAwaitingBeans(offer: LocationOffer, held: TabletHoldings): string[] {
+  const beans = new Set(held.beans.map((record) => record.itemId));
+  const batches = new Set(held.batches.map((record) => record.itemId));
+  return offer.batches.filter((batch) => batch.offered && !batches.has(batch.id) && !beans.has(batch.beanId)).map((batch) => batch.beanId);
+}
+
+/**
+ * The Profiles in the order given, but each to be created after the Profile
+ * it was saved from where that is to be created too: Decaid refuses a parent
+ * it lacks, so the plugin would create it without one. Only Profiles to be
+ * created carry their content, and so their parent.
+ */
+function parentsFirst(profiles: readonly ShownProfile[]): ShownProfile[] {
+  const byId = new Map(profiles.map((profile) => [profile.id, profile]));
+  const ordered: ShownProfile[] = [];
+  const placed = new Set<string>();
+  const place = (profile: ShownProfile) => {
+    if (placed.has(profile.id)) return;
+    // Marked before its parent is placed, so a lineage that loops, which Decaid's hashes make unlikely, still ends.
+    placed.add(profile.id);
+    const parentId = profile.content?.parentId;
+    const parent = typeof parentId === "string" ? byId.get(parentId) : undefined;
+    if (parent?.content) place(parent);
+    ordered.push(profile);
+  };
+  for (const profile of profiles) place(profile);
+  return ordered;
+}
+
+/** What Decaid's `POST /profiles` takes to create a Profile's record, from its content: the profile, its parent and its metadata. */
+function profileToCreate(content: Record<string, unknown>): Record<string, unknown> {
+  return { profile: content.profile, parentId: content.parentId ?? null, metadata: content.metadata ?? null };
+}
+
+/**
+ * Adds an update of the tablet's record, if it lacks its global id (but for
+ * a kind whose records carry none, a Profile), any of `location`, the fields
+ * of its Location's state to set, or the item's content where it differs,
+ * with the value the record holds for each field to set.
+ */
+function pushUpdate(writes: (PlannedWrite | PlannedRemove)[], kind: LibraryKind, globalId: string, record: HeldRecord, location: Record<string, unknown>, decidedAt: Date | null): void {
+  const fields = { ...contentToWrite(kind, record), ...location };
+  const lacksId = KINDS[kind].carriesGlobalId && recordGlobalId(kind, record.record) !== globalId.toLowerCase();
+  if (Object.keys(fields).length === 0 && !lacksId) return;
+  const expected = Object.fromEntries(Object.keys(fields).map((field) => [field, heldValue(kind, record.record, field)]));
+  writes.push({ kind, globalId, localId: record.localId, fields, expected, decidedAt, contentDecidedAt: record.contentDecidedAt });
+}
+
+/** The item's content where the tablet's record of it differs: each field the record is to be written, with the item's value, null to clear it. */
+function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unknown> {
+  if (!held.content) return {};
+  // A tablet's record's content, as edits merge it.
+  const tablet = KINDS[kind].recordValues(held.record);
+  const fields: Record<string, unknown> = {};
+  for (const field of new Set([...Object.keys(held.content), ...Object.keys(tablet)])) {
+    if (!sameValue(held.content[field], tablet[field])) fields[field] = held.content[field] ?? null;
+  }
+  return fields;
+}
+
+/**
+ * The value a tablet's record holds for a field a write sets, as Decaid
+ * names it: a field edits merge is in the record's field that holds them
+ * (`editedIn`), as a Profile's title, author and notes are in its `profile`,
+ * and a Recipe's at its path (`recordValues`).
+ */
+function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
+  const { editedIn, recordValues } = KINDS[kind];
+  const values = recordValues(record);
+  if (!(field in values)) return record[field] ?? null;
+  // A Recipe's fields are named by their paths in its record (`recipeView`).
+  if (editedIn === null) return values[field] ?? null;
+  const edited = record[editedIn];
+  return (isObject(edited) ? edited[field] : undefined) ?? null;
+}

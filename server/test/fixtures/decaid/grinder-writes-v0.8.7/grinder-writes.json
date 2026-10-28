@@ -1,0 +1,588 @@
+[
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Lab",
+        "extras": {
+          "otherPluginId": "fixture-other-1"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Lab",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.492968",
+        "updatedAt": "2026-10-08T13:34:34.492968",
+        "extras": {
+          "otherPluginId": "fixture-other-1"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "extras": {
+          "otherPluginId": "fixture-other-1",
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Lab",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.492968",
+        "updatedAt": "2026-10-08T13:34:34.504700",
+        "extras": {
+          "otherPluginId": "fixture-other-1",
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "extras": {
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Lab",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.492968",
+        "updatedAt": "2026-10-08T13:34:34.511303",
+        "extras": {
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Preset Grinder",
+        "burrs": "Fixture 40mm",
+        "burrSize": 40,
+        "burrType": "conical",
+        "notes": "Every field",
+        "settingType": "preset",
+        "settingValues": [
+          "1",
+          "5",
+          "10"
+        ],
+        "settingSmallStep": 0.5,
+        "settingBigStep": 5,
+        "rpmSmallStep": 10,
+        "rpmBigStep": 100,
+        "extras": {
+          "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+        }
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "a8a1d229-ed41-45aa-8e1b-515dc3275758",
+        "model": "Fixture Preset Grinder",
+        "burrs": "Fixture 40mm",
+        "burrSize": 40,
+        "burrType": "conical",
+        "notes": "Every field",
+        "archived": false,
+        "settingType": "preset",
+        "settingValues": [
+          "1",
+          "5",
+          "10"
+        ],
+        "settingSmallStep": 0.5,
+        "settingBigStep": 5,
+        "rpmSmallStep": 10,
+        "rpmBigStep": 100,
+        "createdAt": "2026-10-08T13:34:34.516302",
+        "updatedAt": "2026-10-08T13:34:34.516302",
+        "extras": {
+          "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Archived Grinder",
+        "archived": true,
+        "fixtureUnknown": "dropped",
+        "settingType": "values"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "cdfe7f8d-ba7e-4c0e-993f-ef3c17b46b7a",
+        "model": "Fixture Archived Grinder",
+        "archived": false,
+        "settingType": "preset",
+        "createdAt": "2026-10-08T13:34:34.521177",
+        "updatedAt": "2026-10-08T13:34:34.521177"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/a8a1d229-ed41-45aa-8e1b-515dc3275758",
+      "body": {
+        "burrs": null,
+        "burrSize": 41.5,
+        "settingType": "dial",
+        "fixtureUnknown": "dropped"
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "a8a1d229-ed41-45aa-8e1b-515dc3275758",
+        "model": "Fixture Preset Grinder",
+        "burrSize": 41.5,
+        "burrType": "conical",
+        "notes": "Every field",
+        "archived": false,
+        "settingType": "numeric",
+        "settingValues": [
+          "1",
+          "5",
+          "10"
+        ],
+        "settingSmallStep": 0.5,
+        "settingBigStep": 5,
+        "rpmSmallStep": 10,
+        "rpmBigStep": 100,
+        "createdAt": "2026-10-08T13:34:34.516302",
+        "updatedAt": "2026-10-08T13:34:34.528615",
+        "extras": {
+          "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "archived": true
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Lab",
+        "archived": true,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.492968",
+        "updatedAt": "2026-10-08T13:34:34.534944",
+        "extras": {
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "archived": false,
+        "notes": "Back again"
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+        "model": "Fixture Grinder",
+        "burrs": "Fixture 63mm",
+        "notes": "Back again",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.492968",
+        "updatedAt": "2026-10-08T13:34:34.541116",
+        "extras": {
+          "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/cdfe7f8d-ba7e-4c0e-993f-ef3c17b46b7a",
+      "body": {
+        "archived": true
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "cdfe7f8d-ba7e-4c0e-993f-ef3c17b46b7a",
+        "model": "Fixture Archived Grinder",
+        "archived": true,
+        "settingType": "preset",
+        "createdAt": "2026-10-08T13:34:34.521177",
+        "updatedAt": "2026-10-08T13:34:34.547086"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "burrs": "No model"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'Null' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": 5
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'int' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/00000000-0000-4000-8000-000000000000",
+      "body": {
+        "notes": "Nobody"
+      }
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Grinder not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "model": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"model\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "archived": null
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"archived\" cannot be null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "burrSize": "big"
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"burrSize\" must be a number or null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "settingValues": [
+          1,
+          2
+        ]
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "FormatException: Field \"settingValues\" must be an array of strings or null"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "PUT",
+      "path": "/grinders/4d09e759-76b3-4e91-a095-cb9887e8f9db",
+      "body": {
+        "model": 5
+      }
+    },
+    "response": {
+      "status": 400,
+      "body": {
+        "error": "type 'int' is not a subtype of type 'String' in type cast"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "POST",
+      "path": "/grinders",
+      "body": {
+        "model": "Fixture Doomed Grinder"
+      }
+    },
+    "response": {
+      "status": 201,
+      "body": {
+        "id": "201500ca-5dbf-4569-8ec2-f7f6bdab5006",
+        "model": "Fixture Doomed Grinder",
+        "archived": false,
+        "settingType": "numeric",
+        "createdAt": "2026-10-08T13:34:34.578217",
+        "updatedAt": "2026-10-08T13:34:34.578217"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/grinders/201500ca-5dbf-4569-8ec2-f7f6bdab5006"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "201500ca-5dbf-4569-8ec2-f7f6bdab5006"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "DELETE",
+      "path": "/grinders/00000000-0000-4000-8000-000000000000"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "id": "00000000-0000-4000-8000-000000000000"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/grinders/201500ca-5dbf-4569-8ec2-f7f6bdab5006"
+    },
+    "response": {
+      "status": 404,
+      "body": {
+        "error": "Grinder not found"
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/grinders/a8a1d229-ed41-45aa-8e1b-515dc3275758"
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "id": "a8a1d229-ed41-45aa-8e1b-515dc3275758",
+        "model": "Fixture Preset Grinder",
+        "burrSize": 41.5,
+        "burrType": "conical",
+        "notes": "Every field",
+        "archived": false,
+        "settingType": "numeric",
+        "settingValues": [
+          "1",
+          "5",
+          "10"
+        ],
+        "settingSmallStep": 0.5,
+        "settingBigStep": 5,
+        "rpmSmallStep": 10,
+        "rpmBigStep": 100,
+        "createdAt": "2026-10-08T13:34:34.516302",
+        "updatedAt": "2026-10-08T13:34:34.528615",
+        "extras": {
+          "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+        }
+      }
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/grinders?includeArchived=true"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "cdfe7f8d-ba7e-4c0e-993f-ef3c17b46b7a",
+          "model": "Fixture Archived Grinder",
+          "archived": true,
+          "settingType": "preset",
+          "createdAt": "2026-10-08T13:34:34.521177",
+          "updatedAt": "2026-10-08T13:34:34.547086"
+        },
+        {
+          "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+          "model": "Fixture Grinder",
+          "burrs": "Fixture 63mm",
+          "notes": "Back again",
+          "archived": false,
+          "settingType": "numeric",
+          "createdAt": "2026-10-08T13:34:34.492968",
+          "updatedAt": "2026-10-08T13:34:34.541116",
+          "extras": {
+            "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+          }
+        },
+        {
+          "id": "a8a1d229-ed41-45aa-8e1b-515dc3275758",
+          "model": "Fixture Preset Grinder",
+          "burrSize": 41.5,
+          "burrType": "conical",
+          "notes": "Every field",
+          "archived": false,
+          "settingType": "numeric",
+          "settingValues": [
+            "1",
+            "5",
+            "10"
+          ],
+          "settingSmallStep": 0.5,
+          "settingBigStep": 5,
+          "rpmSmallStep": 10,
+          "rpmBigStep": 100,
+          "createdAt": "2026-10-08T13:34:34.516302",
+          "updatedAt": "2026-10-08T13:34:34.528615",
+          "extras": {
+            "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+          }
+        }
+      ]
+    }
+  },
+  {
+    "request": {
+      "method": "GET",
+      "path": "/grinders"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "4d09e759-76b3-4e91-a095-cb9887e8f9db",
+          "model": "Fixture Grinder",
+          "burrs": "Fixture 63mm",
+          "notes": "Back again",
+          "archived": false,
+          "settingType": "numeric",
+          "createdAt": "2026-10-08T13:34:34.492968",
+          "updatedAt": "2026-10-08T13:34:34.541116",
+          "extras": {
+            "decentSyncId": "7b2d4e6f-8a1c-4d3e-9f5a-6b7c8d9e0f1a"
+          }
+        },
+        {
+          "id": "a8a1d229-ed41-45aa-8e1b-515dc3275758",
+          "model": "Fixture Preset Grinder",
+          "burrSize": 41.5,
+          "burrType": "conical",
+          "notes": "Every field",
+          "archived": false,
+          "settingType": "numeric",
+          "settingValues": [
+            "1",
+            "5",
+            "10"
+          ],
+          "settingSmallStep": 0.5,
+          "settingBigStep": 5,
+          "rpmSmallStep": 10,
+          "rpmBigStep": 100,
+          "createdAt": "2026-10-08T13:34:34.516302",
+          "updatedAt": "2026-10-08T13:34:34.528615",
+          "extras": {
+            "decentSyncId": "0c1d2e3f-4a5b-4c6d-8e7f-9a0b1c2d3e4f"
+          }
+        }
+      ]
+    }
+  }
+]

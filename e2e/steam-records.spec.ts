@@ -1,0 +1,299 @@
+import { expect, type Locator, type Page, test } from "@playwright/test";
+import { derivedSteam, liveSteamFixture, nextMilkProbeSteamFixture, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
+import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { useFreshServer } from "./support/fresh-server.js";
+import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
+import { field } from "./support/locators.js";
+import { expectTip } from "./support/tooltips.js";
+
+// Steam Records in the management interface, as an Admin whose browser is in
+// Tokyo while the Locations are in the US: times are shown and filtered in
+// each Steam Record's own Location's time zone. Simulated tablets running the
+// built plugin backfill Steam Records derived from records Decaid produced,
+// changing only their ids and local times. Hardware ids are made up.
+const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
+test.use({ timezoneId: "Asia/Tokyo" });
+
+test.beforeEach(({ page }) => signInAsAdmin(page));
+
+test("Steam Records from every Location are listed newest first, at their Location's time", async ({ page }) => {
+  const lab = await createLocation(page, "Lab", "America/Denver");
+  const uptown = await createLocation(page, "Uptown", "America/Chicago");
+  await adopt(page, "Lab 1", { model: "DE1Pro", serial: "10041" }, lab.id, [
+    steamAt("lab-latte", "2026-02-10T13:30:00Z"),
+    // The test tablet's DE1Pro has no milk probe.
+    steamAt("lab-cortado", "2026-02-10T13:00:00Z", steamFixture()),
+  ]);
+  await adopt(page, "Uptown 1", { model: "DE1Pro", serial: "10042" }, uptown.id, [
+    steamAt("uptown-flat-white", "2026-02-10T12:30:00Z"),
+    // Recorded right after another, so it starts with the probe's last reading of that one.
+    steamAt("uptown-next", "2026-02-11T15:00:00Z", nextMilkProbeSteamFixture()),
+  ]);
+  await adopt(page, "Roaming", { model: "DE1XL", serial: "10043" }, null, [steamAt("roaming-steam", "2026-02-10T06:30:00Z")]);
+
+  // Uptown 2's token, bound to its own hardware, on a tablet at other hardware: that hardware's Pending Machine holds what it sends.
+  const borrowed = await createMachine(page, "Uptown 2");
+  const raw = await RawConnection.open(server.url());
+  raw.send(helloWith(borrowed.token, { machine: { model: "DE1Pro", serial: "10044" } }));
+  expect(await raw.message(0)).toMatchObject({ type: "welcome" });
+  await raw.close();
+  await load(page, borrowed.token, { model: "Bengle", serial: "10049" }, [steamAt("held-steam", "2026-01-20T15:00:00Z")]);
+
+  await page.goto("/");
+  await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Steam Records" }).click();
+  await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("main"), "Steam Records", /^Every Steam Record from every Location, newest first\./);
+  await expect(column(page, 1)).toHaveText([
+    "Feb 11, 2026, 9:00 AM CST",
+    "Feb 10, 2026, 6:30 AM MST",
+    "Feb 10, 2026, 6:00 AM MST",
+    "Feb 10, 2026, 6:30 AM CST",
+    "Feb 10, 2026, 6:30 AM UTC",
+    "Jan 20, 2026, 3:00 PM UTC",
+  ]);
+  await expect(page.getByText("Steam Records 1–6 of 6")).toBeVisible();
+
+  await expect(row(page, "Feb 10, 2026, 6:30 AM MST").getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Lab 1", "Lab", "11.8 s", "60.46 °C", "60.46 °C", "Fixture Barista"]);
+  // Its steaming alone, 1.7 s of its 3.8 s: the rest is its lead-in.
+  await expect(row(page, "Feb 10, 2026, 6:00 AM MST").getByRole("cell")).toHaveText(["Feb 10, 2026, 6:00 AM MST", "Lab 1", "Lab", "1.7 s", "-", "-", "Fixture Barista"]);
+  // Without a Location, times are in UTC, and say so.
+  await expect(row(page, "Feb 10, 2026, 6:30 AM UTC").getByRole("cell").nth(2)).toHaveText("No Location, times in UTC");
+  await expect(row(page, "Jan 20, 2026, 3:00 PM UTC").getByRole("cell").nth(1)).toHaveText("Bengle serial 10049Pending Machine");
+  // Steam Records record no hardware, so their credit is never marked inferred.
+  await expect(page.getByText("Inferred")).toHaveCount(0);
+});
+
+test("filters by Location, Machine and date narrow the list, with dates read in each Steam Record's Location's time zone", async ({ page }) => {
+  await page.goto("/steam-records");
+  await expect(rows(page)).toHaveCount(6);
+  await expectTip(page.getByRole("region", { name: "Filters" }), "dates and times", /^Dates and times are read in each Steam Record's Location's time zone/);
+
+  await choose(page, "Location", "Uptown");
+  await expect(column(page, 2)).toHaveText(["Uptown 1", "Uptown 1"]);
+  await choose(page, "Location", "No Location (UTC)");
+  await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:30 AM UTC", "Jan 20, 2026, 3:00 PM UTC"]);
+  // A Pending Machine's Steam Records can be reviewed before an Admin adopts or dismisses it.
+  await choose(page, "Machine", "Bengle serial 10049");
+  await expect(column(page, 1)).toHaveText(["Jan 20, 2026, 3:00 PM UTC"]);
+  await choose(page, "Location", "Any Location");
+  await choose(page, "Machine", "Lab 1");
+  await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST"]);
+  await choose(page, "Location", "Uptown");
+  await expect(page.getByText("No Steam Records match these filters.")).toBeVisible();
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(rows(page)).toHaveCount(6);
+
+  // A page past the end, as an old link may name, moves to the last page.
+  await page.goto("/steam-records?offset=25");
+  await expect(rows(page)).toHaveCount(6);
+  await expect(page).toHaveURL(/\/steam-records$/);
+
+  // 6:00 to 9:00 on February 10, which is a different moment at each Location.
+  await chooseDate(page, "From", 2026, "Feb", 10);
+  await page.getByLabel("From time").fill("06:00");
+  await chooseDate(page, "To", 2026, "Feb", 10);
+  await page.getByLabel("To time").fill("09:00");
+  await expect(page).toHaveURL(/from=2026-02-10T06%3A00&to=2026-02-10T09%3A00|from=2026-02-10T06:00&to=2026-02-10T09:00/);
+  await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST", "Feb 10, 2026, 6:30 AM CST", "Feb 10, 2026, 6:30 AM UTC"]);
+  // Until 6:15 leaves out those recorded at 6:30 by their own Location's clock.
+  await page.getByLabel("To time").fill("06:15");
+  await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:00 AM MST"]);
+
+  // The filters are in the page's address, so reloading or sharing it keeps them.
+  await page.reload();
+  await expect(rows(page)).toHaveCount(1);
+  await expect(page.getByRole("button", { name: "From" })).toHaveText("Feb 10, 2026");
+
+  // A Machine's page, and each Pending Machine, link to the Steam Records they hold.
+  await page.goto("/machines");
+  const pending = page.getByRole("list", { name: "Pending Machines", exact: true }).getByRole("listitem").filter({ hasText: "Bengle serial 10049" });
+  await pending.getByRole("link", { name: "Review the Steam Records it holds" }).click();
+  await expect(column(page, 1)).toHaveText(["Jan 20, 2026, 3:00 PM UTC"]);
+  await page.goto(`/machines/${await machineId(page, "Uptown 1")}`);
+  await page.getByRole("link", { name: "All its Steam Records" }).click();
+  await expect(column(page, 1)).toHaveText(["Feb 11, 2026, 9:00 AM CST", "Feb 10, 2026, 6:30 AM CST"]);
+});
+
+test("a Steam Record's page shows its milk temperatures, steam settings and curves", async ({ page }) => {
+  await page.goto(`/steam-records?machineId=${await machineId(page, "Lab 1")}`);
+  await expect(rows(page)).toHaveCount(2);
+  await page.getByRole("link", { name: "Feb 10, 2026, 6:30 AM MST" }).click();
+
+  await expect(page.getByRole("heading", { name: "Steam Record from Feb 10, 2026, 6:30 AM MST", level: 1 })).toBeVisible();
+  const details = page.getByLabel("Steam Record", { exact: true });
+  await expect(field(details, "Peak milk temperature")).toHaveText("60.46 °C");
+  await expect(field(details, "Final milk temperature")).toHaveText("60.46 °C");
+  await expect(field(details, "Duration")).toHaveText("11.8 s");
+  await expect(field(details, "Location")).toHaveText("Lab");
+  const settings = page.getByRole("region", { name: "Steam settings" });
+  await expect(field(settings, "Steam temperature")).toHaveText("150 °C");
+  await expect(field(settings, "Stops at milk temperature")).toHaveText("60 °C");
+  await expectTip(settings, "Steam settings", "What its Workflow set when it started.");
+
+  const curves = page.getByRole("region", { name: "Curves" });
+  for (const name of ["Milk temperature", "Steam temperature", "Pressure", "Flow"]) {
+    const chart = curves.getByRole("figure", { name });
+    await expect(chart.locator(".recharts-line")).not.toHaveCount(0);
+    await expect(chart).toContainText("This Steam Record");
+  }
+  // The milk temperature its Workflow stops steaming at.
+  await expect(curves.getByRole("figure", { name: "Milk temperature" })).toContainText("Target");
+  await expectTip(curves, "Curves", /^Seconds from when it started steaming\. Dashed lines are targets/);
+
+  // Without a milk probe, there is no milk temperature to show, and its Workflow set no stop at one.
+  await page.getByRole("link", { name: "← Steam Records" }).click();
+  await expect(page).toHaveURL(/\/steam-records\?machineId=/);
+  await page.getByRole("link", { name: "Feb 10, 2026, 6:00 AM MST" }).click();
+  await expect(field(details, "Peak milk temperature")).toHaveText("-");
+  await expect(curves.getByRole("figure", { name: "Milk temperature" })).toContainText("Not recorded.");
+  await expect(curves.getByRole("figure", { name: "Pressure" }).locator(".recharts-line")).not.toHaveCount(0);
+  await expect(field(settings, "Stops at milk temperature")).toHaveText("Off");
+
+  // One that started with the reading carried over from the Steam Record before says why its peak is lower.
+  await page.goto("/steam-records");
+  await page.getByRole("link", { name: "Feb 11, 2026, 9:00 AM CST" }).click();
+  await expect(field(details, "Peak milk temperature")).toContainText("61.46 °C");
+  await expect(field(details, "Peak milk temperature")).toContainText("Leaves out the 61.95 °C it started with");
+  await expect(field(details, "Final milk temperature")).toHaveText("61.46 °C");
+
+  // A Pending Machine's Steam Record has no Location, so its times are in UTC.
+  await page.goto("/steam-records");
+  await page.getByRole("link", { name: "Jan 20, 2026, 3:00 PM UTC" }).click();
+  await expect(page.getByText("Its Location is unknown, so times are in UTC.")).toBeVisible();
+  await expect(field(details, "Machine")).toHaveText("Bengle serial 10049Pending Machine");
+});
+
+test("a Steam Record's lead-in, pauses, puffs and purge are shaded and named, left out of its duration, and marked in its measurements", async ({ page }) => {
+  // The test tablet's records of steaming stopped by a tap in Normal, and on time and then by a tap, each changing only its id and time.
+  await adopt(page, "Phases", { model: "DE1Pro", serial: "10045" }, null, [
+    steamAt("tap-in-normal", "2026-03-01T12:00:00Z", liveSteamFixture("steam-record")),
+    steamAt("timed-stop", "2026-03-01T12:05:00Z", liveSteamFixture("steam-record-timed-stop")),
+  ]);
+  await page.goto(`/steam-records?machineId=${await machineId(page, "Phases")}`);
+  // Each one's steaming alone: 16.9 s of 25.2 s, and the Workflow's 10 s of 56.7 s.
+  await expect(column(page, 4)).toHaveText(["10.0 s", "16.9 s"]);
+
+  await page.getByRole("link", { name: "Mar 1, 2026, 12:00 PM UTC" }).click();
+  const details = page.getByLabel("Steam Record", { exact: true });
+  await expect(field(details, "Duration")).toHaveText("16.9 s");
+  const curves = page.getByRole("region", { name: "Curves" });
+  for (const name of ["Steam temperature", "Pressure", "Flow"]) {
+    const chart = curves.getByRole("figure", { name });
+    // Preparing before 0 s, then the pause and the purge, with a line where they meet and none where either meets Steaming.
+    await expect(chart.locator(".recharts-reference-area")).toHaveCount(3);
+    await expect(chart.locator(".recharts-reference-line")).toHaveCount(1);
+    for (const phase of ["Paused", "Purge"]) await expect(chart.getByText(phase, { exact: true })).toBeVisible();
+  }
+  await expectTip(curves, "Curves", /Shaded time isn't steaming, and the duration counts only the time that isn't shaded\./);
+
+  // The plot starts after the 40-pixel y-axis and runs from -3 to 24 seconds.
+  const flow = curves.getByRole("figure", { name: "Flow" });
+  const plot = flow.locator('[data-slot="chart"]');
+  const tooltip = flow.locator(".recharts-tooltip-wrapper");
+  const box = (await plot.boundingBox())!;
+  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * (seconds + 3)) / 27, y: box.height / 3 });
+  for (const [seconds, phase] of [[-1, "Preparing"], [8, undefined], [18, "Paused"], [22, "Purge"]] as const) {
+    await plot.hover({ position: at(seconds) });
+    await expect(tooltip).toContainText("This Steam Record");
+    if (phase) await expect(tooltip).toContainText(new RegExp(`\\d s, ${phase}This Steam Record`));
+    else await expect(tooltip).not.toContainText(/Preparing|Paused|Purge/);
+  }
+
+  await curves.getByRole("button", { name: "Measurements as a table" }).click();
+  const measurements = curves.getByRole("table", { name: "Measurements" }).getByRole("row").filter({ has: page.getByRole("cell") });
+  await expect(measurements).toHaveCount(122);
+  await expect(measurements.first().getByRole("cell").first()).toHaveText("-2.05 sPreparing");
+  await expect(measurements.nth(10).getByRole("cell").first()).toHaveText("0.00 s");
+  for (const [phase, count] of [["Preparing", 10], ["Paused", 16], ["Purge", 15]] as const) {
+    await expect(measurements.filter({ hasText: phase })).toHaveCount(count);
+  }
+  await expect(measurements.last().getByRole("cell").first()).toHaveText("23.15 sPurge");
+
+  // Stopped on time, it paused, puffed until a tap, paused again and purged: a line at each of the three changes
+  // between them. Only Puffing, 35.6 s, is wide enough at this width for its name.
+  await page.goto("/steam-records");
+  await page.getByRole("link", { name: "Mar 1, 2026, 12:05 PM UTC" }).click();
+  await expect(field(details, "Duration")).toHaveText("10.0 s");
+  await expect(flow.locator(".recharts-reference-area")).toHaveCount(5);
+  await expect(flow.locator(".recharts-reference-line")).toHaveCount(3);
+  await expect(flow.getByText("Puffing", { exact: true })).toBeVisible();
+  for (const phase of ["Preparing", "Paused", "Purge"]) await expect(flow.getByText(phase, { exact: true })).toHaveCount(0);
+});
+
+/**
+ * A Steam Record recorded at a UTC time, derived from one Decaid produced. Its
+ * `timestamp` is that time on the tablet's clock, as Decaid writes it: local
+ * time without an offset, to the microsecond. The simulated tablet runs the
+ * plugin in this process, so its clock is this process's time zone, and the
+ * plugin places the record back at that UTC time.
+ */
+function steamAt(id: string, steamedAt: string, fixture?: Record<string, unknown>): Record<string, unknown> {
+  const at = new Date(steamedAt);
+  const pad = (part: number, length = 2) => String(part).padStart(length, "0");
+  const local = `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}T${pad(at.getHours())}:${pad(at.getMinutes())}:${pad(at.getSeconds())}.${pad(at.getMilliseconds(), 3)}000`;
+  return derivedSteam(id, { timestamp: local }, fixture);
+}
+
+/**
+ * Creates a machine entry, at a Location since long before its Steam Records
+ * if one is given, and loads a simulated tablet on its hardware with the Steam
+ * Records, which it backfills.
+ */
+async function adopt(page: Page, name: string, hardware: { model: string; serial: string }, locationId: string | null, steams: Record<string, unknown>[]) {
+  const { machine, token } = await createMachine(page, name);
+  if (locationId) {
+    const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
+    expect(moved.status()).toBe(201);
+  }
+  await load(page, token, hardware, steams);
+}
+
+/** Loads a simulated tablet with the token, on the hardware given, and waits until its Steam Records are listed. */
+async function load(page: Page, token: string, hardware: { model: string; serial: string }, steams: Record<string, unknown>[]) {
+  SimulatedTablet.load({
+    settings: settingsFor({ serverUrl: server.url(), token }),
+    api: withSteams(derivedDe1Pro(hardware), steams),
+    timeScale: 50,
+  });
+  await expect
+    .poll(async () => {
+      const listed = await page.request.get("/api/steam-records?limit=100");
+      const ids = ((await listed.json()) as { steamRecords: { id: string }[] }).steamRecords.map((steam) => steam.id);
+      return steams.every((steam) => ids.includes(String(steam.id)));
+    })
+    .toBe(true);
+}
+
+async function machineId(page: Page, name: string): Promise<string> {
+  const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
+  return machines.find((machine) => machine.name === name)!.id;
+}
+
+function rows(page: Page): Locator {
+  return page.getByRole("table", { name: "Steam Records" }).getByRole("row").filter({ has: page.getByRole("cell") });
+}
+
+/** Each listed Steam Record's cell in a column, counted from 1. */
+function column(page: Page, n: number): Locator {
+  return rows(page).locator(`td:nth-child(${n})`);
+}
+
+/** The list's row for the Steam Record recorded at that time, as the list shows it. */
+function row(page: Page, time: string): Locator {
+  return rows(page).filter({ has: page.getByRole("link", { name: time, exact: true }) });
+}
+
+async function choose(page: Page, filter: string, option: string) {
+  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+}
+
+/** Picks a day in a date filter's calendar, going to its month and year first. */
+async function chooseDate(page: Page, filter: string, year: number, month: string, day: number) {
+  await page.getByRole("button", { name: filter, exact: true }).click();
+  const calendar = page.getByRole("dialog");
+  await calendar.getByRole("combobox", { name: "Choose the Year" }).selectOption(String(year));
+  await calendar.getByRole("combobox", { name: "Choose the Month" }).selectOption({ label: month });
+  await calendar.getByRole("button", { name: new RegExp(`, \\w+ ${day}(st|nd|rd|th), ${year}`) }).click();
+  await expect(calendar).toHaveCount(0);
+}
