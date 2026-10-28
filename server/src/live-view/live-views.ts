@@ -44,6 +44,14 @@ const RECEIVED_INTERVAL_MS = 1_000;
  */
 const MAX_LIVE_FRAMES_PER_SECOND = 1_000;
 
+/**
+ * The sources whose latest frame a connection keeps to relay again for a
+ * viewer joining: Decaid's sockets that send some frames only as they open
+ * or as they change, such as the shot settings. Not the machine, which sends
+ * several a second, nor a sensor, whose ids are the tablet's to choose (#265).
+ */
+const REPLAYED_SOURCES: ReadonlySet<LiveSource> = new Set(["waterLevels", "scale", "shotSettings", "devices"]);
+
 /** A plugin connection this instance welcomed, which may stream for the Live View: not mismatched, and at its wire revision. */
 export interface LiveViewConnection {
   sessionId: string;
@@ -67,12 +75,7 @@ interface Holder {
   relaying: boolean;
   /** The latest frame of each source, awaiting its turn while another is relayed. */
   waiting: Map<string, string>;
-  /**
-   * The latest frame of each of Decaid's sockets' sources taken to relay
-   * since it was started, relayed again for a viewer that joins: Decaid sends
-   * some only as the socket opens or as they change, such as the shot
-   * settings. Machine snapshots come several times a second, asleep too.
-   */
+  /** The latest frame of each of REPLAYED_SOURCES taken to relay since it was started, relayed again for a viewer that joins. */
   latest: Map<string, string>;
   /** The ids of its Machine's unexpired leases as last found while it streamed, so a lease new since shows a viewer joining. */
   leases: Set<string>;
@@ -153,7 +156,10 @@ interface Stream {
  *   such as the shot settings, so once a decision finds a lease of the
  *   Machine it hadn't seen while the connection streams, as a viewer joins
  *   or reloads, its connection relays the latest frame of each of those
- *   sources again, which the viewers already watching receive twice.
+ *   sources again, which the viewers already watching receive twice. Once
+ *   this instance listens again, having missed what was relayed meanwhile,
+ *   it ends its streams, which the browser opens again at once, as a viewer
+ *   joining.
  * - **Backpressure.** Each connection is told how many bytes of its live
  *   frames have arrived, relayed or not, with `liveReceived`, as they arrive
  *   but at most once a RECEIVED_INTERVAL_MS, which frees the plugin's live
@@ -185,7 +191,10 @@ export class LiveViews implements OnModuleDestroy {
       }
     });
     notifications.subscribe("live_frames", (payload) => {
-      if (payload !== null) this.forward(payload);
+      if (payload !== null) return this.forward(payload);
+      // Listening again: frames relayed meanwhile were missed, among them one Decaid sends only as it changes, or relayed
+      // again for a viewer joining. So each stream ends, and the browser opens it again at once, as a viewer joining.
+      this.endStreams();
     });
   }
 
@@ -201,8 +210,13 @@ export class LiveViews implements OnModuleDestroy {
    */
   async end(): Promise<void> {
     this.ending = true;
-    for (const streams of [...this.streams.values()]) for (const stream of [...streams]) this.endStream(stream);
+    this.endStreams();
     while (this.inFlight.size > 0) await Promise.all(this.inFlight);
+  }
+
+  /** Ends every stream on this side, each lease lingering, so the browser opens it again. */
+  private endStreams(): void {
+    for (const streams of [...this.streams.values()]) for (const stream of [...streams]) this.endStream(stream);
   }
 
   /**
@@ -315,13 +329,13 @@ export class LiveViews implements OnModuleDestroy {
       return;
     }
     const source = liveSourceOf(live);
-    if (live.source !== "machine") holder.latest.set(source, payload);
+    if (REPLAYED_SOURCES.has(live.source)) holder.latest.set(source, payload);
     if (!holder.relaying) return void this.track(this.relay(holder, payload));
     holder.waiting.delete(source);
     holder.waiting.set(source, payload);
   }
 
-  /** Relays the latest frame of each of Decaid's sockets' sources again, for a viewer that has joined, unless a newer one waits its turn. */
+  /** Relays the latest frame of each of REPLAYED_SOURCES again, for a viewer that has joined, unless a newer one waits its turn. */
   private replay(holder: Holder): void {
     for (const [source, payload] of holder.latest) if (!holder.waiting.has(source)) holder.waiting.set(source, payload);
     const first = holder.relaying ? undefined : this.nextWaiting(holder);
