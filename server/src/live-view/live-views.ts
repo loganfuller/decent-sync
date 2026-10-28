@@ -40,7 +40,7 @@ const RECEIVED_INTERVAL_MS = 1_000;
  * fewer than 750 frames, as a frame's envelope alone takes 88 bytes. Counted
  * in each instance's memory (ADR-0016).
  */
-export const MAX_LIVE_FRAMES_PER_SECOND = 1_000;
+const MAX_LIVE_FRAMES_PER_SECOND = 1_000;
 
 /** A plugin connection this instance welcomed, which may stream for the Live View: not mismatched, and at its wire revision. */
 export interface LiveViewConnection {
