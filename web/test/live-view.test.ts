@@ -235,11 +235,13 @@ describe("what the Live View can show", () => {
     expect(asleepSinceOf(opened, stored("sleeping"))).toBe(stored("sleeping").observedAt);
     expect(judged(opened, openedAt + STALE_AFTER_MS + 1, null, false, stored("idle"))).toBe("stale");
     expect(judged(opened, openedAt + STALE_AFTER_MS + 1)).toBe("stale");
-    // Shown again: the last snapshot, from before it may have gone to sleep unseen, is dropped as the stream opens.
+    // Shown again: the last snapshot, from before it may have gone to sleep unseen, is dropped as the stream opens, but
+    // when it came is kept, so its values are judged at once, though the stream has just opened.
     const idle = liveWith(awake!, 20_000);
     const shown = withStreamOpened(idle)!;
-    expect(shown).toEqual({ tabletId: TABLET_ID, arrivedAt: 20_000, devices: devicesConnected });
-    expect(judged(shown, 25_001, null, false, stored("sleeping"))).toBe("asleep");
+    expect(shown).toEqual({ tabletId: TABLET_ID, arrivedAt: 20_000, machineArrivedAt: 20_000, devices: devicesConnected });
+    expect(liveConditionOf({ offlineAt: null, mismatched: false, stored: stored("sleeping"), live: shown, openedAt: 90_000, now: 90_000 })).toBe("asleep");
+    expect(liveConditionOf({ offlineAt: null, mismatched: false, stored: stored("idle"), live: shown, openedAt: 90_000, now: 90_000 })).toBe("stale");
     expect(withStreamOpened(shown)).toBe(shown);
     expect(withStreamOpened(undefined)).toBeUndefined();
     // A snapshot that has come decides, whatever was stored: the stored state may lag it.

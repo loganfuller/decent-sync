@@ -382,7 +382,7 @@ test("the Live View of a tab shown again after the Machine went to sleep unseen 
   await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));
   await expect(field(state, "Machine State")).toHaveText("Not reported");
   await expect(liveContent(card)).toHaveCSS("opacity", "1");
-  await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep. Its Tablet stored that it went to sleep, but has sent no values since this page opened.");
+  await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep. Its Tablet stored that it went to sleep, and has sent nothing from the Machine since this page's stream opened.");
 });
 
 test("the Live View follows Tablets taking its Machine over: it drops what the last one sent, but not what a new one sent after a poll was asked", async ({ page }) => {

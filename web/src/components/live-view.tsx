@@ -111,7 +111,7 @@ function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCo
               Some Machines send nothing while asleep.{" "}
               {live?.machine
                 ? "These are the values it sent as it went to sleep."
-                : "Its Tablet stored that it went to sleep, but has sent no values since this page opened."}
+                : "Its Tablet stored that it went to sleep, and has sent nothing from the Machine since this page's stream opened."}
             </p>
           </InfoTip>
         </CardDescription>
@@ -196,7 +196,8 @@ function useLiveView(
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
       setOpenedAt(Date.now());
-      setLive(withStreamOpened);
+      // Each time it opens, the browser's own reopening too, the Machine may have changed unseen.
+      opened.onopen = () => setLive(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
         if (!relayed) return;
@@ -422,7 +423,7 @@ function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
       <Measurement label="Flow" value={value("flow")} target={value("targetFlow")} unit="ml/s" zeroIsNone />
       <Tile label="Profile step">
         <TileTerm>Profile step</TileTerm>
-        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling ? "Not reported" : "Not pulling a shot"}</span>}</dd>
+        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling || named === null ? "Not reported" : "Not pulling a shot"}</span>}</dd>
       </Tile>
       <WaterLevel frame={live.waterLevels} />
       <Scale frame={live.scale} />

@@ -201,14 +201,15 @@ export function asleepSinceOf(live: LiveState | undefined, stored: StoredMachine
 }
 
 /**
- * The Live View as the page opens its stream again: without the last machine
- * frame, as the Machine may have changed unseen meanwhile, such as going to
- * sleep on firmware that then sends nothing. The server sends a joining
- * viewer the latest of each socket's frames again, but no machine frame.
+ * The Live View as its stream opens again: without the last machine frame,
+ * as the Machine may have changed unseen meanwhile, such as going to sleep on
+ * firmware that then sends nothing. The server sends a joining viewer the
+ * latest of each socket's frames again, but no machine frame. When that
+ * frame came is kept, so staleness still counts from it.
  */
 export function withStreamOpened(live: LiveState | undefined): LiveState | undefined {
   if (!live?.machine) return live;
-  const { machine: _machine, machineArrivedAt: _arrivedAt, ...rest } = live;
+  const { machine: _machine, ...rest } = live;
   return rest;
 }
 
