@@ -123,19 +123,22 @@ export function scaleOf(frame: Record<string, unknown> | undefined): {
 
 /**
  * A milk probe's temperature, in °C, while it reports: where its frame was
- * taken no more than STALE_AFTER_MS before the machine snapshot. Decaid's
- * simulated Bengle sends a reading with each snapshot while it steams. The
- * probe's socket sends its last reading as it opens, which may be from long
- * before, and nothing once it is detached. Both times are Decaid's
- * `timestamp`, the Tablet's local time without an offset, so they are
- * compared with each other only, read alike. Null with no snapshot, or for
- * a reading not current or not sent.
+ * taken within STALE_AFTER_MS of the machine snapshot, before or after it, as
+ * frames of two sources may come in either order. Decaid's simulated Bengle
+ * sends a reading with each snapshot while it steams. The probe's socket
+ * sends its last reading as it opens, which may be from long before, and
+ * nothing once it is detached. Both times are Decaid's `timestamp`, the
+ * Tablet's local time without an offset, so they are compared with each
+ * other only, read alike. Across a change of the Tablet's clock, such as a
+ * daylight saving one, a reading from before it is far from the snapshots
+ * after it, either way, so isn't current. Null with no snapshot, or for a
+ * reading not current or not sent.
  */
 export function milkTemperatureOf(probe: Record<string, unknown> | undefined, snapshot: Record<string, unknown> | undefined): number | null {
   if (!probe || !snapshot) return null;
   const taken = localTime(probe.timestamp);
   const now = localTime(snapshot.timestamp);
-  if (taken === null || now === null || now - taken > STALE_AFTER_MS) return null;
+  if (taken === null || now === null || Math.abs(now - taken) > STALE_AFTER_MS) return null;
   return reported(probe, "temperature");
 }
 

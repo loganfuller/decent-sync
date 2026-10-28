@@ -3,7 +3,7 @@ import { Link } from "react-router";
 import { machineStateOf } from "@decent-sync/protocol";
 import { Curves } from "@/components/curves";
 import { InfoTip } from "@/components/info-tip";
-import { describeMachineState, formatTime } from "@/components/machines";
+import { describeMachineState, formatTime, machineModel } from "@/components/machines";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { api, type Machine, type SteamRecordPage } from "@/lib/api";
@@ -65,7 +65,7 @@ export function LiveViewCard({ machine, profile }: { machine: Machine; profile?:
       </CardHeader>
       {(live || curves.curve) && (
         <CardContent className={cn("grid gap-6", !shown && "hidden", condition === "stale" && "opacity-50")}>
-          {live && <LiveTiles live={live} profile={profile} integratedScale={machine.model === "Bengle"} />}
+          {live && <LiveTiles live={live} profile={profile} integratedScale={machineModel(machine) === "Bengle"} />}
           {/* Keyed, so each shot or steaming starts with what the page held as it began. */}
           {curves.curve && (
             <LiveCurvesSection
@@ -369,7 +369,8 @@ const SHOT_STATES = new Set(["espresso", "skipStep"]);
 
 /**
  * The tiles of what the Machine measures now. `integratedScale` says its
- * scale is a Bengle's own, as Decaid connects no other to a Bengle
+ * scale is a Bengle's own, a Machine bound to a Bengle or an Unidentified
+ * one reporting one, as Decaid connects no other to a Bengle
  * (`_runScalePhase` in decaid:lib/src/controllers/connection_manager.dart),
  * whose battery always reads 100 (`IntegratedScaleCapability`), so isn't shown.
  */

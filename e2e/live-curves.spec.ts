@@ -350,3 +350,16 @@ test("a Bengle's milk temperature shows while its probe reports, as a tile and i
   }
   await expect(curves.getByRole("figure", { name: "Milk temperature" })).not.toContainText("Not recorded.");
 });
+
+test("an Unidentified Bengle's own scale shows no battery either", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 10");
+  // A Bengle reporting serial 0: an Unidentified Machine, bound to no model, though its connection reports a Bengle.
+  const tablet = await connectedTablet(token, "0", derivedDe1Pro({ model: "Bengle", serial: "0", connectionId: "00:00:5E:00:53:22" }));
+  const card = await openMachinePage(page, machine.id, tablet);
+  await expect(page.getByRole("region", { name: "Unidentified Machine" })).toBeVisible();
+  const tile = (name: string) => card.getByRole("group", { name });
+  const frames = bengleSteam();
+  await tablet.replayLive(frames, { speed: SPEED }).to(first(frames, "steam", "idle"));
+  await expect(field(tile("Scale"), "Weight")).toHaveText("0.0 g");
+  await expect(tile("Scale").getByText("Battery")).toHaveCount(0);
+});

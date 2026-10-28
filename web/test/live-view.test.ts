@@ -138,6 +138,11 @@ describe("the Live View's events", () => {
     const after = (ms: number) => ({ ...snapshots.at(-1), timestamp: new Date(Date.parse(`${String(last!.timestamp)}Z`) + ms).toISOString().slice(0, -1) });
     expect(milkTemperatureOf(last, after(STALE_AFTER_MS))).toBe(last!.temperature);
     expect(milkTemperatureOf(last, after(STALE_AFTER_MS + 1))).toBeNull();
+    // The Tablet's clock set back, as daylight saving time ends: the snapshots after it are an hour before that
+    // reading by Decaid's times, which isn't current either. Derived as above.
+    expect(milkTemperatureOf(last, after(-STALE_AFTER_MS))).toBe(last!.temperature);
+    expect(milkTemperatureOf(last, after(-STALE_AFTER_MS - 1))).toBeNull();
+    expect(milkTemperatureOf(last, after(-3_600_000 + 10_000))).toBeNull();
 
     // No snapshot to judge it by, no probe, or a frame that isn't a reading, such as the socket's answer while none is listed.
     expect(milkTemperatureOf(readings[1], undefined)).toBeNull();
