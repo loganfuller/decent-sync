@@ -33,8 +33,9 @@ plugin, or while an instance of 1.4.0 holds its connection during the deploy.
 The server now needs Node.js 26 or newer with Temporal, as nodejs.org's builds
 have. It refuses to start without Temporal, which Node 24 lacks, as do some
 packaged builds of Node 26, such as Homebrew's. The server image has it, so
-Docker Compose and fly.io need nothing. Running from source with `npm start`, move to Node.js 26 before
-upgrading: 1.4.0 runs on it too.
+Docker Compose and fly.io need nothing. Running from source, start this release
+on Node.js 26. 1.4.0 runs on it too, so moving the old instance first is
+optional.
 
 ## 1.4.0
 

@@ -130,8 +130,10 @@ describe("Locations", () => {
     }
   });
 
-  it("refuses PostgreSQL-only names and numeric offsets", async () => {
-    for (const timeZone of ["Factory", "localtime", "+00:00", "-05:00", "+0530"]) {
+  it("refuses PostgreSQL-only names, names Temporal refuses and numeric offsets", async () => {
+    // PST and BST are among ICU's old three-letter ids, which Intl accepts and Temporal refuses. 1.4.0 stored BST
+    // as Asia/Dhaka, not Europe/London.
+    for (const timeZone of ["Factory", "localtime", "PST", "BST", "+00:00", "-05:00", "+0530"]) {
       const response = await call("POST", "/locations", { name: `Invalid ${timeZone}`, timeZone });
       expect(response.status, timeZone).toBe(400);
       expect(await problems(response)).toEqual(["Choose a time zone from the list, such as Europe/London"]);
