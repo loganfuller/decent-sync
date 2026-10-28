@@ -48,6 +48,7 @@ import {
   isLibraryList,
   isWrittenKind,
   peerHasWireRevision,
+  utf8Length,
   wireRevisionOf,
 } from "@decent-sync/protocol";
 import { type RawData, type WebSocket, WebSocketServer } from "ws";
@@ -331,7 +332,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     socket.on("message", (data, isBinary) => {
       const text = isBinary ? undefined : rawToString(data);
       const decoded = text === undefined ? undefined : decodePluginFrame(text);
-      if (decoded?.ok === true && decoded.message.type === "liveFrame" && this.liveFrame(session, decoded.message)) return;
+      if (decoded?.ok === true && decoded.message.type === "liveFrame" && this.liveFrame(session, decoded.message, text!)) return;
       const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
@@ -361,14 +362,15 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Hands a welcomed connection's live frame to the Live View as it arrives,
-   * ahead of the deliveries queued before it, as a heartbeat is answered
-   * (ADR-0024). Says whether it did: one arriving before the connection was
-   * welcomed waits its turn, and is refused there before a hello, or dropped.
+   * Hands a welcomed connection's live frame, `text` as received, to the Live
+   * View as it arrives, ahead of the deliveries queued before it, as a
+   * heartbeat is answered (ADR-0024). Says whether it did: one arriving
+   * before the connection was welcomed waits its turn, and is refused there
+   * before a hello, or dropped.
    */
-  private liveFrame(session: Session, live: LiveFrame): boolean {
+  private liveFrame(session: Session, live: LiveFrame, text: string): boolean {
     if (!session.welcomed || session.closing) return false;
-    this.liveViews.frame(session.id, live);
+    this.liveViews.frame(session.id, live, utf8Length(text));
     return true;
   }
 

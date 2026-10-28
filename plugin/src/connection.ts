@@ -523,7 +523,7 @@ export class SyncConnection {
         this.liveView.stop();
         break;
       case "liveReceived":
-        // Live frames have no budget yet, so there is nothing to free.
+        this.liveView.received(message.bytes);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -668,7 +668,7 @@ export class SyncConnection {
     this.handle = undefined;
     this.welcomed = false;
     this.serverRevision = FIRST_WIRE_REVISION;
-    this.liveView.stop();
+    this.liveView.disconnected();
     // A message cut off here is sent again whole, from its first chunk, on the next connection.
     this.sender?.close();
     this.sender = undefined;

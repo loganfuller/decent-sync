@@ -168,9 +168,16 @@ describe("the Live View", () => {
     await expect.poll(() => carrying(stream, [idling.at(-1)!]).length).toBe(1);
 
     // A shot, all at once: its first frame is a change of Machine State, and every frame of it goes. So does the change
-    // back to idle, at once; the rest of idle waits its second, the latest going.
+    // back to idle, at once; the rest of idle waits its second, the latest going. In two halves, each within the plugin's
+    // live budget, the second once the server has said it received the first.
     from = tablet.sent.length;
-    const pulled = shot.slice(shot.indexOf(espresso[0]!)).map((snapshot) => tablet.reportSnapshot(snapshot));
+    const rest = shot.slice(shot.indexOf(espresso[0]!));
+    const half = Math.ceil(espresso.length / 2);
+    const pulled = rest.slice(0, half).map((snapshot) => tablet.reportSnapshot(snapshot));
+    const liveBytesSent = () => tablet.sent.filter(isLiveFrame).reduce<number>((sum, frame) => sum + Buffer.byteLength(JSON.stringify(frame)), 0);
+    const liveReceived = () => tablet.delivered.filter((frame) => (frame as Message).type === "liveReceived").at(-1) as { bytes: number } | undefined;
+    await expect.poll(() => liveReceived()?.bytes).toBe(liveBytesSent());
+    pulled.push(...rest.slice(half).map((snapshot) => tablet.reportSnapshot(snapshot)));
     const shotFrames = pulled.filter((snapshot) => stateOf(snapshot).state === "espresso");
     const backToIdle = pulled[shotFrames.length]!;
     expect(stateOf(backToIdle).state).toBe("idle");
