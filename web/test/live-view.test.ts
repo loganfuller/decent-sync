@@ -102,6 +102,7 @@ describe("the Live View's events", () => {
     // With when the page received the machine snapshot, by its own clock.
     expect(live).toEqual({
       tabletId: TABLET_ID,
+      arrivedAt: 4_000,
       waterLevels: later,
       scale: { status: "disconnected" },
       machine: { snapshot, receivedAt: event.receivedAt, stateSince: event.stateSince },
@@ -118,9 +119,9 @@ describe("the Live View's events", () => {
     const readings = framesOf("bengle-steam.json", "sensor");
     const snapshots = framesOf("bengle-steam.json", "machine");
     let live = withLiveFrame(undefined, sensor(sensorId!, readings[0]!), 1_000);
-    expect(live).toEqual({ tabletId: TABLET_ID, milkProbe: readings[0] });
+    expect(live).toEqual({ tabletId: TABLET_ID, arrivedAt: 1_000, milkProbe: readings[0] });
     live = withLiveFrame(live, sensor(sensorId!, readings[1]!), 2_000);
-    expect(live).toEqual({ tabletId: TABLET_ID, milkProbe: readings[1] });
+    expect(live).toEqual({ tabletId: TABLET_ID, arrivedAt: 2_000, milkProbe: readings[1] });
     // Another sensor, such as Decaid's simulated sensor basket, which also sends a temperature: not a milk probe's.
     expect(withLiveFrame(live, sensor("mockSensorBasket", { timestamp: readings[2]!.timestamp, temperature: 93 }), 3_000)).toBe(live);
 
@@ -156,13 +157,16 @@ describe("the Live View's events", () => {
     const fromOther = readLiveEvent(JSON.stringify({ ...event, tabletId: other, source: "devices", frame: { devices: [] } }))!;
     let live = withLiveFrame(undefined, readLiveEvent(JSON.stringify(event))!, 1_000);
     live = withLiveFrame(live, readLiveEvent(JSON.stringify({ ...event, source: "scale", frame: { status: "connected" } }))!, 2_000);
-    expect(withLiveFrame(live, fromOther, 3_000)).toEqual({ tabletId: other, devices: { devices: [] } });
+    expect(withLiveFrame(live, fromOther, 3_000)).toEqual({ tabletId: other, arrivedAt: 3_000, devices: { devices: [] } });
     // Even one of a source it doesn't show.
     expect(withLiveFrame(live, readLiveEvent(JSON.stringify({ ...event, tabletId: other, source: "sensor", frame: {} }))!, 3_000)).toBeUndefined();
-    // The poll: another Tablet's frames are dropped, as one on the previous release never sends any; its own are kept.
-    expect(withHolder(live, other)).toBeUndefined();
-    expect(withHolder(live, TABLET_ID)).toBe(live);
-    expect(withHolder(undefined, TABLET_ID)).toBeUndefined();
+    // A poll asked for after the last frame came: another Tablet's frames are dropped, as one on the previous release
+    // never sends any; the holder's own are kept.
+    expect(withHolder(live, other, 2_500)).toBeUndefined();
+    expect(withHolder(live, TABLET_ID, 2_500)).toBe(live);
+    expect(withHolder(undefined, TABLET_ID, 2_500)).toBeUndefined();
+    // One asked for before then, answered after: the frames came from a Tablet holding the Machine after it looked.
+    expect(withHolder(live, other, 1_500)).toBe(live);
   });
 
   it("reads the water level against the refill level, low at or below it", () => {
@@ -202,6 +206,7 @@ describe("what the Live View can show", () => {
   /** The Live View with a machine snapshot the page received at `arrivedAt`, and a device list. */
   const liveWith = (frame: Record<string, unknown>, arrivedAt: number, devices = devicesConnected): LiveState => ({
     tabletId: TABLET_ID,
+    arrivedAt,
     machine: { snapshot: frame, receivedAt: event.receivedAt, stateSince: event.stateSince },
     machineArrivedAt: arrivedAt,
     devices,
@@ -214,12 +219,12 @@ describe("what the Live View can show", () => {
   it("is offline, then mismatched, as the page last polled the Machine, but for a current machine snapshot come since", () => {
     expect(judged(undefined, 20_000, 15_000)).toBe("offline");
     expect(judged(undefined, 20_000, 15_000, true)).toBe("offline");
-    expect(judged({ tabletId: TABLET_ID, devices: devicesConnected }, openedAt, openedAt)).toBe("offline");
+    expect(judged({ tabletId: TABLET_ID, arrivedAt: openedAt, devices: devicesConnected }, openedAt, openedAt)).toBe("offline");
     // One that has connected since the page's last poll sends its snapshots before the next poll finds it online.
     const live = liveWith(awake!, 20_000);
     expect(judged(live, 25_000, 15_000)).toBe("live");
     expect(judged(live, 25_001, 15_000)).toBe("offline");
-    // A poll had after the snapshot came, finding it offline, as after a Tablet that left cleanly: offline at once.
+    // A poll asked for after the snapshot came, finding it offline, as after a Tablet that left cleanly: offline at once.
     expect(judged(live, 21_000, 20_500)).toBe("offline");
     expect(judged(live, 20_000, 20_000)).toBe("offline");
     expect(judged(live, 20_000, null, true)).toBe("mismatch");
@@ -232,7 +237,7 @@ describe("what the Live View can show", () => {
     expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 20_000)).toBe("notConnected");
     // However long ago its last snapshot came.
     expect(judged(liveWith(awake!, 20_000, devicesDisconnected), 90_000)).toBe("notConnected");
-    expect(judged({ tabletId: TABLET_ID, devices: devicesDisconnected }, 20_000)).toBe("notConnected");
+    expect(judged({ tabletId: TABLET_ID, arrivedAt: 20_000, devices: devicesDisconnected }, 20_000)).toBe("notConnected");
     // A device list that names no machine at all says nothing of it.
     expect(judged(liveWith(awake!, 20_000, { ...devicesConnected, devices: undefined }), 20_000)).toBe("live");
   });
@@ -248,7 +253,7 @@ describe("what the Live View can show", () => {
   });
 
   it("counts from when the page last opened its stream until the first machine snapshot comes", () => {
-    const live: LiveState = { tabletId: TABLET_ID, waterLevels: framesOf("opening.json", "waterLevels")[0], devices: devicesConnected };
+    const live: LiveState = { tabletId: TABLET_ID, arrivedAt: openedAt, waterLevels: framesOf("opening.json", "waterLevels")[0], devices: devicesConnected };
     expect(staleAtOf(live, openedAt)).toBe(openedAt + STALE_AFTER_MS);
     expect(judged(live, openedAt + STALE_AFTER_MS)).toBe("live");
     expect(judged(live, openedAt + STALE_AFTER_MS + 1)).toBe("stale");

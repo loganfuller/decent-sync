@@ -337,30 +337,59 @@ test("the Live View shows a Machine whose last snapshot said it was asleep as as
   await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.");
 });
 
-test("the Live View follows a Tablet taking its Machine over: it drops what the last one sent, but not what the new one sent before the page's poll found it", async ({ page }) => {
+test("the Live View follows Tablets taking its Machine over: it drops what the last one sent, but not what a new one sent after a poll was asked", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Bar 10");
-  const tablet = await connectedTablet(token, "27011");
+  const original = await connectedTablet(token, "27011");
   await page.clock.install();
   await page.goto(`/machines/${machine.id}`);
-  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  await expect.poll(() => original.delivered).toContainEqual({ type: "liveStart" });
   const card = page.getByRole("region", { name: "Live View" });
   const state = card.getByRole("group", { name: "Machine State" });
-  tablet.reportSnapshot(first(shot, "espresso", "preinfusion"));
+  original.reportSnapshot(first(shot, "espresso", "preinfusion"));
   await expect(field(state, "Machine State")).toHaveText("Pulling a shot Preinfusion");
+  // The page's polls now run only as the test moves its clock on.
+  await page.clock.pauseAt(Date.now() + 1_000);
 
-  // Another Tablet takes the Machine over. Its sockets' frames, which name it, drop the first one's snapshot.
-  const swapped = await connectedTablet(token, "27011");
-  await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+  // A second Tablet takes the Machine over. Its sockets' frames, which name it, drop the first one's snapshot.
+  const second = await connectedTablet(token, "27011");
+  await original.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
   await expect(field(state, "Machine State")).toHaveText("Not reported");
-  // Its Machine goes to sleep before the page's next poll, on firmware that then sends nothing.
-  swapped.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
+  type Viewed = { machine: { tablet: { id: string } | null } };
+  const path = `/api/machines/${machine.id}`;
+  const holderOf = async () => ((await (await page.request.get(path)).json()) as Viewed).machine.tablet!.id;
+  const secondId = await holderOf();
+
+  // The page asks for the Machine, which the second Tablet holds, but the answer is held back.
+  let fetched!: () => void;
+  const answered = new Promise<void>((resolve) => (fetched = resolve));
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route((url) => url.pathname === path, async (route) => {
+    const response = await route.fetch();
+    fetched();
+    await released;
+    await route.fulfill({ response });
+  });
+  await page.clock.fastForward(5_000);
+  await answered;
+  await page.clock.fastForward(10);
+
+  // Meanwhile a third takes it over, and its Machine goes to sleep, on firmware that then sends nothing.
+  const third = await connectedTablet(token, "27011");
+  await second.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+  third.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
   await expect(field(state, "Machine State")).toHaveText("Asleep");
 
-  // The poll finds the new Tablet holding the Machine, whose frames it keeps: asleep, not stale.
-  type Viewed = { machine: { tablet: { id: string } | null } };
-  const holder = ((await (await page.request.get(`/api/machines/${machine.id}`)).json()) as Viewed).machine.tablet!.id;
+  // The answer naming the second Tablet arrives: asked for before the third's frames came, it drops none of them.
+  release();
+  const current = page.getByLabel("Current tablet", { exact: true });
+  await expect(field(current, "Tablet id")).toHaveText(secondId);
+  await expect(field(state, "Machine State")).toHaveText("Asleep");
+  await page.unroute((url) => url.pathname === path);
+
+  // The next poll finds the third Tablet holding the Machine, and keeps its frames too: asleep, not stale.
   await page.clock.fastForward(5_000);
-  await expect(field(page.getByRole("region", { name: "Tablets" }), "Tablet id")).toHaveText(holder);
+  await expect(field(current, "Tablet id")).toHaveText(await holderOf());
   await expect(field(state, "Machine State")).toHaveText("Asleep");
   await page.clock.fastForward(5_500);
   await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));

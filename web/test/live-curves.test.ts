@@ -209,7 +209,7 @@ describe("the Live View's curves", () => {
     const { curve } = take([...frames.slice(0, start), disconnected, ...frames.slice(start).filter(({ source }) => source === "machine")]);
     expect(curve!.measurements.every(({ scale }) => scale === undefined)).toBe(true);
     // A frame without a Machine State, or of a source the curves don't read, changes nothing.
-    const curves: LiveCurves = { curve: curve as LiveCurve };
+    const curves: LiveCurves = { curve: curve as LiveCurve, tabletId: TABLET_ID };
     const noState = { machineId: MACHINE_ID, tabletId: TABLET_ID, source: "machine", receivedAt: frames[start]!.receivedAt, stateSince: frames[start]!.receivedAt, frame: { pressure: 1 } } as RelayedLiveFrame;
     expect(withCurvesFrame(curves, noState)).toBe(curves);
     expect(withCurvesFrame(curves, { ...noState, source: "waterLevels", frame: { currentLevel: 20 } })).toBe(curves);
@@ -238,5 +238,22 @@ describe("the Live View's curves", () => {
     // A DE1 has no milk probe: no milk temperature, and no curve of it.
     const de1 = liveSamples(take(relayed(steam)).curve!);
     expect(Object.keys(liveSteamCurves(de1.activity === "steaming" ? de1.samples : []))).toEqual(["steamTemperature", "pressure", "flow"]);
+  });
+
+  it("takes a frame from another Tablet, which has taken the Machine over, as after a gap: its shot starts curves of its own, and the scale's weight is dropped", () => {
+    const frames = relayed(shot);
+    const pouring = first(frames, "espresso", "pouring");
+    const before = take(frames.slice(0, pouring));
+    expect(before.curve).toMatchObject({ activity: "shot", ended: false, partial: false });
+    expect(before.scale).toBeDefined();
+    // Another Tablet's frames of the same recording, its plugin having seen the Machine State begin with its first.
+    const other = "019a2f3e-9c63-7d1a-8f3b-7b5e4a6d8c92";
+    const machineFrames = frames.slice(pouring).filter(({ source }) => source === "machine");
+    const takenOver = machineFrames.map((frame) => ({ ...frame, tabletId: other, stateSince: machineFrames[0]!.receivedAt }));
+    const after = take(takenOver.slice(0, 3), before);
+    expect(after.tabletId).toBe(other);
+    expect(after.curve!.startedAt).toBe(takenOver[0]!.receivedAt);
+    expect(after.curve!.measurements).toHaveLength(3);
+    expect(after.curve!.measurements.map(({ scale }) => scale)).toEqual([undefined, undefined, undefined]);
   });
 });

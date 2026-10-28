@@ -35,8 +35,9 @@ const REOPEN_MS = 5_000;
  * The Machine's Live View (ADR-0024): what it is doing and measuring now, as
  * its Tablet streams it through the server while this page is open, and the
  * curves of its latest shot or steaming. Nothing of it is stored. `machine`
- * is the Machine as the page last polled it, and `profile` the profile of its
- * Workflow, if known, which names a shot's steps.
+ * is the Machine as the page last polled it, `askedAt` when the page asked
+ * for it, by its own clock, and `profile` the profile of its Workflow, if
+ * known, which names a shot's steps.
  *
  * With nothing live to show, the card shrinks to one line saying why: the
  * Machine is offline, its connection reports other hardware, nothing has come
@@ -45,10 +46,10 @@ const REOPEN_MS = 5_000;
  * machine frame for more than 5 s are dimmed, but for a Machine that said it
  * was asleep (`liveConditionOf`).
  */
-export function LiveViewCard({ machine, profile }: { machine: Machine; profile?: unknown }) {
-  const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null);
-  const offlineAt = useOfflineAt(machine);
+export function LiveViewCard({ machine, askedAt, profile }: { machine: Machine; askedAt: number; profile?: unknown }) {
+  const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null, askedAt);
   const now = useTimeAfter(staleAtOf(live, openedAt));
+  const offlineAt = machine.online ? null : askedAt;
   const condition = liveConditionOf({ offlineAt, mismatched: machine.mismatch !== null, live, openedAt, now });
   const shown = condition === "live" || condition === "stale" || condition === "asleep";
   return (
@@ -122,17 +123,6 @@ function offlineText({ lastSeenAt, machineState }: Machine): string {
   return `Offline, last seen ${formatTime(lastSeenAt)}, last Machine State: ${state}.`;
 }
 
-/**
- * When the page had its latest poll of the Machine, by its own clock, if that
- * found it offline, or null if it found it online. Each poll brings a new
- * Machine.
- */
-function useOfflineAt(machine: Machine): number | null {
-  const [offlineAt, setOfflineAt] = useState(() => (machine.online ? null : Date.now()));
-  useEffect(() => setOfflineAt(machine.online ? null : Date.now()), [machine]);
-  return offlineAt;
-}
-
 /** The page's time, as of the last render, rendering again once it passes `at`, by the same clock. */
 function useTimeAfter(at: number): number {
   const [now, setNow] = useState(Date.now);
@@ -152,18 +142,22 @@ function useTimeAfter(at: number): number {
  * again by itself; one it gave up on, as when refused, is opened again after
  * REOPEN_MS. `openedAt` is when the page last opened it, by its own clock.
  *
- * `tabletId` is the Tablet holding the Machine, as the page last polled it.
- * Once its polling finds another, what a Tablet other than that one sent is
- * dropped (`withHolder`).
+ * `tabletId` is the Tablet holding the Machine, as the page's latest poll,
+ * asked for at `askedAt`, found it. Each poll drops what another Tablet sent
+ * before it was asked (`withHolder`).
  */
-function useLiveView(machineId: string, tabletId: string | null): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
+function useLiveView(
+  machineId: string,
+  tabletId: string | null,
+  askedAt: number,
+): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
   const [live, setLive] = useState<LiveState>();
   const [curves, setCurves] = useState<LiveCurves>({});
   const [openedAt, setOpenedAt] = useState(Date.now);
-  const [holder, setHolder] = useState(tabletId);
-  if (tabletId !== holder) {
-    setHolder(tabletId);
-    if (tabletId !== null) setLive((latest) => withHolder(latest, tabletId));
+  const [polled, setPolled] = useState(askedAt);
+  if (askedAt !== polled) {
+    setPolled(askedAt);
+    if (tabletId !== null) setLive((latest) => withHolder(latest, tabletId, askedAt));
   }
   useEffect(() => {
     let source: EventSource | undefined;

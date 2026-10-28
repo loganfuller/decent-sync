@@ -14,6 +14,8 @@ import { type RelayedLiveFrame, isMilkProbe, machineStateOf } from "@decent-sync
 export interface LiveState {
   /** The Tablet whose connection sent them, by its id. */
   tabletId: string;
+  /** When the page received the latest of them, by its own clock, in ms since the epoch. */
+  arrivedAt: number;
   machine?: LiveMachine;
   /**
    * When the page received `machine`, by its own clock, in ms since the
@@ -71,29 +73,30 @@ export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveF
   switch (relayed.source) {
     case "machine": {
       const machine = liveMachineOf(relayed);
-      return machine ? { ...held, tabletId, machine, machineArrivedAt: arrivedAt } : held;
+      return machine ? { ...held, tabletId, arrivedAt, machine, machineArrivedAt: arrivedAt } : held;
     }
     case "waterLevels":
     case "scale":
     case "shotSettings":
     case "devices":
-      return { ...held, tabletId, [relayed.source]: relayed.frame };
+      return { ...held, tabletId, arrivedAt, [relayed.source]: relayed.frame };
     case "sensor":
-      return isMilkProbe(relayed.sensorId) ? { ...held, tabletId, milkProbe: relayed.frame } : held;
+      return isMilkProbe(relayed.sensorId) ? { ...held, tabletId, arrivedAt, milkProbe: relayed.frame } : held;
     default:
       return held;
   }
 }
 
 /**
- * The Live View once the page's polling finds `tabletId` holding the
- * Machine, as after a takeover: what another Tablet sent is dropped, as a
- * Tablet that sends nothing, such as one on the previous release, would
- * otherwise leave it standing. The new one's frames that came before the
- * poll are kept.
+ * The Live View once a poll of the Machine, asked for at `askedAt` by the
+ * page's clock, found `tabletId` holding it, as after a takeover: what
+ * another Tablet sent before the poll was asked is dropped, as a Tablet that
+ * sends nothing, such as one on the previous release, would otherwise leave
+ * it standing. Frames that came since were sent by a Tablet holding the
+ * Machine after the poll looked, so are kept.
  */
-export function withHolder(live: LiveState | undefined, tabletId: string): LiveState | undefined {
-  return live?.tabletId === tabletId ? live : undefined;
+export function withHolder(live: LiveState | undefined, tabletId: string, askedAt: number): LiveState | undefined {
+  return !live || live.tabletId === tabletId || live.arrivedAt > askedAt ? live : undefined;
 }
 
 /** The tank's water level and refill level, in mm, each null where not sent, and whether it is low: at or below the refill level. */
@@ -165,9 +168,9 @@ export const STALE_AFTER_MS = 5_000;
  * What the Live View can show of the Machine (#258, Stale and disconnected),
  * the first of these that holds:
  * - `offline`: the page's latest poll of the Machine found it offline, and
- *   no machine frame has come since that is still current: one that has is
- *   from a connection that took the Machine since, which the next poll will
- *   find;
+ *   no machine frame has come since the poll was asked that is still current:
+ *   one that has is from a connection that took the Machine since, which the
+ *   next poll will find;
  * - `mismatch`: its connection reports other hardware than the Machine's,
  *   which the server never asks to stream;
  * - `waiting`: nothing has come from its stream yet;
@@ -188,7 +191,7 @@ export function liveConditionOf({
   openedAt,
   now,
 }: {
-  /** When the page had its latest poll of the Machine, if that found it offline, by its own clock, in ms; null if it found it online. */
+  /** When the page asked for its latest poll of the Machine, if that found it offline, by its own clock, in ms; null if it found it online. */
   offlineAt: number | null;
   /** Whether its connection reports other hardware, as the page last polled it. */
   mismatched: boolean;
