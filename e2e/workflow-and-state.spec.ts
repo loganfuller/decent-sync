@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, de1ProOnDecaid090, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { CHECK_MS, DETAILS_POLL_MS, POLL_MS, afterDetailsPolls, afterStatusPolls } from "./support/polling.js";
+import { CHECK_MS, DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { field, machineRow } from "./support/locators.js";
 
@@ -36,7 +36,14 @@ test("the Machines list and Machine page show the machine state, last Shot and c
 
   await row.getByRole("link", { name: "Bar 1" }).click();
   await expect(page.getByRole("heading", { name: "Bar 1", level: 1 })).toBeVisible();
-  await expect(field(page, "Machine state")).toHaveText(/^Pulling a shot · Pouring, since \w{3} \d+, \d{4}/);
+  // In the Live View, as it comes, and not in the Status card, so the two never differ.
+  const state = page.getByRole("region", { name: "Live View" }).getByRole("group", { name: "Machine State" });
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  tablet.reportState("espresso", "pouring");
+  await expect(field(state, "Machine State")).toHaveText("Pulling a shot Pouring");
+  const status = page.getByLabel("Status", { exact: true });
+  await expect(field(status, "Last seen")).toBeVisible();
+  await expect(field(page, "Machine state")).toHaveCount(0);
   await expect(field(page, "Last Shot")).toHaveText("Oct 4, 2026, 2:14:10 PM");
   const workflow = page.getByRole("region", { name: "Workflow" });
   await workflow.getByRole("button", { name: "About Workflow", exact: true }).hover();
@@ -61,11 +68,11 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   for (const [term, value] of expected) await expect(field(workflow, term)).toHaveText(value);
   await expect(workflow.locator("dt")).toHaveText(expected.map(([term]) => term));
 
-  // A barista dials in, and the shot ends. The page follows the machine state
-  // within seconds, and loads the Workflow less often.
+  // A barista dials in, and the shot ends. The Live View follows the machine
+  // state as it comes, and the page loads the Workflow less often.
   tablet.setWorkflow(derivedWorkflow({ targetYield: 40, grinderSetting: "7.5" }));
   tablet.reportState("idle", "idle");
-  await afterStatusPolls(page, () => expect(field(page, "Machine state")).toHaveText(/^Idle, since /, { timeout: CHECK_MS }));
+  await expect(field(state, "Machine State")).toHaveText("Idle");
   await afterDetailsPolls(page, () => expect(field(workflow, "Yield")).toHaveText("40 g", { timeout: CHECK_MS }));
   await expect(field(workflow, "Grind setting")).toHaveText("7.5");
   await page.goto("/machines");
@@ -80,7 +87,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(row.getByRole("cell").nth(6)).toHaveText("None");
 
   await row.getByRole("link", { name: "Spare" }).click();
-  await expect(field(page, "Machine state")).toHaveText("Not reported yet");
+  await expect(page.getByRole("region", { name: "Live View" })).toContainText("Offline, never seen.");
   await expect(field(page, "Last Shot")).toHaveText("None");
   await expect(page.getByRole("region", { name: "Workflow" })).toContainText("Its tablet has not reported it yet.");
 });

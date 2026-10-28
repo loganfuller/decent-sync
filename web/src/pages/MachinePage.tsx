@@ -10,7 +10,6 @@ import {
   PendingMachineActions,
   StatusBadge,
   describeHardware,
-  describeMachineState,
   formatTime,
   lastShotText,
   needsHardware,
@@ -89,11 +88,13 @@ function MachineDetails({ id }: { id: string }) {
   const isAdmin = useIsAdmin();
   const [notFound, setNotFound] = useState(false);
   const path = `/machines/${encodeURIComponent(id)}`;
+  // With when the page asked for it, by its own clock, which the Live View orders its frames against.
   const loadMachine = useCallback(async () => {
+    const askedAt = Date.now();
     try {
       const { machine } = await api<{ machine: Machine }>("GET", path);
       setNotFound(false);
-      return machine;
+      return { machine, askedAt };
     } catch (error) {
       if (error instanceof ApiError && error.status === 404) setNotFound(true);
       throw error;
@@ -119,7 +120,7 @@ function MachineDetails({ id }: { id: string }) {
   }, [path]);
   const reports = usePolled(loadReports, DETAILS_POLL_MS);
   // The Pending Machine holding a mismatch's hardware, loaded as soon as the Machine's status names one.
-  const pendingId = status.data?.mismatch?.pendingMachineId ?? null;
+  const pendingId = status.data?.machine.mismatch?.pendingMachineId ?? null;
   // Each answer names the id it was for, so one for an id the status no longer names is never shown.
   const loadPending = useCallback(async (): Promise<{ id: string | null; pendingMachine: PendingMachine | null }> => {
     if (pendingId === null) return { id: null, pendingMachine: null };
@@ -173,7 +174,7 @@ function MachineDetails({ id }: { id: string }) {
     );
   }
 
-  const machine = status.data;
+  const machine = status.data?.machine;
   const data = reports.data;
   // Undefined while the Pending Machine the status names is loading.
   const pendingMachine = pendingId === null ? null : pending.data?.id === pendingId ? pending.data.pendingMachine : undefined;
@@ -215,7 +216,7 @@ function MachineDetails({ id }: { id: string }) {
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
           <SetAsideDeliveriesCard machineId={machine.id} />
-          <LiveViewCard machineId={machine.id} profile={data?.workflow?.workflow.profile} lastShotId={machine.lastShot?.id ?? null} />
+          <LiveViewCard machine={machine} askedAt={status.data!.askedAt} profile={data?.workflow?.workflow.profile} />
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -245,11 +246,6 @@ function MachineDetails({ id }: { id: string }) {
                 <Fields label="Status">
                   <Field term="Status">{machine.online ? "Online" : "Offline"}</Field>
                   <Field term="Last seen">{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</Field>
-                  <Field term="Machine state">
-                    {machine.machineState
-                      ? `${describeMachineState(machine.machineState)}, since ${formatTime(machine.machineState.observedAt)}`
-                      : "Not reported yet"}
-                  </Field>
                   <Field term="Last Shot">
                     {machine.lastShot ? (
                       <Link to={`/shots/${encodeURIComponent(machine.lastShot.id)}`} className="underline underline-offset-4">

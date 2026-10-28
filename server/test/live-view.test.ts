@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { type RelayedLiveFrame, nameMachineState } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { machineSnapshots, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
+import { machineDisconnects, machineSnapshots, openingFrames, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
 import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
@@ -205,8 +205,9 @@ describe("the Live View", () => {
     // The current water levels, shot settings and devices, and the scale's status, tagged with their source.
     await expect.poll(() => fromSockets(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
     const after = Date.now();
+    const tabletId = (await api.machineNamed("Sockets"))!.tablet!.id;
     for (const event of stream.events.filter((event) => event.source !== "machine")) {
-      expect(event).toEqual({ machineId: machine.machine.id, source: event.source, receivedAt: expect.any(String), frame: event.frame });
+      expect(event).toEqual({ machineId: machine.machine.id, tabletId, source: event.source, receivedAt: expect.any(String), frame: event.frame });
       expect(Date.parse(event.receivedAt)).toBeGreaterThanOrEqual(before);
       expect(Date.parse(event.receivedAt)).toBeLessThanOrEqual(after);
     }
@@ -337,6 +338,56 @@ describe("the Live View", () => {
     const taken = other.reportSnapshot(idle[0]!);
     await expect.poll(() => carrying(stream, [taken]).length).toBe(1);
     expect(carrying(stream, [late!, afterwards])).toEqual([]);
+  });
+
+  it("follows a Tablet swap: the viewer receives the new Tablet's frames, each naming it, and none from the one it replaced", async () => {
+    const { machine, tablet, serial: hardware } = await connected("Swapped");
+    const stream = await watching(machine, tablet);
+    const [before] = await seen(tablet, [idle[0]!], stream);
+    const first = (await api.machineNamed("Swapped"))!.tablet!.id;
+    expect(carrying(stream, [before!]).map((event) => event.tabletId)).toEqual([first]);
+
+    // Another Tablet connects with the Machine's token while the first is still connected, and takes it over.
+    const swapped = syncingTablet(machine, server, { api: emptyLibrary(hardware) });
+    await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+    await expect.poll(() => count(swapped.delivered, "liveStart")).toBe(1);
+    // The replaced Tablet's Decaid goes on reporting, and the new one's frames reach the viewer.
+    const replaced = tablet.reportSnapshot(firstOf("preinfusion"));
+    const taken = await seen(swapped, [idle[1]!, idle[2]!], stream);
+    expect(carrying(stream, [replaced])).toEqual([]);
+    const holder = (await api.machineNamed("Swapped"))!.tablet!.id;
+    expect(holder).not.toBe(first);
+    expect(carrying(stream, taken).map((event) => event.tabletId)).toEqual([holder, holder]);
+    expect(liveFramesSent(tablet, 0).filter((snapshot) => snapshot.timestamp === replaced.timestamp)).toEqual([]);
+  });
+
+  it("relays the device list of a Tablet not connected to its machine, which says so, then the machine's frames once it connects", async () => {
+    // Bound to its machine's hardware; then its Tablet starts without the machine, as with the machine switched off.
+    const { machine, tablet, serial: hardware } = await connected("Not connected");
+    await tablet.unload();
+    await api.waitForMachine(machine.machine.name, (viewed) => !viewed.online);
+    const { disconnected, reconnected } = machineDisconnects();
+    const sockets = { ...openingFrames(), devices: disconnected };
+    const alone = syncingTablet(machine, server, { api: emptyLibrary(hardware), machineConnected: false, sockets });
+    await api.waitForOnline(machine);
+    const stream = await watching(machine, alone);
+    const listsTheMachine = (frame: Record<string, unknown>, state: string) =>
+      (frame.devices as { type: string; state: string }[]).some((device) => device.type === "machine" && device.state === state);
+    expect(listsTheMachine(disconnected, "disconnected") && !listsTheMachine(disconnected, "connected")).toBe(true);
+    await expect.poll(() => fromSockets(stream)).toContainEqual({ source: "devices", frame: disconnected });
+    // Decaid sends the machine's water levels, shot settings and state only while it is connected.
+    expect(fromSockets(stream).map((event) => event.source).sort()).toEqual(["devices", "scale"]);
+    expect(stream.events.filter((event) => event.source === "machine")).toEqual([]);
+
+    // The machine connects: its Tablet's device list says so, and its frames follow.
+    expect(listsTheMachine(reconnected, "connected")).toBe(true);
+    alone.connectMachine(reconnected);
+    await expect.poll(() => fromSockets(stream)).toContainEqual({ source: "devices", frame: reconnected });
+    await expect.poll(() => stream.events.filter((event) => event.source === "machine").length).toBeGreaterThan(0);
+
+    // It is disconnected again while streaming: the device list says so at once, as the latest.
+    alone.disconnectMachine(disconnected);
+    await expect.poll(() => fromSockets(stream).filter((event) => event.source === "devices").at(-1)?.frame).toEqual(disconnected);
   });
 
   it("never starts a connection whose tablet reports other hardware than its Machine's", async () => {

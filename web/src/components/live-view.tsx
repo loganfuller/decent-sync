@@ -3,13 +3,31 @@ import { Link } from "react-router";
 import { machineStateOf } from "@decent-sync/protocol";
 import { Curves } from "@/components/curves";
 import { InfoTip } from "@/components/info-tip";
+import { describeMachineState, formatTime } from "@/components/machines";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { api, type SteamRecordPage } from "@/lib/api";
+import { api, type Machine, type SteamRecordPage } from "@/lib/api";
 import { SHOT_CURVES, profileStep } from "@/lib/curves";
 import { LIVE_STEAM_CURVES, type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamGap } from "@/lib/live-curves";
-import { type LiveState, machineConnectedOf, readLiveEvent, reported, scaleOf, timeInState, waterLevelOf, withLiveFrame } from "@/lib/live-view";
+import {
+  STALE_AFTER_MS,
+  asleepSinceOf,
+  type LiveCondition,
+  type LiveState,
+  liveConditionOf,
+  machineConnectedOf,
+  readLiveEvent,
+  reported,
+  scaleOf,
+  staleAtOf,
+  timeInState,
+  waterLevelOf,
+  withHolder,
+  withLiveFrame,
+  withStreamOpened,
+} from "@/lib/live-view";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
+import { cn } from "@/lib/utils";
 
 /** How long after the browser gives up on the stream, as on a refusal, the card opens it again. */
 const REOPEN_MS = 5_000;
@@ -17,13 +35,24 @@ const REOPEN_MS = 5_000;
 /**
  * The Machine's Live View (ADR-0024): what it is doing and measuring now, as
  * its Tablet streams it through the server while this page is open, and the
- * curves of its latest shot or steaming. Nothing of it is stored. `profile`
- * is the profile of the Machine's Workflow, if known, which names a shot's
- * steps, and `lastShotId` the id of its last Shot, as the page last loaded
- * it, or null for none.
+ * curves of its latest shot or steaming. Nothing of it is stored. `machine`
+ * is the Machine as the page last polled it, `askedAt` when the page asked
+ * for it, by its own clock, and `profile` the profile of its Workflow, if
+ * known, which names a shot's steps.
+ *
+ * With nothing live to show, the card shrinks to one line saying why: the
+ * Machine is offline, its connection reports other hardware, nothing has come
+ * yet, or its Tablet isn't connected to it. What it showed is hidden then,
+ * not dropped, so the curves keep the record they link. Values with no
+ * machine frame for more than 5 s are dimmed, but for a Machine that said it
+ * was asleep (`liveConditionOf`).
  */
-export function LiveViewCard({ machineId, profile, lastShotId }: { machineId: string; profile?: unknown; lastShotId: string | null }) {
-  const { live, curves } = useLiveView(machineId);
+export function LiveViewCard({ machine, askedAt, profile }: { machine: Machine; askedAt: number; profile?: unknown }) {
+  const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null, askedAt);
+  const now = useTimeAfter(staleAtOf(live, openedAt));
+  const offlineAt = machine.online ? null : askedAt;
+  const condition = liveConditionOf({ offlineAt, mismatched: machine.mismatch !== null, stored: machine.machineState, live, openedAt, now });
+  const shown = condition === "live" || condition === "stale" || condition === "asleep";
   return (
     <Card role="region" aria-label="Live View">
       <CardHeader>
@@ -34,26 +63,90 @@ export function LiveViewCard({ machineId, profile, lastShotId }: { machineId: st
             <p>Nothing here is stored.</p>
           </InfoTip>
         </CardTitle>
-        {!live && <CardDescription>Waiting for its Tablet to send what it is doing.</CardDescription>}
+        {condition !== "live" && <ConditionLine condition={condition} machine={machine} live={live} />}
       </CardHeader>
-      {live && (
-        <CardContent className="grid gap-6">
-          <LiveTiles live={live} profile={profile} />
+      {(live || curves.curve) && (
+        <CardContent className={cn("grid gap-6", !shown && "hidden", condition === "stale" && "opacity-50")}>
+          {live && <LiveTiles live={live} profile={profile} />}
           {/* Keyed, so each shot or steaming starts with what the page held as it began. */}
           {curves.curve && (
             <LiveCurvesSection
               key={curves.curve.startedAt}
-              machineId={machineId}
+              machineId={machine.id}
               curve={curves.curve}
               settled={curves.firstFrameAt !== undefined}
               profile={profile}
-              lastShotId={lastShotId}
+              lastShotId={machine.lastShot?.id ?? null}
             />
           )}
         </CardContent>
       )}
     </Card>
   );
+}
+
+/** The line saying why the Live View shows nothing live, or that what it shows isn't current. */
+function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCondition, "live">; machine: Machine; live: LiveState | undefined }) {
+  switch (condition) {
+    case "offline":
+      return <CardDescription>{offlineText(machine)}</CardDescription>;
+    case "mismatch":
+      return <CardDescription>Its Tablet reports other hardware than this Machine's, so nothing live is shown.</CardDescription>;
+    case "waiting":
+      // A plugin on the previous release never streams, so its Machine State is the one it last stored.
+      return (
+        <CardDescription>
+          Waiting for its Tablet to send what it is doing.
+          {machine.machineState && ` Last Machine State: ${lastStateText(machine.machineState)}.`}
+        </CardDescription>
+      );
+    case "notConnected":
+      return <CardDescription>Its Tablet is online, but not connected to the Machine.</CardDescription>;
+    case "asleep":
+      return (
+        <CardDescription className="flex items-center gap-1.5">
+          Asleep since {formatTime(asleepSinceOf(live, machine.machineState)!)}
+          <InfoTip label="About an asleep Machine">
+            <p>
+              Some Machines send nothing while asleep.{" "}
+              {live?.machine
+                ? "These are the values it sent as it went to sleep."
+                : "Its Tablet stored that it went to sleep, and has sent nothing from the Machine since this page's stream opened."}
+            </p>
+          </InfoTip>
+        </CardDescription>
+      );
+    case "stale":
+      return (
+        <CardDescription className="flex items-center gap-1.5">
+          {live?.machineArrivedAt === undefined ? "No data from the Machine yet" : `No data since ${formatTime(new Date(live.machineArrivedAt).toISOString())}`}
+          <InfoTip label="About values not current">
+            <p>Nothing has come from the Machine for more than {STALE_AFTER_MS / 1000} s, so the values shown may be out of date.</p>
+          </InfoTip>
+        </CardDescription>
+      );
+  }
+}
+
+/** An offline Machine on one line: when it was last seen, and its last stored Machine State, since when. */
+function offlineText({ lastSeenAt, machineState }: Machine): string {
+  if (lastSeenAt === null) return "Offline, never seen.";
+  return `Offline, last seen ${formatTime(lastSeenAt)}, last Machine State: ${machineState ? lastStateText(machineState) : "none reported"}.`;
+}
+
+/** A stored Machine State, named, and since when: "Idle since Oct 28, 2026, 10:44:42 AM". */
+function lastStateText(machineState: NonNullable<Machine["machineState"]>): string {
+  return `${describeMachineState(machineState)} since ${formatTime(machineState.observedAt)}`;
+}
+
+/** The page's time, as of the last render, rendering again once it passes `at`, by the same clock. */
+function useTimeAfter(at: number): number {
+  const [now, setNow] = useState(Date.now);
+  useEffect(() => {
+    const timer = setTimeout(() => setNow(Date.now()), Math.max(0, at - Date.now()) + 1);
+    return () => clearTimeout(timer);
+  }, [at]);
+  return now;
 }
 
 /**
@@ -63,11 +156,30 @@ export function LiveViewCard({ machineId, profile, lastShotId }: { machineId: st
  * while the tab is hidden, and opened again once it is shown, so the plugin
  * stops streaming once nobody sees it. The browser opens a stream that ended
  * again by itself; one it gave up on, as when refused, is opened again after
- * REOPEN_MS.
+ * REOPEN_MS. `openedAt` is when the page last opened it, by its own clock.
+ *
+ * `tabletId` is the Tablet holding the Machine, as the page's latest poll,
+ * asked for at `askedAt`, found it. Each poll drops what another Tablet sent
+ * before it was asked (`withHolder`), and marks a gap in the curves then: the
+ * Tablet that took over may have ended the shot or steaming unseen, and the
+ * one that sent them may come back with another.
  */
-function useLiveView(machineId: string): { live: LiveState | undefined; curves: LiveCurves } {
+function useLiveView(
+  machineId: string,
+  tabletId: string | null,
+  askedAt: number,
+): { live: LiveState | undefined; curves: LiveCurves; openedAt: number } {
   const [live, setLive] = useState<LiveState>();
   const [curves, setCurves] = useState<LiveCurves>({});
+  const [openedAt, setOpenedAt] = useState(Date.now);
+  const [polled, setPolled] = useState(askedAt);
+  if (askedAt !== polled) {
+    setPolled(askedAt);
+    if (tabletId !== null && live && !withHolder(live, tabletId, askedAt)) {
+      setLive(undefined);
+      setCurves(withStreamGap);
+    }
+  }
   useEffect(() => {
     let source: EventSource | undefined;
     let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -83,10 +195,16 @@ function useLiveView(machineId: string): { live: LiveState | undefined; curves: 
       if (document.hidden) return;
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
+      setOpenedAt(Date.now());
+      // The Machine may have changed unseen meanwhile: as the page opens it, and each time it opens, the browser's own
+      // reopening too.
+      setLive(withStreamOpened);
+      opened.onopen = () => setLive(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
         if (!relayed) return;
-        setLive((latest) => withLiveFrame(latest, relayed));
+        const arrivedAt = Date.now();
+        setLive((latest) => withLiveFrame(latest, relayed, arrivedAt));
         setCurves((latest) => withCurvesFrame(latest, relayed));
       };
       opened.onerror = () => {
@@ -108,7 +226,7 @@ function useLiveView(machineId: string): { live: LiveState | undefined; curves: 
       close();
     };
   }, [machineId]);
-  return { live, curves };
+  return { live, curves, openedAt };
 }
 
 /**
@@ -307,7 +425,7 @@ function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
       <Measurement label="Flow" value={value("flow")} target={value("targetFlow")} unit="ml/s" zeroIsNone />
       <Tile label="Profile step">
         <TileTerm>Profile step</TileTerm>
-        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling ? "Not reported" : "Not pulling a shot"}</span>}</dd>
+        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling || named === null ? "Not reported" : "Not pulling a shot"}</span>}</dd>
       </Tile>
       <WaterLevel frame={live.waterLevels} />
       <Scale frame={live.scale} />

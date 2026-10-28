@@ -56,6 +56,8 @@ const REPLAYED_SOURCES: ReadonlySet<LiveSource> = new Set(["waterLevels", "scale
 export interface LiveViewConnection {
   sessionId: string;
   machineId: string;
+  /** Its tablet's id, in lower case, which each frame it relays names, so a page can tell its frames from another tablet's. */
+  tabletId: string;
   /** For log lines, such as "Machine Bar 1 (203.0.113.7)". */
   description: string;
   /** Sends the plugin a message, unless its connection is closing. */
@@ -322,7 +324,7 @@ export class LiveViews implements OnModuleDestroy {
     // Unrequested: from a connection never started, or stopped since.
     if (!holder.started) return;
     if (this.overCap(holder)) return;
-    const payload = relayedLiveFrame(holder.connection.machineId, live);
+    const payload = relayedLiveFrame(holder.connection.machineId, holder.connection.tabletId, live);
     if (utf8Length(payload) > MAX_NOTIFICATION_BYTES) {
       if (!holder.droppedLarge) this.logger.warn(`Dropped a live frame from ${holder.connection.description} too large to relay; any more are dropped too`);
       holder.droppedLarge = true;

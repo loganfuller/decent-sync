@@ -70,6 +70,8 @@ export interface LiveCurves {
   firstFrameAt?: string;
   /** When the Machine State of the last machine frame taken in began. */
   lastSince?: string;
+  /** The Tablet whose connection sent the last frame taken in, by its id. */
+  tabletId?: string;
   /** The scale's latest frame with a weight, while it is connected and the stream open. */
   scale?: Record<string, unknown>;
   /** The latest shot's or steaming's curves, until the next starts. */
@@ -86,6 +88,17 @@ export function withStreamGap(curves: LiveCurves): LiveCurves {
 }
 
 /**
+ * The curves with a relayed frame taken in (`takenIn`). One from another
+ * Tablet than the last comes after a takeover: as after a gap, as the shot or
+ * steaming may be another, and that Tablet's clock and Machine States are its
+ * own.
+ */
+export function withCurvesFrame(curves: LiveCurves, relayed: RelayedLiveFrame): LiveCurves {
+  if (curves.tabletId === relayed.tabletId) return takenIn(curves, relayed);
+  return takenIn({ ...withStreamGap(curves), tabletId: relayed.tabletId }, relayed);
+}
+
+/**
  * The curves with a relayed frame taken in. A machine snapshot of a shot or
  * steaming adds a measurement to its curves, or starts new ones where the
  * last are over or are of the other activity. The first after a gap adds one
@@ -97,7 +110,7 @@ export function withStreamGap(curves: LiveCurves): LiveCurves {
  * and dropped once the scale disconnects. Anything else changes nothing, and
  * gives back the same curves.
  */
-export function withCurvesFrame(curves: LiveCurves, relayed: RelayedLiveFrame): LiveCurves {
+function takenIn(curves: LiveCurves, relayed: RelayedLiveFrame): LiveCurves {
   if (relayed.source === "scale") {
     const { frame } = relayed;
     if (typeof frame.weight === "number") return { ...curves, scale: frame };

@@ -1,16 +1,28 @@
-import type { RelayedLiveFrame } from "@decent-sync/protocol";
+import { type RelayedLiveFrame, machineStateOf } from "@decent-sync/protocol";
 
 // Reading the Live View's events (ADR-0024): each is a live frame as the
 // server relays it, Decaid's data inside left as Decaid sent it, so every
 // value is read for what it is and may be missing. The latest of each source
-// wins.
+// wins. Whether there is anything live to show is judged from them and the
+// page's polling of the Machine (`liveConditionOf`).
 
 /**
  * The latest frame of each source the Live View has had, as the Machine's
- * plugin streamed them: its machine snapshot, and what Decaid's sockets sent.
+ * plugin streamed them: its machine snapshot, and what Decaid's sockets sent,
+ * all from one Tablet's connection.
  */
 export interface LiveState {
+  /** The Tablet whose connection sent them, by its id. */
+  tabletId: string;
+  /** When the page received the latest of them, by its own clock, in ms since the epoch. */
+  arrivedAt: number;
   machine?: LiveMachine;
+  /**
+   * When the page received `machine`, by its own clock, in ms since the
+   * epoch. Staleness is judged by it: the tablet's clock is never compared
+   * with the page's.
+   */
+  machineArrivedAt?: number;
   /** The tank's water level and refill level (`currentLevel`, `refillLevel`, mm). */
   waterLevels?: Record<string, unknown>;
   /** The scale's latest frame: its connection status (`{"status": ...}`), or a weight. */
@@ -40,29 +52,47 @@ export function readLiveEvent(data: unknown): RelayedLiveFrame | null {
     return null;
   }
   const relayed = record(value);
-  if (!relayed || typeof relayed.source !== "string" || typeof relayed.receivedAt !== "string" || !record(relayed.frame)) return null;
+  const envelope = relayed && typeof relayed.tabletId === "string" && typeof relayed.source === "string" && typeof relayed.receivedAt === "string";
+  if (!envelope || !record(relayed.frame)) return null;
   return relayed as unknown as RelayedLiveFrame;
 }
 
 /**
- * The Live View with a relayed frame taken in, as the latest of its source.
- * A frame it doesn't show changes nothing: undefined, while no frame it shows
- * has come, stays undefined.
+ * The Live View with a relayed frame taken in, as the latest of its source,
+ * the page having received it at `arrivedAt` by its own clock. The server
+ * relays only the frames of the connection holding the Machine, so one from
+ * another Tablet than the rest shows it has taken the Machine over: what the
+ * last one sent is dropped. Otherwise a frame it doesn't show changes nothing:
+ * undefined, while no frame it shows has come, stays undefined.
  */
-export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveFrame): LiveState | undefined {
+export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveFrame, arrivedAt: number): LiveState | undefined {
+  const { tabletId } = relayed;
+  const held = live?.tabletId === tabletId ? live : undefined;
   switch (relayed.source) {
     case "machine": {
       const machine = liveMachineOf(relayed);
-      return machine ? { ...live, machine } : live;
+      return machine ? { ...held, tabletId, arrivedAt, machine, machineArrivedAt: arrivedAt } : held;
     }
     case "waterLevels":
     case "scale":
     case "shotSettings":
     case "devices":
-      return { ...live, [relayed.source]: relayed.frame };
+      return { ...held, tabletId, arrivedAt, [relayed.source]: relayed.frame };
     default:
-      return live;
+      return held;
   }
+}
+
+/**
+ * The Live View once a poll of the Machine, asked for at `askedAt` by the
+ * page's clock, found `tabletId` holding it, as after a takeover: what
+ * another Tablet sent before the poll was asked is dropped, as a Tablet that
+ * sends nothing, such as one on the previous release, would otherwise leave
+ * it standing. Frames that came since were sent by a Tablet holding the
+ * Machine after the poll looked, so are kept.
+ */
+export function withHolder(live: LiveState | undefined, tabletId: string, askedAt: number): LiveState | undefined {
+  return !live || live.tabletId === tabletId || live.arrivedAt > askedAt ? live : undefined;
 }
 
 /** The tank's water level and refill level, in mm, each null where not sent, and whether it is low: at or below the refill level. */
@@ -97,6 +127,99 @@ export function machineConnectedOf(frame: Record<string, unknown> | undefined): 
     const listed = record(device);
     return listed?.type === "machine" && listed.state === "connected";
   });
+}
+
+/** How long the Live View goes without a machine frame before its values are stale (#258). */
+export const STALE_AFTER_MS = 5_000;
+
+/**
+ * What the Live View can show of the Machine (#258, Stale and disconnected),
+ * the first of these that holds:
+ * - `offline`: the page's latest poll of the Machine found it offline, and
+ *   no machine frame has come since the poll was asked that is still current:
+ *   one that has is from a connection that took the Machine since, which the
+ *   next poll will find;
+ * - `mismatch`: its connection reports other hardware than the Machine's,
+ *   which the server never asks to stream;
+ * - `waiting`: nothing has come from its stream yet;
+ * - `notConnected`: its Tablet's latest device list has its machine not
+ *   connected;
+ * - `asleep` or `stale`: by the page's clock, more than STALE_AFTER_MS has
+ *   passed since the latest machine frame came (`staleAtOf`). Asleep where
+ *   the latest Machine State known is asleep (`asleepSinceOf`), as some
+ *   firmware sends nothing while it sleeps; stale otherwise;
+ * - `live`.
+ */
+export type LiveCondition = "offline" | "mismatch" | "waiting" | "notConnected" | "asleep" | "stale" | "live";
+
+export function liveConditionOf({
+  offlineAt,
+  mismatched,
+  stored,
+  live,
+  openedAt,
+  now,
+}: {
+  /** When the page asked for its latest poll of the Machine, if that found it offline, by its own clock, in ms; null if it found it online. */
+  offlineAt: number | null;
+  /** Whether its connection reports other hardware, as the page last polled it. */
+  mismatched: boolean;
+  /** Its latest stored Machine State, as the page last polled it, or null for none. */
+  stored: StoredMachineState | null;
+  live: LiveState | undefined;
+  /** When the page last opened its stream, by its own clock, in ms, which counts as the latest machine frame until one comes. */
+  openedAt: number;
+  /** The page's time now, by the same clock. */
+  now: number;
+}): LiveCondition {
+  const current = now <= staleAtOf(live, openedAt);
+  if (offlineAt !== null && !(current && live?.machineArrivedAt !== undefined && live.machineArrivedAt > offlineAt)) return "offline";
+  if (mismatched) return "mismatch";
+  if (!live) return "waiting";
+  if (machineConnectedOf(live.devices) === false) return "notConnected";
+  if (current) return "live";
+  return asleepSinceOf(live, stored) !== null ? "asleep" : "stale";
+}
+
+/** A stored Machine State: Decaid's state, and when the plugin observed it, by the tablet's clock. */
+export interface StoredMachineState {
+  state: string;
+  observedAt: string;
+}
+
+/**
+ * When the Machine went to sleep, by the tablet's clock, if the latest
+ * Machine State known says it is asleep, or null: the latest machine
+ * frame's, or with none since the stream opened, the stored one. A page
+ * opened, or shown again, while the Machine sleeps on firmware that sends
+ * nothing then gets no frame from it, though its plugin stored the change.
+ */
+export function asleepSinceOf(live: LiveState | undefined, stored: StoredMachineState | null): string | null {
+  const machine = live?.machine;
+  if (!machine) return stored?.state === "sleeping" ? stored.observedAt : null;
+  return machineStateOf(machine.snapshot)?.state === "sleeping" ? machine.stateSince : null;
+}
+
+/**
+ * The Live View as its stream opens again: without the last machine frame,
+ * as the Machine may have changed unseen meanwhile, such as going to sleep on
+ * firmware that then sends nothing. The server sends a joining viewer the
+ * latest of each socket's frames again, but no machine frame. When that
+ * frame came is kept, so staleness still counts from it.
+ */
+export function withStreamOpened(live: LiveState | undefined): LiveState | undefined {
+  if (!live?.machine) return live;
+  const { machine: _machine, ...rest } = live;
+  return rest;
+}
+
+/**
+ * When, by the page's clock, the Live View's values go stale unless another
+ * machine frame comes: STALE_AFTER_MS after the latest came, or, before the
+ * first, after the page last opened its stream.
+ */
+export function staleAtOf(live: LiveState | undefined, openedAt: number): number {
+  return (live?.machineArrivedAt ?? openedAt) + STALE_AFTER_MS;
 }
 
 /** A machine frame's snapshot and times, or null for a frame of another source or one without them. */
