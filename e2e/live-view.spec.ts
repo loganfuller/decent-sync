@@ -279,10 +279,9 @@ test("the Live View of a Machine whose connection reports other hardware is one 
   await page.goto(`/machines/${machine.id}`);
   const card = page.getByRole("region", { name: "Live View" });
   await expect(card).toContainText("Its Tablet reports other hardware than this Machine's, so nothing live is shown.");
-  // The server never asks a mismatched connection to stream.
+  // Seam 1 shows the server never asks a mismatched connection to stream.
   mismatched.reportSnapshot(first(shot, "espresso", "pouring"));
   await expect(card.getByRole("group")).toHaveCount(0);
-  expect(mismatched.delivered).not.toContainEqual({ type: "liveStart" });
 });
 
 test("the Live View says when a Tablet online isn't connected to its Machine, without its tiles, until it connects again", async ({ page }) => {
@@ -335,6 +334,27 @@ test("the Live View shows a Machine whose last snapshot said it was asleep as as
   await expect(card).not.toContainText("No data since");
   await expect(liveContent(card)).toHaveCSS("opacity", "1");
   await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.");
+});
+
+test("the Live View of a page opened while the Machine sleeps, on firmware that then sends nothing, shows it asleep from its stored Machine State", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 11");
+  const tablet = await connectedTablet(token, "27012");
+  // It goes to sleep with nobody watching: its plugin stores the change, but streams nothing.
+  tablet.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
+  type Viewed = { machine: { machineState: { state: string } | null } };
+  const storedState = async () => ((await (await page.request.get(`/api/machines/${machine.id}`)).json()) as Viewed).machine.machineState?.state;
+  await expect.poll(storedState).toBe("sleeping");
+
+  await page.clock.install();
+  await page.goto(`/machines/${machine.id}`);
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  const card = page.getByRole("region", { name: "Live View" });
+  // What Decaid's sockets send as they open, but no snapshot.
+  await expect(field(card.getByRole("group", { name: "Machine State" }), "Machine State")).toHaveText("Not reported");
+  await page.clock.fastForward(5_500);
+  await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));
+  await expect(card).not.toContainText("No data");
+  await expect(liveContent(card)).toHaveCSS("opacity", "1");
 });
 
 test("the Live View follows Tablets taking its Machine over: it drops what the last one sent, but not what a new one sent after a poll was asked", async ({ page }) => {

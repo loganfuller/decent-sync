@@ -11,6 +11,7 @@ import { SHOT_CURVES, profileStep } from "@/lib/curves";
 import { type LiveCurve, type LiveCurves, type LiveSteamCurve, liveSamples, liveSteamCurves, withCurvesFrame, withStreamGap } from "@/lib/live-curves";
 import {
   STALE_AFTER_MS,
+  asleepSinceOf,
   type LiveCondition,
   type LiveState,
   liveConditionOf,
@@ -50,7 +51,7 @@ export function LiveViewCard({ machine, askedAt, profile }: { machine: Machine; 
   const { live, curves, openedAt } = useLiveView(machine.id, machine.tablet?.id ?? null, askedAt);
   const now = useTimeAfter(staleAtOf(live, openedAt));
   const offlineAt = machine.online ? null : askedAt;
-  const condition = liveConditionOf({ offlineAt, mismatched: machine.mismatch !== null, live, openedAt, now });
+  const condition = liveConditionOf({ offlineAt, mismatched: machine.mismatch !== null, stored: machine.machineState, live, openedAt, now });
   const shown = condition === "live" || condition === "stale" || condition === "asleep";
   return (
     <Card role="region" aria-label="Live View">
@@ -92,13 +93,19 @@ function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCo
     case "mismatch":
       return <CardDescription>Its Tablet reports other hardware than this Machine's, so nothing live is shown.</CardDescription>;
     case "waiting":
-      return <CardDescription>Waiting for its Tablet to send what it is doing.</CardDescription>;
+      // A plugin on the previous release never streams, so its Machine State is the one it last stored.
+      return (
+        <CardDescription>
+          Waiting for its Tablet to send what it is doing.
+          {machine.machineState && ` Last Machine State: ${lastStateText(machine.machineState)}.`}
+        </CardDescription>
+      );
     case "notConnected":
       return <CardDescription>Its Tablet is online, but not connected to the Machine.</CardDescription>;
     case "asleep":
       return (
         <CardDescription className="flex items-center gap-1.5">
-          {live?.machine ? `Asleep since ${formatTime(live.machine.stateSince)}` : "Asleep"}
+          Asleep since {formatTime(asleepSinceOf(live, machine.machineState)!)}
           <InfoTip label="About an asleep Machine">
             <p>Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.</p>
           </InfoTip>
@@ -119,8 +126,12 @@ function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCo
 /** An offline Machine on one line: when it was last seen, and its last stored Machine State, since when. */
 function offlineText({ lastSeenAt, machineState }: Machine): string {
   if (lastSeenAt === null) return "Offline, never seen.";
-  const state = machineState ? `${describeMachineState(machineState)} since ${formatTime(machineState.observedAt)}` : "none reported";
-  return `Offline, last seen ${formatTime(lastSeenAt)}, last Machine State: ${state}.`;
+  return `Offline, last seen ${formatTime(lastSeenAt)}, last Machine State: ${machineState ? lastStateText(machineState) : "none reported"}.`;
+}
+
+/** A stored Machine State, named, and since when: "Idle since Oct 28, 2026, 10:44:42 AM". */
+function lastStateText(machineState: NonNullable<Machine["machineState"]>): string {
+  return `${describeMachineState(machineState)} since ${formatTime(machineState.observedAt)}`;
 }
 
 /** The page's time, as of the last render, rendering again once it passes `at`, by the same clock. */
