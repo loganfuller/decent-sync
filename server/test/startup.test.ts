@@ -8,9 +8,9 @@ import { assertBuilt } from "./support/builds.js";
 const main = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../dist/main.js");
 assertBuilt("protocol", "server");
 
-function start(env: Record<string, string>) {
+function start(env: Record<string, string>, nodeOptions: string[] = []) {
   const { PATH, HOME } = process.env;
-  return spawnSync(process.execPath, [main], {
+  return spawnSync(process.execPath, [...nodeOptions, main], {
     env: { PATH, HOME, ...env },
     encoding: "utf8",
     timeout: 20_000,
@@ -18,6 +18,17 @@ function start(env: Record<string, string>) {
 }
 
 describe("server startup", () => {
+  it("refuses to start on a Node without Temporal, naming the version it needs", () => {
+    // V8's flag stands in for a Node 26 built without Temporal, such as Homebrew's.
+    const result = start({ DATABASE_URL: "postgresql://localhost:5432/decent_sync", PUBLIC_URL: "https://sync.example.com" }, [
+      "--no-harmony-temporal",
+    ]);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Decent Sync needs Node.js 26 or newer with Temporal");
+    expect(result.stderr).toContain(`Node.js ${process.version} here lacks it`);
+  });
+
   it("refuses to start without its required environment variables, naming each one", () => {
     const result = start({});
 

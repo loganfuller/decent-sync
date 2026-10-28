@@ -34,7 +34,7 @@ export const QUERY_TIMEOUT_MS = 30_000;
 
 /**
  * How long a connection sits idle before TCP keepalive probes it. Node then
- * probes it every second and gives up after 10 unanswered (Node 24.22 on
+ * probes it every second and gives up after 10 unanswered (Node 26.12 on
  * Linux, libuv 1.52), so the notifications listener's connection to a
  * database that vanished without closing it fails some 20 s after it was
  * last used, if its check (`Notifications.check`) has not failed first. The

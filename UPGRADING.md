@@ -28,6 +28,14 @@ with `POST /api/v1/plugins/decent-sync.reaplugin/update/approve`.
 A Machine's Live View shows nothing live while its tablet runs the 1.4.0
 plugin, or while an instance of 1.4.0 holds its connection during the deploy.
 
+### Run the server from source on Node.js 26
+
+The server now needs Node.js 26 or newer with Temporal, as nodejs.org's builds
+have, and refuses to start on an older Node or on a build without Temporal,
+such as Homebrew's. The server image has it, so Docker Compose and fly.io need
+nothing. Running from source with `npm start`, move to Node.js 26 before
+upgrading: 1.4.0 runs on it too.
+
 ## 1.4.0
 
 ### Upgrade without going offline from now on

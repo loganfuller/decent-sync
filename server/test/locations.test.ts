@@ -89,7 +89,8 @@ describe("Locations", () => {
   it("accepts IANA aliases PostgreSQL may not know, stored under a name it does", async () => {
     // From tzdata's "backward" file, which PostgreSQL's time zone data may lack.
     // Not EST5EDT, CST6CDT, MST7MDT or PST8PDT: tzdata 2026d made them zones of
-    // their own, so they are no longer aliases of America/New_York and the like.
+    // their own. Temporal still takes them for America/New_York and the like,
+    // as CLDR does, so they are stored under those names until it catches up.
     const aliases = { "US/Eastern": "America/New_York", "Canada/Eastern": "America/Toronto", Japan: "Asia/Tokyo" };
     for (const [alias, stored] of Object.entries(aliases)) {
       const response = await call("POST", "/locations", { name: `Alias ${alias}`, timeZone: alias });
@@ -115,6 +116,17 @@ describe("Locations", () => {
       const response = await call("POST", "/locations", { name: `Alias ${timeZone}`, timeZone });
       expect(response.status, timeZone).toBe(201);
       expect(((await response.json()) as { location: LocationView }).location.timeZone, timeZone).toBe("Europe/Kyiv");
+    }
+  });
+
+  it("stores a name PostgreSQL lacks under the name Intl lists, where PostgreSQL has several for its zone", async () => {
+    // PostgreSQL may also list America/Shiprock, Asia/Tel_Aviv and Pacific/Johnston for these zones. Intl lists
+    // Pacific/Truk itself, which PostgreSQL may lack, so of Pacific/Chuuk and Pacific/Yap the first alphabetically.
+    const aliases = { "US/Mountain": "America/Denver", Israel: "Asia/Jerusalem", "US/Hawaii": "Pacific/Honolulu", "Pacific/Truk": "Pacific/Chuuk" };
+    for (const [alias, stored] of Object.entries(aliases)) {
+      const response = await call("POST", "/locations", { name: `Alias ${alias}`, timeZone: alias });
+      expect(response.status, alias).toBe(201);
+      expect(((await response.json()) as { location: LocationView }).location.timeZone, alias).toBe(stored);
     }
   });
 
