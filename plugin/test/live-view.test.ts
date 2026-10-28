@@ -2,7 +2,7 @@ import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type LiveFrame, encode, utf8Length } from "@decent-sync/protocol";
 import type { TransportEvent, Transports } from "../src/host.js";
-import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LIVE_SOCKETS, LIVE_SOCKET_RETRY_MS, LiveBudget, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
+import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LIVE_SOCKETS, LIVE_SOCKET_RETRY_MS, LiveBudget, LiveRate, LiveView, TimeInState, sensorSocket } from "../src/live-view.js";
 
 // The plugin's side of the Live View: when time in state restarts, the rate
 // rule, the live budget, and what it streams, on the test tablet's DE1Pro's
@@ -22,11 +22,13 @@ function machineFrames(file: string): Record<string, unknown>[] {
 /**
  * Decaid's sockets as the Live View opens them, each opening at once and
  * quiet until `push` sends a frame on those open on a URL. An open of a URL
- * in `refused` fails, as for want of a transport.
+ * in `refused` fails, as for want of a transport. Decaid lists the milk
+ * probe `probe.id`, none while it is null, and counts the plugin's lookups.
  */
 function decaidSockets() {
   const open = new Map<string, { url: string; listener?: (event: TransportEvent) => void }>();
   const refused = new Set<string>();
+  const probe: { id: string | null; lookups: number } = { id: null, lookups: 0 };
   let handles = 0;
   const transports: Transports = {
     open: async (url) => {
@@ -45,6 +47,11 @@ function decaidSockets() {
   return {
     transports,
     refused,
+    probe,
+    findMilkProbe: async () => {
+      probe.lookups++;
+      return probe.id;
+    },
     /** The URLs of the sockets open now. */
     urls: () => [...open.values()].map((socket) => socket.url).sort(),
     push: (url: string, frame: unknown) => {
@@ -250,12 +257,13 @@ describe("LiveView", () => {
   beforeEach(() => vi.useFakeTimers({ now: new Date("2026-10-27T21:04:57.000Z") }));
   afterEach(() => vi.useRealTimers());
 
-  function streaming(): { live: LiveView; sent: LiveFrame[]; logs: string[]; sockets: ReturnType<typeof decaidSockets> } {
+  /** A Live View streaming, for a DE1 unless `bengle` says the machine is a Bengle. */
+  function streaming({ bengle = false } = {}): { live: LiveView; sent: LiveFrame[]; logs: string[]; sockets: ReturnType<typeof decaidSockets> } {
     const sent: LiveFrame[] = [];
     const logs: string[] = [];
     const sockets = decaidSockets();
-    const live = new LiveView((line) => logs.push(line), sockets.transports);
-    live.start(async (frame) => void sent.push(frame));
+    const live = new LiveView((line) => logs.push(line), sockets.transports, sockets.findMilkProbe);
+    live.start(async (frame) => void sent.push(frame), { bengle });
     return { live, sent, logs, sockets };
   }
 
@@ -273,13 +281,14 @@ describe("LiveView", () => {
 
   it("sends every frame of a shot, but one a second while idle, and tracks the time in state while not streaming", () => {
     const sent: LiveFrame[] = [];
-    const live = new LiveView(() => {}, decaidSockets().transports);
+    const sockets = decaidSockets();
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     const frames = machineFrames("shot.json");
     // Not streaming yet: its time in state is tracked all the same.
     live.stateUpdate(frames[0]);
     const idleSince = new Date().toISOString();
     vi.advanceTimersByTime(200);
-    live.start(async (frame) => void sent.push(frame));
+    live.start(async (frame) => void sent.push(frame), { bengle: false });
     for (const snapshot of frames.slice(1, 9)) {
       live.stateUpdate(snapshot);
       vi.advanceTimersByTime(100);
@@ -340,7 +349,7 @@ describe("LiveView", () => {
     // Stopped: the sockets close, and what they'd send goes nowhere.
     live.stop();
     expect(sockets.urls()).toEqual([]);
-    live.start(async (frame) => void sent.push(frame));
+    live.start(async (frame) => void sent.push(frame), { bengle: false });
     await vi.advanceTimersByTimeAsync(0);
     expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
     live.disconnected();
@@ -349,9 +358,9 @@ describe("LiveView", () => {
 
   it("opens a socket that couldn't open, or that Decaid closed, again a while later, until it stops", async () => {
     const sockets = decaidSockets();
-    const live = new LiveView(() => {}, sockets.transports);
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     sockets.refused.add(LIVE_SOCKETS.devices);
-    live.start(async () => {});
+    live.start(async () => {}, { bengle: false });
     await vi.advanceTimersByTimeAsync(0);
     expect(sockets.urls()).not.toContain(LIVE_SOCKETS.devices);
     sockets.refused.clear();
@@ -372,6 +381,48 @@ describe("LiveView", () => {
     expect(sockets.urls()).toEqual([]);
   });
 
+  it("looks for no milk probe on a DE1, even one Decaid were to list", async () => {
+    const { live, sockets } = streaming();
+    sockets.probe.id = "00:00:5E:00:53:21-milkprobe";
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.probe.lookups).toBe(0);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+    live.stop();
+  });
+
+  it("opens a Bengle's milk probe's socket once Decaid lists one, forwarding its frames tagged with its id, and looks again while none is", async () => {
+    const { live, sent, sockets } = streaming({ bengle: true });
+    await vi.advanceTimersByTimeAsync(0);
+    // No probe attached: none listed, so no socket for one.
+    expect(sockets.probe.lookups).toBe(1);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+
+    // One attached: found as Decaid lists it next, by an id that names its Bengle's device, and its socket opened.
+    const id = "00:00:5E:00:53:21-milkprobe";
+    const url = sensorSocket(id);
+    expect(url).toBe("ws://localhost:8080/ws/v1/sensors/00%3A00%3A5E%3A00%3A53%3A21-milkprobe/snapshot");
+    sockets.probe.id = id;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS);
+    expect(sockets.urls()).toEqual([...Object.values(LIVE_SOCKETS), url].sort());
+    const reading = { timestamp: "2026-10-28T11:05:55.430551", temperature: 7.0 };
+    sockets.push(url, reading);
+    expect(sent.at(-1)).toEqual({ type: "liveFrame", source: "sensor", sensorId: id, receivedAt: expect.any(String), frame: reading });
+
+    // Its socket closes, as one opened while the probe isn't listed does: Decaid is looked through again, a while later.
+    sockets.push(url, { error: "not found" });
+    sockets.end(url);
+    sockets.probe.id = null;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.urls()).not.toContain(url);
+    sockets.probe.id = id;
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS);
+    expect(sockets.urls()).toContain(url);
+
+    // Stopped: it closes with the rest.
+    live.stop();
+    expect(sockets.urls()).toEqual([]);
+  });
+
   it("drops a frame too large to relay, saying so once, and sends the next", () => {
     const { live, sent, logs } = streaming();
     const [idle] = machineFrames("idle.json");
@@ -386,9 +437,12 @@ describe("LiveView", () => {
   it("sends nothing once stopped, drops what it held, and changes nothing on a second start", async () => {
     const { live, sent } = streaming();
     const [first, second] = machineFrames("idle.json");
-    live.start(async () => {
-      throw new Error("A second start must not replace the first");
-    });
+    live.start(
+      async () => {
+        throw new Error("A second start must not replace the first");
+      },
+      { bengle: false },
+    );
     live.stateUpdate(first);
     live.stateUpdate(second);
     live.stop();
@@ -422,22 +476,27 @@ describe("LiveView", () => {
     for (let n = 0; n < 200; n++) live.stateUpdate(espresso[n % espresso.length]);
     live.disconnected();
     const next: LiveFrame[] = [];
-    live.start(async (frame) => void next.push(frame));
+    live.start(async (frame) => void next.push(frame), { bengle: false });
     live.stateUpdate(espresso[0]);
     expect(next.map((frame) => frame.frame)).toEqual([espresso[0]]);
   });
 
   it("drops a frame Decaid's transport refuses, and goes on", async () => {
-    const live = new LiveView(() => {}, decaidSockets().transports);
+    const sockets = decaidSockets();
+    const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     let refuse = true;
     const sent: LiveFrame[] = [];
-    live.start(async (frame) => {
-      if (refuse) throw Object.assign(new Error("Pending outbound bytes would exceed 1 MiB"), { code: "transport_resource_limit" });
-      sent.push(frame);
-    });
+    live.start(
+      async (frame) => {
+        if (refuse) throw Object.assign(new Error("Pending outbound bytes would exceed 1 MiB"), { code: "transport_resource_limit" });
+        sent.push(frame);
+      },
+      { bengle: false },
+    );
     const [idle] = machineFrames("idle.json");
     live.stateUpdate({ ...idle, state: { state: "espresso", substate: "preinfusion" } });
-    await vi.runAllTimersAsync();
+    // Not every timer: while streaming with no milk probe listed, the plugin looks for one again and again.
+    await vi.advanceTimersByTimeAsync(LIVE_INTERVAL_MS);
     refuse = false;
     live.stateUpdate({ ...idle, state: { state: "espresso", substate: "pouring" } });
     expect(sent.map((frame) => frame.frame.state)).toEqual([{ state: "espresso", substate: "pouring" }]);

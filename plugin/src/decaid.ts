@@ -1,4 +1,4 @@
-import { type MachineHardware, isRecordId } from "@decent-sync/protocol";
+import { type MachineHardware, isMilkProbe, isRecordId } from "@decent-sync/protocol";
 import type { Reading } from "./change-detection.js";
 
 // Decaid's local API (assets/api/rest_v1.yml), through the plugin-scoped
@@ -54,6 +54,24 @@ async function getObject(path: string): Promise<Record<string, unknown> | null> 
 function stringField(object: Record<string, unknown> | null, key: string): string | null {
   const value = object?.[key];
   return typeof value === "string" && value !== "" ? value : null;
+}
+
+/**
+ * The id of the milk probe Decaid lists among its sensors (`isMilkProbe`),
+ * or null where none is, or the list can't be read. A Bengle's probe is
+ * listed only while attached (`BengleProbeBridge` in
+ * decaid:lib/src/controllers/bengle_probe_bridge.dart).
+ */
+export async function findMilkProbe(): Promise<string | null> {
+  try {
+    const response = await fetch(`${API}/sensors`);
+    const sensors: unknown = response.ok ? await response.json() : null;
+    if (!Array.isArray(sensors)) return null;
+    const probe = sensors.find((sensor: unknown) => isMilkProbe((sensor as { id?: unknown } | null)?.id));
+    return probe ? (probe as { id: string }).id : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

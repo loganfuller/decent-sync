@@ -1,5 +1,5 @@
 import { type Locator, type Page, expect, test } from "@playwright/test";
-import { type LiveFixtureFrame, liveFixture, machineDisconnects, openingFrames } from "../server/test/support/live-fixtures.js";
+import { type LiveFixtureFrame, bengleSteam, liveFixture, machineDisconnects, openingFrames } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { derivedShot, shotFixture } from "../server/test/support/shot-fixtures.js";
 import { type DecaidApi, RawConnection, type SimulatedTablet, derivedDe1Pro, helloWith } from "../server/test/support/simulated-tablet.js";
@@ -16,7 +16,9 @@ import { expectTip } from "./support/tooltips.js";
 // #259), its scale on, SPEED times as fast as recorded, in parts where a test
 // looks at what the card shows. Steaming, its pauses, puffs and purge, and a
 // flush are only tested from these real recordings, as Decaid's simulated
-// machine produces none of them. Serials are made up, from 28001.
+// machine produces none of them. A Bengle's milk probe is tested from Decaid's
+// simulated Bengle steaming (bengle-live-v0.9.0/, #265), as the test tablet's
+// DE1Pro has none. Serials are made up, from 28001.
 const server = useFreshServer();
 test.use({ timezoneId: "America/New_York" });
 
@@ -210,7 +212,8 @@ test("steaming's Machine States are named from a real steaming, its curves drawn
     await expect(figure.locator(".recharts-reference-line")).toHaveCount(1);
     for (const phase of ["Paused", "Purge"]) await expect(figure.getByText(phase, { exact: true })).toBeVisible();
   }
-  // No milk probe on a DE1, so no milk temperature (#265), and no scale's weight.
+  // No milk probe on a DE1, so no milk temperature (#265), as a tile or a curve, and no scale's weight.
+  await expect(card.getByRole("group", { name: "Milk temperature" })).toHaveCount(0);
   for (const chart of ["Milk temperature", "Weight"]) await expect(curves.getByRole("figure", { name: chart })).toHaveCount(0);
   await expectTip(curves, "the curves", /^Drawn as the Machine steams, as its Steam Record's page draws them/);
   await expect(curves.getByText("Waiting for its Steam Record")).toBeVisible();
@@ -341,4 +344,50 @@ test("the Machine's Shots are linked, not a later shot's Shot, where a whole sho
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveCount(0);
   // Still the curves of the shot the page saw.
   await expect(ticks(curves, "Pressure")).toHaveText(shown);
+});
+
+test("a Bengle's milk temperature shows while its probe reports, as a tile and in steaming's curves, and its own scale's battery doesn't", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 9");
+  const tablet = await connectedTablet(token, "28009", derivedDe1Pro({ model: "Bengle", serial: "28009" }));
+  tablet.attachMilkProbe();
+  const card = await openMachinePage(page, machine.id, tablet);
+  const tile = (name: string) => card.getByRole("group", { name });
+  await expect.poll(() => tablet.openDecaidSockets()).toContain("sensor");
+
+  // Idle, as recorded: the Bengle's own scale, which always reports a battery of 100, and the probe yet to read.
+  const frames = bengleSteam();
+  const replay = tablet.replayLive(frames, { speed: SPEED });
+  await replay.to(first(frames, "steam", "idle"));
+  await expect(field(tile("Scale"), "Weight")).toHaveText("0.0 g");
+  await expect(field(tile("Scale"), "Scale")).toHaveText("Connected");
+  await expect(tile("Scale").getByText("Battery")).toHaveCount(0);
+  await expect(tile("Milk temperature")).toHaveCount(0);
+
+  // Steaming: the probe reads with each snapshot, the milk warming.
+  const readings = frames.flatMap(({ source, frame }, index) => (source === "sensor" ? [{ index, temperature: frame.temperature as number }] : []));
+  const fifth = readings[4]!;
+  await replay.to(fifth.index + 1);
+  await expect(field(tile("Milk temperature"), "Milk temperature")).toHaveText(`${fifth.temperature.toFixed(1)} °C`);
+  await replay.to();
+  await expect(field(tile("Machine State"), "Machine State")).toHaveText("Idle");
+
+  const curves = card.getByRole("region", { name: "Curves" });
+  await expect(curves.getByRole("heading", { name: "Steaming curves", exact: true })).toBeVisible();
+  for (const chart of ["Milk temperature", "Steam temperature", "Pressure", "Flow"]) {
+    await expect(curves.getByRole("figure", { name: chart }).locator(".recharts-line")).not.toHaveCount(0);
+  }
+  await expect(curves.getByRole("figure", { name: "Milk temperature" })).not.toContainText("Not recorded.");
+});
+
+test("an Unidentified Bengle's own scale shows no battery either", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 10");
+  // A Bengle reporting serial 0: an Unidentified Machine, bound to no model, though its connection reports a Bengle.
+  const tablet = await connectedTablet(token, "0", derivedDe1Pro({ model: "Bengle", serial: "0", connectionId: "00:00:5E:00:53:22" }));
+  const card = await openMachinePage(page, machine.id, tablet);
+  await expect(page.getByRole("region", { name: "Unidentified Machine" })).toBeVisible();
+  const tile = (name: string) => card.getByRole("group", { name });
+  const frames = bengleSteam();
+  await tablet.replayLive(frames, { speed: SPEED }).to(first(frames, "steam", "idle"));
+  await expect(field(tile("Scale"), "Weight")).toHaveText("0.0 g");
+  await expect(tile("Scale").getByText("Battery")).toHaveCount(0);
 });
