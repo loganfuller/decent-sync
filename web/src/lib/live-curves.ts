@@ -27,6 +27,8 @@ export type LiveSteamCurve = keyof typeof LIVE_STEAM_CURVES;
 /**
  * The curves steaming draws: a Steam Record's, the milk temperature among
  * them only where a Bengle's milk probe reported one as it steamed (#265).
+ * Typed as the curves every steaming draws, as `Curves` takes them; it draws
+ * each the object holds, and the samples carry a milk temperature too.
  */
 export function liveSteamCurves(samples: readonly Sample<SteamCurve>[]): Record<LiveSteamCurve, CurveInfo> {
   return samples.some((sample) => sample.values.milkTemperature !== null) ? STEAM_CURVES : LIVE_STEAM_CURVES;

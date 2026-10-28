@@ -334,7 +334,8 @@ describe("the Live View", () => {
     const reading = tablet.reportMilkProbe(first!.frame);
     await expect.poll(() => fromSensors(stream)).toEqual([{ sensorId: id, frame: reading }]);
 
-    // Detached, then attached again: its socket stays open, and sends the probe's readings again.
+    // Detached, then attached again, which the plugin can't see: Decaid keeps its socket open and binds it to the
+    // probe again, so the readings keep coming on the socket the plugin holds.
     tablet.detachMilkProbe();
     tablet.attachMilkProbe();
     const next = tablet.reportMilkProbe(second!.frame);

@@ -372,6 +372,10 @@ const SHOT_STATES = new Set(["espresso", "skipStep"]);
  * one reporting one, as Decaid connects no other to a Bengle
  * (`_runScalePhase` in decaid:lib/src/controllers/connection_manager.dart),
  * whose battery always reads 100 (`IntegratedScaleCapability`), so isn't shown.
+ * A Bengle Decaid connected as a plain DE1, as it does where its Bluetooth
+ * name isn't a Bengle's (`UnifiedDe1`, "degraded DE1-compatible mode"), still
+ * reports the model Bengle, but may have another scale, whose battery is
+ * hidden too.
  */
 function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profile?: unknown; integratedScale: boolean }) {
   const snapshot = live.machine?.snapshot ?? {};
