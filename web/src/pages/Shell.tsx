@@ -28,9 +28,10 @@ export function Shell() {
           <Link to="/" className="font-semibold">
             Decent Sync
           </Link>
-          {/* With an Admin's links the row needs about 650 px, more than sm's 640, so below md it is in a menu. */}
+          {/* With an Admin's links and a short name the row needs about 760 px, so below md (768) it is in a menu. Its
+              links don't wrap: a longer name truncates instead. */}
           <div className="hidden min-w-0 flex-1 items-center gap-4 md:flex">
-            <MainNav className="flex flex-1 items-center gap-4 text-sm" />
+            <MainNav className="flex flex-1 items-center gap-4 text-sm whitespace-nowrap" />
             {account && (
               <span className="min-w-0 truncate text-sm text-muted-foreground" data-testid="signed-in-account">
                 {account.name}
@@ -47,8 +48,15 @@ export function Shell() {
                 <span className="sr-only">Menu</span>
               </Button>
             </SheetTrigger>
-            {/* Scrolls on a small phone held sideways, which still gets the menu, so Sign out stays in reach. */}
-            <SheetContent className="overflow-y-auto">
+            {/* Scrolls on a small phone held sideways, which still gets the menu, so Sign out stays in reach. Opens with
+                focus on the first link, where Radix would pass over the links to Sign out. */}
+            <SheetContent
+              className="overflow-y-auto"
+              onOpenAutoFocus={(event) => {
+                event.preventDefault();
+                (event.currentTarget as HTMLElement).querySelector("a")?.focus();
+              }}
+            >
               <SheetHeader>
                 <SheetTitle>Decent Sync</SheetTitle>
                 {account && <SheetDescription className="wrap-anywhere">Signed in as {account.name}</SheetDescription>}

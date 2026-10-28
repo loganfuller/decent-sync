@@ -139,6 +139,8 @@ async function openMenu(page: Page, account: { name: string; links: string[] }) 
   await page.getByRole("banner").getByRole("button", { name: "Menu" }).click();
   const menu = page.getByRole("dialog", { name: "Decent Sync" });
   await expect(menu.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText(account.links);
+  // Focus starts at the first link, not Sign out, which Enter would press.
+  await expect(menu.getByRole("link", { name: "Shots" })).toBeFocused();
   await expect(menu.getByText(`Signed in as ${account.name}`)).toBeVisible();
   await expect(menu.getByRole("button", { name: "Sign out" })).toBeVisible();
   return menu;
