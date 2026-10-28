@@ -1,9 +1,10 @@
-import { type Page, type Request, expect, test } from "@playwright/test";
+import { type Request, expect, test } from "@playwright/test";
 import { machineSnapshots, socketFrames, stateOf } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { type SimulatedTablet, derivedDe1Pro, workflowFixture } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, machineRow } from "./support/locators.js";
+import { setTabHidden } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -151,18 +152,6 @@ test("the Live View shows the steam temperature's target, the water level with L
   await expect(field(tile("Scale"), "Scale")).toHaveText("Not connected");
   await expect(field(tile("Scale"), "Weight")).toHaveText("Not reported");
 });
-
-/**
- * Hides the page's tab, or shows it again, as switching to another tab and
- * back does: the page's visibility as it reads it, and the event telling it.
- */
-async function setTabHidden(page: Page, hidden: boolean): Promise<void> {
-  await page.evaluate((hidden) => {
-    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
-    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
-    document.dispatchEvent(new Event("visibilitychange"));
-  }, hidden);
-}
 
 test("the Live View closes its stream while its tab is hidden, and opens it again once the tab is shown", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Bar 4");

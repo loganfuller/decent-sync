@@ -118,10 +118,11 @@ describe("the Live View's curves", () => {
     // Opened with its first frame: it is whole.
     expect(take(shotFrames.slice(first(shotFrames, "espresso", "preparingForShot"))).curve!.partial).toBe(false);
 
-    // Opened during the purge, which began after the steaming did.
+    // Opened during the purge, which began after the steaming did, its first frame included.
     const steamFrames = relayed(steam);
     const purge = first(steamFrames, "steam", "pouringDone", true);
-    expect(take(steamFrames.slice(purge + 1)).curve).toMatchObject({ activity: "steaming", partial: true });
+    expect(steamFrames[purge]!.stateSince).toBe(steamFrames[purge]!.receivedAt);
+    for (const from of [purge, purge + 1]) expect(take(steamFrames.slice(from)).curve).toMatchObject({ activity: "steaming", partial: true });
 
     // Earlier frames of other sources, which the server sends a joining viewer again, don't count.
     const shotSettings = { machineId: MACHINE_ID, source: "shotSettings", receivedAt: "2026-10-27T20:00:00.000Z", frame: { targetSteamTemp: 160 } } as RelayedLiveFrame;

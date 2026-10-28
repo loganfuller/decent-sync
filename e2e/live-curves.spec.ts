@@ -6,6 +6,7 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "../server/t
 import { derivedSteam, liveSteamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field } from "./support/locators.js";
+import { setTabHidden } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -59,16 +60,17 @@ function shotOf(id: string, serial: string, pulledAt: Date): Record<string, unkn
   return derivedShot(id, { timestamp: pulledAt.toISOString(), workflow: { ...workflow, machine: { ...workflow.machine, model: "DE1Pro", serialNumber: serial } } });
 }
 
-test("a shot's curves grow as it runs, then link its Shot once it arrives, not the one before", async ({ page }) => {
+test("a shot's curves grow as it runs, then link its Shot once it arrives, not one before it, and keep that link", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Bar 1");
   const tablet = await connectedTablet(token, "28001");
-  // The Machine's last Shot as the shot begins.
   tablet.pullShot(shotOf("shot-before", "28001", new Date(Date.now() - 3_600_000)));
   const card = await openMachinePage(page, machine.id, tablet);
   await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-before");
 
   const frames = liveFixture("shot.json");
   const replay = tablet.replayLive(frames, { speed: SPEED });
+  // The Shot before this one is stored as it begins, so the page most likely sees it only while this one runs.
+  tablet.pullShot(shotOf("shot-just-before", "28001", new Date(Date.now() - 60_000)));
   // Its 2.9 s of Preheat and 7.7 s of preinfusion.
   await replay.to(first(frames, "espresso", "pouring"));
   const curves = card.getByRole("region", { name: "Curves" });
@@ -88,14 +90,23 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not t
   await expect(ticks(curves, "Pressure")).toHaveText(["0 s", "10 s", "20 s", "30 s"]);
   await expect(field(card.getByRole("group", { name: "Machine State" }), "Machine State")).toHaveText("Idle");
   await expect(curves.getByText("Waiting for its Shot")).toBeVisible();
-  // The page loads the Machine again, its last Shot still the one before: it isn't linked.
+  // The page loads the Machine again, its last Shot the one just before: it isn't linked.
   await page.waitForResponse((response) => new URL(response.url()).pathname === `/api/machines/${machine.id}` && response.ok());
-  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-before");
+  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-just-before");
   await expect(curves.getByRole("link")).toHaveCount(0);
 
   tablet.pullShot(shotOf("shot-live", "28001", new Date()));
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
   await expect(curves.getByText("Waiting for its Shot")).toHaveCount(0);
+
+  // Another shot pulled while the tab is hidden: these curves, still shown, keep their own Shot's link.
+  await setTabHidden(page, true);
+  await tablet.replayLive(frames, { speed: SPEED }).to();
+  tablet.pullShot(shotOf("shot-unseen", "28001", new Date()));
+  await setTabHidden(page, false);
+  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-unseen");
+  await expect(ticks(curves, "Pressure")).toHaveText(["0 s", "10 s", "20 s", "30 s"]);
+  await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
 });
 
 test("a shot's curves, its page opened mid-shot, are labelled partial", async ({ page }) => {
@@ -144,6 +155,10 @@ test("steaming's Machine States are named from a real steaming, its curves drawn
     await page.mouse.move(0, 0);
   }
   await held;
+  // The Steam Record of a steaming before it arrives late, as the plugin looks for new ones every 30 s by default, and
+  // the card reads it while this one steams: it isn't this one's.
+  tablet.storeSteam(derivedSteam("steam-just-before", { timestamp: new Date(Date.now() - 60_000).toISOString() }, liveSteamFixture("steam-record")));
+  await page.waitForResponse(async (response) => new URL(response.url()).pathname === "/api/steam-records" && (await response.text()).includes("steam-just-before"));
   await replay.to();
   await expect(field(state, "Machine State")).toHaveText("Idle");
 
@@ -162,6 +177,8 @@ test("steaming's Machine States are named from a real steaming, its curves drawn
   for (const chart of ["Milk temperature", "Weight"]) await expect(curves.getByRole("figure", { name: chart })).toHaveCount(0);
   await expectTip(curves, "the curves", /^Drawn as the Machine steams, as its Steam Record's page draws them/);
   await expect(curves.getByText("Waiting for its Steam Record")).toBeVisible();
+  // Read again once steaming has ended, the one before still the newest: it isn't linked.
+  await page.waitForResponse(async (response) => new URL(response.url()).pathname === "/api/steam-records" && (await response.text()).includes("steam-just-before"));
   await expect(curves.getByRole("link")).toHaveCount(0);
 
   // Decaid stores it as steaming ends, and the plugin finds it.

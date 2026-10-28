@@ -78,3 +78,15 @@ export async function afterDetailsPolls(page: Page, check: () => Promise<void>):
     await check();
   }).toPass({ timeout: 15_000 });
 }
+
+/**
+ * Hides the page's tab, or shows it again, as switching to another tab and
+ * back does: the page's visibility as it reads it, and the event telling it.
+ */
+export async function setTabHidden(page: Page, hidden: boolean): Promise<void> {
+  await page.evaluate((hidden) => {
+    Object.defineProperty(document, "hidden", { configurable: true, get: () => hidden });
+    Object.defineProperty(document, "visibilityState", { configurable: true, get: () => (hidden ? "hidden" : "visible") });
+    document.dispatchEvent(new Event("visibilitychange"));
+  }, hidden);
+}

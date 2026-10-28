@@ -1,4 +1,4 @@
-import { type RelayedLiveFrame, machineStateOf } from "@decent-sync/protocol";
+import { type RelayedLiveFrame, machineStateOf, steamPhaseOf } from "@decent-sync/protocol";
 import { STEAM_CURVES, type Sample, type ShotCurve, shotSamples, steamSamples } from "./curves";
 import { liveMachineOf } from "./live-view";
 
@@ -35,7 +35,10 @@ export interface LiveCurve {
   /** When the plugin received its first frame the page took in, which tells it from the curves before it. */
   startedAt: string;
   measurements: readonly LiveMeasurement[];
-  /** Whether it began before the page's first frame (`LiveCurves.firstFrameAt`), so its start isn't drawn. */
+  /**
+   * Whether it began before the page's first frame (`LiveCurves.firstFrameAt`),
+   * so its start isn't drawn, as is steaming's whose first frame is its purge.
+   */
   partial: boolean;
   /** Whether a frame of something else has come since, so it is over. */
   ended: boolean;
@@ -97,7 +100,9 @@ export function withCurvesFrame(curves: LiveCurves, relayed: RelayedLiveFrame): 
     return { ...curves, firstFrameAt, curve: { ...curve, measurements: [...curve.measurements, measurement], since } };
   }
   if (activity) {
-    const partial = Date.parse(live.stateSince) < Date.parse(firstFrameAt);
+    // Purging begins once steaming has: whenever it began, steaming began before it.
+    const purge = activity === "steaming" && steamPhaseOf(live.snapshot) === "purge";
+    const partial = purge || Date.parse(live.stateSince) < Date.parse(firstFrameAt);
     const started: LiveCurve = { activity, startedAt: live.receivedAt, measurements: [measurement], partial, ended: false, since: [live.stateSince] };
     return { ...curves, firstFrameAt, curve: started };
   }

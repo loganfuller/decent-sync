@@ -176,35 +176,46 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
 
 /**
  * The stored record of the curves' shot or steaming, once it has ended and the
- * record has arrived: for a shot, the Machine's last Shot, once its id differs
- * from the one the page held as the shot began, as a Shot's `pulledAt` is
- * rebuilt from its record and may be missing; for steaming, the Machine's
- * newest Steam Record, read as steaming began and every STATUS_POLL_MS once
- * it has ended, while the page is shown, until a newer one appears. Null until
- * then. Its component is keyed by the curves, so starts afresh for each.
+ * record has arrived, or null until then. Its own record is stored only once
+ * it has ended, so every record the page saw as the Machine's latest while it
+ * ran, from the one it held as it began, is another's, such as one before it
+ * stored late: the first other the page sees once it has ended is linked,
+ * and kept. For a shot, the latest is the Machine's last Shot, as the page
+ * polls it, by its id, as a Shot's `pulledAt` is rebuilt from its record and
+ * may be missing. For steaming, it is the Machine's newest Steam Record, read
+ * from when steaming began every STATUS_POLL_MS while the tab is shown, until
+ * one is linked; a read made while it steams counts as made while it ran,
+ * whenever it is answered, and the first read made is one too. Its component
+ * is keyed by the curves, so starts afresh for each.
  */
 function useStoredRecord(machineId: string, curve: LiveCurve, lastShotId: string | null): { name: string; href: string } | null {
-  const steaming = curve.activity === "steaming";
-  // As the page held it when the shot began: only read as the component mounts.
-  const [heldShotId] = useState(lastShotId);
-  // The newest Steam Record as steaming began, undefined until read; then a newer one, once one appears.
-  const heldSteamRecordId = useRef<string | null | undefined>(undefined);
-  const [steamRecordId, setSteamRecordId] = useState<string>();
   const { ended } = curve;
+  const steaming = curve.activity === "steaming";
+  const seen = useRef<Set<string | null>>(null);
+  seen.current ??= new Set(steaming ? [] : [lastShotId]);
+  const [linked, setLinked] = useState<string>();
   useEffect(() => {
-    if (!steaming || steamRecordId !== undefined || (heldSteamRecordId.current !== undefined && !ended)) return;
+    if (steaming || linked !== undefined) return;
+    if (!ended) seen.current!.add(lastShotId);
+    else if (lastShotId !== null && !seen.current!.has(lastShotId)) setLinked(lastShotId);
+  }, [steaming, ended, lastShotId, linked]);
+  const running = useRef(!ended);
+  useEffect(() => {
+    running.current = !ended;
+  }, [ended]);
+  useEffect(() => {
+    if (!steaming) return;
     let stopped = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
     const read = async () => {
       if (!document.hidden) {
+        const whileRunning = running.current || seen.current!.size === 0;
         try {
           const path = `/steam-records?machineId=${encodeURIComponent(machineId)}&limit=1`;
           const newest = (await api<SteamRecordPage>("GET", path)).steamRecords[0]?.id ?? null;
           if (stopped) return;
-          if (heldSteamRecordId.current === undefined) heldSteamRecordId.current = newest;
-          else if (newest !== null && newest !== heldSteamRecordId.current) return setSteamRecordId(newest);
-          // Held, while it still steams: read again once it has ended.
-          if (!ended) return;
+          if (whileRunning) seen.current!.add(newest);
+          else if (newest !== null && !seen.current!.has(newest)) return setLinked(newest);
         } catch {
           // Read again next time.
         }
@@ -216,10 +227,11 @@ function useStoredRecord(machineId: string, curve: LiveCurve, lastShotId: string
       stopped = true;
       clearTimeout(timer);
     };
-  }, [machineId, steaming, ended, steamRecordId]);
-  if (!ended) return null;
-  if (steaming) return steamRecordId === undefined ? null : { name: "Steam Record", href: `/steam-records/${encodeURIComponent(steamRecordId)}` };
-  return lastShotId !== null && lastShotId !== heldShotId ? { name: "Shot", href: `/shots/${encodeURIComponent(lastShotId)}` } : null;
+  }, [machineId, steaming]);
+  if (!ended || linked === undefined) return null;
+  return steaming
+    ? { name: "Steam Record", href: `/steam-records/${encodeURIComponent(linked)}` }
+    : { name: "Shot", href: `/shots/${encodeURIComponent(linked)}` };
 }
 
 /** Decaid's states while a shot is pulled. */
