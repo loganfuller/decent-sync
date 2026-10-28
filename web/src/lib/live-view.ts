@@ -221,18 +221,28 @@ export interface StoredMachineState {
 
 /**
  * When the Machine went to sleep, by the tablet's clock, if the latest
- * Machine State known says it is asleep, or null. That is the latest machine
- * frame's, unless the stored one was observed after the plugin received it,
- * or none has come: a page opened, or shown again, while the Machine sleeps
- * on firmware that sends nothing then gets no frame from it, though its
- * plugin stored the change. Both times are the plugin's.
+ * Machine State known says it is asleep, or null: the latest machine
+ * frame's, or with none since the stream opened, the stored one. A page
+ * opened, or shown again, while the Machine sleeps on firmware that sends
+ * nothing then gets no frame from it, though its plugin stored the change.
  */
 export function asleepSinceOf(live: LiveState | undefined, stored: StoredMachineState | null): string | null {
   const machine = live?.machine;
-  if (stored && (!machine || Date.parse(stored.observedAt) > Date.parse(machine.receivedAt))) {
-    return stored.state === "sleeping" ? stored.observedAt : null;
-  }
-  return machine && machineStateOf(machine.snapshot)?.state === "sleeping" ? machine.stateSince : null;
+  if (!machine) return stored?.state === "sleeping" ? stored.observedAt : null;
+  return machineStateOf(machine.snapshot)?.state === "sleeping" ? machine.stateSince : null;
+}
+
+/**
+ * The Live View as its stream opens again: without the last machine frame,
+ * as the Machine may have changed unseen meanwhile, such as going to sleep on
+ * firmware that then sends nothing. The server sends a joining viewer the
+ * latest of each socket's frames again, but no machine frame. When that
+ * frame came is kept, so staleness still counts from it.
+ */
+export function withStreamOpened(live: LiveState | undefined): LiveState | undefined {
+  if (!live?.machine) return live;
+  const { machine: _machine, ...rest } = live;
+  return rest;
 }
 
 /**

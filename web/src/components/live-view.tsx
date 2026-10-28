@@ -25,6 +25,7 @@ import {
   waterLevelOf,
   withHolder,
   withLiveFrame,
+  withStreamOpened,
 } from "@/lib/live-view";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
 import { cn } from "@/lib/utils";
@@ -107,7 +108,12 @@ function ConditionLine({ condition, machine, live }: { condition: Exclude<LiveCo
         <CardDescription className="flex items-center gap-1.5">
           Asleep since {formatTime(asleepSinceOf(live, machine.machineState)!)}
           <InfoTip label="About an asleep Machine">
-            <p>Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.</p>
+            <p>
+              Some Machines send nothing while asleep.{" "}
+              {live?.machine
+                ? "These are the values it sent as it went to sleep."
+                : "Its Tablet stored that it went to sleep, and has sent nothing from the Machine since this page's stream opened."}
+            </p>
           </InfoTip>
         </CardDescription>
       );
@@ -191,6 +197,10 @@ function useLiveView(
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
       setOpenedAt(Date.now());
+      // The Machine may have changed unseen meanwhile: as the page opens it, and each time it opens, the browser's own
+      // reopening too.
+      setLive(withStreamOpened);
+      opened.onopen = () => setLive(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
         if (!relayed) return;
@@ -430,7 +440,7 @@ function LiveTiles({ live, profile, integratedScale }: { live: LiveState; profil
       <Measurement label="Flow" value={value("flow")} target={value("targetFlow")} unit="ml/s" zeroIsNone />
       <Tile label="Profile step">
         <TileTerm>Profile step</TileTerm>
-        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling ? "Not reported" : "Not pulling a shot"}</span>}</dd>
+        <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling || named === null ? "Not reported" : "Not pulling a shot"}</span>}</dd>
       </Tile>
       <WaterLevel frame={live.waterLevels} />
       <Scale frame={live.scale} battery={!integratedScale} />
