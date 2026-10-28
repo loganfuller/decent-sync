@@ -38,7 +38,7 @@ export function BeansPage() {
       )}
       {beans?.length === 0 && <p className="text-muted-foreground">No Beans yet. They join the Library as tablets at a Location report them, or as they are created here.</p>}
       {beans && beans.length > 0 && (
-        <div className="rounded-lg border">
+        <div className="min-w-0 rounded-lg border">
           <Table aria-label="Beans">
             <TableHeader>
               <TableRow>

@@ -121,7 +121,7 @@ export function MachinesPage() {
 
 function MachineTable({ machines }: { machines: Machine[] }) {
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <Table aria-label="Machines">
         <TableHeader>
           <TableRow>

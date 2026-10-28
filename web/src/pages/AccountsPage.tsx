@@ -166,7 +166,7 @@ function AccountTable({
   onReactivate(account: ManagedAccount): Promise<void>;
 }) {
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <Table aria-label="Accounts">
         <TableHeader>
           <TableRow>
@@ -376,7 +376,7 @@ function AccessFields({
 
 function InviteTable({ invites, onRevoke }: { invites: Invite[]; onRevoke(invite: Invite): Promise<void> }) {
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <Table aria-label="Invites">
         <TableHeader>
           <TableRow>
