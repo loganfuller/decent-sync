@@ -111,13 +111,14 @@ interface Stream {
  *   leases lapse by themselves. Each renewal checks the viewer's session
  *   first, and once it has ended, as by signing out or the account's
  *   deactivation, ends the stream, deleting its lease and announcing that;
- *   the browser's reconnect is then refused. Each renewal is announced, and
- *   puts back a lease it finds expired or gone, as after this instance
- *   stalled, so the plugin streams again. Closing a stream sets its lease to
- *   expire LEASE_SECONDS later, so a reload within that linger continues
- *   without the plugin being stopped and started. The linger only moves the
- *   lease's expiry later, and the instance holding the Machine's connection
- *   checks at the earliest, so it is not announced.
+ *   the browser's reconnect is then refused. A renewal puts back a lease it
+ *   finds expired or gone, as after this instance stalled. Closing a stream
+ *   sets its lease to expire LEASE_SECONDS later, so a reload within that
+ *   linger continues without the plugin being stopped and started. Each
+ *   renewal and linger is announced: each judges expiry by its transaction's
+ *   clock, from before any wait, so the instance holding the Machine's
+ *   connection may have found the lease expired meanwhile and stopped the
+ *   plugin.
  * - **Starting the plugin.** Each connection this instance holds that may
  *   stream is sent `liveStart` while it holds its Machine and any of the
  *   Machine's leases is unexpired, and `liveStop` once not, only as that
@@ -229,7 +230,7 @@ export class LiveViews implements OnModuleDestroy {
     if (leaseId === undefined) return void this.endStream(stream);
     stream.leaseId = leaseId;
     // Closed while its lease was being inserted.
-    if (stream.ended) return void this.linger(leaseId);
+    if (stream.ended) return void this.linger(leaseId, machine.id);
     response.flushHeaders();
     response.write(`retry: ${RECONNECT_MS}\n\n`);
     this.keepAlive(stream);
@@ -414,10 +415,7 @@ export class LiveViews implements OnModuleDestroy {
    * Renews the stream's lease while its viewer's session lasts, or ends the
    * stream once the session has ended: signed out, its account deactivated,
    * or expired. A lease expired or gone, as after this instance stalled, is
-   * put back. Each renewal is announced: it judges by its transaction's
-   * clock, from before any wait, so the instance holding the Machine's
-   * connection may have found the lease expired meanwhile and stopped the
-   * plugin.
+   * put back. Each is announced, as the class's comment explains.
    */
   private async renew(stream: Stream): Promise<void> {
     const { leaseId, machineId, viewerSessionId } = stream;
@@ -465,20 +463,20 @@ export class LiveViews implements OnModuleDestroy {
     streams?.delete(stream);
     if (streams?.size === 0) this.streams.delete(stream.machineId);
     if (stream.leaseId === undefined) return;
-    if (linger) this.linger(stream.leaseId);
+    if (linger) this.linger(stream.leaseId, stream.machineId);
     else this.release(stream.leaseId, stream.machineId);
   }
 
   /**
    * Sets a closed stream's lease to expire LEASE_SECONDS from now, unless it
-   * has expired already. It only moves the lease's expiry later, so the
-   * instance holding the Machine's connection, which checks at the earliest,
-   * needs no announcement.
+   * has expired already, and announces it, as a renewal is.
    */
-  private linger(leaseId: string): void {
+  private linger(leaseId: string, machineId: string): void {
     void this.track(
       this.prisma.$executeRaw`
-        UPDATE live_view_leases SET expires_at = now() + make_interval(secs => ${LEASE_SECONDS}) WHERE id = ${leaseId}::uuid AND expires_at > now()`.then(
+        WITH lingering AS (
+          UPDATE live_view_leases SET expires_at = now() + make_interval(secs => ${LEASE_SECONDS}) WHERE id = ${leaseId}::uuid AND expires_at > now())
+        SELECT pg_notify('live_views', ${machineId})`.then(
         () => {},
         (error: unknown) => this.logger.warn(`Could not set a closed Live View's lease to linger; it expires by itself: ${String(error)}`),
       ),
