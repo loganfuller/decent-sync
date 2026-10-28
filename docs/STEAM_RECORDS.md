@@ -170,20 +170,65 @@ The record without measurements, the credit and the analytics live in
 `steam_records`; the measurements live in `steam_measurements.data`, a
 separate `jsonb` column with lz4 compression. `extractSteamRecord`
 (`server/src/steam-records/extraction.ts`) is the pure, optional-field
-projection: duration, peak and final milk temperature (null without a
-probe) and Barista. Duration adds up the gaps between consecutive samples'
-local times, leaving out the whole quarter hours a daylight-saving change adds
-or takes away; a gap where the tablet's clock was otherwise corrected counts
-for nothing (`elapsedSeconds`, which Shots share). The final temperature is
-the last reading. Decaid starts each Steam Record with the probe's latest
-reading, which, until the probe reports again, is the last one of the record
-before: `SteamSequencer` subscribes to the probe afresh for each record, and
-`BengleMilkProbe` replays its latest reading to a new subscriber. Steamed milk
-warms, so when the probe's next reading is lower, the first is taken to be
-carried over and left out of the peak; whether or not it was, that changes the
-peak only if no later reading is as high. The extraction is tested against a
-real DE1Pro record and two from Decaid's simulated Bengle, one of which starts
-with the reading carried over.
+projection: duration, steaming time, peak and final milk temperature (null
+without a probe) and Barista. Duration adds up the gaps between consecutive
+samples' local times, leaving out the whole quarter hours a daylight-saving
+change adds or takes away; a gap where the tablet's clock was otherwise
+corrected counts for nothing (`elapsedMilliseconds`, which Shots share). The
+final temperature is the last reading. Decaid starts each Steam Record with
+the probe's latest reading, which, until the probe reports again, is the last
+one of the record before: `SteamSequencer` subscribes to the probe afresh for
+each record, and `BengleMilkProbe` replays its latest reading to a new
+subscriber. Steamed milk warms, so when the probe's next reading is lower, the
+first is taken to be carried over and left out of the peak; whether or not it
+was, that changes the peak only if no later reading is as high. The extraction
+is tested against a real DE1Pro record and two from Decaid's simulated Bengle,
+one of which starts with the reading carried over, and its steaming time
+against the test tablet's four records from firmware 1358 too.
+
+### Phases and the steaming time
+
+`SteamSequencer` opens a record as the Machine enters `steam` and closes it at
+the first sample outside it, so a record holds more than the steaming. Each
+sample's phase is read from its `machine.state.substate` and
+`machine.targetFlow` by `steamPhases` (`protocol/src/steam-phases.ts`), which
+the management interface shares, as firmware 1358 reports them in the test
+tablet's records (`server/test/fixtures/decaid/de1pro-live-v0.9.0/`, #308):
+
+| Phase | Samples | What the Machine is doing |
+|---|---|---|
+| Preparing | `preparingForShot` | The lead-in, 2 to 3 s: flow climbs toward the firmware's own target of 4 ml/s, not the Workflow's |
+| Steaming | `pouring` at a target flow above 0 | Steaming at the Workflow's flow |
+| Paused | `pouring` or `pouringDone` at a target flow of 0, and `pausedSteam` | The pause after every stop, 2 to 4 s, while the flow falls: `pouringDone` after a tap in Normal or an `idle` request, still `pouring` after a stop on time or Two Tap Stop's first tap. No substate marks it (decentespresso/decaid#1047) |
+| Puffing | `puffing` | After a stop on time or Two Tap Stop's first tap, small puffs at 0.125 ml/s keep the wand clear until the barista taps stop |
+| Purge | `pouringDone` at a target flow above 0 | After a tap or an `idle` request, at 2 and then 4 ml/s |
+
+A sample without a target flow is read as above 0. Any other sample, such as
+the last `idle`, takes the phase of the sample before it, or Steaming as a
+record's first, as all of Decaid v0.8.7's simulated Bengle's `steam` / `idle`
+samples are. Decaid's doc comments describe `puffing` as the purge and
+`pouringDone` as espresso only; decaid#1047 asks for them to be corrected.
+
+A Steam Record's steaming time adds up the time from each Steaming sample to
+the next (`steamingSeconds`), counted as its duration is. The Machine counts
+the Workflow's steam duration from `pouring` too: the record stopped on time
+after a Workflow's 10 s steamed 9.994 s of its 56.7 s. Streamline's live
+"Steaming: N s" counter also counts the lead-in, once the steam heater is at
+135 °C, and a pause still in `pouring` (`isActionTailSubstate` in
+`streamline-js:src/modules/machine-status-policy.js`).
+
+`duration` keeps the whole recording, as 1.4.0 stores and shows it, and
+`steaming` the steaming time, which the REST API shows as the duration.
+`curves_revision` names the revision of `extractSteamRecord` the steaming
+time was computed by (`STEAM_CURVES_REVISION`). A delivery stores it at the
+current one, and `CurvesRefresh` computes those of an earlier revision again
+from their measurements, as it does Shots' (`SHOTS.md`), so it also takes the
+Steam Records the previous release stores while it still serves beside this
+one during an upgrade. Until then such a Steam Record shows the whole
+recording as its duration. `protocol/test/steam-phases.test.ts` checks the
+phases of the test tablet's four records and the firmware 1333 one, and
+`server/test/steam-record-curves-refresh.test.ts` the stored and shown
+durations and a Steam Record computed again, through Seam 1.
 
 ## REST API
 
@@ -194,8 +239,8 @@ Steam Record an Admin does.
   `{ steamRecords, total, limit, offset }`. Limit is 1–100; offset is
   nonnegative. Results are newest `steamedAt` first, with id as the
   tie-breaker, and `total` counts the whole filtered list, read in one
-  snapshot with the page. Rows carry the analytics, the Machine or Pending
-  Machine credit and the Location (`locationId` and
+  snapshot with the page. Rows carry the analytics, with the steaming time
+  as `duration`, the Machine or Pending Machine credit and the Location (`locationId` and
   `location: { id, name, timeZone }`, null when unknown), without the record
   or its measurements, and no inferred marker.
 - Filters, each given at most once and combined with AND, are the ones Shots
@@ -244,5 +289,12 @@ temperature, with the temperature its Workflow stops steaming at
 and the steam's pressure and flow, with the targets the machine reported.
 The curves show every reading as recorded, including one carried over from
 the Steam Record before; when that reading is above the peak, the page says
-the peak leaves it out. `e2e/steam-records.spec.ts` covers them with Steam
-Records backfilled by simulated tablets.
+the peak leaves it out. They run from 0 s at the first sample after the
+lead-in, which comes before it, as a Shot's Preheat does, and the phases the
+duration leaves out are shaded, as Preheat is: Preparing, Paused, Puffing and
+Purge. Each phase's name is drawn inside its shading only where it fits at the
+chart's width, a dashed vertical line marks where two shaded phases meet, as a
+Shot's step changes are marked, and the hover tooltip and the measurements
+table name the shaded phase of each time. The list and the page show the
+steaming time as the duration. `e2e/steam-records.spec.ts` covers them with
+Steam Records backfilled by simulated tablets.

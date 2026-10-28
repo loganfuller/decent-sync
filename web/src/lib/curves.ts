@@ -3,6 +3,8 @@
 // scale reading or a Steam Record's milk temperature. Any field may be
 // missing; a sample without a time is left out.
 
+import { STEAM_PHASE_NAMES, type SteamPhase, isShadedPhase, shadedPhaseChanges, steamPhases } from "@decent-sync/protocol";
+
 /** One curve a record's page draws, in its own chart. */
 export interface CurveInfo {
   label: string;
@@ -31,18 +33,25 @@ export type ShotCurve = keyof typeof SHOT_CURVES;
 export type SteamCurve = keyof typeof STEAM_CURVES;
 
 /**
- * One sample: its seconds, and each curve's value and target there. A Steam
- * Record's count from its first sample, and a Shot's from the first after
- * its Preheat, whose samples are at negative seconds.
+ * One sample: its seconds, and each curve's value and target there. A Shot's
+ * count from the first sample after its Preheat, and a Steam Record's from
+ * the first after its lead-in, whose samples are at negative seconds.
  */
 export interface Sample<C extends string> {
   seconds: number;
-  /** In the Shot's Preheat: the Machine heating its water before the profile starts. */
-  preheat: boolean;
+  /**
+   * The shaded phase it is in, by name, which its record's duration leaves
+   * out: a Shot's Preheat, the Machine heating its water before the profile
+   * starts, or a Steam Record's Preparing, Paused, Puffing or Purge. Null in
+   * the time the duration counts.
+   */
+  shade: string | null;
   values: Record<C, number | null>;
   targets: Record<C, number | null>;
   /** A Shot's: the Profile step its Machine was running, null in Preheat or where it reported none. */
   step?: Step | null;
+  /** A Steam Record's: its phase (`steamPhases`). */
+  phase?: SteamPhase;
 }
 
 /** A step of a Shot's Profile: its index among the Profile's steps, and its name. */
@@ -71,6 +80,7 @@ const QUARTER_HOUR_MS = 15 * 60_000;
 export function shotSamples(measurements: unknown, profile?: unknown): Sample<ShotCurve>[] {
   const steps = record(profile)?.steps;
   return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
+    shade: preheat ? "Preheat" : null,
     step: preheat ? null : profileStep(machine?.profileFrame, Array.isArray(steps) ? steps : []),
     values: {
       pressure: number(machine?.pressure),
@@ -93,9 +103,14 @@ export function shotSamples(measurements: unknown, profile?: unknown): Sample<Sh
  * null before any reading or with no probe, the steam heater's temperature,
  * and the steam's pressure and flow, with the targets the machine reported
  * and `stopAt`, the milk temperature its Workflow stops steaming at, if any.
+ * Each names its phase (`steamPhases`), and its lead-in, its leading
+ * Preparing samples, comes before 0 s, as a Shot's Preheat does.
  */
 export function steamSamples(measurements: unknown, stopAt: number | null): Sample<SteamCurve>[] {
-  return timedSamples(measurements, () => false, (measurement, machine) => ({
+  const phases = steamPhases(measurements);
+  return timedSamples(measurements, (_, n) => phases[n] === "preparing", (measurement, machine, _scale, _lead, n) => ({
+    shade: isShadedPhase(phases[n]!) ? STEAM_PHASE_NAMES[phases[n]!] : null,
+    phase: phases[n]!,
     values: {
       milkTemperature: number(measurement.milkTemperature),
       steamTemperature: number(machine?.steamTemperature),
@@ -113,8 +128,8 @@ export function steamSamples(measurements: unknown, stopAt: number | null): Samp
 
 /**
  * The samples of a record's measurements, in the order Decaid recorded them,
- * each read by `read` from the measurement and its machine snapshot and scale
- * reading. Its leading samples whose machine snapshot `leading` picks out,
+ * each read by `read` from the measurement, its index, and its machine
+ * snapshot and scale reading. Its leading samples that `leading` picks out,
  * such as a Shot's Preheat, come before 0 s, which is the first sample after
  * them, or a millisecond after the last if none follows, as when a Shot is
  * stopped before its profile starts. Times are counted as the server
@@ -127,25 +142,26 @@ export function steamSamples(measurements: unknown, stopAt: number | null): Samp
  */
 function timedSamples<C extends string>(
   measurements: unknown,
-  leading: (machine: Record<string, unknown> | undefined) => boolean,
+  leading: (machine: Record<string, unknown> | undefined, index: number) => boolean,
   read: (
     measurement: Record<string, unknown>,
     machine: Record<string, unknown> | undefined,
     scale: Record<string, unknown> | undefined,
-    preheat: boolean,
-  ) => Omit<Sample<C>, "seconds" | "preheat">,
+    lead: boolean,
+    index: number,
+  ) => Omit<Sample<C>, "seconds">,
 ): Sample<C>[] {
   if (!Array.isArray(measurements)) return [];
   const timed: { elapsed: number; sample: Omit<Sample<C>, "seconds"> }[] = [];
   let previous: number | undefined;
   let elapsed = 0;
-  let preheat = true;
+  let lead = true;
   let zero: number | undefined;
-  for (const measurement of measurements) {
+  for (const [index, measurement] of measurements.entries()) {
     const fields = record(measurement);
     const machine = record(fields?.machine);
     // A sample without a time still ends what leads, as it does on the server.
-    if (preheat && !leading(machine)) preheat = false;
+    if (lead && !leading(machine, index)) lead = false;
     const at = time(machine?.timestamp);
     if (!fields || at === undefined) continue;
     if (previous !== undefined) {
@@ -154,8 +170,8 @@ function timedSamples<C extends string>(
       elapsed += real >= 0 && real <= CLOCK_CHANGE_MS ? Math.max(real, 1) : 1;
     }
     previous = at;
-    if (!preheat) zero ??= elapsed;
-    timed.push({ elapsed, sample: { preheat, ...read(fields, machine, record(fields.scale), preheat) } });
+    if (!lead) zero ??= elapsed;
+    timed.push({ elapsed, sample: read(fields, machine, record(fields.scale), lead, index) });
   }
   const start = zero ?? elapsed + 1;
   return timed.map(({ elapsed, sample }) => ({ seconds: (elapsed - start) / 1000, ...sample }));
@@ -195,13 +211,50 @@ export function stepChanges(samples: Sample<string>[]): number[] {
  * last, as a chart reads past a Shot's end the longer Shot compared with it.
  */
 export function stepAt(samples: Sample<string>[], seconds: number): Step | null {
-  if (seconds > lastSecond(samples) + 1e-9) return null;
-  let found: Step | null = null;
+  return sampleAt(samples, seconds)?.step ?? null;
+}
+
+/** The shaded phase of the last sample at or before `seconds`, read as `stepAt` reads a step. */
+export function shadeAt(samples: Sample<string>[], seconds: number): string | null {
+  return sampleAt(samples, seconds)?.shade ?? null;
+}
+
+function sampleAt<C extends string>(samples: Sample<C>[], seconds: number): Sample<C> | undefined {
+  if (seconds > lastSecond(samples) + 1e-9) return undefined;
+  let found: Sample<C> | undefined;
   for (const sample of samples) {
     if (sample.seconds > seconds + 1e-9) break;
-    found = sample.step ?? null;
+    found = sample;
   }
   return found;
+}
+
+/** The seconds at which two of a Steam Record's shaded phases meet (`shadedPhaseChanges`); none for a Shot. */
+export function phaseChanges(samples: Sample<string>[]): number[] {
+  return shadedPhaseChanges(samples.flatMap(({ phase, seconds }) => (phase ? [{ phase, seconds }] : [])));
+}
+
+/** A stretch of a record in one shaded phase, from its first sample to the sample after its last. */
+export interface ShadedSpan {
+  name: string;
+  from: number;
+  until: number;
+}
+
+/**
+ * Each run of samples in one shaded phase, from its first sample to the next
+ * sample after it, which starts what follows, or to its last if none
+ * follows.
+ */
+export function shadedSpans(samples: Sample<string>[]): ShadedSpan[] {
+  const spans: ShadedSpan[] = [];
+  samples.forEach((sample, n) => {
+    if (sample.shade === null) return;
+    const until = samples[n + 1]?.seconds ?? sample.seconds;
+    if (samples[n - 1]?.shade === sample.shade) spans.at(-1)!.until = until;
+    else spans.push({ name: sample.shade, from: sample.seconds, until });
+  });
+  return spans;
 }
 
 /** One point of a chart: each series' value at a time, or null where it has none. */

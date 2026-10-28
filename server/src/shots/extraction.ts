@@ -114,22 +114,30 @@ const CLOCK_CHANGE_MS = 60_000;
 
 /**
  * The time from a record's first sample to its last, in seconds, from their
- * local times in the order Decaid recorded them, or null without any. The
- * gaps between consecutive samples are added up. Across a daylight-saving
- * change the local time jumps by whole quarter hours, usually an hour, which
- * are left out of that gap. A gap that still runs backwards, or that leaves
- * more than a minute, is a correction of the tablet's clock by an unknown
- * amount, and counts for nothing.
+ * local times in the order Decaid recorded them, or null without any, as
+ * `elapsedMilliseconds` counts it.
  */
 export function elapsedSeconds(times: readonly number[]): number | null {
-  if (times.length === 0) return null;
+  return times.length === 0 ? null : elapsedMilliseconds(times).at(-1)! / 1000;
+}
+
+/**
+ * Each sample's time from the first, in milliseconds, from their local times
+ * in the order Decaid recorded them. The gaps between consecutive samples are
+ * added up. Across a daylight-saving change the local time jumps by whole
+ * quarter hours, usually an hour, which are left out of that gap. A gap that
+ * still runs backwards, or that leaves more than a minute, is a correction of
+ * the tablet's clock by an unknown amount, and counts for nothing.
+ */
+export function elapsedMilliseconds(times: readonly number[]): number[] {
   let elapsed = 0;
-  for (let n = 1; n < times.length; n++) {
-    const gap = times[n]! - times[n - 1]!;
+  return times.map((at, n) => {
+    if (n === 0) return 0;
+    const gap = at - times[n - 1]!;
     const real = Math.abs(gap) <= CLOCK_CHANGE_MS ? gap : gap - quarterHours(gap);
     if (real >= 0 && real <= CLOCK_CHANGE_MS) elapsed += real;
-  }
-  return elapsed / 1000;
+    return elapsed;
+  });
 }
 
 /**

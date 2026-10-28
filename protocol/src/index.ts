@@ -14,6 +14,7 @@ import { WAKE_SCHEDULE_ACTIONS, type WakeScheduleEdit } from "./settings-fields.
 
 export * from "./chunking.js";
 export * from "./settings-fields.js";
+export * from "./steam-phases.js";
 
 /**
  * The protocol version this build of the plugin and server speaks. It stays

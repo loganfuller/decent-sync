@@ -1,14 +1,18 @@
 import { describe, expect, it } from "vitest";
 import { extractSteamRecord } from "../src/steam-records/extraction.js";
-import { milkProbeSteamFixture, nextMilkProbeSteamFixture, steamFixture } from "./support/steam-fixtures.js";
+import { liveSteamFixture, milkProbeSteamFixture, nextMilkProbeSteamFixture, steamFixture } from "./support/steam-fixtures.js";
 
 // Steam Records Decaid v0.8.7 produced: a scrubbed real record from a DE1Pro
-// without a milk probe, and two from Decaid's simulated Bengle with its probe.
+// without a milk probe, and two from Decaid's simulated Bengle with its probe;
+// and four the test tablet's DE1Pro recorded on Decaid v0.9.0, each stopped
+// another way.
 describe("Steam Record extraction", () => {
   it("extracts a real DE1Pro Steam Record, which has no milk temperature", () => {
     expect(extractSteamRecord(steamFixture())).toEqual({
       // From the first sample, at 19:23:40.558578, to the last, at 19:23:44.316115, to the millisecond.
       duration: 3.758,
+      // From the first `pouring` sample, after 2.099 s of lead-in, to the last.
+      steaming: 1.659,
       peakMilkTemperature: null,
       finalMilkTemperature: null,
       barista: "Fixture Barista",
@@ -18,6 +22,8 @@ describe("Steam Record extraction", () => {
   it("extracts the peak and final milk temperature a probe reported, ignoring samples before its first reading", () => {
     expect(extractSteamRecord(milkProbeSteamFixture())).toEqual({
       duration: 11.802,
+      // The simulated Bengle reports `steam` / `idle` all along, which counts as steaming.
+      steaming: 11.802,
       peakMilkTemperature: 60.46000000000001,
       finalMilkTemperature: 60.46000000000001,
       barista: "Fixture Barista",
@@ -31,6 +37,7 @@ describe("Steam Record extraction", () => {
     expect(readings.slice(0, 3)).toEqual([null, 61.945, 6.52]);
     expect(extractSteamRecord(next)).toEqual({
       duration: 12.102,
+      steaming: 12.102,
       peakMilkTemperature: 61.46499999999999,
       finalMilkTemperature: 61.46499999999999,
       barista: "Fixture Barista",
@@ -38,6 +45,18 @@ describe("Steam Record extraction", () => {
     // Derived: cut short before the probe reported again, the record has only the reading it started with.
     const cutShort = { ...next, measurements: (next.measurements as unknown[]).slice(0, 2) };
     expect(extractSteamRecord(cutShort)).toMatchObject({ peakMilkTemperature: 61.945, finalMilkTemperature: 61.945 });
+  });
+
+  it("counts only the steaming, leaving out the lead-in, the pauses, the puffs and the purge", () => {
+    // The steaming time of each, by the issue's Expected values (#308), and the whole recording.
+    for (const [name, duration, steaming] of [
+      ["steam-record", 25.2, 16.915],
+      ["steam-record-two-tap-stop", 34.368, 19.795],
+      ["steam-record-idle-request", 20.333, 10.341],
+      ["steam-record-timed-stop", 56.691, 9.994],
+    ] as const) {
+      expect(extractSteamRecord(liveSteamFixture(name))).toMatchObject({ duration, steaming });
+    }
   });
 
   it("measures duration across a daylight-saving change in the tablet's local times", () => {
@@ -49,12 +68,12 @@ describe("Steam Record extraction", () => {
       ["2026-03-08T01:59:59.000000", "2026-03-08T03:00:01.000000"],
       ["2026-11-01T01:59:59.000000", "2026-11-01T01:00:01.000000"],
     ]) {
-      expect(extractSteamRecord({ ...fixture, measurements: [at(first!, before!), at(second!, after!)] }).duration).toBe(2);
+      expect(extractSteamRecord({ ...fixture, measurements: [at(first!, before!), at(second!, after!)] })).toMatchObject({ duration: 2, steaming: 2 });
     }
   });
 
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {
-    const none = { duration: null, peakMilkTemperature: null, finalMilkTemperature: null, barista: null };
+    const none = { duration: null, steaming: null, peakMilkTemperature: null, finalMilkTemperature: null, barista: null };
     for (const record of [
       {},
       null,
@@ -65,6 +84,6 @@ describe("Steam Record extraction", () => {
     }
     const fixture = milkProbeSteamFixture();
     const [sample] = fixture.measurements as Record<string, unknown>[];
-    expect(extractSteamRecord({ ...fixture, measurements: [sample, { future: true }] })).toMatchObject({ duration: 0, peakMilkTemperature: null });
+    expect(extractSteamRecord({ ...fixture, measurements: [sample, { future: true }] })).toMatchObject({ duration: 0, steaming: 0, peakMilkTemperature: null });
   });
 });

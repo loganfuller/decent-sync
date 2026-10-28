@@ -526,7 +526,10 @@ export interface SteamRecordSummary {
   pendingMachine: { id: string; model: string; serial: string } | null;
   /** Where its Machine was when it was recorded; null when unknown, and its times are then in UTC. */
   location: Location | null;
-  /** In seconds. */
+  /**
+   * How long it steamed, in seconds, leaving out its lead-in, pauses, puffs and purge; the whole recording for one
+   * the server has yet to compute again.
+   */
   duration: number | null;
   /** In °C, from the milk probe, leaving out a reading carried over from the Steam Record before; null without a probe. */
   peakMilkTemperature: number | null;

@@ -1,6 +1,20 @@
 import { describe, expect, it } from "vitest";
+import tapInNormal from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record.json" with { type: "json" };
+import timedStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record-timed-stop.json" with { type: "json" };
 import preheatShot from "../../server/test/fixtures/decaid/de1pro-v0.9.0/shot-preheat.json" with { type: "json" };
-import { chartPoints, firstSecond, lastSecond, secondTicks, shotSamples, stepAt, stepChanges } from "../src/lib/curves";
+import {
+  chartPoints,
+  firstSecond,
+  lastSecond,
+  phaseChanges,
+  secondTicks,
+  shadeAt,
+  shadedSpans,
+  shotSamples,
+  steamSamples,
+  stepAt,
+  stepChanges,
+} from "../src/lib/curves";
 
 // A Shot the test tablet's Decaid v0.9.0 recorded with a long Preheat: its
 // first 43 of 168 samples, 7.36 s, before its profile's first, at
@@ -11,7 +25,7 @@ describe("shotSamples", () => {
   it("puts a Shot's Preheat at negative seconds, from 0 s at the first sample after it", () => {
     const samples = shotSamples(measurements);
     expect(samples).toHaveLength(168);
-    expect(samples.map((sample) => sample.preheat)).toEqual(measurements.map((_, n) => n < 43));
+    expect(samples.map((sample) => sample.shade)).toEqual(measurements.map((_, n) => (n < 43 ? "Preheat" : null)));
     expect(samples[43]!.seconds).toBe(0);
     expect(samples[0]!.seconds).toBe(-7.363);
     expect(samples[42]!.seconds).toBeLessThan(0);
@@ -38,14 +52,14 @@ describe("shotSamples", () => {
     // Derived: the real Shot without its Preheat's samples.
     const samples = shotSamples(measurements.slice(43));
     expect(samples[0]!.seconds).toBe(0);
-    expect(samples.some((sample) => sample.preheat)).toBe(false);
+    expect(samples.some((sample) => sample.shade !== null)).toBe(false);
     expect(firstSecond(samples)).toBe(0);
   });
 
   it("ends Preheat at the first sample with another substate, so a later preparingForShot sample is not in it", () => {
     // Derived: the real Shot with one sample of its profile marked preparingForShot.
     const marked = measurements.map((sample, n) => (n === 100 ? { ...sample, machine: { ...sample.machine, state: { state: "espresso", substate: "preparingForShot" } } } : sample));
-    expect(shotSamples(marked).map((sample) => sample.preheat)).toEqual(measurements.map((_, n) => n < 43));
+    expect(shotSamples(marked).map((sample) => sample.shade)).toEqual(measurements.map((_, n) => (n < 43 ? "Preheat" : null)));
   });
 });
 
@@ -53,10 +67,10 @@ describe("shotSamples of a Shot stopped in Preheat", () => {
   it("keeps every sample before 0 s, however many there are", () => {
     // Derived: the real Shot's Preheat alone, and its first sample alone, as a Shot stopped before its profile started would record.
     const all = shotSamples(measurements.slice(0, 43));
-    expect(all.every((sample) => sample.preheat && sample.seconds < 0)).toBe(true);
+    expect(all.every((sample) => sample.shade === "Preheat" && sample.seconds < 0)).toBe(true);
     expect(all.at(-1)!.seconds).toBe(-0.001);
     const one = shotSamples(measurements.slice(0, 1));
-    expect(one.map((sample) => [sample.seconds, sample.preheat])).toEqual([[-0.001, true]]);
+    expect(one.map((sample) => [sample.seconds, sample.shade])).toEqual([[-0.001, "Preheat"]]);
     expect(firstSecond(one)).toBe(-0.001);
   });
 });
@@ -145,5 +159,55 @@ describe("a Shot's Profile steps", () => {
     expect(stepAt(samples, -1)).toBeNull();
     expect(stepAt(samples, lastSecond(samples))?.name).toBe("Extraction");
     expect(stepAt(samples, lastSecond(samples) + 0.1)).toBeNull();
+  });
+});
+
+// Two Steam Records the test tablet's DE1Pro recorded on firmware 1358 and
+// Decaid v0.9.0 (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #308): one
+// stopped by a tap in Normal, and one on time, then a tap.
+describe("steamSamples", () => {
+  it("puts a Steam Record's lead-in before 0 s, and names each sample's shaded phase", () => {
+    const samples = steamSamples(tapInNormal.measurements, null);
+    expect(samples).toHaveLength(122);
+    expect(samples[0]!.seconds).toBe(-2.047);
+    expect(samples[10]!.seconds).toBe(0);
+    expect(firstSecond(samples)).toBe(-2.047);
+    const shades = (counts: [string | null, number][]) => counts.flatMap(([shade, count]) => Array<string | null>(count).fill(shade));
+    expect(samples.map((sample) => sample.shade)).toEqual(shades([["Preparing", 10], [null, 81], ["Paused", 16], ["Purge", 15]]));
+    expect(samples.map((sample) => sample.phase)).toEqual(shades([["preparing", 10], ["steaming", 81], ["paused", 16], ["purge", 15]]));
+    // From the first sample of each to the next sample after it, or to the last.
+    expect(shadedSpans(samples)).toEqual([
+      { name: "Preparing", from: -2.047, until: 0 },
+      { name: "Paused", from: 16.915, until: 20.231 },
+      { name: "Purge", from: 20.231, until: 23.153 },
+    ]);
+    // A line where the pause meets the purge; none where either meets Steaming.
+    expect(phaseChanges(samples)).toEqual([20.231]);
+    // A Shot has no phases, so none.
+    expect(phaseChanges(shotSamples(measurements))).toEqual([]);
+  });
+
+  it("marks where the Machine puffs, between two pauses", () => {
+    const samples = steamSamples(timedStop.measurements, null);
+    expect(samples[0]!.seconds).toBe(-2.485);
+    expect(shadedSpans(samples).map(({ name, from, until }) => [name, from, until])).toEqual([
+      ["Preparing", -2.485, 0],
+      ["Paused", 9.994, 13.791],
+      ["Puffing", 13.791, 49.383],
+      ["Paused", 49.383, 51.478],
+      ["Purge", 51.478, 54.206],
+    ]);
+    expect(phaseChanges(samples)).toEqual([13.791, 49.383, 51.478]);
+  });
+
+  it("reads the shaded phase at a chart's time from the last sample at or before it", () => {
+    const samples = steamSamples(tapInNormal.measurements, null);
+    expect(shadeAt(samples, -1)).toBe("Preparing");
+    expect(shadeAt(samples, 0)).toBeNull();
+    expect(shadeAt(samples, 16.914)).toBeNull();
+    expect(shadeAt(samples, 16.915)).toBe("Paused");
+    expect(shadeAt(samples, 20.231)).toBe("Purge");
+    expect(shadeAt(samples, lastSecond(samples))).toBe("Purge");
+    expect(shadeAt(samples, lastSecond(samples) + 0.1)).toBeNull();
   });
 });
