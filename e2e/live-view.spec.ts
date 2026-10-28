@@ -241,6 +241,8 @@ test("the Live View of an offline Machine is one line, and of one that stops sen
 
   const tablet = await connectedTablet(token, "27006");
   await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  // Once a poll has found it online: a frame that came before a poll found it offline would be offline.
+  await expect(field(page.getByLabel("Status", { exact: true }), "Status")).toHaveText("Online");
   const state = card.getByRole("group", { name: "Machine State" });
   tablet.reportSnapshot(first(shot, "espresso", "pouring"));
   await expect(field(state, "Machine State")).toHaveText("Pulling a shot Pouring");
@@ -333,4 +335,33 @@ test("the Live View shows a Machine whose last snapshot said it was asleep as as
   await expect(card).not.toContainText("No data since");
   await expect(liveContent(card)).toHaveCSS("opacity", "1");
   await expectTip(card, "an asleep Machine", "Some Machines send nothing while asleep, so these are the values it sent as it went to sleep.");
+});
+
+test("the Live View drops what a Tablet sent once another takes its Machine over, and shows what the new one sends", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 10");
+  const tablet = await connectedTablet(token, "27011");
+  await page.clock.install();
+  await page.goto(`/machines/${machine.id}`);
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  const card = page.getByRole("region", { name: "Live View" });
+  const state = card.getByRole("group", { name: "Machine State" });
+  tablet.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
+  await expect(field(state, "Machine State")).toHaveText("Asleep");
+
+  // Another Tablet takes the Machine over, which sends no snapshot, as one on the previous release never does. Once the
+  // page's next poll finds it, the first Tablet's snapshot is dropped, so its Machine isn't shown asleep for good.
+  const swapped = await connectedTablet(token, "27011");
+  await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+  await expect.poll(() => swapped.delivered).toContainEqual({ type: "liveStart" });
+  await page.clock.fastForward(5_000);
+  // The stream is opened again, and the new Tablet's sockets' latest frames sent to it.
+  await expect(field(state, "Machine State")).toHaveText("Not reported");
+  await expect(field(card.getByRole("group", { name: "Tablet" }), "Connection to Tablet")).toHaveText("Connected");
+  await page.clock.fastForward(5_500);
+  await expect(card).toContainText("No data from the Machine yet");
+  await expect(card).not.toContainText("Asleep");
+
+  swapped.reportSnapshot(first(shot, "espresso", "preinfusion"));
+  await expect(field(state, "Machine State")).toHaveText("Pulling a shot Preinfusion");
+  await expect(card).not.toContainText("No data");
 });

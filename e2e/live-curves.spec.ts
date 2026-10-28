@@ -1,5 +1,5 @@
 import { type Locator, type Page, expect, test } from "@playwright/test";
-import { type LiveFixtureFrame, liveFixture, openingFrames } from "../server/test/support/live-fixtures.js";
+import { type LiveFixtureFrame, liveFixture, machineDisconnects, openingFrames } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { derivedShot, shotFixture } from "../server/test/support/shot-fixtures.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
@@ -107,6 +107,15 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-unseen");
   await expect(ticks(curves, "Pressure")).toHaveText(["0 s", "10 s", "20 s", "30 s"]);
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
+
+  // The Machine switched off and on again: hidden while its Tablet isn't connected to it, the curves keep their link.
+  const { disconnected, reconnected } = machineDisconnects();
+  tablet.disconnectMachine(disconnected);
+  await expect(card).toContainText("Its Tablet is online, but not connected to the Machine.");
+  await expect(curves).toBeHidden();
+  tablet.connectMachine(reconnected);
+  await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
+  await expect(card).not.toContainText("not connected to the Machine");
 });
 
 test("a shot's curves, its page opened mid-shot, are labelled partial", async ({ page }) => {

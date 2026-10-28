@@ -113,9 +113,10 @@ export const STALE_AFTER_MS = 5_000;
 /**
  * What the Live View can show of the Machine (#258, Stale and disconnected),
  * the first of these that holds:
- * - `offline`: the page's polling of the Machine last found it offline, and
- *   no machine frame has come within STALE_AFTER_MS: one that has is from a
- *   connection holding the Machine, which the next poll will find;
+ * - `offline`: the page's latest poll of the Machine found it offline, and
+ *   no machine frame has come since that is still current: one that has is
+ *   from a connection that took the Machine since, which the next poll will
+ *   find;
  * - `mismatch`: its connection reports other hardware than the Machine's,
  *   which the server never asks to stream;
  * - `waiting`: nothing has come from its stream yet;
@@ -130,14 +131,14 @@ export const STALE_AFTER_MS = 5_000;
 export type LiveCondition = "offline" | "mismatch" | "waiting" | "notConnected" | "asleep" | "stale" | "live";
 
 export function liveConditionOf({
-  online,
+  offlineAt,
   mismatched,
   live,
   openedAt,
   now,
 }: {
-  /** Whether the Machine is online, as the page last polled it. */
-  online: boolean;
+  /** When the page had its latest poll of the Machine, if that found it offline, by its own clock, in ms; null if it found it online. */
+  offlineAt: number | null;
   /** Whether its connection reports other hardware, as the page last polled it. */
   mismatched: boolean;
   live: LiveState | undefined;
@@ -147,7 +148,7 @@ export function liveConditionOf({
   now: number;
 }): LiveCondition {
   const current = now <= staleAtOf(live, openedAt);
-  if (!online && !(current && live?.machineArrivedAt !== undefined)) return "offline";
+  if (offlineAt !== null && !(current && live?.machineArrivedAt !== undefined && live.machineArrivedAt > offlineAt)) return "offline";
   if (mismatched) return "mismatch";
   if (!live) return "waiting";
   if (machineConnectedOf(live.devices) === false) return "notConnected";

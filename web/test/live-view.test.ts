@@ -143,19 +143,23 @@ describe("what the Live View can show", () => {
     devices,
   });
   const openedAt = 10_000;
-  const judged = (live: LiveState | undefined, now: number, online = true, mismatched = false) =>
-    liveConditionOf({ online, mismatched, live, openedAt, now });
+  /** The condition at `now`, the page's latest poll having found the Machine offline at `offlineAt`, or online. */
+  const judged = (live: LiveState | undefined, now: number, offlineAt: number | null = null, mismatched = false) =>
+    liveConditionOf({ offlineAt, mismatched, live, openedAt, now });
 
-  it("is offline, then mismatched, as the page last polled the Machine, but for a machine snapshot come within 5 s", () => {
-    expect(judged(undefined, 20_000, false)).toBe("offline");
-    expect(judged(undefined, 20_000, false, true)).toBe("offline");
-    expect(judged({ devices: devicesConnected }, openedAt, false)).toBe("offline");
+  it("is offline, then mismatched, as the page last polled the Machine, but for a current machine snapshot come since", () => {
+    expect(judged(undefined, 20_000, 15_000)).toBe("offline");
+    expect(judged(undefined, 20_000, 15_000, true)).toBe("offline");
+    expect(judged({ devices: devicesConnected }, openedAt, openedAt)).toBe("offline");
     // One that has connected since the page's last poll sends its snapshots before the next poll finds it online.
     const live = liveWith(awake!, 20_000);
-    expect(judged(live, 25_000, false)).toBe("live");
-    expect(judged(live, 25_001, false)).toBe("offline");
-    expect(judged(live, 20_000, true, true)).toBe("mismatch");
-    expect(judged(live, 20_000, false, true)).toBe("mismatch");
+    expect(judged(live, 25_000, 15_000)).toBe("live");
+    expect(judged(live, 25_001, 15_000)).toBe("offline");
+    // A poll had after the snapshot came, finding it offline, as after a Tablet that left cleanly: offline at once.
+    expect(judged(live, 21_000, 20_500)).toBe("offline");
+    expect(judged(live, 20_000, 20_000)).toBe("offline");
+    expect(judged(live, 20_000, null, true)).toBe("mismatch");
+    expect(judged(live, 20_000, 15_000, true)).toBe("mismatch");
   });
 
   it("waits until something has come, and says when the Tablet lists its machine not connected", () => {
