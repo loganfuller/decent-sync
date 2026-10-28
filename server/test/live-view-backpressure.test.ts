@@ -166,7 +166,8 @@ describe("live frames under backpressure", () => {
     const burst = Array.from({ length: MAX_LIVE_FRAMES_PER_SECOND + 50 }, (_, n) => frame(n));
 
     // More at once than the cap lets through in a second, while the first's relay is held, so each of the rest waits its
-    // turn in place of the one before.
+    // turn in place of the one before. The server takes them in a few milliseconds, well within the cap's second; a stall
+    // long enough to carry them past it would hold up the second answer too, which then wouldn't cover them all.
     const database = await server.connectDatabase();
     try {
       await database.query("BEGIN");

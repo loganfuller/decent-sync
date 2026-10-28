@@ -285,10 +285,11 @@ export class LiveViews implements OnModuleDestroy {
     if (holder.answer !== undefined) return;
     const wait = holder.answeredAt + RECEIVED_INTERVAL_MS - performance.now();
     if (wait <= 0) return this.sendReceived(holder);
+    // A timer may fire a little early, by the loop's cached clock, so the time is checked again then.
     holder.answer = setTimeout(() => {
       holder.answer = undefined;
-      this.sendReceived(holder);
-    }, wait);
+      this.answer(holder);
+    }, Math.ceil(wait));
   }
 
   private sendReceived(holder: Holder): void {
