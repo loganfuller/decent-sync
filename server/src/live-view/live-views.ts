@@ -51,6 +51,7 @@ interface Holder {
 }
 
 interface Stream {
+  /** Its Machine's id, as PostgreSQL writes it once the Machine is found. */
   machineId: string;
   response: Response;
   /** Its lease, once inserted. */
@@ -139,18 +140,22 @@ export class LiveViews implements OnModuleDestroy {
    */
   async open(machineId: string, viewerSessionId: string, response: Response): Promise<void> {
     const stream: Stream = { machineId, response, ended: false };
-    // Before anything is awaited, so a viewer gone meanwhile is never kept, nor its lease renewed.
+    // Before anything is awaited, so a viewer gone meanwhile is never kept, nor its lease renewed. One gone already, as
+    // while its session was checked, closed before this could hear it.
     response.once("close", () => this.streamClosed(stream));
-    const [machine] = await this.prisma.$queryRaw<unknown[]>`SELECT 1 FROM machines WHERE id = ${machineId}::uuid`;
+    if (response.destroyed) return;
+    // The Machine's id as PostgreSQL writes it, as relayed frames and announcements name it, whatever case the path used.
+    const [machine] = await this.prisma.$queryRaw<{ id: string }[]>`SELECT id::text AS id FROM machines WHERE id = ${machineId}::uuid`;
     if (!machine) throw machineNotFound();
     if (stream.ended) return;
+    stream.machineId = machine.id;
     response.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
     response.flushHeaders();
     response.write(`retry: ${RECONNECT_MS}\n\n`);
     if (this.ending) return void response.end();
-    const streams = this.streams.get(machineId) ?? new Set();
+    const streams = this.streams.get(machine.id) ?? new Set();
     streams.add(stream);
-    this.streams.set(machineId, streams);
+    this.streams.set(machine.id, streams);
     this.keepAlive(stream);
     let leaseId: string | undefined;
     try {
@@ -162,9 +167,9 @@ export class LiveViews implements OnModuleDestroy {
         // Inserted only while the viewer's session lasts, as its end deletes its leases.
         const inserted = await tx.$executeRaw`
           INSERT INTO live_view_leases (id, machine_id, session_id, expires_at)
-          SELECT ${id}::uuid, ${machineId}::uuid, id, now() + make_interval(secs => ${LEASE_SECONDS}) FROM sessions WHERE id = ${viewerSessionId}::uuid`;
+          SELECT ${id}::uuid, ${machine.id}::uuid, id, now() + make_interval(secs => ${LEASE_SECONDS}) FROM sessions WHERE id = ${viewerSessionId}::uuid`;
         if (inserted === 0) return undefined;
-        await notify(tx, "live_views", machineId);
+        await notify(tx, "live_views", machine.id);
         return id;
       });
     } catch (error) {
@@ -173,7 +178,7 @@ export class LiveViews implements OnModuleDestroy {
     if (leaseId === undefined) return void response.end();
     stream.leaseId = leaseId;
     // Closed while its lease was being inserted.
-    if (stream.ended) return void this.release(leaseId, machineId);
+    if (stream.ended) return void this.release(leaseId, machine.id);
     stream.renewal = setInterval(() => void this.track(this.renew(stream)), RENEW_MS);
   }
 

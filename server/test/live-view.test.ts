@@ -245,8 +245,10 @@ describe("the Live View", () => {
     const stream = await openLiveView(api, machine.machine.id);
     expect(stream.status).toBe(200);
 
-    // A Machine on the same instance, watched after it: once its plugin is started, the mismatched one's lease was
-    // announced and decided first.
+    // A Machine on the same instance, connected and watched after it. Each connection's decisions are its own, so its
+    // plugin's start orders them only as their queries were made: the mismatched Machine's lease was announced first,
+    // and a decision on it would be one query, made before the control's tablet even connected. The test fails when
+    // mismatched connections are let stream.
     const control = await connected("Mismatch control");
     await watching(control.machine, control.tablet);
     mismatched.reportSnapshot(firstOf("preinfusion"));
@@ -263,6 +265,38 @@ describe("the Live View", () => {
     await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
     const sent = tablet.reportSnapshot(idle[0]!);
     await expect.poll(() => carrying(stream, [sent]).length).toBe(1);
+  });
+
+  it("keeps no Live View of a viewer who left while its request was being let in", async () => {
+    const { machine, tablet } = await connected("Left early");
+    const database = await server.connectDatabase();
+    try {
+      await database.query("BEGIN");
+      // Holds the check of the viewer's session, which comes before the route.
+      await database.query("LOCK TABLE sessions IN ACCESS EXCLUSIVE MODE");
+      const abort = new AbortController();
+      const leaving = api.eventStream(`/machines/${machine.machine.id}/live`, abort.signal).catch(() => undefined);
+      await waitForLockWaits(server, { relation: "sessions" });
+      abort.abort();
+      await leaving;
+      await database.query("COMMIT");
+    } finally {
+      await database.end();
+    }
+    // A viewer who stays starts the plugin, which stops once that viewer leaves, as no other Live View is left.
+    const stream = await watching(machine, tablet);
+    await stream.close();
+    await expect.poll(() => count(tablet.delivered, "liveStop")).toBe(1);
+    expect(count(tablet.delivered, "liveStart")).toBe(1);
+  });
+
+  it("streams a Machine named by its id in capitals as any other", async () => {
+    const { machine, tablet } = await connected("Capitals");
+    const stream = await openLiveView(api, machine.machine.id.toUpperCase());
+    expect(stream.status).toBe(200);
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
+    await seen(tablet, [idle[0]!], stream);
+    expect(stream.events.every((event) => event.machineId === machine.machine.id)).toBe(true);
   });
 
   it("answers 404 for a Machine there is none of", async () => {

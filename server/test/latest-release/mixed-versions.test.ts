@@ -206,8 +206,10 @@ describe("the latest release beside the change", () => {
       // Through the change's server, as the latest release has no Live View; their database is one.
       const stream = await openLiveView(apis.change, machine.machine.id);
       expect(stream.status).toBe(200);
-      // A Machine whose tablet runs the change's plugin on the change's server, watched after it: once its plugin is
-      // started, the change's server has decided on the lease above too.
+      // A Machine whose tablet runs the change's plugin on the change's server, connected and watched after it. Each
+      // connection's decisions are its own, so its plugin's start orders them only as their queries were made: a decision
+      // on the lease above would be one query, made before the control's tablet even connected. The test fails when the
+      // change's server lets the latest release's plugin stream.
       const control = await connected(`Live View control, the ${plugin}'s plugin`, "change", "change");
       await openLiveView(apis.change, control.machine.machine.id);
       await expect.poll(() => control.tablet.delivered).toContainEqual({ type: "liveStart" });
