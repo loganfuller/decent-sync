@@ -153,13 +153,12 @@ export class LiveViews implements OnModuleDestroy {
     if (!machine) throw machineNotFound();
     if (stream.ended) return;
     stream.machineId = machine.id;
-    // Sent with the first thing written: a frame relayed for another viewer meanwhile, or once the lease is held.
+    // Sent once the lease is held: until then the stream is sent nothing, a frame relayed for another viewer included.
     response.status(200).set({ "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" });
     if (this.ending) return void this.endStream(stream);
     const streams = this.streams.get(machine.id) ?? new Set();
     streams.add(stream);
     this.streams.set(machine.id, streams);
-    this.keepAlive(stream);
     let leaseId: string | undefined;
     try {
       leaseId = await this.prisma.$transaction(async (tx) => {
@@ -184,6 +183,7 @@ export class LiveViews implements OnModuleDestroy {
     if (stream.ended) return void this.release(leaseId, machine.id);
     response.flushHeaders();
     response.write(`retry: ${RECONNECT_MS}\n\n`);
+    this.keepAlive(stream);
     stream.renewal = setInterval(() => void this.track(this.renew(stream)), RENEW_MS);
   }
 
@@ -290,7 +290,8 @@ export class LiveViews implements OnModuleDestroy {
     // An event's data ends at a line break, which JSON.stringify never writes.
     if (typeof machineId !== "string" || /[\r\n]/.test(payload)) return;
     for (const stream of this.streams.get(machineId) ?? []) {
-      if (stream.ended || stream.response.writableLength > MAX_UNSENT_BYTES) continue;
+      // One whose lease isn't held yet misses it, as its headers wait for the lease: the next frame replaces it.
+      if (stream.ended || stream.leaseId === undefined || stream.response.writableLength > MAX_UNSENT_BYTES) continue;
       stream.response.write(`data: ${payload}\n\n`);
       this.keepAlive(stream);
     }

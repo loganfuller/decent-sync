@@ -17,9 +17,10 @@ export class LiveViewController {
   /**
    * A `text/event-stream` of the Machine's live frames, each one event whose
    * data is the frame as relayed (`RelayedLiveFrame`), with a comment after
-   * 15 s with nothing to send. It opens for an offline Machine too, whose
-   * frames start once it connects; the page learns whether it is online from
-   * the Machine's own route.
+   * `LIVE_VIEW_KEEP_ALIVE_SECONDS` (15 by default) with nothing to send,
+   * answered once its lease is held. It opens for an offline Machine too,
+   * whose frames start once it connects; the page learns whether it is
+   * online from the Machine's own route.
    */
   @AllowStaff()
   @Get(":id/live")

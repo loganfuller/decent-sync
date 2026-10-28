@@ -123,20 +123,31 @@ describe("stopping an instance", () => {
 
   it("ends its Live Views at once, and any opened during its grace, which the browser opens again elsewhere", async () => {
     const stopping = await startTestServer({ env: graced, sharing: staying });
+    const holdingHandOver = await staying.connectDatabase();
     try {
       const machine = await api.createMachine("Watched through a deploy");
       const watched = await openLiveView(api.at(stopping.url), machine.machine.id);
       expect(watched.status).toBe(200);
+      // A hello still being accepted, waiting for its Machine's row, holds the hand-over, so the instance answers
+      // requests until the test is done.
+      const late = await api.createMachine("Accepted while its Live Views end");
+      await holdingHandOver.query("BEGIN");
+      await holdingHandOver.query("SELECT 1 FROM machines WHERE id = $1 FOR UPDATE", [late.machine.id]);
+      const raw = await RawConnection.open(stopping.url);
+      raw.send(helloWith(late.token, { machine: { model: "DE1Pro", serial: "28202", firmware: "1333" } }));
+      await waitForLockWaits(staying);
+
       const stopped = stopping.stop();
-      // Ended while it still answers requests, rather than when it exits: an open stream would hold up its finish.
+      // Ended while it still answers requests, rather than as it exits: an open stream would hold up its finish.
       await expect.poll(() => watched.ended).toBe(true);
-      expect(await health(stopping)).toBe(503);
+      await expect.poll(() => health(stopping), { timeout: 5_000 }).toBe(503);
       const opened = await openLiveView(api.at(stopping.url), machine.machine.id);
       expect(opened.status).toBe(200);
       await expect.poll(() => opened.ended).toBe(true);
-      expect(await health(stopping)).toBe(503);
+      await holdingHandOver.query("COMMIT");
       await stopped;
     } finally {
+      await holdingHandOver.end();
       await stopping.stop();
     }
   });
