@@ -570,7 +570,8 @@ model ShotMeasurements {
 /// Pending Machine (ADR-0015). Decaid offers no way to detect edits to Steam
 /// Records, so a stored one never changes; only its credit moves, when a
 /// machine entry takes over its Pending Machine's hardware or its Machine's
-/// Location History changes.
+/// Location History changes, and the values computed from its curves, when
+/// their revision is raised.
 model SteamRecord {
   id                   String             @id
   /// The record as Decaid sent it, without its measurements.
@@ -585,10 +586,19 @@ model SteamRecord {
   location             Location?          @relation(fields: [locationId], references: [id])
   /// When it was recorded, as the plugin placed the record's local time in UTC.
   steamedAt            DateTime           @map("steamed_at") @db.Timestamptz(3)
+  /// The whole recording, in seconds, as the release before stores and shows it.
   duration             Float?
+  /// How long it steamed, in seconds, leaving out its lead-in, pauses, puffs
+  /// and purge (steamPhases in protocol/), which the duration it shows is.
+  /// Null until a Steam Record of an earlier curves revision is computed again.
+  steaming             Float?
   peakMilkTemperature  Float?             @map("peak_milk_temperature")
   finalMilkTemperature Float?             @map("final_milk_temperature")
   barista              String?
+  /// The revision of extractSteamRecord its steaming time was computed by
+  /// (STEAM_CURVES_REVISION); those of an earlier one are computed again from
+  /// its measurements (CurvesRefresh).
+  curvesRevision       Int                @default(0) @map("curves_revision")
   measurements         SteamMeasurements?
 
   @@index([steamedAt(sort: Desc), id])

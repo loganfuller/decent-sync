@@ -142,7 +142,7 @@ The part of a Shot's recording before its profile starts, while the Machine heat
 _Avoid_: Warmup, heater test
 
 **Steam Record**:
-One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached.
+One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached. Its recording also holds the steam starting up, the pauses after each stop, the puffs that keep the wand clear and the purge, which are shown with it but aren't counted in its duration: that counts only the steaming.
 _Avoid_: Steam shot, steaming session
 
 ## Library

@@ -1,10 +1,11 @@
 import { Injectable, Logger, type OnApplicationBootstrap, type OnModuleDestroy } from "@nestjs/common";
 import { PrismaService } from "../prisma.service.js";
+import { STEAM_CURVES_REVISION, extractSteamRecord } from "../steam-records/extraction.js";
 import { CURVES_REVISION, extractCurves } from "./extraction.js";
 
-/** How often each server instance looks for Shots whose curves' values an earlier revision computed. */
+/** How often each server instance looks for Shots and Steam Records whose curves' values an earlier revision computed. */
 export const CURVES_REFRESH_INTERVAL_MS = 60 * 60_000;
-/** The most Shots one transaction computes again: each brings its measurements, which a long Shot has megabytes of. */
+/** The most records one transaction computes again: each brings its measurements, which a long Shot has megabytes of. */
 export const CURVES_REFRESH_BATCH = 20;
 
 /** Long enough for a batch of long Shots' measurements to be read and written back; waiting for a connection is limited as for any other transaction. */
@@ -13,11 +14,13 @@ const REFRESH_TRANSACTION = { maxWait: 2_000, timeout: 60_000 } as const;
 /**
  * Computes again, from its measurements, the Preheat and peaks of every
  * Shot stored with an earlier revision of `extractCurves`
- * (CURVES_REVISION), as the server starts and then every hour, on every
- * instance, in the background, as `DeliveryIdCleanup` deletes. The hourly
- * runs take the Shots the previous release stores while it still serves
- * beside this one. Their duration, the whole recording, is as that release
- * stores it already. A run that fails is logged, and the next tries again.
+ * (CURVES_REVISION), and the steaming time of every Steam Record stored with
+ * an earlier revision of `extractSteamRecord` (STEAM_CURVES_REVISION), as
+ * the server starts and then every hour, on every instance, in the
+ * background, as `DeliveryIdCleanup` deletes. The hourly runs take the
+ * records the previous release stores while it still serves beside this one.
+ * Their duration, the whole recording, is as that release stores it already.
+ * A run that fails is logged, and the next tries again.
  */
 @Injectable()
 export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
@@ -50,18 +53,23 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async run(): Promise<void> {
+    await this.refresh("Shot", "the Preheat and peaks", () => this.refreshShots());
+    await this.refresh("Steam Record", "the steaming time", () => this.refreshSteamRecords());
+  }
+
+  /** Computes one kind of record again, a batch at a time, until a batch finds fewer than it may take, or the server shuts down. */
+  private async refresh(kind: string, values: string, batch: () => Promise<number>): Promise<void> {
     let refreshed = 0;
     try {
-      // Until a batch finds fewer than it may take, or the server shuts down.
       while (!this.stopped) {
-        const count = await this.refreshBatch();
+        const count = await batch();
         refreshed += count;
         if (count < CURVES_REFRESH_BATCH) break;
       }
     } catch (error) {
-      this.logger.error(`Could not compute Shots' curves again; trying again in an hour: ${String(error)}`);
+      this.logger.error(`Could not compute ${kind}s' curves again; trying again in an hour: ${String(error)}`);
     }
-    if (refreshed > 0) this.logger.log(`Computed the Preheat and peaks of ${refreshed} stored ${refreshed === 1 ? "Shot" : "Shots"} again`);
+    if (refreshed > 0) this.logger.log(`Computed ${values} of ${refreshed} stored ${refreshed === 1 ? kind : `${kind}s`} again`);
   }
 
   /**
@@ -72,7 +80,7 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
    * an edit leaves them as they are, so neither is undone by a batch that
    * read the Shot before it.
    */
-  private refreshBatch(): Promise<number> {
+  private refreshShots(): Promise<number> {
     return this.prisma.$transaction(async (tx) => {
       const shots = await tx.$queryRaw<{ id: string; record: unknown; measurements: unknown }[]>`
         SELECT s.id, s.record, m.data AS measurements FROM shots AS s JOIN shot_measurements AS m ON m.shot_id = s.id
@@ -87,6 +95,29 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
           WHERE id = ${shot.id}`;
       }
       return shots.length;
+    }, REFRESH_TRANSACTION);
+  }
+
+  /**
+   * Computes a batch of Steam Records again, with their rows locked, skipping
+   * those another transaction has locked, as Shots are. A stored Steam Record
+   * never changes, and a delivery stores its values at this revision, so
+   * nothing a batch writes undoes another's.
+   */
+  private refreshSteamRecords(): Promise<number> {
+    return this.prisma.$transaction(async (tx) => {
+      const steamRecords = await tx.$queryRaw<{ id: string; record: Record<string, unknown>; measurements: unknown }[]>`
+        SELECT r.id, r.record, m.data AS measurements FROM steam_records AS r JOIN steam_measurements AS m ON m.steam_record_id = r.id
+        WHERE r.curves_revision < ${STEAM_CURVES_REVISION}::integer
+        ORDER BY r.id LIMIT ${CURVES_REFRESH_BATCH}::integer
+        FOR UPDATE OF r SKIP LOCKED`;
+      for (const steamRecord of steamRecords) {
+        const { steaming } = extractSteamRecord({ ...steamRecord.record, measurements: steamRecord.measurements });
+        await tx.$executeRaw`
+          UPDATE steam_records SET steaming = ${steaming}, curves_revision = ${STEAM_CURVES_REVISION}::integer
+          WHERE id = ${steamRecord.id}`;
+      }
+      return steamRecords.length;
     }, REFRESH_TRANSACTION);
   }
 }

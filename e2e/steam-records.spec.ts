@@ -1,5 +1,5 @@
 import { expect, type Locator, type Page, test } from "@playwright/test";
-import { derivedSteam, nextMilkProbeSteamFixture, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
+import { derivedSteam, liveSteamFixture, nextMilkProbeSteamFixture, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
@@ -54,7 +54,8 @@ test("Steam Records from every Location are listed newest first, at their Locati
   await expect(page.getByText("Steam Records 1–6 of 6")).toBeVisible();
 
   await expect(row(page, "Feb 10, 2026, 6:30 AM MST").getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Lab 1", "Lab", "11.8 s", "60.46 °C", "60.46 °C", "Fixture Barista"]);
-  await expect(row(page, "Feb 10, 2026, 6:00 AM MST").getByRole("cell")).toHaveText(["Feb 10, 2026, 6:00 AM MST", "Lab 1", "Lab", "3.8 s", "-", "-", "Fixture Barista"]);
+  // Its steaming alone, 1.7 s of its 3.8 s: the rest is its lead-in.
+  await expect(row(page, "Feb 10, 2026, 6:00 AM MST").getByRole("cell")).toHaveText(["Feb 10, 2026, 6:00 AM MST", "Lab 1", "Lab", "1.7 s", "-", "-", "Fixture Barista"]);
   // Without a Location, times are in UTC, and say so.
   await expect(row(page, "Feb 10, 2026, 6:30 AM UTC").getByRole("cell").nth(2)).toHaveText("No Location, times in UTC");
   await expect(row(page, "Jan 20, 2026, 3:00 PM UTC").getByRole("cell").nth(1)).toHaveText("Bengle serial 10049Pending Machine");
@@ -137,7 +138,7 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   }
   // The milk temperature its Workflow stops steaming at.
   await expect(curves.getByRole("figure", { name: "Milk temperature" })).toContainText("Target");
-  await expectTip(curves, "Curves", /^Seconds from the start of the Steam Record\. Dashed lines are targets/);
+  await expectTip(curves, "Curves", /^Seconds from when it started steaming\. Dashed lines are targets/);
 
   // Without a milk probe, there is no milk temperature to show, and its Workflow set no stop at one.
   await page.getByRole("link", { name: "← Steam Records" }).click();
@@ -160,6 +161,63 @@ test("a Steam Record's page shows its milk temperatures, steam settings and curv
   await page.getByRole("link", { name: "Jan 20, 2026, 3:00 PM UTC" }).click();
   await expect(page.getByText("Its Location is unknown, so times are in UTC.")).toBeVisible();
   await expect(field(details, "Machine")).toHaveText("Bengle serial 10049Pending Machine");
+});
+
+test("a Steam Record's lead-in, pauses, puffs and purge are shaded and named, left out of its duration, and marked in its measurements", async ({ page }) => {
+  // The test tablet's records of steaming stopped by a tap in Normal, and on time and then by a tap, each changing only its id and time.
+  await adopt(page, "Phases", { model: "DE1Pro", serial: "10045" }, null, [
+    steamAt("tap-in-normal", "2026-03-01T12:00:00Z", liveSteamFixture("steam-record")),
+    steamAt("timed-stop", "2026-03-01T12:05:00Z", liveSteamFixture("steam-record-timed-stop")),
+  ]);
+  await page.goto(`/steam-records?machineId=${await machineId(page, "Phases")}`);
+  // Each one's steaming alone: 16.9 s of 25.2 s, and the Workflow's 10 s of 56.7 s.
+  await expect(column(page, 4)).toHaveText(["10.0 s", "16.9 s"]);
+
+  await page.getByRole("link", { name: "Mar 1, 2026, 12:00 PM UTC" }).click();
+  const details = page.getByLabel("Steam Record", { exact: true });
+  await expect(field(details, "Duration")).toHaveText("16.9 s");
+  const curves = page.getByRole("region", { name: "Curves" });
+  for (const name of ["Steam temperature", "Pressure", "Flow"]) {
+    const chart = curves.getByRole("figure", { name });
+    // Preparing before 0 s, then the pause and the purge, with a line where they meet and none where either meets Steaming.
+    await expect(chart.locator(".recharts-reference-area")).toHaveCount(3);
+    await expect(chart.locator(".recharts-reference-line")).toHaveCount(1);
+    for (const phase of ["Paused", "Purge"]) await expect(chart.getByText(phase, { exact: true })).toBeVisible();
+  }
+  await expectTip(curves, "Curves", /Shaded time isn't steaming, and the duration counts only the time that isn't shaded\./);
+
+  // The plot starts after the 40-pixel y-axis and runs from -3 to 24 seconds.
+  const flow = curves.getByRole("figure", { name: "Flow" });
+  const plot = flow.locator('[data-slot="chart"]');
+  const tooltip = flow.locator(".recharts-tooltip-wrapper");
+  const box = (await plot.boundingBox())!;
+  const at = (seconds: number) => ({ x: 40 + ((box.width - 48) * (seconds + 3)) / 27, y: box.height / 3 });
+  for (const [seconds, phase] of [[-1, "Preparing"], [8, undefined], [18, "Paused"], [22, "Purge"]] as const) {
+    await plot.hover({ position: at(seconds) });
+    await expect(tooltip).toContainText("This Steam Record");
+    if (phase) await expect(tooltip).toContainText(new RegExp(`\\d s, ${phase}This Steam Record`));
+    else await expect(tooltip).not.toContainText(/Preparing|Paused|Purge/);
+  }
+
+  await curves.getByRole("button", { name: "Measurements as a table" }).click();
+  const measurements = curves.getByRole("table", { name: "Measurements" }).getByRole("row").filter({ has: page.getByRole("cell") });
+  await expect(measurements).toHaveCount(122);
+  await expect(measurements.first().getByRole("cell").first()).toHaveText("-2.05 sPreparing");
+  await expect(measurements.nth(10).getByRole("cell").first()).toHaveText("0.00 s");
+  for (const [phase, count] of [["Preparing", 10], ["Paused", 16], ["Purge", 15]] as const) {
+    await expect(measurements.filter({ hasText: phase })).toHaveCount(count);
+  }
+  await expect(measurements.last().getByRole("cell").first()).toHaveText("23.15 sPurge");
+
+  // Stopped on time, it paused, puffed until a tap, paused again and purged: a line at each of the three changes
+  // between them. Only Puffing, 35.6 s, is wide enough at this width for its name.
+  await page.goto("/steam-records");
+  await page.getByRole("link", { name: "Mar 1, 2026, 12:05 PM UTC" }).click();
+  await expect(field(details, "Duration")).toHaveText("10.0 s");
+  await expect(flow.locator(".recharts-reference-area")).toHaveCount(5);
+  await expect(flow.locator(".recharts-reference-line")).toHaveCount(3);
+  await expect(flow.getByText("Puffing", { exact: true })).toBeVisible();
+  for (const phase of ["Preparing", "Paused", "Purge"]) await expect(flow.getByText(phase, { exact: true })).toHaveCount(0);
 });
 
 /**

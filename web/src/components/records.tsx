@@ -125,7 +125,7 @@ export function RecordCard({ title, description, fields, empty }: { title: strin
   );
 }
 
-/** A record's samples as a table, for reading exact values, with a Shot's Preheat marked and, when asked, its steps named. */
+/** A record's samples as a table, for reading exact values, with those in a shaded phase, such as a Shot's Preheat, marked and, when asked, its steps named. */
 export function MeasurementsTable<C extends string>({
   curves,
   samples,
@@ -157,9 +157,9 @@ export function MeasurementsTable<C extends string>({
               <TableRow key={index}>
                 <TableCell className="whitespace-nowrap">
                   {sample.seconds.toFixed(2)} s
-                  {sample.preheat && (
+                  {sample.shade && (
                     <Badge variant="secondary" className="ml-2">
-                      Preheat
+                      {sample.shade}
                     </Badge>
                   )}
                 </TableCell>

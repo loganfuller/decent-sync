@@ -6,7 +6,7 @@ import { creditSteamRecordLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import { type RecordFilters, recordFilterSql } from "../record-filters.js";
 import type { Reporter } from "../sync/identity.js";
-import { extractSteamRecord } from "./extraction.js";
+import { STEAM_CURVES_REVISION, extractSteamRecord } from "./extraction.js";
 
 /**
  * Steam Records, stored once by their Decaid ids. Decaid offers no way to
@@ -41,6 +41,7 @@ export class SteamRecordsService {
           record: record as Prisma.InputJsonObject,
           steamedAt: new Date(message.steamedAt),
           ...extractSteamRecord(message.steam),
+          curvesRevision: STEAM_CURVES_REVISION,
           ...credit,
         },
         // Waits for another delivery of it, on any instance, and keeps that one if it commits.
@@ -86,8 +87,8 @@ export class SteamRecordsService {
         ]);
         const rows = ids.length === 0
           ? []
-          : await tx.steamRecord.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: { record: true }, include: creditView });
-        const byId = new Map(rows.map((row) => [row.id, row]));
+          : await tx.steamRecord.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: { record: true, curvesRevision: true }, include: creditView });
+        const byId = new Map(rows.map((row) => [row.id, shownSteamRecord(row)]));
         return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -96,9 +97,9 @@ export class SteamRecordsService {
   }
 
   async get(id: string) {
-    const steamRecord = await this.prisma.steamRecord.findFirst({ where: { id, ...visible }, include: creditView });
+    const steamRecord = await this.prisma.steamRecord.findFirst({ where: { id, ...visible }, omit: { curvesRevision: true }, include: creditView });
     if (!steamRecord) throw steamRecordNotFound();
-    return steamRecord;
+    return shownSteamRecord(steamRecord);
   }
 
   async measurements(id: string) {
@@ -118,5 +119,15 @@ const creditView = {
   pendingMachine: { select: { id: true, model: true, serial: true } },
   location: { select: { id: true, name: true, timeZone: true } },
 } as const;
+
+/**
+ * A Steam Record as it is shown: its duration is how long it steamed. One
+ * not computed again since an earlier curves revision has no steaming time
+ * stored, and shows the whole recording until it is.
+ */
+function shownSteamRecord<T extends { duration: number | null; steaming: number | null }>(steamRecord: T): Omit<T, "steaming"> {
+  const { steaming, ...shown } = steamRecord;
+  return { ...shown, duration: steaming ?? steamRecord.duration };
+}
 
 function steamRecordNotFound() { return new NotFoundException("Steam Record not found"); }

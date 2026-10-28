@@ -159,9 +159,16 @@ function SteamRecordDetails({ id }: { id: string }) {
         <CardHeader>
           <CardTitleWithInfo title="Curves">
             <p>
-              Seconds from the start of the Steam Record. Dashed lines are targets: the milk temperature its Workflow stops
-              steaming at, and those its machine reported.
+              Seconds from when it started steaming. Dashed lines are targets: the milk temperature its Workflow stops steaming
+              at, and those its machine reported.
             </p>
+            <p>
+              Shaded time isn't steaming, and the duration counts only the time that isn't shaded. Preparing, before 0 s, is the
+              steam starting up toward the Machine's own target flow, not the Workflow's. Paused is the flow falling after a stop.
+              Puffing is the small puffs that keep the wand clear after a stop on time or Two Tap Stop's first tap, until stop is
+              tapped. Purge clears the wand after the last stop.
+            </p>
+            <p>Grey vertical lines mark where one shaded phase meets another. The measurements table marks each sample in one.</p>
           </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-6">
