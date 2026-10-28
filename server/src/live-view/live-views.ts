@@ -211,10 +211,12 @@ export class LiveViews implements OnModuleDestroy {
     this.streams.set(machine.id, streams);
     let leaseId: string | undefined;
     try {
+      // In a statement of its own, outside the insert's transaction, skipping leases locked by another's deletion or
+      // renewal: no one waits on it. Its locks held through the insert, a session deleted meanwhile, whose lease it had
+      // locked, would wait on the insert while the insert waited on the session.
+      await this.prisma.$executeRaw`
+        DELETE FROM live_view_leases WHERE id IN (SELECT id FROM live_view_leases WHERE expires_at <= now() FOR UPDATE SKIP LOCKED)`;
       leaseId = await this.prisma.$transaction(async (tx) => {
-        // In a statement of its own, skipping leases locked by another's deletion or renewal: no one waits on it.
-        await tx.$executeRaw`
-          DELETE FROM live_view_leases WHERE id IN (SELECT id FROM live_view_leases WHERE expires_at <= now() FOR UPDATE SKIP LOCKED)`;
         const id = randomUUID();
         // Inserted only while the viewer's session lasts, as its end deletes its leases.
         const inserted = await tx.$executeRaw`

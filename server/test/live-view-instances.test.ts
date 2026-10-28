@@ -62,6 +62,22 @@ describe("the Live View across instances", () => {
     return stream;
   }
 
+  /**
+   * Runs `work` with every session's row held, so no stream's renewal goes on meanwhile: each renewal is announced,
+   * and would start the plugin within 10 s whatever `work` waits for.
+   */
+  async function renewalsHeld(work: () => Promise<void>): Promise<void> {
+    const holding = await server.connectDatabase();
+    try {
+      await holding.query("BEGIN");
+      await holding.query("SELECT 1 FROM sessions FOR UPDATE");
+      await work();
+    } finally {
+      await holding.query("ROLLBACK").catch(() => {});
+      await holding.end();
+    }
+  }
+
   /** The events of the stream that carry one of these snapshots as sent, by Decaid's own timestamp in it. */
   const carrying = (stream: LiveViewStream, sent: Record<string, unknown>[]) =>
     stream.events.filter((event) => sent.some((snapshot) => snapshot.timestamp === event.frame.timestamp));
@@ -76,8 +92,11 @@ describe("the Live View across instances", () => {
 
   it("relays the frames of a Machine whose connection one instance holds to viewers on every instance", async () => {
     const { machine, tablet } = await connected("Relayed");
-    // The first viewer is on the instance not holding the connection, which starts the plugin through its lease alone.
-    const elsewhere = await watching(machine, tablet, other);
+    // The first viewer is on the instance not holding the connection, which starts the plugin through its lease's
+    // announcement alone: its renewals are held from once its lease is held.
+    const elsewhere = await openLiveView(api.at(other.url), machine.machine.id);
+    expect(elsewhere.status).toBe(200);
+    await renewalsHeld(() => expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1));
     const here = await openLiveView(api, machine.machine.id);
     await seen(tablet, espresso.slice(10, 15), elsewhere, here);
     expect(count(tablet.delivered, "liveStart")).toBe(1);
@@ -94,10 +113,12 @@ describe("the Live View across instances", () => {
       await seen(tablet, [firstOf("preinfusion")], stream);
 
       // The instance stops, as in a deploy, and hands the tablet over: it reconnects to the other instance, which
-      // starts it after its welcome, from the lease alone.
-      await leaving.stop();
-      await expect.poll(() => proxy.routed.at(-1)).toBe(other.url);
-      await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(2);
+      // starts it after its welcome, from the lease alone, with the lease's renewals held.
+      await renewalsHeld(async () => {
+        await leaving.stop();
+        await expect.poll(() => proxy.routed.at(-1)).toBe(other.url);
+        await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(2);
+      });
       await seen(tablet, [firstOf("pouring"), firstOf("pouringDone")], stream);
       expect(stream.ended).toBe(false);
     } finally {
