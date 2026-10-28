@@ -121,7 +121,8 @@ can't be compared.
 | `steam-record-timed-stop.json` | The same of its second, stopped on time: 12 `preparingForShot`, 66 `pouring`, 171 `puffing`, 37 `pouringDone` and 1 `idle` sample |
 
 No socket closed in any recording, so each one's first frame is the one
-it sent as it opened. Each activity's fixture, `wake.json` and
+it sent as it opened. The simulated tablet's sockets send `opening.json`'s
+as each opens (`openingFrames` in `server/test/support/live-fixtures.ts`). Each activity's fixture, `wake.json` and
 `scale-connects.json` run from 2 s before it to 3 s after it.
 `needs-water.json` starts 4 s before the reading reached 0. The Steam
 Records are whole, measurements included, with the ids Decaid gave them.

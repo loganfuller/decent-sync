@@ -2,7 +2,24 @@ import type { RelayedLiveFrame } from "@decent-sync/protocol";
 
 // Reading the Live View's events (ADR-0024): each is a live frame as the
 // server relays it, Decaid's data inside left as Decaid sent it, so every
-// value is read for what it is and may be missing.
+// value is read for what it is and may be missing. The latest of each source
+// wins.
+
+/**
+ * The latest frame of each source the Live View has had, as the Machine's
+ * plugin streamed them: its machine snapshot, and what Decaid's sockets sent.
+ */
+export interface LiveState {
+  machine?: LiveMachine;
+  /** The tank's water level and refill level (`currentLevel`, `refillLevel`, mm). */
+  waterLevels?: Record<string, unknown>;
+  /** The scale's latest frame: its connection status (`{"status": ...}`), or a weight. */
+  scale?: Record<string, unknown>;
+  /** The machine's shot settings, the steam temperature's target among them (`targetSteamTemp`). */
+  shotSettings?: Record<string, unknown>;
+  /** The Tablet's devices (`devices`), and whether each is connected. */
+  devices?: Record<string, unknown>;
+}
 
 /** The Machine's latest machine snapshot, as its plugin streamed it. */
 export interface LiveMachine {
@@ -25,6 +42,57 @@ export function readLiveEvent(data: unknown): RelayedLiveFrame | null {
   const relayed = record(value);
   if (!relayed || typeof relayed.source !== "string" || typeof relayed.receivedAt !== "string" || !record(relayed.frame)) return null;
   return relayed as unknown as RelayedLiveFrame;
+}
+
+/** The Live View with a relayed frame taken in, as the latest of its source; a frame of a source it doesn't show changes nothing. */
+export function withLiveFrame(live: LiveState, relayed: RelayedLiveFrame): LiveState {
+  switch (relayed.source) {
+    case "machine": {
+      const machine = liveMachineOf(relayed);
+      return machine ? { ...live, machine } : live;
+    }
+    case "waterLevels":
+    case "scale":
+    case "shotSettings":
+    case "devices":
+      return { ...live, [relayed.source]: relayed.frame };
+    default:
+      return live;
+  }
+}
+
+/** The tank's water level and refill level, in mm, each null where not sent, and whether it is low: at or below the refill level. */
+export function waterLevelOf(frame: Record<string, unknown> | undefined): { level: number | null; refill: number | null; low: boolean } {
+  const level = frame ? reported(frame, "currentLevel") : null;
+  const refill = frame ? reported(frame, "refillLevel") : null;
+  return { level, refill, low: level !== null && refill !== null && level <= refill };
+}
+
+/**
+ * The scale, from its latest frame: whether it is connected, null where it
+ * has sent nothing, and its weight, weight flow and battery, each null where
+ * not sent. A weight shows it connected, as Decaid sends weights only then.
+ */
+export function scaleOf(frame: Record<string, unknown> | undefined): {
+  connected: boolean | null;
+  weight: number | null;
+  weightFlow: number | null;
+  battery: number | null;
+} {
+  const none = { weight: null, weightFlow: null, battery: null };
+  if (!frame) return { connected: null, ...none };
+  if (frame.status === "disconnected") return { connected: false, ...none };
+  if (frame.status === "connected") return { connected: true, ...none };
+  return { connected: true, weight: reported(frame, "weight"), weightFlow: reported(frame, "weightFlow"), battery: reported(frame, "battery") };
+}
+
+/** Whether the Machine is connected to its Tablet: whether the devices frame lists a machine connected, or null with none. */
+export function machineConnectedOf(frame: Record<string, unknown> | undefined): boolean | null {
+  if (!frame || !Array.isArray(frame.devices)) return null;
+  return frame.devices.some((device: unknown) => {
+    const listed = record(device);
+    return listed?.type === "machine" && listed.state === "connected";
+  });
 }
 
 /** A machine frame's snapshot and times, or null for a frame of another source or one without them. */

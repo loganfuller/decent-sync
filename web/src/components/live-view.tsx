@@ -4,7 +4,7 @@ import { InfoTip } from "@/components/info-tip";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { profileStep } from "@/lib/curves";
-import { type LiveMachine, liveMachineOf, readLiveEvent, reported, timeInState } from "@/lib/live-view";
+import { type LiveState, machineConnectedOf, readLiveEvent, reported, scaleOf, timeInState, waterLevelOf, withLiveFrame } from "@/lib/live-view";
 
 /** How long after the browser gives up on the stream, as on a refusal, the card opens it again. */
 const REOPEN_MS = 5_000;
@@ -16,7 +16,7 @@ const REOPEN_MS = 5_000;
  * known, which names a shot's steps.
  */
 export function LiveViewCard({ machineId, profile }: { machineId: string; profile?: unknown }) {
-  const live = useLiveMachine(machineId);
+  const live = useLiveView(machineId);
   return (
     <Card role="region" aria-label="Live View">
       <CardHeader>
@@ -39,15 +39,16 @@ export function LiveViewCard({ machineId, profile }: { machineId: string; profil
 }
 
 /**
- * The Live View's latest machine snapshot, from the Machine's stream, which
- * is open while the page shows it in a visible tab, as the page's polling
- * runs: it is closed while the tab is hidden, and opened again once it is
- * shown, so the plugin stops streaming once nobody sees it. The browser
- * opens a stream that ended again by itself; one it gave up on, as when
- * refused, is opened again after REOPEN_MS.
+ * The latest frame of each source of the Live View, from the Machine's
+ * stream, which is open while the page shows it in a visible tab, as the
+ * page's polling runs: it is closed while the tab is hidden, and opened again
+ * once it is shown, so the plugin stops streaming once nobody sees it. The
+ * browser opens a stream that ended again by itself; one it gave up on, as
+ * when refused, is opened again after REOPEN_MS. Undefined until a frame
+ * comes.
  */
-function useLiveMachine(machineId: string): LiveMachine | undefined {
-  const [live, setLive] = useState<LiveMachine>();
+function useLiveView(machineId: string): LiveState | undefined {
+  const [live, setLive] = useState<LiveState>();
   useEffect(() => {
     let source: EventSource | undefined;
     let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -63,8 +64,7 @@ function useLiveMachine(machineId: string): LiveMachine | undefined {
       source = opened;
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
-        const machine = relayed && liveMachineOf(relayed);
-        if (machine) setLive(machine);
+        if (relayed) setLive((latest) => withLiveFrame(latest ?? {}, relayed));
       };
       opened.onerror = () => {
         if (opened.readyState !== EventSource.CLOSED) return;
@@ -90,10 +90,11 @@ function useLiveMachine(machineId: string): LiveMachine | undefined {
 /** Decaid's states while a shot is pulled. */
 const SHOT_STATES = new Set(["espresso", "skipStep"]);
 
-function LiveTiles({ live, profile }: { live: LiveMachine; profile?: unknown }) {
-  const { snapshot } = live;
+function LiveTiles({ live, profile }: { live: LiveState; profile?: unknown }) {
+  const snapshot = live.machine?.snapshot ?? {};
   const named = machineStateOf(snapshot);
   const value = (key: string) => reported(snapshot, key);
+  const steamTarget = live.shotSettings ? reported(live.shotSettings, "targetSteamTemp") : null;
   const pulling = named !== null && SHOT_STATES.has(named.state);
   // Before its first step a shot's frame is left over from before it, as the Shot page's curves read it.
   const preheat = pulling && named.substate === "preparingForShot";
@@ -117,11 +118,12 @@ function LiveTiles({ live, profile }: { live: LiveMachine; profile?: unknown }) 
         <dd className="flex flex-wrap items-center gap-2 text-lg font-medium">
           {named ? named.name : <NotReported />} {named?.detail && <Badge variant="secondary">{named.detail}</Badge>}
         </dd>
-        <TileLine term="Time in state">{timeInState(live) ?? <NotReported />}</TileLine>
+        <TileLine term="Time in state">{(live.machine && timeInState(live.machine)) ?? <NotReported />}</TileLine>
       </Tile>
       <Measurement label="Group temperature" value={value("groupTemperature")} target={value("targetGroupTemperature")} unit="°C" />
       <Measurement label="Mix temperature" value={value("mixTemperature")} target={value("targetMixTemperature")} unit="°C" />
-      <Measurement label="Steam temperature" value={value("steamTemperature")} unit="°C" />
+      {/* The steam heater's target is in the machine's shot settings, which Decaid sends on a socket of their own. */}
+      <Measurement label="Steam temperature" value={value("steamTemperature")} target={steamTarget} unit="°C" />
       {/* A target of zero is a profile step that sets none, as a pressure step's flow target, as the Shot page's curves read it. */}
       <Measurement label="Pressure" value={value("pressure")} target={value("targetPressure")} unit="bar" zeroIsNone />
       <Measurement label="Flow" value={value("flow")} target={value("targetFlow")} unit="ml/s" zeroIsNone />
@@ -129,8 +131,57 @@ function LiveTiles({ live, profile }: { live: LiveMachine; profile?: unknown }) 
         <TileTerm>Profile step</TileTerm>
         <dd className="text-lg font-medium">{stepText ?? <span className="text-muted-foreground">{pulling ? "Not reported" : "Not pulling a shot"}</span>}</dd>
       </Tile>
+      <WaterLevel frame={live.waterLevels} />
+      <Scale frame={live.scale} />
+      <Tile label="Tablet">
+        <TileTerm>Connection to Tablet</TileTerm>
+        <dd className="text-lg font-medium">{connectionText(machineConnectedOf(live.devices))}</dd>
+      </Tile>
     </div>
   );
+}
+
+/** The tank's water level against its refill level, Low at or below it. */
+function WaterLevel({ frame }: { frame: Record<string, unknown> | undefined }) {
+  const { level, refill, low } = waterLevelOf(frame);
+  return (
+    <Tile label="Water level">
+      <TileTerm>Water level</TileTerm>
+      <dd className="flex items-center gap-2 text-lg font-medium tabular-nums">
+        {level === null ? <NotReported /> : `${level.toFixed(1)} mm`}
+        {low && <Badge variant="destructive">Low</Badge>}
+      </dd>
+      <div className="flex gap-1 text-xs text-muted-foreground">
+        <dt className="flex items-center gap-1">
+          Refill level
+          <InfoTip label="About the refill level">
+            <p>The water level, set on the Machine, at which its tank is due a refill.</p>
+            <p>At or below it, the water level is shown as Low.</p>
+          </InfoTip>
+        </dt>
+        <dd className="tabular-nums">{refill === null ? <NotReported /> : `${refill.toFixed(1)} mm`}</dd>
+      </div>
+    </Tile>
+  );
+}
+
+/** The scale's weight, weight flow and battery, and whether it is connected. */
+function Scale({ frame }: { frame: Record<string, unknown> | undefined }) {
+  const { connected, weight, weightFlow, battery } = scaleOf(frame);
+  return (
+    <Tile label="Scale">
+      <TileTerm>Weight</TileTerm>
+      <dd className="text-lg font-medium tabular-nums">{weight === null ? <NotReported /> : `${weight.toFixed(1)} g`}</dd>
+      <TileLine term="Weight flow">{weightFlow === null ? <NotReported /> : `${weightFlow.toFixed(1)} g/s`}</TileLine>
+      <TileLine term="Battery">{battery === null ? <NotReported /> : `${Math.round(battery)} %`}</TileLine>
+      <TileLine term="Scale">{connectionText(connected)}</TileLine>
+    </Tile>
+  );
+}
+
+function connectionText(connected: boolean | null): ReactNode {
+  if (connected === null) return <NotReported />;
+  return connected ? "Connected" : "Not connected";
 }
 
 /** One tile: a small card holding its terms and values. */

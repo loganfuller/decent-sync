@@ -64,7 +64,7 @@
   "server/test/live-view-instances.test.ts": 37,
   "server/test/live-view-lifetime.test.ts": 46,
   "server/test/live-view-renewals.test.ts": 33,
-  "server/test/live-view.test.ts": 8,
+  "server/test/live-view.test.ts": 17,
   "server/test/loaded-recipe-following.test.ts": 83,
   "server/test/loaded-recipe-intake.test.ts": 0,
   "server/test/loaded-recipes.test.ts": 33,

@@ -22,6 +22,11 @@ export interface LiveViewStream {
   close(): Promise<void>;
 }
 
+/** The source and frame of each of a stream's events, in order. */
+export function sourcesAndFrames(stream: LiveViewStream): Pick<RelayedLiveFrame, "source" | "frame">[] {
+  return stream.events.map(({ source, frame }) => ({ source, frame }));
+}
+
 /** Opens the Machine's Live View as the account `api` is signed in as, resolving once the route has answered. */
 export async function openLiveView(api: AdminApi, machineId: string): Promise<LiveViewStream> {
   const abort = new AbortController();

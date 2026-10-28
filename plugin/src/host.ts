@@ -42,6 +42,20 @@ export interface Transport {
   close(handle: string): Promise<void>;
 }
 
+/**
+ * The sockets the plugin opens on Decaid itself, DYE2's and the Live View's,
+ * counted against Decaid's limit per plugin generation with its connections
+ * to the server, always leaving one transport free for those
+ * (`plugin/src/connection.ts`).
+ */
+export interface Transports {
+  /** Opens one, or rejects where that would leave no transport free for a connection to the server, or the open fails. */
+  open(url: string): Promise<string>;
+  onEvent(handle: string, listener: (event: TransportEvent) => void): void;
+  /** Closes one, which counts against the limit until Decaid has closed it. */
+  close(handle: string): void;
+}
+
 export type TransportEvent =
   | { type: "data"; dataType: "text" | "binary"; data: string }
   | { type: "error"; code: string; message: string }

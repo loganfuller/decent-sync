@@ -13,6 +13,7 @@ import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, s
 import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
+import { type DecaidSocket, type DecaidSocketState, openingFrames } from "./live-fixtures.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -75,6 +76,14 @@ import { opened } from "./test-scope.js";
 // - `reportSnapshot` sends a machine snapshot, such as one recorded
 //   (live-fixtures.ts), in a `stateUpdate` event, its `timestamp` the
 //   tablet's local time as Decaid writes it.
+// - Decaid's own sockets the Live View reads (`DecaidSocket`), as Decaid
+//   v0.9.0 serves them: as each opens, it sends the latest water levels,
+//   shot settings and device list, and the scale's connection status, at
+//   first those the test tablet's DE1Pro's sent as #259 opened them
+//   (live-fixtures.ts, `openingFrames`), the scale off; the water levels and
+//   shot settings only while a machine is connected, and once it connects.
+//   `reportOnSocket` sends a frame on those of a source, and
+//   `openDecaidSockets` lists those open.
 // - `host.transport` opens real WebSockets with only a URL and subprotocols
 //   (no custom headers), allows 8 live transports per plugin generation
 //   (counting opens still in progress, which cannot be cancelled),
@@ -93,9 +102,10 @@ import { opened } from "./test-scope.js";
 //   `resumeUpload` once it lets the frame pass. Closing a transport first
 //   waits for its queued frames to be written. `loseNetwork` ends every
 //   connection and fails every open until `restoreNetwork`, while Decaid's
-//   own API keeps answering. An open to Decaid's own origin
-//   (`ws://localhost:8080/ws/v1/plugins/{id}/{endpoint}`) is not on the
-//   network, and counts against the 8 all the same: it is refused with 404,
+//   own API keeps answering. An open to Decaid's own origin, on one of its
+//   sockets above or a plugin's
+//   (`ws://localhost:8080/ws/v1/plugins/{id}/{endpoint}`), is not on the
+//   network, and counts against the 8 all the same. A plugin's is refused with 404,
 //   as `_handlePluginSocketEndpoint` in plugins_handler.dart refuses it,
 //   while that plugin is not loaded or declares no such endpoint, and once
 //   open hears each push of that plugin on that endpoint, as `data` events,
@@ -158,6 +168,13 @@ const FETCH_TIMEOUT_MS = 30_000;
 /** The largest response Decaid's plugin fetch answers (maxFetchResponseBytes in plugin_manager.dart). */
 const MAX_FETCH_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_LIVE_TRANSPORTS = 8;
+/** Decaid's own sockets the Live View reads, by their path, each with the source of its frames. */
+const DECAID_SOCKETS = new Map<string, DecaidSocket>([
+  ["/ws/v1/machine/waterLevels", "waterLevels"],
+  ["/ws/v1/scale/snapshot", "scale"],
+  ["/ws/v1/machine/shotSettings", "shotSettings"],
+  ["/ws/v1/devices", "devices"],
+]);
 const MAX_PENDING_OUTBOUND_BYTES = 1 << 20;
 const MAX_QUEUED_INBOUND_BYTES = 1 << 20;
 
@@ -626,6 +643,8 @@ export interface SimulatedTabletOptions {
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info, /machine/state and the machine's settings fail. Defaults to true. */
   machineConnected?: boolean;
+  /** What Decaid's own sockets send as each opens; defaults to what the test tablet's sent in #259 (`openingFrames`). */
+  sockets?: DecaidSocketState;
   /**
    * Runs the plugin's timers, and the delays below, this many times faster,
    * except while a connection opens and waits for the server's first answer.
@@ -790,6 +809,10 @@ export class SimulatedTablet {
   readonly dye2: SimulatedDye2 | undefined;
   /** The sockets open on Decaid's plugin WebSocket endpoints, by the plugin id and endpoint each was opened on. */
   private readonly localSockets = new Map<LocalSocket, { pluginId: string; endpoint: string }>();
+  /** Decaid's own sockets open, by the source of their frames. */
+  private readonly decaidSockets = new Map<LocalSocket, DecaidSocket>();
+  /** What Decaid's own sockets send as each opens. */
+  private readonly socketState: DecaidSocketState;
   /** The plugin's manifest, as `GET /plugins` lists it. */
   private readonly manifest: Record<string, unknown>;
   machineConnected: boolean;
@@ -817,6 +840,8 @@ export class SimulatedTablet {
   readonly delivered: unknown[] = [];
   /** The most bytes any transport has had pending at once. */
   peakPendingOutboundBytes = 0;
+  /** The most transports the plugin has held at once, opens in progress included, as Decaid counts them against its limit of 8. */
+  peakTransports = 0;
   /** Sends refused for going past the pending outbound limit. */
   refusedSends = 0;
   /**
@@ -887,6 +912,7 @@ export class SimulatedTablet {
   private constructor(private readonly options: SimulatedTabletOptions) {
     this.api = options.api ?? de1ProOnDecaid090();
     this.machineConnected = options.machineConnected ?? true;
+    this.socketState = { ...(options.sockets ?? openingFrames()) };
     this.keepsFlushSettings = options.keepsFlushSettings ?? true;
     this.timeScale = options.timeScale ?? 1;
     const apiDelayMs = options.apiDelayMs ?? 0;
@@ -974,6 +1000,8 @@ export class SimulatedTablet {
     if ("/machine/settings" in this.api) this.api = { ...this.api, "/machine/settings": settings };
     if ("/machine/settings/advanced" in this.api) this.api = { ...this.api, "/machine/settings/advanced": advanced };
     this.fire("stateUpdate", this.api["/machine/state"]);
+    // Decaid's sockets of the machine bind to it as it connects, and send its latest.
+    for (const source of ["waterLevels", "shotSettings"] as const) this.sendOnSocket(source, this.socketState[source]);
   }
 
   /**
@@ -1040,6 +1068,45 @@ export class SimulatedTablet {
     this.api = { ...this.api, "/machine/state": sent };
     this.fire("stateUpdate", sent);
     return sent;
+  }
+
+  /**
+   * Sends a frame, such as one recorded (live-fixtures.ts), on Decaid's own
+   * sockets of that source, as Decaid does. Water levels, shot settings and
+   * a device list are also what those sockets send as each opens from now
+   * on, and a scale's `{"status": ...}` its status. Decaid sends the water
+   * levels and shot settings only while a machine is connected, and the
+   * scale's weights only while it is connected.
+   */
+  reportOnSocket(source: DecaidSocket, frame: Record<string, unknown>): void {
+    if ((source === "waterLevels" || source === "shotSettings") && !this.machineConnected) {
+      throw new Error(`Decaid sends ${source} only while a machine is connected`);
+    }
+    if (source === "scale") {
+      if (frame.status === "connected" || frame.status === "disconnected") this.socketState.scale = frame.status;
+      else if (this.socketState.scale !== "connected") throw new Error("Decaid sends a scale's weights only while it is connected");
+    } else {
+      this.socketState[source] = frame;
+    }
+    this.sendOnSocket(source, frame);
+  }
+
+  /** The sources of Decaid's own sockets open now, in order, once each, such as ["devices", "scale"]. */
+  openDecaidSockets(): DecaidSocket[] {
+    return [...new Set(this.decaidSockets.values())].sort();
+  }
+
+  /** Sends a frame through JSON on each of Decaid's own sockets of that source that is open. */
+  private sendOnSocket(source: DecaidSocket, frame: Record<string, unknown>): void {
+    for (const [socket, opened] of this.decaidSockets) if (opened === source) socket.receive(JSON.stringify(frame));
+  }
+
+  /** What one of Decaid's own sockets sends as it opens. */
+  private greet(socket: LocalSocket): void {
+    const source = this.decaidSockets.get(socket);
+    if (source === undefined) return;
+    if (source === "scale") return socket.receive(JSON.stringify({ status: this.socketState.scale }));
+    if (source === "devices" || this.machineConnected) socket.receive(JSON.stringify(this.socketState[source]));
   }
 
   /**
@@ -1241,7 +1308,14 @@ export class SimulatedTablet {
    */
   async reload(options: Partial<SimulatedTabletOptions> = {}): Promise<SimulatedTablet> {
     await this.unload();
-    return SimulatedTablet.load({ ...this.options, api: this.api, storage: this.storage, machineConnected: this.machineConnected, ...options });
+    return SimulatedTablet.load({
+      ...this.options,
+      api: this.api,
+      storage: this.storage,
+      machineConnected: this.machineConnected,
+      sockets: this.socketState,
+      ...options,
+    });
   }
 
   /** Sends an emitted payload as Decaid does: through JSON, to the sockets open on the endpoint, none once unloaded. */
@@ -1265,8 +1339,9 @@ export class SimulatedTablet {
   }
 
   /**
-   * The socket a WebSocket open to Decaid's own origin is, on a plugin's
-   * WebSocket endpoint (`/ws/v1/plugins/{id}/{endpoint}`), as
+   * The socket a WebSocket open to Decaid's own origin is: one of Decaid's
+   * own sockets (DECAID_SOCKETS), or one on a plugin's WebSocket endpoint
+   * (`/ws/v1/plugins/{id}/{endpoint}`), as
    * `_handlePluginSocketEndpoint` in plugins_handler.dart opens one: refused
    * with 404 while that plugin is not loaded or declares no such endpoint,
    * and with 400 for an HTTP one; once open, it hears every push of that
@@ -1277,6 +1352,12 @@ export class SimulatedTablet {
   private localSocket(url: string): LocalSocket | undefined {
     const origin = API_ORIGIN.replace(/^http/, "ws");
     if (!url.startsWith(`${origin}/`)) return undefined;
+    const decaid = DECAID_SOCKETS.get(new URL(url).pathname);
+    if (decaid !== undefined) {
+      const socket = new LocalSocket();
+      this.decaidSockets.set(socket, decaid);
+      return socket;
+    }
     const [, ws, v1, plugins, pluginId, endpoint, ...rest] = new URL(url).pathname.split("/");
     const refused = (status: number) => new TransportError(`WebSocket connect failed: Connection to '${url.replace(/^ws/, "http")}#' was not upgraded to websocket, HTTP status code: ${status}`);
     if (ws !== "ws" || v1 !== "v1" || plugins !== "plugins" || pluginId === undefined || endpoint === undefined || rest.length > 0) throw refused(404);
@@ -1996,6 +2077,7 @@ export class SimulatedTablet {
     if (live.length + this.opening >= MAX_LIVE_TRANSPORTS) {
       throw new TransportError("Too many open transports for this plugin", "transport_resource_limit");
     }
+    this.peakTransports = Math.max(this.peakTransports, live.length + this.opening + 1);
     // A socket on one of Decaid's own plugin endpoints, which the tablet's network does not carry.
     const local = this.localSocket(url);
     if (this.networkLost && !local) throw new TransportError("WebSocket connect failed: Network is unreachable");
@@ -2042,8 +2124,10 @@ export class SimulatedTablet {
       local.on("message", (text: string) => this.enqueue(record, { type: "data", dataType: "text", data: text }, Buffer.byteLength(text)));
       local.on("close", (code: number) => {
         this.localSockets.delete(local);
+        this.decaidSockets.delete(local);
         this.terminate(record, undefined, "transport_error", code);
       });
+      this.greet(local);
       return { handle: record.handle };
     }
     const remote = socket as WebSocket;

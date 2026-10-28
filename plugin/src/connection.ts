@@ -20,7 +20,7 @@ import {
 } from "@decent-sync/protocol";
 import { CollectionCapture } from "./collections.js";
 import { readMachineHardware, readTabletIdentity } from "./decaid.js";
-import type { PluginHost, TransportEvent } from "./host.js";
+import type { PluginHost, TransportEvent, Transports } from "./host.js";
 import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
 import { LiveView } from "./live-view.js";
@@ -173,7 +173,7 @@ export class SyncConnection {
   private readonly settingsEdits: SettingsEdits;
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
   private readonly shot = new ShotGate();
-  /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024). */
+  /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024), opening Decaid's sockets meanwhile. */
   private readonly liveView: LiveView;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
@@ -198,6 +198,22 @@ export class SyncConnection {
     this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1000, log);
     const skins = tellSkins(host, log);
     const library = new LibraryAccess();
+    // DYE2's socket and the Live View's leave one transport for a connection to the server, as earlier connection
+    // attempts may still hold theirs.
+    const localTransports: Transports = {
+      open: async (url) => {
+        if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
+        this.transportsInUse++;
+        try {
+          return (await this.host.transport.open({ kind: "websocket", url })).handle;
+        } catch (error) {
+          this.transportsInUse--;
+          throw error;
+        }
+      },
+      onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
+      close: (handle) => this.closeTransport(handle),
+    };
     this.loadedRecipes = new LoadedRecipes(
       {
         hold: () => this.machineEvents.hold(),
@@ -206,21 +222,7 @@ export class SyncConnection {
       },
       library,
       log,
-      {
-        // DYE2's socket leaves one transport for a connection to the server.
-        open: async (url) => {
-          if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
-          this.transportsInUse++;
-          try {
-            return (await this.host.transport.open({ kind: "websocket", url })).handle;
-          } catch (error) {
-            this.transportsInUse--;
-            throw error;
-          }
-        },
-        onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
-        close: (handle) => this.closeTransport(handle),
-      },
+      localTransports,
       settings.pollSeconds * 1000,
       this.shot,
       this.storage,
@@ -249,7 +251,7 @@ export class SyncConnection {
       this.shot,
     );
     this.tabletId = new TabletId(this.storage, log);
-    this.liveView = new LiveView(log);
+    this.liveView = new LiveView(log, localTransports);
   }
 
   /**

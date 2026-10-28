@@ -1,8 +1,8 @@
 import { utf8Length } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { liveFixture, machineSnapshots, stateOf } from "./support/live-fixtures.js";
-import { type LiveViewStream, openLiveView } from "./support/live-views.js";
+import { liveFixture, machineSnapshots, openingSocketFrames, stateOf } from "./support/live-fixtures.js";
+import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { quiesced } from "./support/quiet.js";
 import { derivedShot, shotFixture, withShots } from "./support/shot-fixtures.js";
@@ -11,8 +11,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: live frames under backpressure (#269, ADR-0024), through the built
 // plugin on simulated tablets, which send the test tablet's DE1Pro's recorded
-// machine snapshots (#259), and through raw connections for what the plugin
-// never sends. Viewers read `GET /api/machines/:id/live` as the browser's
+// machine snapshots and serve what its local sockets sent as they opened
+// (#259), and through raw connections for what the plugin never sends. Viewers read `GET /api/machines/:id/live` as the browser's
 // EventSource does. Serials are made up, from 26501.
 
 /** Heartbeats every 2 s, so some are sent while a test stalls a link, and the connection outlasts a stall of a few seconds. */
@@ -58,11 +58,19 @@ describe("live frames under backpressure", () => {
     return { machine, tablet, serial: tabletSerial };
   }
 
-  /** Opens the Machine's Live View, and waits for the plugin to have been told to stream. */
+  /**
+   * Opens the Machine's Live View, and waits for the plugin to have been told
+   * to stream, and for what Decaid's sockets sent as it opened them to reach
+   * the viewer and be counted received, so none of it takes room in the
+   * live budget, and the sockets are quiet from then on.
+   */
   async function watching(machine: CreatedMachine, tablet: SimulatedTablet): Promise<LiveViewStream> {
     const stream = await openLiveView(api, machine.machine.id);
     expect(stream.status).toBe(200);
     await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
+    await expect.poll(() => sourcesAndFrames(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    const received = () => (tablet.delivered.filter((frame) => (frame as Message).type === "liveReceived").at(-1) as { bytes: number } | undefined)?.bytes;
+    await expect.poll(received).toBe(bytesOf(sentSince(tablet, 0, "liveFrame")));
     return stream;
   }
 
@@ -75,7 +83,8 @@ describe("live frames under backpressure", () => {
     await quiesced(api, { tablets: { tablet } });
     const stream = await watching(machine, tablet);
 
-    // The link stalls before any live frame is sent, so no liveReceived is on its way to free the budget meanwhile.
+    // The link stalls once the sockets' frames are received, and before any other is sent, so no liveReceived is on its way
+    // to free the budget meanwhile.
     stalled = true;
     const from = tablet.sent.length;
     // Far more of the shot than Decaid's 1 MiB queue holds, every frame of which is to go, without a change of Machine

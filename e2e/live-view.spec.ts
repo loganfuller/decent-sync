@@ -1,5 +1,5 @@
 import { type Page, type Request, expect, test } from "@playwright/test";
-import { machineSnapshots, stateOf } from "../server/test/support/live-fixtures.js";
+import { machineSnapshots, socketFrames, stateOf } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { type SimulatedTablet, derivedDe1Pro, workflowFixture } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -7,10 +7,12 @@ import { field, machineRow } from "./support/locators.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
-// The Live View on a Machine's page (#260, #261), as an Admin and as Staff in
-// New York. A simulated tablet running the built plugin sends the test tablet's
-// DE1Pro's recorded machine snapshots (server/test/fixtures/decaid/de1pro-live-v0.9.0/)
-// as Decaid's `stateUpdate`. Serials are made up, from 27001.
+// The Live View on a Machine's page (#260, #261, #262), as an Admin and as
+// Staff in New York. A simulated tablet running the built plugin sends the
+// test tablet's DE1Pro's recorded machine snapshots
+// (server/test/fixtures/decaid/de1pro-live-v0.9.0/) as Decaid's
+// `stateUpdate`, and serves its local sockets' recorded frames, at first what
+// each sent as it opened. Serials are made up, from 27001.
 const server = useFreshServer();
 test.use({ timezoneId: "America/New_York" });
 
@@ -31,17 +33,22 @@ async function connectedTablet(token: string, serial: string): Promise<Simulated
 
 test("the Live View names each Machine State of a shot and a hot water pour, with Decaid's own in a tooltip, and shows its measurements", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Bar 1");
-  const tablet = await connectedTablet(token, "27001");
+  // Opened before the tablet connects, so nothing has come yet.
   await page.goto(`/machines/${machine.id}`);
   const card = page.getByRole("region", { name: "Live View" });
   await expect(card).toContainText("Waiting for its Tablet to send what it is doing.");
   // The card sits above the grid of cards, below those that ask for action.
   await expect(page.getByRole("region").first()).toHaveAccessibleName("Live View");
+  const tablet = await connectedTablet(token, "27001");
   await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
 
   const state = card.getByRole("group", { name: "Machine State" });
   // A shot's steps by their names in the Workflow's profile, which its frames index; before its first, its Preheat.
-  const steps = (workflowFixture().profile as { steps: { name: string }[] }).steps;
+  // Reloaded for the Workflow its tablet has reported, which the page reads every 30 s; within the stream's linger.
+  const profile = workflowFixture().profile as { title: string; steps: { name: string }[] };
+  await page.reload();
+  await expect(page.getByRole("region", { name: "Workflow" })).toContainText(profile.title);
+  const steps = profile.steps;
   const named: [string, string, string][] = [
     ["idle", "idle", "Idle"],
     ["espresso", "preparingForShot", "Pulling a shot Preparing"],
@@ -65,18 +72,19 @@ test("the Live View names each Machine State of a shot and a hot water pour, wit
   tablet.reportSnapshot(first(shot, "espresso", "pouring"));
   await expect(field(state, "Machine State")).toHaveText("Pulling a shot Pouring");
   const tile = (name: string) => card.getByRole("group", { name });
-  const expected: [string, string, string | null][] = [
+  const expected: [string, string, string][] = [
     ["Group temperature", "79.7 °C", "82.0 °C"],
     ["Mix temperature", "82.8 °C", "88.0 °C"],
-    ["Steam temperature", "160.0 °C", null],
+    // Its target from the machine's shot settings, which Decaid sent only as the plugin opened its socket, before the
+    // reload: the server sent them again as the reloaded page joined the stream.
+    ["Steam temperature", "160.0 °C", "160.0 °C"],
     ["Pressure", "3.1 bar", "2.9 bar"],
     // A flow target of zero is a pressure step's, which sets none.
     ["Flow", "1.0 ml/s", "None"],
   ];
   for (const [name, value, target] of expected) {
     await expect(field(tile(name), name)).toHaveText(value);
-    if (target === null) await expect(tile(name).locator("dt", { hasText: /^Target$/ })).toHaveCount(0);
-    else await expect(field(tile(name), "Target")).toHaveText(target);
+    await expect(field(tile(name), "Target")).toHaveText(target);
   }
 
   // A Machine or Decaid build that sends no steam temperature or flow target: each is shown as not reported.
@@ -99,6 +107,49 @@ test("the Live View names each Machine State of a shot and a hot water pour, wit
     await expect(field(state, "Time in state")).toHaveText(/^\d+ s$/);
   }
   await expect(field(card, "Profile step")).toHaveText("Not pulling a shot");
+});
+
+test("the Live View shows the steam temperature's target, the water level with Low at or below the refill level, the scale and the Machine's connection to its Tablet", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 5");
+  const tablet = await connectedTablet(token, "27005");
+  await page.goto(`/machines/${machine.id}`);
+  await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
+  const card = page.getByRole("region", { name: "Live View" });
+  const tile = (name: string) => card.getByRole("group", { name });
+
+  // What Decaid's sockets sent as they opened: the Machine asleep with its tank just below the refill level, and the
+  // scale off. No machine snapshot has come yet, so its values aren't reported.
+  await expect(field(tile("Water level"), "Water level")).toHaveText("4.8 mmLow");
+  await expect(tile("Water level").getByText("Low", { exact: true })).toBeVisible();
+  await expect(field(tile("Water level"), "Refill level")).toHaveText("5.0 mm");
+  await expectTip(tile("Water level"), "the refill level", /^The water level, set on the Machine, at which its tank is due a refill\.At or below it, the water level is shown as Low\.$/);
+  await expect(field(tile("Steam temperature"), "Target")).toHaveText("160.0 °C");
+  await expect(field(tile("Steam temperature"), "Steam temperature")).toHaveText("Not reported");
+  await expect(field(tile("Machine State"), "Machine State")).toHaveText("Not reported");
+  for (const term of ["Weight", "Weight flow", "Battery"]) await expect(field(tile("Scale"), term)).toHaveText("Not reported");
+  await expect(field(tile("Scale"), "Scale")).toHaveText("Not connected");
+  await expect(field(tile("Tablet"), "Connection to Tablet")).toHaveText("Connected");
+
+  // The scale is turned on, and sends its weights.
+  const [connectedFrame, weight] = socketFrames("scale-connects.json", "scale");
+  expect(connectedFrame).toEqual({ status: "connected" });
+  tablet.reportOnSocket("scale", connectedFrame!);
+  tablet.reportOnSocket("scale", weight!);
+  await expect(field(tile("Scale"), "Weight")).toHaveText("16.0 g");
+  await expect(field(tile("Scale"), "Weight flow")).toHaveText("0.0 g/s");
+  await expect(field(tile("Scale"), "Battery")).toHaveText("80 %");
+  await expect(field(tile("Scale"), "Scale")).toHaveText("Connected");
+
+  // The tank is refilled: no longer Low.
+  const [refilled] = socketFrames("shot.json", "waterLevels");
+  tablet.reportOnSocket("waterLevels", refilled!);
+  await expect(field(tile("Water level"), "Water level")).toHaveText("33.8 mm");
+  await expect(tile("Water level").getByText("Low", { exact: true })).toHaveCount(0);
+
+  // The scale goes off again: its values are no longer reported.
+  tablet.reportOnSocket("scale", { status: "disconnected" });
+  await expect(field(tile("Scale"), "Scale")).toHaveText("Not connected");
+  await expect(field(tile("Scale"), "Weight")).toHaveText("Not reported");
 });
 
 /**

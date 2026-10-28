@@ -1,16 +1,60 @@
 import fs from "node:fs";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { type LiveFrame, encode, utf8Length } from "@decent-sync/protocol";
-import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LiveBudget, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
+import type { TransportEvent, Transports } from "../src/host.js";
+import { LIVE_BUDGET_BYTES, LIVE_INTERVAL_MS, LIVE_SOCKETS, LIVE_SOCKET_RETRY_MS, LiveBudget, LiveRate, LiveView, TimeInState } from "../src/live-view.js";
 
 // The plugin's side of the Live View: when time in state restarts, the rate
 // rule, the live budget, and what it streams, on the test tablet's DE1Pro's
-// machine snapshots (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259).
+// recorded frames (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259).
 
-function machineFrames(file: string): Record<string, unknown>[] {
+/** A recording's frames from one source, in order, as Decaid sent them. */
+function framesOf(file: string, source: string): Record<string, unknown>[] {
   const url = new URL(`../../server/test/fixtures/decaid/de1pro-live-v0.9.0/${file}`, import.meta.url);
   const { frames } = JSON.parse(fs.readFileSync(url, "utf8")) as { frames: { source: string; frame: Record<string, unknown> }[] };
-  return frames.filter((frame) => frame.source === "machine").map((frame) => frame.frame);
+  return frames.filter((frame) => frame.source === source).map((frame) => frame.frame);
+}
+
+function machineFrames(file: string): Record<string, unknown>[] {
+  return framesOf(file, "machine");
+}
+
+/**
+ * Decaid's sockets as the Live View opens them, each opening at once and
+ * quiet until `push` sends a frame on those open on a URL. An open of a URL
+ * in `refused` fails, as for want of a transport.
+ */
+function decaidSockets() {
+  const open = new Map<string, { url: string; listener?: (event: TransportEvent) => void }>();
+  const refused = new Set<string>();
+  let handles = 0;
+  const transports: Transports = {
+    open: async (url) => {
+      if (refused.has(url)) throw new Error("Decaid allows no more transports");
+      const handle = `socket ${++handles}`;
+      open.set(handle, { url });
+      return handle;
+    },
+    onEvent: (handle, listener) => {
+      const socket = open.get(handle);
+      if (socket) socket.listener = listener;
+    },
+    close: (handle) => void open.delete(handle),
+  };
+  const on = (url: string) => [...open.values()].filter((socket) => socket.url === url);
+  return {
+    transports,
+    refused,
+    /** The URLs of the sockets open now. */
+    urls: () => [...open.values()].map((socket) => socket.url).sort(),
+    push: (url: string, frame: unknown) => {
+      for (const socket of on(url)) socket.listener?.({ type: "data", dataType: "text", data: JSON.stringify(frame) });
+    },
+    /** Decaid closes the sockets open on the URL. */
+    end: (url: string) => {
+      for (const socket of on(url)) socket.listener?.({ type: "close", code: 1001 });
+    },
+  };
 }
 
 /** The first snapshot of each run of one state and substate, and of one target flow under steam, as Decaid sent it. */
@@ -206,12 +250,13 @@ describe("LiveView", () => {
   beforeEach(() => vi.useFakeTimers({ now: new Date("2026-10-27T21:04:57.000Z") }));
   afterEach(() => vi.useRealTimers());
 
-  function streaming(): { live: LiveView; sent: LiveFrame[]; logs: string[] } {
+  function streaming(): { live: LiveView; sent: LiveFrame[]; logs: string[]; sockets: ReturnType<typeof decaidSockets> } {
     const sent: LiveFrame[] = [];
     const logs: string[] = [];
-    const live = new LiveView((line) => logs.push(line));
+    const sockets = decaidSockets();
+    const live = new LiveView((line) => logs.push(line), sockets.transports);
     live.start(async (frame) => void sent.push(frame));
-    return { live, sent, logs };
+    return { live, sent, logs, sockets };
   }
 
   it("streams each machine snapshot as Decaid sent it, with the plugin's time it came and when its Machine State began", () => {
@@ -228,7 +273,7 @@ describe("LiveView", () => {
 
   it("sends every frame of a shot, but one a second while idle, and tracks the time in state while not streaming", () => {
     const sent: LiveFrame[] = [];
-    const live = new LiveView(() => {});
+    const live = new LiveView(() => {}, decaidSockets().transports);
     const frames = machineFrames("shot.json");
     // Not streaming yet: its time in state is tracked all the same.
     live.stateUpdate(frames[0]);
@@ -248,6 +293,83 @@ describe("LiveView", () => {
       live.received(sent.reduce((sum, frame) => sum + utf8Length(encode(frame)), 0));
     }
     expect(sent.slice(1).map((frame) => frame.frame)).toEqual(espresso);
+  });
+
+  it("opens Decaid's sockets as it starts, forwarding each one's frames, each source paced on its own, and closes them as it stops", async () => {
+    const { live, sent, sockets } = streaming();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+    // What each socket sent as it opened, the machine asleep and the scale off, and the latest snapshot.
+    for (const source of ["waterLevels", "scale", "shotSettings", "devices"] as const) {
+      sockets.push(LIVE_SOCKETS[source], framesOf("opening.json", source)[0]);
+    }
+    const [asleep] = machineFrames("opening.json");
+    live.stateUpdate(asleep);
+    expect(sent.map(({ source, frame }) => ({ source, frame }))).toEqual([
+      { source: "waterLevels", frame: framesOf("opening.json", "waterLevels")[0] },
+      { source: "scale", frame: { status: "disconnected" } },
+      { source: "shotSettings", frame: framesOf("opening.json", "shotSettings")[0] },
+      { source: "devices", frame: framesOf("opening.json", "devices")[0] },
+      { source: "machine", frame: asleep },
+    ]);
+    expect(sent.every((frame) => frame.receivedAt === "2026-10-27T21:04:57.000Z")).toBe(true);
+    expect(sent.filter((frame) => frame.source !== "machine").every((frame) => frame.stateSince === undefined && frame.sensorId === undefined)).toBe(true);
+
+    // Asleep, each source sends one frame a second, the latest winning, from when it last sent one.
+    const weights = framesOf("asleep.json", "scale");
+    const levels = framesOf("asleep.json", "waterLevels");
+    let from = sent.length;
+    for (const weight of weights.slice(0, 5)) sockets.push(LIVE_SOCKETS.scale, weight);
+    sockets.push(LIVE_SOCKETS.waterLevels, levels[0]);
+    expect(sent.slice(from).map((frame) => frame.frame)).toEqual([]);
+    await vi.advanceTimersByTimeAsync(LIVE_INTERVAL_MS);
+    expect(sent.slice(from).map((frame) => frame.frame)).toEqual([levels[0], weights[4]]);
+
+    // During a shot, every frame of every source goes.
+    const shot = framesOf("shot.json", "scale").slice(0, 5);
+    live.stateUpdate(firstOfEach("shot.json")[1]);
+    from = sent.length;
+    for (const weight of shot) sockets.push(LIVE_SOCKETS.scale, weight);
+    expect(sent.slice(from).map((frame) => frame.frame)).toEqual(shot);
+
+    // Not a JSON object: dropped.
+    from = sent.length;
+    sockets.push(LIVE_SOCKETS.devices, ["not", "an", "object"]);
+    expect(sent.slice(from)).toEqual([]);
+
+    // Stopped: the sockets close, and what they'd send goes nowhere.
+    live.stop();
+    expect(sockets.urls()).toEqual([]);
+    live.start(async (frame) => void sent.push(frame));
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+    live.disconnected();
+    expect(sockets.urls()).toEqual([]);
+  });
+
+  it("opens a socket that couldn't open, or that Decaid closed, again a while later, until it stops", async () => {
+    const sockets = decaidSockets();
+    const live = new LiveView(() => {}, sockets.transports);
+    sockets.refused.add(LIVE_SOCKETS.devices);
+    live.start(async () => {});
+    await vi.advanceTimersByTimeAsync(0);
+    expect(sockets.urls()).not.toContain(LIVE_SOCKETS.devices);
+    sockets.refused.clear();
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS - 1);
+    expect(sockets.urls()).not.toContain(LIVE_SOCKETS.devices);
+    await vi.advanceTimersByTimeAsync(1);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+
+    sockets.end(LIVE_SOCKETS.scale);
+    expect(sockets.urls()).not.toContain(LIVE_SOCKETS.scale);
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+
+    // Stopped while one waits to be opened again: it stays closed.
+    sockets.end(LIVE_SOCKETS.scale);
+    live.stop();
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.urls()).toEqual([]);
   });
 
   it("drops a frame too large to relay, saying so once, and sends the next", () => {
@@ -306,7 +428,7 @@ describe("LiveView", () => {
   });
 
   it("drops a frame Decaid's transport refuses, and goes on", async () => {
-    const live = new LiveView(() => {});
+    const live = new LiveView(() => {}, decaidSockets().transports);
     let refuse = true;
     const sent: LiveFrame[] = [];
     live.start(async (frame) => {
