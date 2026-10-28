@@ -6,7 +6,7 @@ import type { BatchAtLocation, BeanBatchSummary } from "@/lib/api";
 export function LibraryNav() {
   const linkClass = ({ isActive }: { isActive: boolean }) => (isActive ? "font-medium" : "text-muted-foreground hover:text-foreground");
   return (
-    <nav aria-label="Library" className="flex gap-4 text-sm">
+    <nav aria-label="Library" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
       <NavLink to="/library/beans" className={linkClass}>
         Beans
       </NavLink>

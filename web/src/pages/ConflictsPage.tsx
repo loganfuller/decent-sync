@@ -30,7 +30,7 @@ export function ConflictsPage() {
       )}
       {conflicts?.length === 0 && <p className="text-muted-foreground">No open Conflicts.</p>}
       {conflicts && conflicts.length > 0 && (
-        <div className="rounded-lg border">
+        <div className="min-w-0 rounded-lg border">
           <ConflictsTable conflicts={conflicts} showItem onResolved={reload} />
         </div>
       )}

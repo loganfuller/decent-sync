@@ -159,7 +159,7 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
 function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recipe[]; slots: boolean }) {
   const { pages } = LIBRARY_KINDS.recipe;
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <Table aria-label={label}>
         <TableHeader>
           <TableRow>

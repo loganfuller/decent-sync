@@ -331,7 +331,7 @@ function Comparison({ shot, previous }: { shot: Shot; previous: Shot }) {
     ["Barista", (shown) => shown.barista ?? undefined],
   ];
   return (
-    <div className="rounded-lg border">
+    <div className="min-w-0 rounded-lg border">
       <Table aria-label="Comparison with the previous Shot">
         <TableHeader>
           <TableRow>

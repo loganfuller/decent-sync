@@ -57,7 +57,7 @@ export function ItemShotsCard({ kind, id }: { kind: ShotsKind; id: string }) {
         )}
         {data && data.shots.length > 0 && (
           <>
-            <div className="rounded-lg border">
+            <div className="min-w-0 rounded-lg border">
               <Table aria-label={`Shots with this ${name}`}>
                 <TableHeader>
                   <TableRow>

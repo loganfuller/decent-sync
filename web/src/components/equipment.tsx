@@ -189,7 +189,7 @@ export function EquipmentList({ kind, title, description }: { kind: EquipmentKin
         </p>
       )}
       {shown.length > 0 && (
-        <div className="rounded-lg border">
+        <div className="min-w-0 rounded-lg border">
           <Table aria-label={title}>
             <TableHeader>
               <TableRow>

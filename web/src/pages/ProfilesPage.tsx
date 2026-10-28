@@ -34,7 +34,7 @@ export function ProfilesPage() {
       )}
       {profiles?.length === 0 && <p className="text-muted-foreground">No Profiles yet. They join the Library as tablets at a Location report them.</p>}
       {profiles && profiles.length > 0 && (
-        <div className="rounded-lg border">
+        <div className="min-w-0 rounded-lg border">
           <Table aria-label="Profiles">
             <TableHeader>
               <TableRow>
