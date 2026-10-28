@@ -122,7 +122,10 @@ can't be compared.
 
 No socket closed in any recording, so each one's first frame is the one
 it sent as it opened. The simulated tablet's sockets send `opening.json`'s
-as each opens (`openingFrames` in `server/test/support/live-fixtures.ts`). Each activity's fixture, `wake.json` and
+as each opens (`openingFrames` in `server/test/support/live-fixtures.ts`),
+and it replays a recording at a speed a test sets, its snapshots' times as
+far apart as recorded (`replayLive` in
+`server/test/support/simulated-tablet.ts`). Each activity's fixture, `wake.json` and
 `scale-connects.json` run from 2 s before it to 3 s after it.
 `needs-water.json` starts 4 s before the reading reached 0. The Steam
 Records are whole, measurements included, with the ids Decaid gave them.

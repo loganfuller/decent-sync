@@ -124,6 +124,7 @@
   "server/test/tablets.test.ts": 14,
   "server/test/takeovers.test.ts": 35,
   "web/test/curves.test.ts": 0,
+  "web/test/live-curves.test.ts": 0,
   "web/test/live-view.test.ts": 0,
   "web/test/tablet-time.test.ts": 0,
   "web/test/wake-windows.test.ts": 0,

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /** How often pages showing Machine status ask the server again. */
-const STATUS_POLL_MS = 5_000;
+export const STATUS_POLL_MS = 5_000;
 
 /**
  * How often pages ask again for what changes less often than a Machine's
