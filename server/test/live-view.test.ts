@@ -353,8 +353,8 @@ describe("the Live View", () => {
     tablet.attachMilkProbe();
     const stream = await watching(machine, tablet);
     await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
-    // Long enough for the plugin to have opened sockets it couldn't at first three times over: every 5 s at the tablet's
-    // 50 times pace.
+    // Long enough for a probe's socket to have opened had the plugin looked: three of its 5 s retries at the tablet's 50
+    // times pace.
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
     // Its connection, and Decaid's four sockets: never another.
