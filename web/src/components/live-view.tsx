@@ -196,7 +196,9 @@ function useLiveView(
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
       setOpenedAt(Date.now());
-      // Each time it opens, the browser's own reopening too, the Machine may have changed unseen.
+      // The Machine may have changed unseen meanwhile: as the page opens it, and each time it opens, the browser's own
+      // reopening too.
+      setLive(withStreamOpened);
       opened.onopen = () => setLive(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
