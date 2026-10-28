@@ -1,13 +1,15 @@
 import { type LiveFrame, encode, liveFrameFits, liveSourceOf, machineStateOf, utf8Length } from "@decent-sync/protocol";
+import type { Transports } from "./host.js";
 
 // The plugin's side of the Live View (ADR-0024): from the server's
 // `liveStart` until its `liveStop`, or until the connection closes, it
 // forwards Decaid's live frames as Decaid sent them, each tagged with the
-// plugin's time it received it. Nothing here is kept across an unload. Live
-// frames skip the outbox: they have no id, are never acknowledged or sent
-// again, and one that can't be sent is dropped. They have a budget of their
-// own instead (`LiveBudget`), so a slow link never fills Decaid's queue with
-// them.
+// plugin's time it received it: the machine snapshots of `stateUpdate`, and
+// the frames of Decaid's local sockets (`LIVE_SOCKETS`), which it opens only
+// while streaming. Nothing here is kept across an unload. Live frames skip
+// the outbox: they have no id, are never acknowledged or sent again, and one
+// that can't be sent is dropped. They have a budget of their own instead
+// (`LiveBudget`), so a slow link never fills Decaid's queue with them.
 
 /**
  * Decaid's states during which every live frame is forwarded: a shot,
@@ -168,13 +170,115 @@ export class LiveBudget<T> {
 }
 
 /**
+ * Decaid's local sockets the Live View forwards, by the source their frames
+ * are tagged with. As each opens, Decaid sends the latest water levels, shot
+ * settings and device list, and the scale's connection status; the scale's
+ * weights are live only. The water levels and shot settings come only while
+ * a machine is connected (`_withDe1Ws` in
+ * decaid:lib/src/services/webserver/de1handler.dart, `ScaleHandler` and
+ * `DevicesHandler` beside it, at v0.9.0).
+ */
+export const LIVE_SOCKETS = {
+  waterLevels: "ws://localhost:8080/ws/v1/machine/waterLevels",
+  scale: "ws://localhost:8080/ws/v1/scale/snapshot",
+  shotSettings: "ws://localhost:8080/ws/v1/machine/shotSettings",
+  devices: "ws://localhost:8080/ws/v1/devices",
+} as const;
+
+export type SocketSource = keyof typeof LIVE_SOCKETS;
+
+const SOCKET_SOURCES = Object.keys(LIVE_SOCKETS) as SocketSource[];
+
+/**
+ * How long after a socket fails to open, as for want of a transport, or
+ * closes, it is opened again while streaming.
+ */
+export const LIVE_SOCKET_RETRY_MS = 5_000;
+
+/**
+ * Decaid's local sockets (LIVE_SOCKETS), open while the Live View streams:
+ * each text frame one sends is passed to `received`. A socket that can't
+ * open, as where that would leave no transport free for a connection to the
+ * server (`Transports`), or that closes, is opened again after
+ * LIVE_SOCKET_RETRY_MS while they are wanted.
+ */
+export class LiveSockets {
+  private wanted = false;
+  /** Bumped by every close, so an open that ends after it is closed at once. */
+  private generation = 0;
+  private readonly handles = new Map<SocketSource, string>();
+  private readonly opening = new Set<SocketSource>();
+  private retry: ReturnType<typeof setTimeout> | undefined;
+
+  constructor(
+    private readonly transports: Transports,
+    private readonly received: (source: SocketSource, text: string) => void,
+  ) {}
+
+  /** Opens each socket not open or opening. */
+  open(): void {
+    this.wanted = true;
+    for (const source of SOCKET_SOURCES) this.openSocket(source);
+  }
+
+  /** Closes every socket, and one still opening once it opens. */
+  close(): void {
+    this.wanted = false;
+    this.generation++;
+    if (this.retry !== undefined) clearTimeout(this.retry);
+    this.retry = undefined;
+    this.opening.clear();
+    for (const handle of this.handles.values()) this.transports.close(handle);
+    this.handles.clear();
+  }
+
+  private openSocket(source: SocketSource): void {
+    if (!this.wanted || this.handles.has(source) || this.opening.has(source)) return;
+    const generation = this.generation;
+    this.opening.add(source);
+    this.transports.open(LIVE_SOCKETS[source]).then(
+      (handle) => {
+        if (generation !== this.generation) return void this.transports.close(handle);
+        this.opening.delete(source);
+        this.handles.set(source, handle);
+        this.transports.onEvent(handle, (event) => {
+          if (this.handles.get(source) !== handle) return;
+          if (event.type !== "data") {
+            this.handles.delete(source);
+            this.transports.close(handle);
+            this.retryLater();
+          } else if (event.dataType === "text") {
+            this.received(source, event.data);
+          }
+        });
+      },
+      () => {
+        if (generation !== this.generation) return;
+        this.opening.delete(source);
+        this.retryLater();
+      },
+    );
+  }
+
+  private retryLater(): void {
+    if (this.retry !== undefined) return;
+    this.retry = setTimeout(() => {
+      this.retry = undefined;
+      for (const source of SOCKET_SOURCES) this.openSocket(source);
+    }, LIVE_SOCKET_RETRY_MS);
+  }
+}
+
+/**
  * Streams the plugin's live frames on the connection that asked, at the rate
- * rule's pace (`LiveRate`), within the live budget (`LiveBudget`). For now
- * its one source is the machine: each `stateUpdate`, Decaid's machine
+ * rule's pace (`LiveRate`), within the live budget (`LiveBudget`), each
+ * source on its own: the machine, each `stateUpdate`, Decaid's machine
  * snapshot, with when its Machine State began (`TimeInState`), which is
- * tracked whether or not it streams, and across reconnects. A frame whose
+ * tracked whether or not it streams, and across reconnects; and Decaid's
+ * local sockets (`LiveSockets`), open only while streaming. A frame whose
  * notification would pass PostgreSQL's limit (`liveFrameFits`), or that
- * Decaid's transport refuses, is dropped.
+ * Decaid's transport refuses, is dropped, as is a socket's frame that isn't
+ * a JSON object.
  */
 export class LiveView {
   /** Sends on the connection streaming, while one is. */
@@ -185,22 +289,31 @@ export class LiveView {
   private budget = this.newBudget();
   /** Set once a frame too large to relay was dropped while streaming, so the log says so once a stream. */
   private droppedLarge = false;
+  private readonly sockets: LiveSockets;
 
-  constructor(private readonly log: (message: string) => void) {}
+  constructor(
+    private readonly log: (message: string) => void,
+    transports: Transports,
+  ) {
+    this.sockets = new LiveSockets(transports, (source, text) => this.socketFrame(source, text));
+  }
 
-  /** The server's `liveStart`: streams on the connection given, unless already streaming. */
+  /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
   start(send: (frame: LiveFrame) => Promise<void>): void {
     if (this.streaming) return;
     this.streaming = send;
     this.droppedLarge = false;
+    this.sockets.open();
   }
 
   /**
-   * The server's `liveStop`: drops the frames held. The bytes the server has
-   * yet to receive stay counted, as it may start the same connection again.
+   * The server's `liveStop`: closes Decaid's sockets and drops the frames
+   * held. The bytes the server has yet to receive stay counted, as it may
+   * start the same connection again.
    */
   stop(): void {
     this.streaming = undefined;
+    this.sockets.close();
     this.rate.clear();
     this.budget.clear();
   }
@@ -223,8 +336,26 @@ export class LiveView {
     const named = this.timeInState.observe(payload, receivedAt);
     if (!this.streaming || !named) return;
     const frame: LiveFrame = { type: "liveFrame", source: "machine", receivedAt, stateSince: named.since, frame: payload as Record<string, unknown> };
-    const activity = LIVE_ACTIVITIES.has(this.timeInState.latestState() ?? "");
-    this.rate.offer("machine", frame, { now: activity || named.changed });
+    this.rate.offer("machine", frame, { now: this.inActivity() || named.changed });
+  }
+
+  /** A text frame one of Decaid's sockets sent: forwarded as it is, if a JSON object. */
+  private socketFrame(source: SocketSource, text: string): void {
+    if (!this.streaming) return;
+    const receivedAt = new Date().toISOString();
+    let payload: unknown;
+    try {
+      payload = JSON.parse(text);
+    } catch {
+      return;
+    }
+    if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
+    this.rate.offer(source, { type: "liveFrame", source, receivedAt, frame: payload as Record<string, unknown> }, { now: this.inActivity() });
+  }
+
+  /** Whether the latest machine snapshot reported an activity (LIVE_ACTIVITIES), during which every frame goes. */
+  private inActivity(): boolean {
+    return LIVE_ACTIVITIES.has(this.timeInState.latestState() ?? "");
   }
 
   private send(frame: LiveFrame): void {

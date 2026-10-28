@@ -3407,8 +3407,77 @@ var __decentSync = (() => {
       });
     }
   };
+  var LIVE_SOCKETS = {
+    waterLevels: "ws://localhost:8080/ws/v1/machine/waterLevels",
+    scale: "ws://localhost:8080/ws/v1/scale/snapshot",
+    shotSettings: "ws://localhost:8080/ws/v1/machine/shotSettings",
+    devices: "ws://localhost:8080/ws/v1/devices"
+  };
+  var SOCKET_SOURCES = Object.keys(LIVE_SOCKETS);
+  var LIVE_SOCKET_RETRY_MS = 5e3;
+  var LiveSockets = class {
+    constructor(transports, received) {
+      __publicField(this, "transports", transports);
+      __publicField(this, "received", received);
+      __publicField(this, "wanted", false);
+      /** Bumped by every close, so an open that ends after it is closed at once. */
+      __publicField(this, "generation", 0);
+      __publicField(this, "handles", /* @__PURE__ */ new Map());
+      __publicField(this, "opening", /* @__PURE__ */ new Set());
+      __publicField(this, "retry");
+    }
+    /** Opens each socket not open or opening. */
+    open() {
+      this.wanted = true;
+      for (const source of SOCKET_SOURCES) this.openSocket(source);
+    }
+    /** Closes every socket, and one still opening once it opens. */
+    close() {
+      this.wanted = false;
+      this.generation++;
+      if (this.retry !== void 0) clearTimeout(this.retry);
+      this.retry = void 0;
+      this.opening.clear();
+      for (const handle of this.handles.values()) this.transports.close(handle);
+      this.handles.clear();
+    }
+    openSocket(source) {
+      if (!this.wanted || this.handles.has(source) || this.opening.has(source)) return;
+      const generation = this.generation;
+      this.opening.add(source);
+      this.transports.open(LIVE_SOCKETS[source]).then(
+        (handle) => {
+          if (generation !== this.generation) return void this.transports.close(handle);
+          this.opening.delete(source);
+          this.handles.set(source, handle);
+          this.transports.onEvent(handle, (event) => {
+            if (this.handles.get(source) !== handle) return;
+            if (event.type !== "data") {
+              this.handles.delete(source);
+              this.transports.close(handle);
+              this.retryLater();
+            } else if (event.dataType === "text") {
+              this.received(source, event.data);
+            }
+          });
+        },
+        () => {
+          if (generation !== this.generation) return;
+          this.opening.delete(source);
+          this.retryLater();
+        }
+      );
+    }
+    retryLater() {
+      if (this.retry !== void 0) return;
+      this.retry = setTimeout(() => {
+        this.retry = void 0;
+        for (const source of SOCKET_SOURCES) this.openSocket(source);
+      }, LIVE_SOCKET_RETRY_MS);
+    }
+  };
   var LiveView = class {
-    constructor(log) {
+    constructor(log, transports) {
       __publicField(this, "log", log);
       /** Sends on the connection streaming, while one is. */
       __publicField(this, "streaming");
@@ -3418,19 +3487,24 @@ var __decentSync = (() => {
       __publicField(this, "budget", this.newBudget());
       /** Set once a frame too large to relay was dropped while streaming, so the log says so once a stream. */
       __publicField(this, "droppedLarge", false);
+      __publicField(this, "sockets");
+      this.sockets = new LiveSockets(transports, (source, text) => this.socketFrame(source, text));
     }
-    /** The server's `liveStart`: streams on the connection given, unless already streaming. */
+    /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
     start(send) {
       if (this.streaming) return;
       this.streaming = send;
       this.droppedLarge = false;
+      this.sockets.open();
     }
     /**
-     * The server's `liveStop`: drops the frames held. The bytes the server has
-     * yet to receive stay counted, as it may start the same connection again.
+     * The server's `liveStop`: closes Decaid's sockets and drops the frames
+     * held. The bytes the server has yet to receive stay counted, as it may
+     * start the same connection again.
      */
     stop() {
       this.streaming = void 0;
+      this.sockets.close();
       this.rate.clear();
       this.budget.clear();
     }
@@ -3450,8 +3524,24 @@ var __decentSync = (() => {
       const named = this.timeInState.observe(payload, receivedAt);
       if (!this.streaming || !named) return;
       const frame = { type: "liveFrame", source: "machine", receivedAt, stateSince: named.since, frame: payload };
-      const activity = LIVE_ACTIVITIES.has(this.timeInState.latestState() ?? "");
-      this.rate.offer("machine", frame, { now: activity || named.changed });
+      this.rate.offer("machine", frame, { now: this.inActivity() || named.changed });
+    }
+    /** A text frame one of Decaid's sockets sent: forwarded as it is, if a JSON object. */
+    socketFrame(source, text) {
+      if (!this.streaming) return;
+      const receivedAt = (/* @__PURE__ */ new Date()).toISOString();
+      let payload;
+      try {
+        payload = JSON.parse(text);
+      } catch {
+        return;
+      }
+      if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return;
+      this.rate.offer(source, { type: "liveFrame", source, receivedAt, frame: payload }, { now: this.inActivity() });
+    }
+    /** Whether the latest machine snapshot reported an activity (LIVE_ACTIVITIES), during which every frame goes. */
+    inActivity() {
+      return LIVE_ACTIVITIES.has(this.timeInState.latestState() ?? "");
     }
     send(frame) {
       if (!this.streaming) return;
@@ -4776,7 +4866,7 @@ var __decentSync = (() => {
       __publicField(this, "settingsEdits");
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
       __publicField(this, "shot", new ShotGate());
-      /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024). */
+      /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024), opening Decaid's sockets meanwhile. */
       __publicField(this, "liveView");
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");
@@ -4795,6 +4885,20 @@ var __decentSync = (() => {
       this.steams = new SteamCapture(this.outbox, settings.pollSeconds * 1e3, log);
       const skins = tellSkins(host, log);
       const library = new LibraryAccess();
+      const localTransports = {
+        open: async (url) => {
+          if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
+          this.transportsInUse++;
+          try {
+            return (await this.host.transport.open({ kind: "websocket", url })).handle;
+          } catch (error) {
+            this.transportsInUse--;
+            throw error;
+          }
+        },
+        onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
+        close: (handle) => this.closeTransport(handle)
+      };
       this.loadedRecipes = new LoadedRecipes(
         {
           hold: () => this.machineEvents.hold(),
@@ -4803,21 +4907,7 @@ var __decentSync = (() => {
         },
         library,
         log,
-        {
-          // DYE2's socket leaves one transport for a connection to the server.
-          open: async (url) => {
-            if (this.transportsInUse >= MAX_TRANSPORTS - 1) throw new Error("Decaid allows no more transports");
-            this.transportsInUse++;
-            try {
-              return (await this.host.transport.open({ kind: "websocket", url })).handle;
-            } catch (error) {
-              this.transportsInUse--;
-              throw error;
-            }
-          },
-          onEvent: (handle, listener) => this.host.transport.onEvent(handle, listener),
-          close: (handle) => this.closeTransport(handle)
-        },
+        localTransports,
         settings.pollSeconds * 1e3,
         this.shot,
         this.storage,
@@ -4846,7 +4936,7 @@ var __decentSync = (() => {
         this.shot
       );
       this.tabletId = new TabletId(this.storage, log);
-      this.liveView = new LiveView(log);
+      this.liveView = new LiveView(log, localTransports);
     }
     /**
      * Reads back the outbox's deliveries kept by earlier loads, and connects,

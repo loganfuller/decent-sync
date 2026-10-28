@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { machineSnapshots, stateOf } from "./support/live-fixtures.js";
-import { type LiveViewStream, openLiveView } from "./support/live-views.js";
+import { machineSnapshots, openingSocketFrames, stateOf } from "./support/live-fixtures.js";
+import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { startRoutingProxy } from "./support/routing-proxy.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
@@ -9,7 +9,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: the Live View across server instances on one database (#261,
 // ADR-0016, ADR-0024), through the built plugin on simulated tablets, which
-// send the test tablet's DE1Pro's recorded machine snapshots (#259). Viewers
+// send the test tablet's DE1Pro's recorded machine snapshots and serve what
+// its local sockets sent as they opened (#259). Viewers
 // read `GET /api/machines/:id/live` as the browser's EventSource does. A
 // stream's instance renews its lease every 10 s, to expire 30 s later: the
 // server's own times, which a lost instance's test waits out. Serials are
@@ -100,6 +101,13 @@ describe("the Live View across instances", () => {
     const here = await openLiveView(api, machine.machine.id);
     await seen(tablet, espresso.slice(10, 15), elsewhere, here);
     expect(count(tablet.delivered, "liveStart")).toBe(1);
+
+    // A viewer joining on that instance later receives, as its stream starts, the latest of what Decaid's sockets sent
+    // as the plugin opened them, which the holding instance relays again as the viewer's lease is announced.
+    await expect.poll(() => sourcesAndFrames(elsewhere)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    const joining = await openLiveView(api.at(other.url), machine.machine.id);
+    await expect.poll(() => sourcesAndFrames(joining)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    expect(count(tablet.delivered, "liveStart")).toBe(1);
   });
 
   it("starts a plugin that reconnects to another instance mid-stream again at once, and its viewer keeps receiving", async () => {
@@ -168,5 +176,29 @@ describe("the Live View across instances", () => {
     }
     await expect.poll(notListening).toBeGreaterThan(before);
     await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
+  });
+
+  it("ends its streams once an instance listens again, and the browser's reopened stream receives the latest from Decaid's sockets", async () => {
+    const { machine, tablet } = await connected("Listening again, viewer");
+    const viewing = await watching(machine, tablet, other);
+    await expect.poll(() => sourcesAndFrames(viewing)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    // The viewer's instance stops listening for a moment, and may miss what is relayed meanwhile, such as the latest from
+    // Decaid's sockets relayed again for a viewer joining it. This shows its streams end once it listens again; a
+    // reopened stream gets those as any viewer joining does.
+    const notListening = () => other.output().split("Not listening for access changes").length - 1;
+    const before = notListening();
+    const database = await server.connectDatabase();
+    try {
+      await database.query(`SELECT pg_terminate_backend(pid) FROM pg_stat_activity WHERE datname = current_database() AND query LIKE 'LISTEN %'`);
+    } finally {
+      await database.end();
+    }
+    await expect.poll(notListening).toBeGreaterThan(before);
+    await expect.poll(() => viewing.ended).toBe(true);
+
+    // The browser opens it again, as a viewer joining, within the linger.
+    const reopened = await openLiveView(api.at(other.url), machine.machine.id);
+    await expect.poll(() => sourcesAndFrames(reopened)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    expect(count(tablet.delivered, "liveStop")).toBe(0);
   });
 });

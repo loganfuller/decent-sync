@@ -4,9 +4,11 @@ import type { Response } from "express";
 import {
   type LiveFrame,
   type LiveReceived,
+  type LiveSource,
   type LiveStart,
   type LiveStop,
   MAX_NOTIFICATION_BYTES,
+  type RelayedLiveFrame,
   liveSourceOf,
   relayedLiveFrame,
   utf8Length,
@@ -42,6 +44,14 @@ const RECEIVED_INTERVAL_MS = 1_000;
  */
 const MAX_LIVE_FRAMES_PER_SECOND = 1_000;
 
+/**
+ * The sources whose latest frame a connection keeps to relay again for a
+ * viewer joining: Decaid's sockets that send some frames only as they open
+ * or as they change, such as the shot settings. Not the machine, which sends
+ * several a second, nor a sensor, whose ids are the tablet's to choose (#265).
+ */
+const REPLAYED_SOURCES: ReadonlySet<LiveSource> = new Set(["waterLevels", "scale", "shotSettings", "devices"]);
+
 /** A plugin connection this instance welcomed, which may stream for the Live View: not mismatched, and at its wire revision. */
 export interface LiveViewConnection {
   sessionId: string;
@@ -65,6 +75,10 @@ interface Holder {
   relaying: boolean;
   /** The latest frame of each source, awaiting its turn while another is relayed. */
   waiting: Map<string, string>;
+  /** The latest frame of each of REPLAYED_SOURCES taken to relay since it was started, relayed again for a viewer that joins. */
+  latest: Map<string, string>;
+  /** The ids of its Machine's unexpired leases as last found while it streamed, so a lease new since shows a viewer joining. */
+  leases: Set<string>;
   /** Set once a relay failed, until one succeeds, so a database outage is logged once. */
   failing: boolean;
   /** Set once a frame too large to relay was dropped, so that is logged once. */
@@ -90,6 +104,8 @@ interface Stream {
   response: Response;
   /** Its lease, once inserted. */
   leaseId?: string;
+  /** Until its lease is held, the latest frame of each source relayed meanwhile, which it is sent then. */
+  pending: Map<string, string>;
   renewal?: NodeJS.Timeout;
   keepAlive?: NodeJS.Timeout;
   ended: boolean;
@@ -134,7 +150,16 @@ interface Stream {
  *   notification, unrequested, or past the connection's
  *   MAX_LIVE_FRAMES_PER_SECOND is dropped, and a failed relay is logged and
  *   dropped; none closes the connection. Every instance forwards each to its
- *   own streams of that Machine.
+ *   own streams of that Machine, and a stream whose lease isn't held yet is
+ *   sent the latest of each source once it is. Decaid sends some of its
+ *   sockets' sources only as the plugin opens the socket or as they change,
+ *   such as the shot settings, so once a decision finds a lease of the
+ *   Machine it hadn't seen while the connection streams, as a viewer joins
+ *   or reloads, its connection relays the latest frame of each of those
+ *   sources again, which the viewers already watching receive twice. Once
+ *   this instance listens again, having missed what was relayed meanwhile,
+ *   it ends its streams, which the browser opens again at once, as a viewer
+ *   joining.
  * - **Backpressure.** Each connection is told how many bytes of its live
  *   frames have arrived, relayed or not, with `liveReceived`, as they arrive
  *   but at most once a RECEIVED_INTERVAL_MS, which frees the plugin's live
@@ -161,10 +186,15 @@ export class LiveViews implements OnModuleDestroy {
   ) {
     // After listening anew, every connection is checked, as an announcement may have been missed.
     notifications.subscribe("live_views", (machineId) => {
-      for (const holder of this.holders.values()) if (machineId === null || holder.connection.machineId === machineId) this.check(holder);
+      for (const holder of this.holders.values()) {
+        if (machineId === null || holder.connection.machineId === machineId) this.check(holder);
+      }
     });
     notifications.subscribe("live_frames", (payload) => {
-      if (payload !== null) this.forward(payload);
+      if (payload !== null) return this.forward(payload);
+      // Listening again: frames relayed meanwhile were missed, among them one Decaid sends only as it changes, or relayed
+      // again for a viewer joining. So each stream ends, and the browser opens it again at once, as a viewer joining.
+      this.endStreams();
     });
   }
 
@@ -180,8 +210,13 @@ export class LiveViews implements OnModuleDestroy {
    */
   async end(): Promise<void> {
     this.ending = true;
-    for (const streams of [...this.streams.values()]) for (const stream of [...streams]) this.endStream(stream);
+    this.endStreams();
     while (this.inFlight.size > 0) await Promise.all(this.inFlight);
+  }
+
+  /** Ends every stream on this side, each lease lingering, so the browser opens it again. */
+  private endStreams(): void {
+    for (const streams of [...this.streams.values()]) for (const stream of [...streams]) this.endStream(stream);
   }
 
   /**
@@ -193,7 +228,7 @@ export class LiveViews implements OnModuleDestroy {
    * connects.
    */
   async open(machineId: string, viewerSessionId: string, response: Response): Promise<void> {
-    const stream: Stream = { machineId, viewerSessionId, response, ended: false };
+    const stream: Stream = { machineId, viewerSessionId, response, pending: new Map(), ended: false };
     // Before anything is awaited, so a viewer gone meanwhile is never kept, nor its lease renewed. One gone already, as
     // while its session was checked, closed before this could hear it.
     response.once("close", () => this.streamClosed(stream));
@@ -235,6 +270,8 @@ export class LiveViews implements OnModuleDestroy {
     if (stream.ended) return void this.linger(leaseId, machine.id);
     response.flushHeaders();
     response.write(`retry: ${RECONNECT_MS}\n\n`);
+    for (const payload of stream.pending.values()) response.write(`data: ${payload}\n\n`);
+    stream.pending.clear();
     this.keepAlive(stream);
     stream.renewal = setInterval(() => void this.track(this.renew(stream)), RENEW_MS);
   }
@@ -248,6 +285,8 @@ export class LiveViews implements OnModuleDestroy {
       closed: false,
       relaying: false,
       waiting: new Map(),
+      latest: new Map(),
+      leases: new Set(),
       failing: false,
       droppedLarge: false,
       receivedBytes: 0,
@@ -268,6 +307,7 @@ export class LiveViews implements OnModuleDestroy {
     clearTimeout(holder.expiry);
     clearTimeout(holder.answer);
     holder.waiting.clear();
+    holder.latest.clear();
     this.holders.delete(sessionId);
   }
 
@@ -288,10 +328,18 @@ export class LiveViews implements OnModuleDestroy {
       holder.droppedLarge = true;
       return;
     }
-    if (!holder.relaying) return void this.track(this.relay(holder, payload));
     const source = liveSourceOf(live);
+    if (REPLAYED_SOURCES.has(live.source)) holder.latest.set(source, payload);
+    if (!holder.relaying) return void this.track(this.relay(holder, payload));
     holder.waiting.delete(source);
     holder.waiting.set(source, payload);
+  }
+
+  /** Relays the latest frame of each of REPLAYED_SOURCES again, for a viewer that has joined, unless a newer one waits its turn. */
+  private replay(holder: Holder): void {
+    for (const [source, payload] of holder.latest) if (!holder.waiting.has(source)) holder.waiting.set(source, payload);
+    const first = holder.relaying ? undefined : this.nextWaiting(holder);
+    if (first !== undefined) void this.track(this.relay(holder, first));
   }
 
   /** Tells the connection how much of its live frames have arrived: at once, or once RECEIVED_INTERVAL_MS has passed since it was last told. */
@@ -332,16 +380,22 @@ export class LiveViews implements OnModuleDestroy {
     holder.deciding = this.track(holder.deciding.then(() => this.decide(holder)));
   }
 
+  /**
+   * Decides whether the connection is to stream, and while it streams,
+   * relays the latest of each socket's source again once it finds a lease it
+   * hadn't seen: a viewer joined, or a page reloaded.
+   */
   private async decide(holder: Holder): Promise<void> {
     if (holder.closed) return;
     clearTimeout(holder.expiry);
     const { machineId, sessionId } = holder.connection;
-    let leases: { holds: boolean; expiresInMs: number | null };
+    let leases: { holds: boolean; expiresInMs: number | null; ids: string[] | null };
     try {
-      [leases] = await this.prisma.$queryRaw<[{ holds: boolean; expiresInMs: number | null }]>`
+      [leases] = await this.prisma.$queryRaw<[{ holds: boolean; expiresInMs: number | null; ids: string[] | null }]>`
         SELECT EXISTS (SELECT 1 FROM machines WHERE id = ${machineId}::uuid AND connected_session_id = ${sessionId}::uuid) AS holds,
           (SELECT (extract(epoch FROM min(expires_at) - now()) * 1000)::float8 FROM live_view_leases
-           WHERE machine_id = ${machineId}::uuid AND expires_at > now()) AS "expiresInMs"`;
+           WHERE machine_id = ${machineId}::uuid AND expires_at > now()) AS "expiresInMs",
+          (SELECT array_agg(id::text) FROM live_view_leases WHERE machine_id = ${machineId}::uuid AND expires_at > now()) AS ids`;
     } catch (error) {
       this.logger.error(`Could not check the Live Views of ${holder.connection.description}: ${String(error)}`);
       if (!holder.closed) holder.expiry = setTimeout(() => this.check(holder), CHECK_RETRY_MS);
@@ -349,11 +403,18 @@ export class LiveViews implements OnModuleDestroy {
     }
     if (holder.closed) return;
     const wanted = leases.holds && leases.expiresInMs !== null;
+    const ids = new Set(wanted ? (leases.ids ?? []) : []);
     if (wanted !== holder.started) {
       holder.started = wanted;
-      if (!wanted) holder.waiting.clear();
+      if (!wanted) {
+        holder.waiting.clear();
+        holder.latest.clear();
+      }
       holder.connection.send({ type: wanted ? "liveStart" : "liveStop" });
+    } else if (wanted && [...ids].some((id) => !holder.leases.has(id))) {
+      this.replay(holder);
     }
+    holder.leases = ids;
     if (leases.expiresInMs !== null) holder.expiry = setTimeout(() => this.check(holder), Math.max(0, leases.expiresInMs) + EXPIRY_MARGIN_MS);
   }
 
@@ -388,16 +449,26 @@ export class LiveViews implements OnModuleDestroy {
   private forward(payload: string): void {
     if (this.streams.size === 0) return;
     let machineId: unknown;
+    let source: unknown;
+    let sensorId: unknown;
     try {
-      machineId = (JSON.parse(payload) as { machineId?: unknown }).machineId;
+      ({ machineId, source, sensorId } = JSON.parse(payload) as Partial<RelayedLiveFrame>);
     } catch {
       return;
     }
     // An event's data ends at a line break, which JSON.stringify never writes.
-    if (typeof machineId !== "string" || /[\r\n]/.test(payload)) return;
+    if (typeof machineId !== "string" || typeof source !== "string" || /[\r\n]/.test(payload)) return;
     for (const stream of this.streams.get(machineId) ?? []) {
-      // One whose lease isn't held yet misses it, as its headers wait for the lease: the next frame replaces it.
-      if (stream.ended || stream.leaseId === undefined || stream.response.writableLength > MAX_UNSENT_BYTES) continue;
+      if (stream.ended) continue;
+      // Its headers wait for its lease, so it is sent the latest of each source then. Each sensor is a source of its own
+      // here too, kept only for as long as the lease's insert takes.
+      if (stream.leaseId === undefined) {
+        const latest = liveSourceOf({ source: source as LiveSource, sensorId: typeof sensorId === "string" ? sensorId : undefined });
+        stream.pending.delete(latest);
+        stream.pending.set(latest, payload);
+        continue;
+      }
+      if (stream.response.writableLength > MAX_UNSENT_BYTES) continue;
       stream.response.write(`data: ${payload}\n\n`);
       this.keepAlive(stream);
     }

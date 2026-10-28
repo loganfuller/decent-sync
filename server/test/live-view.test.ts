@@ -2,19 +2,21 @@ import { randomUUID } from "node:crypto";
 import { type RelayedLiveFrame, nameMachineState } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { machineSnapshots, stateOf } from "./support/live-fixtures.js";
-import { type LiveViewStream, openLiveView } from "./support/live-views.js";
+import { machineSnapshots, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
+import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import { quiesced } from "./support/quiet.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { startStallingProxy } from "./support/stalling-proxy.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1: the Live View (#260) through the built plugin on simulated tablets,
-// which send the test tablet's DE1Pro's recorded machine snapshots (#259) as
-// Decaid's `stateUpdate`, each stamped with the tablet's local time as it is
-// sent. Viewers read `GET /api/machines/:id/live` as the browser's
-// EventSource does. Serials are made up, from 26001.
+// Seam 1: the Live View (#260, #262) through the built plugin on simulated
+// tablets, which send the test tablet's DE1Pro's recorded machine snapshots
+// (#259) as Decaid's `stateUpdate`, each stamped with the tablet's local time
+// as it is sent, and serve its local sockets' recorded frames. Viewers read
+// `GET /api/machines/:id/live` as the browser's EventSource does. Serials are
+// made up, from 26001.
 
 /**
  * The simulated tablets' time zone: four hours behind UTC in daylight time,
@@ -37,6 +39,8 @@ const firstOf = (substate: string) => espresso.find((snapshot) => stateOf(snapsh
 
 type Message = { type?: string };
 const isLiveFrame = (frame: unknown) => (frame as Message).type === "liveFrame";
+/** Decaid's sockets the plugin opens while streaming, by the source of their frames. */
+const ALL_SOCKETS = ["devices", "scale", "shotSettings", "waterLevels"];
 const count = (frames: unknown[], type: string) => frames.filter((frame) => (frame as Message).type === type).length;
 
 /** The Machine State a relayed frame reports, on one line. */
@@ -65,10 +69,14 @@ describe("the Live View", () => {
   });
 
   /** A Machine whose simulated tablet, its machine's serial given, is connected, once it is online. */
-  async function connected(name: string, options: { timeScale?: number } = {}): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet; serial: number }> {
+  async function connected(
+    name: string,
+    options: { timeScale?: number; upgradeAtTabletPace?: boolean; through?: { url: string } } = {},
+  ): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet; serial: number }> {
+    const { through = server, ...rest } = options;
     const machine = await api.createMachine(name);
     const tabletSerial = serial++;
-    const tablet = syncingTablet(machine, server, { api: emptyLibrary(tabletSerial), ...options });
+    const tablet = syncingTablet(machine, through, { api: emptyLibrary(tabletSerial), ...rest });
     await api.waitForOnline(machine);
     return { machine, tablet, serial: tabletSerial };
   }
@@ -87,11 +95,14 @@ describe("the Live View", () => {
     stream.events.filter((event) => sent.some((snapshot) => snapshot.timestamp === event.frame.timestamp));
 
   /** The machine snapshots in the live frames the plugin sent, from its `from`th frame on. */
-  const liveFramesSent = (tablet: SimulatedTablet, from: number) =>
+  const liveFramesSent = (tablet: SimulatedTablet, from: number, source = "machine") =>
     tablet.sent
       .slice(from)
-      .filter(isLiveFrame)
+      .filter((frame) => isLiveFrame(frame) && (frame as { source: string }).source === source)
       .map((frame) => (frame as { frame: Record<string, unknown> }).frame);
+
+  /** The stream's events from Decaid's sockets, rather than the machine's snapshots, as each one's source and frame. */
+  const fromSockets = (stream: LiveViewStream) => sourcesAndFrames(stream).filter((event) => event.source !== "machine");
 
   /**
    * Sends each snapshot in turn, each once the streams have the last: the
@@ -135,10 +146,13 @@ describe("the Live View", () => {
   });
 
   // Stopping it once the last viewer has gone, after the linger, is in live-view-lifetime.test.ts.
-  it("shares one stream between viewers, starting the plugin once", async () => {
+  it("shares one stream between viewers, starting the plugin once, and sends one that joins the latest from each of Decaid's sockets", async () => {
     const { machine, tablet } = await connected("Shared");
     const first = await watching(machine, tablet);
+    await expect.poll(() => fromSockets(first)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    // Decaid sent those as the plugin opened its sockets, and nothing since: the second viewer is sent them again.
     const second = await openLiveView(api, machine.machine.id);
+    await expect.poll(() => fromSockets(second)).toEqual(expect.arrayContaining(openingSocketFrames()));
     await seen(tablet, espresso.slice(0, 3), first, second);
 
     await first.close();
@@ -180,6 +194,86 @@ describe("the Live View", () => {
     expect(liveFramesSent(tablet, from).at(-1)).toEqual(pulled.at(-1));
     // The server relays one at a time, the latest of a burst waiting, so the viewer sees the latest.
     await expect.poll(() => carrying(stream, [pulled.at(-1)!]).length).toBe(1);
+  });
+
+  it("opens Decaid's sockets only while streaming, forwarding what each sends as it opens, and closes them with the connection", async () => {
+    const { machine, tablet } = await connected("Sockets");
+    expect(tablet.openDecaidSockets()).toEqual([]);
+    const before = Date.now();
+    const stream = await watching(machine, tablet);
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+    // The current water levels, shot settings and devices, and the scale's status, tagged with their source.
+    await expect.poll(() => fromSockets(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
+    const after = Date.now();
+    for (const event of stream.events.filter((event) => event.source !== "machine")) {
+      expect(event).toEqual({ machineId: machine.machine.id, source: event.source, receivedAt: expect.any(String), frame: event.frame });
+      expect(Date.parse(event.receivedAt)).toBeGreaterThanOrEqual(before);
+      expect(Date.parse(event.receivedAt)).toBeLessThanOrEqual(after);
+    }
+
+    // The connection ends: Decaid's sockets close with it, and open again once the next connection is started.
+    tablet.loseNetwork();
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual([]);
+    const [level] = socketFrames("shot.json", "waterLevels");
+    tablet.reportOnSocket("waterLevels", level!);
+    tablet.restoreNetwork();
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(2);
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+    // As its socket opens again, Decaid sends the water levels that changed meanwhile.
+    await expect.poll(() => fromSockets(stream)).toContainEqual({ source: "waterLevels", frame: level });
+  });
+
+  it("always leaves a transport free for the server connection, even while earlier connection attempts still hold theirs", async () => {
+    // Four attempts the server never answers hold their transports, the fifth connects: five of Decaid's eight.
+    const proxy = await startStallingProxy(server.url, 4);
+    try {
+      const { machine, tablet } = await connected("Transports", { through: proxy, timeScale: 25, upgradeAtTabletPace: true });
+      expect(tablet.logs.filter((line) => line.startsWith("Disconnected: the server did not answer"))).toHaveLength(4);
+      const stream = await watching(machine, tablet);
+      // Two of Decaid's sockets open, so seven are held; the other two are skipped for want of a transport.
+      await expect.poll(() => fromSockets(stream).map((event) => event.source).sort()).toEqual(["scale", "waterLevels"]);
+      expect(tablet.openDecaidSockets()).toEqual(["scale", "waterLevels"]);
+      expect(tablet.peakTransports).toBe(7);
+
+      // The attempts end at last, and the skipped sockets are opened as they are tried again.
+      for (const socket of proxy.stalled) socket.destroy();
+      await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
+      await expect.poll(() => fromSockets(stream)).toEqual(expect.arrayContaining(openingSocketFrames()));
+      expect(tablet.peakTransports).toBe(7);
+      expect(tablet.logs.join("\n")).not.toContain("Too many open transports");
+    } finally {
+      await proxy.close();
+    }
+  });
+
+  it("sends the frames of Decaid's sockets one a second while idle, the latest winning, every one during a shot, and a scale's disconnection", async () => {
+    // At real time, so the plugin's second is one.
+    const { machine, tablet } = await connected("Socket rate", { timeScale: 1 });
+    tablet.reportOnSocket("scale", { status: "connected" });
+    const stream = await watching(machine, tablet);
+    await expect.poll(() => liveFramesSent(tablet, 0, "scale")).toEqual([{ status: "connected" }]);
+    tablet.reportSnapshot(idle[0]!);
+
+    // Idle, ten of the scale's weights at once: the first goes, unless the scale sent one within the second, and the
+    // latest a second after. At most two, as long as the tablet hands the plugin all ten within its second.
+    let from = tablet.sent.length;
+    const weights = socketFrames("asleep.json", "scale").slice(0, 10);
+    for (const weight of weights) tablet.reportOnSocket("scale", weight);
+    await expect.poll(() => liveFramesSent(tablet, from, "scale").at(-1)).toEqual(weights.at(-1));
+    expect(liveFramesSent(tablet, from, "scale").length).toBeLessThanOrEqual(2);
+    await expect.poll(() => fromSockets(stream)).toContainEqual({ source: "scale", frame: weights.at(-1) });
+
+    // A shot: every weight goes.
+    tablet.reportSnapshot(firstOf("preinfusion"));
+    from = tablet.sent.length;
+    const shotWeights = socketFrames("shot.json", "scale").slice(0, 10);
+    for (const weight of shotWeights) tablet.reportOnSocket("scale", weight);
+    await expect.poll(() => liveFramesSent(tablet, from, "scale")).toEqual(shotWeights);
+
+    // Idle again, the scale goes off: its disconnection reaches the viewer, the last of its frames.
+    tablet.reportSnapshot(idle[1]!);
+    tablet.reportOnSocket("scale", { status: "disconnected" });
+    await expect.poll(() => fromSockets(stream).filter((event) => event.source === "scale").at(-1)).toEqual({ source: "scale", frame: { status: "disconnected" } });
   });
 
   it("keeps the time in state across a reconnect, and through a change of detail", async () => {

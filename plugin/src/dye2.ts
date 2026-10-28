@@ -1,6 +1,6 @@
 import { DYE2_NAMESPACE } from "@decent-sync/protocol";
 import { request } from "./decaid.js";
-import type { TransportEvent } from "./host.js";
+import type { Transports } from "./host.js";
 
 // DYE2 on the tablet (ADR-0022). The recipe a Machine is dialled in to is the
 // one its Workflow names (DYE2_RECIPE_FIELD), which DYE2's dashboard, its
@@ -52,15 +52,6 @@ export async function readDye2State(): Promise<Dye2State> {
   if (!dye2) return "absent";
   if (dye2.loaded === true) return "loaded";
   return dye2.autoLoad === false ? "disabled" : "notLoaded";
-}
-
-/** The transports the plugin opens, counted against Decaid's limit per plugin generation with its connections to the server. */
-export interface Transports {
-  /** Opens one, or rejects where Decaid allows no more, or the open fails. */
-  open(url: string): Promise<string>;
-  onEvent(handle: string, listener: (event: TransportEvent) => void): void;
-  /** Closes one, which counts against the limit until Decaid has closed it. */
-  close(handle: string): void;
 }
 
 /**

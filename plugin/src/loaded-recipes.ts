@@ -11,7 +11,8 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
-import { Dye2Pushes, type Dye2State, type Transports, readDye2State, recordIntoRecipe } from "./dye2.js";
+import { Dye2Pushes, type Dye2State, readDye2State, recordIntoRecipe } from "./dye2.js";
+import type { Transports } from "./host.js";
 import type { LibraryAccess } from "./library-writes.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { ShotGate } from "./shot-gate.js";

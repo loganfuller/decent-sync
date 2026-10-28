@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { machineSnapshots, stateOf } from "./support/live-fixtures.js";
-import { type LiveViewStream, openLiveView } from "./support/live-views.js";
+import { machineSnapshots, openingSocketFrames, stateOf } from "./support/live-fixtures.js";
+import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
@@ -9,7 +9,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1: how long the Live View lasts once its viewers leave (#261,
 // ADR-0024), through the built plugin on simulated tablets, which send the
-// test tablet's DE1Pro's recorded machine snapshots (#259). Viewers read
+// test tablet's DE1Pro's recorded machine snapshots and serve what its local
+// sockets sent as they opened (#259). Viewers read
 // `GET /api/machines/:id/live` as the browser's EventSource does. A closed
 // stream's lease lingers 30 s, the server's own time, which these tests wait
 // out. What each renewal does is in live-view-renewals.test.ts. Serials are
@@ -77,12 +78,15 @@ describe("the Live View's linger", () => {
     const { machine, tablet } = await connected("Linger");
     const first = await watching(machine, tablet);
     await seen(tablet, [firstOf("preinfusion")], first);
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual(["devices", "scale", "shotSettings", "waterLevels"]);
 
-    // The page reloads a second after its stream closed, and the new stream receives what the plugin goes on sending.
+    // The page reloads a second after its stream closed, and the new stream receives what the plugin goes on sending,
+    // and, as it starts, the latest of what Decaid's sockets sent as the plugin opened them.
     await first.close();
     await sleep(1_000);
     const reloaded = await openLiveView(api, machine.machine.id);
     expect(reloaded.status).toBe(200);
+    await expect.poll(() => sourcesAndFrames(reloaded)).toEqual(expect.arrayContaining(openingSocketFrames()));
     await seen(tablet, [firstOf("pouring"), firstOf("pouringDone")], reloaded);
     // Open a while, so the lease its opening inserted would expire well before the linger after its close ends.
     await sleep(5_000);
@@ -95,6 +99,8 @@ describe("the Live View's linger", () => {
     expect(performance.now() - left).toBeGreaterThanOrEqual(LINGER_MS - 1_000);
     // Started once, for the first viewer: the reload continued its stream.
     expect(count(tablet.delivered, "liveStart")).toBe(1);
+    // Stopped, the plugin closed Decaid's sockets.
+    await expect.poll(() => tablet.openDecaidSockets()).toEqual([]);
     const sends = tablet.sent.length;
     tablet.reportSnapshot(idle[0]!);
     expect(tablet.sent.slice(sends).filter((frame) => (frame as { type?: string }).type === "liveFrame")).toEqual([]);
