@@ -364,7 +364,8 @@ test("the Live View follows Tablets taking its Machine over: it drops what the l
   const answered = new Promise<void>((resolve) => (fetched = resolve));
   let release!: () => void;
   const released = new Promise<void>((resolve) => (release = resolve));
-  await page.route((url) => url.pathname === path, async (route) => {
+  const polls = (url: URL) => url.pathname === path;
+  await page.route(polls, async (route) => {
     const response = await route.fetch();
     fetched();
     await released;
@@ -377,6 +378,8 @@ test("the Live View follows Tablets taking its Machine over: it drops what the l
   // Meanwhile a third takes it over, and its Machine goes to sleep, on firmware that then sends nothing.
   const third = await connectedTablet(token, "27011");
   await second.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+  // Once it streams: the server starts it as it welcomes it, and what its Decaid sends before then isn't forwarded.
+  await expect.poll(() => third.delivered).toContainEqual({ type: "liveStart" });
   third.reportSnapshot(asleep.find((snapshot) => stateOf(snapshot).state === "sleeping")!);
   await expect(field(state, "Machine State")).toHaveText("Asleep");
 
@@ -385,7 +388,7 @@ test("the Live View follows Tablets taking its Machine over: it drops what the l
   const current = page.getByLabel("Current tablet", { exact: true });
   await expect(field(current, "Tablet id")).toHaveText(secondId);
   await expect(field(state, "Machine State")).toHaveText("Asleep");
-  await page.unroute((url) => url.pathname === path);
+  await page.unroute(polls);
 
   // The next poll finds the third Tablet holding the Machine, and keeps its frames too: asleep, not stale.
   await page.clock.fastForward(5_000);
