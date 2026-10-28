@@ -2,7 +2,7 @@ import { type Locator, type Page, expect, test } from "@playwright/test";
 import { type LiveFixtureFrame, liveFixture, machineDisconnects, openingFrames } from "../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { derivedShot, shotFixture } from "../server/test/support/shot-fixtures.js";
-import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
+import { type DecaidApi, RawConnection, type SimulatedTablet, derivedDe1Pro, helloWith } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, liveSteamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field } from "./support/locators.js";
@@ -116,6 +116,34 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   tablet.connectMachine(reconnected);
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
   await expect(card).not.toContainText("not connected to the Machine");
+});
+
+test("a shot's curves end at a takeover by a Tablet that streams nothing, so the first Tablet's next shot, once it is back, starts curves of its own", async ({ page }) => {
+  const { machine, token } = await createMachine(page, "Bar 7");
+  const tablet = await connectedTablet(token, "28007");
+  const card = await openMachinePage(page, machine.id, tablet);
+  const frames = liveFixture("shot.json");
+  const espresso = first(frames, "espresso", "preparingForShot");
+  const pouring = first(frames, "espresso", "pouring");
+  await tablet.replayLive(frames, { speed: SPEED }).to(pouring);
+  const curves = card.getByRole("region", { name: "Curves" });
+  await expect(ticks(curves, "Pressure")).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
+
+  // A Tablet on the previous release, which the server never asks to stream, takes the Machine over, and the page's
+  // next poll finds it.
+  const silent = await RawConnection.welcomed(server.url(), helloWith(token, { wireRevision: 1, machine: { model: "DE1Pro", serial: "28007" } }));
+  await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
+  await expect(card).toContainText("Waiting for its Tablet to send what it is doing.");
+  // Meanwhile the first Tablet's Decaid sees the shot end and the Machine go idle, which it doesn't stream.
+  await tablet.replayLive(frames.slice(pouring), { speed: SPEED }).to();
+
+  // That Tablet leaves, and the first connects again and streams its next shot from its first frame.
+  await silent.close();
+  await expect.poll(() => tablet.delivered.filter((frame) => (frame as { type?: string }).type === "liveStart").length, { timeout: 30_000 }).toBe(2);
+  await tablet.replayLive(frames.slice(espresso), { speed: SPEED }).to(pouring - espresso);
+  // Its Preheat and preinfusion alone, as the first shot's were: joined to them, the axis would span both shots.
+  await expect(ticks(curves, "Pressure")).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
+  await expect(curves.getByText("Partial", { exact: true })).toHaveCount(0);
 });
 
 test("a shot's curves, its page opened mid-shot, are labelled partial", async ({ page }) => {

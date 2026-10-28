@@ -143,7 +143,9 @@ function useTimeAfter(at: number): number {
  *
  * `tabletId` is the Tablet holding the Machine, as the page's latest poll,
  * asked for at `askedAt`, found it. Each poll drops what another Tablet sent
- * before it was asked (`withHolder`).
+ * before it was asked (`withHolder`), and marks a gap in the curves then: the
+ * Tablet that took over may have ended the shot or steaming unseen, and the
+ * one that sent them may come back with another.
  */
 function useLiveView(
   machineId: string,
@@ -156,7 +158,10 @@ function useLiveView(
   const [polled, setPolled] = useState(askedAt);
   if (askedAt !== polled) {
     setPolled(askedAt);
-    if (tabletId !== null) setLive((latest) => withHolder(latest, tabletId, askedAt));
+    if (tabletId !== null && live && !withHolder(live, tabletId, askedAt)) {
+      setLive(undefined);
+      setCurves(withStreamGap);
+    }
   }
   useEffect(() => {
     let source: EventSource | undefined;
