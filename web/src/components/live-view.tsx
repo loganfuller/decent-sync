@@ -167,15 +167,16 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
           </span>
         )}
         {curve.ended &&
-          (stored === "unknown" ? (
+          (stored === "missed" || stored === "unread" ? (
             <span className="flex items-center gap-1.5 text-sm">
               <Link to={`/${shot ? "shots" : "steam-records"}?machineId=${encodeURIComponent(machineId)}`} className="underline underline-offset-4">
                 Find its {kind} among the Machine's
               </Link>
               <InfoTip label={`About finding its ${kind}`}>
                 <p>
-                  This page missed what the Machine sent for a while, which may hold the end of this {what} or another after it, so it can't
-                  tell which {kind} is this one's.
+                  {stored === "missed"
+                    ? `This page missed what the Machine sent for a while, which may hold the end of this ${what} or another after it, so it can't tell which ${kind} is this one's.`
+                    : `This page couldn't read the Machine's ${kind}s while it steamed, so it can't tell which is this one's.`}
                 </p>
               </InfoTip>
             </span>
@@ -198,14 +199,14 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
 
 /**
  * The path of the stored record of the curves' shot or steaming, once it has
- * ended and the record has arrived, null until then, or "unknown" where its
- * record can't be told from another's. Its own record is stored only once it
+ * ended and the record has arrived, null until then, or why its record can't
+ * be told from another's: "missed" or "unread". Its own record is stored only once it
  * has ended, so every record the page saw as the Machine's latest while it
  * ran, from the one it held as it began, is another's, such as one before it
  * stored late: the first other the page sees once it has ended, with the
- * stream `settled` after any gap, is linked, and kept. Where frames missed in
- * a gap may hold its end or another shot or steaming (`missed`), or no
- * Steam Record was read while it steamed, it is unknown. For a shot, the
+ * stream `settled` after any gap, is linked, and kept. Frames missed in a
+ * gap may hold its end or another shot or steaming (`missed`), or no Steam
+ * Record was read while it steamed (`unread`). For a shot, the
  * latest is the Machine's last Shot, as the page polls it, by its id, as a
  * Shot's `pulledAt` is rebuilt from its record and may be missing. For
  * steaming, it is the Machine's newest Steam Record, read from when steaming
@@ -214,7 +215,7 @@ const LiveCurvesSection = memo(function LiveCurvesSection({
  * whenever it is answered. Its component is keyed by the curves, so starts
  * afresh for each.
  */
-function useStoredRecord(machineId: string, curve: LiveCurve, settled: boolean, lastShotId: string | null): string | "unknown" | null {
+function useStoredRecord(machineId: string, curve: LiveCurve, settled: boolean, lastShotId: string | null): string | "missed" | "unread" | null {
   const { ended, missed } = curve;
   const steaming = curve.activity === "steaming";
   const seen = useRef<Set<string | null>>(null);
@@ -261,7 +262,7 @@ function useStoredRecord(machineId: string, curve: LiveCurve, settled: boolean, 
   }, [machineId, steaming, missed]);
   if (!ended) return null;
   if (linked !== undefined) return steaming ? `/steam-records/${encodeURIComponent(linked)}` : `/shots/${encodeURIComponent(linked)}`;
-  return missed || unread ? "unknown" : null;
+  return missed ? "missed" : unread ? "unread" : null;
 }
 
 /** Decaid's states while a shot is pulled. */
