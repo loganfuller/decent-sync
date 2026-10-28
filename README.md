@@ -76,6 +76,22 @@ Workflow follows and which follows the changes made on it, its steam, hot
 water and flush settings included. Each Shot is linked to its Recipe and
 Basket.
 
+[Milestone 4](https://github.com/loganfuller/decent-sync/issues/220) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/4)) is built.
+Admins and Staff edit each Machine's Machine Settings and its Tablet's Tablet
+Settings in the management interface while its Tablet is connected, Staff only
+some of them, and each Settings Edit is listed on the Machine's page with what
+came of it
+([ADR-0023](docs/adr/0023-decaid-and-the-machine-keep-their-settings.md)).
+Settings Edits are released from
+[v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0).
+Each Machine's page opens with its Live View
+([#258](https://github.com/loganfuller/decent-sync/issues/258)): what the
+Machine is doing and measuring, and the curves of a shot or of
+steaming as it runs, streamed from its Tablet while the page is open
+([ADR-0024](docs/adr/0024-live-view-streams-over-sse-relayed-through-postgresql.md)).
+The Live View is built for the release after 1.4.0.
+
 [Milestone 5](https://github.com/loganfuller/decent-sync/issues/277) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built,
 and released in
@@ -665,9 +681,9 @@ holding its spec, tickets and pull requests.
    [#134](https://github.com/loganfuller/decent-sync/issues/134).
 4. **[Machine management](https://github.com/loganfuller/decent-sync/milestone/4).**
    Each Machine's Machine Settings and its Tablet's Tablet Settings edited in
-   the management interface, live while its Tablet is connected (ADR-0023), each
-   Machine's Live View on its page (ADR-0024), then commands such as sleep and
-   wake. Specs:
+   the management interface, live while its Tablet is connected (ADR-0023), and
+   each Machine's Live View on its page (ADR-0024). Commands such as sleep and
+   wake aren't in it. Specs:
    [#220](https://github.com/loganfuller/decent-sync/issues/220) and, for the
    Live View, [#258](https://github.com/loganfuller/decent-sync/issues/258).
 5. **[Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5).**
