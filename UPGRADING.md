@@ -15,6 +15,8 @@ section).
 
 ## Unreleased
 
+## 1.5.0
+
 ### Check every tablet runs the 1.4.0 plugin before deploying
 
 This release is the first to raise the wire revision, for the Live View's
