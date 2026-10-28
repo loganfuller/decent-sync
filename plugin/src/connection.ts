@@ -518,7 +518,9 @@ export class SyncConnection {
       case "liveStart":
         // Streams on this connection until liveStop or its end. A server below the revision never asks.
         if (this.welcomed && peerHasWireRevision(this.serverRevision, LIVE_VIEW_WIRE_REVISION)) {
-          this.liveView.start((frame) => this.send(handle, frame));
+          // Only a Bengle has a milk probe. The hardware this connection's hello reported is its machine's: the plugin
+          // reconnects once the machine reports other hardware, or reports its hardware at last.
+          this.liveView.start((frame) => this.send(handle, frame), { bengle: this.sentHardware?.model === "Bengle" });
         }
         break;
       case "liveStop":

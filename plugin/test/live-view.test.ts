@@ -23,12 +23,12 @@ function machineFrames(file: string): Record<string, unknown>[] {
  * Decaid's sockets as the Live View opens them, each opening at once and
  * quiet until `push` sends a frame on those open on a URL. An open of a URL
  * in `refused` fails, as for want of a transport. Decaid lists the milk
- * probe `probe.id`, none while it is null.
+ * probe `probe.id`, none while it is null, and counts the plugin's lookups.
  */
 function decaidSockets() {
   const open = new Map<string, { url: string; listener?: (event: TransportEvent) => void }>();
   const refused = new Set<string>();
-  const probe: { id: string | null } = { id: null };
+  const probe: { id: string | null; lookups: number } = { id: null, lookups: 0 };
   let handles = 0;
   const transports: Transports = {
     open: async (url) => {
@@ -48,7 +48,10 @@ function decaidSockets() {
     transports,
     refused,
     probe,
-    findMilkProbe: async () => probe.id,
+    findMilkProbe: async () => {
+      probe.lookups++;
+      return probe.id;
+    },
     /** The URLs of the sockets open now. */
     urls: () => [...open.values()].map((socket) => socket.url).sort(),
     push: (url: string, frame: unknown) => {
@@ -254,12 +257,13 @@ describe("LiveView", () => {
   beforeEach(() => vi.useFakeTimers({ now: new Date("2026-10-27T21:04:57.000Z") }));
   afterEach(() => vi.useRealTimers());
 
-  function streaming(): { live: LiveView; sent: LiveFrame[]; logs: string[]; sockets: ReturnType<typeof decaidSockets> } {
+  /** A Live View streaming, for a DE1 unless `bengle` says the machine is a Bengle. */
+  function streaming({ bengle = false } = {}): { live: LiveView; sent: LiveFrame[]; logs: string[]; sockets: ReturnType<typeof decaidSockets> } {
     const sent: LiveFrame[] = [];
     const logs: string[] = [];
     const sockets = decaidSockets();
     const live = new LiveView((line) => logs.push(line), sockets.transports, sockets.findMilkProbe);
-    live.start(async (frame) => void sent.push(frame));
+    live.start(async (frame) => void sent.push(frame), { bengle });
     return { live, sent, logs, sockets };
   }
 
@@ -284,7 +288,7 @@ describe("LiveView", () => {
     live.stateUpdate(frames[0]);
     const idleSince = new Date().toISOString();
     vi.advanceTimersByTime(200);
-    live.start(async (frame) => void sent.push(frame));
+    live.start(async (frame) => void sent.push(frame), { bengle: false });
     for (const snapshot of frames.slice(1, 9)) {
       live.stateUpdate(snapshot);
       vi.advanceTimersByTime(100);
@@ -345,7 +349,7 @@ describe("LiveView", () => {
     // Stopped: the sockets close, and what they'd send goes nowhere.
     live.stop();
     expect(sockets.urls()).toEqual([]);
-    live.start(async (frame) => void sent.push(frame));
+    live.start(async (frame) => void sent.push(frame), { bengle: false });
     await vi.advanceTimersByTimeAsync(0);
     expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
     live.disconnected();
@@ -356,7 +360,7 @@ describe("LiveView", () => {
     const sockets = decaidSockets();
     const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     sockets.refused.add(LIVE_SOCKETS.devices);
-    live.start(async () => {});
+    live.start(async () => {}, { bengle: false });
     await vi.advanceTimersByTimeAsync(0);
     expect(sockets.urls()).not.toContain(LIVE_SOCKETS.devices);
     sockets.refused.clear();
@@ -377,10 +381,20 @@ describe("LiveView", () => {
     expect(sockets.urls()).toEqual([]);
   });
 
-  it("opens a milk probe's socket once Decaid lists one, forwarding its frames tagged with its id, and looks again while none is", async () => {
-    const { live, sent, sockets } = streaming();
+  it("looks for no milk probe on a DE1, even one Decaid were to list", async () => {
+    const { live, sockets } = streaming();
+    sockets.probe.id = "00:00:5E:00:53:21-milkprobe";
+    await vi.advanceTimersByTimeAsync(LIVE_SOCKET_RETRY_MS * 2);
+    expect(sockets.probe.lookups).toBe(0);
+    expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
+    live.stop();
+  });
+
+  it("opens a Bengle's milk probe's socket once Decaid lists one, forwarding its frames tagged with its id, and looks again while none is", async () => {
+    const { live, sent, sockets } = streaming({ bengle: true });
     await vi.advanceTimersByTimeAsync(0);
-    // No probe listed, as on a DE1: no socket for one.
+    // No probe attached: none listed, so no socket for one.
+    expect(sockets.probe.lookups).toBe(1);
     expect(sockets.urls()).toEqual(Object.values(LIVE_SOCKETS).sort());
 
     // One attached: found as Decaid lists it next, by an id that names its Bengle's device, and its socket opened.
@@ -423,9 +437,12 @@ describe("LiveView", () => {
   it("sends nothing once stopped, drops what it held, and changes nothing on a second start", async () => {
     const { live, sent } = streaming();
     const [first, second] = machineFrames("idle.json");
-    live.start(async () => {
-      throw new Error("A second start must not replace the first");
-    });
+    live.start(
+      async () => {
+        throw new Error("A second start must not replace the first");
+      },
+      { bengle: false },
+    );
     live.stateUpdate(first);
     live.stateUpdate(second);
     live.stop();
@@ -459,7 +476,7 @@ describe("LiveView", () => {
     for (let n = 0; n < 200; n++) live.stateUpdate(espresso[n % espresso.length]);
     live.disconnected();
     const next: LiveFrame[] = [];
-    live.start(async (frame) => void next.push(frame));
+    live.start(async (frame) => void next.push(frame), { bengle: false });
     live.stateUpdate(espresso[0]);
     expect(next.map((frame) => frame.frame)).toEqual([espresso[0]]);
   });
@@ -469,10 +486,13 @@ describe("LiveView", () => {
     const live = new LiveView(() => {}, sockets.transports, sockets.findMilkProbe);
     let refuse = true;
     const sent: LiveFrame[] = [];
-    live.start(async (frame) => {
-      if (refuse) throw Object.assign(new Error("Pending outbound bytes would exceed 1 MiB"), { code: "transport_resource_limit" });
-      sent.push(frame);
-    });
+    live.start(
+      async (frame) => {
+        if (refuse) throw Object.assign(new Error("Pending outbound bytes would exceed 1 MiB"), { code: "transport_resource_limit" });
+        sent.push(frame);
+      },
+      { bengle: false },
+    );
     const [idle] = machineFrames("idle.json");
     live.stateUpdate({ ...idle, state: { state: "espresso", substate: "preinfusion" } });
     // Not every timer: while streaming with no milk probe listed, the plugin looks for one again and again.

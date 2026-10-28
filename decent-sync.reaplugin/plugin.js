@@ -3429,7 +3429,7 @@ var __decentSync = (() => {
     shotSettings: "ws://localhost:8080/ws/v1/machine/shotSettings",
     devices: "ws://localhost:8080/ws/v1/devices"
   };
-  var SOCKETS = [...Object.keys(LIVE_SOCKETS), "sensor"];
+  var SOCKET_SOURCES = Object.keys(LIVE_SOCKETS);
   function sensorSocket(sensorId) {
     return `ws://localhost:8080/ws/v1/sensors/${encodeURIComponent(sensorId)}/snapshot`;
   }
@@ -3445,11 +3445,14 @@ var __decentSync = (() => {
       __publicField(this, "handles", /* @__PURE__ */ new Map());
       __publicField(this, "opening", /* @__PURE__ */ new Set());
       __publicField(this, "retry");
+      /** The sockets wanted while open: LIVE_SOCKETS', and on a Bengle its milk probe's. */
+      __publicField(this, "sockets", SOCKET_SOURCES);
     }
-    /** Opens each socket not open or opening. */
-    open() {
+    /** Opens each socket not open or opening, the milk probe's only where the machine is a Bengle, as only a Bengle has one. */
+    open({ bengle }) {
       this.wanted = true;
-      for (const socket of SOCKETS) this.openSocket(socket);
+      this.sockets = bengle ? [...SOCKET_SOURCES, "sensor"] : SOCKET_SOURCES;
+      for (const socket of this.sockets) this.openSocket(socket);
     }
     /** Closes every socket, and one still opening once it opens. */
     close() {
@@ -3503,7 +3506,7 @@ var __decentSync = (() => {
       if (this.retry !== void 0) return;
       this.retry = setTimeout(() => {
         this.retry = void 0;
-        for (const socket of SOCKETS) this.openSocket(socket);
+        for (const socket of this.sockets) this.openSocket(socket);
       }, LIVE_SOCKET_RETRY_MS);
     }
   };
@@ -3521,12 +3524,16 @@ var __decentSync = (() => {
       __publicField(this, "sockets");
       this.sockets = new LiveSockets(transports, findMilkProbe2, (source, text, sensorId) => this.socketFrame(source, text, sensorId));
     }
-    /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
-    start(send) {
+    /**
+     * The server's `liveStart`: streams on the connection given, opening
+     * Decaid's sockets, a milk probe's too where the connection's machine is a
+     * Bengle, unless already streaming.
+     */
+    start(send, { bengle }) {
       if (this.streaming) return;
       this.streaming = send;
       this.droppedLarge = false;
-      this.sockets.open();
+      this.sockets.open({ bengle });
     }
     /**
      * The server's `liveStop`: closes Decaid's sockets and drops the frames
@@ -5203,7 +5210,7 @@ var __decentSync = (() => {
           break;
         case "liveStart":
           if (this.welcomed && peerHasWireRevision(this.serverRevision, LIVE_VIEW_WIRE_REVISION)) {
-            this.liveView.start((frame) => this.send(handle, frame));
+            this.liveView.start((frame) => this.send(handle, frame), { bengle: this.sentHardware?.model === "Bengle" });
           }
           break;
         case "liveStop":

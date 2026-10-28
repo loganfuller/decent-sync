@@ -346,12 +346,15 @@ describe("the Live View", () => {
     expect(tablet.openDecaidSockets()).toEqual([...ALL_SOCKETS, "sensor"].sort());
   });
 
-  it("opens no sensor's socket on a DE1's tablet, whatever other sensors Decaid lists", async () => {
-    // Decaid's simulated sensors, a sensor basket and a debug port, but no milk probe.
+  it("opens no sensor's socket on a DE1's tablet, whatever sensors Decaid lists", async () => {
+    // Decaid's simulated sensors, a sensor basket and a debug port, and a milk probe, which Decaid lists only on a
+    // Bengle: listed on a DE1 here, it shows the plugin looks for one only on a Bengle.
     const { machine, tablet } = await connected("No probe", { sensors: simulatedDevices()["/sensors"] });
+    tablet.attachMilkProbe();
     const stream = await watching(machine, tablet);
     await expect.poll(() => tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
-    // Long enough for the plugin to look through Decaid's sensors again three times: every 5 s at the tablet's 50 times pace.
+    // Long enough for the plugin to have opened sockets it couldn't at first three times over: every 5 s at the tablet's
+    // 50 times pace.
     await new Promise((resolve) => setTimeout(resolve, 300));
     expect(tablet.openDecaidSockets()).toEqual(ALL_SOCKETS);
     // Its connection, and Decaid's four sockets: never another.

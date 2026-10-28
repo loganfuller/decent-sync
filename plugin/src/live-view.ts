@@ -191,7 +191,7 @@ export type SocketSource = keyof typeof LIVE_SOCKETS;
 /** Decaid's local sockets the Live View reads: those of LIVE_SOCKETS, and a Bengle's milk probe's, `sensor`. */
 type LiveSocket = SocketSource | "sensor";
 
-const SOCKETS: readonly LiveSocket[] = [...(Object.keys(LIVE_SOCKETS) as SocketSource[]), "sensor"];
+const SOCKET_SOURCES = Object.keys(LIVE_SOCKETS) as SocketSource[];
 
 /**
  * The socket of a sensor Decaid lists, which sends its data, its latest as it
@@ -210,9 +210,9 @@ export const LIVE_SOCKET_RETRY_MS = 5_000;
 
 /**
  * Decaid's local sockets (LIVE_SOCKETS), open while the Live View streams:
- * each text frame one sends is passed to `received`. So is each a milk probe
- * sends, with its id, once Decaid lists one, as it does on a Bengle while one
- * is attached. A probe's socket stays open as the probe is detached and
+ * each text frame one sends is passed to `received`. On a Bengle, so is each
+ * its milk probe sends, with its id, once Decaid lists it, as it does while
+ * one is attached. A probe's socket stays open as the probe is detached and
  * attached again; opened while none is attached, it answers that it isn't
  * found, and closes. A socket that can't open, as where that would leave no
  * transport free for a connection to the server (`Transports`), or that
@@ -227,6 +227,8 @@ export class LiveSockets {
   private readonly handles = new Map<LiveSocket, string>();
   private readonly opening = new Set<LiveSocket>();
   private retry: ReturnType<typeof setTimeout> | undefined;
+  /** The sockets wanted while open: LIVE_SOCKETS', and on a Bengle its milk probe's. */
+  private sockets: readonly LiveSocket[] = SOCKET_SOURCES;
 
   constructor(
     private readonly transports: Transports,
@@ -235,10 +237,11 @@ export class LiveSockets {
     private readonly received: (source: LiveSocket, text: string, sensorId?: string) => void,
   ) {}
 
-  /** Opens each socket not open or opening. */
-  open(): void {
+  /** Opens each socket not open or opening, the milk probe's only where the machine is a Bengle, as only a Bengle has one. */
+  open({ bengle }: { bengle: boolean }): void {
     this.wanted = true;
-    for (const socket of SOCKETS) this.openSocket(socket);
+    this.sockets = bengle ? [...SOCKET_SOURCES, "sensor"] : SOCKET_SOURCES;
+    for (const socket of this.sockets) this.openSocket(socket);
   }
 
   /** Closes every socket, and one still opening once it opens. */
@@ -297,7 +300,7 @@ export class LiveSockets {
     if (this.retry !== undefined) return;
     this.retry = setTimeout(() => {
       this.retry = undefined;
-      for (const socket of SOCKETS) this.openSocket(socket);
+      for (const socket of this.sockets) this.openSocket(socket);
     }, LIVE_SOCKET_RETRY_MS);
   }
 }
@@ -333,12 +336,16 @@ export class LiveView {
     this.sockets = new LiveSockets(transports, findMilkProbe, (source, text, sensorId) => this.socketFrame(source, text, sensorId));
   }
 
-  /** The server's `liveStart`: streams on the connection given, opening Decaid's sockets, unless already streaming. */
-  start(send: (frame: LiveFrame) => Promise<void>): void {
+  /**
+   * The server's `liveStart`: streams on the connection given, opening
+   * Decaid's sockets, a milk probe's too where the connection's machine is a
+   * Bengle, unless already streaming.
+   */
+  start(send: (frame: LiveFrame) => Promise<void>, { bengle }: { bengle: boolean }): void {
     if (this.streaming) return;
     this.streaming = send;
     this.droppedLarge = false;
-    this.sockets.open();
+    this.sockets.open({ bengle });
   }
 
   /**
