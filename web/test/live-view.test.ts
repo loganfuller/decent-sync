@@ -62,7 +62,9 @@ describe("the Live View's events", () => {
     const relayed = (source: string, frame: Record<string, unknown>, stateSince?: string) =>
       readLiveEvent(JSON.stringify({ ...event, source, frame, stateSince }))!;
     const [levels, later] = framesOf("shot.json", "waterLevels");
-    let live = withLiveFrame({}, relayed("waterLevels", levels!));
+    // Nothing it shows: still nothing.
+    expect(withLiveFrame(undefined, relayed("sensor", { temperature: 40 }))).toBeUndefined();
+    let live = withLiveFrame(undefined, relayed("waterLevels", levels!));
     live = withLiveFrame(live, relayed("scale", { status: "disconnected" }));
     live = withLiveFrame(live, relayed("machine", snapshot, event.stateSince));
     live = withLiveFrame(live, relayed("waterLevels", later!));

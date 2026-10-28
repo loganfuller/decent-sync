@@ -44,8 +44,12 @@ export function readLiveEvent(data: unknown): RelayedLiveFrame | null {
   return relayed as unknown as RelayedLiveFrame;
 }
 
-/** The Live View with a relayed frame taken in, as the latest of its source; a frame of a source it doesn't show changes nothing. */
-export function withLiveFrame(live: LiveState, relayed: RelayedLiveFrame): LiveState {
+/**
+ * The Live View with a relayed frame taken in, as the latest of its source.
+ * A frame it doesn't show changes nothing: undefined, while no frame it shows
+ * has come, stays undefined.
+ */
+export function withLiveFrame(live: LiveState | undefined, relayed: RelayedLiveFrame): LiveState | undefined {
   switch (relayed.source) {
     case "machine": {
       const machine = liveMachineOf(relayed);

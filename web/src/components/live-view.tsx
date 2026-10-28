@@ -64,7 +64,7 @@ function useLiveView(machineId: string): LiveState | undefined {
       source = opened;
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
-        if (relayed) setLive((latest) => withLiveFrame(latest ?? {}, relayed));
+        if (relayed) setLive((latest) => withLiveFrame(latest, relayed));
       };
       opened.onerror = () => {
         if (opened.readyState !== EventSource.CLOSED) return;

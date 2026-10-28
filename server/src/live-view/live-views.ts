@@ -460,7 +460,8 @@ export class LiveViews implements OnModuleDestroy {
     if (typeof machineId !== "string" || typeof source !== "string" || /[\r\n]/.test(payload)) return;
     for (const stream of this.streams.get(machineId) ?? []) {
       if (stream.ended) continue;
-      // Its headers wait for its lease, so it is sent the latest of each source then.
+      // Its headers wait for its lease, so it is sent the latest of each source then. Each sensor is a source of its own
+      // here too, kept only for as long as the lease's insert takes.
       if (stream.leaseId === undefined) {
         const latest = liveSourceOf({ source: source as LiveSource, sensorId: typeof sensorId === "string" ? sensorId : undefined });
         stream.pending.delete(latest);

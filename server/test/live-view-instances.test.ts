@@ -178,12 +178,13 @@ describe("the Live View across instances", () => {
     await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(1);
   });
 
-  it("ends its streams once an instance listens again, so the browser's reopened stream receives the latest from Decaid's sockets", async () => {
+  it("ends its streams once an instance listens again, and the browser's reopened stream receives the latest from Decaid's sockets", async () => {
     const { machine, tablet } = await connected("Listening again, viewer");
     const viewing = await watching(machine, tablet, other);
     await expect.poll(() => sourcesAndFrames(viewing)).toEqual(expect.arrayContaining(openingSocketFrames()));
     // The viewer's instance stops listening for a moment, and may miss what is relayed meanwhile, such as the latest from
-    // Decaid's sockets relayed again for a viewer joining it.
+    // Decaid's sockets relayed again for a viewer joining it. This shows its streams end once it listens again; a
+    // reopened stream gets those as any viewer joining does.
     const notListening = () => other.output().split("Not listening for access changes").length - 1;
     const before = notListening();
     const database = await server.connectDatabase();

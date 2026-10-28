@@ -255,7 +255,7 @@ describe("the Live View", () => {
     tablet.reportSnapshot(idle[0]!);
 
     // Idle, ten of the scale's weights at once: the first goes, unless the scale sent one within the second, and the
-    // latest a second after.
+    // latest a second after. At most two, as long as the tablet hands the plugin all ten within its second.
     let from = tablet.sent.length;
     const weights = socketFrames("asleep.json", "scale").slice(0, 10);
     for (const weight of weights) tablet.reportOnSocket("scale", weight);
