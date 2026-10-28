@@ -13,7 +13,7 @@ import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, s
 import { type FieldWriteFailure, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
-import { type DecaidSocket, type DecaidSocketState, openingFrames } from "./live-fixtures.js";
+import { type DecaidSocket, type DecaidSocketState, type LiveFixtureFrame, openingFrames } from "./live-fixtures.js";
 import type { SimulatedDye2 } from "./simulated-dye2.js";
 import { rememberSecret, watchLog } from "./secrets.js";
 import { opened } from "./test-scope.js";
@@ -75,7 +75,9 @@ import { opened } from "./test-scope.js";
 //   the test's, unless `setPluginClockOffset` corrects it.
 // - `reportSnapshot` sends a machine snapshot, such as one recorded
 //   (live-fixtures.ts), in a `stateUpdate` event, its `timestamp` the
-//   tablet's local time as Decaid writes it.
+//   tablet's local time as Decaid writes it. `replayLive` replays a
+//   recording's snapshots and frames of Decaid's sockets, in parts, at a
+//   speed the test sets.
 // - Decaid's own sockets the Live View reads (`DecaidSocket`), as Decaid
 //   v0.9.0 serves them: as each opens, it sends the latest water levels,
 //   shot settings and device list, and the scale's connection status, at
@@ -175,8 +177,20 @@ const DECAID_SOCKETS = new Map<string, DecaidSocket>([
   ["/ws/v1/machine/shotSettings", "shotSettings"],
   ["/ws/v1/devices", "devices"],
 ]);
+/** The sources of Decaid's own sockets' frames. */
+const DECAID_SOURCES: ReadonlySet<string> = new Set(DECAID_SOCKETS.values());
 const MAX_PENDING_OUTBOUND_BYTES = 1 << 20;
 const MAX_QUEUED_INBOUND_BYTES = 1 << 20;
+
+/** A recording replayed on the tablet (`SimulatedTablet.replayLive`). */
+export interface LiveReplay {
+  /**
+   * Plays the frames from where the last part ended up to, not including,
+   * the one at index `end`, or to the last, at the replay's speed from now,
+   * and resolves once they are sent. One part plays at a time.
+   */
+  to(end?: number): Promise<void>;
+}
 
 export interface BuiltPlugin {
   id: string;
@@ -1016,6 +1030,15 @@ export class SimulatedTablet {
   }
 
   /**
+   * Saves a Steam Record in the tablet's Decaid, as steaming does as it ends:
+   * /steams/{id} answers with it from now on, and the plugin finds it as it
+   * next asks for the newest (`GET /steams/latest`).
+   */
+  storeSteam(steam: Record<string, unknown>): void {
+    this.api = { ...this.api, [`/steams/${encodeURIComponent(String(steam.id))}`]: steam };
+  }
+
+  /**
    * Changes the tablet's Workflow, as a barista or a skin does: /workflow
    * answers with it from now on, and the plugin is sent it in a
    * `workflowUpdated` event.
@@ -1063,8 +1086,44 @@ export class SimulatedTablet {
    * it from now on. Returns the snapshot as sent.
    */
   reportSnapshot(snapshot: Record<string, unknown>): Record<string, unknown> {
+    return this.sendSnapshot({ ...snapshot, timestamp: decaidNow() });
+  }
+
+  /**
+   * Replays a recording's frames (live-fixtures.ts) as Decaid sent them,
+   * `speed` times as fast as they were recorded, in parts the test plays one
+   * at a time (`LiveReplay.to`): machine snapshots in `stateUpdate` events,
+   * as `reportSnapshot` sends them, and the frames of Decaid's own sockets the
+   * Live View reads, as `reportOnSocket` sends them, leaving out any other,
+   * such as `shotState`. Each snapshot's `timestamp` is as far from the
+   * first's as recorded, the first's being the tablet's local time as the
+   * replay is made, so curves drawn from them read as recorded, whatever the
+   * speed and however long the test waits between parts.
+   */
+  replayLive(frames: readonly LiveFixtureFrame[], { speed = 1 }: { speed?: number } = {}): LiveReplay {
+    // Decaid's local times without an offset, read as UTC: their differences are exact.
+    const local = (time: unknown) => Date.parse(`${String(time)}Z`);
+    const first = frames.find(({ source }) => source === "machine")?.frame.timestamp;
+    const shift = first === undefined ? 0 : local(decaidNow()) - local(first);
+    let next = 0;
+    return {
+      to: async (end = frames.length) => {
+        const startedAt = performance.now();
+        const from = frames[next]?.ms ?? 0;
+        for (; next < end; next++) {
+          const { ms, source, frame } = frames[next]!;
+          const wait = startedAt + (ms - from) / speed - performance.now();
+          if (wait > 0) await new Promise((resolve) => setTimeout(resolve, wait));
+          if (source === "machine") this.sendSnapshot({ ...frame, timestamp: new Date(local(frame.timestamp) + shift).toISOString().slice(0, -1) });
+          else if (DECAID_SOURCES.has(source)) this.reportOnSocket(source as DecaidSocket, frame);
+        }
+      },
+    };
+  }
+
+  /** Sends a machine snapshot in a `stateUpdate` event, as it is; /machine/state answers with it from now on. */
+  private sendSnapshot(sent: Record<string, unknown>): Record<string, unknown> {
     if (!this.machineConnected) throw new Error("Decaid sends machine state updates only while a machine is connected");
-    const sent = { ...snapshot, timestamp: decaidNow() };
     this.api = { ...this.api, "/machine/state": sent };
     this.fire("stateUpdate", sent);
     return sent;

@@ -215,7 +215,7 @@ function MachineDetails({ id }: { id: string }) {
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
           <SetAsideDeliveriesCard machineId={machine.id} />
-          <LiveViewCard machineId={machine.id} profile={data?.workflow?.workflow.profile} />
+          <LiveViewCard machineId={machine.id} profile={data?.workflow?.workflow.profile} lastShotId={machine.lastShot?.id ?? null} />
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>

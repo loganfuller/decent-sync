@@ -1,22 +1,29 @@
-import { type ReactNode, useEffect, useState } from "react";
+import { type ReactNode, memo, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router";
 import { machineStateOf } from "@decent-sync/protocol";
+import { Curves } from "@/components/curves";
 import { InfoTip } from "@/components/info-tip";
 import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { profileStep } from "@/lib/curves";
+import { api, type SteamRecordPage } from "@/lib/api";
+import { SHOT_CURVES, profileStep } from "@/lib/curves";
+import { LIVE_STEAM_CURVES, type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamOpened } from "@/lib/live-curves";
 import { type LiveState, machineConnectedOf, readLiveEvent, reported, scaleOf, timeInState, waterLevelOf, withLiveFrame } from "@/lib/live-view";
+import { STATUS_POLL_MS } from "@/lib/use-polled";
 
 /** How long after the browser gives up on the stream, as on a refusal, the card opens it again. */
 const REOPEN_MS = 5_000;
 
 /**
  * The Machine's Live View (ADR-0024): what it is doing and measuring now, as
- * its Tablet streams it through the server while this page is open. Nothing
- * of it is stored. `profile` is the profile of the Machine's Workflow, if
- * known, which names a shot's steps.
+ * its Tablet streams it through the server while this page is open, and the
+ * curves of its latest shot or steaming. Nothing of it is stored. `profile`
+ * is the profile of the Machine's Workflow, if known, which names a shot's
+ * steps, and `lastShotId` the id of its last Shot, as the page last loaded
+ * it, or null for none.
  */
-export function LiveViewCard({ machineId, profile }: { machineId: string; profile?: unknown }) {
-  const live = useLiveView(machineId);
+export function LiveViewCard({ machineId, profile, lastShotId }: { machineId: string; profile?: unknown; lastShotId: string | null }) {
+  const { live, curves } = useLiveView(machineId);
   return (
     <Card role="region" aria-label="Live View">
       <CardHeader>
@@ -30,8 +37,12 @@ export function LiveViewCard({ machineId, profile }: { machineId: string; profil
         {!live && <CardDescription>Waiting for its Tablet to send what it is doing.</CardDescription>}
       </CardHeader>
       {live && (
-        <CardContent>
+        <CardContent className="grid gap-6">
           <LiveTiles live={live} profile={profile} />
+          {/* Keyed, so each shot or steaming starts with what the page held as it began. */}
+          {curves.curve && (
+            <LiveCurvesSection key={curves.curve.startedAt} machineId={machineId} curve={curves.curve} profile={profile} lastShotId={lastShotId} />
+          )}
         </CardContent>
       )}
     </Card>
@@ -39,16 +50,17 @@ export function LiveViewCard({ machineId, profile }: { machineId: string; profil
 }
 
 /**
- * The latest frame of each source of the Live View, from the Machine's
- * stream, which is open while the page shows it in a visible tab, as the
- * page's polling runs: it is closed while the tab is hidden, and opened again
- * once it is shown, so the plugin stops streaming once nobody sees it. The
- * browser opens a stream that ended again by itself; one it gave up on, as
- * when refused, is opened again after REOPEN_MS. Undefined until a frame
- * comes.
+ * The latest frame of each source of the Live View, undefined until a frame
+ * comes, and its curves, from the Machine's stream, which is open while the
+ * page shows it in a visible tab, as the page's polling runs: it is closed
+ * while the tab is hidden, and opened again once it is shown, so the plugin
+ * stops streaming once nobody sees it. The browser opens a stream that ended
+ * again by itself; one it gave up on, as when refused, is opened again after
+ * REOPEN_MS.
  */
-function useLiveView(machineId: string): LiveState | undefined {
+function useLiveView(machineId: string): { live: LiveState | undefined; curves: LiveCurves } {
   const [live, setLive] = useState<LiveState>();
+  const [curves, setCurves] = useState<LiveCurves>({});
   useEffect(() => {
     let source: EventSource | undefined;
     let reopen: ReturnType<typeof setTimeout> | undefined;
@@ -62,9 +74,13 @@ function useLiveView(machineId: string): LiveState | undefined {
       if (document.hidden) return;
       const opened = new EventSource(`/api/machines/${encodeURIComponent(machineId)}/live`);
       source = opened;
+      // Each time it opens, by itself too, frames may have been missed since the last.
+      opened.onopen = () => setCurves(withStreamOpened);
       opened.onmessage = (event: MessageEvent) => {
         const relayed = readLiveEvent(event.data);
-        if (relayed) setLive((latest) => withLiveFrame(latest, relayed));
+        if (!relayed) return;
+        setLive((latest) => withLiveFrame(latest, relayed));
+        setCurves((latest) => withCurvesFrame(latest, relayed));
       };
       opened.onerror = () => {
         if (opened.readyState !== EventSource.CLOSED) return;
@@ -84,7 +100,126 @@ function useLiveView(machineId: string): LiveState | undefined {
       close();
     };
   }, [machineId]);
-  return live;
+  return { live, curves };
+}
+
+/**
+ * The curves of the latest shot or steaming, drawn as its frames come, as its
+ * stored record's page draws them, and labelled partial where it began before
+ * the page's frames did. Once it has ended, the record it was stored as is
+ * linked as soon as it has arrived (`useStoredRecord`). Memoized, so only its
+ * own frames draw it again, not the scale's.
+ */
+const LiveCurvesSection = memo(function LiveCurvesSection({
+  machineId,
+  curve,
+  profile,
+  lastShotId,
+}: {
+  machineId: string;
+  curve: LiveCurve;
+  profile?: unknown;
+  lastShotId: string | null;
+}) {
+  const live = useMemo(() => liveSamples(curve, profile), [curve, profile]);
+  const stored = useStoredRecord(machineId, curve, lastShotId);
+  const shot = live.activity === "shot";
+  const what = shot ? "shot" : "steaming";
+  return (
+    <section aria-label="Curves" className="grid gap-4">
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+        <div className="flex items-center gap-1.5">
+          <h3 className="font-medium">{shot ? "Shot curves" : "Steaming curves"}</h3>
+          <InfoTip label="About the curves">
+            {shot ? (
+              <p>
+                Drawn as the shot runs, as its Shot's page draws them: seconds from the start of its profile, with Preheat shaded before 0 s.
+                Dashed lines are the targets the Machine reported, and grey vertical lines mark each change of profile step.
+              </p>
+            ) : (
+              <p>
+                Drawn as the Machine steams, as its Steam Record's page draws them: seconds from when it started steaming. Dashed lines are
+                the targets the Machine reported. Shaded time isn't steaming: Preparing before 0 s, then Paused, Puffing and Purge.
+              </p>
+            )}
+            <p>They stay until the next shot or steaming starts, and aren't stored.</p>
+          </InfoTip>
+        </div>
+        {curve.partial && (
+          <span className="flex items-center gap-1.5">
+            <Badge variant="outline">Partial</Badge>
+            <InfoTip label="About partial curves">
+              <p>The {what} began before this page's data started coming, so its start isn't drawn.</p>
+            </InfoTip>
+          </span>
+        )}
+        {curve.ended && (
+          <span className="text-sm">
+            {stored ? (
+              <Link to={stored.href} className="underline underline-offset-4">
+                Open its {stored.name}
+              </Link>
+            ) : (
+              <span className="text-muted-foreground">Waiting for its {shot ? "Shot" : "Steam Record"}</span>
+            )}
+          </span>
+        )}
+      </div>
+      {live.activity === "shot" ? (
+        <Curves curves={SHOT_CURVES} label="This shot" current={live.samples} />
+      ) : (
+        <Curves curves={LIVE_STEAM_CURVES} label="This steaming" current={live.samples} />
+      )}
+    </section>
+  );
+});
+
+/**
+ * The stored record of the curves' shot or steaming, once it has ended and the
+ * record has arrived: for a shot, the Machine's last Shot, once its id differs
+ * from the one the page held as the shot began, as a Shot's `pulledAt` is
+ * rebuilt from its record and may be missing; for steaming, the Machine's
+ * newest Steam Record, read as steaming began and every STATUS_POLL_MS once
+ * it has ended, while the page is shown, until a newer one appears. Null until
+ * then. Its component is keyed by the curves, so starts afresh for each.
+ */
+function useStoredRecord(machineId: string, curve: LiveCurve, lastShotId: string | null): { name: string; href: string } | null {
+  const steaming = curve.activity === "steaming";
+  // As the page held it when the shot began: only read as the component mounts.
+  const [heldShotId] = useState(lastShotId);
+  // The newest Steam Record as steaming began, undefined until read; then a newer one, once one appears.
+  const heldSteamRecordId = useRef<string | null | undefined>(undefined);
+  const [steamRecordId, setSteamRecordId] = useState<string>();
+  const { ended } = curve;
+  useEffect(() => {
+    if (!steaming || steamRecordId !== undefined || (heldSteamRecordId.current !== undefined && !ended)) return;
+    let stopped = false;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const read = async () => {
+      if (!document.hidden) {
+        try {
+          const path = `/steam-records?machineId=${encodeURIComponent(machineId)}&limit=1`;
+          const newest = (await api<SteamRecordPage>("GET", path)).steamRecords[0]?.id ?? null;
+          if (stopped) return;
+          if (heldSteamRecordId.current === undefined) heldSteamRecordId.current = newest;
+          else if (newest !== null && newest !== heldSteamRecordId.current) return setSteamRecordId(newest);
+          // Held, while it still steams: read again once it has ended.
+          if (!ended) return;
+        } catch {
+          // Read again next time.
+        }
+      }
+      if (!stopped) timer = setTimeout(() => void read(), STATUS_POLL_MS);
+    };
+    void read();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
+  }, [machineId, steaming, ended, steamRecordId]);
+  if (!ended) return null;
+  if (steaming) return steamRecordId === undefined ? null : { name: "Steam Record", href: `/steam-records/${encodeURIComponent(steamRecordId)}` };
+  return lastShotId !== null && lastShotId !== heldShotId ? { name: "Shot", href: `/shots/${encodeURIComponent(lastShotId)}` } : null;
 }
 
 /** Decaid's states while a shot is pulled. */
