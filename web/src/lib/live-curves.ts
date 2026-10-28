@@ -44,42 +44,58 @@ export interface LiveCurve {
   ended: boolean;
   /**
    * When each Machine State it reported began (`stateSince`), such as its
-   * Steaming's and its Purging's: the first frame after the stream opened
-   * again continues it only from one of these.
+   * Steaming's and its Purging's: the first frame after a gap in the stream
+   * continues it only from one of these.
    */
   since: readonly string[];
+  /**
+   * Whether frames the page missed in a gap may hold its end, or a shot or
+   * steaming after it: the first machine frame after the gap didn't continue
+   * it, and reported a Machine State begun since the last the page saw. Its
+   * record can't then be told from another's.
+   */
+  missed: boolean;
 }
 
 /** What the page has taken in toward its curves. */
 export interface LiveCurves {
   /**
    * When the plugin received the first machine frame since the stream last
-   * opened: a shot or steaming whose Machine State began before it began
-   * before the page's frames did. Only machine frames count, as the server
-   * sends a joining viewer earlier frames of other sources again.
+   * opened, or undefined in a gap: from when the stream closes or fails until
+   * its first machine frame once open again. A shot or steaming whose Machine
+   * State began before it began before the page's frames did. Only machine
+   * frames count, as the server sends a joining viewer earlier frames of
+   * other sources again.
    */
   firstFrameAt?: string;
-  /** The scale's latest frame with a weight, while it is connected. */
+  /** When the Machine State of the last machine frame taken in began. */
+  lastSince?: string;
+  /** The scale's latest frame with a weight, while it is connected and the stream open. */
   scale?: Record<string, unknown>;
   /** The latest shot's or steaming's curves, until the next starts. */
   curve?: LiveCurve;
 }
 
-/** The curves after the page's stream opened again: frames may have been missed meanwhile, so the next is its first. */
-export function withStreamOpened(curves: LiveCurves): LiveCurves {
-  return curves.firstFrameAt === undefined ? curves : { ...curves, firstFrameAt: undefined };
+/**
+ * The curves once the page's stream has closed or failed: a gap, in which
+ * frames may be missed, until its first machine frame once open again. The
+ * scale's weight is dropped, as one from before the gap may be long gone.
+ */
+export function withStreamGap(curves: LiveCurves): LiveCurves {
+  return curves.firstFrameAt === undefined && curves.scale === undefined ? curves : { ...curves, firstFrameAt: undefined, scale: undefined };
 }
 
 /**
  * The curves with a relayed frame taken in. A machine snapshot of a shot or
  * steaming adds a measurement to its curves, or starts new ones where the
- * last are over or are of the other activity. The first after the stream
- * opened again, when frames may have been missed, adds one only in a Machine
- * State the curves hold, which began as they say (`stateSince`); otherwise
- * the shot or steaming may be another, so it starts new ones. Any other
- * snapshot reporting a state ends them. A scale's weight is kept for the
- * snapshots after it, and dropped once the scale disconnects. Anything else
- * changes nothing, and gives back the same curves.
+ * last are over or are of the other activity. The first after a gap adds one
+ * only in a Machine State the curves hold, which began as they say
+ * (`stateSince`); otherwise the shot or steaming may be another, so it
+ * starts new ones. Any other snapshot reporting a state ends them, and the
+ * first after a gap, from a Machine State begun since the last the page saw,
+ * marks them `missed`. A scale's weight is kept for the snapshots after it,
+ * and dropped once the scale disconnects. Anything else changes nothing, and
+ * gives back the same curves.
  */
 export function withCurvesFrame(curves: LiveCurves, relayed: RelayedLiveFrame): LiveCurves {
   if (relayed.source === "scale") {
@@ -90,24 +106,28 @@ export function withCurvesFrame(curves: LiveCurves, relayed: RelayedLiveFrame): 
   const live = liveMachineOf(relayed);
   const named = live && machineStateOf(live.snapshot);
   if (!live || !named) return curves;
-  const firstFrameAt = curves.firstFrameAt ?? live.receivedAt;
+  const afterGap = curves.firstFrameAt === undefined;
+  const taken: LiveCurves = { ...curves, firstFrameAt: curves.firstFrameAt ?? live.receivedAt, lastSince: live.stateSince };
   const activity = ACTIVITIES[named.state];
   const measurement: LiveMeasurement = curves.scale ? { machine: live.snapshot, scale: curves.scale } : { machine: live.snapshot };
   const { curve } = curves;
   const held = curve?.since.includes(live.stateSince) ?? false;
-  if (curve && !curve.ended && activity === curve.activity && (curves.firstFrameAt !== undefined || held)) {
+  if (curve && !curve.ended && activity === curve.activity && (!afterGap || held)) {
     const since = held ? curve.since : [...curve.since, live.stateSince];
-    return { ...curves, firstFrameAt, curve: { ...curve, measurements: [...curve.measurements, measurement], since } };
+    return { ...taken, curve: { ...curve, measurements: [...curve.measurements, measurement], since } };
   }
   if (activity) {
     // Purging begins once steaming has: whenever it began, steaming began before it.
     const purge = activity === "steaming" && steamPhaseOf(live.snapshot) === "purge";
-    const partial = purge || Date.parse(live.stateSince) < Date.parse(firstFrameAt);
-    const started: LiveCurve = { activity, startedAt: live.receivedAt, measurements: [measurement], partial, ended: false, since: [live.stateSince] };
-    return { ...curves, firstFrameAt, curve: started };
+    const partial = purge || Date.parse(live.stateSince) < Date.parse(taken.firstFrameAt!);
+    const started: LiveCurve = { activity, startedAt: live.receivedAt, measurements: [measurement], partial, ended: false, since: [live.stateSince], missed: false };
+    return { ...taken, curve: started };
   }
-  if (curve && !curve.ended) return { ...curves, firstFrameAt, curve: { ...curve, ended: true } };
-  return firstFrameAt === curves.firstFrameAt ? curves : { ...curves, firstFrameAt };
+  const unchanged = !afterGap && live.stateSince === curves.lastSince;
+  if (!curve) return unchanged ? curves : taken;
+  const missed = curve.missed || (afterGap && live.stateSince !== curves.lastSince);
+  if (curve.ended && missed === curve.missed) return unchanged ? curves : taken;
+  return { ...taken, curve: { ...curve, ended: true, missed } };
 }
 
 /** A curve's samples, read as its stored record's page reads them: a shot's naming the steps of `profile`, its Workflow's. */

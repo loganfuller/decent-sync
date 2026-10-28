@@ -9,7 +9,7 @@ import steamRecord from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/st
 import steamTwoTapStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-two-tap-stop.json" with { type: "json" };
 import steam from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam.json" with { type: "json" };
 import { steamSamples } from "../src/lib/curves";
-import { type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamOpened } from "../src/lib/live-curves";
+import { type LiveCurve, type LiveCurves, liveSamples, withCurvesFrame, withStreamGap } from "../src/lib/live-curves";
 
 // The Live View's curves (#263), built from the test tablet's DE1Pro's
 // recorded streams (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259),
@@ -139,7 +139,7 @@ describe("the Live View's curves", () => {
     expect(take(relayed(shot), steaming).curve).toMatchObject({ activity: "shot", ended: true, partial: false });
   });
 
-  it("continues the curves after the stream opened again only in a Machine State they hold, and starts new ones otherwise", () => {
+  it("continues the curves after a gap in the stream only in a Machine State they hold, and starts new ones otherwise", () => {
     const steamFrames = relayed(steam);
     const pouring = first(steamFrames, "steam", "pouring", true);
     const purge = first(steamFrames, "steam", "pouringDone", true);
@@ -147,22 +147,22 @@ describe("the Live View's curves", () => {
     const steamingBefore = beforeClosing.curve!;
 
     // Opened again while the same Steaming runs: its curves continue, into the Purging after it.
-    const continued = take(steamFrames.slice(pouring + 40), withStreamOpened(beforeClosing)).curve!;
-    expect(continued).toMatchObject({ activity: "steaming", startedAt: steamingBefore.startedAt, partial: false, ended: true });
+    const continued = take(steamFrames.slice(pouring + 40), withStreamGap(beforeClosing)).curve!;
+    expect(continued).toMatchObject({ activity: "steaming", startedAt: steamingBefore.startedAt, partial: false, ended: true, missed: false });
     expect(continued.measurements.map(({ machine }) => machine)).toEqual([
       ...snapshotsIn(steamFrames.slice(0, pouring + 10), "steam"),
       ...snapshotsIn(steamFrames.slice(pouring + 40), "steam"),
     ]);
 
     // Opened again during its Purging, which began while the stream was closed: it may be another steaming's, so it is drawn as one, partial.
-    const purging = take(steamFrames.slice(purge + 2), withStreamOpened(beforeClosing)).curve!;
+    const purging = take(steamFrames.slice(purge + 2), withStreamGap(beforeClosing)).curve!;
     expect(purging).toMatchObject({ activity: "steaming", partial: true, ended: true });
     expect(purging.startedAt).not.toBe(steamingBefore.startedAt);
 
     // Opened again during another steaming, by Two Tap Stop: its own curves, partial.
     const otherFrames = relayed(steamTwoTapStop);
     const otherPouring = first(otherFrames, "steam", "pouring", true);
-    const other = take(otherFrames.slice(otherPouring + 10), withStreamOpened(beforeClosing)).curve!;
+    const other = take(otherFrames.slice(otherPouring + 10), withStreamGap(beforeClosing)).curve!;
     expect(other).toMatchObject({ activity: "steaming", partial: true, ended: true });
     expect(other.measurements.map(({ machine }) => machine)).toEqual(snapshotsIn(otherFrames.slice(otherPouring + 10), "steam"));
 
@@ -173,7 +173,33 @@ describe("the Live View's curves", () => {
     expect(take(flickered).curve!.measurements).toHaveLength(snapshotsIn(steamFrames, "steam").length);
   });
 
-  it("takes each snapshot with the scale's latest weight, and none once the scale disconnects", () => {
+  it("marks the curves missed where frames missed in a gap may hold their end or another shot or steaming", () => {
+    const frames = relayed(shot);
+    const pouring = first(frames, "espresso", "pouring");
+    const idleAfter = frames.findIndex(({ source, frame }, n) => n > pouring && source === "machine" && (frame.state as { state: string }).state === "idle");
+    // The shot ended in the gap: its end was missed.
+    expect(take(frames.slice(idleAfter), withStreamGap(take(frames.slice(0, pouring)))).curve).toMatchObject({ activity: "shot", ended: true, missed: true });
+    // Over before the gap, and idle since: nothing was missed.
+    const over = take(frames.slice(0, idleAfter + 5));
+    const idleSince = take(frames.slice(idleAfter + 20), withStreamGap(over));
+    expect(idleSince.curve).toMatchObject({ ended: true, missed: false });
+    expect(idleSince.curve!.measurements).toBe(over.curve!.measurements);
+    // Over before the gap, and idle again after a flush: what came between was missed, and stays so.
+    const flushed = take(relayed(flush).slice(-10), withStreamGap(over));
+    expect(flushed.curve).toMatchObject({ ended: true, missed: true });
+    expect(take(relayed(idle).slice(0, 20), withStreamGap(flushed)).curve!.missed).toBe(true);
+    // A gap the shot ran through: nothing missed.
+    expect(take(frames.slice(pouring + 30), withStreamGap(take(frames.slice(0, pouring)))).curve).toMatchObject({ ended: true, missed: false });
+  });
+
+  it("takes each snapshot with the scale's latest weight, none once the scale disconnects, and none from before a gap", () => {
+    const shotFrames = relayed(shot);
+    const pouring = first(shotFrames, "espresso", "pouring");
+    const weighed = take(shotFrames.slice(0, pouring));
+    expect(weighed.scale?.weight).toEqual(expect.any(Number));
+    const afterGap = take(shotFrames.slice(pouring).filter(({ source }) => source === "machine").slice(0, 3), withStreamGap(weighed));
+    expect(afterGap.curve!.measurements.slice(-3).map(({ scale }) => scale)).toEqual([undefined, undefined, undefined]);
+
     const frames = relayed(shot);
     const start = first(frames, "espresso", "preparingForShot");
     const disconnected = { machineId: MACHINE_ID, source: "scale", receivedAt: frames[start]!.receivedAt, frame: { status: "disconnected" } } as RelayedLiveFrame;
