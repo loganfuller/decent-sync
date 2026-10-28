@@ -117,6 +117,7 @@ describe("the Live View across instances", () => {
       const crashed = performance.now();
       await lost.kill();
       // Its viewer's stream drops with it.
+      await expect.poll(() => stream.ended).toBe(true);
       await expect(stream.close()).rejects.toThrow();
       await expect.poll(() => count(tablet.delivered, "liveStop"), { timeout: LEASE_MS + 15_000 }).toBe(1);
       // At the lease's expiry, 30 s after its last renewal, which came within a renewal's interval before the crash.

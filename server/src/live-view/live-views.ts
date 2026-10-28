@@ -111,13 +111,13 @@ interface Stream {
  *   leases lapse by themselves. Each renewal checks the viewer's session
  *   first, and once it has ended, as by signing out or the account's
  *   deactivation, ends the stream, deleting its lease and announcing that;
- *   the browser's reconnect is then refused. A renewal that finds the lease
- *   expired or gone, as after this instance stalled, puts it back and
- *   announces it. Closing a stream sets its lease to expire LEASE_SECONDS
- *   later, so a reload within that linger continues without the plugin being
- *   stopped and started. The linger only moves the lease's expiry later, and
- *   the instance holding the Machine's connection checks at the earliest, so
- *   it is not announced.
+ *   the browser's reconnect is then refused. Each renewal is announced, and
+ *   puts back a lease it finds expired or gone, as after this instance
+ *   stalled, so the plugin streams again. Closing a stream sets its lease to
+ *   expire LEASE_SECONDS later, so a reload within that linger continues
+ *   without the plugin being stopped and started. The linger only moves the
+ *   lease's expiry later, and the instance holding the Machine's connection
+ *   checks at the earliest, so it is not announced.
  * - **Starting the plugin.** Each connection this instance holds that may
  *   stream is sent `liveStart` while it holds its Machine and any of the
  *   Machine's leases is unexpired, and `liveStop` once not, only as that
@@ -413,36 +413,37 @@ export class LiveViews implements OnModuleDestroy {
   /**
    * Renews the stream's lease while its viewer's session lasts, or ends the
    * stream once the session has ended: signed out, its account deactivated,
-   * or expired. A lease found expired or gone, as after this instance
-   * stalled, is put back and announced, so the plugin streams again.
+   * or expired. A lease expired or gone, as after this instance stalled, is
+   * put back. Each renewal is announced: it judges by its transaction's
+   * clock, from before any wait, so the instance holding the Machine's
+   * connection may have found the lease expired meanwhile and stopped the
+   * plugin.
    */
   private async renew(stream: Stream): Promise<void> {
     const { leaseId, machineId, viewerSessionId } = stream;
     if (stream.ended || leaseId === undefined) return;
-    let renewal: "renewed" | "putBack" | "signedOut";
+    let signedIn: boolean;
     try {
-      renewal = await this.prisma.$transaction(async (tx) => {
+      signedIn = await this.prisma.$transaction(async (tx) => {
         // FOR KEY SHARE: a sign-out or deactivation deleting the session meanwhile waits, then deletes the lease with it.
         const [viewer] = await tx.$queryRaw<unknown[]>`
           SELECT 1 FROM sessions JOIN accounts ON accounts.id = sessions.account_id
           WHERE sessions.id = ${viewerSessionId}::uuid AND sessions.expires_at > now() AND accounts.deactivated_at IS NULL
           FOR KEY SHARE OF sessions`;
-        if (!viewer) return "signedOut";
-        const renewed = await tx.$executeRaw`
-          UPDATE live_view_leases SET expires_at = now() + make_interval(secs => ${LEASE_SECONDS}) WHERE id = ${leaseId}::uuid AND expires_at > now()`;
-        if (renewed > 0) return "renewed";
+        if (!viewer) return false;
+        // Never earlier than it was: the stream may have closed meanwhile, setting it to linger from later.
         await tx.$executeRaw`
           INSERT INTO live_view_leases (id, machine_id, session_id, expires_at)
           VALUES (${leaseId}::uuid, ${machineId}::uuid, ${viewerSessionId}::uuid, now() + make_interval(secs => ${LEASE_SECONDS}))
-          ON CONFLICT (id) DO UPDATE SET expires_at = EXCLUDED.expires_at`;
+          ON CONFLICT (id) DO UPDATE SET expires_at = GREATEST(live_view_leases.expires_at, EXCLUDED.expires_at)`;
         await notify(tx, "live_views", machineId);
-        return "putBack";
+        return true;
       });
     } catch (error) {
       return void this.logger.warn(`Could not renew a Live View's lease: ${String(error)}`);
     }
     // One closed meanwhile keeps its lease's linger, a lease put back included.
-    if (renewal === "signedOut" && !stream.ended) this.endStream(stream, { linger: false });
+    if (!signedIn && !stream.ended) this.endStream(stream, { linger: false });
   }
 
   /**

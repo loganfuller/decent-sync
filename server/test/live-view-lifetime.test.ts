@@ -3,6 +3,7 @@ import { AdminApi, type CreatedMachine, admin, signIn } from "./support/admin-ap
 import { machineSnapshots, stateOf } from "./support/live-fixtures.js";
 import { type LiveViewStream, openLiveView } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -151,6 +152,36 @@ describe("the Live View's lifetime", () => {
     await seen(deleted.tablet, [idle[0]!], deletedStream);
     await seen(expired.tablet, [idle[0]!], expiredStream);
     expect([deletedStream.ended, expiredStream.ended]).toEqual([false, false]);
+  });
+
+  it("starts the plugin again after a renewal that began before its lease expired and ended after the plugin was stopped", async () => {
+    const { machine, tablet } = await connected("Renewed late");
+    const stream = await watching(machine, tablet);
+    const holding = await server.connectDatabase();
+    const database = await server.connectDatabase();
+    try {
+      // The stream's next renewal begins, then waits for its viewer's session, held here. Nothing else is under way to
+      // wait for it.
+      await holding.query("BEGIN");
+      await holding.query("SELECT 1 FROM sessions FOR UPDATE");
+      await waitForLockWaits(server);
+      // Its lease expires meanwhile, as when a stall made the renewal late, and the instance holding the Machine's
+      // connection, checking at that expiry, stops the plugin.
+      await database.query(
+        `WITH lapsed AS (UPDATE live_view_leases SET expires_at = clock_timestamp() WHERE machine_id = $1::uuid) SELECT pg_notify('live_views', $2)`,
+        [machine.machine.id, machine.machine.id],
+      );
+      await expect.poll(() => count(tablet.delivered, "liveStop")).toBe(1);
+      await holding.query("COMMIT");
+    } finally {
+      await Promise.all([holding.end(), database.end()]);
+    }
+
+    // The renewal goes on by its transaction's clock, from before the expiry, so it finds the lease unexpired; it still
+    // has the plugin started again.
+    await expect.poll(() => count(tablet.delivered, "liveStart")).toBe(2);
+    await seen(tablet, [idle[0]!], stream);
+    expect(stream.ended).toBe(false);
   });
 
   it("starts a plugin unloaded mid-stream again on its next load, which kept nothing from before", async () => {
