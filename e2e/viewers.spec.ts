@@ -80,21 +80,29 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
   const ids = await libraryIds(page);
   const machineId = ((await (await page.request.get("/api/machines")).json()) as { machines: { id: string }[] }).machines[0]!.id;
 
-  /** Each page, what shows once all of it has loaded, a control Staff working at Uptown have there, and its filters. */
+  /**
+   * Each page, with what shows only once every part of it holding a control
+   * for this test's data has loaded, so a read of the page as it shows misses
+   * none (#382); a control Staff working at Uptown have there, from the last
+   * of those parts to load, which the Staff half, reading as `loaded` shows,
+   * misses if `loaded` comes too early; and its filters. The Locations table
+   * of a Profile, Basket or Tool shows before its rows, which wait for the
+   * list of Locations.
+   */
   const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
     { path: `/machines/${machineId}`, loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(), staffHave: "button Edit General" },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
     { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New batch" },
-    { path: `/library/bean-batches/${ids.batch}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Finish it at Uptown" },
+    { path: `/library/bean-batches/${ids.batch}`, loaded: uptownRow, staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
     { path: "/library/profiles", loaded: (page) => rows(page.getByRole("table", { name: "Profiles" })).first() },
-    { path: `/library/profiles/${encodeURIComponent(ids.profile)}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "switch Shown at Uptown" },
+    { path: `/library/profiles/${encodeURIComponent(ids.profile)}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },
     { path: "/library/baskets", loaded: (page) => rows(page.getByRole("table", { name: "Baskets" })).first(), staffHave: "button New Basket", filters: EQUIPMENT_FILTERS },
-    { path: `/library/baskets/${ids.basket}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Archive" },
-    { path: `/library/tools/${tool.tool.id}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Edit the Tool" },
+    { path: `/library/baskets/${ids.basket}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },
+    { path: `/library/tools/${tool.tool.id}`, loaded: uptownRow, staffHave: "switch Shown at Uptown" },
     { path: "/library/tools", loaded: (page) => rows(page.getByRole("table", { name: "Tools" })).first(), staffHave: "button New Tool", filters: EQUIPMENT_FILTERS },
     { path: "/locations", loaded: (page) => page.getByRole("list", { name: "Locations" }) },
     { path: `/locations/${location.id}`, loaded: (page) => page.getByRole("table", { name: "Recipe Slots" }), staffHave: "button New Recipe" },
@@ -187,6 +195,11 @@ async function changingControls(page: Page, filters: RegExp[] = []): Promise<str
   return controls
     .map(([, role, name]) => `${role} ${name ?? ""}`.trim())
     .filter((control) => !/^button About /.test(control) && !filters.some((filter) => filter.test(control)));
+}
+
+/** Uptown's row in the page's Locations table, holding the controls Staff working there have, or, for a Viewer, the states they set. */
+function uptownRow(page: Page): Locator {
+  return rows(page.getByRole("table", { name: "Locations" })).filter({ hasText: "Uptown" });
 }
 
 /** The filters of the Baskets' and Tools' lists. */
