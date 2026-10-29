@@ -34,6 +34,9 @@ still serves beside it:
   once the deploy is done.
 - A "Shown on the dashboard" value 1.6.0 saves then stays in the Recipe,
   where nothing reads it.
+- A tablet still connected to 1.6.0 is written its recipe records without
+  whether they are shown, which DYE2 and Streamline read as shown, until it
+  connects to this release.
 - A page of the management interface left open from 1.6.0 reloads at its
   next navigation. Until then, its Recipe page can't create a Recipe or use
   the switch, which this release refuses.
