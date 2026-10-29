@@ -4,6 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Decent Sync</title>
+    <!-- Paints the first frame in the chosen theme, before the app's JavaScript runs: src/lib/theme.ts reads the same
+         key and values, and keeps the page in the theme from then on. -->
+    <script>
+      (function () {
+        try {
+          var choice = localStorage.getItem("decent-sync-theme");
+          var dark = choice === "dark" || (choice !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
+          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+        } catch (error) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>
