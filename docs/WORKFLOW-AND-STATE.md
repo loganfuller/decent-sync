@@ -544,9 +544,9 @@ parts to the Recipe's content both ways.
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
   setting, RPM or Basket the Recipe holds none of; a Grinder, one of the
-  Location's not Archived; and a Bean Batch of the Recipe's own Bean, none
-  for a Recipe naming no Bean, which means no bean, as DYE2 v0.1.32 applies
-  one. A grind setting is taken as typed, a number where it reads as one
+  Location's not Archived; and a Bean Batch of the Recipe's own Bean, or any
+  batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
+  means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment

@@ -126,9 +126,13 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
     expect(valuesFromWorkflow(CONTENT, target, HELD, changed, context)).toEqual({ values: { grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG }, parts: ["grinder", "batch"] });
     // A batch of another Bean, a Grinder of no Location's, a value cleared: the Machine's own.
     expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch: "b3", grinder: "g9", basket: null, dose: null }, context)).toEqual({ values: {}, parts: [] });
-    // A Recipe naming no Bean means no bean, as DYE2 v0.1.32 applies one: it takes no batch, nor its Bean, on a load or after.
+    // A Recipe naming no Bean takes a batch picked while it is loaded with its Bean, as any change, but none on a load: it means
+    // no bean as it is loaded, as DYE2 v0.1.32 applies one.
     const { beanId: _, beanBatchId: __, ...beanless } = CONTENT;
-    expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), HELD, { ...HELD, batch: "b3" }, context).values).toEqual({});
+    expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), HELD, { ...HELD, batch: "b3" }, context).values).toEqual({
+      beanBatchId: OTHER_BEANS_BATCH,
+      beanId: "55555555-5555-4555-8555-555555555555",
+    });
     expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), null, { ...HELD, batch: "b3" }, context).values).not.toHaveProperty("beanBatchId");
   });
 

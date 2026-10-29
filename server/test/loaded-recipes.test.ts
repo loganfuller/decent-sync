@@ -406,20 +406,18 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await recipe(brazil)).content.showOnDashboard).toBe(true);
   });
 
-  it("loads a Recipe naming no Bean, applied from DYE2's Select Recipe page or Streamline's strip, with no bean batch, and it takes none, its records written the nulls for one where a tablet's lacks them", async () => {
+  it("loads a Recipe naming no Bean, applied from DYE2's Select Recipe page or Streamline's strip, with no bean batch, which it takes none of, its records written the nulls for one where a tablet's lacks them, and takes a batch picked then", async () => {
     const { machine, tablet, ethiopia, edit, quiet } = await lab("No bean", 47311);
     await expect.poll(() => dye2GlobalIdOf(record(tablet, BLANK)), { timeout: 15_000 }).not.toBeNull();
     const blank = dye2GlobalIdOf(record(tablet, BLANK))!;
     expect((await recipe(blank)).content).not.toHaveProperty("beanId");
     const batchSet = () => tablet.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: "No bean Fixture Brazil", coffeeRoaster: "Fixture Roasters" } });
 
-    // From DYE2's Select Recipe page, which sends the nulls (DYE2 v0.1.32, ce38984).
+    // From DYE2's Select Recipe page, which sends the nulls (DYE2 v0.1.32, ce38984): the load takes no batch into it.
     await batchSet();
     await selectRecipeInDye2(tablet, BLANK);
     await loads(machine, blank);
     expect([context(tablet).beanBatchId, context(tablet).coffeeName]).toEqual([undefined, undefined]);
-    // A batch picked afterwards is the Machine's own: the Recipe takes no Bean from the Workflow.
-    await batchSet();
     await quiet();
     expect((await recipe(blank)).content).not.toHaveProperty("beanId");
     expect((await recipe(blank)).content).not.toHaveProperty("beanBatchId");
@@ -454,6 +452,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect([context(tablet).beanBatchId, context(tablet).coffeeName, context(tablet).coffeeRoaster]).toEqual([undefined, undefined, undefined]);
     await quiet({ streamline });
     expect((await recipe(blank)).content).not.toHaveProperty("beanId");
+    // A batch picked while it is loaded is a change like any other: the Recipe takes it, with its Bean.
+    await batchSet();
+    await expect.poll(async () => (await recipe(blank)).content.beanBatchId, { timeout: 15_000 }).toEqual(expect.any(String));
+    expect((await recipe(blank)).content.beanId).toEqual(expect.any(String));
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(blank);
   });
 
   it("saves a grind setting typed as text into the Recipe as typed, through DYE2 or itself, and keeps comparing numbers as numbers", async () => {

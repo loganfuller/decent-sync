@@ -481,6 +481,25 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/next-bag-brazil-48141")).shot.recipe?.id).toBe(one);
   });
 
+  it("takes a batch picked on A as a Recipe naming no Bean's, with its Bean, as any change, writing it into C's, the Recipe loaded", async () => {
+    const { machines, a, c, one, quiet } = await lab("No bean bag", 48701);
+    // The Recipe left with no Bean in the management interface: its records hold the nulls for one, and the Machines keep
+    // their batch, which loading it again would clear.
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { beanBatchId: null } })).status).toBe(200);
+    expect((await recipe(one)).content).not.toHaveProperty("beanId");
+    await expect.poll(() => (record(c, ETHIOPIA)?.workflow as { context: Record_ }).context, { timeout: 15_000 }).toMatchObject({ coffeeName: null, coffeeRoaster: null, beanBatchId: null });
+    await quiet();
+    // A batch picked on A is a change like any other: the Recipe takes it, with its Bean (the owner, 2026-10-28), and C's
+    // Workflow is written it.
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
+    expect((await recipe(one)).content.beanId).toEqual(expect.any(String));
+    await expect.poll(() => record(c, ETHIOPIA)?.beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
   it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe loaded and saving, a Shot pulled then linked", async () => {
     const { here, machines, a, c, one, quiet } = await lab("New roast", 48501);
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);

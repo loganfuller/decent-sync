@@ -22,9 +22,10 @@ This release follows DYE2 v0.1.32
 every tablet within 12 hours of its release. Check that a tablet whose DYE2 is
 pinned runs v0.1.32 or later. Three things change with it:
 
-- A Recipe naming no Bean means no bean: loading it, from DYE2 or
-  Streamline's strip, leaves the Machine with no bean batch, and it no longer
-  takes one from the Machine. The server writes such a Recipe's records once
+- A Recipe naming no Bean means no bean as it is loaded: loading it, from
+  DYE2 or Streamline's strip, leaves the Machine with no bean batch, and the
+  load no longer gives it the Machine's. A batch picked once it is loaded is
+  saved into it, with its Bean, as before. The server writes such a Recipe's records once
   more, with DYE2's explicit nulls for a Bean.
 - A Recipe is on Streamline's strip exactly while it is in a Recipe Slot. The
   Recipe page's "Shown on the dashboard" switch is gone, and hiding a recipe

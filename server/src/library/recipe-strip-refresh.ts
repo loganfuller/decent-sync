@@ -5,16 +5,12 @@ import { type EditSource, recordVersion } from "./history.js";
 import { lockLocation, transactionTime } from "./location-state.js";
 import { placedIn } from "./recipes.js";
 
-/** How often each server instance looks for Recipes whose `showOnDashboard` is not their slot's. */
-export const RECIPE_STRIP_REFRESH_INTERVAL_MS = 60 * 60_000;
-
 /** No account's or tablet's: the server's own change. */
 const SERVER: EditSource = { machineId: null, tabletId: null, accountId: null };
 
 /**
- * Brings each Recipe's `showOnDashboard` to its slot's, as the server starts
- * and then every hour, on every instance, in the background, as
- * `CurvesRefresh` computes curves again. A Recipe is on Streamline's strip
+ * Brings each Recipe's `showOnDashboard` to its slot's, once, as each server
+ * instance starts, in the background. A Recipe is on Streamline's strip
  * exactly while it is in a Recipe Slot (DYE2 v0.1.32, #371), and this
  * release writes its records so (`recipeRecord`) and keeps `showOnDashboard`
  * in its content set from its slot (`placedIn`), which the previous release
@@ -24,39 +20,30 @@ const SERVER: EditSource = { machineId: null, tabletId: null, accountId: null };
  * of its slot, as DYE2 v0.1.32 takes one it saves hidden out of its slot, so
  * the strip shows what it showed, a version of its own from the server, and
  * its Location's tablets are written. Any other Recipe's `showOnDashboard` is
- * set from its slot. The hourly runs take those the previous release leaves
- * so while it still serves beside this one. Each Location's are changed
- * under its lock, as a slot is. A run that fails is logged, and the next
- * tries again.
+ * set from its slot. One the previous release leaves hidden in a slot while
+ * it still serves beside this one, as during a deploy, is written shown in
+ * that slot by this release meanwhile, and taken out of it only as an
+ * instance starts again, this release's or the next's. Each Location's are
+ * changed under its lock, as a slot is. A run that fails is logged; the next
+ * start tries again.
  */
 @Injectable()
 export class RecipeStripRefresh implements OnApplicationBootstrap, OnModuleDestroy {
   private readonly logger = new Logger("RecipeStripRefresh");
-  private timer: NodeJS.Timeout | undefined;
-  /** The run in progress, which shutdown waits for. */
+  /** The run, which shutdown waits for. */
   private running: Promise<void> | undefined;
   private stopped = false;
 
   constructor(private readonly prisma: PrismaService) {}
 
   onApplicationBootstrap(): void {
-    this.schedule(0);
+    this.running = this.run();
   }
 
-  /** Runs before the database disconnects: stops the timer, and lets a run in progress finish its Location. */
+  /** Runs before the database disconnects: lets the run, if it is still going, finish its Location. */
   async onModuleDestroy(): Promise<void> {
     this.stopped = true;
-    clearTimeout(this.timer);
     await this.running;
-  }
-
-  private schedule(delayMs: number): void {
-    this.timer = setTimeout(() => {
-      this.running = this.run().finally(() => {
-        this.running = undefined;
-        if (!this.stopped) this.schedule(RECIPE_STRIP_REFRESH_INTERVAL_MS);
-      });
-    }, delayMs);
   }
 
   private async run(): Promise<void> {
@@ -70,7 +57,7 @@ export class RecipeStripRefresh implements OnApplicationBootstrap, OnModuleDestr
         taken += await this.refresh(id);
       }
     } catch (error) {
-      this.logger.error(`Could not set Recipes' showOnDashboard from their slots; trying again in an hour: ${String(error)}`);
+      this.logger.error(`Could not set Recipes' showOnDashboard from their slots; the next start tries again: ${String(error)}`);
     }
     if (taken > 0) this.logger.log(`Took ${taken} ${taken === 1 ? "Recipe hidden from the strip" : "Recipes hidden from the strip"} out of ${taken === 1 ? "its slot" : "their slots"}`);
   }

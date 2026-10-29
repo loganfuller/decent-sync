@@ -560,10 +560,12 @@ tablets, below).
   the previous release, which writes its records from it (ADR-0025); that
   release's pages still send it, so the REST API takes it, false taking the
   Recipe out of its slot, or creating it in none, and true doing nothing. As
-  each instance starts, and every hour after, a Recipe in a slot whose
-  `showOnDashboard` is false, as the previous release left one, is taken
-  out of its slot, a version from the server, and every other Recipe's set
-  from its slot (`RecipeStripRefresh`). What it newly uses is checked against its Location as it is
+  each instance starts, once, a Recipe in a slot whose `showOnDashboard` is
+  false, as the previous release left one, is taken out of its slot, a
+  version from the server, and every other Recipe's set from its slot
+  (`RecipeStripRefresh`); one the previous release leaves so while it serves
+  beside this one, during a deploy, is written shown in that slot until an
+  instance starts again. What it newly uses is checked against its Location as it is
   set, under each item's row lock, but not what it uses already, so a Tool
   Archived since stays beside a new one: its Grinder is one of the
   Location's, not Archived, and a Bean Batch, of a Bean not Archived,
@@ -1164,9 +1166,9 @@ are never matched (ADR-0018).
   Machine into the recipe, so Decent Sync records it: a batch of the
   Recipe's Bean picked on a Machine with the Recipe loaded becomes the
   Recipe's, while a batch of another Bean stays that Machine's own, the
-  Recipe still loaded, and so does any batch for a Recipe naming no Bean,
-  which means no bean, as DYE2 v0.1.32 applies one (ADR-0022,
-  `WORKFLOW-AND-STATE.md`).
+  Recipe still loaded; a Recipe naming no Bean takes the batch picked, with
+  its Bean, but not on the load, which leaves it none, as it means no bean
+  as DYE2 v0.1.32 applies it (ADR-0022, `WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
 - **Its Grinder** is one of its Location's: a record naming another, or one

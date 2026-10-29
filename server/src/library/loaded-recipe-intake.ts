@@ -176,10 +176,11 @@ const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: 
  * Workflow as it stands (`now`): a dose, yield, grind setting (a number, or
  * text as typed, as DYE2 v0.1.32 saves one), RPM or Basket the Recipe holds
  * none of; a Grinder, one of the Location's; and a Bean Batch of the Recipe's
- * own Bean. A Recipe naming no Bean means no bean, as DYE2 v0.1.32 applies
- * one (`ce38984`), so it takes none. A batch of another Bean, a value
- * cleared, and anything the map does not hold stay the Machine's own. With
- * the parts they record.
+ * own Bean, or with its Bean for a Recipe naming no Bean, but not on a load:
+ * a Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
+ * applies one (`ce38984`), and a batch picked while it is loaded is a change
+ * like any other. A batch of another Bean, a value cleared, and anything the
+ * map does not hold stay the Machine's own. With the parts they record.
  */
 export function valuesFromWorkflow(
   content: Readonly<Record<string, unknown>>,
@@ -206,11 +207,12 @@ export function valuesFromWorkflow(
     }
   }
   const recipeBean = textOf(content.beanId)?.toLowerCase() ?? null;
-  if (recipeBean !== null && changed("batch")) {
+  if (changed("batch") && (recipeBean !== null || held !== null)) {
     const batchId = context.item("beanBatch", now.batch as string);
     const beanId = batchId === undefined ? undefined : context.batchBeans.get(batchId);
-    if (batchId !== undefined && beanId === recipeBean) {
+    if (batchId !== undefined && beanId !== undefined && (recipeBean === null || recipeBean === beanId)) {
       values.beanBatchId = batchId;
+      if (recipeBean === null) values.beanId = beanId;
       parts.push("batch");
     }
   }
