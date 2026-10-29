@@ -136,8 +136,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * and the Ethiopia's (in no slot) is applied from DYE2's Select Recipe page
    * on A and C, and the Brazil's (in slot 2) on D, which each loads, in that
    * order. A's machine is connected. `apiDelayMs` slows the answers A's
-   * Decaid gives the plugin, as the simulated tablet's option of that name
-   * does. `quiet()` resolves once every tablet and Machine of the lab, and
+   * Decaid gives the plugin, and `timeScale` sets how much faster than real
+   * time A's clock runs (50x by default), as the simulated tablet's options
+   * of those names do. `quiet()` resolves once every tablet and Machine of the lab, and
    * the Streamlines given, have nothing left under way (`quiesced`), so a
    * wrong write a step set off has landed before a check after it that it
    * did not happen.
@@ -145,7 +146,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   async function lab<WithD extends boolean = false>(
     scenario: string,
     serial: number,
-    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; d?: WithD } = {},
+    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; timeScale?: number; d?: WithD } = {},
   ) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
@@ -154,7 +155,13 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       d: options.d ? await api.createMachine(`${scenario} lab D`, here.id) : undefined,
     };
     const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: options.d ? new SimulatedDye2() : undefined };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
+    const a = syncingTablet(machines.a, server, {
+      api: recordedDye2MainTablet(String(serial), scenario),
+      dye2: dye2.a,
+      pollSeconds: options.pollSeconds,
+      apiDelayMs: options.apiDelayMs,
+      timeScale: options.timeScale,
+    });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
@@ -317,27 +324,32 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   });
 
   it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
-    let slow = false;
-    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here.
-    const { dye2, a, c, one, quiet } = await lab("Typed grind", 48711, { apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    const { dye2, a, c, one, quiet } = await lab("Typed grind", 48711);
     // Typed on A as `.5`, which DYE2 saves into the record as 0.5 (`grindValue`).
     await a.changeSettings({ context: { grinderSetting: ".5" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(0.5);
     await quiet();
-    slow = true;
+    // An edit of the grind reaches A's record, and Decaid refuses its write into A's Workflow, so the Workflow keeps `.5`.
+    a.refuseWrites = ({ method, route, body }) =>
+      method === "PUT" && route === "/workflow" && "grinderSetting" in (((body as Record_ | null)?.context ?? {}) as Record_) ? { status: 400, body: { error: "refused" } } : undefined;
     await patch(one, { grindSetting: 0.6 });
-    // The edit reaches A's record while its write into A's Workflow waits, and Streamline's Save changes on A meanwhile has
-    // DYE2 save the Workflow's dial into the record: its `.5`, as 0.5, over the edit's 0.6, a stale save of the grind.
     await expect.poll(() => variables(record(a, ETHIOPIA)).grind, { timeout: 15_000 }).toBe(0.6);
+    await expect.poll(() => a.writes.includes("PUT /workflow"), { timeout: 15_000 }).toBe(true);
+    await quiet();
+    a.refuseWrites = undefined;
     expect(context(a).grinderSetting).toBe(".5");
+    // Streamline's Save changes on A has DYE2 save the Workflow's dial into the record: its `.5`, as 0.5, over the edit's
+    // 0.6, a stale save of the grind the write is still to bring, which the server writes the Recipe's back over.
     expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/record`)).status).toBe(200);
     expect(dye2.a.recorded.at(-1)).toEqual({ id: ETHIOPIA, patch: { grind: 0.5 } });
+    await expect.poll(() => variables(record(a, ETHIOPIA)).grind, { timeout: 15_000 }).toBe(0.6);
+    // A, connecting again, is asked for the refused write again, which Decaid now takes.
+    a.loseNetwork();
+    a.restoreNetwork();
     await expect.poll(() => context(a).grinderSetting, { timeout: 15_000 }).toBe("0.6");
-    slow = false;
-    // Once A's report of the save, and any write it made the server due, are done.
     await quiet();
     expect((await recipe(one)).content.grindSetting).toBe(0.6);
-    expect([context(a).grinderSetting, context(c).grinderSetting, variables(record(a, ETHIOPIA)).grind]).toEqual(["0.6", "0.6", 0.6]);
+    expect([context(c).grinderSetting, variables(record(a, ETHIOPIA)).grind]).toEqual(["0.6", 0.6]);
   });
 
   it("keeps an RPM cleared on A while the plugin's read for writing a Recipe edit of it was on its way, writing the edit into none", async () => {

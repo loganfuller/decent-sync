@@ -7,8 +7,9 @@ order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)),
 but for a release that can't run beside the previous one, which takes a new
-major version and says so first. Earlier releases' notes may still ask that. A server that skipped a release
-takes each release in turn (the README's Upgrading section).
+major version and says so first. Earlier releases' notes may still ask that.
+A server that skipped a release takes each release in turn (the README's
+Upgrading section).
 
 Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see the README's Releasing
@@ -40,10 +41,10 @@ What changes for what 1.5.0 left:
 - A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it
   is on Streamline's strip exactly while it is in a Recipe Slot (below). As it
   migrates the database, this release takes each Recipe 1.5.0 left in a slot
-  but hidden out of that slot, so each strip still shows that button empty; put the Recipe
-  in a slot again to show it. The setting is dropped from every Recipe, and
-  each open Conflict over it is dismissed. Past versions in a Recipe's history
-  still show it.
+  but hidden out of that slot, so each strip still shows that button empty;
+  put the Recipe in a slot again to show it. The setting is dropped from
+  every Recipe, and each open Conflict over it is dismissed. Past versions in
+  a Recipe's history still show it.
 - A page of the management interface left open from 1.5.0 reloads at its next
   navigation. Until then, its Recipe page can't create a Recipe or change its
   "Shown on the dashboard" switch, which this release refuses.
