@@ -555,18 +555,14 @@ tablets, below).
   not set here (400). A new one holds no steam, hot water or flush setting,
   so a Machine loading it keeps its own. A Recipe is on Streamline's strip
   exactly while it is in a slot (DYE2 v0.1.32), so it has no switch of its
-  own for that: `showOnDashboard` in its content is set from its slot as it
-  moves (`placedIn` in `recipes.ts`), no edit and no version of its own, for
-  the previous release, which writes its records from it (ADR-0025); that
-  release's pages still send it, so the REST API takes it, false taking the
-  Recipe out of its slot, or creating it in none, and true doing nothing. As
-  each instance starts, once, a Recipe in a slot whose `showOnDashboard` is
-  false, as the previous release left one, is taken out of its slot, a
-  version from the server, and every other Recipe's set from its slot
-  (`RecipeStripRefresh`); one the previous release leaves so while it serves
-  beside this one, during a deploy, is written shown in that slot until an
-  instance starts again. What it newly uses is checked against its Location as it is
-  set, under each item's row lock, but not what it uses already, so a Tool
+  own for that, and its content no field: the REST API refuses
+  `showOnDashboard` (400), which 1.5.0 kept there. The release that dropped
+  it, which can't run beside 1.5.0, fixed what 1.5.0 left once, in its
+  migration (`20261029000000_recipes_shown_by_slot`): a Recipe in a slot
+  whose `showOnDashboard` was false left its slot, a version from the server,
+  the field left every Recipe's content and latest edits, and each open
+  Conflict over it was dismissed; past versions keep it as made. What it
+  newly uses is checked against its Location as it is set, under each item's row lock, but not what it uses already, so a Tool
   Archived since stays beside a new one: its Grinder is one of the
   Location's, not Archived, and a Bean Batch, of a Bean not Archived,
   Profile, Basket or Tool is not Archived; a
@@ -1121,8 +1117,7 @@ are never matched (ADR-0018).
   `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
   `equipmentCustom`, by each Tool's global id), `dose`, `yield`, `ratio`,
   `grindSetting` (a number, or text as typed), `rpm`, `brewTemperature`,
-  `showOnDashboard` (whether it is in a slot, set from it), the eleven
-  steam, hot water and flush settings (`steamTemperature`, `steamDuration`,
+  the eleven steam, hot water and flush settings (`steamTemperature`, `steamDuration`,
   `steamFlow`, `steamStopTemperature`, `hotWaterTemperature`,
   `hotWaterDuration`, `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`,
   `flushDuration` and `flushFlow`; Steam, hot water and flush settings,

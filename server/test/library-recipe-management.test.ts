@@ -177,8 +177,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       slot: 3,
       archived: false,
       batchFinished: false,
-      // On the strip, as it is in a slot, as the previous release reads it (ADR-0025).
-      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true },
+      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "vol" },
       uses: {
         bean: { id: bean.id, name: "Created Guji" },
         beanBatch: { id: batch.id, atLocation: true },
@@ -243,25 +242,27 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(history[0]).toMatchObject({ location: { id: lab.location.id }, source: { machine: null, account: { id: expect.any(String) } } });
   });
 
-  it("keeps a Recipe shown on the strip exactly while it is in a slot, taking the previous release's switch off as taking it out of its slot", async () => {
+  it("keeps a Recipe shown on the strip exactly while it is in a slot, which is no field of its content", async () => {
     const lab = await locationWith("Shown recipe lab", 45301, [server]);
     const tablet = lab.tablets[0]!;
     const slotted = await create(lab.location, 2, { name: "Shown Espresso" });
     const unslotted = await create(lab.location, null, { name: "Kept Espresso" });
-    // Its records are shown exactly while it is in a slot, and its content says so, as the previous release reads it.
-    expect([slotted.content.showOnDashboard, unslotted.content.showOnDashboard]).toEqual([true, false]);
     await expect.poll(() => [recordOf(tablet, slotted.id)?.showOnStreamlineDashboard, recordOf(tablet, unslotted.id)?.showOnStreamlineDashboard]).toEqual([true, false]);
-    // Moved, its content follows its slot, as no edit of its own.
-    expect((await move(unslotted.id, 3)).content.showOnDashboard).toBe(true);
-    expect((await move(unslotted.id, null)).content.showOnDashboard).toBe(false);
+    // Moved, its records follow its slot, and its content holds nothing of it.
+    expect((await move(unslotted.id, 3)).content).not.toHaveProperty("showOnDashboard");
+    await expect.poll(() => recordOf(tablet, unslotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: 3, showOnStreamlineDashboard: true });
+    expect((await move(unslotted.id, null)).content).not.toHaveProperty("showOnDashboard");
+    await expect.poll(() => recordOf(tablet, unslotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: null, showOnStreamlineDashboard: false });
     expect((await versions(unslotted.id)).map((version) => Object.keys(version.fields))).toEqual([["slot"], ["slot"], expect.any(Array)]);
-    // The previous release's page still sends its switch (ADR-0025): off takes the Recipe out of its slot, or creates it in
-    // none; on is what a slot is already.
-    expect(await edit(slotted.id, { showOnDashboard: true })).toMatchObject({ slot: 2, content: { showOnDashboard: true } });
-    expect(await edit(slotted.id, { showOnDashboard: false })).toMatchObject({ slot: null, content: { showOnDashboard: false } });
-    await expect.poll(() => recordOf(tablet, slotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: null, showOnStreamlineDashboard: false });
-    expect(await create(lab.location, 4, { name: "Hidden Espresso", showOnDashboard: false })).toMatchObject({ slot: null, content: { showOnDashboard: false } });
-    expect(await create(lab.location, 4, { name: "Placed Espresso", showOnDashboard: true })).toMatchObject({ slot: 4, content: { showOnDashboard: true } });
+    // 1.5.0's switch is no field the REST API takes, in an edit or a new Recipe.
+    for (const answer of [
+      await api.call("PATCH", `/recipes/${slotted.id}`, { content: { showOnDashboard: false } }),
+      await api.call("POST", "/recipes", { locationId: lab.location.id, slot: 4, content: { name: "Hidden Espresso", showOnDashboard: false } }),
+    ]) {
+      expect(answer.status).toBe(400);
+      expect(((await answer.json()) as { message: string[] }).message).toEqual(["showOnDashboard is not a field this can set"]);
+    }
+    expect(await recipe(slotted.id)).toMatchObject({ slot: 2 });
   });
 
   it("keeps a grind setting as a number where it reads as one, and otherwise as the text typed", async () => {
@@ -800,7 +801,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const lab = await api.createLocation("Settings recipe lab", "America/Chicago");
     const created = await create(lab, 1, { name: "Settings Espresso" });
     // DYE2's display modes are kept, but a new Recipe holds none of the settings: each Machine keeps its own.
-    expect(created.content).toMatchObject({ steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true });
+    expect(created.content).toMatchObject({ steamMode: "flow", hotWaterMode: "vol" });
+    expect(created.content).not.toHaveProperty("showOnDashboard");
     for (const field of Object.keys(SETTINGS)) expect(created.content, field).not.toHaveProperty(field);
 
     expect((await edit(created.id, SETTINGS)).content).toMatchObject(SETTINGS);

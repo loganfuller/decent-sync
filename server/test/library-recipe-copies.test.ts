@@ -233,8 +233,7 @@ describe("Recipes copied to a Location", { timeout: 90_000 }, () => {
     // Copied through its id in upper case, its copy's history still names it.
     const upper = await copy(original.id.toUpperCase(), { locationId: cafe.id, grinderId: null, beanBatchId: null });
     expect((await versions(upper.id)).at(-1)!.copiedFrom).toMatchObject({ id: original.id, name: "Choices Espresso" });
-    // In no slot, so hidden from the strip, as the previous release reads it (ADR-0025).
-    expect(none.content).toEqual({ name: "Choices Espresso", dose: 18, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: false });
+    expect(none.content).toEqual({ name: "Choices Espresso", dose: 18, steamMode: "flow", hotWaterMode: "vol" });
     // The lab's batch, not chosen, was not added at the cafe.
     expect((await api.get<{ batch: { locations: { location: { id: string } }[] } }>(`/bean-batches/${batch.id}`)).batch.locations.map((here) => here.location.id)).toEqual([
       lab.id,

@@ -293,9 +293,8 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * not, null for the Machine's own, and is checked against the range DYE2's
  * editor offers, a whole number where Decaid's field is an int: a steam
  * temperature with no "Off", and a milk stop of 0 for off. Whether it is
- * shown on Streamline's strip is whether it is in a slot, so
- * `showOnDashboard` is taken only as the previous release's pages send it
- * (ADR-0025), never kept as sent (recipe-edits.service.ts).
+ * shown on Streamline's strip is no field of its own: it is shown exactly
+ * while it is in a slot (recipes.ts).
  */
 const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   name: "text",
@@ -322,7 +321,6 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   flushTemperature: { min: 5, max: 95, whole: true },
   flushDuration: { min: 0, whole: true },
   flushFlow: { min: 1, max: 8 },
-  showOnDashboard: "flag",
 };
 
 /** Each kind of Library item, described once. */

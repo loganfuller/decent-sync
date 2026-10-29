@@ -177,8 +177,6 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
         brewTemperature: 93,
         grindSetting: 3,
         rpm: 1100,
-        // In no slot, so hidden from the strip, as the previous release reads it (ADR-0025).
-        showOnDashboard: false,
         steamMode: "flow",
         hotWaterMode: "vol",
         steamFlow: 1.2,
@@ -188,6 +186,8 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     );
     for (const field of ["beanBatchId", "grinderId", "basketId"]) expect(saved!.content[field]).toEqual(expect.any(String));
     expect(saved!.content).not.toHaveProperty("barista");
+    // Whether it is shown on the strip is whether it is in a slot, no field of its content.
+    expect(saved!.content).not.toHaveProperty("showOnDashboard");
     expect(slotted!.content).toMatchObject({ name: "Fixture Slot Recipe", profileId: ADAPTIVE, dose: 18, brewTemperature: 92, steamDuration: 30, hotWaterTemperature: 85 });
     expect(await recipesAt(cafe)).toEqual([]);
 

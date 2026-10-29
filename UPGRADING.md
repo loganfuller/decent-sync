@@ -5,8 +5,9 @@ letting Decaid update each tablet's plugin. From 1.4.0, the
 plugin and server of adjacent releases work together, upgraded in either
 order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
-([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)).
-Earlier releases' notes may still ask that. A server that skipped a release
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)),
+but for a release that can't run beside the previous one, which takes a new
+major version and says so first. Earlier releases' notes may still ask that. A server that skipped a release
 takes each release in turn (the README's Upgrading section).
 
 Each release's notes on GitHub start with its section here. Notes for the next
@@ -14,6 +15,42 @@ release wait under Unreleased until it is tagged (see the README's Releasing
 section).
 
 ## Unreleased
+
+### Stop every instance to deploy this release
+
+This release can't run beside 1.5.0, as the owner approved for it
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md), the
+escape hatch), so it takes a new major version and its deploy takes the
+server offline, from the moment the last 1.5.0 instance stops until the first
+of this release has started and migrated the database, usually a few seconds.
+Tablets keep what they capture meanwhile and send it once they reconnect.
+Deploy it this way:
+
+1. Stop every instance of 1.5.0.
+2. Start this release, on as many instances as before.
+
+On fly.io, a blue-green deploy would start it beside 1.5.0, so scale the app
+to no VMs first, then deploy it and scale it back to two, as a first deploy
+does (the README's fly.io section): `fly scale count 0`, `fly deploy` with
+this release's image, then `fly scale count 2`. With Docker Compose, pull and
+restart as for any release.
+
+What changes for what 1.5.0 left:
+
+- A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it
+  is on Streamline's strip exactly while it is in a Recipe Slot (below). As it
+  migrates the database, this release takes each Recipe 1.5.0 left in a slot
+  but hidden out of that slot, so each strip still shows that button empty; put the Recipe
+  in a slot again to show it. The setting is dropped from every Recipe, and
+  each open Conflict over it is dismissed. Past versions in a Recipe's history
+  still show it.
+- A page of the management interface left open from 1.5.0 reloads at its next
+  navigation. Until then, its Recipe page can't create a Recipe or change its
+  "Shown on the dashboard" switch, which this release refuses.
+- Let each tablet update its plugin promptly, as Decaid does within 12 hours.
+  The server writes the records of each Recipe naming no Bean once more, with
+  DYE2's explicit nulls for one (below), and only this release's plugin makes
+  that write.
 
 ### Tablets need DYE2 v0.1.32
 
@@ -25,16 +62,15 @@ pinned runs v0.1.32 or later. Three things change with it:
 - A Recipe naming no Bean means no bean as it is loaded: loading it, from
   DYE2 or Streamline's strip, leaves the Machine with no bean batch, and the
   load no longer gives it the Machine's. A batch picked once it is loaded is
-  saved into it, with its Bean, as before. The server writes such a Recipe's records once
-  more, with DYE2's explicit nulls for a Bean.
+  saved into it, with its Bean, as before. The server writes such a Recipe's
+  records once more, with DYE2's explicit nulls for a Bean.
 - A Recipe is on Streamline's strip exactly while it is in a Recipe Slot. The
   Recipe page's "Shown on the dashboard" switch is gone, and hiding a recipe
   on a tablet, by Streamline's "Clear button" or DYE2's switch, takes it out
-  of its slot at its Location. As the server starts, it takes a Recipe that is
-  in a slot but hidden out of that slot, so each strip still shows that
-  button empty; put the Recipe in a slot again to show it.
+  of its slot at its Location.
 - A grind setting is kept as typed, as a three-dial grinder's `1.1.0`, and
-  shown and edited so; one that reads as a number stays a number.
+  shown and edited so; one that reads as a number stays a number, and `.5`
+  and `0.5` are one setting.
 
 ## 1.5.0
 

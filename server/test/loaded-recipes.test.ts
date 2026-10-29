@@ -403,7 +403,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // As it is put in a slot again in the management interface, its record is written shown there.
     expect((await api.call("PUT", `/recipes/${brazil}/slot`, { slot: 2 })).status).toBe(200);
     await expect.poll(() => record(tablet, BRAZIL), { timeout: 15_000 }).toMatchObject({ stripSlot: 2, showOnStreamlineDashboard: true });
-    expect((await recipe(brazil)).content.showOnDashboard).toBe(true);
+    expect((await recipe(brazil)).content).not.toHaveProperty("showOnDashboard");
   });
 
   it("loads a Recipe naming no Bean, applied from DYE2's Select Recipe page or Streamline's strip, with no bean batch, which it takes none of, its records written the nulls for one where a tablet's lacks them, and takes a batch picked then", async () => {

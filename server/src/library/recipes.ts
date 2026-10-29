@@ -68,18 +68,6 @@ import {
 // the tablet's, the Location's, under which its slots are decided, then the
 // Recipes' rows.
 
-/**
- * What putting a Recipe in a slot, or none (null), sets of its row: its
- * slot, and `showOnDashboard` in its content from it, which the previous
- * release (ADR-0025) writes its records' `showOnStreamlineDashboard` from and
- * shows; this one writes them shown exactly while the Recipe is in a slot
- * (`recipeRecord`), so both write the same. It is derived, so it is no edit
- * and has no version of its own: the slot's change is the version.
- */
-export function placedIn(slot: number | null): Prisma.Sql {
-  return Prisma.sql`slot = ${slot}::integer, content = jsonb_set(content, '{showOnDashboard}', to_jsonb(${slot !== null}::boolean))`;
-}
-
 /** The tablet's map of the items a recipe names, by their global ids and its own (ADR-0006). */
 async function readTabletIds(tx: Prisma.TransactionClient, tabletId: string): Promise<TabletIds> {
   const rows = await tx.$queryRaw<{ kind: MappedKind; itemId: string; localId: string }[]>`
@@ -304,10 +292,9 @@ export async function takeInRecipes(
     let itemId: string;
     if (step.kind === "add") {
       const content = recipeContent(view, await context(view));
-      // In no slot until its move below puts it in its record's (`placedIn`).
       const [created] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO recipes (id, location_id, record_id, content)
-        VALUES (gen_random_uuid(), ${locationId}::uuid, ${record.localId}, ${JSON.stringify({ ...content, showOnDashboard: false })}::jsonb)
+        VALUES (gen_random_uuid(), ${locationId}::uuid, ${record.localId}, ${JSON.stringify(content)}::jsonb)
         RETURNING id::text AS id`;
       itemId = created!.id;
       await recordJoined(tx, { kind: "recipe", id: itemId }, content, record.updatedAt, source);
@@ -372,7 +359,7 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
   const slots = new Map(rows.map((row) => [row.id, row.slot]));
   const made = moves.filter((move) => slots.has(move.itemId) && slots.get(move.itemId) === move.from);
   for (const move of made) {
-    if (move.from !== null) await tx.$executeRaw`UPDATE recipes SET ${placedIn(null)} WHERE id = ${move.itemId}::uuid`;
+    if (move.from !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
   }
   for (const move of made) {
     if (move.to === null) {
@@ -380,10 +367,10 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
       continue;
     }
     const taken = await tx.$queryRaw<{ id: string }[]>`
-      UPDATE recipes SET ${placedIn(null)} WHERE location_id = ${locationId}::uuid AND slot = ${move.to}::integer AND id <> ${move.itemId}::uuid
+      UPDATE recipes SET slot = NULL WHERE location_id = ${locationId}::uuid AND slot = ${move.to}::integer AND id <> ${move.itemId}::uuid
       RETURNING id::text AS id`;
     for (const { id } of taken) await recordVersion(tx, { kind: "recipe", id }, locationId, { slot: null }, source, move.at);
-    await tx.$executeRaw`UPDATE recipes SET ${placedIn(move.to)} WHERE id = ${move.itemId}::uuid`;
+    await tx.$executeRaw`UPDATE recipes SET slot = ${move.to}::integer WHERE id = ${move.itemId}::uuid`;
     await recordVersion(tx, { kind: "recipe", id: move.itemId }, locationId, { slot: move.to }, source, move.at);
   }
 }
@@ -398,7 +385,7 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
 async function takeOutOfSlot(tx: Prisma.TransactionClient, recipeId: string, locationId: string, slot: number | null, at: Date, source: ReturnType<typeof tabletSource>): Promise<void> {
   if (slot === null) return;
   const taken = await tx.$executeRaw`
-    UPDATE recipes SET ${placedIn(null)} WHERE id = ${recipeId}::uuid AND location_id = ${locationId}::uuid AND slot = ${slot}::integer`;
+    UPDATE recipes SET slot = NULL WHERE id = ${recipeId}::uuid AND location_id = ${locationId}::uuid AND slot = ${slot}::integer`;
   if (taken > 0) await recordVersion(tx, { kind: "recipe", id: recipeId }, locationId, { slot: null }, source, at);
 }
 

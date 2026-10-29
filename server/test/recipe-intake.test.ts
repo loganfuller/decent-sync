@@ -415,9 +415,6 @@ describe("DYE2's recipes as Recipes", () => {
     const inNone = recipeRecord(slot1Content, null, writing(recordedIds), GLOBAL.recipe);
     expect(recordOf(inSlot)).toMatchObject({ stripSlot: 3, showOnStreamlineDashboard: true });
     expect([inNone.stripSlot, inNone.showOnStreamlineDashboard]).toEqual([null, false]);
-    // Whatever the Recipe's content says of it, as the previous release keeps `showOnDashboard` there.
-    expect(recipeRecord({ ...slot1Content, showOnDashboard: false }, 3, writing(recordedIds), GLOBAL.recipe).showOnStreamlineDashboard).toBe(true);
-    expect(recipeRecord({ ...slot1Content, showOnDashboard: true }, null, writing(recordedIds), GLOBAL.recipe).showOnStreamlineDashboard).toBe(false);
     expect(editedPaths(editedContent(inSlot, inNone, null))).toEqual([]);
     expect(holdsRecipe(inNone, inSlot)).toBe(true);
     // A nameless one is called by its slot, or Recipe in none.
