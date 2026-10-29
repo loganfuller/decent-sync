@@ -1186,8 +1186,7 @@ export const STEAM_ON_FROM = 135;
  * again, so DYE2 takes the new profile as the recipe's (interim, until
  * decentespresso/dye2#38); the Workflow's changes between them are not sent.
  * A steam temperature is never written into a Workflow whose steam is off
- * (`steamOff`), as it would turn steam on: the plugin leaves it out, and
- * keeps it as the one Streamline turns steam back on at (ADR-0021). Decaid
+ * (`steamOff`), as it would turn steam on: the plugin leaves it out. Decaid
  * refuses to change the steam, hot water and flush settings while no
  * machine is connected (MACHINE_SETTING_PARTS), so the rest is then written
  * without them. Its answer's `record` is the Workflow's `context`, its

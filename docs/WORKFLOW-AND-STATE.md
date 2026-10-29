@@ -294,16 +294,16 @@ through `plugin/src/dye2.ts`, and writes what the pure
   the Recipe ends with its current values through the load and that Loaded
   Recipe write, which are worked out from which Recipe is loaded, never by
   matching values. Streamline adopts a Workflow change made elsewhere
-  (ADR-0021), so it takes the settings written as its own, but for the
-  steam temperature it turns steam back on at: with each load whose record
-  holds a steam temperature of 135 °C or more, written or left out for steam
-  off, the plugin sets Streamline's `last-steam-temp` to it where that key
-  holds a number (`keepStreamlineSteamTemperature`, interim until
-  decentespresso/streamline-js#156). Once Decaid takes a load's write, where
-  it changed the Workflow, the plugin pushes `{"what":"workflow"}` on its
-  `changed` endpoint, so Streamline's tiles show the steam, hot water and
-  flush settings its strip left out at once rather than at its 20 s poll
-  (ticket #207, `AI_RUNTIME_NOTES.md`, Skins).
+  (ADR-0021), so it takes the settings written as its own, and its heater
+  switch, with its own DYE2 switch on, turns steam back on at the steam
+  temperature of the recipe the Workflow names: the plugin sets nothing of
+  Streamline's (ADR-0022 accepts the gap, until #374, where that heater
+  switch with its DYE2 switch off, its settings page or Auto Steam may turn
+  steam on at another). Once Decaid takes a load's write, where it changed
+  the Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
+  endpoint, so Streamline's tiles show the steam, hot water and flush
+  settings its strip left out at once rather than at its 20 s poll (ticket
+  #207, `AI_RUNTIME_NOTES.md`, Skins).
 - **A write that changes the profile.** DYE2 clears the Workflow's
   `recipeId` once its profile moves off the one it held when the id
   appeared, by DYE2's fingerprint (`dye2Fingerprint` in `protocol/`, a copy
@@ -611,16 +611,14 @@ parts to the Recipe's content both ways.
   temperature out of `PUT /workflow` where the Workflow it has just read has
   steam off (`steamOff`), as a barista may turn steam off after the server
   plans the write. The steam time, flow and milk stop are written as usual,
-  as they do not turn steam on. With each write carrying a steam
-  temperature of 135 °C or more, written or left out, the plugin sets
-  Streamline's `last-steam-temp` to it, as on a load (A load, above). The
-  Workflow change the write causes is sent after the answer, which records
-  what Decaid returned as the Workflow's (`recordLoadedRecipeWritten`),
-  where it still names the record: each part the write set held as Decaid
-  returned it, and, by the latest edit the write carried, as taken by the
-  Workflow (`base`) each part it set, each it left out that the Workflow
-  holds as the Recipe does, or holds otherwise than before as a barista
-  changed it meanwhile, which the plugin kept, and a steam temperature left
+  as they do not turn steam on. The Workflow change the write causes is
+  sent after the answer, which records what Decaid returned as the
+  Workflow's (`recordLoadedRecipeWritten`), where it still names the
+  record: each part the write set held as Decaid returned it, and, by the
+  latest edit the write carried, as taken by the Workflow (`base`) each
+  part it set, each it left out that the Workflow holds as the Recipe
+  does, or holds otherwise than before as a barista changed it meanwhile,
+  which the plugin kept, and a steam temperature left
   out of a Workflow whose steam is off, so none is written again until the
   Recipe changes. Decaid refuses the steam, hot water and flush settings
   while no machine is connected: the rest is written, and those, still due,
