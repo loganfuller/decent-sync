@@ -19,8 +19,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // turned off is no edit, no steam temperature is written into a Workflow
 // whose steam is off, and Streamline turns steam back on at the steam
 // temperature of the recipe the Workflow names, with nothing of Streamline's
-// set (ADR-0021). With no Recipe loaded, a change of them stays on its
-// Machine (#190). Through the built plugin in simulated tablets
+// set (ADR-0021), but with its own DYE2 switch off at the one it remembers,
+// which DYE2 then saves into the Recipe, a gap ADR-0022 accepts. With no
+// Recipe loaded, a change of them stays on its Machine (#190). Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 and Streamline at cec5664 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), Machine A, and B in the tests that use
 // it, on one server instance and C on another sharing one database, with
@@ -385,6 +386,43 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     // Once C's report of the heater on, and Streamline's reply, are done.
     await quiet({ streamline });
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
+  });
+
+  it("has Streamline with its DYE2 switch off turn C's steam back on at the steam temperature it remembers, not one the Recipe was edited to while it was off, which DYE2 then saves into the Recipe: a gap ADR-0022 accepts", async () => {
+    const { machines, a, c, one, load, quiet } = await lab("Remembered off", 49141, { loadC: false });
+    // Streamline's own DYE2 switch off, as it is by default: its heater switch reads no selection, and the Recipe applied on
+    // DYE2's dashboard stays loaded.
+    const streamline = await startStreamline(c, { "last-steam-temp": 140 }, { dye2Enabled: false });
+    await load(c, machines.c, LIBRARY, one);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    // Once C's load is done.
+    await quiet({ streamline });
+    expect(streamline.remembered("last-steam-temp")).toBe(140);
+
+    // C's barista turns the heater off in Streamline, which keeps the temperature it was at, and the Recipe's steam
+    // temperature is edited meanwhile.
+    await streamline.setSteamHeater(false);
+    // Once C's report of the heater off, and Streamline's reply, are done; then a second, as the edit after it is timed by
+    // the server's clock.
+    await quiet({ streamline });
+    await apart();
+    await patch(one, { steamTemperature: 155 });
+    await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(155);
+    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
+    // Once the Loaded Recipe write into C is done; then a second, as C's change after it is timed by the tablet's clock.
+    await quiet({ streamline });
+    await apart();
+    expect([setting(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([0, 150]);
+
+    // Turned back on in Streamline, at the 150 it remembers, which the plugin set nothing of: the Machine's change, saved
+    // into the Recipe and written into A, until decentespresso/streamline-js#TBD.
+    await streamline.setSteamHeater(true);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    await expect.poll(async () => (await recipe(one)).content.steamTemperature, { timeout: 15_000 }).toBe(150);
+    await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    // Once C's report of the heater on, DYE2's save and the write into A are done.
+    await quiet({ streamline });
+    expect([recorded(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([150, 150]);
   });
 
   it("writes a hot water setting edited while C's machine is away once it is back, never saving C's old one into the Recipe", async () => {

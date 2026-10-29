@@ -1777,11 +1777,13 @@ steam, hot water and flush settings in Decaid's store, under
 `streamline-app`. The builds Decent Sync supports adopt a value the
 Workflow holds that differs from the one remembered, rather than pushing
 theirs back (ADR-0021, ADR-0017; the evidence is in `AI_RUNTIME_NOTES.md`,
-Skins), and their heater switch turns steam back on at the steam
-temperature of the recipe the Workflow names, which the tablet's record
-holds as the Recipe's. So the plugin sets none of the values Streamline
-remembers. Turning steam on from Streamline's Settings › Calibration ›
-Steam, or choosing an Auto Steam pitcher with the heater off, can set
+Skins), and, with Streamline's own DYE2 switch on, their heater switch
+turns steam back on at the steam temperature of the recipe the Workflow
+names, which the tablet's record holds as the Recipe's. So the plugin sets
+none of the values Streamline remembers. That heater switch with
+Streamline's DYE2 switch off (its default), which takes the temperature
+Streamline remembers, Streamline's Settings › Calibration › Steam switch,
+and Auto Steam choosing a pitcher with the heater off can turn steam on at
 another temperature, which is then saved into the Recipe: a gap ADR-0022
 accepts, until decentespresso/streamline-js#TBD.
 
