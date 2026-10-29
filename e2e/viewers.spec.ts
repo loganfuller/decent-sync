@@ -80,8 +80,8 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
   const ids = await libraryIds(page);
   const machineId = ((await (await page.request.get("/api/machines")).json()) as { machines: { id: string }[] }).machines[0]!.id;
 
-  /** Each page, what shows once all of it has loaded, and a control Staff working at Uptown have there. */
-  const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string }[] = [
+  /** Each page, what shows once all of it has loaded, a control Staff working at Uptown have there, and its filters. */
+  const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
     { path: `/machines/${machineId}`, loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(), staffHave: "button Edit General" },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
@@ -90,27 +90,29 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     { path: `/library/bean-batches/${ids.batch}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Finish it at Uptown" },
     { path: "/library/grinders", loaded: (page) => rows(page.getByRole("table", { name: "Grinders" })).first(), staffHave: "button New Grinder" },
     { path: `/library/grinders/${ids.grinder}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Grinder" },
+    { path: "/library/profiles", loaded: (page) => rows(page.getByRole("table", { name: "Profiles" })).first() },
     { path: `/library/profiles/${encodeURIComponent(ids.profile)}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "switch Shown at Uptown" },
+    { path: "/library/baskets", loaded: (page) => rows(page.getByRole("table", { name: "Baskets" })).first(), staffHave: "button New Basket", filters: EQUIPMENT_FILTERS },
     { path: `/library/baskets/${ids.basket}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Archive" },
     { path: `/library/tools/${tool.tool.id}`, loaded: (page) => page.getByRole("table", { name: "Locations" }), staffHave: "button Edit the Tool" },
-    { path: "/library/tools", loaded: (page) => rows(page.getByRole("table", { name: "Tools" })).first(), staffHave: "button New Tool" },
+    { path: "/library/tools", loaded: (page) => rows(page.getByRole("table", { name: "Tools" })).first(), staffHave: "button New Tool", filters: EQUIPMENT_FILTERS },
     { path: "/locations", loaded: (page) => page.getByRole("list", { name: "Locations" }) },
     { path: `/locations/${location.id}`, loaded: (page) => page.getByRole("table", { name: "Recipe Slots" }), staffHave: "button New Recipe" },
     { path: `/library/recipes/${recipe.recipe.id}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Recipe" },
   ];
 
   await asNew(page, browser, "staff", location.id, async (samsPage) => {
-    for (const { path, loaded, staffHave } of PAGES.filter(({ staffHave }) => staffHave)) {
+    for (const { path, loaded, staffHave, filters } of PAGES.filter(({ staffHave }) => staffHave)) {
       await samsPage.goto(path);
       await expect(loaded(samsPage)).toBeVisible();
-      expect(await changingControls(samsPage), path).toContain(staffHave);
+      expect(await changingControls(samsPage, filters), path).toContain(staffHave);
     }
   });
   await asNew(page, browser, "viewer", undefined, async (valsPage) => {
-    for (const { path, loaded } of PAGES) {
+    for (const { path, loaded, filters } of PAGES) {
       await valsPage.goto(path);
       await expect(loaded(valsPage)).toBeVisible();
-      expect(await changingControls(valsPage), path).toEqual([]);
+      expect(await changingControls(valsPage, filters), path).toEqual([]);
     }
 
     // States a control otherwise shows stay in view: where a Profile, Basket or Tool is shown, and a batch's remaining weight.
@@ -177,15 +179,18 @@ async function libraryIds(page: Page): Promise<Record<"bean" | "batch" | "grinde
 /**
  * The controls in the page's main part, each as its role and name, but those
  * that only show more of what it reads: the info icons' tooltips, and the
- * Baskets' and Tools' filters.
+ * page's `filters`.
  */
-async function changingControls(page: Page): Promise<string[]> {
+async function changingControls(page: Page, filters: RegExp[] = []): Promise<string[]> {
   const snapshot = await page.getByRole("main").ariaSnapshot();
   const controls = [...snapshot.matchAll(/^\s*- (button|switch|checkbox|textbox|searchbox|spinbutton|combobox|radio|slider)(?: "((?:[^"\\]|\\.)*)")?/gm)];
-  return controls.map(([, role, name]) => `${role} ${name ?? ""}`.trim()).filter((control) => !READING.some((reading) => reading.test(control)));
+  return controls
+    .map(([, role, name]) => `${role} ${name ?? ""}`.trim())
+    .filter((control) => !/^button About /.test(control) && !filters.some((filter) => filter.test(control)));
 }
 
-const READING = [/^button About /, /^searchbox Search$/, /^combobox (Shown at|Status)$/];
+/** The filters of the Baskets' and Tools' lists. */
+const EQUIPMENT_FILTERS = [/^searchbox Search$/, /^combobox (Shown at|Status)$/];
 
 /** Runs `work` with a page signed in as a new account: Staff working at the Location, or a Viewer. */
 async function asNew(page: Page, browser: Browser, role: "staff" | "viewer", locationId: string | undefined, work: (page: Page) => Promise<void>) {
