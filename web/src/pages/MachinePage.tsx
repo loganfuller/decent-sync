@@ -574,7 +574,7 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
             <ol aria-label="Location History" className="grid max-w-2xl divide-y rounded-lg border">
               {history.map((entry) => (
                 <li key={entry.id} className="p-4">
-                  {editing === entry.id ? (
+                  {editing === entry.id && isAdmin ? (
                     <CorrectEntry
                       machine={machine}
                       entry={entry}

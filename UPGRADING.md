@@ -22,7 +22,9 @@ changes nothing. 1.5.0 can't read an account or invite with that role: while
 one exists, its Accounts page fails for Admins, and a Viewer's requests fail
 on it. So invite a Viewer, or change an account to one, only once no 1.5.0
 instance runs. Before rolling back to 1.5.0, change each Viewer to another
-role, and revoke any Viewer invite not yet accepted.
+role, deactivated ones included, and revoke any Viewer invite not yet used.
+The link of a Viewer invite, used or revoked, then fails to open on 1.5.0,
+rather than saying it can no longer be used.
 
 ## 1.5.0
 

@@ -345,7 +345,8 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+            {editing && mayChange ? (
               <ContentForm
                 label={`Edit the ${name}`}
                 fields={kind === "basket" ? BASKET_FIELDS : TOOL_FIELDS}

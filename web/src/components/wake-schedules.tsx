@@ -2,7 +2,7 @@ import { PencilIcon, Trash2Icon } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
-import { FormError, failure } from "@/components/library-forms";
+import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { TabletTimeWarning, editBlocked } from "@/components/settings-edits";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import {
@@ -64,6 +64,8 @@ export function WakeSchedules({
   onSaved(edit: SettingsEdit): void;
 }) {
   const schedules = Array.isArray(presence.schedules) ? presence.schedules.map((schedule: unknown) => (isObject(schedule) ? schedule : {})) : [];
+  // An open form closes once the account may no longer change the Machine's settings, as when it became a Viewer.
+  const mayChangeHere = useMayChangeAt()(machine.location?.id ?? null);
   const [editing, setEditing] = useState<Editing>();
   const [deleting, setDeleting] = useState<Schedule>();
   const [error, setError] = useState<string | string[]>();
@@ -159,7 +161,7 @@ export function WakeSchedules({
           </TableBody>
         </Table>
       )}
-      {editing && (
+      {editing && mayChangeHere && (
         <WakeScheduleForm
           // A form opened over another schedule starts afresh.
           key={editing.action === "add" ? "add" : String(editing.schedule.id)}
@@ -175,7 +177,7 @@ export function WakeSchedules({
           }}
         />
       )}
-      <AlertDialog open={deleting !== undefined} onOpenChange={(open) => !open && setDeleting(undefined)}>
+      <AlertDialog open={deleting !== undefined && mayChangeHere} onOpenChange={(open) => !open && setDeleting(undefined)}>
         <AlertDialogContent>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete the wake schedule?</AlertDialogTitle>

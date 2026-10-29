@@ -131,7 +131,8 @@ function GrinderDetails({ id }: { id: string }) {
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when it no longer works at the Grinder's Location. */}
+            {editing && mayChangeAt(grinder.location?.id ?? null) ? (
               <ContentForm
                 label="Edit the Grinder"
                 fields={GRINDER_FIELDS}

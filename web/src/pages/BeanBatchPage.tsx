@@ -121,7 +121,8 @@ function BeanBatchDetails({ id }: { id: string }) {
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+            {editing && mayChange ? (
               <ContentForm
                 label="Edit the roast"
                 fields={BATCH_FIELDS}

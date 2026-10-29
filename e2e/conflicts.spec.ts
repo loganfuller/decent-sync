@@ -12,8 +12,8 @@ import { expectTip } from "./support/tooltips.js";
 // one at a cafe, hold a Bean; the lab's two edit the same field while
 // offline, and the later edit wins everywhere, the earlier kept as a
 // Conflict. Using its value makes it current, and dismissing one changes
-// nothing else; what the tablets are written then is
-// server/test/library-conflicts.test.ts's.
+// nothing else; a Viewer sees one with neither. What the tablets are written
+// then is server/test/library-conflicts.test.ts's.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 /** What each Machine's tablet holds over derivedDe1Pro()'s: no library. */
@@ -68,9 +68,29 @@ test("a Conflict made through two tablets is listed and noted on its item, whose
   await expect(page.getByText("No open Conflicts.")).toBeVisible();
 });
 
-test("dismissing a Conflict closes it and changes nothing else", async ({ page }) => {
+test("dismissing a Conflict closes it and changes nothing else", async ({ page, browser }) => {
   const { one, two, cafe, beanId } = await sharedBean(page, "Dismissed", "16111");
   await conflictOver(page, beanId, one, two, cafe, { country: "Ethiopia" }, { country: "Kenya" });
+
+  // A Viewer sees it, here and on its Bean's page, with no way to use its value or dismiss it.
+  const invited = await page.request.post("/api/invites", { data: { email: "val@example.com", role: "viewer" } });
+  const { link } = (await invited.json()) as { link: string };
+  const valsBrowser = await browser.newContext({ baseURL: server.url() });
+  try {
+    const accepted = await valsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, {
+      data: { name: "Val Viewer", password: "viewer password 1" },
+    });
+    expect(accepted.status()).toBe(201);
+    const valsPage = await valsBrowser.newPage();
+    for (const path of ["/library/conflicts", `/library/beans/${beanId}`]) {
+      await valsPage.goto(path);
+      const theirs = valsPage.getByRole("table", { name: "Conflicts" });
+      await expect(rows(theirs).getByRole("cell").filter({ hasText: "Ethiopia" })).toBeVisible();
+      await expect(theirs.getByRole("button")).toHaveCount(0);
+    }
+  } finally {
+    await valsBrowser.close();
+  }
 
   await page.goto("/library/conflicts");
   const table = page.getByRole("table", { name: "Conflicts" });

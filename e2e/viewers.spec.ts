@@ -134,21 +134,22 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
   });
 });
 
-test("a page open as Staff made a Viewer meanwhile shows a Viewer's once the server refuses a change", async ({ page, browser }) => {
-  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+test("a page open as Staff made a Viewer meanwhile shows a Viewer's once the server refuses a change, closing the form open on it", async ({ page, browser }) => {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string }[] };
+  const { bean } = await libraryIds(page);
   await asNew(page, browser, "staff", locations[0]!.id, async (samsPage) => {
-    await samsPage.goto("/library/beans");
-    const { account } = (await (await samsPage.request.get("/api/session")).json()) as { account: { id: string; name: string } };
-    await samsPage.getByRole("button", { name: "New Bean" }).click();
-    const form = samsPage.getByRole("form", { name: "New Bean" });
-    await form.getByLabel("Roaster").fill("Roux");
-    await form.getByLabel("Name").fill("Changed role Guji");
+    await samsPage.goto(`/library/beans/${bean}`);
+    const { account } = (await (await samsPage.request.get("/api/session")).json()) as { account: { id: string } };
+    await samsPage.getByRole("button", { name: "Edit the coffee" }).click();
+    const form = samsPage.getByRole("form", { name: "Edit the coffee" });
+    await form.getByLabel("Notes").fill("Changed role notes");
 
     expect((await page.request.put(`/api/accounts/${account.id}/access`, { data: { role: "viewer" } })).status()).toBe(200);
-    await form.getByRole("button", { name: "Create" }).click();
+    await form.getByRole("button", { name: "Save" }).click();
     await expect(samsPage.getByRole("banner").getByText("Viewer", { exact: true })).toBeVisible();
-    await expect(samsPage.getByRole("dialog")).toHaveCount(0);
-    await expect(samsPage.getByRole("button", { name: "New Bean" })).toHaveCount(0);
+    await expect(form).toHaveCount(0);
+    await expect(samsPage.getByLabel("Coffee", { exact: true })).toBeVisible();
+    expect(await changingControls(samsPage)).toEqual([]);
   });
 });
 
