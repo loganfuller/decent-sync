@@ -8,12 +8,14 @@
          key and values, and keeps the page in the theme from then on. -->
     <script>
       (function () {
+        // A browser blocking the site's storage throws, which reads as System.
+        var choice = null;
         try {
-          var choice = localStorage.getItem("decent-sync-theme");
-          var dark = choice === "dark" || (choice !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
-          document.documentElement.classList.toggle("dark", dark);
-          document.documentElement.style.colorScheme = dark ? "dark" : "light";
+          choice = localStorage.getItem("decent-sync-theme");
         } catch (error) {}
+        var dark = choice === "dark" || (choice !== "light" && matchMedia("(prefers-color-scheme: dark)").matches);
+        document.documentElement.classList.toggle("dark", dark);
+        document.documentElement.style.colorScheme = dark ? "dark" : "light";
       })();
     </script>
   </head>

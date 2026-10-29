@@ -126,6 +126,36 @@ test("<html> has the theme's class and color-scheme before the app's JavaScript 
   await expectChoice(page, "Light");
 });
 
+test("with the site's storage blocked, the page follows the device from its first frame, and a choice lasts for the page", async () => {
+  const page = await context.newPage();
+  // As a browser blocking the site's storage does.
+  await page.addInitScript(() =>
+    Object.defineProperty(window, "localStorage", {
+      get() {
+        throw new DOMException("The site's storage is blocked.", "SecurityError");
+      },
+    }),
+  );
+  let release!: () => void;
+  const released = new Promise<void>((resolve) => (release = resolve));
+  await page.route("**/assets/*.js", async (route) => {
+    await released;
+    await route.continue();
+  });
+  await page.emulateMedia({ colorScheme: "dark" });
+  await page.goto("/machines", { waitUntil: "commit" });
+  await expectTheme(page, "dark");
+  await expect(page.locator("#root")).toBeEmpty();
+
+  release();
+  await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
+  await expectTheme(page, "dark");
+  await expectChoice(page, "System");
+  await choose(page, "Light");
+  await expectTheme(page, "light");
+  await expectChoice(page, "Light");
+});
+
 /** The theme in effect: `.dark` on `<html>` or not, and the `color-scheme` native controls follow. */
 async function expectTheme(page: Page, theme: "light" | "dark") {
   const html = page.locator("html");
