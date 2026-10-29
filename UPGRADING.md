@@ -15,6 +15,8 @@ section).
 
 ## Unreleased
 
+## 1.6.1
+
 ### A Recipe is shown on the strip by its slot alone
 
 A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it is
