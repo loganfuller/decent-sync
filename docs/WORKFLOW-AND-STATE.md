@@ -344,8 +344,11 @@ through `plugin/src/dye2.ts`, and writes what the pure
 - **Steam turned back on.** Turning steam back on takes the Loaded
   Recipe's steam temperature, as turning it off is no edit (ADR-0022, Steam
   on and off, #374). A change naming the Loaded Recipe that turns steam on,
-  its steam temperature going from below `STEAM_ON_FROM` to at or above it
-  (`steamTurnedOnAt` in `loaded-recipe-rules.ts`), is saved as any change
+  its steam temperature at or above `STEAM_ON_FROM` (`steamOnAt` in
+  `loaded-recipe-rules.ts`) where it was below it at the plugin's last
+  decision or in any Workflow Decaid reported or answered its writes with
+  since (`steamWasOff`), as while a write of its own was under way, whose
+  changes it decides on together once that is done, is saved as any change
   is, but in the save's turn, once the plugin's read of the Workflow finds
   it still naming the Recipe, the plugin first writes into it, as one write
   of its own, the steam temperature the tablet's record of the Recipe holds
@@ -430,18 +433,18 @@ through `plugin/src/dye2.ts`, and writes what the pure
   plugin storage (`heldLoad`) until it is made, so a load held as the
   plugin stops is made once it loads again, where the Workflow still names
   that Recipe. Steam turned back on meanwhile, with a Recipe loaded that
-  holds a steam temperature, has its write of the Recipe's held the same
-  way, kept as `heldSteam` (`{ globalId, temperature }`, the temperature
-  steam came back at) and made once the plugin loads again where the
-  Workflow still names that Recipe and holds that temperature. The
-  server's changes are held too, every kind (`LIBRARY.md`, How the plugin
-  writes), and planned afresh once the Shot ends, so a Recipe edited twice
-  during it is written once, with its latest values, and a write that
-  changes the profile goes out as its two `PUT /workflow` together. Saves
-  into the Loaded Recipe are not held: a change made on the Machine during
-  its own Shot is saved at once; but once steam is turned back on during
-  it, the saves wait with that write until the Shot ends, as DYE2 would
-  save the temperature steam came back at. An unknown state, before
+  holds a steam temperature, has its write of the Recipe's held too, made
+  once the Shot ends, but not kept across the plugin's loads (ADR-0022
+  accepts the gap). The server's changes are held too, every kind
+  (`LIBRARY.md`, How the plugin writes), and planned afresh once the Shot
+  ends, so a Recipe edited twice during it is written once, with its
+  latest values, and a write that changes the profile goes out as its two
+  `PUT /workflow` together. Saves into the Loaded Recipe are not held: a
+  change made on the Machine during its own Shot is saved at once; but
+  once steam is turned back on during it, the saves wait with that write
+  until the Shot ends, as DYE2 would save the temperature steam came back
+  at, and another recipe applied before then leaves them unsaved (ADR-0022
+  accepts the gap). An unknown state, before
   the first update or once no machine is connected (the plugin's read of
   the machine's hardware finds none, and Decaid has reported no state for
   3 s, as one failed read is no machine gone), is no Shot, as for

@@ -16,7 +16,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // it came back at saved nowhere: not into the tablet's record, the Recipe or
 // another Machine. Other changes in the same Workflow change are saved as
 // usual, and a steam temperature changed once steam is on is the Recipe's
-// edit, as before. Through the built plugin in simulated tablets running
+// edit, as before; steam turned off and back on while a write of the
+// plugin's is under way is turned back on too. Through the built plugin in simulated tablets running
 // DYE2 v0.1.32 and Streamline as recorded (fixtures/decaid/dye2-v0.1.26/),
 // Machine A on one server instance and C, where Streamline turns steam on,
 // on another sharing one database, with assertions through the REST API and
@@ -212,6 +213,30 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature", { t
     await quiet({ streamline });
     expect([setting(c, "steamTemperature"), recorded(c, "steamTemperature"), await editsOf(one, "steamTemperature")]).toEqual([145, 145, edits + 1]);
     expect(watch.saved()).toEqual([145]);
+  });
+
+  it("takes C's steam turned off and back on at another temperature while a write of the plugin's into its Workflow waits for Decaid as turned back on, saving nothing of it", async () => {
+    const { a, c, one, dye2, quiet } = await lab("During write", 49231);
+    expect(setting(c, "steamTemperature")).toBe(160);
+    const edits = await editsOf(one, "steamTemperature");
+    const watch = watchSteam(dye2, { a, c });
+    // A Recipe edit, whose write into C's Workflow, made once the plugin has read it, Decaid holds.
+    const held = c.holdRequests("PUT", "/workflow");
+    await patch(one, { hotWaterVolume: 130 });
+    // Within Decaid's 30 s fetch timeout at the tablet's pace, under a second here.
+    await expect.poll(() => held.arrived, { timeout: 15_000, interval: 5 }).toBeGreaterThan(0);
+    // Meanwhile C's barista turns steam off and back on at 140 °C: the plugin hears of both during its write, and decides on
+    // them together once it is done.
+    await c.changeSettings({ steamSettings: { targetTemperature: 0 } });
+    await c.changeSettings({ steamSettings: { targetTemperature: 140 } });
+    held.release();
+    await expect.poll(() => setting(c, "hotWaterVolume"), { timeout: 15_000 }).toBe(130);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
+    // Once C's report of the change, the plugin's write, its save and the write into A are done.
+    await quiet();
+    expect(watch.taken.c).toEqual([0, 140, 160]);
+    expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
+    expect([watch.saved(), watch.taken.a, recorded(c, "steamTemperature"), setting(a, "hotWaterVolume")]).toEqual([[], [], 160, 130]);
   });
 
   it("has Auto Steam, choosing a pitcher with C's heater off, turn its steam back on at the Recipe's steam temperature, not the one Streamline remembers, while the pitcher's steam time and flow, in the same change, are saved into the Recipe", async () => {

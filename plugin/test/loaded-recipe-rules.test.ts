@@ -10,7 +10,7 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamTurnedOnAt, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
+import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamOnAt, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as it loads a
 // Recipe the Workflow names, or as steam is turned back on with one loaded
@@ -261,16 +261,11 @@ describe("steam turned back on with a recipe loaded", () => {
     return record;
   };
 
-  it("is a change of the Workflow's steam temperature from below 135 °C, steam off as Decaid judges it, to 135 °C or more", () => {
-    expect([0, 120, 134].map((off) => steamTurnedOnAt(steamAt(off), steamAt(150)))).toEqual([150, 150, 150]);
-    expect(steamTurnedOnAt(steamAt(0), steamAt(135))).toBe(135);
-    // Steam still off, changed while on, turned off, or a Workflow holding no steam temperature before: none.
-    expect([steamTurnedOnAt(steamAt(0), steamAt(120)), steamTurnedOnAt(steamAt(150), steamAt(160)), steamTurnedOnAt(steamAt(150), steamAt(0)), steamTurnedOnAt(steamAt(undefined), steamAt(150))]).toEqual([
-      null,
-      null,
-      null,
-      null,
-    ]);
+  it("is on at a steam temperature of 135 °C or more, as Decaid judges it, and off below it or with none", () => {
+    expect([135, 150, 165].map((on) => steamOnAt(steamAt(on)))).toEqual([135, 150, 165]);
+    // Its record's as text, as Decaid reads a number.
+    expect(steamOnAt(steamAt("150"))).toBe(150);
+    expect([0, 120, 134, undefined, null].map((off) => steamOnAt(steamAt(off)))).toEqual([null, null, null, null, null]);
   });
 
   it("writes the recipe's steam temperature into a Workflow still holding the one steam came back at, and nothing else", () => {

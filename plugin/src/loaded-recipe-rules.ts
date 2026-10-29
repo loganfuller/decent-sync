@@ -213,14 +213,14 @@ export function loadWrite(
 }
 
 /**
- * The steam temperature a change of the Workflow from `before` to `after`
- * turns steam back on at, where it does: from below STEAM_ON_FROM, steam
- * off as Decaid judges it (`steamOff`), to at or above it. Null for any
- * other change.
+ * The steam temperature the Workflow has steam on at: STEAM_ON_FROM or
+ * more, as Decaid judges it (below it is steam off, `steamOff`). Null where
+ * steam is off or the Workflow holds no steam temperature. Steam is turned
+ * back on where a Workflow has it on that had it off before.
  */
-export function steamTurnedOnAt(before: Record<string, unknown>, after: Record<string, unknown>): number | null {
-  const temperature = numberOf(workflowValueAt(after, RECIPE_SETTINGS.steamTemperature.workflow));
-  return steamOff(before) && temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
+export function steamOnAt(workflow: Record<string, unknown>): number | null {
+  const temperature = numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow));
+  return temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
 }
 
 /**

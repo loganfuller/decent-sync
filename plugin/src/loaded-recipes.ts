@@ -7,6 +7,7 @@ import {
   dye2RecipeIdOf,
   dye2Records,
   sameValue,
+  steamOff,
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { type Answer, request } from "./decaid.js";
@@ -16,7 +17,7 @@ import type { LibraryAccess } from "./library-writes.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { ShotGate } from "./shot-gate.js";
 import type { PluginStorage } from "./storage.js";
-import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, steamBackOnWrite, steamTurnedOnAt, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
+import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, steamBackOnWrite, steamOnAt, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
 import type { Skins } from "./skins.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe its Workflow names
@@ -53,19 +54,12 @@ import type { Skins } from "./skins.js";
 // so a load the plugin holds as it stops is made after it starts again,
 // where the Workflow names that Recipe still. Saves are not held, but for
 // those after steam turned back on during the Shot, held with its write
-// until the Shot ends, which is kept so too (HELD_STEAM_KEY).
+// until the Shot ends, which is not kept across the plugin's loads.
 
 const RECIPES = `/store/${DYE2_NAMESPACE}/recipes`;
 
 /** The key of the plugin's storage keeping the load held for a Shot: `{ globalId }`, the Recipe's, or `{}` for none, as Decaid stores no null. */
 const HELD_LOAD_KEY = "heldLoad";
-
-/**
- * The key of the plugin's storage keeping steam turned back on during a
- * Shot, its write held: `{ globalId, temperature }`, the Recipe loaded and
- * the temperature steam came back at, or `{}` for none.
- */
-const HELD_STEAM_KEY = "heldSteam";
 
 /** What the plugin's writes of the Workflow and of DYE2's recipes need of the Loaded Recipe (`LibraryWrites`). */
 export interface LoadedRecipeWrites {
@@ -154,13 +148,13 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    */
   private steamBackOn: SteamBackOn | null = null;
   /**
-   * Steam turned back on during a Shot as the plugin last stopped, once read
-   * from its storage, until the plugin's first decision takes it, or its
-   * read does where that decision came first; undefined until read.
+   * Whether the Workflow had steam off at the plugin's last decision, or in
+   * any Workflow Decaid has reported or answered its writes with since: so
+   * steam turned off and back on while the plugin's writes were under way,
+   * whose changes are decided on together once they are done, is seen as
+   * turned back on.
    */
-  private restoredSteam: KeptSteam | null | undefined;
-  /** Whether the plugin's storage may keep steam turned back on during a Shot. */
-  private steamKept = false;
+  private steamWasOff = false;
   private chain: Promise<void> = Promise.resolve();
   private pollTimer: number | undefined;
   private stopped = false;
@@ -194,10 +188,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     this.shot.onEnd(() => this.releaseLoad());
     this.shot.onEnd(() => this.resumeSteamBackOn());
     // From a timer, as Decaid's onLoad must return at once.
-    setTimeout(() => {
-      void this.restoreLoad();
-      void this.restoreSteamBackOn();
-    }, 0);
+    setTimeout(() => void this.restoreLoad(), 0);
     this.poll();
   }
 
@@ -222,6 +213,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.stopped) return;
     const previous = this.latest;
     this.latest = workflow;
+    if (steamOff(workflow)) this.steamWasOff = true;
     if (this.writing > 0) {
       this.duringWrite.reported = true;
       return;
@@ -268,6 +260,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     const { reported, answered, before, written } = this.duringWrite;
     if (!reported && answered !== undefined) this.latest = answered;
     const latest = this.latest;
+    if (answered !== undefined && steamOff(answered)) this.steamWasOff = true;
     const after = latest !== undefined && answered !== undefined && !sameValue(latest, answered);
     const around = latest !== undefined && before !== undefined && changedBesides(before, latest, written);
     this.decide(written.has("profile") ? (answered ?? before) : before, (reported && after) || around);
@@ -300,14 +293,16 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * held for a Shot as the plugin last stopped; a change of it
    * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
    * for one changing the profile from `previous`, as DYE2 fingerprints one,
-   * which DYE2 clears the recipe on. One turning steam back on from
-   * `previous` (`steamTurnedOnAt`) has the save write the Recipe's steam
-   * temperature first. A read of the recipes (`changed` false) saves
-   * nothing.
+   * which DYE2 clears the recipe on. One leaving steam on where it was off
+   * since the last decision (`steamWasOff`, `steamOnAt`), turned back on,
+   * has the save write the Recipe's steam temperature first. A read of the
+   * recipes (`changed` false) saves nothing.
    */
   private decide(previous: Record<string, unknown> | undefined, changed: boolean): void {
     const workflow = this.latest;
     if (workflow === undefined || this.records === null || this.stopped) return;
+    const turnedOnAt = this.steamWasOff ? steamOnAt(workflow) : null;
+    this.steamWasOff = steamOff(workflow);
     const recordId = dye2RecipeIdOf(workflow);
     const globalId = (recordId === null ? undefined : this.records.get(recordId))?.globalId ?? null;
     if (globalId !== this.loaded) {
@@ -320,13 +315,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
       else if (first && this.restoredLoad !== undefined) void this.keepHeldLoad(null);
       if (first && this.restoredLoad !== undefined) this.restoredLoad = null;
-      if (first && this.restoredSteam !== undefined) this.takeRestoredSteam(this.restoredSteam);
-      else if (!first && this.steamBackOn !== null) this.forgetSteamBackOn();
+      this.steamBackOn = null;
       return;
     }
     if (!changed || globalId === null || !this.sharing()) return;
     if (previous !== undefined && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
-    const turnedOnAt = previous === undefined ? null : steamTurnedOnAt(previous, workflow);
     if (turnedOnAt !== null) this.steamBackOn = { globalId, load: this.loads, temperature: turnedOnAt };
     this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
   }
@@ -449,19 +442,16 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * back at, so DYE2's save, which saves every value of the Workflow the
    * record holds otherwise, saves none of it. While the Machine pulls a
    * Shot, the write, and the save with it, are held until the Shot ends
-   * (`resumeSteamBackOn`), kept in the plugin's storage meanwhile. Resolves
-   * with whether the save goes on. Throws if Decaid refuses the write, as
-   * with no machine connected: the next change tries again.
+   * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
+   * if Decaid refuses the write, as with no machine connected: the next
+   * change tries again.
    */
   private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor): Promise<boolean> {
     const pending = this.steamBackOn;
     if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
     const record = this.records?.get(recordId)?.record;
     const write = record === undefined ? null : steamBackOnWrite(workflow, record, pending.temperature);
-    if (write !== null && this.shot.running()) {
-      void this.keepSteam({ globalId: pending.globalId, temperature: pending.temperature });
-      return false;
-    }
+    if (write !== null && this.shot.running()) return false;
     if (write !== null) {
       await this.ownWrite(async (answered) => {
         const answer = await request("PUT", "/workflow", write);
@@ -471,70 +461,17 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         this.workflowWritten(workflow, updated);
       });
     }
-    if (this.steamBackOn === pending) this.forgetSteamBackOn();
+    if (this.steamBackOn === pending) this.steamBackOn = null;
     return true;
   }
 
-  /** Once nothing holds it, as a Shot ending or the plugin's first decision: saves where steam turned back on is still to be written, which writes it first. */
+  /** Once a Shot ends: saves where steam turned back on during it is still to be written, which writes it first. */
   private resumeSteamBackOn(): void {
     const pending = this.steamBackOn;
     const workflow = this.latest;
     if (pending === null || workflow === undefined || this.stopped || pending.globalId !== this.loaded || pending.load !== this.loads) return;
     if (!this.sharing() || this.shot.running()) return;
     this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(workflow.profile) });
-  }
-
-  /** No steam turned back on still to write, nor kept in the plugin's storage. */
-  private forgetSteamBackOn(): void {
-    this.steamBackOn = null;
-    void this.keepSteam(null);
-  }
-
-  /**
-   * Reads steam turned back on during a Shot as the plugin last stopped,
-   * which the plugin's first decision takes; one it cannot read is none.
-   * Read after that decision, it is taken there and then (`takeRestoredSteam`).
-   */
-  private async restoreSteamBackOn(): Promise<void> {
-    if (this.stopped) return;
-    let stored: unknown = null;
-    try {
-      stored = await this.storage.read(HELD_STEAM_KEY, "a read of steam turned back on during a Shot");
-    } catch (error) {
-      this.log(`Steam turned back on during a Shot could not be read from Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
-    }
-    const kept = keptSteamOf(stored);
-    // Steam held while the read was under way is kept already.
-    this.steamKept ||= kept !== null;
-    if (this.stopped) return;
-    if (this.firstLoads === undefined) this.restoredSteam = kept;
-    else this.takeRestoredSteam(kept);
-  }
-
-  /**
-   * Takes steam turned back on during a Shot as the plugin last stopped as
-   * still to write, where the Recipe the plugin's first decision took as
-   * loaded is that one and no other load was decided on since, unless steam
-   * was turned back on since; otherwise it is cleared from the storage.
-   */
-  private takeRestoredSteam(kept: KeptSteam | null): void {
-    this.restoredSteam = null;
-    if (this.steamBackOn !== null) return;
-    if (kept !== null && kept.globalId === this.loaded && this.loads === this.firstLoads) {
-      this.steamBackOn = { ...kept, load: this.loads };
-      this.resumeSteamBackOn();
-    } else void this.keepSteam(null);
-  }
-
-  /** Keeps steam turned back on during a Shot in the plugin's storage, or none, where it keeps one. */
-  private async keepSteam(kept: KeptSteam | null): Promise<void> {
-    if (kept === null && !this.steamKept) return;
-    this.steamKept = kept !== null;
-    try {
-      await this.storage.write(HELD_STEAM_KEY, JSON.stringify(kept ?? {}), "the write of steam turned back on during a Shot");
-    } catch (error) {
-      this.log(`Steam turned back on during a Shot could not be kept in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
-    }
   }
 
   /** Logs a failure once until a later step succeeds. */
@@ -692,15 +629,11 @@ export async function putNamingRecipe(
 /** Told of each Workflow Decaid answers a write of the plugin's with, and the body of the `PUT /workflow` it answered. */
 export type Answered = (workflow: Record<string, unknown>, body: Record<string, unknown>) => void;
 
-/** Steam turned back on as the plugin keeps it in its storage while held for a Shot: the Recipe loaded, by its global id, and the temperature steam came back at. */
-interface KeptSteam {
+/** Steam turned back on with a Recipe loaded: the Recipe, by its global id, and its load, and the temperature steam came back at (`steamOnAt`). */
+interface SteamBackOn {
   globalId: string;
-  temperature: number;
-}
-
-/** Steam turned back on with a Recipe loaded: the Recipe and its load, and the temperature steam came back at (`steamTurnedOnAt`). */
-interface SteamBackOn extends KeptSteam {
   load: number;
+  temperature: number;
 }
 
 /** A save into the Loaded Recipe, for the Recipe, the load and the profile, by DYE2's fingerprint, of the change asking for it. */
@@ -744,12 +677,6 @@ async function workflowNow(): Promise<Record<string, unknown>> {
 function heldGlobalId(stored: unknown): string | null {
   const held = typeof stored === "string" ? parsed(stored) : undefined;
   return isObject(held) && typeof held.globalId === "string" ? held.globalId : null;
-}
-
-/** Steam turned back on during a Shot as the plugin's storage keeps it (HELD_STEAM_KEY), or null for none. */
-function keptSteamOf(stored: unknown): KeptSteam | null {
-  const kept = typeof stored === "string" ? parsed(stored) : undefined;
-  return isObject(kept) && typeof kept.globalId === "string" && typeof kept.temperature === "number" ? { globalId: kept.globalId, temperature: kept.temperature } : null;
 }
 
 /** Whether Decaid refused a Workflow change as no machine is connected, which it needs to change the steam, hot water and flush settings. */
