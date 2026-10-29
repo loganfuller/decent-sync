@@ -15,6 +15,8 @@ section).
 
 ## Unreleased
 
+## 1.6.0
+
 ### Make Viewers once every instance runs this release
 
 This release adds the Viewer, an account that sees everything Staff see and
