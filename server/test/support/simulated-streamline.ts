@@ -44,9 +44,9 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // (`updateFlushValue` in src/modules/ui.js). A steam time of 0 is no timer
 // and leaves the heater alone (bc487aa); the heater has a switch of its own,
 // which turns it off at a target of 0, keeping the temperature it was at, and
-// back on at the selected DYE2 recipe's steam temperature, else the one kept,
-// only from off (`setSteamHeaterEnabled` and `steamHeaterFor`, streamline-js
-// #143): `setSteamHeater()`. Left out: its Auto steam mode, and its 20 s
+// back on at the selected DYE2 recipe's steam temperature while its DYE2
+// switch is on, else the one kept, only from off (`setSteamHeaterEnabled` and
+// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Left out: its Auto steam mode, and its 20 s
 // Workflow poll, which only repaints its tiles (ADR-0021).
 //
 // Its DYE strip (src/modules/dyeStrip.js, src/modules/dye-selection.js)
@@ -312,9 +312,10 @@ export class SimulatedStreamline {
   /**
    * The steam heater switched on or off (`setSteamHeaterEnabled`): off sends
    * a target of 0, keeping the temperature it was at; on, only from off, the
-   * temperature of the recipe DYE2's mirrored selection names, where it holds
-   * one of 135 or more (`selectedRecipeSteamTemp`), else the one kept, else
-   * nothing; the steam time is left alone.
+   * temperature of the recipe DYE2's mirrored selection names, where its DYE2
+   * switch is on and that recipe holds one of 135 or more
+   * (`selectedRecipeSteamTemp`), else the one kept, else nothing; the steam
+   * time is left alone.
    */
   async setSteamHeater(enabled: boolean): Promise<void> {
     await this.change({ steamSettings: await this.steamHeaterFor(enabled ? 1 : 0) }, "api.steamHeater");
@@ -820,7 +821,7 @@ export class SimulatedStreamline {
     this.pendingPushes.delete(key);
   }
 
-  /** `steamHeaterFor`: off at a target of 0, keeping the temperature it was at; on only from off, at the selected recipe's steam temperature, else the one kept, else none. */
+  /** `steamHeaterFor`: off at a target of 0, keeping the temperature it was at; on only from off, at the selected recipe's steam temperature while its DYE2 switch is on, else the one kept, else none. */
   private async steamHeaterFor(on: number): Promise<Record_> {
     const { body: live } = await this.tablet.callApi("GET", "/workflow");
     const current = settingOf((live ?? {}) as Record_, "steamSettings.targetTemperature");
