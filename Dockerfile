@@ -21,7 +21,11 @@ RUN apt-get update \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /app
 
-FROM base AS build
+# Built on the builder's own platform, as what it builds is JavaScript, the same
+# on every platform: Node 26 under emulation, as for arm64 on an amd64 runner,
+# misreads the schema in Prisma's WebAssembly.
+FROM --platform=$BUILDPLATFORM node:${NODE_VERSION}-bookworm-slim AS build
+WORKDIR /app
 COPY --from=manifests /app/ ./
 RUN npm ci
 COPY tsconfig.base.json ./
