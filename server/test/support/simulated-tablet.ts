@@ -848,8 +848,8 @@ export class SimulatedTablet {
   /**
    * The fan threshold and refill kit setting Decaid keeps for each machine
    * they were written to, by the serial `/machine/info` reported as they
-   * were, kept in the tablet's own preferences whatever machine is served
-   * (`MachineSettingsStore`).
+   * were (`machineSerial`), kept in the tablet's own preferences whatever
+   * machine is served (`MachineSettingsStore`).
    */
   private readonly keptMachineSettings = new Map<string, KeptMachineSettings>();
   private readonly apiFailures = new Map<string, number>();
@@ -1050,7 +1050,12 @@ export class SimulatedTablet {
     for (const source of ["waterLevels", "shotSettings"] as const) this.sendOnSocket(source, this.socketState[source]);
   }
 
-  /** The serial `/machine/info` reports, by which Decaid keeps a machine's fan threshold and refill kit setting; empty where it reports none. */
+  /**
+   * The serial `/machine/info` reports, by which Decaid keeps a machine's fan
+   * threshold and refill kit setting; empty where it reports none. Decaid
+   * keys a machine reporting none, or `0`, by its device id instead
+   * (`_captureMachineSettingsIdentity`), which isn't modelled.
+   */
   private machineSerial(): string {
     const info = this.api["/machine/info"] as { serialNumber?: unknown } | undefined;
     return typeof info?.serialNumber === "string" ? info.serialNumber : "";
