@@ -95,6 +95,10 @@ The person who pulled a shot, as named on the tablet. A barista doesn't need an 
 A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and record stock there.
 _Avoid_: User (when the role matters), barista (a barista may not have an account)
 
+**Viewer**:
+A person who sees everything Staff see and changes nothing.
+_Avoid_: Read-only user, guest, observer
+
 ## Coffee
 
 **Bean**:
