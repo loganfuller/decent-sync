@@ -2,7 +2,7 @@ import { LIBRARY_KINDS, recordGlobalId, sameValue } from "@decent-sync/protocol"
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
-import { withHeldFieldFlags } from "./recipe-intake.js";
+import { lacksBeanNulls, withHeldFieldFlags } from "./recipe-intake.js";
 import { isObject } from "./listed.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
@@ -368,7 +368,9 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
  * another Location's, removed from DYE2's list first, so its id is free;
  * then each Recipe the tablet lacks, created under its record id, and each
  * it holds written where its record differs from what it is to hold
- * (`OfferedRecipe.record`), its slot included.
+ * (`OfferedRecipe.record`), its slot included, and its embedded Workflow
+ * where the Recipe names no Bean and it lacks the explicit nulls for one
+ * (`lacksBeanNulls`), which comparing records takes for none held.
  */
 export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
   const writes: (PlannedWrite | PlannedRemove)[] = [];
@@ -382,7 +384,9 @@ export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (Plann
   for (const recipe of offer.recipes) {
     const record = holds.get(recipe.id);
     if (record) {
-      pushUpdate(writes, "recipe", recipe.id, { ...record, content: withHeldFieldFlags(recipe.record, record.record), contentDecidedAt: recipe.contentDecidedAt }, {}, null);
+      const content = withHeldFieldFlags(recipe.record, record.record);
+      const nulls = lacksBeanNulls(content, record.record) ? { workflow: content.workflow } : {};
+      pushUpdate(writes, "recipe", recipe.id, { ...record, content, contentDecidedAt: recipe.contentDecidedAt }, nulls, null);
     } else {
       writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: recipe.recordId }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
     }

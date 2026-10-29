@@ -1,6 +1,7 @@
 import {
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
+  RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   STEAM_ON_FROM,
   dye2GlobalIdOf,
@@ -32,7 +33,11 @@ import { type FieldEdits, changedFields } from "./merge.js";
 // carries, are written but never taken in. A setting the Recipe holds none
 // of is written blank, so applying the record leaves the Machine's own. A
 // record's Recipe Slot (`stripSlot`) is its Location's state, not its
-// content: a tablet's change of it moves the Recipe (`slotMove`).
+// content, and so is whether Streamline's strip shows it
+// (`showOnStreamlineDashboard`): a recipe is on the strip exactly while it
+// is in a slot (DYE2 v0.1.32), so a record is written shown exactly while
+// its Recipe is in one, and a tablet's change of either moves the Recipe,
+// a hidden record being in none (`slotMove`, `recipeSlotOf`).
 
 const DV = "dashboardVariables";
 
@@ -49,7 +54,7 @@ const RECIPE_PATHS = [
   "profileId",
   "profileTitle",
   "profileSnapshot",
-  "showOnStreamlineDashboard",
+  RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   `${DV}.dose`,
   `${DV}.drink`,
@@ -83,7 +88,6 @@ export type RecipeView = Record<string, unknown>;
 const EDITED: Readonly<Record<string, string>> = {
   name: "name",
   beverage: "beverage",
-  showOnStreamlineDashboard: "showOnDashboard",
   [`${DV}.dose`]: "dose",
   [`${DV}.drink`]: "yield",
   [`${DV}.ratio`]: "ratio",
@@ -392,7 +396,10 @@ export interface WriteContext {
  * The record a tablet holds of a Recipe in a slot, or none (null), by the
  * paths the server writes (`RECIPE_PATHS`): its Recipe Slot as
  * RECIPE_SLOT_FIELD, null for none, as DYE2 holds one, which Streamline
- * places it on its strip by; its content, naming its Bean, Bean Batch,
+ * places it on its strip by, and shown on the strip (RECIPE_SHOWN_FIELD)
+ * exactly while it is in one, as DYE2 v0.1.32 holds a recipe hidden from the
+ * strip in no slot (`updateRecipe` in dye2:dye2-plugin/src/utils/dev-api.ts);
+ * its content, naming its Bean, Bean Batch,
  * Grinder, Basket and Tools by the tablet's ids, and its Profile by
  * Decaid's, each left out where the tablet holds no record of it, and the
  * names DYE2 copies from them; its full Profile in `profileSnapshot`, so it
@@ -436,7 +443,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     profileId,
     profileTitle: profile && typeof profile.title === "string" ? profile.title : null,
     profileSnapshot: profile ?? null,
-    showOnStreamlineDashboard: value("showOnDashboard"),
+    [RECIPE_SHOWN_FIELD]: slot !== null,
     [RECIPE_SLOT_FIELD]: slot,
     [`${DV}.dose`]: value("dose"),
     [`${DV}.drink`]: value("yield"),
@@ -476,11 +483,13 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
  * DYE2's `buildRecipeWorkflow` builds it (dye2:dye2-plugin/src/utils/dev-api.ts
- * at v0.1.26) from the record's fields: its dose, yield (or its dose times
+ * at v0.1.32) from the record's fields: its dose, yield (or its dose times
  * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
  * barista and drinker, each only where the record holds one; its coffee,
- * roaster and Bean Batch together where it names a Bean, each null where it
- * holds none, so applying it clears a batch the Workflow held; and its full
+ * roaster and Bean Batch together, each null where it holds none, so
+ * applying it clears a batch the Workflow held, and all three null where it
+ * names no Bean, so a recipe naming none leaves no bean batch (DYE2
+ * `ce38984`); and its full
  * Profile where it names one with steps, at its brew temperature, as
  * Streamline applies the profile as it is (`profileAtBrewTemperature`,
  * decentespresso/dye2#26), none where it holds no full Profile, as a stub
@@ -505,11 +514,11 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
   if (at("basketId")) extras.basketId = at("basketId");
   if (at("basketName")) extras.basketName = at("basketName");
   if (Object.keys(extras).length > 0) context.extras = extras;
-  if (view.beanId || view.beanName) {
-    context.coffeeName = view.beanName || null;
-    context.coffeeRoaster = view.beanRoaster || null;
-    context.beanBatchId = view.beanBatchId || null;
-  }
+  // PUT /workflow merges, so a recipe naming no Bean holds explicit nulls, which clear the Bean a recipe applied before left.
+  const named = Boolean(view.beanId || view.beanName);
+  context.coffeeName = (named && view.beanName) || null;
+  context.coffeeRoaster = (named && view.beanRoaster) || null;
+  context.beanBatchId = (named && view.beanBatchId) || null;
   if (view.barista) context.baristaName = view.barista;
   if (view.drinker) context.drinkerName = view.drinker;
   const workflow: Record<string, unknown> = { context };
@@ -540,6 +549,24 @@ export function withHeldFieldFlags(view: Readonly<RecipeView>, held: Readonly<Re
   if (flags === undefined || !isObject(derived) || !isObject(derived.context)) return { ...view };
   const extras = isObject(derived.context.extras) ? derived.context.extras : {};
   return { ...view, workflow: { ...derived, context: { ...derived.context, extras: { ...extras, dye: flags } } } };
+}
+
+/**
+ * Whether a tablet's record (`held`) of a Recipe naming no Bean lacks the
+ * explicit nulls for one in its embedded Workflow that the record it is to
+ * hold (`view`) holds, which `recipeWorkflow` builds and DYE2 v0.1.32's
+ * apply clears a Bean by: as the server wrote one before, and as DYE2's
+ * `save-recipe` saves one from a Workflow naming no Bean. Comparing records
+ * takes a field holding null for one not held, so such a record is written
+ * its Workflow once on purpose.
+ */
+export function lacksBeanNulls(view: Readonly<RecipeView>, held: Readonly<Record<string, unknown>>): boolean {
+  const contextOf = (workflow: unknown) => (isObject(workflow) && isObject(workflow.context) ? workflow.context : null);
+  const nulls = ["coffeeName", "coffeeRoaster", "beanBatchId"];
+  const due = contextOf(view.workflow);
+  if (due === null || !nulls.every((field) => Object.prototype.hasOwnProperty.call(due, field) && due[field] === null)) return false;
+  const context = contextOf(held.workflow);
+  return context !== null && nulls.some((field) => !Object.prototype.hasOwnProperty.call(context, field));
 }
 
 /** Whether a tablet's record holds a Recipe's content as written to it (`recipeRecord`): every path a barista edits the same. */
@@ -642,10 +669,12 @@ export interface SlotMove {
 }
 
 /**
- * The tablet's change of a record's Recipe Slot (RECIPE_SLOT_FIELD), from
- * the record known (`known`, none for a record new to the map) to the one
+ * The tablet's change of a record's Recipe Slot (`recipeSlotOf`), from the
+ * record known (`known`, none for a record new to the map) to the one
  * reported, as DYE2's editor moves a recipe on the strip or takes it off,
- * which moves its Recipe at its Location; null where it is unchanged.
+ * and as hiding it from the strip does, which Streamline's long-press Clear
+ * does keeping its `stripSlot`: which moves its Recipe at its Location; null
+ * where it is unchanged.
  */
 export function slotMove(itemId: string, known: Readonly<Record<string, unknown>> | null, reported: ReportedRecipe): SlotMove | null {
   const from = known === null ? null : recipeSlotOf(known);

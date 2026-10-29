@@ -1,4 +1,4 @@
-import { LIBRARY_ITEM_KINDS, RECIPE_SLOT_FIELD, dye2GlobalIdOf, dye2Records, isRecordId, recipeSlotOf, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_ITEM_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, dye2GlobalIdOf, dye2Records, isRecordId, recipeSlotOf, sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -46,10 +46,12 @@ import {
 // ADR-0019, ADR-0020): DYE2's recipes, which it keeps whole in a list under
 // one key of Decaid's store, each under its record id, the same on every
 // tablet at its Recipe's Location. A Recipe belongs to one Location and sits
-// in one of its five Recipe Slots, or none. A tablet at a Location reports
+// in one of its five Recipe Slots, or none, and is on Streamline's strip
+// exactly while it is in one (DYE2 v0.1.32). A tablet at a Location reports
 // the list as a collection: a change of a recipe's record is an edit of its
 // Recipe, merged per field (content-edits.ts), timed by when the plugin
-// first read it, and a change of its slot (`stripSlot`) moves it there; a
+// first read it, and a change of its slot (`stripSlot`) moves it there, as
+// hiding it from the strip takes it out of its slot (`recipeSlotOf`); a
 // record of an id no Recipe there has is a new Recipe there, with that
 // record id and slot; Recipes are never matched (ADR-0018). A recipe gone
 // from a tablet's list is taken out of its slot at that Location and kept.
@@ -65,6 +67,18 @@ import {
 // Under the locks equipment.ts takes, in the same order: the Machine's row,
 // the tablet's, the Location's, under which its slots are decided, then the
 // Recipes' rows.
+
+/**
+ * What putting a Recipe in a slot, or none (null), sets of its row: its
+ * slot, and `showOnDashboard` in its content from it, which the previous
+ * release (ADR-0025) writes its records' `showOnStreamlineDashboard` from and
+ * shows; this one writes them shown exactly while the Recipe is in a slot
+ * (`recipeRecord`), so both write the same. It is derived, so it is no edit
+ * and has no version of its own: the slot's change is the version.
+ */
+export function placedIn(slot: number | null): Prisma.Sql {
+  return Prisma.sql`slot = ${slot}::integer, content = jsonb_set(content, '{showOnDashboard}', to_jsonb(${slot !== null}::boolean))`;
+}
 
 /** The tablet's map of the items a recipe names, by their global ids and its own (ADR-0006). */
 async function readTabletIds(tx: Prisma.TransactionClient, tabletId: string): Promise<TabletIds> {
@@ -290,9 +304,10 @@ export async function takeInRecipes(
     let itemId: string;
     if (step.kind === "add") {
       const content = recipeContent(view, await context(view));
+      // In no slot until its move below puts it in its record's (`placedIn`).
       const [created] = await tx.$queryRaw<{ id: string }[]>`
         INSERT INTO recipes (id, location_id, record_id, content)
-        VALUES (gen_random_uuid(), ${locationId}::uuid, ${record.localId}, ${JSON.stringify(content)}::jsonb)
+        VALUES (gen_random_uuid(), ${locationId}::uuid, ${record.localId}, ${JSON.stringify({ ...content, showOnDashboard: false })}::jsonb)
         RETURNING id::text AS id`;
       itemId = created!.id;
       await recordJoined(tx, { kind: "recipe", id: itemId }, content, record.updatedAt, source);
@@ -341,7 +356,7 @@ export async function takeInRecipes(
 /**
  * Carries out the tablet's moves of its Recipes at its Location, each as
  * DYE2's editor moves a recipe on the strip (`takeSlot` in
- * dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.26): a Recipe moved out
+ * dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.32): a Recipe moved out
  * of the slot its record known was in leaves it, and one moved into a slot
  * takes it from the Recipe there, which leaves it. A move is made only
  * where the Recipe is still in the slot the tablet knew it in (`from`), so
@@ -357,7 +372,7 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
   const slots = new Map(rows.map((row) => [row.id, row.slot]));
   const made = moves.filter((move) => slots.has(move.itemId) && slots.get(move.itemId) === move.from);
   for (const move of made) {
-    if (move.from !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
+    if (move.from !== null) await tx.$executeRaw`UPDATE recipes SET ${placedIn(null)} WHERE id = ${move.itemId}::uuid`;
   }
   for (const move of made) {
     if (move.to === null) {
@@ -365,10 +380,10 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
       continue;
     }
     const taken = await tx.$queryRaw<{ id: string }[]>`
-      UPDATE recipes SET slot = NULL WHERE location_id = ${locationId}::uuid AND slot = ${move.to}::integer AND id <> ${move.itemId}::uuid
+      UPDATE recipes SET ${placedIn(null)} WHERE location_id = ${locationId}::uuid AND slot = ${move.to}::integer AND id <> ${move.itemId}::uuid
       RETURNING id::text AS id`;
     for (const { id } of taken) await recordVersion(tx, { kind: "recipe", id }, locationId, { slot: null }, source, move.at);
-    await tx.$executeRaw`UPDATE recipes SET slot = ${move.to}::integer WHERE id = ${move.itemId}::uuid`;
+    await tx.$executeRaw`UPDATE recipes SET ${placedIn(move.to)} WHERE id = ${move.itemId}::uuid`;
     await recordVersion(tx, { kind: "recipe", id: move.itemId }, locationId, { slot: move.to }, source, move.at);
   }
 }
@@ -383,7 +398,7 @@ async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves
 async function takeOutOfSlot(tx: Prisma.TransactionClient, recipeId: string, locationId: string, slot: number | null, at: Date, source: ReturnType<typeof tabletSource>): Promise<void> {
   if (slot === null) return;
   const taken = await tx.$executeRaw`
-    UPDATE recipes SET slot = NULL WHERE id = ${recipeId}::uuid AND location_id = ${locationId}::uuid AND slot = ${slot}::integer`;
+    UPDATE recipes SET ${placedIn(null)} WHERE id = ${recipeId}::uuid AND location_id = ${locationId}::uuid AND slot = ${slot}::integer`;
   if (taken > 0) await recordVersion(tx, { kind: "recipe", id: recipeId }, locationId, { slot: null }, source, at);
 }
 
@@ -465,8 +480,9 @@ export async function recordRecipeWritten(
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, item.slot, itemId);
       stale = (answered.stale || recorded.size > 0 || steamOff) && !holdsRecipe(view, now);
-      // Moved on the tablet since its last report, as the write did not set its slot.
-      const move = here && !written.has(RECIPE_SLOT_FIELD) ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
+      // Moved on the tablet since its last report, as the write set neither its slot nor whether it is shown.
+      const moved = !written.has(RECIPE_SLOT_FIELD) && !written.has(RECIPE_SHOWN_FIELD);
+      const move = here && moved ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
       if (move && locationId !== null) {
         await moveSlots(tx, locationId, [move], source);
         stale = true;

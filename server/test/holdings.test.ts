@@ -510,6 +510,28 @@ describe("The Recipes a Location has", () => {
     ]);
   });
 
+  it("writes the embedded Workflow of a record of a Recipe naming no Bean that lacks the explicit nulls for one, once", () => {
+    const nulls = { workflow: { context: { targetDoseWeight: 18, coffeeName: null, coffeeRoaster: null, beanBatchId: null } } };
+    const due = { ...offered(UPTOWN[0], "2", "Uptown Blank", 2), record: { name: "Uptown Blank", stripSlot: 2, ...nulls } };
+    const held = heldRecipe(UPTOWN[0], "2", "Uptown Blank", 2);
+    // As the server wrote it before DYE2 v0.1.32: no coffee, roaster or batch at all, which comparing records takes for nulls.
+    const lacking = { ...held, record: { ...held.record, workflow: { context: { targetDoseWeight: 18 } } } };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [lacking] }))).toEqual([
+      {
+        kind: "recipe",
+        globalId: UPTOWN[0],
+        localId: "2",
+        fields: nulls,
+        expected: { workflow: { context: { targetDoseWeight: 18 } } },
+        decidedAt: null,
+        contentDecidedAt: EDITED,
+      },
+    ]);
+    // Holding them, it is due nothing.
+    const holdingNulls = { ...held, record: { ...held.record, ...nulls } };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [holdingNulls] }))).toEqual([]);
+  });
+
   it("keeps a Recipe the tablet holds under its record id, writing only its slot where it moved", () => {
     const writes = plannedWrites(
       offer([], [], [], [], { recipes: [offered(UPTOWN[0], "2", "Uptown Brazil", 2), offered(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", 3)] }),

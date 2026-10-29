@@ -55,7 +55,6 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   yield: "Yield (g)",
   rpm: "RPM",
   brewTemperature: "Brew temperature (°C)",
-  showOnDashboard: "Shown on the dashboard",
   hotWaterMode: "Hot water by",
   steamMode: "Steam by",
   steamTemperature: "Steam temperature (°C)",

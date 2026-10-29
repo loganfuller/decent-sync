@@ -38,7 +38,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // brought to it. Archiving the Recipe, or making the Machine capture-only,
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded. Through the built plugin in simulated tablets
-// running DYE2 v0.1.26 and Streamline at cec5664 as recorded
+// running DYE2 v0.1.32 and Streamline at cec5664 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), Machine A, and D in the tests that use
 // it, on one server instance and C on another sharing one database, with
 // assertions through the REST API and what each simulated tablet holds.

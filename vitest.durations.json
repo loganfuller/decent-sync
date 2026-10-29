@@ -82,6 +82,7 @@
   "server/test/profile-intake.test.ts": 0,
   "server/test/recipe-intake.test.ts": 0,
   "server/test/recipe-settings.test.ts": 61,
+  "server/test/recipe-strip-refresh.test.ts": 2,
   "server/test/repeating-failures.test.ts": 0,
   "server/test/replayed-deliveries.test.ts": 7,
   "server/test/sensor-calibration-edits.test.ts": 6,

@@ -214,6 +214,20 @@ describe("recording a load", () => {
     expect(loadWrite(otherwise, bare, { profile: null })).toBeNull();
   });
 
+  it("clears the Workflow's batch, coffee and roaster for a recipe naming no Bean, as DYE2 v0.1.32 applies one, but writes none where it holds none", () => {
+    const beanless: Record_ = { ...written() };
+    for (const field of ["beanId", "beanName", "beanRoaster", "beanBatchId"]) delete beanless[field];
+    const workflow = appliedAtOwnTemperatures();
+    workflow.context = { ...(workflow.context as Record_), beanBatchId: batch };
+    const write = loadWrite(workflow, beanless, { profile })!;
+    expect(write.context).toMatchObject({ beanBatchId: null, coffeeName: null, coffeeRoaster: null });
+    const context = workflow.context as Record_;
+    const cleared: Record_ = { ...workflow, context: { ...context, ...(write.context as Record_), extras: { ...(context.extras as Record_), ...((write.context as Record_).extras as Record_) } } };
+    for (const part of ["steamSettings", "hotWaterData", "rinseData"]) cleared[part] = { ...(workflow[part] as Record_), ...(write[part] as Record_) };
+    expect(loadWrite(cleared, beanless, { profile })).toBeNull();
+    expect(loadWrite(workflow, beanless, { profile }, new Set(["batch", ...RECIPE_SETTING_NAMES]))?.context).not.toHaveProperty("beanBatchId");
+  });
+
   it("writes no steam temperature into a Workflow whose steam is off, but the rest of its steam settings", () => {
     const workflow = appliedAtOwnTemperatures();
     workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature: 0, duration: 0 };

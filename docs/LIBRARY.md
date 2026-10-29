@@ -536,10 +536,13 @@ tablets, below).
   beverage, Bean Batch, Profile, dose, yield, Grinder, grind setting, RPM,
   brew temperature, Basket, Tools with each Tool's attributes for it
   (`toolAttributes`, by the Tool's global id, as DYE2's `equipmentCustom`
-  holds them by its own), its eleven steam, hot water and flush settings
-  (Steam, hot water and flush settings, below), and whether it shows on the
-  dashboard. Its page shows each setting, one it holds none of as "Machine's
-  own", and its editor sets or clears any of them. Each is checked against
+  holds them by its own), and its eleven steam, hot water and flush settings
+  (Steam, hot water and flush settings, below). Its grind setting is a
+  number where it reads as one and otherwise the text as typed, such as a
+  three-dial grinder's `1.1.0`, as DYE2 v0.1.32 keeps one (`grindSettingOf`
+  in `protocol/`), shown and edited as kept. Its page shows each setting,
+  one it holds none of as "Machine's own", and its editor sets or clears
+  any of them. Each is checked against
   the range DYE2's editor offers, a whole number where Decaid's field is an
   int (`NumberRange` in `item-input.ts`), and refused with 400 otherwise:
   a steam temperature from 135 to 170 °C, with no "Off"; a milk stop of 0
@@ -549,9 +552,18 @@ tablets, below).
   water temperature or flush time of 0 or more. Its steam and hot water
   modes, only which value DYE2's stepper shows, stay as a tablet saved them,
   a new one's by flow and by volume, as DYE2's editor makes one, and are
-  not set here (400). A new one shows on the dashboard unless given
-  otherwise, and holds no steam, hot water or flush setting, so a Machine
-  loading it keeps its own. What it newly uses is checked against its Location as it is
+  not set here (400). A new one holds no steam, hot water or flush setting,
+  so a Machine loading it keeps its own. A Recipe is on Streamline's strip
+  exactly while it is in a slot (DYE2 v0.1.32), so it has no switch of its
+  own for that: `showOnDashboard` in its content is set from its slot as it
+  moves (`placedIn` in `recipes.ts`), no edit and no version of its own, for
+  the previous release, which writes its records from it (ADR-0025); that
+  release's pages still send it, so the REST API takes it, false taking the
+  Recipe out of its slot, or creating it in none, and true doing nothing. As
+  each instance starts, and every hour after, a Recipe in a slot whose
+  `showOnDashboard` is false, as the previous release left one, is taken
+  out of its slot, a version from the server, and every other Recipe's set
+  from its slot (`RecipeStripRefresh`). What it newly uses is checked against its Location as it is
   set, under each item's row lock, but not what it uses already, so a Tool
   Archived since stays beside a new one: its Grinder is one of the
   Location's, not Archived, and a Bean Batch, of a Bean not Archived,
@@ -1106,7 +1118,8 @@ are never matched (ADR-0018).
   `beverage`, `beanId`, `beanBatchId`, `profileId` (Decaid's id),
   `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
   `equipmentCustom`, by each Tool's global id), `dose`, `yield`, `ratio`,
-  `grindSetting`, `rpm`, `brewTemperature`, `showOnDashboard`, the eleven
+  `grindSetting` (a number, or text as typed), `rpm`, `brewTemperature`,
+  `showOnDashboard` (whether it is in a slot, set from it), the eleven
   steam, hot water and flush settings (`steamTemperature`, `steamDuration`,
   `steamFlow`, `steamStopTemperature`, `hotWaterTemperature`,
   `hotWaterDuration`, `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`,
@@ -1150,9 +1163,10 @@ are never matched (ADR-0018).
   batch where the Bean has none there. DYE2 never saves a batch picked on a
   Machine into the recipe, so Decent Sync records it: a batch of the
   Recipe's Bean picked on a Machine with the Recipe loaded becomes the
-  Recipe's, a Recipe naming no Bean taking the batch's Bean too, while a
-  batch of another Bean stays that Machine's own, the Recipe still loaded
-  (ADR-0022, `WORKFLOW-AND-STATE.md`).
+  Recipe's, while a batch of another Bean stays that Machine's own, the
+  Recipe still loaded, and so does any batch for a Recipe naming no Bean,
+  which means no bean, as DYE2 v0.1.32 applies one (ADR-0022,
+  `WORKFLOW-AND-STATE.md`).
 - **A saved 0 is a value**, as a milk stop of 0 is off. DYE2 saves a blank
   field as `null` (decentespresso/dye2#29), which holds none.
 - **Its Grinder** is one of its Location's: a record naming another, or one
@@ -1185,10 +1199,15 @@ are never matched (ADR-0018).
   or `save-recipe` made.
 - **Slots.** A record's `stripSlot` is its Recipe's slot at its Location, not
   its content (`recipeSlotOf` in `protocol/`: a whole number from 1 to 5,
-  any other value none). A record the map holds whose `stripSlot` differs
-  from the record known moves its Recipe there, or out of its slot for
-  none, as DYE2's editor moves a recipe on the strip, and Streamline's
-  "Replace <name>" takes one off it; a new Recipe from a tablet takes its
+  any other value none, and none for a record hidden from the strip,
+  `showOnStreamlineDashboard` false, as a recipe is on the strip exactly
+  while it is in a slot, DYE2 v0.1.32's `stripTargetOf`). A record the map
+  holds whose slot so read differs from the record known's moves its Recipe
+  there, or out of its slot for none, as DYE2's editor moves a recipe on the
+  strip or takes it off, Streamline's "Replace <name>" takes one off it, and
+  hiding it does, as Streamline's "Clear button" does keeping its
+  `stripSlot` and DYE2's editor switching "Show on Streamline Dashboard"
+  off; a new Recipe from a tablet takes its
   record's slot the same way (`slotMove` in `recipe-intake.ts`, `moveSlots`
   in `recipes.ts`). The Recipe that held that slot at the Location leaves
   it, kept in none, as DYE2's `takeSlot` does
@@ -1237,7 +1256,9 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
   record of it, and its Profile by Decaid's id;
 - its Recipe Slot in `stripSlot`, null for none, as Streamline places
   recipes on its strip by it as soon as any record holds the key
-  (`recipeStripCells` in `streamline-js:src/modules/dye-selection.js`);
+  (`recipeStripCells` in `streamline-js:src/modules/dye-selection.js`), and
+  `showOnStreamlineDashboard` true exactly while it is in one, as DYE2
+  v0.1.32 holds a recipe hidden in none;
 - each steam, hot water and flush setting it holds in DYE2's field of it in
   `dashboardVariables`, blank where it holds none, so applying the record
   leaves the Machine's own, and its steam and hot water modes, a hot water
@@ -1246,7 +1267,11 @@ written (`recipeRecord` in `recipe-intake.ts`) holds:
 - the names DYE2 copies, the Bean's roaster among them, and `title`,
   `subtitle` and the embedded `workflow`, built as DYE2's
   `buildRecipeWorkflow` builds them, with the Bean's name, roaster and batch
-  together, null where it holds none, the full Profile, the tablet's
+  together, null where it holds none, and all three null for a Recipe naming
+  no Bean, so applying it from Streamline's strip leaves no bean batch, as
+  from DYE2's dashboard; a record that lacks them, as one the server wrote
+  before DYE2 v0.1.32 did, is written them once (`lacksBeanNulls`), which the
+  plugin posts though comparing records takes a null for none; the full Profile, the tablet's
   grinder id, and each steam, hot water and flush setting it holds in
   partial `steamSettings`, `hotWaterData` and `rinseData`, none where it
   holds none of them, so DYE2 and Streamline apply it the same way, once

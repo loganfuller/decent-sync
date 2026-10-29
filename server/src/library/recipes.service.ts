@@ -19,8 +19,10 @@ export interface RecipeView {
    * What it holds, in the Library's terms: `name`, `beverage`, `beanId`,
    * `beanBatchId`, `profileId`, `grinderId`, `basketId`, `toolIds` and
    * `toolAttributes` (a Tool's attributes for this Recipe, by the Tool's id),
-   * `dose`, `yield`, `ratio`, `grindSetting`, `rpm`, `brewTemperature`,
-   * `showOnDashboard`, the steam, hot water and flush settings it holds
+   * `dose`, `yield`, `ratio`, `grindSetting` (a number, or text as typed),
+   * `rpm`, `brewTemperature`, `showOnDashboard` (whether it is in a slot,
+   * set from it for the previous release, `placedIn`), the steam, hot water
+   * and flush settings it holds
    * (RECIPE_SETTINGS: `steamTemperature`, `steamDuration`, `steamFlow`,
    * `steamStopTemperature`, `hotWaterTemperature`, `hotWaterDuration`,
    * `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`, `flushDuration`

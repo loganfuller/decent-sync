@@ -17,7 +17,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // page opened before another tablet's change keeps that change (ADR-0005).
 // Through the built plugin in simulated tablets, acting as DYE2's equipment and
 // baskets pages do with the steps recorded from them at 2cf631c, which
-// v0.1.26's pages save as (fixtures/decaid/dye2-2cf631c/), on two
+// v0.1.32's pages save as (fixtures/decaid/dye2-2cf631c/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up, from 41001.
 

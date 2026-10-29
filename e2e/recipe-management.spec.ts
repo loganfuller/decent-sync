@@ -49,7 +49,11 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await samsPage.goto(`/locations/${lab.id}`);
     const recipes = samsPage.getByRole("region", { name: "Recipes" });
     await expect(recipes).toContainText("No Recipe is in a slot here yet.");
-    await expectTip(recipes, "Recipes", /^Its Recipe Slots, 1 to 5, the buttons of Streamline's DYE strip.+ Every Recipe here not Archived is on each tablet here\.$/);
+    await expectTip(
+      recipes,
+      "Recipes",
+      /^Its Recipe Slots, 1 to 5, the buttons of Streamline's DYE strip.+ Every Recipe here not Archived is on each tablet here\.\s*A Recipe is on the strip exactly while it is in a slot: taking it off any Machine's strip takes it out of its slot here\.$/,
+    );
     await recipes.getByRole("button", { name: "New Recipe" }).click();
     const form = samsPage.getByRole("form", { name: "New Recipe" });
     await form.getByLabel("Name", { exact: true }).fill("Lab Guji");
@@ -60,6 +64,10 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await samsPage.getByRole("option", { name: "Uptown Bloom (shows it here)" }).click();
     await form.getByLabel("Dose (g)").fill("18");
     await form.getByLabel("Yield (g)").fill("40");
+    // A grind setting is kept as typed, as a three-dial grinder's, as DYE2 keeps one.
+    await form.getByLabel("Grind setting").fill("1.1.0");
+    // On the strip exactly while in a slot: no switch of its own.
+    await expect(form.getByText("Shown on the dashboard")).toHaveCount(0);
     await form.getByLabel("Recipe Slot").click();
     await samsPage.getByRole("option", { name: "A slot of my choosing" }).click();
     // The slots offered are the five buttons of Streamline's DYE strip.
@@ -80,14 +88,20 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
+    await expect(field(details, "Grind setting")).toHaveText("1.1.0");
+    await expect(details.locator("dt", { hasText: "Shown on the dashboard" })).toHaveCount(0);
     // A new Recipe holds no steam, hot water or flush setting.
     await expect(field(samsPage.getByLabel("Flush", { exact: true }), "Flush time")).toHaveText("Machine's own");
 
     await samsPage.getByRole("button", { name: "Edit the Recipe" }).click();
     const edit = samsPage.getByRole("form", { name: "Edit Lab Guji" });
+    await expect(edit.getByLabel("Grind setting")).toHaveValue("1.1.0");
     await edit.getByLabel("Dose (g)").fill("18.5");
+    await edit.getByLabel("Grind setting").fill("2.50");
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(field(details, "Dose")).toHaveText("18.5 g");
+    // One that reads as a number is kept as one.
+    await expect(field(details, "Grind setting")).toHaveText("2.5");
 
     // The lab's page lists it in slot 3.
     await samsPage.getByRole("link", { name: "← Roastery lab" }).click();

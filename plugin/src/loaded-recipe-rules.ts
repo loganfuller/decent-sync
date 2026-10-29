@@ -66,11 +66,14 @@ function stableJson(value: unknown): string {
  * which Decaid merges into it) changes its profile as DYE2 fingerprints one
  * (`dye2Fingerprint`), which DYE2 clears the Workflow's recipe on, whoever
  * wrote it (`idProfileChanged` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26), even where the
- * write names the same recipe: so the plugin makes such a write as two, the
- * recipe cleared (CLEAR_RECIPE) and then named again with the write
- * (`withRecipe`), and DYE2 takes the new profile as the recipe's (interim,
- * until decentespresso/dye2#38).
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32), even where the
+ * write names the same recipe, but where the profile is the recipe record's
+ * own by that fingerprint, which keeps each step's keys in the record's
+ * order, so never one the server wrote (decentespresso/dye2#38): so the
+ * plugin makes such a write as two, the recipe cleared (CLEAR_RECIPE) and
+ * then named again with the write (`withRecipe`), and DYE2 takes the new
+ * profile as the recipe's (interim, until DYE2's fingerprint ignores key
+ * order, #186).
  */
 export function changesProfile(workflow: Record<string, unknown>, write: Record<string, unknown>): boolean {
   return isObject(write.profile) && dye2Fingerprint(write.profile) !== dye2Fingerprint(workflow.profile);
@@ -144,8 +147,11 @@ export interface LoadContext {
  * which would turn steam on. Its brew temperature is DYE2's and Streamline's
  * to apply, and so is the Profile at it, which is written only where the
  * Workflow holds another. A value the recipe holds none of is left as the
- * Workflow has it, which the server takes as the Recipe's (ADR-0022), and so
- * is one `omit` names. Null if the Workflow holds all of it already.
+ * Workflow has it, which the server takes as the Recipe's (ADR-0022), but
+ * the Bean: a recipe naming none means no bean, as DYE2 v0.1.32 applies one
+ * (`ce38984`), so the Workflow's batch, coffee and roaster are cleared, as a
+ * copy holding none of DYE2's nulls for them leaves them. One `omit` names
+ * is left too. Null if the Workflow holds all of it already.
  */
 export function loadWrite(
   workflow: Record<string, unknown>,
@@ -178,10 +184,13 @@ export function loadWrite(
     if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
   }
   const batch = textOf(record.beanBatchId);
+  const namesBean = textOf(record.beanId) !== null || textOf(record.beanName) !== null;
   if (batch !== null && batch !== textOf(context.beanBatchId) && !omit.has("batch")) {
     contextWrite.beanBatchId = batch;
     if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
     if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
+  } else if (!namesBean && !omit.has("batch") && WORKFLOW_BEAN.some((field) => context[field] !== null && context[field] !== undefined)) {
+    for (const field of WORKFLOW_BEAN) contextWrite[field] = null;
   }
   if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
 
@@ -199,6 +208,9 @@ export function loadWrite(
   Object.assign(write, workflowPatch(Object.fromEntries(settings)));
   return Object.keys(write).length > 0 ? write : null;
 }
+
+/** The Workflow's fields naming its Bean and batch, which a recipe naming no Bean clears. */
+const WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"] as const;
 
 /** A number as Decaid reads one (`parseOptionalDouble`): a number, or text that reads as one; otherwise null. */
 function numberOf(value: unknown): number | null {

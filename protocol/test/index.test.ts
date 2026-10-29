@@ -38,6 +38,7 @@ import {
   dye2Fingerprint,
   dye2RecipeIdOf,
   recipeSlotOf,
+  grindSettingOf,
   RECIPE_SETTINGS,
   LOADED_RECIPE_PARTS,
   steamOff,
@@ -863,7 +864,7 @@ describe("Library writes", () => {
     }
   });
 
-  it("recognises DYE2's recipes under any record id, each in a Recipe Slot from 1 to 5 by its stripSlot, or none", () => {
+  it("recognises DYE2's recipes under any record id, each in a Recipe Slot from 1 to 5 by its stripSlot while shown on the strip, or none", () => {
     expect(dye2Key("recipe")).toBe("recipes");
     expect(LIBRARY_ITEM_KINDS.recipe.list).toBe("dye2Recipes");
     // Recipes are written last, as they name the other kinds by the tablet's ids.
@@ -874,8 +875,18 @@ describe("Library writes", () => {
     expect(recipes.map(recipeSlotOf)).toEqual([1, null, null]);
     for (const slot of [0, 6, 1.5, "2", -1, null, undefined]) expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
     for (const slot of [1, 2, 3, 4, 5]) expect(isRecipeSlot(slot)).toBe(true);
+    // Hidden from the strip, it is in none, whatever its stripSlot says, as Streamline's long-press Clear leaves one (DYE2 v0.1.32's stripTargetOf).
+    expect(recipeSlotOf({ id: "a", stripSlot: 2, showOnStreamlineDashboard: false })).toBeNull();
+    expect(recipeSlotOf({ id: "a", stripSlot: 2, showOnStreamlineDashboard: true })).toBe(2);
     expect(RECIPE_SLOTS).toBe(5);
     expect(RECIPE_SLOT_FIELD).toBe("stripSlot");
+  });
+
+  it("keeps a grind setting as DYE2 v0.1.32 does: a number where it reads as one, otherwise the text as typed", () => {
+    expect(["2.5", " 3 ", 2.5, 0].map(grindSettingOf)).toEqual([2.5, 3, 2.5, 0]);
+    // A three-dial grinder's setting, a stepped one's, and a word stay text, trimmed.
+    expect(["1.5.", "1.1.0", " 15 clicks ", "fine"].map(grindSettingOf)).toEqual(["1.5.", "1.1.0", "15 clicks", "fine"]);
+    expect(["", "  ", null, undefined, Number.NaN, {}].map(grindSettingOf)).toEqual([null, null, null, null, null, null]);
   });
 
   it("reads the recipe a Workflow names by its record id, as DYE2 does, and fingerprints a profile as DYE2 v0.1.26 does", () => {

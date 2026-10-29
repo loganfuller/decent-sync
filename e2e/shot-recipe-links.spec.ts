@@ -13,8 +13,8 @@ import { field, rows } from "./support/locators.js";
 // them; an Admin hard-deletes a Recipe no Shot was pulled with, which leaves
 // every tablet, but not one a Shot was, nor a Basket a Recipe names, and
 // Staff delete nothing. Simulated tablets running the built plugin act as
-// DYE2 v0.1.26 does with the steps recorded from it
-// (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
+// DYE2 v0.1.32 does with the steps recorded from it
+// (server/test/fixtures/decaid/dye2-v0.1.26/ and dye2-v0.1.32/). Serials are made up, from
 // 49501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
@@ -112,7 +112,7 @@ const BRAZIL = "2";
 
 /**
  * A Location with two Machines: Bar 1, the first there, the recording's
- * tablet running DYE2 v0.1.26 (recordedDye2MainTablet), whose eight recipes
+ * tablet running DYE2 v0.1.32 (recordedDye2MainTablet), whose eight recipes
  * become the Location's Recipes under their ids, its beans' names begun
  * with the Location's, and Bar 2, whose tablet has no DYE2 lists, written
  * every one of them. Resolves with the Recipes the Ethiopia and the Brazil

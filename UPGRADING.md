@@ -15,6 +15,26 @@ section).
 
 ## Unreleased
 
+### Tablets need DYE2 v0.1.32
+
+This release follows DYE2 v0.1.32
+([ADR-0017](docs/adr/0017-supported-versions.md)), which Decaid installs on
+every tablet within 12 hours of its release. Check that a tablet whose DYE2 is
+pinned runs v0.1.32 or later. Three things change with it:
+
+- A Recipe naming no Bean means no bean: loading it, from DYE2 or
+  Streamline's strip, leaves the Machine with no bean batch, and it no longer
+  takes one from the Machine. The server writes such a Recipe's records once
+  more, with DYE2's explicit nulls for a Bean.
+- A Recipe is on Streamline's strip exactly while it is in a Recipe Slot. The
+  Recipe page's "Shown on the dashboard" switch is gone, and hiding a recipe
+  on a tablet, by Streamline's "Clear button" or DYE2's switch, takes it out
+  of its slot at its Location. As the server starts, it takes a Recipe that is
+  in a slot but hidden out of that slot, so each strip still shows that
+  button empty; put the Recipe in a slot again to show it.
+- A grind setting is kept as typed, as a three-dial grinder's `1.1.0`, and
+  shown and edited so; one that reads as a number stays a number.
+
 ## 1.5.0
 
 ### Check every tablet runs the 1.4.0 plugin before deploying

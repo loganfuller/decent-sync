@@ -1436,10 +1436,13 @@ var __decentSync = (() => {
       if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
     }
     const batch = textOf(record3.beanBatchId);
+    const namesBean = textOf(record3.beanId) !== null || textOf(record3.beanName) !== null;
     if (batch !== null && batch !== textOf(context.beanBatchId) && !omit.has("batch")) {
       contextWrite.beanBatchId = batch;
       if (textOf(record3.beanName) !== null) contextWrite.coffeeName = record3.beanName;
       if (textOf(record3.beanRoaster) !== null) contextWrite.coffeeRoaster = record3.beanRoaster;
+    } else if (!namesBean && !omit.has("batch") && WORKFLOW_BEAN.some((field) => context[field] !== null && context[field] !== void 0)) {
+      for (const field of WORKFLOW_BEAN) contextWrite[field] = null;
     }
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
@@ -1456,6 +1459,7 @@ var __decentSync = (() => {
     Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? write : null;
   }
+  var WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"];
   function numberOf(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
     if (typeof value === "string" && /^\s*[+-]?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
@@ -2795,7 +2799,7 @@ var __decentSync = (() => {
       const settled = settable(write, (field) => valueAt(current, field));
       record3 = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
       writtenFields = Object.keys(settled);
-      if (sameValue(record3, current)) return written(write, current, writtenFields, now2);
+      if (sameJson(record3, current)) return written(write, current, writtenFields, now2);
     }
     const before = [...records];
     records[index] = record3;
@@ -2807,6 +2811,13 @@ var __decentSync = (() => {
     if (!posted.ok) return refused(write, posted.status, posted.text);
     const answer = written(write, record3, writtenFields, now2);
     return linked ? { ...answer, linked } : answer;
+  }
+  function sameJson(a, b) {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameJson(value, b[index]));
+    if (!isObject5(a) || !isObject5(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameJson(a[key], b[key]));
   }
   var DASHBOARD = "dashboardVariables";
   function valueAt(record3, path) {

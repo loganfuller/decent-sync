@@ -1,3 +1,4 @@
+import { grindSettingOf } from "@decent-sync/protocol";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
@@ -20,7 +21,6 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import {
   ApiError,
@@ -41,7 +41,9 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // field DYE2 has but the barista and the drinker, and its steam and hot water
 // modes, which are only what DYE2's stepper shows, moves it between slots,
 // takes it out of its slot, and Archives and restores it; each change
-// reaches every tablet there. Each steam, hot water and flush setting it does
+// reaches every tablet there. A Recipe is on Streamline's strip exactly while
+// it is in a slot, so it has no switch of its own for that. Its grind
+// setting is a number or text, as DYE2 keeps one. Each steam, hot water and flush setting it does
 // not hold is each Machine's own. Picking a Bean Batch, Profile, Basket or
 // Tool its Location does not offer offers it there, as the form says before
 // saving. A Recipe is copied to a Location as a new Recipe there, offering
@@ -88,9 +90,15 @@ function dialText(content: Record<string, unknown>): string | undefined {
   return `${dose ?? "-"} → ${drink ?? "-"}${ratio}`;
 }
 
+/** A Recipe's grind setting as kept: a number, or text as typed, such as "1.1.0"; undefined for none. */
+function grindSettingText(content: Record<string, unknown>): string | undefined {
+  const setting = grindSettingOf(content.grindSetting);
+  return setting === null ? undefined : String(setting);
+}
+
 /** A Recipe's Grinder and its setting, such as "EK43 at 2.5". */
 function grindText(recipe: Recipe): string | undefined {
-  const setting = typeof recipe.content.grindSetting === "number" ? String(recipe.content.grindSetting) : undefined;
+  const setting = grindSettingText(recipe.content);
   const grinder = recipe.uses.grinder ? (recipe.uses.grinder.model ?? "Unnamed Grinder") : undefined;
   if (grinder === undefined) return setting === undefined ? undefined : `Setting ${setting}`;
   return setting === undefined ? grinder : `${grinder} at ${setting}`;
@@ -131,6 +139,7 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
             Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
             in no slot. Every Recipe here not Archived is on each tablet here.
           </p>
+          <p>A Recipe is on the strip exactly while it is in a slot: taking it off any Machine's strip takes it out of its slot here.</p>
         </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
@@ -345,14 +354,12 @@ interface FormValues extends Record<SettingField, string> {
   toolIds: string[];
   /** Each picked Tool's attributes for this Recipe, by the Tool's id. */
   toolAttributes: Record<string, Attribute[]>;
-  showOnDashboard: boolean;
 }
 
 /** The fields the form reads as numbers, each with its label. */
 const NUMBERS = [
   ["dose", "Dose (g)"],
   ["yield", "Yield (g)"],
-  ["grindSetting", "Grind setting"],
   ["rpm", "RPM"],
   ["brewTemperature", "Brew temperature (°C)"],
 ] as const satisfies readonly (readonly [keyof FormValues, string])[];
@@ -378,13 +385,12 @@ function valuesOf(content: Record<string, unknown>): FormValues {
     dose: number("dose"),
     yield: number("yield"),
     grinderId: id("grinderId"),
-    grindSetting: number("grindSetting"),
+    grindSetting: grindSettingText(content) ?? "",
     rpm: number("rpm"),
     brewTemperature: number("brewTemperature"),
     basketId: id("basketId"),
     toolIds: Array.isArray(content.toolIds) ? content.toolIds.filter((tool): tool is string => typeof tool === "string") : [],
     toolAttributes: attributes,
-    showOnDashboard: content.showOnDashboard !== false,
     ...(Object.fromEntries(SETTINGS.map((setting) => [setting.field, number(setting.field)])) as Record<SettingField, string>),
   };
 }
@@ -398,7 +404,8 @@ function toolDefaults(tool: EquipmentSummary | undefined): Attribute[] {
  * The content the form's values set, each field as the server takes it, null
  * to clear it, as an empty setting is: a number entered that is not one is
  * refused, so nothing typed is lost unseen, and a setting outside its range
- * is the server's to refuse. A Tool's attributes are kept only where they differ from
+ * is the server's to refuse. The grind setting is a number where it reads as
+ * one, and otherwise the text as typed, as DYE2 keeps one. A Tool's attributes are kept only where they differ from
  * the Tool's own, as DYE2's editor keeps those changed for a recipe.
  */
 function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string, unknown> {
@@ -418,7 +425,7 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
         return pairs.length === 0 || JSON.stringify(pairs) === JSON.stringify(own) ? [] : [[tool, pairs]];
       }),
     ),
-    showOnDashboard: values.showOnDashboard,
+    grindSetting: grindSettingOf(values.grindSetting),
   };
   for (const [field, label] of NUMBERS) {
     const text = values[field].trim();
@@ -589,7 +596,7 @@ function RecipeForm({
   onSaved(id: string): Promise<void>;
 }) {
   const { choices, error: choicesError } = useChoices();
-  const [initial] = useState(() => valuesOf(recipe?.content ?? { showOnDashboard: true }));
+  const [initial] = useState(() => valuesOf(recipe?.content ?? {}));
   const [values, setValues] = useState(initial);
   const [slotMode, setSlotMode] = useState<SlotMode>("next");
   const [slotText, setSlotText] = useState("");
@@ -783,7 +790,15 @@ function RecipeForm({
             </SelectContent>
           </Select>
         </div>
-        {numberInput("grindSetting")}
+        <div className="grid gap-2">
+          <Label htmlFor={`${id}-grindSetting`}>Grind setting</Label>
+          <Input
+            id={`${id}-grindSetting`}
+            placeholder="Such as 2.5 or 1.1.0"
+            value={values.grindSetting}
+            onChange={(event) => set("grindSetting", event.target.value)}
+          />
+        </div>
         {numberInput("rpm")}
         {numberInput("brewTemperature")}
 
@@ -879,11 +894,6 @@ function RecipeForm({
             );
           })}
         </fieldset>
-
-        <div className="flex items-center gap-2 py-1.5 sm:col-span-2">
-          <Switch id={`${id}-dashboard`} checked={values.showOnDashboard} onCheckedChange={(checked) => set("showOnDashboard", checked)} />
-          <Label htmlFor={`${id}-dashboard`}>Shown on the dashboard</Label>
-        </div>
       </div>
 
       <div className="grid gap-4">
@@ -1257,7 +1267,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
                 </Select>
                 <p className="text-sm text-muted-foreground">
                   One of {target.name}'s Grinders.
-                  {typeof recipe.content.grindSetting === "number" && ` Its grind setting, ${recipe.content.grindSetting}, is kept as a starting point.`}
+                  {grindSettingText(recipe.content) !== undefined && ` Its grind setting, ${grindSettingText(recipe.content)}, is kept as a starting point.`}
                 </p>
               </div>
 
@@ -1464,7 +1474,7 @@ export function RecipeDetails({ id }: { id: string }) {
               )}
             </Field>
             <Field term="Grind setting">
-              <OrNone>{numberText(content.grindSetting, "")}</OrNone>
+              <OrNone>{grindSettingText(content)}</OrNone>
             </Field>
             <Field term="RPM">
               <OrNone>{numberText(content.rpm, "")}</OrNone>
@@ -1496,7 +1506,6 @@ export function RecipeDetails({ id }: { id: string }) {
                 </ul>
               )}
             </Field>
-            <Field term="Shown on the dashboard">{content.showOnDashboard === false ? "No" : "Yes"}</Field>
             <Field term="Joined">{formatTime(recipe.createdAt)}</Field>
           </Fields>
         </CardContent>

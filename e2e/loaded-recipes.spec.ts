@@ -14,7 +14,7 @@ import { expectTip } from "./support/tooltips.js";
 // Location's page, and its history keeps when it was loaded and unloaded; a
 // change on one Machine reaches the Recipe and the other Machine that has it
 // loaded. The tablet is DYE2 v0.1.26's recording's
-// (server/test/fixtures/decaid/dye2-v0.1.26/). Serials are made up, from
+// (server/test/fixtures/decaid/dye2-v0.1.26/), as DYE2 v0.1.32 left it. Serials are made up, from
 // 47501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 

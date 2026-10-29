@@ -11,6 +11,7 @@ import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
 import { NoDoseForRatio, ratioValues } from "./recipe-intake.js";
+import { placedIn } from "./recipes.js";
 import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from "./location-state.js";
 
 // Recipes created and edited in the management interface, moved between the
@@ -29,7 +30,11 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 //
 // A Recipe's slot is its Location's state, not its content: each change of
 // it is a version of its own at the Location, as a tablet taking it out of
-// its slot is (recipes.ts). Slots are decided under the Location's lock, as
+// its slot is (recipes.ts). A Recipe is on Streamline's strip exactly while
+// it is in a slot, so `showOnDashboard`, which the previous release's pages
+// still send (ADR-0025), sets nothing of its content: false, a Recipe hidden
+// from the strip, takes it out of its slot or creates it in none, and true
+// is what a slot is already (`placedIn`). Slots are decided under the Location's lock, as
 // a tablet's report decides them, so no two Recipes are put in one slot,
 // through any instance. A Location has five, the buttons of Streamline's DYE
 // strip (RECIPE_SLOTS). Each change commits with a `NOTIFY` on
@@ -82,13 +87,14 @@ export class RecipeEditsService {
    */
   async create(locationId: string, content: Record<string, unknown>, slot: SlotChoice, accountId: string, scope: Scope): Promise<string> {
     if (!includesLocation(scope, locationId)) throw staffElsewhere("create a Recipe");
+    const { showOnDashboard, ...rest } = content;
     return this.prisma.$transaction(async (tx) => {
       if ((await tx.location.count({ where: { id: locationId } })) === 0) throw new NotFoundException("No such Location");
       await lockLocation(tx, locationId);
       const source = accountSource(accountId);
       const at = await editTime(tx);
-      const values = await setUses(tx, locationId, content, {}, source, at);
-      return insertRecipe(tx, locationId, values, slot, source, at);
+      const values = await setUses(tx, locationId, rest, {}, source, at);
+      return insertRecipe(tx, locationId, values, showOnDashboard === false ? null : slot, source, at);
     }, INTAKE_TRANSACTION);
   }
 
@@ -120,6 +126,8 @@ export class RecipeEditsService {
       // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
       if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
       const content = await withoutDeleted(tx, isObject(original.content) ? original.content : {});
+      // Set from its slot, which the copy takes afresh.
+      delete content.showOnDashboard;
       delete content.grinderId;
       if (to.grinderId !== null) content.grinderId = to.grinderId;
       if (to.beanBatchId !== undefined) {
@@ -147,10 +155,14 @@ export class RecipeEditsService {
    * Staff elsewhere.
    */
   async edit(id: string, values: Record<string, unknown>, accountId: string, scope: Scope): Promise<void> {
+    const { showOnDashboard, ...content } = values;
     await this.change(id, accountId, scope, "edit a Recipe", async (tx, recipe, source, at) => {
-      const set = await recipeEditValues(tx, recipe.locationId, values, recipe.content, source, at);
+      // Hidden from the strip, as the previous release's switch sends it: out of its slot.
+      const hidden = showOnDashboard === false && recipe.slot !== null;
+      if (hidden) await setSlot(tx, recipe, null, source, at);
+      const set = await recipeEditValues(tx, recipe.locationId, content, recipe.content, source, at);
       const edited = await editContent(tx, { kind: "recipe", id }, { values: set, at, seenAt: "everything" }, source);
-      return edited.writesDue;
+      return edited.writesDue || hidden;
     });
   }
 
@@ -248,9 +260,10 @@ async function insertRecipe(
   copiedFrom?: CopiedFrom,
 ): Promise<string> {
   const taken = slot === null ? null : await freeSlot(tx, locationId, null, slot, source, at);
+  // Its `showOnDashboard` set from its slot, as `placedIn` keeps it, which is no edit of its content.
   const [created] = await tx.$queryRaw<[{ id: string }]>`
     INSERT INTO recipes (id, location_id, record_id, slot, content)
-    VALUES (gen_random_uuid(), ${locationId}::uuid, gen_random_uuid()::text, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
+    VALUES (gen_random_uuid(), ${locationId}::uuid, gen_random_uuid()::text, ${taken}::integer, ${JSON.stringify({ ...values, showOnDashboard: taken !== null })}::jsonb)
     RETURNING id::text AS id`;
   await recordJoined(tx, { kind: "recipe", id: created.id }, values, at, source, copiedFrom);
   if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
@@ -461,9 +474,9 @@ async function freeSlot(
   const there = slotted.find((recipe) => recipe.slot === slot && recipe.id !== moving?.id);
   if (there) {
     // The moved Recipe leaves its slot first, as each slot holds one Recipe.
-    if (moving !== null && moving.slot !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${moving.id}::uuid`;
+    if (moving !== null && moving.slot !== null) await tx.$executeRaw`UPDATE recipes SET ${placedIn(null)} WHERE id = ${moving.id}::uuid`;
     const swapped = moving?.slot ?? null;
-    await tx.$executeRaw`UPDATE recipes SET slot = ${swapped}::integer WHERE id = ${there.id}::uuid`;
+    await tx.$executeRaw`UPDATE recipes SET ${placedIn(swapped)} WHERE id = ${there.id}::uuid`;
     await recordVersion(tx, { kind: "recipe", id: there.id }, locationId, { slot: swapped }, source, at);
   }
   return slot;
@@ -479,6 +492,6 @@ function lowestFree(slots: readonly number[]): number | null {
 /** Puts the Recipe in the slot, or none, as a version of its own at its Location. */
 async function setSlot(tx: Prisma.TransactionClient, recipe: Placed, slot: number | null, source: EditSource, at: Date): Promise<void> {
   if (sameValue(recipe.slot, slot)) return;
-  await tx.$executeRaw`UPDATE recipes SET slot = ${slot}::integer WHERE id = ${recipe.id}::uuid`;
+  await tx.$executeRaw`UPDATE recipes SET ${placedIn(slot)} WHERE id = ${recipe.id}::uuid`;
   await recordVersion(tx, { kind: "recipe", id: recipe.id }, recipe.locationId, { slot }, source, at);
 }
