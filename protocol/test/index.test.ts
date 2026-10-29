@@ -39,6 +39,7 @@ import {
   dye2RecipeIdOf,
   recipeSlotOf,
   grindSettingOf,
+  sameGrindSetting,
   RECIPE_SETTINGS,
   LOADED_RECIPE_PARTS,
   steamOff,
@@ -887,6 +888,9 @@ describe("Library writes", () => {
     // A three-dial grinder's setting, a stepped one's, and a word stay text, trimmed.
     expect(["1.5.", "1.1.0", " 15 clicks ", "fine"].map(grindSettingOf)).toEqual(["1.5.", "1.1.0", "15 clicks", "fine"]);
     expect(["", "  ", null, undefined, Number.NaN, {}].map(grindSettingOf)).toEqual([null, null, null, null, null, null]);
+    // Two are the same where both read as the same number, however written, and otherwise where their text is.
+    for (const [a, b] of [[".5", "0.5"], ["5.", 5], ["1e1", 10], [" 3 ", "3"], [" fine", "fine "], [null, ""]] as const) expect(sameGrindSetting(a, b), `${a} ${b}`).toBe(true);
+    for (const [a, b] of [[".5", "0.6"], ["1.5.", 1.5], ["fine", "Fine"], [null, 0]] as const) expect(sameGrindSetting(a, b), `${a} ${b}`).toBe(false);
   });
 
   it("reads the recipe a Workflow names by its record id, as DYE2 does, and fingerprints a profile as DYE2 v0.1.26 does", () => {

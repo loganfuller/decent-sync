@@ -5,6 +5,7 @@ import {
   RECIPE_SETTING_NAMES,
   dye2Fingerprint,
   dye2GlobalIdOf,
+  sameGrindSetting,
   steamOff,
   workflowPatch,
   workflowValueAt,
@@ -234,11 +235,9 @@ function sameNumber(a: number | null, b: number | null): boolean {
   return a === null || b === null ? a === b : Math.abs(a - b) < 1e-9;
 }
 
-/** Whether two grind settings are the same: as numbers where both read as one, as Decaid keeps "3" for DYE2's 3.0, and otherwise as text. */
+/** Whether two grind settings are the same: as numbers where both read as one, as Decaid keeps "3" for DYE2's 3.0 and a barista may type `.5` for 0.5, and otherwise as text, as the server compares them (`sameGrindSetting`). */
 function sameGrind(a: string | null, b: string | null): boolean {
-  if (a === null || b === null) return a === b;
-  const [x, y] = [numberOf(a), numberOf(b)];
-  return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
+  return sameGrindSetting(a, b);
 }
 
 function isObject(value: unknown): value is Record<string, unknown> {

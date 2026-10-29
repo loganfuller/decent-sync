@@ -11,6 +11,7 @@ import {
   readParts,
   recipeParts,
   RECORDED_PARTS,
+  samePart,
   valuesFromWorkflow,
   workflowParts,
 } from "../src/library/loaded-recipe-intake.js";
@@ -99,6 +100,13 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     });
     expect(readParts(JSON.parse(JSON.stringify(HELD)))).toEqual(HELD);
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
+  });
+
+  it("compare a grind setting as a number however it is written where both read as one, as the plugin does, and otherwise as text", () => {
+    // A barista's `.5` is DYE2's 0.5, which Decaid keeps as "0.5", so DYE2 saving the Workflow's `.5` saves no other setting.
+    for (const [a, b] of [[".5", "0.5"], [".5", 0.5], ["5.", "5"], ["1e1", 10], ["2.70", "2.7"]] as const) expect(samePart("grind", a, b), `${a} ${b}`).toBe(true);
+    for (const [a, b] of [[".5", "0.6"], ["1.5.", "1.5"], ["fine", "coarse"]] as const) expect(samePart("grind", a, b), `${a} ${b}`).toBe(false);
+    expect(samePart("grind", readParts({ grind: 0.5 }).grind, ".5")).toBe(true);
   });
 
   it("are saved by DYE2 into the Recipe's record, every one but its Grinder, Bean Batch and Profile", () => {

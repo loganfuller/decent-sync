@@ -730,6 +730,18 @@ var __decentSync = (() => {
   };
   var RECIPE_SETTING_NAMES = Object.keys(RECIPE_SETTINGS);
   var MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+  function grindSettingOf(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    if (text === "") return null;
+    const number = Number(text);
+    return Number.isFinite(number) ? number : text;
+  }
+  function sameGrindSetting(a, b) {
+    const [x, y] = [grindSettingOf(a), grindSettingOf(b)];
+    return typeof x === "number" && typeof y === "number" ? Math.abs(x - y) < 1e-9 : x === y;
+  }
   function steamOff(workflow) {
     const temperature = workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow);
     return typeof temperature === "number" && temperature < STEAM_ON_FROM;
@@ -1476,9 +1488,7 @@ var __decentSync = (() => {
     return a === null || b === null ? a === b : Math.abs(a - b) < 1e-9;
   }
   function sameGrind(a, b) {
-    if (a === null || b === null) return a === b;
-    const [x, y] = [numberOf(a), numberOf(b)];
-    return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
+    return sameGrindSetting(a, b);
   }
   function isObject2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);

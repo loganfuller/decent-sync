@@ -198,6 +198,10 @@ describe("recording a load", () => {
     expect(write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
     expect(write.profile).toEqual(other);
     expect(changesProfile(workflow, write)).toBe(true);
+    // A grind setting the Workflow holds as written otherwise, `.5` for the recipe's 0.5, is the same one, as the server judges it.
+    Object.assign(record.dashboardVariables as Record_, { grind: 0.5 });
+    const typed = { ...workflow, context: { ...(workflow.context as Record_), grinderSetting: ".5" } };
+    expect((loadWrite(typed, record, { profile: other })!.context as Record_).grinderSetting).toBeUndefined();
   });
 
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {

@@ -5,6 +5,7 @@ import {
   RECIPE_SETTING_NAMES,
   type RecipeSetting,
   grindSettingOf,
+  sameGrindSetting,
   sameValue,
   workflowValueAt,
 } from "@decent-sync/protocol";
@@ -92,12 +93,9 @@ export function partValue(part: LoadedRecipePart, value: unknown): PartValue {
   return ITEM_PARTS[part] !== undefined || part === "profile" ? textOf(value) : numberOf(value);
 }
 
-/** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3". */
+/** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3" and a barista may type `.5` for 0.5 (`sameGrindSetting`). */
 export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolean {
-  if (part === "grind") {
-    const [x, y] = [numberOf(a), numberOf(b)];
-    if (x !== null && y !== null) return Math.abs(x - y) < 1e-9;
-  }
+  if (part === "grind") return sameGrindSetting(a, b);
   return sameValue(a ?? null, b ?? null);
 }
 

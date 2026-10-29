@@ -664,7 +664,8 @@ export const MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseDat
  * it reads as one, otherwise the text as typed, trimmed, as a three-dial
  * grinder's "1.1.0" or a stepped one's "15 clicks" (Decaid keeps the
  * Workflow's as text, `grinderSetting`); null for none. Two settings that
- * both read as numbers are the same where the numbers are.
+ * both read as numbers are the same where the numbers are
+ * (`sameGrindSetting`).
  */
 export function grindSettingOf(value: unknown): number | string | null {
   if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -673,6 +674,18 @@ export function grindSettingOf(value: unknown): number | string | null {
   if (text === "") return null;
   const number = Number(text);
   return Number.isFinite(number) ? number : text;
+}
+
+/**
+ * Whether two grind settings are the same, as `grindSettingOf` reads each: as
+ * numbers where both read as one, so `.5`, `0.5` and Decaid's text `"0.5"`
+ * of DYE2's 0.5 are one setting, and otherwise as their text. The plugin and
+ * the server compare by it, so neither takes a setting the other holds for
+ * another.
+ */
+export function sameGrindSetting(a: unknown, b: unknown): boolean {
+  const [x, y] = [grindSettingOf(a), grindSettingOf(b)];
+  return typeof x === "number" && typeof y === "number" ? Math.abs(x - y) < 1e-9 : x === y;
 }
 
 /**

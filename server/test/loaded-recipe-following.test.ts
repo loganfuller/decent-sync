@@ -316,6 +316,30 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
   });
 
+  it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
+    let slow = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here.
+    const { dye2, a, c, one, quiet } = await lab("Typed grind", 48711, { apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    // Typed on A as `.5`, which DYE2 saves into the record as 0.5 (`grindValue`).
+    await a.changeSettings({ context: { grinderSetting: ".5" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(0.5);
+    await quiet();
+    slow = true;
+    await patch(one, { grindSetting: 0.6 });
+    // The edit reaches A's record while its write into A's Workflow waits, and Streamline's Save changes on A meanwhile has
+    // DYE2 save the Workflow's dial into the record: its `.5`, as 0.5, over the edit's 0.6, a stale save of the grind.
+    await expect.poll(() => variables(record(a, ETHIOPIA)).grind, { timeout: 15_000 }).toBe(0.6);
+    expect(context(a).grinderSetting).toBe(".5");
+    expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/record`)).status).toBe(200);
+    expect(dye2.a.recorded.at(-1)).toEqual({ id: ETHIOPIA, patch: { grind: 0.5 } });
+    await expect.poll(() => context(a).grinderSetting, { timeout: 15_000 }).toBe("0.6");
+    slow = false;
+    // Once A's report of the save, and any write it made the server due, are done.
+    await quiet();
+    expect((await recipe(one)).content.grindSetting).toBe(0.6);
+    expect([context(a).grinderSetting, context(c).grinderSetting, variables(record(a, ETHIOPIA)).grind]).toEqual(["0.6", "0.6", 0.6]);
+  });
+
   it("keeps an RPM cleared on A while the plugin's read for writing a Recipe edit of it was on its way, writing the edit into none", async () => {
     let slow = false;
     let reading = false;
