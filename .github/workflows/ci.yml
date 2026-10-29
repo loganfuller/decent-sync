@@ -391,7 +391,8 @@ jobs:
       - *postgres-logs
 
   # Builds what a release publishes without publishing it: the plugin ZIP, and
-  # the server image run the way a self-hoster runs it.
+  # the server image, run the way a self-hoster runs it and built for each
+  # platform the release publishes.
   package:
     needs: changes
     if: needs.changes.outputs.docs-only != 'true'
@@ -431,6 +432,20 @@ jobs:
       - name: Stop
         if: always()
         run: docker compose down --volumes
+
+      # As the release builds it, arm64 under emulation, which Docker Compose
+      # above doesn't: a build only arm64 breaks would otherwise fail the
+      # release.
+      - uses: docker/setup-qemu-action@v4
+
+      - uses: docker/setup-buildx-action@v4
+
+      - name: Build the server image for amd64 and arm64
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: false
 
   # The one check branch protection on main requires. It passes once every job
   # above has passed, or skipped on a docs-only pull request, so the required
