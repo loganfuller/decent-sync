@@ -300,9 +300,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   (ADR-0021), so it takes the settings written as its own, and its heater
   switch, with its own DYE2 switch on, turns steam back on at the steam
   temperature of the recipe the Workflow names: the plugin sets nothing of
-  Streamline's (ADR-0022 accepts the gap, until #374, where that heater
-  switch with its DYE2 switch off, its settings page or Auto Steam may turn
-  steam on at another). Once Decaid takes a load's write, where it changed
+  Streamline's (where that heater switch with its DYE2 switch off, its
+  settings page or Auto Steam turn steam on at another, the plugin turns it
+  on at the Recipe's, Steam turned back on, below). Once Decaid takes a
+  load's write, where it changed
   the Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
   endpoint, so Streamline's tiles show the steam, hot water and flush
   settings its strip left out at once rather than at its 20 s poll (ticket
@@ -340,6 +341,28 @@ through `plugin/src/dye2.ts`, and writes what the pure
   profile, and DYE2 clears `recipeId` a moment later, so a save in between
   would write the new profile's brew temperature into the Recipe. A call
   that fails is logged, and the next change calls again.
+- **Steam turned back on.** Turning steam back on takes the Loaded
+  Recipe's steam temperature, as turning it off is no edit (ADR-0022, Steam
+  on and off, #374). A change naming the Loaded Recipe that turns steam on,
+  its steam temperature at or above `STEAM_ON_FROM` (`steamOnAt` in
+  `loaded-recipe-rules.ts`) where it was below it at the plugin's last
+  decision or in any Workflow Decaid reported or answered its writes with
+  since (`steamWasOff`), as while a write of its own was under way, whose
+  changes it decides on together once that is done, is saved as any change
+  is, but in the save's turn, once the plugin's read of the Workflow finds
+  it still naming the Recipe, the plugin first writes into it, as one write
+  of its own, the steam temperature the tablet's record of the Recipe holds
+  (`steamBackOnWrite`, `steamBackOnFirst`), and only then calls `record`,
+  which finds the Workflow's steam temperature the record's and saves the
+  change's other values. So the temperature steam came back at is saved
+  nowhere. It writes only while the Workflow still holds that temperature:
+  one set since, with steam on, is the Recipe's edit, and steam turned off
+  again none. A Recipe holding no steam temperature, or a record holding
+  "Off" (0), has none to take, and the change is saved as any is. A change
+  that loads a Recipe is a load (A load, above), whose write writes the
+  record's steam temperature where steam is on. A write Decaid refuses, as
+  with no machine connected, is logged, and the save waits for the next
+  change.
 - **DYE2's recipes on each push.** DYE2 pushes `{"what":"workflow"}` on its
   `changed` socket (`/ws/v1/plugins/dye2.reaplugin/changed`, opened through
   `host.transport` and counted, with the connections to the server, against
@@ -409,12 +432,19 @@ through `plugin/src/dye2.ts`, and writes what the pure
   ends, while the Workflow still names its Recipe; it is kept in Decaid's
   plugin storage (`heldLoad`) until it is made, so a load held as the
   plugin stops is made once it loads again, where the Workflow still names
-  that Recipe. The server's changes are held too, every kind (`LIBRARY.md`,
-  How the plugin writes), and planned afresh once the Shot ends, so a
-  Recipe edited twice during it is written once, with its latest values,
-  and a write that changes the profile goes out as its two `PUT /workflow`
-  together. Saves into the Loaded Recipe are not held: a change made on the
-  Machine during its own Shot is saved at once. An unknown state, before
+  that Recipe. Steam turned back on meanwhile, with a Recipe loaded that
+  holds a steam temperature, has its write of the Recipe's held too, made
+  once the Shot ends, but not kept across the plugin's loads (ADR-0022
+  accepts the gap). The server's changes are held too, every kind
+  (`LIBRARY.md`, How the plugin writes), and planned afresh once the Shot
+  ends, so a Recipe edited twice during it is written once, with its
+  latest values, and a write that changes the profile goes out as its two
+  `PUT /workflow` together. Saves into the Loaded Recipe are not held: a
+  change made on the Machine during its own Shot is saved at once; but
+  once steam is turned back on during it, the saves wait with that write
+  until the Shot ends, while the Workflow still holds the temperature steam
+  came back at, as DYE2 would save it, and another recipe applied before
+  then leaves them unsaved (ADR-0022 accepts the gap). An unknown state, before
   the first update or once no machine is connected (the plugin's read of
   the machine's hardware finds none, and Decaid has reported no state for
   3 s, as one failed read is no machine gone), is no Shot, as for
@@ -581,7 +611,10 @@ parts to the Recipe's content both ways.
   v0.2.18 reads it as "no timer". A steam temperature below 135 °C in a
   record, as DYE2's editor saves "Off" (0), is never taken in
   (`steamOffPaths` in `recipe-intake.ts`), and the Recipe's is written back
-  into the record.
+  into the record. Steam turned back on takes the Recipe's steam
+  temperature in the plugin, before DYE2 saves (Steam turned back on,
+  above), so the server is never brought the temperature it came back at as
+  an edit, and nothing of the server's takes part in it.
 - **The same edit once.** A field of the tablet's record that sets the
   Recipe's value its own latest edit set already is no edit
   (`withoutOwnEdits` in `recipe-intake.ts`), so the same edit reaching the
@@ -699,7 +732,7 @@ Recipe each has loaded.
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
-`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/loaded-recipe-intake.test.ts` its pure module,
+`server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
 `plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and

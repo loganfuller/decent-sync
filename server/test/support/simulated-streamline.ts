@@ -46,9 +46,21 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // which turns it off at a target of 0, keeping the temperature it was at, and
 // back on at the selected DYE2 recipe's steam temperature while its DYE2
 // switch is on, else the one kept, only from off (`setSteamHeaterEnabled` and
-// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Left
-// out: its Auto steam mode, and its 20 s Workflow poll, which only repaints
-// its tiles (ADR-0021).
+// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Two
+// more ways turn steam on, as at v0.2.19, the same there as at cec5664. Its
+// settings page (src/settings/settings.js) reads the Workflow as it opens,
+// stages each steam change made on it, and writes them on Save, keeping the
+// steam time, flow, temperature and milk stop in the store
+// (`flushPendingChanges`); its Settings › Calibration › Steam heater switch
+// turns steam back on at the temperature that page last switched off, else
+// 150 °C, never at the one kept (`setSteamHeaterOn`): `openSettings()`.
+// Auto Steam, choosing a pitcher, writes the steam time and flow the Auto
+// Steam Calculator plugin works out, at the Workflow's steam temperature as
+// it was entered, or with the heater off then at the one kept
+// (`createAutoSteamSession` in src/modules/auto-steam-session.js):
+// `autoSteam()`, the calculator's answer given. Left out: the rest of Auto
+// Steam, and its 20 s Workflow poll, which only repaints its tiles
+// (ADR-0021).
 //
 // Its DYE strip (src/modules/dyeStrip.js, src/modules/dye-selection.js)
 // reads DYE2's recipes and favourites and whether DYE2 records dial-in
@@ -152,6 +164,8 @@ const WORKFLOW_WRITERS: Readonly<Record<string, readonly string[]>> = {
   "api.steamStopAt": ["steamSettings.stopAtTemperature"],
   "api.hotWater": ["hotWaterData.targetTemperature", "hotWaterData.volume", "hotWaterData.duration", "hotWaterData.flow"],
   "api.steamHeater": ["steamSettings"],
+  "api.autoSteam": ["steamSettings.duration", "steamSettings.flow", "steamSettings.targetTemperature", "steamSettings.stopAtTemperature"],
+  "settings.steam": ["steamSettings.targetTemperature", "steamSettings.duration", "steamSettings.flow", "steamSettings.stopAtTemperature"],
   "profile.send": ["profile", "context.targetDoseWeight", "context.targetYield", "context.grinderSetting", "context.extras.dye"],
   "profile.wake": ["context.targetDoseWeight", "context.targetYield", "context.grinderSetting", "context.extras.dye"],
   "shot.clearNote": ["context.extras.note"],
@@ -220,6 +234,33 @@ function assertDeclaredFields(writer: string, patch: Record_): void {
   if (!declared) throw new Error(`updateWorkflow: unknown writer '${writer}' -- add it to WORKFLOW_WRITERS`);
   const undeclared = workflowPatchKeys(patch).filter((path) => !declared.some((owned) => path === owned || path.startsWith(`${owned}.`)));
   if (undeclared.length > 0) throw new Error(`updateWorkflow: writer '${writer}' sent undeclared field(s) ${undeclared.join(", ")}`);
+}
+
+/**
+ * Streamline's settings page as `openSettings()` opened it, as far as its
+ * steam settings go (src/settings/settings.js). Each change made on it is
+ * staged, field by field, over the Workflow it read as it opened
+ * (`updateSteamSetting`, `stageWorkflowField`), until Save.
+ */
+export interface StreamlineSettings {
+  /**
+   * The heater switch on Settings › Calibration › Steam (`setSteamHeaterOn`):
+   * off stages a target of 0, keeping in memory the temperature it was at,
+   * where above 0 (`lastEnabledSteamCalibTemp`); on stages that temperature,
+   * else the page's where above 0, else 150 °C. It never reads the one
+   * Streamline keeps in the store.
+   */
+  steamHeater(on: boolean): void;
+  /** A steam temperature set on that page, in °C (`steamCalibTempInput`). */
+  steamTemperature(celsius: number): void;
+  /**
+   * Save (`flushPendingChanges`): the staged steam fields written into the
+   * Workflow as one partial `PUT /workflow` (`settings.steam`), then each
+   * kept in Decaid's store, the steam time and flow, a temperature above 0
+   * and a milk stop above 0 (`persistSharedValue`); nothing where none is
+   * staged.
+   */
+  save(): Promise<void>;
 }
 
 /** How Streamline runs: its DYE2 switch, on unless given, and the waits before each retry of a selection that failed (`armSelection`). */
@@ -320,6 +361,82 @@ export class SimulatedStreamline {
    */
   async setSteamHeater(enabled: boolean): Promise<void> {
     await this.change({ steamSettings: await this.steamHeaterFor(enabled ? 1 : 0) }, "api.steamHeater");
+  }
+
+  /**
+   * Its settings page opened (`loadSettings` in src/settings/settings.js),
+   * as far as its steam settings go: it reads the Workflow as it opens
+   * (`settingsCache.workflow`), and holds what it keeps in memory until it
+   * is left, as a page of its own (`loadPage('src/settings/settings.html')`).
+   * See `StreamlineSettings`.
+   */
+  async openSettings(): Promise<StreamlineSettings> {
+    const { status, body } = await this.tablet.callApi("GET", "/workflow");
+    if (status !== 200) throw new Error(`Decaid refused the Workflow with ${status}`);
+    const cached = { ...(((body as Record_).steamSettings ?? {}) as Record_) };
+    let staged: Record_ = {};
+    let lastEnabledSteamCalibTemp: number | null = null;
+    const stage = (key: string, value: number) => {
+      cached[key] = value;
+      staged = { ...staged, [key]: value };
+    };
+    return {
+      steamHeater: (on) => {
+        const current = typeof cached.targetTemperature === "number" ? cached.targetTemperature : 0;
+        let value = 0;
+        if (on) value = lastEnabledSteamCalibTemp ?? (current > 0 ? current : 150);
+        else if (current > 0) lastEnabledSteamCalibTemp = current;
+        stage("targetTemperature", value);
+      },
+      steamTemperature: (celsius) => stage("targetTemperature", Math.round(celsius)),
+      save: async () => {
+        const steam = staged;
+        staged = {};
+        if (Object.keys(steam).length === 0) return;
+        await this.change({ steamSettings: steam }, "settings.steam");
+        const kept = (key: StreamlineKey, value: unknown, above?: number) =>
+          typeof value === "number" && Number.isFinite(value) && (above === undefined || value > above) ? this.keep(key, value) : undefined;
+        await kept("last-steam-duration", steam.duration);
+        await kept("last-steam-flow", steam.flow);
+        await kept("last-steam-temp", steam.targetTemperature, 0);
+        await kept("last-milk-stop", steam.stopAtTemperature, 0);
+      },
+    };
+  }
+
+  /**
+   * A barista turns Auto Steam on and chooses a pitcher, with the machine
+   * idle (`enter`, then `select`, of `createAutoSteamSession` in
+   * src/modules/auto-steam-session.js). As it is entered it keeps the
+   * Workflow's steam settings as the manual ones, and turns the steam timer
+   * and milk stop off at the pitcher's flow, where the Workflow holds
+   * otherwise (`off`). The pitcher chosen writes the steam time and flow the
+   * Auto Steam Calculator plugin worked out for it, given here (its
+   * `workflowPatch`), as the calculator is not simulated, with the manual
+   * steam temperature, or, where the heater was off as Auto Steam was
+   * entered, the one kept (`getHeaterTemperature`, `last-steam-temp`, in
+   * src/modules/calibrated-steam-ui.js), and the milk stop off, its time
+   * rounded (`writeAutoSteamSettings` and `clampAutoSteamSettings`). It
+   * refuses a steam temperature that is not a whole number from 135 to
+   * 165 °C, as Streamline does.
+   */
+  async autoSteam(calculated: { duration: number; flow: number }): Promise<void> {
+    const { status, body } = await this.tablet.callApi("GET", "/workflow");
+    if (status !== 200) throw new Error(`Decaid refused the Workflow with ${status}`);
+    const steam = ((body as Record_).steamSettings ?? {}) as Record_;
+    const manual = steam.targetTemperature;
+    if (![steam.duration, steam.flow, manual].every((value) => typeof value === "number" && Number.isFinite(value))) throw new Error("Steam settings are unavailable.");
+    const off: Record_ = { duration: 0, stopAtTemperature: 0, flow: calculated.flow };
+    if (!Object.entries(off).every(([key, value]) => (steam[key] ?? (key === "stopAtTemperature" ? 0 : undefined)) === value)) {
+      await this.change({ steamSettings: off }, "api.autoSteam");
+    }
+    const targetTemperature = (manual as number) > 0 ? manual : (await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/last-steam-temp`)).body;
+    if (typeof targetTemperature !== "number" || !Number.isInteger(targetTemperature) || targetTemperature < 135 || targetTemperature > 165) {
+      throw new Error("Set the heater temperature in normal Steam settings, then calculate again.");
+    }
+    const duration = Math.max(0, Math.min(255, Math.round(calculated.duration)));
+    const flow = Math.max(0, Math.min(2.5, calculated.flow));
+    await this.change({ steamSettings: { duration, flow, targetTemperature, stopAtTemperature: 0 } }, "api.autoSteam");
   }
 
   /** Streamline loads its data again, as when it starts, the machine connects again, or an apply of a DYE2 item ends, and resolves once it has pushed what it does. */

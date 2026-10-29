@@ -1472,6 +1472,18 @@ var __decentSync = (() => {
     Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? write : null;
   }
+  function steamOnAt(workflow) {
+    const temperature = numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow));
+    return temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
+  }
+  function steamBackOnWrite(workflow, record3, turnedOnAt) {
+    const { dye2, workflow: path } = RECIPE_SETTINGS.steamTemperature;
+    const variables = isObject2(record3.dashboardVariables) ? record3.dashboardVariables : {};
+    const recipes = numberOf(variables[dye2]);
+    const now2 = numberOf(workflowValueAt(workflow, path));
+    if (recipes === null || recipes < STEAM_ON_FROM || !sameNumber(now2, turnedOnAt) || sameNumber(now2, recipes)) return null;
+    return workflowPatch({ [path]: recipes });
+  }
   var WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"];
   function numberOf(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
@@ -1637,6 +1649,20 @@ var __decentSync = (() => {
       __publicField(this, "firstLoads");
       /** Whether the plugin's storage may keep a load held for a Shot. */
       __publicField(this, "loadKept", false);
+      /**
+       * Steam turned back on with a Recipe loaded, its write of the Recipe's
+       * steam temperature still to make, which the next save of that Recipe and
+       * load makes first (`steamBackOnFirst`); null for none.
+       */
+      __publicField(this, "steamBackOn", null);
+      /**
+       * Whether the Workflow had steam off at the plugin's last decision, or in
+       * any Workflow Decaid has reported or answered its writes with since: so
+       * steam turned off and back on while the plugin's writes were under way,
+       * whose changes are decided on together once they are done, is seen as
+       * turned back on.
+       */
+      __publicField(this, "steamWasOff", false);
       __publicField(this, "chain", Promise.resolve());
       __publicField(this, "pollTimer");
       __publicField(this, "stopped", false);
@@ -1646,6 +1672,7 @@ var __decentSync = (() => {
     }
     start() {
       this.shot.onEnd(() => this.releaseLoad());
+      this.shot.onEnd(() => this.resumeSteamBackOn());
       setTimeout(() => void this.restoreLoad(), 0);
       this.poll();
     }
@@ -1668,6 +1695,7 @@ var __decentSync = (() => {
       if (this.stopped) return;
       const previous = this.latest;
       this.latest = workflow;
+      if (steamOff(workflow)) this.steamWasOff = true;
       if (this.writing > 0) {
         this.duringWrite.reported = true;
         return;
@@ -1711,6 +1739,7 @@ var __decentSync = (() => {
       const { reported, answered: answered2, before, written: written2 } = this.duringWrite;
       if (!reported && answered2 !== void 0) this.latest = answered2;
       const latest = this.latest;
+      if (answered2 !== void 0 && steamOff(answered2)) this.steamWasOff = true;
       const after = latest !== void 0 && answered2 !== void 0 && !sameValue(latest, answered2);
       const around = latest !== void 0 && before !== void 0 && changedBesides(before, latest, written2);
       this.decide(written2.has("profile") ? answered2 ?? before : before, reported && after || around);
@@ -1740,12 +1769,16 @@ var __decentSync = (() => {
      * held for a Shot as the plugin last stopped; a change of it
      * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
      * for one changing the profile from `previous`, as DYE2 fingerprints one,
-     * which DYE2 clears the recipe on. A read of the recipes (`changed` false)
-     * saves nothing.
+     * which DYE2 clears the recipe on. One leaving steam on where it was off
+     * since the last decision (`steamWasOff`, `steamOnAt`), turned back on,
+     * has the save write the Recipe's steam temperature first. A read of the
+     * recipes (`changed` false) saves nothing.
      */
     decide(previous, changed) {
       const workflow = this.latest;
       if (workflow === void 0 || this.records === null || this.stopped) return;
+      const turnedOnAt = this.steamWasOff ? steamOnAt(workflow) : null;
+      this.steamWasOff = steamOff(workflow);
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
       if (globalId !== this.loaded) {
@@ -1757,10 +1790,12 @@ var __decentSync = (() => {
         if (globalId !== null && (!first || restored) && this.sharing()) this.load(globalId);
         else if (first && this.restoredLoad !== void 0) void this.keepHeldLoad(null);
         if (first && this.restoredLoad !== void 0) this.restoredLoad = null;
+        this.steamBackOn = null;
         return;
       }
       if (!changed || globalId === null || !this.sharing()) return;
       if (previous !== void 0 && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
+      if (turnedOnAt !== null) this.steamBackOn = { globalId, load: this.loads, temperature: turnedOnAt };
       this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
     }
     /** Whether the Machine shares and DYE2 is there, so the plugin writes into the Workflow and saves into its recipes. */
@@ -1777,7 +1812,9 @@ var __decentSync = (() => {
      * names that Recipe on that profile, and no load was decided on since,
      * judged again once Decaid answered that read: a recipe applied
      * meanwhile, whose load write is still to come, or a change of profile,
-     * which DYE2 clears the recipe on, is not saved into it. A save that
+     * which DYE2 clears the recipe on, is not saved into it. Where steam was
+     * turned back on, the Recipe's steam temperature is written first, or the
+     * save held with that write for a Shot (`steamBackOnFirst`). A save that
      * fails is tried again at the next change.
      */
     saveSoon(save) {
@@ -1792,7 +1829,8 @@ var __decentSync = (() => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? void 0 : this.records?.get(recordId)?.globalId;
-        if (named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
+        if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
+        if (!await this.steamBackOnFirst(workflow, recordId, save) || !current()) return;
         if (await recordIntoRecipe() === "saved") await this.reportRecipes();
         this.failing = false;
       }).catch((error) => this.failed(error)).finally(() => this.changes.release());
@@ -1854,6 +1892,44 @@ var __decentSync = (() => {
       } catch (error) {
         this.log(`The load held for a Shot could not be kept in Decaid's plugin storage: ${error instanceof Error ? error.message : String(error)}`);
       }
+    }
+    /**
+     * Before a save into the Loaded Recipe, where steam was turned back on
+     * with that Recipe and load (`steamBackOn`): writes the Recipe's steam
+     * temperature, as the tablet's record of it holds it, into the Workflow
+     * (`steamBackOnWrite`), where it still holds the temperature steam came
+     * back at, so DYE2's save, which saves every value of the Workflow the
+     * record holds otherwise, saves none of it. While the Machine pulls a
+     * Shot, the write, and the save with it, are held until the Shot ends
+     * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
+     * if Decaid refuses the write, as with no machine connected: the next
+     * change tries again.
+     */
+    async steamBackOnFirst(workflow, recordId, save) {
+      const pending = this.steamBackOn;
+      if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
+      const record3 = this.records?.get(recordId)?.record;
+      const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.temperature);
+      if (write !== null && this.shot.running()) return false;
+      if (write !== null) {
+        await this.ownWrite(async (answered2) => {
+          const answer = await request("PUT", "/workflow", write);
+          const updated = answer.ok ? parsed2(answer.text) : void 0;
+          if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on at the Loaded Recipe's steam temperature: ${answer.text.slice(0, 200)}`);
+          answered2(updated, write);
+          this.workflowWritten(workflow, updated);
+        });
+      }
+      if (this.steamBackOn === pending) this.steamBackOn = null;
+      return true;
+    }
+    /** Once a Shot ends: saves where steam turned back on during it is still to be written, which writes it first. */
+    resumeSteamBackOn() {
+      const pending = this.steamBackOn;
+      const workflow = this.latest;
+      if (pending === null || workflow === void 0 || this.stopped || pending.globalId !== this.loaded || pending.load !== this.loads) return;
+      if (!this.sharing() || this.shot.running()) return;
+      this.saveSoon({ globalId: pending.globalId, load: pending.load, fingerprint: dye2Fingerprint(workflow.profile) });
     }
     /** Logs a failure once until a later step succeeds. */
     failed(error) {

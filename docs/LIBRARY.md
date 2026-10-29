@@ -1801,7 +1801,12 @@ Workflow whose steam is off, and the plugin writes no steam temperature
 into a Workflow whose steam is off (ADR-0022, Steam on and off). A steam
 time of 0 is a value, Streamline's "no timer". So a steam
 edit made on one Machine reaches another whose steam is off without turning
-it on.
+it on. Turning steam back on takes the Loaded Recipe's steam temperature,
+whatever it came back at: the plugin writes the one the tablet's record of
+the Recipe holds into the Workflow before it has DYE2 save the change, so
+the temperature steam came back at reaches no Recipe, while the change's
+other values are saved as any are (#374). A steam temperature changed once
+steam is on is the Recipe's edit.
 
 Streamline, a skin, remembers what the barista last set for some of the
 steam, hot water and flush settings in Decaid's store, under
@@ -1814,15 +1819,16 @@ names, which the tablet's record holds as the Recipe's. So the plugin sets
 none of the values Streamline remembers. That heater switch with
 Streamline's DYE2 switch off (its default), which takes the temperature
 Streamline remembers, Streamline's Settings › Calibration › Steam switch,
-and Auto Steam choosing a pitcher with the heater off can turn steam on at
-another temperature, which is then saved into the Recipe: a gap ADR-0022
-accepts until Decent Sync turns steam back on at the Loaded Recipe's steam
-temperature itself (#374).
+and Auto Steam choosing a pitcher with the heater off turn steam on at
+another temperature, which the plugin replaces with the Recipe's, as
+above.
 
 `server/test/recipe-settings.test.ts` covers this through Seam 1, with the
 built plugin running the simulated DYE2, whose tablet writes a Workflow's
 flush settings to `/machine/settings` as Decaid writes them to the machine,
-where DYE2 reads its flush temperature and flow; and
+where DYE2 reads its flush temperature and flow;
+`server/test/steam-back-on.test.ts` steam turned back on by each way of
+Streamline's that does not take the Recipe's; and
 `server/test/joining.test.ts` a joining Machine keeping its own.
 
 ## Joining a Location

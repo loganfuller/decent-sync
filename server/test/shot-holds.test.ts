@@ -18,7 +18,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // change of Profile as its two writes together; and it holds its own load
 // of a Recipe applied meanwhile, which it keeps in Decaid's plugin storage,
 // so a load held as it stops is made after it starts again. Saves into the
-// Recipe are not held. Through the built plugin in simulated tablets
+// Recipe are not held, but for those after steam turned back on during the
+// Shot, held with its write of the Recipe's steam temperature (#374).
+// Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 as recorded (fixtures/decaid/dye2-v0.1.26/), A on one
 // server instance and C, which pulls the Shots, on another sharing one
 // database. Serials are made up, from 51001.
@@ -68,6 +70,23 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     const kept = tablet.storage.read("heldLoad");
     return typeof kept === "string" ? ((JSON.parse(kept) as { globalId?: string }).globalId ?? null) : null;
   };
+
+  /** The steam temperature the tablet's Workflow holds. */
+  const steam = (tablet: SimulatedTablet) => ((tablet.workflow().steamSettings ?? {}) as Record_).targetTemperature;
+  /** The latest Workflow the server stored for the Machine. */
+  const latestWorkflow = async ({ machine }: CreatedMachine) =>
+    (await api.get<{ events: { workflow: Record_ }[] }>(`/machines/${machine.id}/workflow-events?limit=1`)).events[0]?.workflow;
+  const recipe = async (id: string) => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${id}`)).recipe;
+  /** Each steam temperature the DYE2 saved into a record from its `from`th save on. */
+  const steamSaved = (dye2: SimulatedDye2, from: number) => dye2.recorded.slice(from).flatMap(({ patch }) => ("steamTempC" in patch ? [patch.steamTempC] : []));
+  /** Gives the Ethiopia's Recipe a steam temperature of 160 °C, which C's record and Workflow take, then turns C's steam off. */
+  async function steamOffOn(c: SimulatedTablet, one: string, quiet: () => Promise<void>) {
+    await patch(one, { steamTemperature: 160 });
+    await expect.poll(() => [variables(record(c, ETHIOPIA)).steamTempC, steam(c)], { timeout: 15_000 }).toEqual([160, 160]);
+    await c.changeSettings({ steamSettings: { targetTemperature: 0 } });
+    // Once C's report of steam off, and anything it set off, are done.
+    await quiet();
+  }
 
   /** C pulls a Shot: its machine state is espresso until Decaid stores it, as `end()` does. */
   function shotOn(tablet: SimulatedTablet, id: string, serial: number) {
@@ -215,6 +234,29 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     expect(recipeIdInWorkflow(reloaded)).toBe(ETHIOPIA);
     reloaded.restoreNetwork();
     await loads(machines.c, one);
+  });
+
+  it("holds steam turned back on during C's Shot, and every save after it, until the Shot is stored, then turns it on at the Recipe's steam temperature and saves the rest", async () => {
+    const { machines, c, one, dye2, quiet } = await lab("Steam", 51041);
+    await steamOffOn(c, one, quiet);
+    const writes = workflowWrites(c);
+    const saves = dye2.recorded.length;
+    const shot = shotOn(c, "steam-51041", 51042);
+    // Turned back on at 140 °C on Decaid's own screen during the Shot, and the dose changed after.
+    await c.changeSettings({ steamSettings: { targetTemperature: 140 } });
+    await c.changeSettings({ context: { targetDoseWeight: 18.8 } });
+    // The site's own wait: the plugin delivers the dose change once its save of it is done, here held for the Shot; then
+    // nothing under way on the tablets, C's Machine left out.
+    await expect.poll(async () => ((await latestWorkflow(machines.c))?.context as Record_ | undefined)?.targetDoseWeight, { timeout: 15_000 }).toBe(18.8);
+    await quiet({ shotOnC: true });
+    expect([workflowWrites(c), dye2.recorded.length, steam(c)]).toEqual([writes, saves, 140]);
+
+    shot.end();
+    await expect.poll(() => steam(c), { timeout: 15_000 }).toBe(160);
+    await expect.poll(async () => (await recipe(one)).content.dose, { timeout: 15_000 }).toBe(18.8);
+    // Once the held write, the save after it, its report and the write into A are done.
+    await quiet();
+    expect([workflowWrites(c), steamSaved(dye2, saves), (await recipe(one)).content.steamTemperature]).toEqual([writes + 1, [], 160]);
   });
 
   it("saves a change made on C while the plugin, loaded again, is still reading the load it may have held", async () => {
