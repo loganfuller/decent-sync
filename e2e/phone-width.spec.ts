@@ -9,9 +9,9 @@ import { tabletAt } from "./support/tablets.js";
 // The management interface on a phone as wide as an iPhone 15, as an Admin
 // and as Staff: no page is wider than the screen, the navigation, the
 // account's name and Sign out are in a menu, and the Theme button stays in the
-// top bar beside it. On a wider screen the top bar is the one row it was. A simulated tablet running the built plugin backfills a
-// Shot and a Steam Record, so each list has a table to fit; its serial is
-// made up.
+// top bar beside it. On a wider screen the top bar is the one row it was. A
+// simulated tablet running the built plugin backfills a Shot and a Steam
+// Record, so each list has a table to fit; its serial is made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const PHONE: BrowserContextOptions = { viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true };
 test.use(PHONE);
