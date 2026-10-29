@@ -64,7 +64,8 @@ describe("the latest release beside the change", () => {
     const tablet = syncingTablet(machine, release, { api: derivedDe1Pro({ serial: "13002" }) });
     expect(tablet.pluginDir).toBe(changePluginDir);
     await releaseApi.waitForMachine("Belmont", (viewed) => viewed.online);
-    expect(tablet.received[0]).toMatchObject({ type: "welcome" });
+    // Online once the server has accepted the hello, which it answers a query later, so the welcome may still be on its way.
+    await expect.poll(() => tablet.received[0]).toMatchObject({ type: "welcome" });
     expect(tablet.sent[0]).toMatchObject({ type: "hello", pluginVersion: readBuiltPlugin().manifest.version });
   });
 });
