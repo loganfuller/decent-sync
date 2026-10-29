@@ -714,6 +714,7 @@ var __decentSync = (() => {
   function isRecipeSlot(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
   }
+  var RECIPE_SHOWN_FIELD = "showOnStreamlineDashboard";
   var RECIPE_SLOT_FIELD = "stripSlot";
   var RECIPE_SETTINGS = {
     steamTemperature: { dye2: "steamTempC", workflow: "steamSettings.targetTemperature", whole: true },
@@ -730,6 +731,18 @@ var __decentSync = (() => {
   };
   var RECIPE_SETTING_NAMES = Object.keys(RECIPE_SETTINGS);
   var MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+  function grindSettingOf(value) {
+    if (typeof value === "number") return Number.isFinite(value) ? value : null;
+    if (typeof value !== "string") return null;
+    const text = value.trim();
+    if (text === "") return null;
+    const number = Number(text);
+    return Number.isFinite(number) ? number : text;
+  }
+  function sameGrindSetting(a, b) {
+    const [x, y] = [grindSettingOf(a), grindSettingOf(b)];
+    return typeof x === "number" && typeof y === "number" ? Math.abs(x - y) < 1e-9 : x === y;
+  }
   function steamOff(workflow) {
     const temperature = workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow);
     return typeof temperature === "number" && temperature < STEAM_ON_FROM;
@@ -1436,10 +1449,13 @@ var __decentSync = (() => {
       if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
     }
     const batch = textOf(record3.beanBatchId);
+    const namesBean = textOf(record3.beanId) !== null || textOf(record3.beanName) !== null;
     if (batch !== null && batch !== textOf(context.beanBatchId) && !omit.has("batch")) {
       contextWrite.beanBatchId = batch;
       if (textOf(record3.beanName) !== null) contextWrite.coffeeName = record3.beanName;
       if (textOf(record3.beanRoaster) !== null) contextWrite.coffeeRoaster = record3.beanRoaster;
+    } else if (!namesBean && !omit.has("batch") && WORKFLOW_BEAN.some((field) => context[field] !== null && context[field] !== void 0)) {
+      for (const field of WORKFLOW_BEAN) contextWrite[field] = null;
     }
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
@@ -1456,6 +1472,7 @@ var __decentSync = (() => {
     Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? write : null;
   }
+  var WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"];
   function numberOf(value) {
     if (typeof value === "number") return Number.isFinite(value) ? value : null;
     if (typeof value === "string" && /^\s*[+-]?\d+(\.\d+)?\s*$/.test(value)) return Number(value);
@@ -1472,9 +1489,7 @@ var __decentSync = (() => {
     return a === null || b === null ? a === b : Math.abs(a - b) < 1e-9;
   }
   function sameGrind(a, b) {
-    if (a === null || b === null) return a === b;
-    const [x, y] = [numberOf(a), numberOf(b)];
-    return x !== null && y !== null ? sameNumber(x, y) : a.trim() === b.trim();
+    return sameGrindSetting(a, b);
   }
   function isObject2(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
@@ -2793,9 +2808,11 @@ var __decentSync = (() => {
       if (index === -1) return refused(write, 404, "Record not found");
       const current = records[index];
       const settled = settable(write, (field) => valueAt(current, field));
+      const expected = write.expected;
+      if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled[RECIPE_SHOWN_FIELD];
       record3 = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
       writtenFields = Object.keys(settled);
-      if (sameValue(record3, current)) return written(write, current, writtenFields, now2);
+      if (sameJson(record3, current)) return written(write, current, writtenFields, now2);
     }
     const before = [...records];
     records[index] = record3;
@@ -2807,6 +2824,13 @@ var __decentSync = (() => {
     if (!posted.ok) return refused(write, posted.status, posted.text);
     const answer = written(write, record3, writtenFields, now2);
     return linked ? { ...answer, linked } : answer;
+  }
+  function sameJson(a, b) {
+    if (a === b) return true;
+    if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameJson(value, b[index]));
+    if (!isObject5(a) || !isObject5(b)) return false;
+    const keys = Object.keys(a);
+    return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameJson(a[key], b[key]));
   }
   var DASHBOARD = "dashboardVariables";
   function valueAt(record3, path) {

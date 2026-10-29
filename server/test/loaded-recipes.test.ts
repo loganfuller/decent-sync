@@ -9,6 +9,7 @@ import {
   dye2ProfileFingerprint,
   dye2RecipeIdOf,
   openDye2Dashboard,
+  openDye2RecipeEditor,
   recordedDye2MainTablet,
   selectRecipeInDye2,
 } from "./support/simulated-dye2.js";
@@ -32,7 +33,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // of the Workflow while a Recipe is loaded (`record`), and reports the recipes
 // it saved at once, never into a recipe applied while the save waited its
 // turn; the server unloads one by having the plugin clear the field.
-// Through the built plugin in simulated tablets running DYE2 v0.1.26 and
+// Through the built plugin in simulated tablets running DYE2 v0.1.32 and
 // Streamline at cec5664 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 47001.
@@ -54,6 +55,8 @@ const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 
 /** The recording's tablet's record ids: the Ethiopia's recipe, in no Recipe Slot, and the Brazil's, in slot 2. */
 const ETHIOPIA = "1";
 const BRAZIL = "2";
+/** The recording's blank recipe, naming no Bean, hidden from the strip in its stripSlot 3, so in no slot. */
+const BLANK = "3";
 
 /** The recording's tablet's ids for its batch of the Brazil, and for the grinder its recipes name none of. */
 const RECORDED_BRAZIL_BATCH = "f4d73c51-7660-48ca-8deb-4c301443f2ce";
@@ -133,7 +136,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   async function lab(
     scenario: string,
     serial: number,
-    options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean } = {},
+    options: {
+      instance?: TestServer;
+      pollSeconds?: number;
+      dye2?: SimulatedDye2;
+      apiDelayMs?: (method: string, path: string) => number;
+      answerOnArrival?: boolean;
+      timeScale?: number;
+    } = {},
   ) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
@@ -144,6 +154,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
       pollSeconds: options.pollSeconds,
       apiDelayMs: options.apiDelayMs,
       answerOnArrival: options.answerOnArrival,
+      timeScale: options.timeScale,
     });
     await api.waitForOnline(machine);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(tablet, id))), { timeout: 15_000 }).not.toContain(null);
@@ -334,7 +345,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const { machine, tablet, dye2, ethiopia, brazil } = await lab("Unloads", 47051);
     await selectRecipeInDye2(tablet, ETHIOPIA);
     await loads(machine, ethiopia);
-    // A recent favourite's pill on DYE2's dashboard, the only favourites DYE2 v0.1.26 makes.
+    // A recent favourite's pill on DYE2's dashboard, the only favourites DYE2 makes.
     const dashboard = await openDye2Dashboard(tablet);
     expect((await dashboard.applyFavourite({ id: "recent:47051", auto: true, snapshot: { dose: 17.5 } })).workflow?.status).toBe(200);
     expect(recipeIdInWorkflow(tablet)).toBeNull();
@@ -382,9 +393,142 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(await again.clearButton(2)).toBe(true);
     expect(recipeIdInWorkflow(tablet)).toBeNull();
     await loads(machine, null);
-    // Hidden from the strip, which is the Recipe's edit, kept in its slot.
-    await expect.poll(async () => (await recipe(brazil)).content.showOnDashboard, { timeout: 15_000 }).toBe(false);
+    // Hidden from the strip, it is taken out of its slot at its Location, as it is on the strip exactly while in one (DYE2 v0.1.32).
+    await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBeNull();
+    // Its records are written so: hidden, in no slot.
+    await expect.poll(() => (dye2List(tablet, "recipes") as Record<string, unknown>[]).find((record) => record.id === BRAZIL), { timeout: 15_000 }).toMatchObject({
+      stripSlot: null,
+      showOnStreamlineDashboard: false,
+    });
+  });
+
+  it("takes a Recipe out of its slot as DYE2's editor hides it from the strip, as it holds no slot hidden", async () => {
+    const { tablet, brazil, quiet } = await lab("Editor hide", 47301);
     expect((await recipe(brazil)).slot).toBe(2);
+    // Once the server's first writes of the recording's records are done: the plugin posts DYE2's list whole, so one read
+    // before the editor's save and posted after it would put the recipe back.
+    await quiet();
+    const { saved } = await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).set({ showOnStreamlineDashboard: false }).save();
+    expect([saved.stripSlot, saved.showOnStreamlineDashboard]).toEqual([null, false]);
+    await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBeNull();
+    // As it is put in a slot again in the management interface, its record is written shown there.
+    expect((await api.call("PUT", `/recipes/${brazil}/slot`, { slot: 2 })).status).toBe(200);
+    await expect.poll(() => record(tablet, BRAZIL), { timeout: 15_000 }).toMatchObject({ stripSlot: 2, showOnStreamlineDashboard: true });
+    expect((await recipe(brazil)).content).not.toHaveProperty("showOnDashboard");
+  });
+
+  it("keeps a Recipe in the slot DYE2's editor put it in while the server's write hiding it, as it left its last slot, waited for the plugin's read", async () => {
+    // At 5x, so that Decaid's 30 s fetch timeout lets the plugin's reads be held for 6 s of real time; polling every hour,
+    // so only DYE2's pushes have the plugin read its recipes.
+    const { tablet, brazil, quiet } = await lab("Slot again", 47331, { timeScale: 5, pollSeconds: 3600 });
+    const route = `/store/${DYE2_NAMESPACE}/recipes`;
+    expect((await recipe(brazil)).slot).toBe(2);
+    await quiet();
+    // Tapping its own slot's tab in DYE2's editor takes it out of its slot, still shown, which the plugin reads at DYE2's
+    // push, held.
+    const report = tablet.holdRequests("GET", route);
+    const received = tablet.received.length;
+    const { saved } = await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(2).save();
+    expect([saved.stripSlot, saved.showOnStreamlineDashboard]).toEqual([null, true]);
+    tablet.pushOnSocket(DYE2_NAMESPACE, "changed", { what: "workflow" });
+    await expect.poll(() => report.arrived, { timeout: 15_000 }).toBeGreaterThan(0);
+    // The server takes it out of its slot and writes it hidden. Every read of the list from then on is held, so the plugin
+    // reads it for that write only after the barista has put the recipe in slot 3.
+    const later = tablet.holdRequests("GET", route);
+    report.release();
+    const hiding = () =>
+      tablet.received.slice(received).some((frame) => {
+        const { type, kind, fields } = frame as { type?: unknown; kind?: unknown; fields?: Record_ };
+        return type === "write" && kind === "recipe" && fields?.showOnStreamlineDashboard === false;
+      });
+    await expect.poll(hiding, { timeout: 15_000 }).toBe(true);
+    await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(3).save();
+    later.release();
+    tablet.pushOnSocket(DYE2_NAMESPACE, "changed", { what: "workflow" });
+    await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBe(3);
+    await quiet();
+    expect((await recipe(brazil)).slot).toBe(3);
+    expect(record(tablet, BRAZIL)).toMatchObject({ stripSlot: 3, showOnStreamlineDashboard: true });
+    // The write left it shown: the plugin never posted it hidden in slot 3.
+    const hiddenInSlot = tablet.storeWrites.some(
+      (write) => write.key === "recipes" && Array.isArray(write.value) && (write.value as Record_[]).some((entry) => entry.id === BRAZIL && entry.stripSlot === 3 && entry.showOnStreamlineDashboard === false),
+    );
+    expect(hiddenInSlot).toBe(false);
+  });
+
+  it("loads a Recipe naming no Bean, applied from DYE2's Select Recipe page or Streamline's strip, with no bean batch, which it takes none of, its records written the nulls for one where a tablet's lacks them, and takes a batch picked then", async () => {
+    const { machine, tablet, ethiopia, edit, quiet } = await lab("No bean", 47311);
+    await expect.poll(() => dye2GlobalIdOf(record(tablet, BLANK)), { timeout: 15_000 }).not.toBeNull();
+    const blank = dye2GlobalIdOf(record(tablet, BLANK))!;
+    expect((await recipe(blank)).content).not.toHaveProperty("beanId");
+    const batchSet = () => tablet.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: "No bean Fixture Brazil", coffeeRoaster: "Fixture Roasters" } });
+
+    // From DYE2's Select Recipe page, which sends the nulls (DYE2 v0.1.32, ce38984): the load takes no batch into it.
+    await batchSet();
+    await selectRecipeInDye2(tablet, BLANK);
+    await loads(machine, blank);
+    expect([context(tablet).beanBatchId, context(tablet).coffeeName]).toEqual([undefined, undefined]);
+    await quiet();
+    expect((await recipe(blank)).content).not.toHaveProperty("beanId");
+    expect((await recipe(blank)).content).not.toHaveProperty("beanBatchId");
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(blank);
+
+    // Its record, as the server wrote it before DYE2 v0.1.32 and took the answer to that write in, lacks the nulls: it is
+    // written them once, at the next write planned for the tablet, the plugin posting a record that differs in them alone.
+    await quiet();
+    const held = record(tablet, BLANK)!;
+    const { coffeeName: _c, coffeeRoaster: _r, beanBatchId: _b, ...bare } = (held.workflow as { context: Record_ }).context;
+    await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, records(tablet).map((entry) => (entry.id === BLANK ? { ...entry, workflow: { ...(entry.workflow as Record_), context: bare } } : entry)));
+    const database = await server.connectDatabase();
+    try {
+      await database.query(`UPDATE tablet_recipes SET record = jsonb_set(record, '{workflow,context}', (record #> '{workflow,context}') - 'coffeeName' - 'coffeeRoaster' - 'beanBatchId') WHERE recipe_id = $1`, [blank]);
+    } finally {
+      await database.end();
+    }
+    await edit(ethiopia, { name: "No bean Ethiopia renamed" });
+    await expect
+      .poll(() => (record(tablet, BLANK)?.workflow as { context: Record_ }).context, { timeout: 15_000 })
+      .toMatchObject({ coffeeName: null, coffeeRoaster: null, beanBatchId: null });
+
+    // Put in a slot, Streamline's strip applies its embedded Workflow as it is, the nulls clearing the batch.
+    expect((await api.call("PUT", `/recipes/${blank}/slot`, { slot: 5 })).status).toBe(200);
+    await expect.poll(() => record(tablet, BLANK), { timeout: 15_000 }).toMatchObject({ stripSlot: 5, showOnStreamlineDashboard: true });
+    await tablet.changeSettings(CLEARED);
+    await loads(machine, null);
+    await batchSet();
+    const streamline = await startStreamline(tablet);
+    await streamline.applyRecipe(5);
+    await loads(machine, blank);
+    expect([context(tablet).beanBatchId, context(tablet).coffeeName, context(tablet).coffeeRoaster]).toEqual([undefined, undefined, undefined]);
+    await quiet({ streamline });
+    expect((await recipe(blank)).content).not.toHaveProperty("beanId");
+    // A batch picked while it is loaded is a change like any other: the Recipe takes it, with its Bean.
+    await batchSet();
+    await expect.poll(async () => (await recipe(blank)).content.beanBatchId, { timeout: 15_000 }).toEqual(expect.any(String));
+    expect((await recipe(blank)).content.beanId).toEqual(expect.any(String));
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(blank);
+  });
+
+  it("saves a grind setting typed as text into the Recipe as typed, through DYE2 or itself, and keeps comparing numbers as numbers", async () => {
+    const { machine, tablet, brazil, edit, quiet } = await lab("Grind text", 47321);
+    const dashboard = await openDye2Dashboard(tablet);
+    await dashboard.applyRecipe(BRAZIL);
+    await loads(machine, brazil);
+    // DYE2 saves it, as the Recipe's record holds a grind setting (DYE2 v0.1.32, d858b73).
+    expect((await dashboard.tap("grind", "1.5."))?.status).toBe(200);
+    await expect.poll(async () => (await recipe(brazil)).content.grindSetting, { timeout: 15_000 }).toBe("1.5.");
+    // A Recipe holding none takes it from the Workflow itself, as typed.
+    await edit(brazil, { grindSetting: null });
+    await expect.poll(() => variables(record(tablet, BRAZIL)).grind ?? null, { timeout: 15_000 }).toBeNull();
+    await tablet.changeSettings({ context: { grinderSetting: "fine" } });
+    await expect.poll(async () => (await recipe(brazil)).content.grindSetting, { timeout: 15_000 }).toBe("fine");
+    // A number set in the management interface reaches the Workflow, "3" there being the same as 3.
+    await edit(brazil, { grindSetting: "3" });
+    expect((await recipe(brazil)).content.grindSetting).toBe(3);
+    await expect.poll(() => context(tablet).grinderSetting, { timeout: 15_000 }).toBe("3");
+    await quiet();
+    expect((await recipe(brazil)).content.grindSetting).toBe(3);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(brazil);
   });
 
   it("reports a dial change it has DYE2 save into the Recipe at once, long before the plugin's next poll of the tablet's lists", async () => {

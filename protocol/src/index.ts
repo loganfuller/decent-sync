@@ -601,12 +601,20 @@ export function isRecipeSlot(value: unknown): value is number {
  * Streamline's DYE strip it is on (`recipeStripCells` in
  * streamline-js:src/modules/dye-selection.js), shared by every Machine at its
  * Location; null for none, as for one DYE2 keeps only in its library, which
- * its Select Recipe page lists and applies all the same.
+ * its Select Recipe page lists and applies all the same. A record hidden from
+ * the strip (`showOnStreamlineDashboard` false) is in none, whatever its
+ * `stripSlot` says, as Streamline's long-press Clear leaves one: a recipe is
+ * on the strip exactly while it is in a slot (`stripTargetOf` in
+ * dye2:dye2-plugin/src/utils/recipe-strip.ts at v0.1.32).
  */
 export function recipeSlotOf(record: unknown): number | null {
-  const slot = isObject(record) ? record[RECIPE_SLOT_FIELD] : undefined;
+  if (!isObject(record) || record[RECIPE_SHOWN_FIELD] === false) return null;
+  const slot = record[RECIPE_SLOT_FIELD];
   return isRecipeSlot(slot) ? slot : null;
 }
+
+/** The field of a DYE2 recipe record saying whether Streamline's strip shows it, false for hidden (`recipeSlotOf`). */
+export const RECIPE_SHOWN_FIELD = "showOnStreamlineDashboard";
 
 /** The field of a DYE2 recipe record holding its Recipe Slot (`recipeSlotOf`). */
 export const RECIPE_SLOT_FIELD = "stripSlot";
@@ -616,7 +624,7 @@ export const RECIPE_SLOT_FIELD = "stripSlot";
  * does (decentespresso/dye2#23): each by its name in a Recipe's content, with
  * DYE2's name for it in a recipe record's `dashboardVariables` and the path
  * of the Workflow field holding it (`MACHINE_MAP` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26), and whether
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32), and whether
  * Decaid keeps it as a whole number (`SteamSettings`, `HotWaterData` and
  * `RinseData` in decaid:lib/src/models/data/workflow.dart). Each is
  * optional: one a Recipe holds none of is the Machine's own, which loading
@@ -649,6 +657,36 @@ export const RECIPE_SETTING_NAMES = Object.keys(RECIPE_SETTINGS) as RecipeSettin
  * no machine is connected (`De1Controller.updateWorkflowSettings`).
  */
 export const MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"] as const;
+
+/**
+ * A grind setting as DYE2 v0.1.32 keeps one in a recipe (`grindValue` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts, `d858b73`): a number where
+ * it reads as one, otherwise the text as typed, trimmed, as a three-dial
+ * grinder's "1.1.0" or a stepped one's "15 clicks" (Decaid keeps the
+ * Workflow's as text, `grinderSetting`); null for none. Two settings that
+ * both read as numbers are the same where the numbers are
+ * (`sameGrindSetting`).
+ */
+export function grindSettingOf(value: unknown): number | string | null {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (text === "") return null;
+  const number = Number(text);
+  return Number.isFinite(number) ? number : text;
+}
+
+/**
+ * Whether two grind settings are the same, as `grindSettingOf` reads each: as
+ * numbers where both read as one, so `.5`, `0.5` and Decaid's text `"0.5"`
+ * of DYE2's 0.5 are one setting, and otherwise as their text. The plugin and
+ * the server compare by it, so neither takes a setting the other holds for
+ * another.
+ */
+export function sameGrindSetting(a: unknown, b: unknown): boolean {
+  const [x, y] = [grindSettingOf(a), grindSettingOf(b)];
+  return typeof x === "number" && typeof y === "number" ? Math.abs(x - y) < 1e-9 : x === y;
+}
 
 /**
  * Whether a Workflow's steam is off: its steam temperature below
@@ -892,8 +930,9 @@ export const WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASK
  * write it there by its path: the id of DYE2's record of it, which DYE2's
  * dashboard, its Select Recipe page and Streamline's DYE strip set as they
  * apply a recipe, and DYE2 clears (null) once the Workflow's profile moves off
- * the one it held when the id appeared (`workflowChanged` in
- * dye2:dye2-plugin/src/plugin.ts at v0.1.26, decentespresso/dye2#36). Decaid
+ * the one it held when the id appeared, but onto the recipe's own
+ * (`workflowChanged` in dye2:dye2-plugin/src/plugin.ts at v0.1.32,
+ * decentespresso/dye2#36, #38). Decaid
  * copies the Workflow onto every Shot pulled with it, offline ones included.
  * The server reads the Machine's Loaded Recipe from it (ADR-0022), and the
  * plugin clears it, as DYE2 does, to unload one.
@@ -910,7 +949,7 @@ export function dye2RecipeIdOf(workflow: unknown): string | null {
 /**
  * A profile as DYE2 fingerprints one to tell a change of profile, which
  * clears the Workflow's DYE2_RECIPE_FIELD (`profileFingerprint` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26): its title, tank
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32): its title, tank
  * temperature and steps, but each step's temperature, and a step limiter of
  * value 0, which is none, read as none, as Streamline sends it
  * (decentespresso/dye2#32). Its target weight and volume are the yield,
@@ -1137,8 +1176,11 @@ export const STEAM_ON_FROM = 135;
  * edit of the Recipe; refuses an id whose record carries another item's
  * global id; and otherwise adds a record with `fields` and its `capturedAt`,
  * at the end of the list. To update one, it sets each of `fields` the
- * record still holds as expected, a null one left out. Either way the
- * global id goes in the record's own field. A write setting a record's
+ * record still holds as expected, a null one left out; and whether it is
+ * shown (RECIPE_SHOWN_FIELD), which follows its slot, only while its
+ * RECIPE_SLOT_FIELD is as `expected` names it, which it may name though
+ * `fields` does not set it. Either way the global id goes in the record's
+ * own field. A write setting a record's
  * RECIPE_SLOT_FIELD to a Recipe Slot clears it (null) on any other record in
  * that slot, in the same post, as DYE2's editor does (`takeSlot`), so a slot
  * holds one recipe on every tablet. And before it posts a list that removes

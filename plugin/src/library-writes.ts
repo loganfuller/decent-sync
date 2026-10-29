@@ -24,6 +24,7 @@ import {
   type ListUnrecognised,
   MAX_REFUSAL_LENGTH,
   PULLING_SHOT,
+  RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   WORKFLOW_CLEARED,
   WORKFLOW_KIND,
@@ -1240,11 +1241,17 @@ async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeft
  * `capturedAt`, as DYE2 stamps one. To update one, each path it still holds
  * as the server expects is set, a null one left out. Either way the record
  * carries the global id in its own field, and the list is posted back only
- * where it changed. A Recipe Slot the record is put in (RECIPE_SLOT_FIELD)
+ * where it changed, a field holding null within one being another than a
+ * field not held (`sameJson`): DYE2 v0.1.32 writes a recipe naming no Bean
+ * with explicit nulls for one in its embedded Workflow, which Streamline
+ * applies as they are. A Recipe Slot the record is put in (RECIPE_SLOT_FIELD)
  * is taken from any other record in it, as DYE2's editor takes one
- * (`takeSlot` in dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.26), so
- * one record holds each slot. The answer is timed now, as DYE2's records
- * carry no edit time.
+ * (`takeSlot` in dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.32), so
+ * one record holds each slot. Whether it is shown (RECIPE_SHOWN_FIELD)
+ * follows its slot, so it is set only while the record is still in the slot
+ * expected, whether the write sets that or not: a barista who put it in
+ * another slot since keeps it shown there. The answer is timed now, as
+ * DYE2's records carry no edit time.
  */
 async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAnswer> {
   const list = await readList(path);
@@ -1282,9 +1289,11 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
     if (index === -1) return refused(write, 404, "Record not found");
     const current = records[index]!;
     const settled = settable(write, (field) => valueAt(current, field));
+    const expected = write.expected;
+    if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled[RECIPE_SHOWN_FIELD];
     record = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
     writtenFields = Object.keys(settled);
-    if (sameValue(record, current)) return written(write, current, writtenFields, now);
+    if (sameJson(record, current)) return written(write, current, writtenFields, now);
   }
   const before = [...records];
   records[index] = record;
@@ -1296,6 +1305,15 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
   if (!posted.ok) return refused(write, posted.status, posted.text);
   const answer = written(write, record, writtenFields, now);
   return linked ? { ...answer, linked } : answer;
+}
+
+/** Whether two values are the same JSON, objects key by key whatever their order, a key holding null another than one not held. */
+function sameJson(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameJson(value, b[index]));
+  if (!isObject(a) || !isObject(b)) return false;
+  const keys = Object.keys(a);
+  return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameJson(a[key], b[key]));
 }
 
 /** The field of a DYE2 recipe holding its dial, whose own fields a write names by their paths (`dashboardVariables.dose`). */

@@ -15,6 +15,57 @@ section).
 
 ## Unreleased
 
+### A Recipe is shown on the strip by its slot alone
+
+A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it is
+on Streamline's strip exactly while it is in a Recipe Slot (below). As it
+migrates the database, this release takes each Recipe 1.6.0 left in a slot
+but hidden out of that slot, so each strip still shows that button empty;
+put the Recipe in a slot again to show it. The setting is dropped from every
+Recipe, and each open Conflict over it is dismissed. Past versions in a
+Recipe's history still show it.
+
+Deploy it as any release, beside 1.6.0. For the minute or so that 1.6.0
+still serves beside it:
+
+- A recipe hidden by Streamline's "Clear button" on a tablet connected to
+  1.6.0, or with the switch on a 1.6.0 page, is shown again, as this release
+  writes a record shown exactly while its Recipe is in a slot. Hide it again
+  once the deploy is done.
+- A "Shown on the dashboard" value 1.6.0 saves then stays in the Recipe,
+  where nothing reads it.
+- A tablet still connected to 1.6.0 is written its recipe records without
+  whether they are shown, which DYE2 and Streamline read as shown, until it
+  connects to this release.
+- A page of the management interface left open from 1.6.0 reloads at its
+  next navigation. Until then, its Recipe page can't create a Recipe or use
+  the switch, which this release refuses.
+
+Let each tablet update its plugin promptly, as Decaid does within 12 hours:
+the server writes the records of each Recipe naming no Bean once more, with
+DYE2's explicit nulls for one (below), and only this release's plugin makes
+that write.
+
+### Tablets need DYE2 v0.1.32
+
+This release follows DYE2 v0.1.32
+([ADR-0017](docs/adr/0017-supported-versions.md)), which Decaid installs on
+every tablet within 12 hours of its release. Check that a tablet whose DYE2 is
+pinned runs v0.1.32 or later. Three things change with it:
+
+- A Recipe naming no Bean means no bean as it is loaded: loading it, from
+  DYE2 or Streamline's strip, leaves the Machine with no bean batch, and the
+  load no longer gives it the Machine's. A batch picked once it is loaded is
+  saved into it, with its Bean, as before. The server writes such a Recipe's
+  records once more, with DYE2's explicit nulls for a Bean.
+- A Recipe is on Streamline's strip exactly while it is in a Recipe Slot. The
+  Recipe page's "Shown on the dashboard" switch is gone, and hiding a recipe
+  on a tablet, by Streamline's "Clear button" or DYE2's switch, takes it out
+  of its slot at its Location.
+- A grind setting is kept as typed, as a three-dial grinder's `1.1.0`, and
+  shown and edited so; one that reads as a number stays a number, and `.5`
+  and `0.5` are one setting.
+
 ## 1.6.0
 
 ### Make Viewers once every instance runs this release

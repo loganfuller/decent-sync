@@ -133,7 +133,6 @@ const slot1Content = {
   beanId: GLOBAL.ethiopia,
   beanBatchId: GLOBAL.laterEthiopiaBatch,
   profileId: ADAPTIVE,
-  showOnDashboard: true,
   dose: 18,
   yield: 36,
   brewTemperature: 92,
@@ -175,12 +174,11 @@ describe("DYE2's recipes as Recipes", () => {
   it("takes a record's content in in the Library's terms, through the tablet's map, ignoring what DYE2 derives and the barista", () => {
     const content = recipeContent(recipeView(slot1), intake());
     expect(content).toEqual(slot1Content);
-    // A blank recipe names no Bean, and holds none of the numbers DYE2 saved blank, as it leaves them out (decentespresso/dye2#29);
-    // its editor took it off Streamline's strip.
+    // A blank recipe names no Bean, and holds none of the numbers DYE2 saved blank, as it leaves them out (decentespresso/dye2#29).
+    // Its editor took it off Streamline's strip, which is its Location's state, not its content.
     expect(recipeContent(recipeView(blank), intake())).toEqual({
       name: "Fixture Blank Recipe",
       beverage: "",
-      showOnDashboard: false,
       steamMode: "flow",
       hotWaterMode: "vol",
       toolIds: [],
@@ -365,6 +363,12 @@ describe("DYE2's recipes as Recipes", () => {
     // A stub of its id and title would merge into the Workflow's profile, renaming its steps (`buildRecipeWorkflow` at v0.1.26).
     expect(ratio).not.toHaveProperty("profile");
     expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
+    // A recipe naming no Bean holds explicit nulls for one, so applying it leaves no bean batch, as DYE2 v0.1.32 builds it (ce38984).
+    expect((recipeWorkflow(recipeView(blank)).context as Record_)).toEqual({ coffeeName: null, coffeeRoaster: null, beanBatchId: null });
+    const beanless = recipeRecord({ ...slot1Content, beanId: undefined, beanBatchId: undefined }, 1, writing(recordedIds), GLOBAL.recipe);
+    expect([beanless.beanId, beanless.beanName, beanless.beanBatchId]).toEqual([null, null, null]);
+    expect(beanless.workflow).toMatchObject({ context: { coffeeName: null, coffeeRoaster: null, beanBatchId: null, targetDoseWeight: 18 } });
+    expect(Object.keys((beanless.workflow as { context: Record_ }).context)).toEqual(expect.arrayContaining(["coffeeName", "coffeeRoaster", "beanBatchId"]));
   });
 
   it("keeps the field flags DYE2 saved into a tablet's record's embedded Workflow, but derives its settings from the Recipe's", () => {
@@ -406,11 +410,11 @@ describe("DYE2's recipes as Recipes", () => {
     expect([...EDITED_PATHS]).not.toContain("barista");
   });
 
-  it("writes a record's Recipe Slot as its stripSlot, null for none, which is no edit of its content", () => {
+  it("writes a record's Recipe Slot as its stripSlot, null for none, shown on the strip exactly while in one, which is no edit of its content", () => {
     const inSlot = recipeRecord(slot1Content, 3, writing(recordedIds), GLOBAL.recipe);
     const inNone = recipeRecord(slot1Content, null, writing(recordedIds), GLOBAL.recipe);
-    expect(recordOf(inSlot).stripSlot).toBe(3);
-    expect(inNone.stripSlot).toBeNull();
+    expect(recordOf(inSlot)).toMatchObject({ stripSlot: 3, showOnStreamlineDashboard: true });
+    expect([inNone.stripSlot, inNone.showOnStreamlineDashboard]).toEqual([null, false]);
     expect(editedPaths(editedContent(inSlot, inNone, null))).toEqual([]);
     expect(holdsRecipe(inNone, inSlot)).toBe(true);
     // A nameless one is called by its slot, or Recipe in none.
@@ -511,5 +515,15 @@ describe("DYE2's recipes as Recipes", () => {
     // A new record's slot is taken from none; a slot outside 1 to 5 is none.
     expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 5 }))).toEqual({ itemId: GLOBAL.recipe, from: null, to: 5, at: new Date(READ) });
     expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 7 }))).toBeNull();
+    // Hidden from the strip, it is in none: Streamline's long-press Clear keeps its stripSlot, DYE2 v0.1.32's switch clears it.
+    const shown = { ...slot1, stripSlot: 2, showOnStreamlineDashboard: true };
+    expect(slotMove(GLOBAL.recipe, shown, at({ ...shown, showOnStreamlineDashboard: false }))).toEqual({ itemId: GLOBAL.recipe, from: 2, to: null, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, shown, at({ ...shown, stripSlot: null, showOnStreamlineDashboard: false }))).toEqual({ itemId: GLOBAL.recipe, from: 2, to: null, at: new Date(READ) });
+    // Put in a slot, it is shown, as DYE2's editor turns the switch on; a hidden one saved is in none still.
+    const hidden = { ...slot1, stripSlot: 2, showOnStreamlineDashboard: false };
+    expect(slotMove(GLOBAL.recipe, hidden, at({ ...hidden, stripSlot: 4, showOnStreamlineDashboard: true }))).toEqual({ itemId: GLOBAL.recipe, from: null, to: 4, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, hidden, at({ ...hidden, stripSlot: null }))).toBeNull();
+    // Hiding one is no edit of its content.
+    expect(editedPaths(editedContent(recipeView(shown), recipeView({ ...shown, showOnStreamlineDashboard: false }), null))).toEqual([]);
   });
 });

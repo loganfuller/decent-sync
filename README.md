@@ -527,7 +527,7 @@ Recipes are shared through DYE2's storage, and a Machine's Loaded Recipe is
 the recipe DYE2 and Streamline name in its Workflow as a barista applies one,
 into which the plugin has DYE2 save each change made on the Machine
 ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)). So
-a Machine that follows Recipes needs DYE2 v0.1.26 or later, and streamline-js
+a Machine that follows Recipes needs DYE2 v0.1.32 or later, and streamline-js
 from `main` at `cec5664` or later where Streamline is its skin. That untagged
 build is Streamline's minimum until a tagged release contains `ea04f83`, which
 lets its DYE strip apply a recipe holding a grinder or Basket

@@ -728,9 +728,9 @@ export interface Recipe {
    * Its content in the Library's terms: `name`, `beverage`, `beanId`,
    * `beanBatchId`, `profileId`, `grinderId`, `basketId`, `toolIds`,
    * `toolAttributes` (each Tool's attributes for it, by the Tool's id),
-   * `dose`, `yield`, `ratio`, `grindSetting`, `rpm`, `brewTemperature`,
-   * `showOnDashboard`, the steam, hot water and flush settings it holds
-   * (`steamTemperature`, `steamDuration`, `steamFlow`,
+   * `dose`, `yield`, `ratio`, `grindSetting` (a number, or text as typed),
+   * `rpm`, `brewTemperature`, the steam, hot water and flush settings it
+   * holds (`steamTemperature`, `steamDuration`, `steamFlow`,
    * `steamStopTemperature`, `hotWaterTemperature`, `hotWaterDuration`,
    * `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`, `flushDuration`
    * and `flushFlow`), and DYE2's display modes `steamMode` and

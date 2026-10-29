@@ -287,11 +287,14 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * but for the barista and drinker, which a Recipe never carries, its steam
  * and hot water modes, which are only which value DYE2's stepper shows, and
  * its ratio, kept while its yield is its dose times it
- * (recipe-edits.service.ts). Its Bean is its Bean Batch's. Each steam, hot
- * water and flush setting is held or not, null for the Machine's own, and is
- * checked against the range DYE2's editor offers, a whole number where
- * Decaid's field is an int: a steam temperature with no "Off", and a milk
- * stop of 0 for off.
+ * (recipe-edits.service.ts). Its Bean is its Bean Batch's. Its grind
+ * setting is a number, or text as typed, as DYE2 v0.1.32 keeps one
+ * (`grindSettingOf`). Each steam, hot water and flush setting is held or
+ * not, null for the Machine's own, and is checked against the range DYE2's
+ * editor offers, a whole number where Decaid's field is an int: a steam
+ * temperature with no "Off", and a milk stop of 0 for off. Whether it is
+ * shown on Streamline's strip is no field of its own: it is shown exactly
+ * while it is in a slot (recipes.ts).
  */
 const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   name: "text",
@@ -301,7 +304,7 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   dose: "number",
   yield: "number",
   grinderId: "id",
-  grindSetting: "number",
+  grindSetting: "grindSetting",
   rpm: "number",
   brewTemperature: "number",
   basketId: "id",
@@ -318,7 +321,6 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   flushTemperature: { min: 5, max: 95, whole: true },
   flushDuration: { min: 0, whole: true },
   flushFlow: { min: 1, max: 8 },
-  showOnDashboard: "flag",
 };
 
 /** Each kind of Library item, described once. */
@@ -649,9 +651,9 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     // A tablet's record names what it uses by the tablet's ids, so its content is written by the paths the server writes.
     recordValues: (record) => recipeView(record),
     keptColumns: () => Prisma.empty,
-    // DYE2's editor shows a new recipe on the dashboard, its steam by flow and its hot water by volume. A new Recipe
-    // holds no steam, hot water or flush setting, so a Machine loading it keeps its own.
-    editable: { fields: RECIPE_FIELDS, defaults: { showOnDashboard: true, steamMode: "flow", hotWaterMode: "vol" } },
+    // DYE2's editor shows a new recipe's steam by flow and its hot water by volume. A new Recipe holds no steam, hot water
+    // or flush setting, so a Machine loading it keeps its own.
+    editable: { fields: RECIPE_FIELDS, defaults: { steamMode: "flow", hotWaterMode: "vol" } },
     holdings: { key: "recipes", offered: (tx, tablet, locationId) => offeredRecipes(tx, tablet, locationId), held: (tx, tabletId) => heldRecipes(tx, tabletId) },
     plan: (offer, held) => recipeWrites(offer, held),
     offersAnySql: (locationId) => Prisma.sql`SELECT 1 FROM recipes WHERE location_id = ${locationId}::uuid AND NOT archived LIMIT 1`,

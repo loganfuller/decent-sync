@@ -200,7 +200,7 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expectTip(page.getByRole("main"), "Versions", "As last reported by its Tablet.");
   await expect(page.getByText("As reported by the latest accepted connection.")).toHaveCount(0);
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
-  await expect(field(page, "DYE2")).toHaveText("0.1.26");
+  await expect(field(page, "DYE2")).toHaveText("0.1.32");
   await expect(field(page, "Streamline")).toHaveText("0.2.18 (release)");
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
@@ -209,7 +209,7 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline!.status).toBe("notActive");
   await expect.poll(async () => (await reported()).dye2!.loaded).toBe(false);
   await afterDetailsPolls(page, async () => {
-    await expect(field(page, "DYE2")).toHaveText("0.1.26 (not loaded)", { timeout: CHECK_MS });
+    await expect(field(page, "DYE2")).toHaveText("0.1.32 (not loaded)", { timeout: CHECK_MS });
     await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
   });
 

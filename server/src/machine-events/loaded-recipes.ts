@@ -445,7 +445,7 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The paths of a recipe record DYE2 saves into, each with the part of the
  * Workflow it saves from (`RECORDED_PARTS`; `itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26).
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32).
  */
 const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.dose": "dose",

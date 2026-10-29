@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, RECIPE_SLOT_FIELD, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, profileAtBrewTemperature, recipeSlotOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { recipeIdInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -39,7 +39,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (ADR-0019). And for ticket #216, DYE2's editor saving only what it changed
 // over a fresh read keeps another tablet's change (decentespresso/dye2#28),
 // which replaced ticket #142's stale-save rule. Through the built plugin in
-// simulated tablets, acting as DYE2 v0.1.26 and Streamline at cec5664 do
+// simulated tablets, acting as DYE2 v0.1.32 and Streamline at cec5664 do
 // with the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up,
@@ -177,7 +177,6 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
         brewTemperature: 93,
         grindSetting: 3,
         rpm: 1100,
-        showOnDashboard: true,
         steamMode: "flow",
         hotWaterMode: "vol",
         steamFlow: 1.2,
@@ -187,6 +186,8 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     );
     for (const field of ["beanBatchId", "grinderId", "basketId"]) expect(saved!.content[field]).toEqual(expect.any(String));
     expect(saved!.content).not.toHaveProperty("barista");
+    // Whether it is shown on the strip is whether it is in a slot, no field of its content.
+    expect(saved!.content).not.toHaveProperty("showOnDashboard");
     expect(slotted!.content).toMatchObject({ name: "Fixture Slot Recipe", profileId: ADAPTIVE, dose: 18, brewTemperature: 92, steamDuration: 30, hotWaterTemperature: 85 });
     expect(await recipesAt(cafe)).toEqual([]);
 
@@ -389,10 +390,16 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect((await versions(moving.id))[0]).toMatchObject({ fields: { slot: 5 }, location: { id: here.id }, source: { machine: { name: "Moved lab 1" } } });
     expect((await versions(holder.id))[0]).toMatchObject({ fields: { slot: null }, location: { id: here.id } });
 
-    // The second tablet's records change only their stripSlot, under the same ids, and Streamline's strip there shows the
-    // moved recipe on the fifth button; it stays loaded, its Workflow naming it still.
-    await expect.poll(() => [byId(two, LIBRARY_RECIPE)?.[RECIPE_SLOT_FIELD], byId(two, SLOT_RECIPE)?.[RECIPE_SLOT_FIELD]]).toEqual([5, null]);
-    const withoutSlot = ({ [RECIPE_SLOT_FIELD]: _, ...rest }: Record_) => rest;
+    // The second tablet's records change only their stripSlot, and whether the strip shows them, which is whether they are in
+    // a slot, under the same ids, and Streamline's strip there shows the moved recipe on the fifth button; it stays loaded,
+    // its Workflow naming it still.
+    await expect
+      .poll(() => [LIBRARY_RECIPE, SLOT_RECIPE].map((id) => [byId(two, id)?.[RECIPE_SLOT_FIELD], byId(two, id)?.[RECIPE_SHOWN_FIELD]]))
+      .toEqual([
+        [5, true],
+        [null, false],
+      ]);
+    const withoutSlot = ({ [RECIPE_SLOT_FIELD]: _, [RECIPE_SHOWN_FIELD]: __, ...rest }: Record_) => rest;
     expect(records(two).map(withoutSlot)).toEqual(before.map(withoutSlot));
     expect(recipeStripCells(dye2List(two, "recipes"))[4]!.recipe?.id).toBe(LIBRARY_RECIPE);
     expect(recipeIdInWorkflow(two)).toBe(LIBRARY_RECIPE);
@@ -518,7 +525,8 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     const brought = main[`/store/${DYE2_NAMESPACE}/recipes`] as Record_[];
     const two = load(machines[1], main, other);
     await api.waitForOnline(machines[1]);
-    const expected = brought.map((record) => [String(record.name), (record[RECIPE_SLOT_FIELD] as number | null | undefined) ?? null]);
+    // Each in the slot it is on the strip in: none for one hidden from it, as the blank recipe is in its stripSlot 3.
+    const expected = brought.map((record) => [String(record.name), recipeSlotOf(record)]);
     await expect.poll(async () => (await recipesAt(here)).map(({ name, slot }) => [name, slot]).sort()).toEqual([...expected].sort());
     const joined = await recipesAt(here);
     const status = async (machine: CreatedMachine) =>
@@ -526,12 +534,12 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect((await status(machines[1])).unrecognisedLists).toEqual([]);
 
     // Each Recipe's record on the tablet that brought it carries its global id, in the order that tablet keeps; the other
-    // tablet is written each under the same record id and stripSlot.
+    // tablet is written each under the same record id and slot, the blank recipe hidden in none.
     const globalOf = (name: unknown) => joined.find((listed) => listed.name === name)!.id;
     await expect.poll(() => records(two).map((record) => [record.id, record[GLOBAL_ID_KEY] ?? null])).toEqual(brought.map((record) => [record.id, globalOf(record.name)]));
     await expect
       .poll(() => records(one).map((record) => [record.id, record[RECIPE_SLOT_FIELD] ?? null, record[GLOBAL_ID_KEY]]).sort())
-      .toEqual(brought.map((record) => [record.id, record[RECIPE_SLOT_FIELD] ?? null, globalOf(record.name)]).sort());
+      .toEqual(brought.map((record) => [record.id, recipeSlotOf(record), globalOf(record.name)]).sort());
 
     // A tablet elsewhere whose list holds two records of one id is shown as such in its sharing status, its recipes left as
     // they are, while its other lists keep syncing.

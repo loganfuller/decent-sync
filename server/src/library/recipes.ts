@@ -1,4 +1,4 @@
-import { LIBRARY_ITEM_KINDS, RECIPE_SLOT_FIELD, dye2GlobalIdOf, dye2Records, isRecordId, recipeSlotOf, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_ITEM_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, dye2GlobalIdOf, dye2Records, isRecordId, recipeSlotOf, sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -46,10 +46,12 @@ import {
 // ADR-0019, ADR-0020): DYE2's recipes, which it keeps whole in a list under
 // one key of Decaid's store, each under its record id, the same on every
 // tablet at its Recipe's Location. A Recipe belongs to one Location and sits
-// in one of its five Recipe Slots, or none. A tablet at a Location reports
+// in one of its five Recipe Slots, or none, and is on Streamline's strip
+// exactly while it is in one (DYE2 v0.1.32). A tablet at a Location reports
 // the list as a collection: a change of a recipe's record is an edit of its
 // Recipe, merged per field (content-edits.ts), timed by when the plugin
-// first read it, and a change of its slot (`stripSlot`) moves it there; a
+// first read it, and a change of its slot (`stripSlot`) moves it there, as
+// hiding it from the strip takes it out of its slot (`recipeSlotOf`); a
 // record of an id no Recipe there has is a new Recipe there, with that
 // record id and slot; Recipes are never matched (ADR-0018). A recipe gone
 // from a tablet's list is taken out of its slot at that Location and kept.
@@ -341,7 +343,7 @@ export async function takeInRecipes(
 /**
  * Carries out the tablet's moves of its Recipes at its Location, each as
  * DYE2's editor moves a recipe on the strip (`takeSlot` in
- * dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.26): a Recipe moved out
+ * dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.32): a Recipe moved out
  * of the slot its record known was in leaves it, and one moved into a slot
  * takes it from the Recipe there, which leaves it. A move is made only
  * where the Recipe is still in the slot the tablet knew it in (`from`), so
@@ -465,8 +467,9 @@ export async function recordRecipeWritten(
       edited = await editContent(tx, ref, { values, at, seenAt: known.contentSeenAt }, source);
       const now = await recordFor(tx, ids, (await readRecipes(tx, [itemId])).get(itemId)?.content ?? content, item.slot, itemId);
       stale = (answered.stale || recorded.size > 0 || steamOff) && !holdsRecipe(view, now);
-      // Moved on the tablet since its last report, as the write did not set its slot.
-      const move = here && !written.has(RECIPE_SLOT_FIELD) ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
+      // Moved on the tablet since its last report, as the write set neither its slot nor whether it is shown.
+      const moved = !written.has(RECIPE_SLOT_FIELD) && !written.has(RECIPE_SHOWN_FIELD);
+      const move = here && moved ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
       if (move && locationId !== null) {
         await moveSlots(tx, locationId, [move], source);
         stale = true;

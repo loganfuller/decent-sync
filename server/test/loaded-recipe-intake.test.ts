@@ -11,6 +11,7 @@ import {
   readParts,
   recipeParts,
   RECORDED_PARTS,
+  samePart,
   valuesFromWorkflow,
   workflowParts,
 } from "../src/library/loaded-recipe-intake.js";
@@ -101,6 +102,13 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
   });
 
+  it("compare a grind setting as a number however it is written where both read as one, as the plugin does, and otherwise as text", () => {
+    // A barista's `.5` is DYE2's 0.5, which Decaid keeps as "0.5", so DYE2 saving the Workflow's `.5` saves no other setting.
+    for (const [a, b] of [[".5", "0.5"], [".5", 0.5], ["5.", "5"], ["1e1", 10], ["2.70", "2.7"]] as const) expect(samePart("grind", a, b), `${a} ${b}`).toBe(true);
+    for (const [a, b] of [[".5", "0.6"], ["1.5.", "1.5"], ["fine", "coarse"]] as const) expect(samePart("grind", a, b), `${a} ${b}`).toBe(false);
+    expect(samePart("grind", readParts({ grind: 0.5 }).grind, ".5")).toBe(true);
+  });
+
   it("are saved by DYE2 into the Recipe's record, every one but its Grinder, Bean Batch and Profile", () => {
     expect(RECORDED_PARTS).toEqual(["dose", "yield", "grind", "rpm", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES]);
     expect(PARTS.filter((part) => !RECORDED_PARTS.includes(part))).toEqual(["profile", "grinder", "batch"]);
@@ -126,20 +134,24 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
     expect(valuesFromWorkflow(CONTENT, target, HELD, changed, context)).toEqual({ values: { grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG }, parts: ["grinder", "batch"] });
     // A batch of another Bean, a Grinder of no Location's, a value cleared: the Machine's own.
     expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch: "b3", grinder: "g9", basket: null, dose: null }, context)).toEqual({ values: {}, parts: [] });
-    // A Recipe naming no Bean takes the batch's Bean too.
+    // A Recipe naming no Bean takes a batch picked while it is loaded with its Bean, as any change, but none on a load: it means
+    // no bean as it is loaded, as DYE2 v0.1.32 applies one.
     const { beanId: _, beanBatchId: __, ...beanless } = CONTENT;
     expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), HELD, { ...HELD, batch: "b3" }, context).values).toEqual({
       beanBatchId: OTHER_BEANS_BATCH,
       beanId: "55555555-5555-4555-8555-555555555555",
     });
+    expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), null, { ...HELD, batch: "b3" }, context).values).not.toHaveProperty("beanBatchId");
   });
 
-  it("is a dial value the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting as a number", () => {
+  it("is a dial value the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting a number where it reads as one and the text as typed otherwise", () => {
     const { rpm: _, basketId: __, grindSetting: ___, ...bare } = CONTENT;
     const target = recipeParts(bare, local);
     const held = { ...HELD, basket: null };
     const changed = { ...HELD, rpm: 950, basket: "k1", grind: "3.1" };
     expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({ values: { grindSetting: 3.1, rpm: 950, basketId: BASKET }, parts: ["grind", "rpm", "basket"] });
+    // As DYE2 v0.1.32 saves one (d858b73): a three-dial grinder's setting, or a word.
+    for (const typed of ["1.5.", "fine"]) expect(valuesFromWorkflow(bare, target, held, { ...held, grind: ` ${typed} ` }, context).values).toEqual({ grindSetting: typed });
     // One the Recipe holds is DYE2's to save; one unchanged is no edit.
     expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), HELD, { ...HELD, rpm: 950 }, context).values).toEqual({});
     expect(valuesFromWorkflow(bare, target, HELD, HELD, context).values).toEqual({});

@@ -151,6 +151,9 @@ describe("the latest release beside the change", () => {
     it("welcomes the plugin, each sending the wire revision it has, or none from a release before it", async () => {
       const { tablet } = await connected(`Wire revision, the ${plugin}'s plugin`, plugin, server);
       const revisions = wireRevisions();
+      // The Machine is online once the server has accepted the hello, which it answers a query later, so the welcome may
+      // still be on its way.
+      await expect.poll(() => tablet.received.length).toBeGreaterThan(0);
       const [hello, welcome] = [tablet.sent[0], tablet.received[0]] as { type?: unknown; wireRevision?: unknown }[];
       expect(hello).toMatchObject({ type: "hello" });
       // A plugin or server of 1.3.1 or earlier sends none, so is at revision 1.

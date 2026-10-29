@@ -220,7 +220,7 @@ keeps only the newest 2,000 events, up to 2 Mi characters (above).
 Ticket [#145](https://github.com/loganfuller/decent-sync/issues/145) keeps
 each Machine's Loaded Recipe (ADR-0022), and ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) makes it the
-recipe its Workflow names. DYE2 v0.1.26 and streamline-js `main` at
+recipe its Workflow names. DYE2 v0.1.32 and streamline-js `main` at
 `cec5664`, the supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -278,7 +278,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   ADR-0022), but a steam temperature into a Workflow whose steam is off
   (`steamOff`), which would turn steam on (`loadWrite`). A value the record
   holds none of is left as the Machine has it, which the server takes into
-  the Recipe (Following the Recipe, below). It writes no brew temperature:
+  the Recipe (Following the Recipe, below), but a Bean: for a record naming
+  none it clears the Workflow's batch, coffee and roaster where it holds
+  any, as DYE2 v0.1.32 applies such a recipe and a stale copy without its
+  nulls does not. It writes no brew temperature:
   DYE2's dashboard applies a recipe's, moving its profile as Streamline's
   Brew tile does (`shiftedTemperatures` in
   `streamline-js:src/modules/brew-temp.js`), the first step to it and every
@@ -542,7 +545,9 @@ parts to the Recipe's content both ways.
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
   setting, RPM or Basket the Recipe holds none of; a Grinder, one of the
   Location's not Archived; and a Bean Batch of the Recipe's own Bean, or any
-  batch, with its Bean, for a Recipe naming no Bean. It skips a Workflow
+  batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
+  means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
+  (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment
   later. A part recorded is taken as the Workflow having taken it (`base`),

@@ -38,7 +38,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the reporting tablet's map. The Shots list filters by both, and an Admin
 // hard-deletes a Recipe no Shot is linked to, and a Basket or Tool no Shot or
 // Recipe names, from every tablet. Through the built plugin in simulated
-// tablets acting as DYE2 v0.1.26 and Streamline `main` at cec5664 do, with
+// tablets acting as DYE2 v0.1.32 and Streamline `main` at cec5664 do, with
 // the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 49001.
@@ -203,7 +203,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
   /**
    * A Location with a Machine whose tablet is the recording's
-   * (`recordedTablet`), running DYE2 v0.1.26, on the first instance, the
+   * (`recordedTablet`), running DYE2 v0.1.32, on the first instance, the
    * first at the Location, so its recipes join its Recipes with their ids and
    * slots, and another whose tablet has never used DYE2, on the other, which
    * is written every one of them under the same id. Resolves with the

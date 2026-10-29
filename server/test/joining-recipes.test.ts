@@ -1,4 +1,4 @@
-import { dye2GlobalIdOf } from "@decent-sync/protocol";
+import { dye2GlobalIdOf, recipeSlotOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -20,7 +20,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // and keeps its hot water; and it never loads the Location's Recipe through
 // a `recipeId` its Workflow still names, even where that Recipe has the same
 // slot-number record id as the one it had loaded. Through the built plugin in
-// simulated tablets running DYE2 v0.1.26 as recorded
+// simulated tablets running DYE2 v0.1.32 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
 // tablet holds. Serials are made up, from 49001.
@@ -50,7 +50,8 @@ const BRAZIL = "2";
 
 /** The recording's eight recipes (recordedDye2MainTablet), each by its name and its slot, by name. */
 const RECORDED_SLOTS = [
-  ["Fixture Blank Recipe", 3],
+  // Hidden from the strip, so in no slot, whatever its stripSlot 3 says (DYE2 v0.1.32's stripTargetOf).
+  ["Fixture Blank Recipe", null],
   ["Fixture Brazil Espresso", 2],
   ["Fixture Ethiopia Espresso", null],
   ["Fixture Favourite Recipe", null],
@@ -97,7 +98,7 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
   /** The tablet's recipes, each as its record id, the global id it carries and its strip slot, by record id. */
   const recipeRecords = (tablet: SimulatedTablet) =>
     records(tablet, "recipes")
-      .map((record) => [record.id, dye2GlobalIdOf(record), record.stripSlot ?? null])
+      .map((record) => [record.id, dye2GlobalIdOf(record), recipeSlotOf(record)])
       .sort((a, b) => String(a[0]).localeCompare(String(b[0])));
   /** The global id the tablet's record with that id carries, or null. */
   const recipeUnder = (tablet: SimulatedTablet, id: string) => dye2GlobalIdOf(records(tablet, "recipes").find((record) => record.id === id));

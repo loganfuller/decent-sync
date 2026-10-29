@@ -1,4 +1,14 @@
-import { BREW_TEMPERATURE_FIELD, LOADED_RECIPE_PARTS, type LoadedRecipePart, RECIPE_SETTING_NAMES, type RecipeSetting, sameValue, workflowValueAt } from "@decent-sync/protocol";
+import {
+  BREW_TEMPERATURE_FIELD,
+  LOADED_RECIPE_PARTS,
+  type LoadedRecipePart,
+  RECIPE_SETTING_NAMES,
+  type RecipeSetting,
+  grindSettingOf,
+  sameGrindSetting,
+  sameValue,
+  workflowValueAt,
+} from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
 
 // How the parts of a Workflow that follow its Loaded Recipe (ADR-0022,
@@ -12,7 +22,8 @@ import { isObject } from "./listed.js";
 // Basket and Bean Batch by the tablet's ids, holds its Profile whole, its
 // brew temperature as its first step's, and keeps its grind setting as text,
 // as Decaid does; a Recipe names them by their global ids, its Profile by
-// Decaid's, and keeps the grind setting DYE2 saves, a number. Pure, so
+// Decaid's, and keeps the grind setting as DYE2 v0.1.32 saves one, a number
+// where it reads as one and otherwise the text (`grindSettingOf`). Pure, so
 // module tests can drive it; machine-events/loaded-recipes.ts reads what it
 // needs and carries it out.
 
@@ -27,7 +38,7 @@ export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
  * holds one, and its steam, hot water and flush settings, each where the
  * record holds it, or once it moves off the value the Workflow held as the
  * recipe was applied (`itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.26). DYE2 saves
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32). DYE2 saves
  * none of steam turned off, a value cleared, the Bean Batch, the Grinder or
  * the Profile.
  */
@@ -82,12 +93,9 @@ export function partValue(part: LoadedRecipePart, value: unknown): PartValue {
   return ITEM_PARTS[part] !== undefined || part === "profile" ? textOf(value) : numberOf(value);
 }
 
-/** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3". */
+/** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3" and a barista may type `.5` for 0.5 (`sameGrindSetting`). */
 export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolean {
-  if (part === "grind") {
-    const [x, y] = [numberOf(a), numberOf(b)];
-    if (x !== null && y !== null) return Math.abs(x - y) < 1e-9;
-  }
+  if (part === "grind") return sameGrindSetting(a, b);
   return sameValue(a ?? null, b ?? null);
 }
 
@@ -163,11 +171,14 @@ const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: 
  * itself as the tablet's edit, as DYE2 saves none of them (ADR-0022), each
  * where the Workflow changed it from `held`, the parts as it last held them,
  * or, on a load (`held` null), where the Recipe holds none, from the
- * Workflow as it stands (`now`): a dose, yield, grind setting, RPM or Basket
- * the Recipe holds none of; a Grinder, one of the Location's; and a Bean
- * Batch of the Recipe's own Bean, or with its Bean for a Recipe naming no
- * Bean. A batch of another Bean, a value cleared, and anything the map does
- * not hold stay the Machine's own. With the parts they record.
+ * Workflow as it stands (`now`): a dose, yield, grind setting (a number, or
+ * text as typed, as DYE2 v0.1.32 saves one), RPM or Basket the Recipe holds
+ * none of; a Grinder, one of the Location's; and a Bean Batch of the Recipe's
+ * own Bean, or with its Bean for a Recipe naming no Bean, but not on a load:
+ * a Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
+ * applies one (`ce38984`), and a batch picked while it is loaded is a change
+ * like any other. A batch of another Bean, a value cleared, and anything the
+ * map does not hold stay the Machine's own. With the parts they record.
  */
 export function valuesFromWorkflow(
   content: Readonly<Record<string, unknown>>,
@@ -181,7 +192,7 @@ export function valuesFromWorkflow(
   const changed = (part: LoadedRecipePart) => now[part] !== null && (held === null ? target[part] === null : !samePart(part, held[part], now[part]));
   for (const [part, field] of Object.entries(DIAL_FIELDS) as [keyof typeof DIAL_FIELDS, string][]) {
     if (target[part] !== null || !changed(part)) continue;
-    const value = part === "basket" ? context.item("basket", now.basket as string) : part === "grind" ? numberOf(now.grind) : now[part];
+    const value = part === "basket" ? context.item("basket", now.basket as string) : part === "grind" ? grindSettingOf(now.grind) : now[part];
     if (value === undefined || value === null) continue;
     values[field] = value;
     parts.push(part);
@@ -193,10 +204,10 @@ export function valuesFromWorkflow(
       parts.push("grinder");
     }
   }
-  if (changed("batch")) {
+  const recipeBean = textOf(content.beanId)?.toLowerCase() ?? null;
+  if (changed("batch") && (recipeBean !== null || held !== null)) {
     const batchId = context.item("beanBatch", now.batch as string);
     const beanId = batchId === undefined ? undefined : context.batchBeans.get(batchId);
-    const recipeBean = textOf(content.beanId)?.toLowerCase() ?? null;
     if (batchId !== undefined && beanId !== undefined && (recipeBean === null || recipeBean === beanId)) {
       values.beanBatchId = batchId;
       if (recipeBean === null) values.beanId = beanId;

@@ -130,9 +130,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
   /** Whether the Machine has that Recipe loaded, by its id, or none. */
   const loadedOn = async ({ machine }: CreatedMachine) =>
     (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id ?? null;
-  /** A record of the tablet's without its `stripSlot`, to compare what else a write changed. */
+  /** A record of the tablet's without its `stripSlot`, and whether the strip shows it, which is whether it is in a slot, to compare what else a write changed. */
   const withoutSlot = (record: Record_ | undefined) => {
-    const { [RECIPE_SLOT_FIELD]: _, ...rest } = record ?? {};
+    const { [RECIPE_SLOT_FIELD]: _, showOnStreamlineDashboard: __, ...rest } = record ?? {};
     return rest;
   };
   /** The tablet's own id for its record of a Library item, by the global id the record carries. */
@@ -171,14 +171,13 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
       hotWaterTemperature: 85,
       hotWaterDuration: 30,
       hotWaterFlow: 6,
-      showOnDashboard: false,
     });
     expect(created).toMatchObject({
       name: "Created Espresso",
       slot: 3,
       archived: false,
       batchFinished: false,
-      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "vol", showOnDashboard: false },
+      content: { beanId: bean.id, beanBatchId: batch.id, steamMode: "flow", hotWaterMode: "vol" },
       uses: {
         bean: { id: bean.id, name: "Created Guji" },
         beanBatch: { id: batch.id, atLocation: true },
@@ -210,7 +209,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
         beanId: localId(tablet.beans(), bean.id),
         beanBatchId: localId(tablet.batches(), batch.id),
         profileId,
-        showOnStreamlineDashboard: false,
+        showOnStreamlineDashboard: true,
         barista: "",
         drinker: "",
         dashboardVariables: {
@@ -241,6 +240,47 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const history = await versions(created.id);
     expect(history.map((version) => version.fields)).toEqual([{ slot: 3 }, expect.objectContaining({ name: "Created Espresso", dose: 18 })]);
     expect(history[0]).toMatchObject({ location: { id: lab.location.id }, source: { machine: null, account: { id: expect.any(String) } } });
+  });
+
+  it("keeps a Recipe shown on the strip exactly while it is in a slot, which is no field of its content", async () => {
+    const lab = await locationWith("Shown recipe lab", 45301, [server]);
+    const tablet = lab.tablets[0]!;
+    const slotted = await create(lab.location, 2, { name: "Shown Espresso" });
+    const unslotted = await create(lab.location, null, { name: "Kept Espresso" });
+    await expect.poll(() => [recordOf(tablet, slotted.id)?.showOnStreamlineDashboard, recordOf(tablet, unslotted.id)?.showOnStreamlineDashboard]).toEqual([true, false]);
+    // Moved, its records follow its slot, and its content holds nothing of it.
+    expect((await move(unslotted.id, 3)).content).not.toHaveProperty("showOnDashboard");
+    await expect.poll(() => recordOf(tablet, unslotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: 3, showOnStreamlineDashboard: true });
+    expect((await move(unslotted.id, null)).content).not.toHaveProperty("showOnDashboard");
+    await expect.poll(() => recordOf(tablet, unslotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: null, showOnStreamlineDashboard: false });
+    expect((await versions(unslotted.id)).map((version) => Object.keys(version.fields))).toEqual([["slot"], ["slot"], expect.any(Array)]);
+    // 1.6.0's switch is no field the REST API takes, in an edit or a new Recipe.
+    for (const answer of [
+      await api.call("PATCH", `/recipes/${slotted.id}`, { content: { showOnDashboard: false } }),
+      await api.call("POST", "/recipes", { locationId: lab.location.id, slot: 4, content: { name: "Hidden Espresso", showOnDashboard: false } }),
+    ]) {
+      expect(answer.status).toBe(400);
+      expect(((await answer.json()) as { message: string[] }).message).toEqual(["showOnDashboard is not a field this can set"]);
+    }
+    expect(await recipe(slotted.id)).toMatchObject({ slot: 2 });
+  });
+
+  it("keeps a grind setting as a number where it reads as one, and otherwise as the text typed", async () => {
+    const lab = await locationWith("Grind recipe lab", 45311, [server]);
+    const tablet = lab.tablets[0]!;
+    const created = await create(lab.location, 1, { name: "Grind Espresso", grindSetting: "1.1.0" });
+    expect(created.content.grindSetting).toBe("1.1.0");
+    await expect.poll(() => (recordOf(tablet, created.id)?.dashboardVariables as Record_ | undefined)?.grind).toBe("1.1.0");
+    expect(((recordOf(tablet, created.id)!.workflow as Record_).context as Record_).grinderSetting).toBe("1.1.0");
+    expect((await edit(created.id, { grindSetting: " 15 clicks " })).content.grindSetting).toBe("15 clicks");
+    expect((await edit(created.id, { grindSetting: "2.50" })).content.grindSetting).toBe(2.5);
+    expect((await edit(created.id, { grindSetting: 3 })).content.grindSetting).toBe(3);
+    expect((await edit(created.id, { grindSetting: "  " })).content).not.toHaveProperty("grindSetting");
+    for (const refused of [-1, "-2", true, { setting: 3 }]) {
+      const answer = await api.call("PATCH", `/recipes/${created.id}`, { content: { grindSetting: refused } });
+      expect(answer.status, JSON.stringify(refused)).toBe(400);
+      expect(((await answer.json()) as { message: string[] }).message).toEqual(["grindSetting must be a number of 0 or more, or text"]);
+    }
   });
 
   it("edits a Recipe, keeping DYE2's ratio only while the yield is the dose times it, and each Tool's attributes only while it names the Tool", async () => {
@@ -761,7 +801,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     const lab = await api.createLocation("Settings recipe lab", "America/Chicago");
     const created = await create(lab, 1, { name: "Settings Espresso" });
     // DYE2's display modes are kept, but a new Recipe holds none of the settings: each Machine keeps its own.
-    expect(created.content).toMatchObject({ steamMode: "flow", hotWaterMode: "vol", showOnDashboard: true });
+    expect(created.content).toMatchObject({ steamMode: "flow", hotWaterMode: "vol" });
+    expect(created.content).not.toHaveProperty("showOnDashboard");
     for (const field of Object.keys(SETTINGS)) expect(created.content, field).not.toHaveProperty(field);
 
     expect((await edit(created.id, SETTINGS)).content).toMatchObject(SETTINGS);

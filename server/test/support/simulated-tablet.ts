@@ -121,7 +121,7 @@ import { opened } from "./test-scope.js";
 //   open hears each push of that plugin on that endpoint, as `data` events,
 //   whichever load of it makes it, until the tablet unloads. Only DYE2's are
 //   simulated.
-// - `dye2` runs DYE2 v0.1.26 beside the plugin (`SimulatedDye2` in
+// - `dye2` runs DYE2 v0.1.32 beside the plugin (`SimulatedDye2` in
 //   simulated-dye2.ts), as Decaid runs another plugin: `GET /plugins` lists
 //   the plugin and DYE2, `/plugins/dye2.reaplugin/{endpoint}` is DYE2's
 //   (404 while it is not loaded), and DYE2 loads as the tablet starts, is
@@ -737,7 +737,7 @@ export interface SimulatedTabletOptions {
    */
   stallUpload?: (frame: unknown) => boolean;
   /**
-   * DYE2 v0.1.26 running on the tablet beside the plugin, as Decaid runs
+   * DYE2 v0.1.32 running on the tablet beside the plugin, as Decaid runs
    * another plugin (simulated-dye2.ts): its HTTP endpoints, its socket and
    * its entry in `GET /plugins`. Pass the same one to a later load of the
    * same tablet, as DYE2 outlives the plugin's reloads. Without it Decaid

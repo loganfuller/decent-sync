@@ -38,7 +38,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // brought to it. Archiving the Recipe, or making the Machine capture-only,
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded. Through the built plugin in simulated tablets
-// running DYE2 v0.1.26 and Streamline at cec5664 as recorded
+// running DYE2 v0.1.32 and Streamline at cec5664 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), Machine A, and D in the tests that use
 // it, on one server instance and C on another sharing one database, with
 // assertions through the REST API and what each simulated tablet holds.
@@ -316,6 +316,36 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
   });
 
+  it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
+    const { dye2, a, c, one, quiet } = await lab("Typed grind", 48711);
+    // Typed on A as `.5`, which DYE2 saves into the record as 0.5 (`grindValue`).
+    await a.changeSettings({ context: { grinderSetting: ".5" } });
+    await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(0.5);
+    await quiet();
+    // An edit of the grind reaches A's record, and Decaid refuses its write into A's Workflow, so the Workflow keeps `.5`.
+    a.refuseWrites = ({ method, route, body }) =>
+      method === "PUT" && route === "/workflow" && "grinderSetting" in (((body as Record_ | null)?.context ?? {}) as Record_) ? { status: 400, body: { error: "refused" } } : undefined;
+    const writes = a.writes.length;
+    await patch(one, { grindSetting: 0.6 });
+    await expect.poll(() => variables(record(a, ETHIOPIA)).grind, { timeout: 15_000 }).toBe(0.6);
+    await expect.poll(() => a.writes.slice(writes).includes("PUT /workflow"), { timeout: 15_000 }).toBe(true);
+    await quiet();
+    a.refuseWrites = undefined;
+    expect(context(a).grinderSetting).toBe(".5");
+    // Streamline's Save changes on A has DYE2 save the Workflow's dial into the record: its `.5`, as 0.5, over the edit's
+    // 0.6, a stale save of the grind the write is still to bring, which the server writes the Recipe's back over.
+    expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/record`)).status).toBe(200);
+    expect(dye2.a.recorded.at(-1)).toEqual({ id: ETHIOPIA, patch: { grind: 0.5 } });
+    await expect.poll(() => variables(record(a, ETHIOPIA)).grind, { timeout: 15_000 }).toBe(0.6);
+    // A, connecting again, is asked for the refused write again, which Decaid now takes.
+    a.loseNetwork();
+    a.restoreNetwork();
+    await expect.poll(() => context(a).grinderSetting, { timeout: 15_000 }).toBe("0.6");
+    await quiet();
+    expect((await recipe(one)).content.grindSetting).toBe(0.6);
+    expect([context(c).grinderSetting, variables(record(a, ETHIOPIA)).grind]).toEqual(["0.6", 0.6]);
+  });
+
   it("keeps an RPM cleared on A while the plugin's read for writing a Recipe edit of it was on its way, writing the edit into none", async () => {
     let slow = false;
     let reading = false;
@@ -479,6 +509,25 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     a.pullShot(shotOf(a, "next-bag-brazil-48141", 48141));
     await expect.poll(async () => (await api.call("GET", "/shots/next-bag-brazil-48141")).status, { timeout: 15_000 }).toBe(200);
     expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/next-bag-brazil-48141")).shot.recipe?.id).toBe(one);
+  });
+
+  it("takes a batch picked on A as a Recipe naming no Bean's, with its Bean, as any change, writing it into C's, the Recipe loaded", async () => {
+    const { machines, a, c, one, quiet } = await lab("No bean bag", 48701);
+    // The Recipe left with no Bean in the management interface: its records hold the nulls for one, and the Machines keep
+    // their batch, which loading it again would clear.
+    expect((await api.call("PATCH", `/recipes/${one}`, { content: { beanBatchId: null } })).status).toBe(200);
+    expect((await recipe(one)).content).not.toHaveProperty("beanId");
+    await expect.poll(() => (record(c, ETHIOPIA)?.workflow as { context: Record_ }).context, { timeout: 15_000 }).toMatchObject({ coffeeName: null, coffeeRoaster: null, beanBatchId: null });
+    await quiet();
+    // A batch picked on A is a change like any other: the Recipe takes it, with its Bean (the owner, 2026-10-28), and C's
+    // Workflow is written it.
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
+    expect((await recipe(one)).content.beanId).toEqual(expect.any(String));
+    await expect.poll(() => record(c, ETHIOPIA)?.beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
   it("writes a batch picked in DYE2's editor on A, and a grinder set in the management interface, into A's and C's Workflows, which keep the Recipe loaded and saving, a Shot pulled then linked", async () => {

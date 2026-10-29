@@ -1,4 +1,4 @@
-import { type LibraryKind, RECIPE_SLOTS, isRecipeSlot } from "@decent-sync/protocol";
+import { type LibraryKind, RECIPE_SLOTS, grindSettingOf, isRecipeSlot } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
@@ -22,8 +22,9 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * names a Library item by its global id (`id`), its Tools by theirs (`ids`),
  * its Profile by Decaid's id (`profileId`), and each Tool's attributes for it
  * by the Tool's global id (`toolAttributes`), as DYE2's `equipmentCustom`
- * holds them by its own. A number DYE2's recipe editor takes only within a
- * range is read against it (`NumberRange`).
+ * holds them by its own, and its grind setting as a number or text
+ * (`grindSetting`, as `grindSettingOf` keeps one). A number DYE2's recipe
+ * editor takes only within a range is read against it (`NumberRange`).
  */
 export type FieldType =
   | "text"
@@ -40,6 +41,7 @@ export type FieldType =
   | "ids"
   | "profileId"
   | "toolAttributes"
+  | "grindSetting"
   | NumberRange;
 
 /**
@@ -156,6 +158,12 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return typeof value === "string" && value.trim() !== "" ? { value: value.trim() } : "must be the Profile's id";
     case "toolAttributes":
       return readToolAttributes(value);
+    case "grindSetting": {
+      // As typed, or the number it reads as, as DYE2 v0.1.32 keeps one: a setting all blanks is none.
+      const setting = grindSettingOf(value);
+      if (typeof value === "string" && setting === null) return { value: null };
+      return (typeof setting === "number" && setting >= 0) || typeof setting === "string" ? { value: setting } : "must be a number of 0 or more, or text";
+    }
   }
 }
 
