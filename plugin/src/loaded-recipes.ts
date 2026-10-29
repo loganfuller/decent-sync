@@ -2,7 +2,6 @@ import {
   DYE2_NAMESPACE,
   LOADED_RECIPE_PARTS,
   MACHINE_SETTING_PARTS,
-  RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   dye2Fingerprint,
   dye2RecipeIdOf,
@@ -19,7 +18,6 @@ import type { ShotGate } from "./shot-gate.js";
 import type { PluginStorage } from "./storage.js";
 import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
 import type { Skins } from "./skins.js";
-import { keepStreamlineSteamTemperature } from "./streamline.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe its Workflow names
 // (DYE2_RECIPE_FIELD), by the id of the tablet's record of it, which DYE2's
@@ -463,10 +461,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * profile (`putNamingRecipe`). Decaid refuses to change the steam, hot
    * water and flush settings while no machine is connected, so the rest is
    * then written without them. A write Decaid takes is told of
-   * (`workflowWritten`). A steam temperature the recipe holds is kept as the
-   * one Streamline turns steam back on at (`keepStreamlineSteamTemperature`),
-   * written into the Workflow or not, as one into a Workflow whose steam is
-   * off is not (interim, until decentespresso/streamline-js#156).
+   * (`workflowWritten`).
    */
   private async loadRecipe(globalId: string): Promise<void> {
     if (this.stopped || !this.sharing()) return;
@@ -475,15 +470,15 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
       return;
     }
-    const record = await this.ownWrite(async (answered) => {
+    await this.ownWrite(async (answered) => {
       const workflow = await workflowNow();
       const recordId = dye2RecipeIdOf(workflow);
       const recipe = recordId === null ? undefined : this.records?.get(recordId);
       // Another applied since, which its own change decides on.
-      if (recordId === null || recipe === undefined || recipe.globalId !== globalId) return null;
+      if (recordId === null || recipe === undefined || recipe.globalId !== globalId) return;
       const context = await this.loadContext(recipe.record);
       let write = loadWrite(workflow, recipe.record, context);
-      if (write === null) return recipe.record;
+      if (write === null) return;
       let answer: Answer | undefined = await putNamingRecipe(workflow, write, recordId, answered);
       if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in write!) && machineMissing(answer)) {
         write = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
@@ -492,11 +487,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
       const after = answer ? parsed(answer.text) : undefined;
       if (isObject(after)) this.workflowWritten(workflow, after);
-      return recipe.record;
     });
-    if (record === null) return;
-    const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
-    await keepStreamlineSteamTemperature(variables[RECIPE_SETTINGS.steamTemperature.dye2], this.log);
   }
 
   /** The tablet's recipes, read now. Throws if Decaid does not answer with them. */

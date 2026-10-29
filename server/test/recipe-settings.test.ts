@@ -17,9 +17,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // other Machine with it loaded, a steam time of 0 included, which Streamline
 // reads as no timer; and steam on and off stays each Machine's own: steam
 // turned off is no edit, no steam temperature is written into a Workflow
-// whose steam is off, and Streamline's remembered steam temperature is kept
-// at the Recipe's (ADR-0021). With no Recipe loaded, a change of them stays
-// on its Machine (#190). Through the built plugin in simulated tablets
+// whose steam is off, and Streamline turns steam back on at the steam
+// temperature of the recipe the Workflow names, with nothing of Streamline's
+// set (ADR-0021). With no Recipe loaded, a change of them stays on its
+// Machine (#190). Through the built plugin in simulated tablets
 // running DYE2 v0.1.26 and Streamline at cec5664 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), Machine A, and B in the tests that use
 // it, on one server instance and C on another sharing one database, with
@@ -315,27 +316,32 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect((await recipe(one)).content).toMatchObject({ steamDuration: 22, steamTemperature: 150 });
   });
 
-  it("keeps Streamline's remembered steam temperature at the Recipe's on a load and a Loaded Recipe write while steam is off, so steam turned back on there takes the Recipe's", async () => {
+  it("has Streamline turn C's steam back on at a steam temperature edited while it was off, the named recipe's rather than the one Streamline remembers, which the plugin leaves alone", async () => {
     const { machines, a, c, one, load, quiet } = await lab("Remembered", 49051, { loadC: false });
     const streamline = await startStreamline(c, { "last-steam-temp": 140 });
     await load(c, machines.c, LIBRARY, one);
-    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    // Once C's load is done.
+    await quiet({ streamline });
+    expect(streamline.remembered("last-steam-temp")).toBe(140);
 
-    // C's barista turns the heater off in Streamline, and the Recipe's steam temperature is edited meanwhile.
+    // C's barista turns the heater off in Streamline, which keeps the temperature it was at, and the Recipe's steam
+    // temperature is edited meanwhile.
     await streamline.setSteamHeater(false);
     // Once C's report of the heater off, and Streamline's reply, are done; then a second, as the edit after it is timed by
     // the server's clock.
     await quiet({ streamline });
     await apart();
-    expect(setting(c, "steamTemperature")).toBe(0);
+    expect([setting(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([0, 150]);
     await patch(one, { steamTemperature: 155 });
     await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(155);
-    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(155);
-    expect(setting(c, "steamTemperature")).toBe(0);
+    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
+    // Once the Loaded Recipe write into C is done.
+    await quiet({ streamline });
+    expect([setting(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([0, 150]);
     const edits = await editsOf(one, "steamTemperature");
 
-    // Turned back on in Streamline, at the Recipe's: no edit.
-    await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
+    // Turned back on in Streamline, at the Recipe's, which C's record holds: no edit.
     await streamline.setSteamHeater(true);
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(155);
     // Once C's report of the heater on, and Streamline's reply, are done.
@@ -344,11 +350,13 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect(await editsOf(one, "steamTemperature")).toBe(edits);
   });
 
-  it("keeps Streamline's remembered steam temperature at an edit made while C was offline with steam off, which DYE2 saves nothing of", async () => {
+  it("has Streamline turn C's steam back on at an edit made while C was offline with steam off, which DYE2 saves nothing of", async () => {
     const { machines, a, c, one, load, quiet } = await lab("Missed", 49111, { loadC: false });
     const streamline = await startStreamline(c, { "last-steam-temp": 140 });
     await load(c, machines.c, LIBRARY, one);
-    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(150);
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    // Once C's load is done.
+    await quiet({ streamline });
     await streamline.setSteamHeater(false);
     // Once C's report of the heater off, and Streamline's reply, are done.
     await quiet({ streamline });
@@ -365,12 +373,13 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     await expect.poll(() => setting(a, "steamTemperature"), { timeout: 15_000 }).toBe(160);
     c.restoreNetwork();
     await expect.poll(() => recorded(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
-    await expect.poll(() => streamline.remembered("last-steam-temp"), { timeout: 15_000 }).toBe(160);
     await expect.poll(async () => (await recipe(one)).content.hotWaterVolume, { timeout: 15_000 }).toBe(130);
-    expect(setting(c, "steamTemperature")).toBe(0);
+    // Once C's reports and the Loaded Recipe write into C are done.
+    await quiet({ streamline });
+    expect([setting(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([0, 150]);
     const edits = await editsOf(one, "steamTemperature");
 
-    // Turned back on in Streamline, at the Recipe's: no edit.
+    // Turned back on in Streamline, at the Recipe's, which C's record holds, not the 150 it remembers: no edit.
     await streamline.setSteamHeater(true);
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(160);
     // Once C's report of the heater on, and Streamline's reply, are done.

@@ -53,7 +53,6 @@ import type { ShotGate } from "./shot-gate.js";
 import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
 import { type Answered, type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
-import { keepStreamlineSteamTemperature } from "./streamline.js";
 import { randomUuid } from "./tablet-id.js";
 
 // The Library items the server shares, written to this tablet through
@@ -762,20 +761,17 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * it never lands in a recipe a barista applied in the moment between; a
  * write changing the profile, which DYE2 clears that field on, is made as
  * two (`putNamingRecipe`, ADR-0022). A steam temperature is left out of a
- * Workflow whose steam is off (`steamOff`), as it would turn steam on, and
- * kept as the one Streamline turns steam back on at, written or not
- * (`keepStreamlineSteamTemperature`, interim until
- * decentespresso/streamline-js#156). Decaid refuses to change the steam, hot
- * water and flush settings while no machine is connected, so the rest is
- * then written without them, the Workflow read again first, and a write of
- * only them is refused. A write Decaid takes is told of
- * (`ListPosted.workflowWritten`). Answers with the Workflow's `context`,
- * steam, hot water and flush settings and `profile`, timed now, as a
- * Workflow carries no time. A write unloading the Recipe, naming
- * DYE2_RECIPE_FIELD alone, clears that field, as DYE2 does, while it still
- * names the recipe expected, and otherwise writes nothing.
+ * Workflow whose steam is off (`steamOff`), as it would turn steam on.
+ * Decaid refuses to change the steam, hot water and flush settings while no
+ * machine is connected, so the rest is then written without them, the
+ * Workflow read again first, and a write of only them is refused. A write
+ * Decaid takes is told of (`ListPosted.workflowWritten`). Answers with the
+ * Workflow's `context`, steam, hot water and flush settings and `profile`,
+ * timed now, as a Workflow carries no time. A write unloading the Recipe,
+ * naming DYE2_RECIPE_FIELD alone, clears that field, as DYE2 does, while it
+ * still names the recipe expected, and otherwise writes nothing.
  */
-async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
+async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) => void, posted: ListPosted): Promise<WriteAnswer> {
   const expected = write.expected?.[DYE2_RECIPE_FIELD];
   const recordId = typeof expected === "string" ? expected : null;
   if (DYE2_RECIPE_FIELD in write.fields) {
@@ -799,12 +795,7 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
     if (!isObject(workflow)) return refused(write, current.status, current.text);
     if (dye2RecipeIdOf(workflow) !== recordId) return refused(write, null, ANOTHER_RECIPE);
     const fields = loadedRecipeFields(write, workflow, machineSettings);
-    // The steam temperature carried, set in the Workflow or left out of one whose steam is off, is Streamline's to turn steam back on at.
-    const steam = STEAM_TEMPERATURE in fields || (STEAM_TEMPERATURE in write.fields && steamOff(workflow)) ? write.fields[STEAM_TEMPERATURE] : undefined;
-    if (Object.keys(fields).length === 0) {
-      await keepStreamlineSteamTemperature(steam, log);
-      return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
-    }
+    if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     let updated: Record<string, unknown> | undefined;
     const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow, body) => {
       updated = workflow;
@@ -812,7 +803,6 @@ async function writeLoadedRecipe(write: LibraryWrite, log: (message: string) => 
     });
     if (answer.ok && updated !== undefined) {
       posted.workflowWritten(workflow, updated);
-      await keepStreamlineSteamTemperature(steam, log);
       return written(write, loadedRecipeParts(updated), Object.keys(fields), new Date().toISOString());
     }
     const ofMachine = Object.keys(fields).filter(isMachineSetting);
