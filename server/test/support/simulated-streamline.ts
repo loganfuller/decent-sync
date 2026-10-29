@@ -46,8 +46,9 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // which turns it off at a target of 0, keeping the temperature it was at, and
 // back on at the selected DYE2 recipe's steam temperature while its DYE2
 // switch is on, else the one kept, only from off (`setSteamHeaterEnabled` and
-// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Left out: its Auto steam mode, and its 20 s
-// Workflow poll, which only repaints its tiles (ADR-0021).
+// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Left
+// out: its Auto steam mode, and its 20 s Workflow poll, which only repaints
+// its tiles (ADR-0021).
 //
 // Its DYE strip (src/modules/dyeStrip.js, src/modules/dye-selection.js)
 // reads DYE2's recipes and favourites and whether DYE2 records dial-in
