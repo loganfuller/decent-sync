@@ -442,9 +442,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   `PUT /workflow` together. Saves into the Loaded Recipe are not held: a
   change made on the Machine during its own Shot is saved at once; but
   once steam is turned back on during it, the saves wait with that write
-  until the Shot ends, as DYE2 would save the temperature steam came back
-  at, and another recipe applied before then leaves them unsaved (ADR-0022
-  accepts the gap). An unknown state, before
+  until the Shot ends, while the Workflow still holds the temperature steam
+  came back at, as DYE2 would save it, and another recipe applied before
+  then leaves them unsaved (ADR-0022 accepts the gap). An unknown state, before
   the first update or once no machine is connected (the plugin's read of
   the machine's hardware finds none, and Decaid has reported no state for
   3 s, as one failed read is no machine gone), is no Shot, as for
