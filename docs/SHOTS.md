@@ -11,7 +11,7 @@ version 1 with these messages, defined and validated in `protocol/`:
 | Server to plugin | `requestShots` | `shotIds`, at most 100 ids |
 | Server to plugin | `ack` | `id` (the logical delivery id) |
 
-Decent Sync supports Decaid v0.9.0 and later. A `shotUpdated` carries the
+Decent Sync supports Decaid v0.9.1 and later. A `shotUpdated` carries the
 complete metadata from Decaid's `shotUpdated` event, which
 `PersistenceController.updateShot` raises and `decaid:lib/main.dart`
 broadcasts, and which has no measurements, so a newer edit replaces the stored metadata whole,

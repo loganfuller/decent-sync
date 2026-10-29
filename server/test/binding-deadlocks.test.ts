@@ -3,7 +3,7 @@ import { CLOSE_CODES } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { waitForLockWaits } from "./support/lock-waits.js";
-import { RawConnection, de1ProOnDecaid090, helloWith, workflowFixture } from "./support/simulated-tablet.js";
+import { RawConnection, de1ProOnDecaid091, helloWith, workflowFixture } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for #65 (with #101, combined into it): a Workflow, machine state or
@@ -64,7 +64,7 @@ describe("Deliveries while a Machine's hardware is bound", () => {
     }
   }
 
-  const settings = de1ProOnDecaid090()["/machine/settings"];
+  const settings = de1ProOnDecaid091()["/machine/settings"];
   /** Each kind of delivery handled once by its id, and what the Machine shows it stored. */
   const KINDS = [
     {

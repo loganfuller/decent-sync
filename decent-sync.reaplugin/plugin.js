@@ -190,7 +190,7 @@ var __decentSync = (() => {
   var SETTINGS_FIELDS = {
     machineSettings: [
       // The DE1 holds the fan threshold to 0 to 50 (`MMRItem`), as Streamline's page does (`FAN_THRESHOLD_MAX`).
-      { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["resetsOnReconnect", "putBackByStreamline"] },
+      { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet", "putBackByStreamline"] },
       {
         path: "steamPurgeMode",
         label: "Steam purge mode",
@@ -240,7 +240,7 @@ var __decentSync = (() => {
           { value: 0, label: "Force Off" }
         ],
         editableBy: "admin",
-        notes: ["resetsOnReconnect", "putBackByStreamline"]
+        notes: ["keptByTablet", "putBackByStreamline"]
       }
     ],
     machineCalibration: [

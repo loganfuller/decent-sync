@@ -1,12 +1,13 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
+import { quiesced } from "./support/quiet.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #224: the first Settings Edit, of a Machine's fan
 // threshold and steam purge mode, made through the REST API, sent to the
-// built plugin in a simulated tablet, which takes Decaid v0.9.0's settings
+// built plugin in a simulated tablet, which takes Decaid v0.9.1's settings
 // writes as Decaid does (decaid-settings.ts), and answered, against real
 // servers sharing one PostgreSQL database. Assertions are made through the
 // REST API and what the tablet's Decaid holds. Serials are made up.
@@ -110,6 +111,23 @@ describe("Settings Edits", () => {
     const readBack = sent.slice(0, answer).filter((frame) => frame.type === "collection" && frame.name === "machineSettings").at(-1);
     expect((readBack?.value as Record<string, unknown> | undefined)?.fan).toBe(40);
     expect(await machineSettings(machine)).toMatchObject({ fan: 40, steamPurgeMode: 0 });
+  });
+
+  it("keeps an applied edit of the fan threshold as the Machine reconnects, which Decaid writes again, and reports it so", async () => {
+    const { machine, tablet } = await connected("Settings reconnect", cafe);
+    await expect.poll(() => machineSettings(machine)).toMatchObject(AS_REPORTED);
+    const made = await make(machine, { collection: "machineSettings", fields: { fan: 40 }, expected: { fan: 50 } });
+    expect(await answered(machine, made.id)).toMatchObject({ outcome: "applied", readBack: { fan: 40 } });
+
+    // The Machine goes and comes back: Decaid v0.9.1 writes the fan threshold it keeps for it as it connects, where v0.9.0 wrote 55, held as 50.
+    tablet.machineConnected = false;
+    tablet.connectMachine();
+    expect((await readHeld(tablet)).fan).toBe(40);
+    // Once the plugin has read the Machine's settings again and the server has taken in whatever it sent.
+    const reads = settingsRequests(tablet);
+    await expect.poll(() => settingsRequests(tablet)).toBeGreaterThan(reads);
+    await quiesced(api, { tablets: { tablet } });
+    expect(await machineSettings(machine)).toMatchObject({ fan: 40 });
   });
 
   it("refuses an edit at once, keeping nothing, while the Machine is offline or for a field the definitions refuse", async () => {

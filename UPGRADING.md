@@ -46,12 +46,24 @@ the server writes the records of each Recipe naming no Bean once more, with
 DYE2's explicit nulls for one (below), and only this release's plugin makes
 that write.
 
-### Tablets need DYE2 v0.1.32
+### Tablets need Decaid v0.9.1 and DYE2 v0.1.32
 
-This release follows DYE2 v0.1.32
-([ADR-0017](docs/adr/0017-supported-versions.md)), which Decaid installs on
+This release follows Decaid v0.9.1 and DYE2 v0.1.32
+([ADR-0017](docs/adr/0017-supported-versions.md)). Update Decaid on each
+tablet to v0.9.1 or later before deploying: this release's server refuses a
+tablet on an older Decaid, and its Machine's page says why, though 1.6.0
+still accepts one while it serves beside this release. Decaid installs DYE2 on
 every tablet within 12 hours of its release. Check that a tablet whose DYE2 is
-pinned runs v0.1.32 or later. Three things change with it:
+pinned runs v0.1.32 or later.
+
+With Decaid v0.9.1, an edit of a Machine's fan threshold or refill kit lasts
+past the Machine reconnecting: the Tablet keeps the value and writes it again
+each time it connects. So the Settings card no longer says they reset then,
+and says instead that a replacement Tablet, or a reset of Decaid's data, puts
+Decaid's default back. A page left open from 1.6.0 shows the old note until it
+reloads.
+
+Three things change with DYE2 v0.1.32:
 
 - A Recipe naming no Bean means no bean as it is loaded: loading it, from
   DYE2 or Streamline's strip, leaves the Machine with no bean batch, and the

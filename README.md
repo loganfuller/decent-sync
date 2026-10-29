@@ -448,7 +448,7 @@ Each release's notes start with what it needs beyond its image
 
 ## Installing the plugin
 
-The plugin needs Decaid v0.9.0 or newer. The server refuses a tablet running
+The plugin needs Decaid v0.9.1 or newer. The server refuses a tablet running
 an older Decaid, and the Machine's page says why. A plugin works with a server
 of its own release or of the release before or after it
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)), so a

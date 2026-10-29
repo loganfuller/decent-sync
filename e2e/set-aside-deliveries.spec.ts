@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
-import { SimulatedTablet, de1ProOnDecaid090, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, de1ProOnDecaid091, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
@@ -22,7 +22,7 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   const unstorable = derivedShot("nul-shot", { annotations: { espressoNotes: "Jammy\u0000, long finish" } });
   const tablet = SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token }),
-    api: withShots(de1ProOnDecaid090(), [unstorable, derivedShot("bar-shot")]),
+    api: withShots(de1ProOnDecaid091(), [unstorable, derivedShot("bar-shot")]),
   });
   await tablet.waitForLog(/^Connected to /);
 

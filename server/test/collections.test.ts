@@ -10,7 +10,7 @@ import {
   Refusal,
   type SimulatedTablet,
   type SimulatedTabletOptions,
-  de1ProOnDecaid090,
+  de1ProOnDecaid091,
   derivedDe1Pro,
   helloWith,
   manyProfiles,
@@ -194,7 +194,7 @@ describe("Library, settings and paired devices", () => {
 
   it("sends a changed collection at the next poll and an unchanged one never again, until a reconnect sends every one in full", async () => {
     const machine = await api.createMachine("Polled");
-    let served = de1ProOnDecaid090();
+    let served = de1ProOnDecaid091();
     const tablet = load(machine, { api: served });
     await expect.poll(() => allReported(machine)).toBe(true);
     await allAcknowledged(tablet);
@@ -433,7 +433,7 @@ describe("Library, settings and paired devices", () => {
     const machine = await api.createMachine("Binds later");
     const visitor = await api.createMachine("Visitor");
     const hardware = { model: "DE1Pro", serial: "30301" };
-    const tablet = de1ProOnDecaid090();
+    const tablet = de1ProOnDecaid091();
     const simulated = { ...simulatedLibrary(), ...simulatedDevices() };
     // Derived: the tablet's machine settings as the visitor's tablet later read them, recalibrated.
     const recalibrated = { ...(tablet["/machine/settings"] as object), steamFlow: 1.5 };
@@ -479,7 +479,7 @@ describe("Library, settings and paired devices", () => {
     const hardware = { model: "DE1Pro", serial: "30401" };
     const first = await connect(machine, server.url, hardware);
     // Derived: the tablet's machine settings with two fan thresholds.
-    const settings = de1ProOnDecaid090()["/machine/settings"] as object;
+    const settings = de1ProOnDecaid091()["/machine/settings"] as object;
     const older = report("machineSettings", { ...settings, fan: 40 });
     const newer = report("machineSettings", { ...settings, fan: 45 });
     const database = await server.connectDatabase();
@@ -516,7 +516,7 @@ describe("Library, settings and paired devices", () => {
   it("records when a value delivered again was reported and received, and stores a changed one", async () => {
     const machine = await api.createMachine("Reconnecting");
     const hardware = { model: "DE1Pro", serial: "31001" };
-    const profiles = de1ProOnDecaid090()["/profiles"] as Record<string, unknown>[];
+    const profiles = de1ProOnDecaid091()["/profiles"] as Record<string, unknown>[];
     const first = await connect(machine, server.url, hardware);
     await first.deliver(report("profiles", profiles));
     const before = (await collection(machine, "profiles"))!;
@@ -546,7 +546,7 @@ describe("Library, settings and paired devices", () => {
 
       const machine = await api.createMachine("Reconnecting to TOAST");
       const hardware = { model: "DE1Pro", serial: "31002" };
-      const profiles = de1ProOnDecaid090()["/profiles"] as Record<string, unknown>[];
+      const profiles = de1ProOnDecaid091()["/profiles"] as Record<string, unknown>[];
       const toastId = async () =>
         (
           await database.query<{ id: string | null }>(
@@ -582,7 +582,7 @@ describe("Library, settings and paired devices", () => {
     const visitor = await api.createMachine("Visitor of 30901");
     await (await connect(visitor, server.url, { model: "DE1Pro", serial: "30902" })).close();
     // Derived: the tablet's machine settings with two fan thresholds.
-    const settings = de1ProOnDecaid090()["/machine/settings"] as object;
+    const settings = de1ProOnDecaid091()["/machine/settings"] as object;
     // The visitor's tablet moves onto the owner's machine, then onto one no Machine has.
     for (const serial of ["30901", "30903"]) {
       const hardware = { model: "DE1Pro", serial };
@@ -917,7 +917,7 @@ describe("Library, settings and paired devices", () => {
   it("acknowledges and ignores a collection it does not know", async () => {
     const machine = await api.createMachine("Newer plugin");
     const raw = await connect(machine);
-    await raw.deliver(report("recipes", de1ProOnDecaid090()["/store/dye2.reaplugin/recipes"]));
+    await raw.deliver(report("recipes", de1ProOnDecaid091()["/store/dye2.reaplugin/recipes"]));
     expect(await summaries(machine)).toEqual([]);
   });
 });

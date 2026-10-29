@@ -86,7 +86,7 @@ const hello: Hello = {
   wireRevision: WIRE_REVISION,
   token,
   pluginVersion: "0.1.0",
-  decaidVersion: "0.9.0+2977",
+  decaidVersion: "0.9.1+3027",
   tabletId,
   connectionId: "00:00:5E:00:53:01",
   machine: { model: "DE1Pro", serial: "10001", firmware: "1333" },
@@ -109,7 +109,7 @@ describe("decodePluginMessage", () => {
   });
 
   it("accepts a hello without hardware or connection id", () => {
-    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, token, pluginVersion: "0.1.0", decaidVersion: "0.9.0+2977", tabletId };
+    const bare = { type: "hello", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, token, pluginVersion: "0.1.0", decaidVersion: "0.9.1+3027", tabletId };
     expect(decodePluginMessage(frame(bare))).toEqual({ ok: true, message: bare });
     for (const missing of [{ machine: null }, { connectionId: null }]) {
       expect(decodePluginMessage(frame({ ...bare, ...missing })).ok).toBe(true);
@@ -218,8 +218,8 @@ describe("decodePluginMessage", () => {
     }
   });
 
-  it("accepts Decaid 0.9.0 and later releases, and pre-releases of later ones", () => {
-    for (const decaidVersion of ["0.9.0+2977", "0.9.0", "0.9.1-beta.1+2990", "0.9.10+3200", "0.10.0+3300", "1.0.0-rc.1+4000"]) {
+  it("accepts Decaid 0.9.1 and later releases, and pre-releases of later ones", () => {
+    for (const decaidVersion of ["0.9.1+3027", "0.9.1", "0.9.2-beta.1+3040", "0.9.10+3200", "0.10.0+3300", "1.0.0-rc.1+4000"]) {
       expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({ ok: true, message: { ...hello, decaidVersion } });
     }
   });
@@ -228,17 +228,19 @@ describe("decodePluginMessage", () => {
     const refusals: [string, string][] = [
       ["0.8.8+2900", "This tablet runs Decaid 0.8.8"],
       ["0.8.10+2950", "This tablet runs Decaid 0.8.10"],
-      ["0.9.0-beta.2+2970", "This tablet runs a pre-release of Decaid 0.9.0"],
+      // The minimum before 0.9.1, which writes its own fan threshold and refill kit over an edit's as it reconnects.
+      ["0.9.0+2977", "This tablet runs Decaid 0.9.0"],
+      ["0.9.1-beta.1+3012", "This tablet runs a pre-release of Decaid 0.9.1"],
       // Decaid built without its tags.
       ["0.0.0-dev+0", "This tablet runs a pre-release of Decaid 0.0.0"],
-      ["v0.9.0+2977", "This tablet's Decaid reports no release version"],
+      ["v0.9.1+3027", "This tablet's Decaid reports no release version"],
       ["unknown", "This tablet's Decaid reports no release version"],
     ];
     for (const [decaidVersion, runs] of refusals) {
       expect(decodePluginMessage(frame({ ...hello, decaidVersion }))).toEqual({
         ok: false,
         error: "decaid_too_old",
-        problem: `${runs}, but this server needs 0.9.0 or newer: update Decaid`,
+        problem: `${runs}, but this server needs 0.9.1 or newer: update Decaid`,
         token,
       });
     }
