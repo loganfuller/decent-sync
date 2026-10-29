@@ -10,10 +10,11 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
+import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamTurnedOnAt, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as it loads a
-// Recipe the Workflow names (ADR-0022), how it tells a write that changes
+// Recipe the Workflow names, or as steam is turned back on with one loaded
+// (ADR-0022), how it tells a write that changes
 // the profile, as DYE2 fingerprints one, and which records a post of DYE2's
 // recipes takes from the Workflow. With what DYE2 and Streamline were
 // recorded holding and applying on Decaid's Linux release
@@ -243,6 +244,49 @@ describe("recording a load", () => {
     const workflow = applied("dye2-applies", "applyFromSelectRecipe");
     const write = loadWrite(workflow, written(), { profile }, new Set(RECIPE_SETTING_NAMES))!;
     for (const part of ["steamSettings", "hotWaterData", "rinseData"]) expect(write).not.toHaveProperty(part);
+  });
+});
+
+describe("steam turned back on with a recipe loaded", () => {
+  /** The Workflow DYE2's Select Recipe applied recipe `1` with, its steam at that temperature. */
+  const steamAt = (targetTemperature: unknown): Record_ => {
+    const workflow = applied("dye2-applies", "applyFromSelectRecipe");
+    workflow.steamSettings = { ...(workflow.steamSettings as Record_), targetTemperature };
+    return workflow;
+  };
+  /** Recipe `1` holding that steam temperature, as the server writes it. */
+  const holding = (steamTempC: unknown): Record_ => {
+    const record = recipe("1");
+    record.dashboardVariables = { ...(record.dashboardVariables as Record_), steamTempC };
+    return record;
+  };
+
+  it("is a change of the Workflow's steam temperature from below 135 °C, steam off as Decaid judges it, to 135 °C or more", () => {
+    expect([0, 120, 134].map((off) => steamTurnedOnAt(steamAt(off), steamAt(150)))).toEqual([150, 150, 150]);
+    expect(steamTurnedOnAt(steamAt(0), steamAt(135))).toBe(135);
+    // Steam still off, changed while on, turned off, or a Workflow holding no steam temperature before: none.
+    expect([steamTurnedOnAt(steamAt(0), steamAt(120)), steamTurnedOnAt(steamAt(150), steamAt(160)), steamTurnedOnAt(steamAt(150), steamAt(0)), steamTurnedOnAt(steamAt(undefined), steamAt(150))]).toEqual([
+      null,
+      null,
+      null,
+      null,
+    ]);
+  });
+
+  it("writes the recipe's steam temperature into a Workflow still holding the one steam came back at, and nothing else", () => {
+    expect(steamBackOnWrite(steamAt(150), holding(160), 150)).toEqual({ steamSettings: { targetTemperature: 160 } });
+    // Its record's as DYE2's editor saves it, as text.
+    expect(steamBackOnWrite(steamAt(150), holding("158"), 150)).toEqual({ steamSettings: { targetTemperature: 158 } });
+  });
+
+  it("writes nothing where the recipe holds no steam temperature, holds Off, holds the one steam came back at, or the Workflow has moved on since", () => {
+    expect(steamBackOnWrite(steamAt(150), holding(undefined), 150)).toBeNull();
+    // "Off" as DYE2's editor saves it, which the server writes the Recipe's back over.
+    expect(steamBackOnWrite(steamAt(150), holding(0), 150)).toBeNull();
+    expect(steamBackOnWrite(steamAt(160), holding(160), 160)).toBeNull();
+    // A temperature set once steam was on, which is the Recipe's edit, or steam turned off again.
+    expect(steamBackOnWrite(steamAt(145), holding(160), 150)).toBeNull();
+    expect(steamBackOnWrite(steamAt(0), holding(160), 150)).toBeNull();
   });
 });
 

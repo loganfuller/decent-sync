@@ -1,12 +1,14 @@
 import path from "node:path";
-import { WIRE_REVISION, globalIdOf } from "@decent-sync/protocol";
+import { RECIPE_SETTINGS, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
-import { emptyLibrary, syncingTablet } from "../support/loaded-tablets.js";
+import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
+import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../support/simulated-dye2.js";
+import { startStreamline } from "../support/simulated-streamline.js";
 import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "../support/test-server.js";
@@ -202,6 +204,50 @@ describe("the latest release beside the change", () => {
       expect(await editFan(machine, server)).toBe("applied");
       expect(await heldFan(tablet)).toBe(40);
     });
+  });
+
+  // Turning steam back on takes the Loaded Recipe's steam temperature in the
+  // plugin alone (ADR-0022, #374), so a tablet with the change's plugin keeps
+  // the rule on the latest release's server. One with the latest release's
+  // plugin saves the temperature steam came back at into the Recipe, on
+  // either server, as that release did.
+  it("turns steam back on at the Loaded Recipe's steam temperature with the change's plugin on the latest release's server, saving nothing of the one it came back at", async () => {
+    const api = apis["latest release"];
+    const location = await api.createLocation("Steam back on, the change's plugin", "America/Chicago");
+    const machine = await api.createMachine("Steam back on, the change's plugin", location.id);
+    const dye2 = new SimulatedDye2();
+    const tablet = syncingTablet(machine, servers["latest release"], { api: recordedDye2MainTablet(String(serial++), "Steam back on"), dye2 });
+    loaded.push(tablet);
+    expect(tablet.pluginDir).toBe(pluginDirs().change);
+    await apis.change.waitForOnline(machine);
+    // The recording's library recipe, which the tablet brings to the Location.
+    const record = () => (dye2List(tablet, "recipes") as Record<string, unknown>[] | null)?.find((entry) => entry.id === "05fd1e80-61e3-46ef-b202-2cbad5eb7983");
+    const held = () => ((record()?.dashboardVariables ?? {}) as Record<string, unknown>).steamTempC;
+    const steam = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.steamTemperature.workflow);
+    await expect.poll(() => dye2GlobalIdOf(record())).not.toBeNull();
+    const recipeId = dye2GlobalIdOf(record())!;
+    await api.send("PATCH", `/recipes/${recipeId}`, { content: { steamTemperature: 160 } });
+    await expect.poll(held).toBe(160);
+    tablet.connectMachine();
+    expect((await (await openDye2Dashboard(tablet)).applyRecipe("05fd1e80-61e3-46ef-b202-2cbad5eb7983")).workflow?.status).toBe(200);
+    await expect.poll(() => recipeNamedInWorkflow(tablet)).toBe(recipeId);
+    const loadedRecipe = async () =>
+      (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.machine.id}`)).machine.loadedRecipe?.recipe.id;
+    await expect.poll(loadedRecipe).toBe(recipeId);
+    // Streamline's heater switch with its DYE2 switch off turns steam back on at the 140 °C it remembers.
+    const streamline = await startStreamline(tablet, { "last-steam-temp": 140 }, { dye2Enabled: false });
+    await tablet.changeSettings({ steamSettings: { targetTemperature: 0 } });
+    // The sharing status as the latest release's server plans what the tablet is due: the change's plans writes it doesn't.
+    const quiet = () => quiesced(api, { tablets: { tablet }, machines: { machine }, streamlines: { streamline } });
+    // Once the tablet's report of steam off, and anything it set off, are done.
+    await quiet();
+    const saves = dye2.recorded.length;
+    await streamline.setSteamHeater(true);
+    await expect.poll(steam).toBe(160);
+    // Once the report of the heater on, the plugin's write and its save are done.
+    await quiet();
+    const content = async () => (await api.get<{ recipe: { content: Record<string, unknown> } }>(`/recipes/${recipeId}`)).recipe.content;
+    expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

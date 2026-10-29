@@ -3,6 +3,7 @@ import {
   type LoadedRecipePart,
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
+  STEAM_ON_FROM,
   dye2Fingerprint,
   dye2GlobalIdOf,
   sameGrindSetting,
@@ -12,8 +13,9 @@ import {
 } from "@decent-sync/protocol";
 
 // What the plugin writes into the Workflow as it loads a Recipe the
-// Workflow names (ADR-0022), and what it reads of a Workflow and of DYE2's
-// recipes to decide on one. Pure, so module tests can drive it;
+// Workflow names, or as steam is turned back on with one loaded (ADR-0022),
+// and what it reads of a Workflow and of DYE2's recipes to decide on one.
+// Pure, so module tests can drive it;
 // loaded-recipes.ts reads what it needs from Decaid and carries out what it
 // decides.
 
@@ -208,6 +210,34 @@ export function loadWrite(
   });
   Object.assign(write, workflowPatch(Object.fromEntries(settings)));
   return Object.keys(write).length > 0 ? write : null;
+}
+
+/**
+ * The steam temperature a change of the Workflow from `before` to `after`
+ * turns steam back on at, where it does: from below STEAM_ON_FROM, steam
+ * off as Decaid judges it (`steamOff`), to at or above it. Null for any
+ * other change.
+ */
+export function steamTurnedOnAt(before: Record<string, unknown>, after: Record<string, unknown>): number | null {
+  const temperature = numberOf(workflowValueAt(after, RECIPE_SETTINGS.steamTemperature.workflow));
+  return steamOff(before) && temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
+}
+
+/**
+ * What turning steam back on writes into the Workflow, as it takes the
+ * Loaded Recipe's steam temperature (ADR-0022, Steam on and off): the
+ * recipe record's, where it holds one of STEAM_ON_FROM or more, as DYE2's
+ * editor saves none for "Off", and the Workflow still holds the temperature
+ * steam came back at (`turnedOnAt`), not one set since, which is the
+ * Recipe's edit, nor steam off again. Null where there is nothing to write.
+ */
+export function steamBackOnWrite(workflow: Record<string, unknown>, record: Record<string, unknown>, turnedOnAt: number): Record<string, unknown> | null {
+  const { dye2, workflow: path } = RECIPE_SETTINGS.steamTemperature;
+  const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
+  const recipes = numberOf(variables[dye2]);
+  const now = numberOf(workflowValueAt(workflow, path));
+  if (recipes === null || recipes < STEAM_ON_FROM || !sameNumber(now, turnedOnAt) || sameNumber(now, recipes)) return null;
+  return workflowPatch({ [path]: recipes });
 }
 
 /** The Workflow's fields naming its Bean and batch, which a recipe naming no Bean clears. */

@@ -134,7 +134,7 @@ The recipe a barista last applied on a machine, while they are still dialling it
 _Avoid_: Active recipe, current recipe
 
 **Workflow**:
-What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, so machines at one location with different recipes loaded steam differently. Turning steam off never changes a recipe.
+What a machine is set up to do next: its current profile, dose, yield, bean batch, grinder and setting, and basket, plus its steam, hot water and flush settings, which loading a recipe sets, so machines at one location with different recipes loaded steam differently. Turning steam off never changes a recipe, and turning it back on takes the loaded recipe's steam temperature.
 _Avoid_: Recipe (a recipe is saved; a workflow is current); rinse settings (Decaid's name for the flush settings)
 
 **Shot**:
