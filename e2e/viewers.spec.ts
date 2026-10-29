@@ -82,11 +82,12 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
 
   /**
    * Each page, with what shows only once every part of it holding a control
-   * has loaded, so a read of the page as it shows misses none (#382); a
-   * control Staff working at Uptown have there, from the part that loads
-   * last, which the Staff half, reading as `loaded` shows, misses if `loaded`
-   * comes too early; and its filters. The Locations table of a Profile, Basket
-   * or Tool shows before its rows, which wait for the list of Locations.
+   * for this test's data has loaded, so a read of the page as it shows misses
+   * none (#382); a control Staff working at Uptown have there, from the last
+   * of those parts to load, which the Staff half, reading as `loaded` shows,
+   * misses if `loaded` comes too early; and its filters. The Locations table
+   * of a Profile, Basket or Tool shows before its rows, which wait for the
+   * list of Locations.
    */
   const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
