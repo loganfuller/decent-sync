@@ -1,8 +1,11 @@
 -- Ticket #379, with #371: a Recipe is on Streamline's strip exactly while it
 -- is in a Recipe Slot, as DYE2 v0.1.32 holds no slot for a recipe hidden
--- from it, so a Recipe keeps no `showOnDashboard` of its own. A breaking
--- release, deployed with every instance stopped (UPGRADING.md), so this
--- changes data, which is small: a Location's Recipes.
+-- from it, so a Recipe keeps no `showOnDashboard` of its own. It changes
+-- data, a few rows per Location, an exception the owner approved on
+-- 2026-10-29 (docs/AI_STORAGE_NOTES.md). 1.6.0, which may still serve
+-- beside it for a deploy's overlap, shows a Recipe lacking the field as
+-- shown, and writes its records without one, which DYE2 and Streamline read
+-- as shown too, until their tablet connects to this release.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';

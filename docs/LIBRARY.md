@@ -557,13 +557,16 @@ tablets, below).
   exactly while it is in a slot (DYE2 v0.1.32), so it has no switch of its
   own for that, and its content no field: the REST API refuses
   `showOnDashboard` (400), which releases up to 1.6.0 kept there. The
-  release that dropped it, which can't run beside 1.6.0, fixed what 1.6.0
-  left once, in its migration (`20261029000000_recipes_shown_by_slot`): a
-  Recipe in a slot
-  whose `showOnDashboard` was false left its slot, a version from the server,
-  the field left every Recipe's content and latest edits, and each open
-  Conflict over it was dismissed; past versions keep it as made. What it
-  newly uses is checked against its Location as it is set, under each item's row lock, but not what it uses already, so a Tool
+  release that dropped it fixed what 1.6.0 left once, in its migration
+  (`20261029000000_recipes_shown_by_slot`), an exception to migrations
+  changing the schema only that the owner approved on 2026-10-29: a Recipe
+  in a slot whose `showOnDashboard` was false left its slot, a version from
+  the server, the field left every Recipe's content and latest edits, and
+  each open Conflict over it was dismissed; past versions keep it as made.
+  While 1.6.0 still served beside it during the deploy, a hide 1.6.0 took
+  in, or its page's switch, was undone, as this release writes a record
+  shown exactly while its Recipe is in a slot, and a `showOnDashboard` 1.6.0
+  wrote then stays in the content, unread. What it newly uses is checked against its Location as it is set, under each item's row lock, but not what it uses already, so a Tool
   Archived since stays beside a new one: its Grinder is one of the
   Location's, not Archived, and a Bean Batch, of a Bean not Archived,
   Profile, Basket or Tool is not Archived; a
@@ -593,10 +596,10 @@ tablets, below).
   under a slot's number. An Archived one is not put in a slot (409). Each
   change locks the Location, then the Recipe's row, as a tablet's report
   does, and commits with a `NOTIFY` naming the Location, so each tablet
-  there is written the move: only the records' `stripSlot` changes, the
-  Recipe's and that of the Recipe that held its new slot, each keeping its
-  record id and history (`recipeWrites` in `holdings.ts`), so a Machine
-  with it loaded keeps it loaded. An Admin hard-deletes one no Shot was
+  there is written the move: only the records' `stripSlot` and whether
+  they are shown change, together, the Recipe's and that of the Recipe that
+  held its new slot, each keeping its record id and history (`recipeWrites`
+  in `holdings.ts`), so a Machine with it loaded keeps it loaded. An Admin hard-deletes one no Shot was
   pulled with (Hard deletes, below).
 - **Copying a Recipe.** A Recipe is copied to another Location than its own
   (never its own, where the slot chosen could be the Recipe's, which the copy
@@ -1647,12 +1650,17 @@ tablet's list of batches to show it does not.
   fields and `capturedAt` at the end of the list, a recipe in no slot
   holding `stripSlot` null rather than none, as Streamline places recipes by
   their ids while no record holds the key. To update one, it sets each path
-  the record still holds as the server expects. A write putting a record in
-  a Recipe Slot clears `stripSlot` on any other record in that slot in the
-  same post, as DYE2's `takeSlot` does (`dye2:dye2-plugin/src/utils/dev-api.ts`),
+  the record still holds as the server expects; whether it is shown
+  (`showOnStreamlineDashboard`), which follows its slot, only while its
+  `stripSlot` is still as expected too, which a write of it names whether
+  it sets the slot or not, so a recipe a barista put in another slot since
+  stays shown there and the move reaches the server in the answer. A write
+  putting a record in a Recipe Slot clears `stripSlot` on any other record
+  in that slot in the same post, as DYE2's `takeSlot` does (`dye2:dye2-plugin/src/utils/dev-api.ts`),
   so one record holds each slot on every tablet: DYE2 de-duplicates slots
   only once, as it loads, and Streamline places the first record it finds
-  for a slot. It posts the list back in the order the tablet holds it.
+  for a slot. That record, left shown in no slot, is written hidden next.
+  It posts the list back in the order the tablet holds it.
   Before it posts a list that removes the record the Workflow's `recipeId`
   names, or gives its id to another item's record, it clears that field in
   the Workflow first (`vacatedIds` in `plugin/src/loaded-recipe-rules.ts`,

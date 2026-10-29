@@ -5,11 +5,9 @@ letting Decaid update each tablet's plugin. From 1.4.0, the
 plugin and server of adjacent releases work together, upgraded in either
 order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
-([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)),
-but for a release that can't run beside the previous one, which takes a new
-major version and says so first. Earlier releases' notes may still ask that.
-A server that skipped a release takes each release in turn (the README's
-Upgrading section).
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)).
+Earlier releases' notes may still ask that. A server that skipped a release
+takes each release in turn (the README's Upgrading section).
 
 Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see the README's Releasing
@@ -17,41 +15,33 @@ section).
 
 ## Unreleased
 
-### Stop every instance to deploy this release
+### A Recipe is shown on the strip by its slot alone
 
-This release can't run beside 1.6.0, as the owner approved for it
-([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md), the
-escape hatch), so it takes a new major version and its deploy takes the
-server offline, from the moment the last 1.6.0 instance stops until the first
-of this release has started and migrated the database, usually a few seconds.
-Tablets keep what they capture meanwhile and send it once they reconnect.
-Deploy it this way:
+A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it is
+on Streamline's strip exactly while it is in a Recipe Slot (below). As it
+migrates the database, this release takes each Recipe 1.6.0 left in a slot
+but hidden out of that slot, so each strip still shows that button empty;
+put the Recipe in a slot again to show it. The setting is dropped from every
+Recipe, and each open Conflict over it is dismissed. Past versions in a
+Recipe's history still show it.
 
-1. Stop every instance of 1.6.0.
-2. Start this release, on as many instances as before.
+Deploy it as any release, beside 1.6.0. For the minute or so that 1.6.0
+still serves beside it:
 
-On fly.io, a blue-green deploy would start it beside 1.6.0, so scale the app
-to no VMs first, then deploy it and scale it back to two, as a first deploy
-does (the README's fly.io section): `fly scale count 0`, `fly deploy` with
-this release's image, then `fly scale count 2`. With Docker Compose, pull and
-restart as for any release.
+- A recipe hidden by Streamline's "Clear button" on a tablet connected to
+  1.6.0, or with the switch on a 1.6.0 page, is shown again, as this release
+  writes a record shown exactly while its Recipe is in a slot. Hide it again
+  once the deploy is done.
+- A "Shown on the dashboard" value 1.6.0 saves then stays in the Recipe,
+  where nothing reads it.
+- A page of the management interface left open from 1.6.0 reloads at its
+  next navigation. Until then, its Recipe page can't create a Recipe or use
+  the switch, which this release refuses.
 
-What changes for what 1.6.0 left:
-
-- A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it
-  is on Streamline's strip exactly while it is in a Recipe Slot (below). As it
-  migrates the database, this release takes each Recipe 1.6.0 left in a slot
-  but hidden out of that slot, so each strip still shows that button empty;
-  put the Recipe in a slot again to show it. The setting is dropped from
-  every Recipe, and each open Conflict over it is dismissed. Past versions in
-  a Recipe's history still show it.
-- A page of the management interface left open from 1.6.0 reloads at its next
-  navigation. Until then, its Recipe page can't create a Recipe or change its
-  "Shown on the dashboard" switch, which this release refuses.
-- Let each tablet update its plugin promptly, as Decaid does within 12 hours.
-  The server writes the records of each Recipe naming no Bean once more, with
-  DYE2's explicit nulls for one (below), and only this release's plugin makes
-  that write.
+Let each tablet update its plugin promptly, as Decaid does within 12 hours:
+the server writes the records of each Recipe naming no Bean once more, with
+DYE2's explicit nulls for one (below), and only this release's plugin makes
+that write.
 
 ### Tablets need DYE2 v0.1.32
 

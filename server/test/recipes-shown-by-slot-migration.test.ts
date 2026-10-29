@@ -9,8 +9,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for tickets #371 and #379: a Recipe is on Streamline's strip exactly
 // while it is in a Recipe Slot (DYE2 v0.1.32), and keeps no
-// `showOnDashboard` of its own. The release that drops it, deployed with
-// every instance stopped, fixes what 1.6.0 left once, in its migration
+// `showOnDashboard` of its own. The release that drops it fixes what 1.6.0
+// left once, in its migration
 // (`20261029000000_recipes_shown_by_slot`): a Recipe hidden in a slot leaves
 // it, a version from the server, written so to its tablets as they connect
 // again; the field leaves every Recipe's content and latest edits; and an
