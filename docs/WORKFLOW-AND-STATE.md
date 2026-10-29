@@ -297,10 +297,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   (ADR-0021), so it takes the settings written as its own, and its heater
   switch, with its own DYE2 switch on, turns steam back on at the steam
   temperature of the recipe the Workflow names: the plugin sets nothing of
-  Streamline's (ADR-0022 accepts the gap where that heater switch with its
-  DYE2 switch off, its settings page or Auto Steam may turn steam on at
-  another). Once Decaid takes a load's write, where it changed the
-  Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
+  Streamline's (ADR-0022 accepts the gap, until #374, where that heater
+  switch with its DYE2 switch off, its settings page or Auto Steam may turn
+  steam on at another). Once Decaid takes a load's write, where it changed
+  the Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
   endpoint, so Streamline's tiles show the steam, hot water and flush
   settings its strip left out at once rather than at its 20 s poll (ticket
   #207, `AI_RUNTIME_NOTES.md`, Skins).

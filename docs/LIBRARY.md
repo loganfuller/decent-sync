@@ -1785,7 +1785,8 @@ Streamline's DYE2 switch off (its default), which takes the temperature
 Streamline remembers, Streamline's Settings › Calibration › Steam switch,
 and Auto Steam choosing a pitcher with the heater off can turn steam on at
 another temperature, which is then saved into the Recipe: a gap ADR-0022
-accepts, until decentespresso/streamline-js#TBD.
+accepts until Decent Sync turns steam back on at the Loaded Recipe's steam
+temperature itself (#374).
 
 `server/test/recipe-settings.test.ts` covers this through Seam 1, with the
 built plugin running the simulated DYE2, whose tablet writes a Workflow's

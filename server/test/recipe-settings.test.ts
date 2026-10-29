@@ -415,7 +415,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect([setting(c, "steamTemperature"), streamline.remembered("last-steam-temp")]).toEqual([0, 150]);
 
     // Turned back on in Streamline, at the 150 it remembers, which the plugin set nothing of: the Machine's change, saved
-    // into the Recipe and written into A, until decentespresso/streamline-js#TBD.
+    // into the Recipe and written into A, until #374.
     await streamline.setSteamHeater(true);
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
     await expect.poll(async () => (await recipe(one)).content.steamTemperature, { timeout: 15_000 }).toBe(150);
