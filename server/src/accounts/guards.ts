@@ -19,6 +19,7 @@ import { type SignedIn, SessionsService } from "./sessions.service.js";
 
 const PUBLIC = Symbol("public");
 const STAFF = Symbol("staff");
+const VIEWER = Symbol("viewer");
 
 /**
  * Lets a route answer without a signed-in account. Every other route requires
@@ -28,13 +29,21 @@ const STAFF = Symbol("staff");
 export const Public = () => SetMetadata(PUBLIC, true);
 
 /**
- * Lets Staff use a route. Staff read everything but other accounts' personal
- * information; a route that changes something must limit Staff to what
- * their Scope includes. Every other route that requires a signed-in account
- * requires an Admin, so a new route stays Admin-only until Staff are meant
- * to use it.
+ * Lets Staff use a route, and a Viewer too if it only reads (`GET`). Staff
+ * read everything but other accounts' personal information; a route that
+ * changes something must limit Staff to what their Scope includes. Every
+ * other route that requires a signed-in account requires an Admin, so a new
+ * route stays Admin-only until Staff are meant to use it, and one that
+ * changes something stays closed to Viewers.
  */
 export const AllowStaff = () => SetMetadata(STAFF, true);
+
+/**
+ * Lets a Viewer use a route marked `@AllowStaff()` that changes something.
+ * Only signing out is so marked: it ends the Viewer's own session, and a
+ * Viewer changes nothing else.
+ */
+export const AllowViewer = () => SetMetadata(VIEWER, true);
 
 type SignedInRequest = Request & { signedIn?: SignedIn };
 
@@ -50,6 +59,7 @@ function signedInOf(context: ExecutionContext): SignedIn {
   return signedIn;
 }
 
+/** The methods that only read: a `GET` route also answers `HEAD`. */
 const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
 
 /**
@@ -90,7 +100,9 @@ export class SameOriginGuard implements CanActivate {
 
 /**
  * Requires a signed-in account on every route not marked `@Public()`, and an
- * Admin on every one not marked `@AllowStaff()` either.
+ * Admin on every one not marked `@AllowStaff()` either. A Viewer, who
+ * changes nothing, uses only those marked `@AllowStaff()` that read, and
+ * signing out (`@AllowViewer()`).
  */
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -107,8 +119,12 @@ export class SessionGuard implements CanActivate {
     const request = http.getRequest<SignedInRequest>();
     const signedIn = await this.sessions.resume(request, http.getResponse<Response>());
     if (!signedIn) throw new UnauthorizedException("Sign in to continue");
-    if (signedIn.account.role !== AccountRole.ADMIN && !this.reflector.getAllAndOverride<boolean>(STAFF, targets)) {
+    const { role } = signedIn.account;
+    if (role !== AccountRole.ADMIN && !this.reflector.getAllAndOverride<boolean>(STAFF, targets)) {
       throw new ForbiddenException("Only an Admin can do this");
+    }
+    if (role === AccountRole.VIEWER && !SAFE_METHODS.has(request.method) && !this.reflector.getAllAndOverride<boolean>(VIEWER, targets)) {
+      throw new ForbiddenException("A Viewer can't change anything");
     }
     request.signedIn = signedIn;
     return true;

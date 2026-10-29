@@ -1,6 +1,6 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
 import { Link, useParams } from "react-router";
-import { useIsAdmin, useStaffLocationIds } from "@/auth";
+import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import {
   ConfirmButton,
   IdentificationBadge,
@@ -528,6 +528,7 @@ function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
  * correct the history.
  */
 function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; isAdmin: boolean; onChanged(): Promise<void> }) {
+  const mayChange = useMayChange();
   const [editing, setEditing] = useState<string>();
   const [removeError, setRemoveError] = useState<string>();
   // Newest first: where it is now leads.
@@ -560,7 +561,7 @@ function MachineLocation({ machine, isAdmin, onChanged }: { machine: Machine; is
           {current && <Field term="Since">{formatInZone(current.effectiveFrom, current.location.timeZone)}</Field>}
         </Fields>
 
-        <MoveForm machine={machine} isAdmin={isAdmin} onMoved={onChanged} />
+        {mayChange && <MoveForm machine={machine} isAdmin={isAdmin} onMoved={onChanged} />}
 
         {history.length > 0 && (
           <section className="grid gap-2">

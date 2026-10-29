@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { atText, batchName } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
@@ -34,6 +35,7 @@ export function BeanPage() {
 }
 
 function BeanDetails({ id }: { id: string }) {
+  const mayChange = useMayChange();
   const [bean, setBean] = useState<Bean>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -92,11 +94,13 @@ function BeanDetails({ id }: { id: string }) {
         </h1>
         <p className="text-muted-foreground">{bean.roaster ?? "No roaster recorded"}</p>
       </div>
-      <div className="flex flex-wrap items-start gap-2">
-        {!bean.archived && <NewBatchDialog bean={bean} />}
-        <ArchiveButton path={`/beans/${id}`} name={beanName(bean)} archived={bean.archived} onDone={changed} />
-        <DeleteButton path={`/beans/${id}`} name={beanName(bean)} what="Its batches are deleted with it." back="/library/beans" />
-      </div>
+      {mayChange && (
+        <div className="flex flex-wrap items-start gap-2">
+          {!bean.archived && <NewBatchDialog bean={bean} />}
+          <ArchiveButton path={`/beans/${id}`} name={beanName(bean)} archived={bean.archived} onDone={changed} />
+          <DeleteButton path={`/beans/${id}`} name={beanName(bean)} what="Its batches are deleted with it." back="/library/beans" />
+        </div>
+      )}
 
       <ItemConflictsCard kind="bean" id={id} onResolved={changed} />
 
@@ -156,11 +160,13 @@ function BeanDetails({ id }: { id: string }) {
                 </Field>
               ))}
             </Fields>
-            <div>
-              <Button variant="outline" aria-label="Edit the coffee" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-            </div>
+            {mayChange && (
+              <div>
+                <Button variant="outline" aria-label="Edit the coffee" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              </div>
+            )}
             </>
             )}
           </CardContent>

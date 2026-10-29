@@ -15,6 +15,15 @@ section).
 
 ## Unreleased
 
+### Make Viewers once every instance runs this release
+
+This release adds the Viewer, an account that sees everything Staff see and
+changes nothing. 1.5.0 can't read an account or invite with that role: while
+one exists, its Accounts page fails for Admins, and a Viewer's requests fail
+on it. So invite a Viewer, or change an account to one, only once no 1.5.0
+instance runs. Before rolling back to 1.5.0, change each Viewer to another
+role, and revoke any Viewer invite not yet accepted.
+
 ## 1.5.0
 
 ### Check every tablet runs the 1.4.0 plugin before deploying

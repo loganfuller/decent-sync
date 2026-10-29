@@ -2,6 +2,8 @@ import { MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 import { useAuth, useIsAdmin } from "@/auth";
+import { InfoTip } from "@/components/info-tip";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -48,6 +50,7 @@ export function Shell() {
                 {account.name}
               </span>
             )}
+            {account?.role === "viewer" && <ViewerRole />}
           </div>
           <ThemeMenu className="ml-auto lg:ml-0 lg:size-7" />
           <Button variant="outline" size="sm" className="hidden lg:inline-flex" onClick={handleSignOut} disabled={signingOut}>
@@ -72,6 +75,7 @@ export function Shell() {
               <SheetHeader>
                 <SheetTitle>Decent Sync</SheetTitle>
                 {account && <SheetDescription className="wrap-anywhere">Signed in as {account.name}</SheetDescription>}
+                {account?.role === "viewer" && <ViewerRole />}
               </SheetHeader>
               <MainNav className="grid px-4 text-base *:py-2" onNavigate={() => setMenuOpen(false)} />
               <SheetFooter>
@@ -87,6 +91,18 @@ export function Shell() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+/** "Viewer", beside a Viewer's name, with what a Viewer may do in a tooltip. */
+function ViewerRole() {
+  return (
+    <span className="flex shrink-0 items-center gap-1">
+      <Badge variant="secondary">Viewer</Badge>
+      <InfoTip label="About Viewers">
+        <p>You can see everything Staff see, and change nothing. An Admin can change your role.</p>
+      </InfoTip>
+    </span>
   );
 }
 

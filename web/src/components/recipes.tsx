@@ -1,6 +1,6 @@
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
-import { useIsAdmin, useStaffLocationIds } from "@/auth";
+import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
@@ -1310,6 +1310,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
  */
 export function RecipeDetails({ id }: { id: string }) {
   const mayChangeAt = useMayChangeAt();
+  const mayChangeAnything = useMayChange();
   const isAdmin = useIsAdmin();
   const staffLocations = useStaffLocationIds();
   const { choices } = useChoices();
@@ -1420,7 +1421,9 @@ export function RecipeDetails({ id }: { id: string }) {
           />
         </div>
       )}
-      {!mayChange && <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>}
+      {!mayChange && mayChangeAnything && (
+        <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
+      )}
 
       <ItemConflictsCard kind="recipe" id={id} onResolved={changed} names={names} />
 

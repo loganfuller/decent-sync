@@ -206,7 +206,7 @@ export class AdminApi {
   }
 
   /** Creates an invite, for Staff at the Locations given. */
-  async invite(email: string, role: "admin" | "staff", locationIds: string[] = []): Promise<CreatedInvite> {
+  async invite(email: string, role: "admin" | "staff" | "viewer", locationIds: string[] = []): Promise<CreatedInvite> {
     const response = await this.call("POST", "/invites", { email, role, locationIds });
     expect(response.status).toBe(201);
     return (await response.json()) as CreatedInvite;

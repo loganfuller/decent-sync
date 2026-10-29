@@ -59,9 +59,9 @@ describe("invites", () => {
   });
 
   it("refuses an incomplete invite, naming each problem", async () => {
-    expect(await refusal(await api.call("POST", "/invites", {}), 400)).toEqual(["Enter a valid email address", "Choose Admin or Staff"]);
+    expect(await refusal(await api.call("POST", "/invites", {}), 400)).toEqual(["Enter a valid email address", "Choose Admin, Staff or Viewer"]);
     expect(await refusal(await api.call("POST", "/invites", { email: "a@example.com", role: "owner" }), 400)).toEqual([
-      "Choose Admin or Staff",
+      "Choose Admin, Staff or Viewer",
     ]);
     for (const locationIds of [undefined, []]) {
       expect(await refusal(await api.call("POST", "/invites", { email: "a@example.com", role: "staff", locationIds }), 400)).toEqual([
