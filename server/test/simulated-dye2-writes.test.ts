@@ -3,6 +3,7 @@ import {
   DYE2_NAMESPACE,
   type Dye2Exchange,
   SimulatedDye2,
+  dye2ClearBeanlessRecipeWorkflows,
   dye2Generated,
   dye2Keys,
   dye2Library,
@@ -10,12 +11,13 @@ import {
   dye2PagesRecording,
   dye2Recording,
   dye2StoreExchanges,
+  dye2V032Recording,
   openDye2RecipeEditor,
   recordedDye2Tablet,
   saveInDye2,
   saveRecipeFromFavouriteEditor,
 } from "./support/simulated-dye2.js";
-import { type DecaidApi, SimulatedTablet, de1ProOnDecaid090 } from "./support/simulated-tablet.js";
+import { type DecaidApi, SimulatedTablet, de1ProOnDecaid090, derivedDe1Pro } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
 // The simulated tablet's plugin storage, the simulated DYE2's first load, its
@@ -23,8 +25,9 @@ import { runAsSteps } from "./support/steps.js";
 // (`saveInDye2`), against what they were recorded doing on Decaid v0.9.0's
 // Linux release: DYE2 v0.1.26 (fixtures/decaid/dye2-v0.1.26/, whose README
 // says what each step was), and DYE2's equipment and baskets pages at 2cf631c
-// (fixtures/decaid/dye2-2cf631c/), which save as v0.1.26's do. No settings are
-// given, so the plugin does not connect.
+// (fixtures/decaid/dye2-2cf631c/), which save as v0.1.32's do; and on
+// v0.9.1's, what DYE2 v0.1.32 does otherwise (fixtures/decaid/dye2-v0.1.32/).
+// No settings are given, so the plugin does not connect.
 
 type Record_ = Record<string, unknown>;
 
@@ -84,9 +87,13 @@ describe("The simulated DYE2's first load, as DYE2 v0.1.26 was recorded installi
     await dye2.settled();
     const final = install.reads.at(-1)!;
     // Recent favourites and the Shot index are not simulated.
-    for (const key of ["recipes", "baskets", "selection", "selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated"]) {
+    for (const key of ["baskets", "selection", "selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated"]) {
       expect(tablet.storeValue(DYE2_NAMESPACE, key), key).toEqual(final.values[key]);
     }
+    // DYE2 v0.1.32 also gives the blank recipe, naming no Bean, explicit nulls for one, and sets the flags of that migration
+    // and of its favourites' (dye2-v0.1.32/loading.json).
+    expect(tablet.storeValue(DYE2_NAMESPACE, "recipes")).toEqual(dye2ClearBeanlessRecipeWorkflows(final.values.recipes as Record_[]));
+    expect([tablet.storeValue(DYE2_NAMESPACE, "recipeBeansMigrated"), tablet.storeValue(DYE2_NAMESPACE, "favBeansMigrated")]).toEqual([true, true]);
     expect(tablet.workflow()).toEqual(final.workflow);
   });
 });
@@ -190,15 +197,14 @@ describe("DYE2's recipe editor made again as recorded", () => {
     expectPosted(steps.takeOffStrip!);
   });
 
-  it("saves only the fields edited, hides a recipe from Streamline keeping its slot, and saves the Machine Settings, Off as 0", async () => {
+  it("saves only the fields edited, and saves the Machine Settings, Off as 0", async () => {
     const libraryRecipe = String(recipeNamed("Fixture Library Recipe").id);
     const slotRecipe = String(recipeNamed("Fixture Slot Recipe").id);
     asRecorded(steps.editFields!, libraryRecipe);
     await (await openDye2RecipeEditor(tablet, { id: libraryRecipe })).set({ dose: 19.5, grind: 3.2 }).save();
     expectPosted(steps.editFields!);
-    asRecorded(steps.hideFromStreamline!, "3");
-    await (await openDye2RecipeEditor(tablet, { id: "3" })).set({ showOnStreamlineDashboard: false }).save();
-    expectPosted(steps.hideFromStreamline!);
+    // Replayed: DYE2 v0.1.32 takes a recipe it saves hidden out of its slot, as below (dye2-v0.1.32/editor.json).
+    expect(await saveInDye2(tablet, steps.hideFromStreamline!)).toEqual(posted(steps.hideFromStreamline!));
     asRecorded(steps.saveMachineSettings!, slotRecipe);
     await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).set({ steamTempC: 150, steamStopAtTempC: 60, hotWaterTimeS: 30, hotWaterFlowMls: 4, flushTempC: 90, flushFlowMls: 6 }).save();
     expectPosted(steps.saveMachineSettings!);
@@ -213,5 +219,78 @@ describe("DYE2's recipe editor made again as recorded", () => {
     expect(tablet.workflow()).toEqual(step.find(({ request }) => request.path === "/workflow")!.response.body);
     await saveRecipeFromFavouriteEditor(tablet, "Fixture Favourite Recipe");
     expectPosted(step);
+  });
+});
+
+describe("The simulated DYE2's first load, as DYE2 v0.1.32 was recorded installing over the keys Decent Sync's server and v0.1.26 left", () => {
+  const library = dye2V032Recording<Record_>("library");
+  const { seeded, install } = dye2V032Recording<{
+    seeded: { values: Record<string, unknown>; workflow: Record_ };
+    install: { reads: { values: Record<string, unknown>; workflow: Record_ }[] };
+  }>("loading");
+
+  it("gives each recipe naming no Bean explicit nulls for one, once, and leaves a hidden one in its slot", async () => {
+    const dye2 = new SimulatedDye2();
+    const api: DecaidApi = { ...derivedDe1Pro({ serial: "10003" }), "/workflow": seeded.workflow, "/machine/settings": library.machineSettings };
+    for (const [key, value] of Object.entries(seeded.values)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
+    const tablet = load(api, dye2);
+    await dye2.settled();
+    const final = install.reads.at(-1)!;
+    for (const key of ["recipes", "baskets", "selectionMigrated", "recipesMigrated", "favSlotsMigrated", "favProfilesMigrated", "recipeBeansMigrated", "favBeansMigrated"]) {
+      expect(tablet.storeValue(DYE2_NAMESPACE, key), key).toEqual(final.values[key]);
+    }
+    expect(tablet.workflow()).toEqual(final.workflow);
+    // Once: its flag set, a recipe saved since without the nulls keeps none.
+    const without = (final.values.recipes as Record_[]).map((recipe) => (recipe.id === "2" ? { ...recipe, workflow: { context: {} } } : recipe));
+    await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, without);
+    await dye2.reload();
+    expect(tablet.storeValue(DYE2_NAMESPACE, "recipes")).toEqual(without);
+  });
+});
+
+describe("DYE2 v0.1.32's recipe editor made again as recorded", () => {
+  runAsSteps();
+  const steps = dye2V032Recording<Record<string, { opened: Record_; form: Record_; exchanges: Dye2Exchange[] }>>("editor");
+  const library = dye2V032Recording<{ beans: Record_[]; grinders: Record_[]; profiles: { id: string; profile: Record_ }[] }>("library");
+  const first = steps.saveCleared!.exchanges.find(({ request }) => request.method === "GET")!.response.body;
+  const tablet = load({ ...derivedDe1Pro({ serial: "10004" }), "/beans": library.beans, "/grinders": library.grinders, "/profiles": library.profiles, "/store/dye2.reaplugin/recipes": first });
+  const generated = { ...dye2Generated };
+  afterEach(() => Object.assign(dye2Generated, generated));
+
+  /** Opens the editor as the step did, makes the change, checks what its form showed of the strip before and after, saves as recorded, and checks the list it posted. */
+  async function again(name: string, target: { id?: string }, change: (editor: Awaited<ReturnType<typeof openDye2RecipeEditor>>) => unknown, changedId = target.id): Promise<void> {
+    const step = steps[name]!;
+    const before = (step.exchanges.find(({ request }) => request.method === "GET")?.response.body ?? []) as Record_[];
+    const saved = posted(step.exchanges).find((recipe) => (changedId ? recipe.id === changedId : !before.some((held) => held.id === recipe.id)))!;
+    dye2Generated.now = () => new Date(String(saved.capturedAt));
+    dye2Generated.uuid = () => String(saved.id);
+    const editor = await openDye2RecipeEditor(tablet, target);
+    expect(editor.strip(), `${name}: opened`).toEqual(step.opened);
+    await change(editor);
+    expect(editor.strip(), `${name}: form`).toEqual(step.form);
+    await editor.save();
+    expect(dye2List(tablet, "recipes"), name).toEqual(posted(step.exchanges));
+  }
+
+  it("opens a recipe hidden in a slot on no tab, and saves it in none", async () => {
+    await again("saveCleared", { id: "1" }, (editor) => editor.set({ dose: 18.2 }));
+    await again("saveHiddenInSlot", { id: "4" }, (editor) => editor.set({ dose: 18.8 }));
+  });
+
+  it("takes a recipe it hides out of its slot, and shows one put in a slot", async () => {
+    await again("hideSlotted", { id: "2" }, (editor) => editor.set({ showOnStreamlineDashboard: false }));
+    await again("slotHidden", { id: "4" }, (editor) => editor.tapSlot(4));
+  });
+
+  it("saves a new recipe naming no Bean with explicit nulls for one", async () => {
+    const adaptive = library.profiles.find((record) => record.profile.title === "Adaptive v3")!;
+    const grinder = String(library.grinders.find((candidate) => candidate.model === "Fixture Grinder 64")!.id);
+    await again("newWithoutBean", {}, (editor) => editor.tapSlot(5).set({ name: "Fixture New No Bean" }).pickProfile(adaptive.id).set({ grinderId: grinder, dose: 18, drink: 36 }));
+  });
+
+  it("keeps a grind setting typed as text as typed, and one typed as a number to a tenth", async () => {
+    await again("grindText", { id: "3" }, (editor) => editor.set({ grind: "1.5." }));
+    await again("grindWord", { id: "3" }, (editor) => editor.set({ grind: "fine" }));
+    await again("grindNumber", { id: "3" }, (editor) => editor.set({ grind: "2.75" }));
   });
 });
