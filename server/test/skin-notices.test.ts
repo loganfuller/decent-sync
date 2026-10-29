@@ -471,16 +471,21 @@ describe("Telling skins of each load of a recipe the Workflow names", () => {
 
   beforeAll(async () => {
     server = await StandInServer.start();
+    const api = emptyLibrary(46006);
+    // Each names the Workflow's Bean and batch, so a load writes only the dose: one naming no Bean means none, and its load
+    // would clear the Workflow's (DYE2 v0.1.32).
+    const held = ((api["/workflow"] as Record_).context ?? {}) as Record_;
+    const bean = { beanName: held.coffeeName, beanRoaster: held.coffeeRoaster, beanBatchId: held.beanBatchId };
     // Timers ten times faster: the plugin polls every 0.5 s.
     tablet = tablets.load({
       settings: { ...settingsFor({ token: "stand-in token 46006", serverUrl: server.url }), PollSeconds: 5 },
       timeScale: 10,
       api: {
-        ...emptyLibrary(46006),
+        ...api,
         [RECIPES]: [
-          { id: ONE, name: "Skin load 20 g", stripSlot: 1, [GLOBAL_ID_KEY]: one, dashboardVariables: { dose: 20 } },
-          { id: TWO, name: "Skin load 18 g", stripSlot: 2, [GLOBAL_ID_KEY]: two, dashboardVariables: { dose: 18 } },
-          { id: THREE, name: "Skin load 22 g", stripSlot: null, [GLOBAL_ID_KEY]: three, dashboardVariables: { dose: 22 } },
+          { id: ONE, name: "Skin load 20 g", stripSlot: 1, [GLOBAL_ID_KEY]: one, ...bean, dashboardVariables: { dose: 20 } },
+          { id: TWO, name: "Skin load 18 g", stripSlot: 2, [GLOBAL_ID_KEY]: two, ...bean, dashboardVariables: { dose: 18 } },
+          { id: THREE, name: "Skin load 22 g", stripSlot: null, [GLOBAL_ID_KEY]: three, ...bean, dashboardVariables: { dose: 22 } },
         ],
       },
       dye2: new SimulatedDye2(),

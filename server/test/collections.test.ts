@@ -244,7 +244,7 @@ describe("Library, settings and paired devices", () => {
     expect((await collection(machine, "skins"))!.value).toEqual(skinsIn(served));
     // The test tablet's: DYE2's release, and Streamline's release served, though its build of main is the default.
     expect(await tabletVersions(machine)).toEqual({
-      dye2: { status: "installed", version: "0.1.26", loaded: true, branch: null },
+      dye2: { status: "installed", version: "0.1.32", loaded: true, branch: null },
       streamline: { status: "active", version: "0.2.18", build: "release" },
     });
     await allAcknowledged(tablet);
@@ -256,7 +256,7 @@ describe("Library, settings and paired devices", () => {
     dye2.disable();
     await expect.poll(async () => ((await tabletVersions(machine)) as { dye2: unknown }).dye2).toEqual({
       status: "installed",
-      version: "0.1.26",
+      version: "0.1.32",
       loaded: false,
       branch: null,
     });
