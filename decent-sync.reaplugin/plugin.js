@@ -714,6 +714,7 @@ var __decentSync = (() => {
   function isRecipeSlot(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
   }
+  var RECIPE_SHOWN_FIELD = "showOnStreamlineDashboard";
   var RECIPE_SLOT_FIELD = "stripSlot";
   var RECIPE_SETTINGS = {
     steamTemperature: { dye2: "steamTempC", workflow: "steamSettings.targetTemperature", whole: true },
@@ -2807,6 +2808,8 @@ var __decentSync = (() => {
       if (index === -1) return refused(write, 404, "Record not found");
       const current = records[index];
       const settled = settable(write, (field) => valueAt(current, field));
+      const expected = write.expected;
+      if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled[RECIPE_SHOWN_FIELD];
       record3 = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
       writtenFields = Object.keys(settled);
       if (sameJson(record3, current)) return written(write, current, writtenFields, now2);

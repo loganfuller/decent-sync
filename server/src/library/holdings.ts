@@ -1,4 +1,4 @@
-import { LIBRARY_KINDS, recordGlobalId, sameValue } from "@decent-sync/protocol";
+import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, recordGlobalId, sameValue } from "@decent-sync/protocol";
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
@@ -370,7 +370,10 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
  * it holds written where its record differs from what it is to hold
  * (`OfferedRecipe.record`), its slot included, and its embedded Workflow
  * where the Recipe names no Bean and it lacks the explicit nulls for one
- * (`lacksBeanNulls`), which comparing records takes for none held.
+ * (`lacksBeanNulls`), which comparing records takes for none held. Whether a
+ * record is shown follows its slot, so a write of it expects the record's
+ * slot too, written or not: one a barista has put in another slot since
+ * keeps whether it is shown, and its move reaches the server in the answer.
  */
 export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (PlannedWrite | PlannedRemove)[] {
   const writes: (PlannedWrite | PlannedRemove)[] = [];
@@ -386,7 +389,12 @@ export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (Plann
     if (record) {
       const content = withHeldFieldFlags(recipe.record, record.record);
       const nulls = lacksBeanNulls(content, record.record) ? { workflow: content.workflow } : {};
+      const planned = writes.length;
       pushUpdate(writes, "recipe", recipe.id, { ...record, content, contentDecidedAt: recipe.contentDecidedAt }, nulls, null);
+      const write = writes[planned];
+      if (write && !("remove" in write) && RECIPE_SHOWN_FIELD in write.fields) {
+        write.expected = { ...write.expected, [RECIPE_SLOT_FIELD]: record.record[RECIPE_SLOT_FIELD] ?? null };
+      }
     } else {
       writes.push({ kind: "recipe", globalId: recipe.id, localId: null, fields: { ...recipe.record, id: recipe.recordId }, decidedAt: null, contentDecidedAt: recipe.contentDecidedAt });
     }

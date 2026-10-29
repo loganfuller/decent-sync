@@ -136,7 +136,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   async function lab(
     scenario: string,
     serial: number,
-    options: { instance?: TestServer; pollSeconds?: number; dye2?: SimulatedDye2; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean } = {},
+    options: {
+      instance?: TestServer;
+      pollSeconds?: number;
+      dye2?: SimulatedDye2;
+      apiDelayMs?: (method: string, path: string) => number;
+      answerOnArrival?: boolean;
+      timeScale?: number;
+    } = {},
   ) {
     const here: LocationView = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machine = await api.createMachine(`${scenario} lab 1`, here.id);
@@ -147,6 +154,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
       pollSeconds: options.pollSeconds,
       apiDelayMs: options.apiDelayMs,
       answerOnArrival: options.answerOnArrival,
+      timeScale: options.timeScale,
     });
     await api.waitForOnline(machine);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(tablet, id))), { timeout: 15_000 }).not.toContain(null);
@@ -404,6 +412,40 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await api.call("PUT", `/recipes/${brazil}/slot`, { slot: 2 })).status).toBe(200);
     await expect.poll(() => record(tablet, BRAZIL), { timeout: 15_000 }).toMatchObject({ stripSlot: 2, showOnStreamlineDashboard: true });
     expect((await recipe(brazil)).content).not.toHaveProperty("showOnDashboard");
+  });
+
+  it("keeps a Recipe in the slot DYE2's editor put it in while the server's write hiding it, as it left its last slot, waited for the plugin's read", async () => {
+    // At 5x, so that Decaid's 30 s fetch timeout lets the plugin's reads be held for 6 s of real time.
+    const { tablet, brazil, quiet } = await lab("Slot again", 47331, { timeScale: 5 });
+    const route = `/store/${DYE2_NAMESPACE}/recipes`;
+    expect((await recipe(brazil)).slot).toBe(2);
+    // Tapping its own slot's tab in DYE2's editor takes it out of its slot, still shown, which the plugin's next read reports.
+    const report = tablet.holdRequests("GET", route);
+    const { saved } = await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(2).save();
+    expect([saved.stripSlot, saved.showOnStreamlineDashboard]).toEqual([null, true]);
+    await expect.poll(() => report.arrived, { timeout: 15_000 }).toBeGreaterThan(0);
+    // The server takes it out of its slot and writes it hidden. Every read of the list from then on is held, so the plugin
+    // reads it for that write only after the barista has put the recipe in slot 3.
+    const later = tablet.holdRequests("GET", route);
+    const received = tablet.received.length;
+    report.release();
+    const hiding = () =>
+      tablet.received.slice(received).some((frame) => {
+        const { type, kind, fields } = frame as { type?: unknown; kind?: unknown; fields?: Record_ };
+        return type === "write" && kind === "recipe" && fields?.showOnStreamlineDashboard === false;
+      });
+    await expect.poll(hiding, { timeout: 15_000 }).toBe(true);
+    await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(3).save();
+    later.release();
+    await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBe(3);
+    await quiet();
+    expect((await recipe(brazil)).slot).toBe(3);
+    expect(record(tablet, BRAZIL)).toMatchObject({ stripSlot: 3, showOnStreamlineDashboard: true });
+    // The write left it shown: the plugin never posted it hidden in slot 3.
+    const hiddenInSlot = tablet.storeWrites.some(
+      (write) => write.key === "recipes" && Array.isArray(write.value) && (write.value as Record_[]).some((entry) => entry.id === BRAZIL && entry.stripSlot === 3 && entry.showOnStreamlineDashboard === false),
+    );
+    expect(hiddenInSlot).toBe(false);
   });
 
   it("loads a Recipe naming no Bean, applied from DYE2's Select Recipe page or Streamline's strip, with no bean batch, which it takes none of, its records written the nulls for one where a tablet's lacks them, and takes a batch picked then", async () => {

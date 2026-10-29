@@ -1176,8 +1176,11 @@ export const STEAM_ON_FROM = 135;
  * edit of the Recipe; refuses an id whose record carries another item's
  * global id; and otherwise adds a record with `fields` and its `capturedAt`,
  * at the end of the list. To update one, it sets each of `fields` the
- * record still holds as expected, a null one left out. Either way the
- * global id goes in the record's own field. A write setting a record's
+ * record still holds as expected, a null one left out; and whether it is
+ * shown (RECIPE_SHOWN_FIELD), which follows its slot, only while its
+ * RECIPE_SLOT_FIELD is as `expected` names it, which it may name though
+ * `fields` does not set it. Either way the global id goes in the record's
+ * own field. A write setting a record's
  * RECIPE_SLOT_FIELD to a Recipe Slot clears it (null) on any other record in
  * that slot, in the same post, as DYE2's editor does (`takeSlot`), so a slot
  * holds one recipe on every tablet. And before it posts a list that removes

@@ -24,6 +24,7 @@ import {
   type ListUnrecognised,
   MAX_REFUSAL_LENGTH,
   PULLING_SHOT,
+  RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   WORKFLOW_CLEARED,
   WORKFLOW_KIND,
@@ -1246,8 +1247,11 @@ async function leaveOutOfList(path: ListPath, leave: LeaveOut): Promise<ItemLeft
  * applies as they are. A Recipe Slot the record is put in (RECIPE_SLOT_FIELD)
  * is taken from any other record in it, as DYE2's editor takes one
  * (`takeSlot` in dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.32), so
- * one record holds each slot. The answer is timed now, as DYE2's records
- * carry no edit time.
+ * one record holds each slot. Whether it is shown (RECIPE_SHOWN_FIELD)
+ * follows its slot, so it is set only while the record is still in the slot
+ * expected, whether the write sets that or not: a barista who put it in
+ * another slot since keeps it shown there. The answer is timed now, as
+ * DYE2's records carry no edit time.
  */
 async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAnswer> {
   const list = await readList(path);
@@ -1285,6 +1289,8 @@ async function writeRecipe(path: ListPath, write: LibraryWrite): Promise<WriteAn
     if (index === -1) return refused(write, 404, "Record not found");
     const current = records[index]!;
     const settled = settable(write, (field) => valueAt(current, field));
+    const expected = write.expected;
+    if (expected && RECIPE_SLOT_FIELD in expected && !sameValue(current[RECIPE_SLOT_FIELD] ?? null, expected[RECIPE_SLOT_FIELD])) delete settled[RECIPE_SHOWN_FIELD];
     record = atPaths({ ...current, [GLOBAL_ID_KEY]: write.globalId }, settled);
     writtenFields = Object.keys(settled);
     if (sameJson(record, current)) return written(write, current, writtenFields, now);
