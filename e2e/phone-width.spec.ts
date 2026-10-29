@@ -7,11 +7,11 @@ import { admin, createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
 // The management interface on a phone as wide as an iPhone 15, as an Admin
-// and as Staff: no page is wider than the screen, and the navigation, the
-// account's name and Sign out are in a menu. On a wider screen the top bar is
-// the one row it was. A simulated tablet running the built plugin backfills a
-// Shot and a Steam Record, so each list has a table to fit; its serial is
-// made up.
+// and as Staff: no page is wider than the screen, the navigation, the
+// account's name and Sign out are in a menu, and the Theme button stays in the
+// top bar beside it. On a wider screen the top bar is the one row it was. A
+// simulated tablet running the built plugin backfills a Shot and a Steam
+// Record, so each list has a table to fit; its serial is made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 const PHONE: BrowserContextOptions = { viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true };
 test.use(PHONE);
@@ -66,7 +66,7 @@ test("on a phone, every page fits the screen for Staff too", async ({ page, brow
 });
 
 test("on a small phone held sideways, the menu scrolls to Sign out", async ({ browser }) => {
-  // A Galaxy S5's, below md, too short for the Admin's menu, which ends at about 414 px.
+  // A Galaxy S5's, below lg, too short for the Admin's menu, which ends at about 414 px.
   const context = await browser.newContext({ baseURL: server.url(), ...PHONE, viewport: { width: 640, height: 360 } });
   try {
     const page = await context.newPage();
@@ -81,8 +81,8 @@ test("on a small phone held sideways, the menu scrolls to Sign out", async ({ br
 });
 
 test("on a wider screen, the top bar is one row with no menu", async ({ browser }) => {
-  // md, where the row starts, and a desktop's.
-  for (const width of [768, 1280]) {
+  // lg, where the row starts, and a desktop's.
+  for (const width of [1024, 1280]) {
     const context = await browser.newContext({ baseURL: server.url(), viewport: { width, height: 800 } });
     try {
       const page = await context.newPage();
@@ -93,6 +93,7 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
       await expect(bar.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText([...MAIN_LINKS, "Accounts"]);
       await expect(bar.getByText(admin.name)).toBeVisible();
       await expect(bar.getByRole("button", { name: "Sign out" })).toBeVisible();
+      await expect(bar.getByRole("button", { name: "Theme" })).toBeVisible();
       await expect(bar.getByRole("button", { name: "Menu" })).toBeHidden();
       await expectFits(page, width);
     } finally {
@@ -111,6 +112,7 @@ async function visitEachPage(page: Page, account: { name: string; links: string[
   await expect(page.getByRole("heading", { name: `Welcome, ${account.name}`, level: 1 })).toBeVisible();
   await expect(page.getByRole("banner").getByRole("navigation", { name: "Main" })).toBeHidden();
   await expectFits(page);
+  await expectThemeInReach(page);
 
   for (const { link, heading, loaded } of PAGES.filter(({ link }) => account.links.includes(link))) {
     const menu = await openMenu(page, account);
@@ -144,6 +146,18 @@ async function openMenu(page: Page, account: { name: string; links: string[] }) 
   await expect(menu.getByText(`Signed in as ${account.name}`)).toBeVisible();
   await expect(menu.getByRole("button", { name: "Sign out" })).toBeVisible();
   return menu;
+}
+
+/** The Theme button is in the top bar, on the screen, not in the menu, and opens its choices. */
+async function expectThemeInReach(page: Page) {
+  const theme = page.getByRole("banner").getByRole("button", { name: "Theme" });
+  await expect(theme).toBeInViewport({ ratio: 1 });
+  await theme.click();
+  const choices = page.getByRole("menu", { name: "Theme" });
+  await expect(choices).toBeInViewport({ ratio: 1 });
+  await expect(choices.getByRole("menuitemradio")).toHaveText(["Light", "Dark", "System"]);
+  await page.keyboard.press("Escape");
+  await expect(choices).toBeHidden();
 }
 
 /** The page is no wider than the screen: what is wider, such as a table, scrolls within it. */

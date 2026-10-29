@@ -1,11 +1,22 @@
-import { MenuIcon } from "lucide-react";
+import { MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 import { useAuth, useIsAdmin } from "@/auth";
 import { Button } from "@/components/ui/button";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuRadioGroup,
+  DropdownMenuRadioItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { chooseTheme, type ThemeChoice, useThemeChoice } from "@/lib/theme";
 
-/** The signed-in frame: a header with the account and sign-out, in a menu on a narrow screen, and a page. */
+/**
+ * The signed-in frame: a header with the account and sign-out, in a menu on a narrow screen, and a page. The theme
+ * button stays in the header at every width.
+ */
 export function Shell() {
   const { state, signOut } = useAuth();
   const [signingOut, setSigningOut] = useState(false);
@@ -28,22 +39,23 @@ export function Shell() {
           <Link to="/" className="font-semibold">
             Decent Sync
           </Link>
-          {/* With an Admin's links and a short name the row needs about 760 px, so below md (768) it is in a menu. Its
-              links don't wrap: a longer name truncates instead. */}
-          <div className="hidden min-w-0 flex-1 items-center gap-4 md:flex">
+          {/* With an Admin's links, a short name and the theme button the row needs about 810 px, so below lg (1024),
+              an iPad held upright included, it is in a menu. Its links don't wrap: a longer name truncates instead. */}
+          <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
             <MainNav className="flex flex-1 items-center gap-4 text-sm whitespace-nowrap" />
             {account && (
               <span className="min-w-0 truncate text-sm text-muted-foreground" data-testid="signed-in-account">
                 {account.name}
               </span>
             )}
-            <Button variant="outline" size="sm" onClick={handleSignOut} disabled={signingOut}>
-              Sign out
-            </Button>
           </div>
+          <ThemeMenu className="ml-auto lg:ml-0 lg:size-7" />
+          <Button variant="outline" size="sm" className="hidden lg:inline-flex" onClick={handleSignOut} disabled={signingOut}>
+            Sign out
+          </Button>
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
-              <Button variant="outline" size="icon" className="ml-auto md:hidden">
+              <Button variant="outline" size="icon" className="lg:hidden">
                 <MenuIcon />
                 <span className="sr-only">Menu</span>
               </Button>
@@ -75,6 +87,41 @@ export function Shell() {
         <Outlet />
       </main>
     </div>
+  );
+}
+
+const THEMES: { choice: ThemeChoice; label: string; Icon: typeof SunIcon }[] = [
+  { choice: "light", label: "Light", Icon: SunIcon },
+  { choice: "dark", label: "Dark", Icon: MoonIcon },
+  { choice: "system", label: "System", Icon: MonitorIcon },
+];
+
+/**
+ * The theme button, whose icon shows the choice rather than the theme in effect, so someone on System sees that the
+ * page follows their device. The choice is kept in this browser (`src/lib/theme.ts`).
+ */
+function ThemeMenu({ className }: { className: string }) {
+  const choice = useThemeChoice();
+  const { Icon } = THEMES.find((theme) => theme.choice === choice)!;
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="icon" className={className}>
+          <Icon />
+          <span className="sr-only">Theme</span>
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        <DropdownMenuRadioGroup value={choice} onValueChange={(value) => chooseTheme(value as ThemeChoice)}>
+          {THEMES.map(({ choice, label, Icon }) => (
+            <DropdownMenuRadioItem key={choice} value={choice}>
+              <Icon />
+              {label}
+            </DropdownMenuRadioItem>
+          ))}
+        </DropdownMenuRadioGroup>
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
 }
 
