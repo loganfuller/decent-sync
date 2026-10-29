@@ -86,14 +86,17 @@ export interface SettingsChoice {
  * What may become of a field's value after an edit, or what to do after
  * one, shown beside it:
  *
- * - `resetsOnReconnect`: Decaid sets it again each time it connects to the
- *   Machine (decentespresso/decaid#1027);
+ * - `keptByTablet`: the Tablet keeps the value written for that Machine, and
+ *   Decaid writes it again each time it connects to the Machine; Decaid's
+ *   backups leave it out, so a replacement Tablet, or a reset of Decaid's
+ *   data, puts Decaid's default back (`MachineSettingsStore`;
+ *   decentespresso/decaid#1043);
  * - `putBackByStreamline`: Streamline writes back a value a barista saved in
  *   its settings page when that page next opens (`checkMachineSettingsDrift`;
  *   decentespresso/streamline-js#172);
  * - `restartAfterChange`: the Machine takes the new value once restarted.
  */
-export type SettingsNote = "resetsOnReconnect" | "putBackByStreamline" | "restartAfterChange";
+export type SettingsNote = "keptByTablet" | "putBackByStreamline" | "restartAfterChange";
 
 interface SettingsFieldBase {
   /** Decaid's name for the field, its key in the collection; for `sensorCalibration`, the sensor target. */
@@ -146,7 +149,7 @@ const SET_BY_WORKFLOW = "Set by the Workflow";
 export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsField[]> = {
   machineSettings: [
     // The DE1 holds the fan threshold to 0 to 50 (`MMRItem`), as Streamline's page does (`FAN_THRESHOLD_MAX`).
-    { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["resetsOnReconnect", "putBackByStreamline"] },
+    { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet", "putBackByStreamline"] },
     {
       path: "steamPurgeMode",
       label: "Steam purge mode",
@@ -196,7 +199,7 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
         { value: 0, label: "Force Off" },
       ],
       editableBy: "admin",
-      notes: ["resetsOnReconnect", "putBackByStreamline"],
+      notes: ["keptByTablet", "putBackByStreamline"],
     },
   ],
   machineCalibration: [

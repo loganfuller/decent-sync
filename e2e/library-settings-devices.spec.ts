@@ -2,7 +2,7 @@ import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { expect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
-  de1ProOnDecaid090,
+  de1ProOnDecaid091,
   derivedDe1Pro,
   sensorCalibration,
   settingsFor,
@@ -33,7 +33,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and the test DE1Pro's sensor
   // calibrations (#232), signed Q16.16 values off their fields' steps.
   const served = {
-    ...de1ProOnDecaid090(),
+    ...de1ProOnDecaid091(),
     ...simulatedLibrary(),
     ...simulatedDevices(),
     "/machine/calibration": { flowMultiplier: 0.596 },
@@ -72,7 +72,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await expectTip(general, "General", /^Reported at \w{3} \d+, \d{4}/);
   const shown: [term: string, value: string, ...about: string[]][] = [
     // Above the 50 °C an edit may set, and shown as it is.
-    ["Fan threshold", "55 °C", RESETS, PUT_BACK],
+    ["Fan threshold", "55 °C", KEPT, PUT_BACK],
     ["Steam purge mode", "Normal", PUT_BACK],
     ["Steam flow", "0.8 ml/s", "Set by the Workflow"],
     ["Tank temperature", "20 °C", "Set by each profile"],
@@ -82,13 +82,13 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // A tap as iOS Safari makes one, which neither hovers nor focuses the icon, opens its tooltip, and a tap elsewhere closes it.
   await page.mouse.move(0, 0);
   await tap(general.getByRole("button", { name: "About Fan threshold", exact: true }));
-  await expect(page.getByRole("tooltip")).toHaveText(RESETS + PUT_BACK);
+  await expect(page.getByRole("tooltip")).toHaveText(KEPT + PUT_BACK);
   await tap(general.getByRole("heading", { name: "General" }));
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expectShown(machineSettings.getByRole("region", { name: "Advanced", exact: true }), [
     ["Idle temperature", "98 °C", PUT_BACK],
     ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
-    ["Refill kit", "Auto-Detect", RESETS, PUT_BACK],
+    ["Refill kit", "Auto-Detect", KEPT, PUT_BACK],
   ]);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
   await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
@@ -243,7 +243,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
   await expect(field(page, "Streamline")).toHaveText("Not reported");
 });
 
-const RESETS = "Resets when the Machine reconnects.";
+const KEPT = "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.";
 const PUT_BACK = "Streamline puts back a value set in its settings page when that page next opens.";
 
 /** That each field is shown by its label with its value, and its tooltip has each line saying what sets it or noting what may become of it, or that it has none. */

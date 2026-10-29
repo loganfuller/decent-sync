@@ -12,8 +12,13 @@ const API = `${process.env.DECAID ?? "http://localhost:8080"}/api/v1`;
 const [output] = process.argv.slice(2);
 if (!output) throw new Error("Usage: record.mjs <output file>");
 
-/** Sends a request; `raw` sends its text as the body as it is, for a body that is not JSON. */
+/**
+ * Sends a request; `raw` sends its text as the body as it is, for a body that is not JSON. Each waits 10 ms first:
+ * Decaid answers 429 to more than 256 requests a second from one client (`AdmissionGate` in
+ * decaid:lib/src/services/webserver/admission_control.dart), which the script passes on a fast host without it.
+ */
 async function send(method, path, body, raw) {
+  await new Promise((resolve) => setTimeout(resolve, 10));
   const text = raw ?? (body === undefined ? undefined : JSON.stringify(body));
   const response = await fetch(API + path, {
     method,

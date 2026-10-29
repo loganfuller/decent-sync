@@ -1,0 +1,380 @@
+{
+  "started": {
+    "exchanges": [],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 55,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 0
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 98,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 2
+        }
+      }
+    }
+  },
+  "written": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": 45,
+            "steamPurgeMode": 1
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings/advanced",
+          "body": {
+            "heaterIdleTemp": 96,
+            "refillKitSetting": 1
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 45,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      }
+    }
+  },
+  "disconnected": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/devices/disconnect",
+          "body": {
+            "deviceId": "MockDe1"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 500,
+        "body": {
+          "error": "DeviceNotConnectedException: machine not connected"
+        }
+      }
+    }
+  },
+  "reconnected": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/devices/connect",
+          "body": {
+            "deviceId": "MockDe1"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "deviceId": "MockDe1",
+            "operation": "connect",
+            "outcome": "connected",
+            "state": "connected",
+            "connectionError": null
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 45,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      }
+    }
+  },
+  "fanWritten": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/machine/settings",
+          "body": {
+            "fan": 40
+          }
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 40,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      }
+    }
+  },
+  "reconnectedAgain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/devices/disconnect",
+          "body": {
+            "deviceId": "MockDe1"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/devices/connect",
+          "body": {
+            "deviceId": "MockDe1"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "deviceId": "MockDe1",
+            "operation": "connect",
+            "outcome": "connected",
+            "state": "connected",
+            "connectionError": null
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 40,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 1
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 96,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      }
+    }
+  },
+  "restarted": {
+    "exchanges": [],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 40,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 0
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 98,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 1
+        }
+      }
+    }
+  },
+  "reset": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "DELETE",
+          "path": "/machine/settings/reset"
+        },
+        "response": {
+          "status": 202,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 55,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 0
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2,
+          "heaterPh2Flow": 4,
+          "heaterIdleTemp": 95,
+          "heaterPh2Timeout": 4,
+          "heaterVoltage": 120,
+          "refillKitSetting": 2
+        }
+      }
+    }
+  },
+  "restartedAfterReset": {
+    "exchanges": [],
+    "reads": {
+      "/machine/settings": {
+        "status": 200,
+        "body": {
+          "fan": 55,
+          "usb": false,
+          "flushTemp": 25,
+          "flushTimeout": 10,
+          "flushFlow": 6,
+          "hotWaterFlow": 10,
+          "steamFlow": 0.8,
+          "tankTemp": 20,
+          "steamPurgeMode": 0
+        }
+      },
+      "/machine/settings/advanced": {
+        "status": 200,
+        "body": {
+          "heaterPh1Flow": 2.5,
+          "heaterPh2Flow": 5,
+          "heaterIdleTemp": 98,
+          "heaterPh2Timeout": 5,
+          "heaterVoltage": 120,
+          "refillKitSetting": 2
+        }
+      }
+    }
+  }
+}

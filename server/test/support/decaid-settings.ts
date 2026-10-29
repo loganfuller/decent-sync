@@ -1,7 +1,8 @@
 import { randomUUID } from "node:crypto";
 import type { DecaidAnswer } from "./decaid-beans.js";
 
-// Decaid's settings writes, as v0.9.0 carries them out, learned from
+// Decaid's settings writes, as v0.9.0 carries them out, and v0.9.1 the same
+// (fixtures/decaid/simulated-devices-v0.9.1/), learned from
 // fixtures/decaid/settings-writes-v0.9.0/ and Decaid's source, for the
 // writes its simulated machine (`MockDe1`) can't show: the machine's
 // settings, advanced settings and flow calibration (de1handler.dart in
@@ -11,7 +12,9 @@ import type { DecaidAnswer } from "./decaid-beans.js";
 // `_writeMMRScaled` and `_writeMMRInt` in unified_de1.mmr.dart), so a value
 // is stored truncated, the flow multiplier then as a real DE1's firmware
 // holds it (fixtures/decaid/de1pro-v0.9.0/), and a field whose write fails
-// leaves the ones before it written; a sensor's calibration is a correction
+// leaves the ones before it written, and v0.9.1 keeps the fan threshold and
+// refill kit setting for the machine once written, writing them again each
+// time it connects (`reconnected`); a sensor's calibration is a correction
 // of the value it holds (`De1Calibration` and `De1CalibrationCodec`);
 // Decaid's own settings (settings_handler.dart) are applied one field at a
 // time too, refusing the first invalid value with the earlier ones applied;
@@ -130,11 +133,13 @@ function machineBody(body: string | undefined): { json: Json } | { refused: Writ
   return isObject(json) ? { json } : { refused: { answer: { status: 400, body: { error: "Request body must be a JSON object" } } } };
 }
 
-/** A field of a machine route: the name the request and `GET` give it, how Decaid reads it, and the register it writes. */
+/** A field of a machine route: the name the request and `GET` give it, how Decaid reads it, the register it writes, and whether Decaid keeps it for the machine. */
 interface MachineField {
   name: string;
   parse(value: unknown): number | boolean;
   register?: Register;
+  /** Decaid v0.9.1 keeps the value read, by the field's name, once it is written to the machine (`_saveMachineSettings`). */
+  kept?: true;
 }
 
 /** The fan threshold's register (`fanThreshold`), held to 0 to 50. */
@@ -144,7 +149,7 @@ const FAN: Register = { min: 0, max: 50 };
 const MACHINE_SETTINGS: readonly MachineField[] = [
   // Only the text `enable` turns USB charging on (`json['usb'] == 'enable'`); `GET` reads it back as a boolean.
   { name: "usb", parse: (value) => value === "enable" },
-  { name: "fan", parse: parseInt, register: FAN },
+  { name: "fan", parse: parseInt, register: FAN, kept: true },
   { name: "flushTemp", parse: parseDouble, register: TENTHS },
   { name: "flushFlow", parse: parseDouble, register: TENTHS },
   { name: "flushTimeout", parse: parseDouble, register: TENTHS },
@@ -176,7 +181,7 @@ const ADVANCED_SETTINGS: readonly MachineField[] = [
   { name: "heaterIdleTemp", parse: parseDouble, register: TENTHS },
   { name: "heaterPh2Timeout", parse: parseDouble, register: TENTHS },
   { name: "heaterVoltage", parse: (value) => heaterVoltageFrom(parseInt(value)) },
-  { name: "refillKitSetting", parse: parseInt },
+  { name: "refillKitSetting", parse: parseInt, kept: true },
 ];
 
 /** Where a machine route's writes land, and what it is written with. */
@@ -187,10 +192,23 @@ interface MachineWrite {
   failWrite?: FieldWriteFailure | undefined;
 }
 
-/** What a write did: Decaid's answer, and what the matching `GET` answers from then on, if anything was written. */
+/** What a write did: Decaid's answer, what the matching `GET` answers from then on, if anything was written, and what Decaid keeps for the machine of it. */
 export interface Written {
   answer: SettingsAnswer;
   value?: Json;
+  kept?: KeptMachineSettings;
+}
+
+/**
+ * The fan threshold and refill kit setting Decaid v0.9.1 keeps for a machine:
+ * each as last written through `POST /machine/settings` or
+ * `/machine/settings/advanced`, as read from the request, before the
+ * register holds it (`MachineSettingsStore` in
+ * decaid:lib/src/settings/machine_settings_store.dart).
+ */
+export interface KeptMachineSettings {
+  fan?: number;
+  refillKitSetting?: number;
 }
 
 /**
@@ -242,14 +260,16 @@ function writeFields(write: MachineWrite, fields: readonly MachineField[], refus
   if (!write.machineConnected) return { answer: MACHINE_NOT_CONNECTED };
   if (!isObject(write.current)) throw new Error("The simulated tablet holds no settings for this route to write to");
   const value: Json = { ...write.current };
+  const kept: KeptMachineSettings = {};
   for (const field of fields) {
     if (!(field.name in parsed)) continue;
     const failed = write.failWrite?.(field.name);
-    if (failed) return { answer: failed, value };
+    if (failed) return { answer: failed, value, kept };
     const given = parsed[field.name] as number | boolean;
     value[field.name] = field.register && typeof given === "number" ? registerHolds(field.register, given) : given;
+    if (field.kept && typeof given === "number") kept[field.name as keyof KeptMachineSettings] = given;
   }
-  return { answer: ACCEPTED, value };
+  return { answer: ACCEPTED, value, kept };
 }
 
 /** The sensors a DE1 calibrates (`De1CalibrationTarget`), and whether its calibration is an offset, added, or a ratio, multiplied. */
@@ -593,19 +613,21 @@ function notCast(field: string): never {
 }
 
 /**
- * The machine's settings once it connects to Decaid again: Decaid writes the
- * fan threshold's default, 55, which the register holds as its most, 50
- * (`_setDe1DefaultsFor` in decaid:lib/src/controllers/de1_controller.defaults.dart),
- * and sets the refill kit to auto (`UnifiedDe1.onConnect`). Decaid also
+ * The machine's settings once it connects to Decaid again, given what Decaid
+ * keeps for it (fixtures/decaid/simulated-devices-v0.9.1/): Decaid sets the
+ * refill kit to auto (`UnifiedDe1.onConnect`), then writes the fan threshold
+ * it keeps, or its default, 55, which the register holds as its most, 50,
+ * and the refill kit setting it keeps, if any (`_setDe1DefaultsFor` in
+ * decaid:lib/src/controllers/de1_controller.defaults.dart). Decaid also
  * writes the Workflow's steam, hot water and flush settings back to the
  * machine then, which leaves them as the simulated tablet already holds
  * them after its Workflow writes, so only a test that changed them some
  * other way would see a difference.
  */
-export function reconnected(settings: unknown, advanced: unknown): { settings: unknown; advanced: unknown } {
+export function reconnected(settings: unknown, advanced: unknown, kept: KeptMachineSettings): { settings: unknown; advanced: unknown } {
   return {
-    settings: isObject(settings) ? { ...settings, fan: registerHolds(FAN, 55) } : settings,
-    advanced: isObject(advanced) ? { ...advanced, refillKitSetting: 2 } : advanced,
+    settings: isObject(settings) ? { ...settings, fan: registerHolds(FAN, kept.fan ?? 55) } : settings,
+    advanced: isObject(advanced) ? { ...advanced, refillKitSetting: kept.refillKitSetting ?? 2 } : advanced,
   };
 }
 

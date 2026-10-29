@@ -7,7 +7,7 @@ import { waitForLockWaits } from "./support/lock-waits.js";
 import { type PoolerProxy, startPoolerProxy } from "./support/pooler-proxy.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
 import { derivedSteam } from "./support/steam-fixtures.js";
-import { RawConnection, de1ProOnDecaid090, helloWith, workflowFixture } from "./support/simulated-tablet.js";
+import { RawConnection, de1ProOnDecaid091, helloWith, workflowFixture } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
@@ -151,7 +151,7 @@ describe("Deliveries that cannot be stored", () => {
     it("are set aside whatever was captured: a Steam Record, an edit, a Workflow, a machine state and a collection", async () => {
       const raw = await connect(machine);
       steam = steamDelivery(derivedSteam("nul-steam", { workflow: { ...workflowFixture(), name: "Steam\u0000" } }));
-      const settings = de1ProOnDecaid090()["/machine/settings"] as Record<string, unknown>;
+      const settings = de1ProOnDecaid091()["/machine/settings"] as Record<string, unknown>;
       const { measurements, ...metadata } = shot("after-nul-shot");
       const failing = {
         steam,

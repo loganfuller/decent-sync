@@ -115,9 +115,10 @@ label and unit, its kind (number, whole number, on or off, choice, time of
 day, a time written HH:MM, days of the week, a local date and time, or wake
 schedules), its range and its step or choices, whether none is a value too,
 who may change it (Staff or Admin),
-or what sets it for a read-only field, and its notes: reset when the Machine
-reconnects, put back by Streamline's settings page, or to restart the Machine
-after a change. Labels, units, ranges, steps and choices follow Streamline's
+or what sets it for a read-only field, and its notes: kept by the Tablet, so
+a replacement Tablet or a reset of Decaid's data puts Decaid's default back;
+put back by Streamline's settings page; or to restart the Machine after a
+change. Labels, units, ranges, steps and choices follow Streamline's
 settings page at `cec5664`, and Decaid's own limits where it has none. A ±
 button's increment is no step: Streamline's move the flow multipliers of the
 Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
@@ -482,8 +483,10 @@ memory over its Bluetooth or USB connection (`UnifiedDe1`), fourteen reads
 each time, on the link the scale also uses, which is why the plugin reads them
 less often than the rest. Only the advanced settings' `heaterVoltage` and
 `refillKitSetting` are what Decaid holds rather than reads: the voltage it read
-as the machine connected, and the refill kit setting it last wrote (`auto` as
-the machine connects), each until written through Decaid.
+as the machine connected, and the refill kit setting it last wrote, each until
+written through Decaid. As the machine connects, Decaid writes the refill kit
+setting last written through its API for that Machine, which it keeps, or
+`auto` where none was (ADR-0023).
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
 `flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths),

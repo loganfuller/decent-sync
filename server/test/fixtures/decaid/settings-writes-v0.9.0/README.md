@@ -76,7 +76,11 @@ fresh install. The script, `record.mjs`, ran on the host against the
 container's published port 8080, one request after another:
 `node server/test/fixtures/decaid/settings-writes-v0.9.0/record.mjs <output file>`.
 It waited until `GET /machine/settings` answered 200, then 5 s more for
-Decaid to write its defaults to the machine. The wake schedules' times were
+Decaid to write its defaults to the machine. It now waits 10 ms before each
+request, which a fast host needs to stay under Decaid's limit of 256
+requests a second from one client (`AdmissionGate`); the recording was made
+without that wait. Decaid v0.9.1 answers every step and read the same
+(`../simulated-devices-v0.9.1/README.md`). The wake schedules' times were
 chosen away from the time of the recording, so no keep-awake time was
 running, and `keepAwakeUntil` is null throughout.
 

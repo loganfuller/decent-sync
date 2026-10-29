@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import { derivedShot, withShots } from "../server/test/support/shot-fixtures.js";
-import { SimulatedTablet, de1ProOnDecaid090, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { SimulatedTablet, de1ProOnDecaid091, derivedWorkflow, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, DETAILS_POLL_MS, POLL_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
@@ -20,7 +20,7 @@ test("the Machines list and Machine page show the machine state, last Shot and c
   const { token } = await createMachine(page, "Bar 1");
   const tablet = SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token }),
-    api: withShots(de1ProOnDecaid090(), [derivedShot("bar-shot")]),
+    api: withShots(de1ProOnDecaid091(), [derivedShot("bar-shot")]),
   });
   await tablet.waitForLog(/^Connected to /);
   tablet.reportState("espresso", "pouring");

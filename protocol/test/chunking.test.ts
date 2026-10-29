@@ -34,7 +34,7 @@ const hello: Hello = {
   wireRevision: WIRE_REVISION,
   token: "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s",
   pluginVersion: "0.1.0",
-  decaidVersion: "0.9.0+2977",
+  decaidVersion: "0.9.1+3027",
   tabletId: "0f8e5d34-6c1b-4f0a-9d2e-7b3c4a5f6e81",
 };
 

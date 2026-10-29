@@ -5,7 +5,7 @@ import { HANDLED_DELIVERY_LIMITS } from "../src/sync/handled-deliveries.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { derivedShot, shotFixture } from "./support/shot-fixtures.js";
 import { derivedSteam } from "./support/steam-fixtures.js";
-import { RawConnection, de1ProOnDecaid090, derivedWorkflow, helloWith, workflowFixture } from "./support/simulated-tablet.js";
+import { RawConnection, de1ProOnDecaid091, derivedWorkflow, helloWith, workflowFixture } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #42: deliveries sent again on the connection that first
@@ -69,7 +69,7 @@ describe("Deliveries sent again on one connection", () => {
     const raw = await connect(machine);
     const replayedShot = shot("replayed-shot");
     const steam = derivedSteam("replayed-steam");
-    const settings = de1ProOnDecaid090()["/machine/settings"] as Record<string, unknown>;
+    const settings = de1ProOnDecaid091()["/machine/settings"] as Record<string, unknown>;
 
     // One of each delivery, each later followed by a newer one where there can be one.
     const earliest = {

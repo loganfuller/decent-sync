@@ -19,7 +19,7 @@ import { expectTip } from "./support/tooltips.js";
 // presence settings' form and each wake schedule added, changed and deleted
 // on its own, with the time zone warning and, on a Bengle, the wake window
 // warning (#231). A simulated
-// tablet running the built plugin takes the writes as Decaid v0.9.0 does;
+// tablet running the built plugin takes the writes as Decaid v0.9.1 does;
 // hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
@@ -40,7 +40,7 @@ test("an Admin changes a Machine's fan threshold, shown pending and then applied
   // The fields an Admin may change, with their notes, and the rest in their place, read-only, what sets each in its tooltip.
   const fan = form.getByLabel("Fan threshold (°C)");
   await expect(fan).toHaveValue("50");
-  await expect(form.getByText("Resets when the Machine reconnects. Streamline puts back a value set in its settings page when that page next opens.")).toBeVisible();
+  await expect(form.getByText("The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back. Streamline puts back a value set in its settings page when that page next opens.")).toBeVisible();
   await expect(form.getByRole("combobox", { name: "Steam purge mode" })).toHaveText("Normal");
   const readOnly = form.getByLabel("General, read-only");
   await expect(readOnly.getByRole("term")).toHaveText(["Steam flow", "Hot water flow", "Flush flow", "Flush temperature", "Flush time-out", "Tank temperature", "USB charger"]);
@@ -287,7 +287,7 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await expect(form.getByLabel("Heater test time-out (s)")).toHaveValue("1");
   await expect(form.getByText("Restart the Machine after changing it for the change to take effect.")).toBeVisible();
   await expect(form.getByRole("combobox", { name: "Refill kit" })).toHaveText("Auto-Detect");
-  await expect(form.getByText("Resets when the Machine reconnects. Streamline puts back a value set in its settings page when that page next opens.")).toBeVisible();
+  await expect(form.getByText("The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back. Streamline puts back a value set in its settings page when that page next opens.")).toBeVisible();
   const voltage = form.getByRole("combobox", { name: "Heater voltage" });
   await expect(voltage).toHaveText("110 V");
   await voltage.click();

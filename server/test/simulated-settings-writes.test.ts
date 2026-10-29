@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { type DecaidApi, de1ProOnDecaid090, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
+import { type DecaidApi, de1ProOnDecaid091, derivedDe1Pro, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
 
 // The simulated tablet's settings writes against those recorded on Decaid
 // v0.9.0's Linux release (fixtures/decaid/settings-writes-v0.9.0/): a tablet
@@ -13,7 +13,11 @@ import { type DecaidApi, de1ProOnDecaid090, Refusal, SimulatedTablet } from "./s
 // registers' scales, truncation and bounds, and a write failing part-way, are
 // checked here from Decaid's source, as the README says, and the flow
 // multiplier and pressure calibration against the test DE1Pro's reads
-// (fixtures/decaid/de1pro-v0.9.0/calibration-writes.json).
+// (fixtures/decaid/de1pro-v0.9.0/calibration-writes.json). Decaid v0.9.1
+// answers the recorded steps the same, and keeps the fan threshold and
+// refill kit setting written, writing them again as the machine reconnects,
+// which the reconnects recorded on its Linux release show
+// (fixtures/decaid/simulated-devices-v0.9.1/settings-reconnects.json).
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 interface Exchange {
@@ -28,6 +32,8 @@ interface Step {
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/decaid");
 const readFixture = (file: string, folder = "de1pro-v0.9.0") => JSON.parse(fs.readFileSync(path.join(fixtures, folder, file), "utf8")) as unknown;
 const recorded = readFixture("settings-writes.json", "settings-writes-v0.9.0") as Record<string, Step>;
+/** Decaid v0.9.1's machine settings as its simulated machine was disconnected and connected again, and as Decaid restarted, each step's reads whole. */
+const reconnects = readFixture("settings-reconnects.json", "simulated-devices-v0.9.1") as Record<string, Step>;
 /** The test DE1Pro's calibration writes in #232's supervised run, each with what Decaid read back after it. */
 const calibrationWrites = readFixture("calibration-writes.json") as Record<string, { wanted: number; route: string; sent?: unknown; read: unknown }[]>;
 
@@ -88,7 +94,7 @@ describe("The simulated tablet's settings writes", () => {
 
   it("hold each flow multiplier and pressure calibration the test DE1Pro was written in #232's run as it held it", async () => {
     // The calibrations start as the test DE1Pro's were before the run; each pressure write's correction is from it.
-    const api = { ...de1ProOnDecaid090(), "/machine/calibration": readFixture("machine-calibration.json"), "/machine/calibration/pressure": readFixture("machine-calibration-pressure.json") };
+    const api = { ...de1ProOnDecaid091(), "/machine/calibration": readFixture("machine-calibration.json"), "/machine/calibration/pressure": readFixture("machine-calibration-pressure.json") };
     const tablet = SimulatedTablet.load({ settings: {}, api });
     for (const [target, writes] of Object.entries(calibrationWrites)) {
       for (const { wanted, route, sent, read } of writes) {
@@ -240,13 +246,74 @@ describe("The simulated tablet's settings writes", () => {
     expect((await tablet.callApi("GET", "/presence/settings")).body).toMatchObject({ schedules: [] });
   });
 
-  it("reset the fan threshold to 50 and the refill kit to auto as the machine reconnects", async () => {
+  it("put back the fan threshold and refill kit last written as the machine reconnects, as Decaid v0.9.1 did, and after Decaid restarts", async () => {
+    const started = Object.fromEntries(Object.entries(reconnects.started!.reads).map(([route, read]) => [route, read.body]));
+    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid091(), ...started } });
+    const read = async () => Object.fromEntries(await Promise.all(Object.keys(reconnects.started!.reads).map(async (route) => [route, await tablet.callApi("GET", route)])));
+    for (const [step, { exchanges, reads }] of Object.entries(reconnects)) {
+      // Decaid's machine settings reset (`DELETE /machine/settings/reset`) is nothing the plugin sends: the replay ends before it.
+      if (step === "reset") break;
+      // A restarted Decaid connects the machine again. Its new simulated machine starts with its own values but for
+      // those Decaid writes as it connects, where a DE1 keeps its registers, so only those two are compared.
+      if (step === "restarted") {
+        tablet.machineConnected = false;
+        tablet.connectMachine();
+        const fan = (answer: { body?: unknown }) => (answer.body as { fan: unknown }).fan;
+        const refillKit = (answer: { body?: unknown }) => (answer.body as { refillKitSetting: unknown }).refillKitSetting;
+        const now = await read();
+        expect([fan(now["/machine/settings"]), refillKit(now["/machine/settings/advanced"])], step).toEqual([fan(reads["/machine/settings"]!), refillKit(reads["/machine/settings/advanced"]!)]);
+        continue;
+      }
+      for (const { request, response } of exchanges) {
+        // Disconnecting and connecting Decaid's simulated machine is the tablet's machine going and coming back.
+        if (request.path === "/devices/disconnect") tablet.machineConnected = false;
+        else if (request.path === "/devices/connect") tablet.connectMachine();
+        else expect(await tablet.callApi(request.method, request.path, request.body), step).toEqual(response);
+      }
+      expect(await read(), `the reads after ${step}`).toEqual(reads);
+    }
+  });
+
+  it("keep the fan threshold and refill kit setting written to each machine, by its serial, and a machine never written takes Decaid's defaults as it connects", async () => {
     const tablet = SimulatedTablet.load({ settings: {} });
+    const held = async () => [
+      ((await tablet.callApi("GET", "/machine/settings")).body as { fan: number }).fan,
+      ((await tablet.callApi("GET", "/machine/settings/advanced")).body as { refillKitSetting: number }).refillKitSetting,
+    ];
+    const reconnect = () => {
+      tablet.machineConnected = false;
+      tablet.connectMachine();
+    };
     expect((await tablet.callApi("POST", "/machine/settings", { fan: 30 })).status).toBe(202);
     expect((await tablet.callApi("POST", "/machine/settings/advanced", { refillKitSetting: 0, heaterIdleTemp: 96 })).status).toBe(202);
-    tablet.machineConnected = false;
-    tablet.connectMachine();
-    expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ fan: 50 });
-    expect((await tablet.callApi("GET", "/machine/settings/advanced")).body).toMatchObject({ refillKitSetting: 2, heaterIdleTemp: 96 });
+    reconnect();
+    expect(await held()).toEqual([30, 0]);
+    expect((await tablet.callApi("GET", "/machine/settings/advanced")).body).toMatchObject({ heaterIdleTemp: 96 });
+    // Each is kept on its own, and only once written: a write that fails before the fan threshold leaves the one kept.
+    tablet.failSettingWrites = ({ field }) => (field === "fan" ? { status: 500, body: { error: "TimeoutException: the machine did not answer" } } : undefined);
+    expect((await tablet.callApi("POST", "/machine/settings", { fan: 20 })).status).toBe(500);
+    tablet.failSettingWrites = undefined;
+    expect((await tablet.callApi("POST", "/machine/settings/advanced", { refillKitSetting: 1 })).status).toBe(202);
+    reconnect();
+    expect(await held()).toEqual([30, 1]);
+
+    // Another machine connected to the tablet has none kept, and the first has its own again once it is back.
+    tablet.serve(derivedDe1Pro({ serial: "10002" }));
+    expect((await tablet.callApi("POST", "/machine/settings", { fan: 45 })).status).toBe(202);
+    tablet.serve(derivedDe1Pro({ serial: "10003" }));
+    reconnect();
+    expect(await held()).toEqual([50, 2]);
+    tablet.serve(derivedDe1Pro({ serial: "10002" }));
+    reconnect();
+    expect(await held()).toEqual([45, 2]);
+    tablet.serve(de1ProOnDecaid091());
+    reconnect();
+    expect(await held()).toEqual([30, 1]);
+
+    // A replacement tablet keeps none.
+    const replacement = SimulatedTablet.load({ settings: {} });
+    replacement.machineConnected = false;
+    replacement.connectMachine();
+    expect(((await replacement.callApi("GET", "/machine/settings")).body as { fan: number }).fan).toBe(50);
   });
 });
