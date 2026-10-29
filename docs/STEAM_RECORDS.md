@@ -232,8 +232,8 @@ durations and a Steam Record computed again, through Seam 1.
 
 ## REST API
 
-All endpoints require a signed-in account, Admin or Staff; Staff read every
-Steam Record an Admin does.
+All endpoints require a signed-in account, Admin, Staff or Viewer; Staff and
+Viewers read every Steam Record an Admin does.
 
 - `GET /api/steam-records?limit=20&offset=0` returns
   `{ steamRecords, total, limit, offset }`. Limit is 1–100; offset is

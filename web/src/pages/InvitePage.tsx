@@ -116,5 +116,6 @@ export function InvitePage() {
 /** Who the invite makes its account. */
 function describeInvite(invite: Invite): string {
   if (invite.role === "admin") return "You are invited as an Admin, who can change everything on this server.";
+  if (invite.role === "viewer") return "You are invited as a Viewer, who can see everything Staff see but change nothing.";
   return `You are invited as Staff at ${LIST.format(invite.locations.map((location) => location.name))}.`;
 }

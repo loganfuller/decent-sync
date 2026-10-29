@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type AccountWithLocations, databaseNow, refuseUnknownLocations, withStaffLocations } from "./accounts.service.js";
+import { type AccountWithLocations, type RoleView, databaseNow, refuseUnknownLocations, viewRole, withStaffLocations } from "./accounts.service.js";
 import { type Acceptance, type NewInvite, inviteNotFound } from "./input.js";
 import { PasswordChecks } from "./password-checks.js";
 import { hashPassword } from "./passwords.js";
@@ -17,8 +17,8 @@ export interface InviteView {
   id: string;
   /** The email its account will sign in with. */
   email: string;
-  role: "admin" | "staff";
-  /** The Locations a Staff member will work at, by name; none for an Admin, who sees every Location. */
+  role: RoleView;
+  /** The Locations a Staff member will work at, by name; none for an Admin, who sees every Location, or a Viewer. */
   locations: LocationView[];
   createdAt: string;
   expiresAt: string;
@@ -33,7 +33,7 @@ function viewInvite(invite: ListedInvite): InviteView {
   return {
     id: invite.id,
     email: invite.email,
-    role: invite.role === "ADMIN" ? "admin" : "staff",
+    role: viewRole(invite.role),
     locations: invite.locations.map(({ location }) => viewLocation(location)),
     createdAt: invite.createdAt.toISOString(),
     expiresAt: invite.expiresAt.toISOString(),

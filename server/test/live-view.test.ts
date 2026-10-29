@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { type RelayedLiveFrame, nameMachineState } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, acceptInvite } from "./support/admin-api.js";
 import { bengleSteam, machineDisconnects, machineSnapshots, milkProbeListing, openingFrames, openingSocketFrames, socketFrames, stateOf } from "./support/live-fixtures.js";
 import { type LiveViewStream, openLiveView, sourcesAndFrames } from "./support/live-views.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
@@ -557,15 +557,18 @@ describe("the Live View", () => {
     }
   });
 
-  it("lets Staff watch any Machine, wherever they work", async () => {
+  it("lets Staff watch any Machine, wherever they work, and Viewers too", async () => {
     const theirs = await api.createLocation("Live View, Staff's own", "America/Toronto");
     const elsewhere = await api.createLocation("Live View elsewhere", "America/Toronto");
     const staff = await api.staffAt("live-view-staff@example.com", theirs);
+    const { link } = await api.invite("live-view-viewer@example.com", "viewer");
+    const viewer = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Viewer", password: "viewer password 1" }));
     const machine = await api.createMachine("Staff's view", elsewhere.id);
     const tablet = syncingTablet(machine, server, { api: emptyLibrary(serial++) });
     await api.waitForOnline(machine);
-    const stream = await watching(machine, tablet, staff);
+    const streams = [await watching(machine, tablet, staff), await openLiveView(viewer, machine.machine.id)];
+    expect(streams[1]!.status).toBe(200);
     const sent = tablet.reportSnapshot(idle[0]!);
-    await expect.poll(() => carrying(stream, [sent]).length).toBe(1);
+    for (const stream of streams) await expect.poll(() => carrying(stream, [sent]).length).toBe(1);
   });
 });

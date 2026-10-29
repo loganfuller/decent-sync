@@ -11,7 +11,7 @@ import {
   setupClosed,
   viewAccount,
 } from "./accounts.service.js";
-import { AllowStaff, CurrentSession, Public } from "./guards.js";
+import { AllowStaff, AllowViewer, CurrentSession, Public } from "./guards.js";
 import {
   readAcceptance,
   readAccess,
@@ -82,6 +82,7 @@ export class SessionController {
 
   /** Signs out: ends the session on the server, not only in the browser. */
   @AllowStaff()
+  @AllowViewer()
   @Delete()
   @HttpCode(204)
   async signOut(@CurrentSession() { sessionId }: SignedIn, @Res({ passthrough: true }) response: Response): Promise<void> {

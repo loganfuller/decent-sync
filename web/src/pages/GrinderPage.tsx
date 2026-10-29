@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
@@ -36,6 +37,7 @@ export function GrinderPage() {
 }
 
 function GrinderDetails({ id }: { id: string }) {
+  const mayChange = useMayChange();
   const [grinder, setGrinder] = useState<Grinder>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -95,10 +97,12 @@ function GrinderDetails({ id }: { id: string }) {
         </h1>
         <p className="text-muted-foreground">{grinderLocationText(grinder)}</p>
       </div>
-      <div className="flex flex-wrap items-start gap-2">
-        <ArchiveButton path={`/grinders/${id}`} name={grinderName(grinder)} archived={grinder.archived} onDone={changed} />
-        <DeleteButton path={`/grinders/${id}`} name={grinderName(grinder)} back="/library/grinders" />
-      </div>
+      {mayChange && (
+        <div className="flex flex-wrap items-start gap-2">
+          <ArchiveButton path={`/grinders/${id}`} name={grinderName(grinder)} archived={grinder.archived} onDone={changed} />
+          <DeleteButton path={`/grinders/${id}`} name={grinderName(grinder)} back="/library/grinders" />
+        </div>
+      )}
 
       <ItemConflictsCard kind="grinder" id={id} onResolved={changed} />
 
@@ -127,7 +131,8 @@ function GrinderDetails({ id }: { id: string }) {
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when it no longer works at the Grinder's Location. */}
+            {editing && mayChangeAt(grinder.location?.id ?? null) ? (
               <ContentForm
                 label="Edit the Grinder"
                 fields={GRINDER_FIELDS}

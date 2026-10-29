@@ -1,5 +1,6 @@
 import { type ReactNode, useCallback, useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
@@ -81,6 +82,7 @@ const FILTERS = { search: "q", location: "shownAt", status: "status" } as const;
  * Each joins the Library from a tablet, or is created here.
  */
 export function EquipmentList({ kind, title, description }: { kind: EquipmentKind; title: string; description: ReactNode }) {
+  const mayChange = useMayChange();
   const { api: apiPath, pages } = LIBRARY_KINDS[kind];
   const plural = kind === "basket" ? "baskets" : "tools";
   const load = useCallback(async () => (await api<Record<string, EquipmentSummary[]>>("GET", apiPath))[plural] ?? [], [apiPath, plural]);
@@ -114,9 +116,11 @@ export function EquipmentList({ kind, title, description }: { kind: EquipmentKin
           <p>{description}</p>
         </PageTitleWithInfo>
         <LibraryNav />
-        <div className="mt-2">
-          <NewEquipmentDialog kind={kind} />
-        </div>
+        {mayChange && (
+          <div className="mt-2">
+            <NewEquipmentDialog kind={kind} />
+          </div>
+        )}
       </div>
 
       <div role="search" aria-label={`Filter ${title}`} className="flex flex-wrap items-end gap-3">
@@ -252,6 +256,7 @@ export function EquipmentList({ kind, title, description }: { kind: EquipmentKin
  * working there; its open Conflicts; and its history.
  */
 export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string }) {
+  const mayChange = useMayChange();
   const { name, api: apiPath, pages } = LIBRARY_KINDS[kind];
   const [item, setItem] = useState<Equipment>();
   const [notFound, setNotFound] = useState(false);
@@ -315,10 +320,12 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
           {item.archived ? "Shown nowhere while Archived" : item.shownAt.length === 0 ? "Shown nowhere" : `Shown at ${shownAtText(item)}`}
         </p>
       </div>
-      <div className="flex flex-wrap items-start gap-2">
-        <ArchiveButton path={path} name={title} archived={item.archived} effect="removed from every tablet's DYE2 list" onDone={changed} />
-        <DeleteButton path={path} name={title} back={pages} deletable={`a ${name} no Shot or Recipe names`} />
-      </div>
+      {mayChange && (
+        <div className="flex flex-wrap items-start gap-2">
+          <ArchiveButton path={path} name={title} archived={item.archived} effect="removed from every tablet's DYE2 list" onDone={changed} />
+          <DeleteButton path={path} name={title} back={pages} deletable={`a ${name} no Shot or Recipe names`} />
+        </div>
+      )}
 
       <ItemConflictsCard kind={kind} id={id} onResolved={changed} />
 
@@ -338,7 +345,8 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+            {editing && mayChange ? (
               <ContentForm
                 label={`Edit the ${name}`}
                 fields={kind === "basket" ? BASKET_FIELDS : TOOL_FIELDS}
@@ -374,11 +382,13 @@ export function EquipmentDetails({ kind, id }: { kind: EquipmentKind; id: string
                     </Field>
                   )}
                 </Fields>
-                <div>
-                  <Button variant="outline" aria-label={`Edit the ${name}`} onClick={() => setEditing(true)}>
-                    Edit
-                  </Button>
-                </div>
+                {mayChange && (
+                  <div>
+                    <Button variant="outline" aria-label={`Edit the ${name}`} onClick={() => setEditing(true)}>
+                      Edit
+                    </Button>
+                  </div>
+                )}
               </>
             )}
           </CardContent>
