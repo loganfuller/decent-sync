@@ -403,8 +403,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   });
 
   it("takes a Recipe out of its slot as DYE2's editor hides it from the strip, as it holds no slot hidden", async () => {
-    const { tablet, brazil } = await lab("Editor hide", 47301);
+    const { tablet, brazil, quiet } = await lab("Editor hide", 47301);
     expect((await recipe(brazil)).slot).toBe(2);
+    // Once the server's first writes of the recording's records are done: the plugin posts DYE2's list whole, so one read
+    // before the editor's save and posted after it would put the recipe back.
+    await quiet();
     const { saved } = await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).set({ showOnStreamlineDashboard: false }).save();
     expect([saved.stripSlot, saved.showOnStreamlineDashboard]).toEqual([null, false]);
     await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBeNull();
