@@ -1,6 +1,6 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
-import { useAuth } from "@/auth";
+import { useAuth, useMayChange } from "@/auth";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -184,6 +184,7 @@ export function ConflictsTable({
   onResolved(): Promise<void> | void;
   names?: ReadonlyMap<string, string>;
 }) {
+  const mayChange = useMayChange();
   const [busy, setBusy] = useState<string>();
   const [error, setError] = useState<string>();
 
@@ -216,9 +217,11 @@ export function ConflictsTable({
             <TableHead>Losing value</TableHead>
             <TableHead>Value now</TableHead>
             <TableHead>Became a Conflict</TableHead>
-            <TableHead>
-              <span className="sr-only">Actions</span>
-            </TableHead>
+            {mayChange && (
+              <TableHead>
+                <span className="sr-only">Actions</span>
+              </TableHead>
+            )}
           </TableRow>
         </TableHeader>
         <TableBody>
@@ -250,41 +253,43 @@ export function ConflictsTable({
                   />
                 </TableCell>
                 <TableCell>{formatTime(conflict.createdAt)}</TableCell>
-                <TableCell>
-                  <div className="flex justify-end gap-2">
-                    <ConfirmButton
-                      label="Use this value"
-                      ariaLabel={`Use the losing value of ${field}${showItem ? ` of ${itemName}` : ""}`}
-                      ariaDescribedBy={conflict.resolvable ? undefined : refusedId}
-                      title="Use this value?"
-                      description={
-                        <>
-                          {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
-                          that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
-                          {conflict.item.kind === "recipe" &&
-                            " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
-                        </>
-                      }
-                      confirmLabel="Use this value"
-                      disabled={!conflict.resolvable || busy !== undefined}
-                      onConfirm={() => void resolve(conflict, "use")}
-                    />
-                    <Button
-                      variant="outline"
-                      aria-label={`Dismiss the Conflict about ${field}${showItem ? ` of ${itemName}` : ""}`}
-                      aria-describedby={conflict.resolvable ? undefined : refusedId}
-                      disabled={!conflict.resolvable || busy !== undefined}
-                      onClick={() => void resolve(conflict, "dismiss")}
-                    >
-                      Dismiss
-                    </Button>
-                  </div>
-                  {!conflict.resolvable && (
-                    <p id={refusedId} className="mt-1 max-w-56 text-right text-xs text-muted-foreground whitespace-normal">
-                      Staff resolve this only at {conflict.location?.name ?? "the Grinder's Location"}.
-                    </p>
-                  )}
-                </TableCell>
+                {mayChange && (
+                  <TableCell>
+                    <div className="flex justify-end gap-2">
+                      <ConfirmButton
+                        label="Use this value"
+                        ariaLabel={`Use the losing value of ${field}${showItem ? ` of ${itemName}` : ""}`}
+                        ariaDescribedBy={conflict.resolvable ? undefined : refusedId}
+                        title="Use this value?"
+                        description={
+                          <>
+                            {field} of {itemName} becomes {valueText(conflict.field, conflict.value, names)}, an edit made here, written to every tablet
+                            that holds it. {valueText(conflict.field, conflict.current.value, names)}, its value now, stays in its history.
+                            {conflict.item.kind === "recipe" &&
+                              " A Bean Batch, Profile, Basket or Tool it names that the Recipe's Location does not offer is offered there too."}
+                          </>
+                        }
+                        confirmLabel="Use this value"
+                        disabled={!conflict.resolvable || busy !== undefined}
+                        onConfirm={() => void resolve(conflict, "use")}
+                      />
+                      <Button
+                        variant="outline"
+                        aria-label={`Dismiss the Conflict about ${field}${showItem ? ` of ${itemName}` : ""}`}
+                        aria-describedby={conflict.resolvable ? undefined : refusedId}
+                        disabled={!conflict.resolvable || busy !== undefined}
+                        onClick={() => void resolve(conflict, "dismiss")}
+                      >
+                        Dismiss
+                      </Button>
+                    </div>
+                    {!conflict.resolvable && (
+                      <p id={refusedId} className="mt-1 max-w-56 text-right text-xs text-muted-foreground whitespace-normal">
+                        Staff resolve this only at {conflict.location?.name ?? "the Grinder's Location"}.
+                      </p>
+                    )}
+                  </TableCell>
+                )}
               </TableRow>
             );
           })}

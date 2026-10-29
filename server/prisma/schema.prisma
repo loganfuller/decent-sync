@@ -20,9 +20,11 @@ datasource db {
 // is now() under a name Prisma leaves to the database: it reads now() and
 // CURRENT_TIMESTAMP back as its own now(). @updatedAt is still the instance's.
 
+/// A Viewer sees what Staff see and changes nothing (SessionGuard).
 enum AccountRole {
   ADMIN
   STAFF
+  VIEWER
 
   @@map("account_role")
 }

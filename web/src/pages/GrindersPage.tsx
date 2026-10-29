@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { Link } from "react-router";
+import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
 import { GrinderBadges, grinderLocationText, grinderName } from "@/components/grinders";
 import { PageTitleWithInfo } from "@/components/info-tip";
@@ -11,6 +12,7 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** The Library's Grinders and the Location each belongs to. Grinders join the Library from tablets, or are created here at a Location. */
 export function GrindersPage() {
+  const mayChange = useMayChange();
   const load = useCallback(async () => (await api<{ grinders: GrinderSummary[] }>("GET", "/grinders")).grinders, []);
   const { data: grinders, error } = usePolled(load, DETAILS_POLL_MS);
 
@@ -24,9 +26,11 @@ export function GrindersPage() {
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
-        <div className="mt-2">
-          <NewGrinderDialog />
-        </div>
+        {mayChange && (
+          <div className="mt-2">
+            <NewGrinderDialog />
+          </div>
+        )}
       </div>
 
       {error && (

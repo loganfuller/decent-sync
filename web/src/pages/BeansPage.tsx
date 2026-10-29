@@ -1,5 +1,6 @@
 import { useCallback } from "react";
 import { Link } from "react-router";
+import { useMayChange } from "@/auth";
 import { LibraryNav } from "@/components/bean-batches";
 import { BeanBadges, beanName, offeredAtText } from "@/components/beans";
 import { PageTitleWithInfo } from "@/components/info-tip";
@@ -11,6 +12,7 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** The Library's Beans and where each is offered. Beans join the Library from tablets, or are created here. */
 export function BeansPage() {
+  const mayChange = useMayChange();
   const load = useCallback(async () => (await api<{ beans: BeanSummary[] }>("GET", "/beans")).beans, []);
   const { data: beans, error } = usePolled(load, DETAILS_POLL_MS);
 
@@ -26,9 +28,11 @@ export function BeansPage() {
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
-        <div className="mt-2">
-          <NewBeanDialog />
-        </div>
+        {mayChange && (
+          <div className="mt-2">
+            <NewBeanDialog />
+          </div>
+        )}
       </div>
 
       {error && (

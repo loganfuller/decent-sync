@@ -42,7 +42,7 @@ export function readNewAccount(body: unknown): NewAccount {
 /** What an account may do: its role and, for Staff, the Locations they work at. */
 export interface Access {
   role: AccountRole;
-  /** The Locations a Staff member works at; none for an Admin, who may change anything anywhere. */
+  /** The Locations a Staff member works at; none for an Admin, who may change anything anywhere, or a Viewer, who changes nothing. */
   locationIds: string[];
 }
 
@@ -69,8 +69,9 @@ export function readAccess(body: unknown): Access {
 }
 
 function readRole(fields: Record<string, unknown>, problems: string[]): Access {
-  const role = fields.role === "admin" ? AccountRole.ADMIN : fields.role === "staff" ? AccountRole.STAFF : undefined;
-  if (!role) problems.push("Choose Admin or Staff");
+  const role =
+    fields.role === "admin" ? AccountRole.ADMIN : fields.role === "staff" ? AccountRole.STAFF : fields.role === "viewer" ? AccountRole.VIEWER : undefined;
+  if (!role) problems.push("Choose Admin, Staff or Viewer");
   let locationIds: string[] = [];
   if (role === AccountRole.STAFF) {
     const chosen = Array.isArray(fields.locationIds) ? fields.locationIds : [];

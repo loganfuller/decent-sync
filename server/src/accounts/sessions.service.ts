@@ -6,7 +6,7 @@ import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
 import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
 import { accountDeactivated } from "./accounts.service.js";
-import { EVERYTHING, type Scope } from "./scope.js";
+import { EVERYTHING, NOTHING, type Scope } from "./scope.js";
 
 const COOKIE_NAME = "decent_sync_session";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -127,7 +127,9 @@ export class SessionsService {
     const scope: Scope =
       account.role === AccountRole.ADMIN
         ? EVERYTHING
-        : { kind: "locations", locationIds: locations.map((location) => location.locationId) };
+        : account.role === AccountRole.VIEWER
+          ? NOTHING
+          : { kind: "locations", locationIds: locations.map((location) => location.locationId) };
     return { account, sessionId: session.id, scope };
   }
 

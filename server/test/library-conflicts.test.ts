@@ -1,7 +1,7 @@
 import { setTimeout as delay } from "node:timers/promises";
 import { globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { syncingTablet, emptyLibrary, localTime } from "./support/loaded-tablets.js";
 import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -196,7 +196,13 @@ describe("Resolving Conflicts", () => {
     const before = await beanHistory(id);
     const elsewhere = await api.createLocation("Dismissed elsewhere", "America/Chicago");
     const staff = await api.staffAt("dismissing@example.com", elsewhere);
-    expect((await openConflicts(staff)).find((open) => open.id === conflict.id)).toMatchObject({ resolvable: true });
+    const staffSees = (await openConflicts(staff)).find((open) => open.id === conflict.id);
+    expect(staffSees).toMatchObject({ resolvable: true });
+    // A Viewer sees it as Staff do, but resolves nothing.
+    const { link } = await api.invite("viewing-conflicts@example.com", "viewer");
+    const viewer = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Viewer", password: "viewer password 1" }));
+    expect((await openConflicts(viewer)).find((open) => open.id === conflict.id)).toEqual({ ...staffSees, resolvable: false });
+    expect((await viewer.call("POST", `/conflicts/${conflict.id}/dismiss`)).status).toBe(403);
 
     const response = await staff.call("POST", `/conflicts/${conflict.id}/dismiss`);
     expect(response.status).toBe(200);

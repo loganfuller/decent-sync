@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { BatchBadges, batchName, roastDateText } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
@@ -36,6 +37,7 @@ export function BeanBatchPage() {
 }
 
 function BeanBatchDetails({ id }: { id: string }) {
+  const mayChange = useMayChange();
   const [batch, setBatch] = useState<BeanBatch>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -100,10 +102,12 @@ function BeanBatchDetails({ id }: { id: string }) {
           {batch.bean.roaster && `, by ${batch.bean.roaster}`}
         </p>
       </div>
-      <div className="flex flex-wrap items-start gap-2">
-        <ArchiveButton path={`/bean-batches/${id}`} name={batchName(batch)} archived={batch.archived} onDone={changed} />
-        <DeleteButton path={`/bean-batches/${id}`} name={batchName(batch)} back="/library/bean-batches" />
-      </div>
+      {mayChange && (
+        <div className="flex flex-wrap items-start gap-2">
+          <ArchiveButton path={`/bean-batches/${id}`} name={batchName(batch)} archived={batch.archived} onDone={changed} />
+          <DeleteButton path={`/bean-batches/${id}`} name={batchName(batch)} back="/library/bean-batches" />
+        </div>
+      )}
 
       <ItemConflictsCard kind="beanBatch" id={id} onResolved={changed} />
 
@@ -117,7 +121,8 @@ function BeanBatchDetails({ id }: { id: string }) {
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">
-            {editing ? (
+            {/* Closed if the account may no longer save it, as when an Admin made it a Viewer meanwhile. */}
+            {editing && mayChange ? (
               <ContentForm
                 label="Edit the roast"
                 fields={BATCH_FIELDS}
@@ -141,11 +146,13 @@ function BeanBatchDetails({ id }: { id: string }) {
                 </Field>
               ))}
             </Fields>
-            <div>
-              <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
-                Edit
-              </Button>
-            </div>
+            {mayChange && (
+              <div>
+                <Button variant="outline" aria-label="Edit the roast" onClick={() => setEditing(true)}>
+                  Edit
+                </Button>
+              </div>
+            )}
             </>
             )}
           </CardContent>

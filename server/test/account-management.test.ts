@@ -163,7 +163,7 @@ describe("account management", () => {
 
   it("refuses an incomplete change, or one to an account that does not exist, naming each problem", async () => {
     const path = `/accounts/${sam.id}/access`;
-    expect(await refusal(await api.call("PUT", path, {}), 400)).toEqual(["Choose Admin or Staff"]);
+    expect(await refusal(await api.call("PUT", path, {}), 400)).toEqual(["Choose Admin, Staff or Viewer"]);
     expect(await refusal(await api.call("PUT", path, { role: "staff", locationIds: [] }), 400)).toEqual([
       "Choose the Locations a Staff member works at",
     ]);

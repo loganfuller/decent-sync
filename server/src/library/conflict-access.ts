@@ -11,13 +11,14 @@ export interface ConflictScope {
 
 /**
  * Whether an account may use a Conflict's value or dismiss it: one about an
- * item it can edit. An Admin can edit everything. Staff edit the Library's
- * shared content anywhere, and Archive and restore items, which a Grinder's
- * `archived` is; but what a Location offers only at their own Locations: a
- * Location's state of an item, and an item that belongs to one Location, as
- * a Grinder does.
+ * item it can edit. An Admin can edit everything, and a Viewer nothing.
+ * Staff edit the Library's shared content anywhere, and Archive and restore
+ * items, which a Grinder's `archived` is; but what a Location offers only at
+ * their own Locations: a Location's state of an item, and an item that
+ * belongs to one Location, as a Grinder does.
  */
 export function mayResolve(scope: Scope, conflict: ConflictScope): boolean {
+  if (scope.kind === "nothing") return false;
   if (conflict.locationId !== null) return includesLocation(scope, conflict.locationId);
   if (conflict.itemLocationId !== undefined && conflict.field !== "archived") return includesLocation(scope, conflict.itemLocationId);
   return true;

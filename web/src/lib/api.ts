@@ -59,12 +59,21 @@ function errorMessage(data: unknown): string | undefined {
   return typeof message === "string" ? message : undefined;
 }
 
+/**
+ * An Admin changes everything, Staff the Library's shared content anywhere and more at their Locations, and a Viewer
+ * sees what Staff see and changes nothing.
+ */
+export type Role = "admin" | "staff" | "viewer";
+
 export interface Account {
   id: string;
   email: string;
   name: string;
-  role: "admin" | "staff";
-  /** The Locations a Staff member works at, where they may move Machines; none for an Admin, who may change anything anywhere. */
+  role: Role;
+  /**
+   * The Locations a Staff member works at, where they may move Machines; none for an Admin, who may change anything
+   * anywhere, or a Viewer, who changes nothing.
+   */
   locations: Location[];
 }
 
@@ -88,13 +97,13 @@ export interface PasswordReset {
   expiresAt: string;
 }
 
-/** An invite: a one-time link that creates an account, as an Admin or as Staff at chosen Locations. */
+/** An invite: a one-time link that creates an account, as an Admin, as Staff at chosen Locations, or as a Viewer. */
 export interface Invite {
   id: string;
   /** The email its account will sign in with. */
   email: string;
-  role: "admin" | "staff";
-  /** The Locations a Staff member will work at; none for an Admin, who sees every Location. */
+  role: Role;
+  /** The Locations a Staff member will work at; none for an Admin, who sees every Location, or a Viewer. */
   locations: Location[];
   createdAt: string;
   expiresAt: string;

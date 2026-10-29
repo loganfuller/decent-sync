@@ -23,7 +23,7 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, type CreatedInvite, type Invite, type IssuedPasswordReset, type ManagedAccount } from "@/lib/api";
+import { api, type CreatedInvite, type Invite, type IssuedPasswordReset, type ManagedAccount, type Role } from "@/lib/api";
 
 const LIST = new Intl.ListFormat(undefined, { type: "conjunction" });
 
@@ -69,7 +69,7 @@ export function AccountsPage() {
     } catch (error) {
       setActionError(error instanceof Error ? error.message : "Something went wrong");
     }
-    // A change to the signed-in account may sign them out, or leave them Staff, who cannot see this page.
+    // A change to the signed-in account may sign them out, or leave them Staff or a Viewer, who cannot see this page.
     if (accountId !== undefined && accountId === me) await refresh();
     await reload();
   }
@@ -126,7 +126,7 @@ export function AccountsPage() {
             <p>
               Admins can change everything on this server. Staff can see everything except other people's accounts. They can
               edit the Library's shared content anywhere, and at the Locations they work at, move Machines, change what is
-              offered there, manage Recipes and record stock.
+              offered there, manage Recipes and record stock. Viewers can see everything Staff see, and change nothing.
             </p>
           </CardTitleWithInfo>
         </CardHeader>
@@ -143,11 +143,11 @@ export function AccountsPage() {
   );
 }
 
-type Role = ManagedAccount["role"];
-
-/** Who an account or invite is for: "an Admin", or Staff at the Locations they work at. */
+/** Who an account or invite is for: an Admin, Staff at the Locations they work at, or a Viewer. */
 function describeRole({ role, locations }: { role: Role; locations: { name: string }[] }): string {
-  return role === "admin" ? "Admin" : `Staff at ${LIST.format(locations.map((location) => location.name))}`;
+  if (role === "admin") return "Admin";
+  if (role === "viewer") return "Viewer";
+  return `Staff at ${LIST.format(locations.map((location) => location.name))}`;
 }
 
 function AccountTable({
@@ -344,6 +344,7 @@ function AccessFields({
           <SelectContent>
             <SelectItem value="staff">Staff</SelectItem>
             <SelectItem value="admin">Admin</SelectItem>
+            <SelectItem value="viewer">Viewer</SelectItem>
           </SelectContent>
         </Select>
       </div>
@@ -477,7 +478,7 @@ function InviteForm({ onCreated }: { onCreated(created: CreatedInvite): void }) 
  */
 function InviteLinkNotice({ created, onDone }: { created: CreatedInvite; onDone(): void }) {
   const { invite, link } = created;
-  const as = invite.role === "admin" ? "an Admin" : describeRole(invite);
+  const as = invite.role === "admin" ? "an Admin" : invite.role === "viewer" ? "a Viewer" : describeRole(invite);
 
   return (
     <LinkNotice

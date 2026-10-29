@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router";
+import { useMayChange } from "@/auth";
 import { ItemConflictsCard, ItemHistoryCard } from "@/components/conflicts";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -20,6 +21,7 @@ export function ProfilePage() {
 }
 
 function ProfileDetails({ id }: { id: string }) {
+  const mayChange = useMayChange();
   const [profile, setProfile] = useState<Profile>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -80,10 +82,12 @@ function ProfileDetails({ id }: { id: string }) {
         </h1>
         <p className="font-mono text-sm text-muted-foreground">{profile.id}</p>
       </div>
-      <div className="flex flex-wrap items-start gap-2">
-        <ArchiveButton path={path} name={profileTitle(profile)} archived={profile.archived} effect="hidden on every tablet that holds it" onDone={changed} />
-        {!profile.bundled && <DeleteButton path={path} name={profileTitle(profile)} back="/library/profiles" />}
-      </div>
+      {mayChange && (
+        <div className="flex flex-wrap items-start gap-2">
+          <ArchiveButton path={path} name={profileTitle(profile)} archived={profile.archived} effect="hidden on every tablet that holds it" onDone={changed} />
+          {!profile.bundled && <DeleteButton path={path} name={profileTitle(profile)} back="/library/profiles" />}
+        </div>
+      )}
 
       <ItemConflictsCard kind="profile" id={id} onResolved={changed} />
 

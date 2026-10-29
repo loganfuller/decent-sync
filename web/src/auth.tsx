@@ -171,7 +171,18 @@ export function useIsAdmin(): boolean {
   return state.status === "signed-in" && state.account.role === "admin";
 }
 
-/** The ids of the Locations a signed-in Staff member works at; none for an Admin or while signed out. */
+/**
+ * Whether the signed-in account may change anything: an Admin or Staff, but
+ * not a Viewer, who sees what Staff see and changes nothing. Pages leave out
+ * every control that changes something for a Viewer, the ones Staff use
+ * anywhere included, but none of the states they show.
+ */
+export function useMayChange(): boolean {
+  const { state } = useAuth();
+  return state.status === "signed-in" && state.account.role !== "viewer";
+}
+
+/** The ids of the Locations a signed-in Staff member works at; none for an Admin, a Viewer or while signed out. */
 export function useStaffLocationIds(): Set<string> {
   const { state } = useAuth();
   const locations = state.status === "signed-in" ? state.account.locations : [];

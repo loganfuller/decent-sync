@@ -7,13 +7,25 @@ import { PasswordChecks, TooManyRequests } from "./password-checks.js";
 import { hashPassword, verifyAgainstDummy, verifyPassword } from "./passwords.js";
 import { SignInLimiter } from "./sign-in-limiter.js";
 
+/** A role as the REST API gives it. */
+export type RoleView = "admin" | "staff" | "viewer";
+
+const ROLE_VIEWS = { ADMIN: "admin", STAFF: "staff", VIEWER: "viewer" } as const satisfies Record<AccountRole, RoleView>;
+
+export function viewRole(role: AccountRole): RoleView {
+  return ROLE_VIEWS[role];
+}
+
 /** An account as the REST API returns it. */
 export interface AccountView {
   id: string;
   email: string;
   name: string;
-  role: "admin" | "staff";
-  /** The Locations a Staff member works at, by name; none for an Admin, who may change anything anywhere. */
+  role: RoleView;
+  /**
+   * The Locations a Staff member works at, by name; none for an Admin, who may change anything anywhere, or a Viewer,
+   * who changes nothing.
+   */
   locations: LocationView[];
 }
 
@@ -34,7 +46,7 @@ export function viewAccount(account: AccountWithLocations): AccountView {
     id: account.id,
     email: account.email,
     name: account.name,
-    role: account.role === "ADMIN" ? "admin" : "staff",
+    role: viewRole(account.role),
     locations: account.locations.map(({ location }) => viewLocation(location)),
   };
 }

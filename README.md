@@ -174,8 +174,9 @@ docker compose up -d
 The management interface is then at `PUBLIC_URL`. The first person to open it
 creates the first Admin account; after that, setup is closed and everyone
 signs in. Open it yourself before sharing the address. To bring others in, an
-Admin creates an invite under Accounts, as an Admin or as Staff at chosen
-Locations, and sends its one-time link themselves: the server sends no email.
+Admin creates an invite under Accounts, as an Admin, as Staff at chosen
+Locations, or as a Viewer, who sees everything Staff see and changes nothing,
+and sends its one-time link themselves: the server sends no email.
 The link expires after 7 days. Accounts is also where an Admin changes
 someone's role, deactivates an account, and resets a forgotten password by
 issuing a one-time link that expires after a day. Use `PUBLIC_URL` or the

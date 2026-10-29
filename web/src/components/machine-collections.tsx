@@ -3,6 +3,7 @@ import { type ReactNode, useState } from "react";
 import { useIsAdmin } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
+import { useMayChangeAt } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { SettingsEditStatus, SettingsForm, editBlocked, useOfferedFields } from "@/components/settings-edits";
 import { Button } from "@/components/ui/button";
@@ -229,6 +230,8 @@ function SettingsSection({
   const offered = offeredFields.filter((field) => field.kind !== "wakeSchedules");
   const schedulesOffered = offeredFields.some((field) => field.kind === "wakeSchedules");
   const isAdmin = useIsAdmin();
+  // An open form closes once the account may no longer change the Machine's settings, as when it became a Viewer.
+  const mayChangeHere = useMayChangeAt()(machine.location?.id ?? null);
   const utcOffsetMinutes = collection?.utcOffsetMinutes ?? null;
   const rows = collection ? settingRows(name, collection.value, utcOffsetMinutes) : [];
   const value = collection && isObject(collection.value) ? collection.value : undefined;
@@ -256,7 +259,7 @@ function SettingsSection({
       {(offered.length > 0 || schedulesOffered) && blocked && <p className="text-sm text-muted-foreground">{blocked}</p>}
       {!collection?.available && <p className="text-sm text-muted-foreground">{reportText(collection)}</p>}
       {edit && <SettingsEditStatus key={edit.id} machineId={machine.id} edit={edit} utcOffsetMinutes={utcOffsetMinutes} onAnswered={onReported} />}
-      {editing && collection && isObject(collection.value) ? (
+      {editing && mayChangeHere && collection && isObject(collection.value) ? (
         <SettingsForm
           name={name}
           machine={machine}

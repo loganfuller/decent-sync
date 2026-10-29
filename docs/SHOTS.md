@@ -318,7 +318,7 @@ refresh, and those stay until that Shot's next full record here.
 
 ## REST API
 
-All endpoints require a signed-in account, Admin or Staff.
+All endpoints require a signed-in account: Admin, Staff or Viewer.
 
 - `GET /api/shots?limit=20&offset=0` returns `{ shots, total, limit, offset }`.
   Limit is 1–100; offset is nonnegative. Results are newest pulled-at first,

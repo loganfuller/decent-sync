@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
+import { useMayChange } from "@/auth";
 import { BatchBadges, LibraryNav, atText, batchName } from "@/components/bean-batches";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { NewBatchDialog } from "@/components/library-forms";
@@ -10,6 +11,7 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** The Library's Bean Batches, the Locations each is at and its remaining weight at each. Batches join the Library from tablets, or are created here. */
 export function BeanBatchesPage() {
+  const mayChange = useMayChange();
   const load = useCallback(async () => (await api<{ batches: BeanBatchSummary[] }>("GET", "/bean-batches")).batches, []);
   const { data: batches, error } = usePolled(load, DETAILS_POLL_MS);
   // The Beans a new batch may be of.
@@ -37,9 +39,11 @@ export function BeanBatchesPage() {
           </p>
         </PageTitleWithInfo>
         <LibraryNav />
-        <div className="mt-2">
-          <NewBatchDialog beans={beans} />
-        </div>
+        {mayChange && (
+          <div className="mt-2">
+            <NewBatchDialog beans={beans} />
+          </div>
+        )}
       </div>
 
       {error && (

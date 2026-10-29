@@ -101,7 +101,7 @@ export function LocationsPage() {
         <ul aria-label="Locations" className="grid max-w-xl divide-y rounded-lg border">
           {locations.map((location) => (
             <li key={location.id} className="p-4">
-              {editing === location.id ? (
+              {editing === location.id && isAdmin ? (
                 <LocationForm
                   label={`Edit ${location.name}`}
                   initial={location}

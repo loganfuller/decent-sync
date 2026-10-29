@@ -7,7 +7,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // server maps at startup, read from its log, so a route added later is checked
 // too. Every route requires a signed-in Admin unless marked @Public() or
 // @AllowStaff() (server/src/accounts/guards.ts); these lists name the routes
-// so marked. Files on each feature test what a route does once let through.
+// so marked. A Viewer's are worked out from Staff's: those that read, and
+// signing out. Files on each feature test what a route does once let through.
 
 /** Routes anyone may use, signed in or not. */
 const PUBLIC = [
@@ -117,6 +118,9 @@ const STAFF = [
   "GET /api/steam-records/:id/measurements",
 ];
 
+/** Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, and signing out. */
+const VIEWER = [...STAFF.filter((name) => name.startsWith("GET ")), "DELETE /api/session"];
+
 interface Route {
   method: string;
   path: string;
@@ -126,6 +130,7 @@ interface Route {
 describe("who may use each route", () => {
   let server: TestServer;
   let staff: AdminApi;
+  let viewer: AdminApi;
   let routes: Route[];
 
   beforeAll(async () => {
@@ -134,22 +139,24 @@ describe("who may use each route", () => {
     const lab = await api.createLocation("Lab", "UTC");
     const { link } = await api.invite("sam@example.com", "staff", [lab.id]);
     staff = AdminApi.signedInAs(server.url, await acceptInvite(server.url, link, { name: "Sam Staff", password: "sam's password" }));
+    const { link: viewerLink } = await api.invite("val@example.com", "viewer");
+    viewer = AdminApi.signedInAs(server.url, await acceptInvite(server.url, viewerLink, { name: "Val Viewer", password: "val's password" }));
     routes = [...server.output().matchAll(/Mapped \{(\/\S+), (\w+)\} route/g)].map(([, path, method]) => ({
       method: method!,
       path: path!,
       name: `${method} ${path}`,
     }));
-    // Signing out last, as it ends Sam's session.
+    // Signing out last, as it ends Sam's and Val's sessions.
     routes.sort((a, b) => Number(a.name === "DELETE /api/session") - Number(b.name === "DELETE /api/session"));
   });
   afterAll(async () => {
     await server?.stop();
   });
 
-  /** Calls the route, each parameter filled in with an id nothing has, as Sam or signed out. */
-  async function refusal(route: Route, asStaff: boolean): Promise<{ status: number; message: unknown }> {
+  /** Calls the route, each parameter filled in with an id nothing has, as the account given or signed out. */
+  async function refusal(route: Route, as: AdminApi | undefined): Promise<{ status: number; message: unknown }> {
     const path = route.path.replace(/^\/api/, "").replace(/:\w+/g, () => randomUUID());
-    const response = asStaff ? await staff.call(route.method, path) : await staff.call(route.method, path, undefined, {});
+    const response = as ? await as.call(route.method, path) : await staff.call(route.method, path, undefined, {});
     const body = await response.text();
     return { status: response.status, message: body.startsWith("{") ? (JSON.parse(body) as { message?: unknown }).message : body };
   }
@@ -161,7 +168,7 @@ describe("who may use each route", () => {
 
   it("refuses every route but the public ones to anyone not signed in", async () => {
     for (const route of routes) {
-      const { status, message } = await refusal(route, false);
+      const { status, message } = await refusal(route, undefined);
       if (PUBLIC.includes(route.name)) expect(status, route.name).not.toBe(401);
       else expect({ route: route.name, status, message }).toEqual({ route: route.name, status: 401, message: "Sign in to continue" });
     }
@@ -169,9 +176,17 @@ describe("who may use each route", () => {
 
   it("refuses Staff every route but the public ones and those for Staff", async () => {
     for (const route of routes.filter((route) => !PUBLIC.includes(route.name))) {
-      const { status, message } = await refusal(route, true);
+      const { status, message } = await refusal(route, staff);
       const refused = status === 403 && message === "Only an Admin can do this";
       expect({ route: route.name, refused, status }).toEqual({ route: route.name, refused: !STAFF.includes(route.name), status: expect.any(Number) });
+    }
+  });
+
+  it("refuses a Viewer every route but the public ones and those for Viewers, saying why", async () => {
+    for (const route of routes.filter((route) => !PUBLIC.includes(route.name))) {
+      const { status, message } = await refusal(route, viewer);
+      const why = VIEWER.includes(route.name) ? undefined : STAFF.includes(route.name) ? "A Viewer can't change anything" : "Only an Admin can do this";
+      expect({ route: route.name, refused: status === 403 ? message : undefined }).toEqual({ route: route.name, refused: why });
     }
   });
 });
