@@ -208,9 +208,9 @@ describe("the latest release beside the change", () => {
 
   // Turning steam back on takes the Loaded Recipe's steam temperature in the
   // plugin alone (ADR-0022, #374), so a tablet with the change's plugin keeps
-  // the rule on the latest release's server. One with the latest release's
-  // plugin saves the temperature steam came back at into the Recipe, on
-  // either server, as that release did.
+  // the rule on the latest release's server. One with 1.6.0's plugin saves
+  // the temperature steam came back at into the Recipe, on either server, as
+  // that release did.
   it("turns steam back on at the Loaded Recipe's steam temperature with the change's plugin on the latest release's server, saving nothing of the one it came back at", async () => {
     const api = apis["latest release"];
     const location = await api.createLocation("Steam back on, the change's plugin", "America/Chicago");

@@ -5141,7 +5141,7 @@ var __decentSync = (() => {
           protocolVersion: PROTOCOL_VERSION,
           wireRevision: WIRE_REVISION,
           token: this.settings.token,
-          pluginVersion: "1.6.0",
+          pluginVersion: "1.6.1",
           decaidVersion: identity.decaidVersion,
           tabletId,
           connectionId: identity.connectionId,
@@ -5480,9 +5480,9 @@ var __decentSync = (() => {
     let connection;
     return {
       id: "decent-sync.reaplugin",
-      version: "1.6.0",
+      version: "1.6.1",
       onLoad(settings) {
-        host.log(`Decent Sync ${"1.6.0"} loaded (protocol ${PROTOCOL_VERSION})`);
+        host.log(`Decent Sync ${"1.6.1"} loaded (protocol ${PROTOCOL_VERSION})`);
         const read = readSettings(settings ?? {});
         if (!read.ok) {
           host.log(`Not connecting: ${read.problems.join("; ")}. Enter them in this plugin's settings.`);
