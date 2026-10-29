@@ -122,11 +122,11 @@ A program the machine follows while pulling a shot, such as a pressure or flow c
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Recipe**:
-A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds (a machine loading it keeps its own for the rest). It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
+A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds (a machine loading it keeps its own for the rest). A recipe naming no bean leaves a machine that loads it with no bean batch. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
-One of a location's five numbered positions for a recipe, 1 to 5, each a button of Streamline's DYE strip, shared by every machine at that location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another; one in no slot is kept at its location, where any machine can still load it, until someone puts it in one or archives it.
+One of a location's five numbered positions for a recipe, 1 to 5, each a button of Streamline's DYE strip, shared by every machine at that location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another. It is on the strip exactly while it is in a slot, so taking it off any machine's strip takes it out of its slot at the location. One in no slot is kept at its location, where any machine can still load it, until someone puts it in one or archives it.
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:
