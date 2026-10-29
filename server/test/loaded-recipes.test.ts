@@ -415,19 +415,23 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
   });
 
   it("keeps a Recipe in the slot DYE2's editor put it in while the server's write hiding it, as it left its last slot, waited for the plugin's read", async () => {
-    // At 5x, so that Decaid's 30 s fetch timeout lets the plugin's reads be held for 6 s of real time.
-    const { tablet, brazil, quiet } = await lab("Slot again", 47331, { timeScale: 5 });
+    // At 5x, so that Decaid's 30 s fetch timeout lets the plugin's reads be held for 6 s of real time; polling every hour,
+    // so only DYE2's pushes have the plugin read its recipes.
+    const { tablet, brazil, quiet } = await lab("Slot again", 47331, { timeScale: 5, pollSeconds: 3600 });
     const route = `/store/${DYE2_NAMESPACE}/recipes`;
     expect((await recipe(brazil)).slot).toBe(2);
-    // Tapping its own slot's tab in DYE2's editor takes it out of its slot, still shown, which the plugin's next read reports.
+    await quiet();
+    // Tapping its own slot's tab in DYE2's editor takes it out of its slot, still shown, which the plugin reads at DYE2's
+    // push, held.
     const report = tablet.holdRequests("GET", route);
+    const received = tablet.received.length;
     const { saved } = await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(2).save();
     expect([saved.stripSlot, saved.showOnStreamlineDashboard]).toEqual([null, true]);
+    tablet.pushOnSocket(DYE2_NAMESPACE, "changed", { what: "workflow" });
     await expect.poll(() => report.arrived, { timeout: 15_000 }).toBeGreaterThan(0);
     // The server takes it out of its slot and writes it hidden. Every read of the list from then on is held, so the plugin
     // reads it for that write only after the barista has put the recipe in slot 3.
     const later = tablet.holdRequests("GET", route);
-    const received = tablet.received.length;
     report.release();
     const hiding = () =>
       tablet.received.slice(received).some((frame) => {
@@ -437,6 +441,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await expect.poll(hiding, { timeout: 15_000 }).toBe(true);
     await (await openDye2RecipeEditor(tablet, { id: BRAZIL })).tapSlot(3).save();
     later.release();
+    tablet.pushOnSocket(DYE2_NAMESPACE, "changed", { what: "workflow" });
     await expect.poll(async () => (await recipe(brazil)).slot, { timeout: 15_000 }).toBe(3);
     await quiet();
     expect((await recipe(brazil)).slot).toBe(3);
