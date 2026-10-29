@@ -254,7 +254,7 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await move(unslotted.id, null)).content).not.toHaveProperty("showOnDashboard");
     await expect.poll(() => recordOf(tablet, unslotted.id)).toMatchObject({ [RECIPE_SLOT_FIELD]: null, showOnStreamlineDashboard: false });
     expect((await versions(unslotted.id)).map((version) => Object.keys(version.fields))).toEqual([["slot"], ["slot"], expect.any(Array)]);
-    // 1.5.0's switch is no field the REST API takes, in an edit or a new Recipe.
+    // 1.6.0's switch is no field the REST API takes, in an edit or a new Recipe.
     for (const answer of [
       await api.call("PATCH", `/recipes/${slotted.id}`, { content: { showOnDashboard: false } }),
       await api.call("POST", "/recipes", { locationId: lab.location.id, slot: 4, content: { name: "Hidden Espresso", showOnDashboard: false } }),

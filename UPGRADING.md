@@ -19,33 +19,33 @@ section).
 
 ### Stop every instance to deploy this release
 
-This release can't run beside 1.5.0, as the owner approved for it
+This release can't run beside 1.6.0, as the owner approved for it
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md), the
 escape hatch), so it takes a new major version and its deploy takes the
-server offline, from the moment the last 1.5.0 instance stops until the first
+server offline, from the moment the last 1.6.0 instance stops until the first
 of this release has started and migrated the database, usually a few seconds.
 Tablets keep what they capture meanwhile and send it once they reconnect.
 Deploy it this way:
 
-1. Stop every instance of 1.5.0.
+1. Stop every instance of 1.6.0.
 2. Start this release, on as many instances as before.
 
-On fly.io, a blue-green deploy would start it beside 1.5.0, so scale the app
+On fly.io, a blue-green deploy would start it beside 1.6.0, so scale the app
 to no VMs first, then deploy it and scale it back to two, as a first deploy
 does (the README's fly.io section): `fly scale count 0`, `fly deploy` with
 this release's image, then `fly scale count 2`. With Docker Compose, pull and
 restart as for any release.
 
-What changes for what 1.5.0 left:
+What changes for what 1.6.0 left:
 
 - A Recipe no longer keeps a "Shown on the dashboard" setting of its own: it
   is on Streamline's strip exactly while it is in a Recipe Slot (below). As it
-  migrates the database, this release takes each Recipe 1.5.0 left in a slot
+  migrates the database, this release takes each Recipe 1.6.0 left in a slot
   but hidden out of that slot, so each strip still shows that button empty;
   put the Recipe in a slot again to show it. The setting is dropped from
   every Recipe, and each open Conflict over it is dismissed. Past versions in
   a Recipe's history still show it.
-- A page of the management interface left open from 1.5.0 reloads at its next
+- A page of the management interface left open from 1.6.0 reloads at its next
   navigation. Until then, its Recipe page can't create a Recipe or change its
   "Shown on the dashboard" switch, which this release refuses.
 - Let each tablet update its plugin promptly, as Decaid does within 12 hours.
@@ -72,6 +72,8 @@ pinned runs v0.1.32 or later. Three things change with it:
 - A grind setting is kept as typed, as a three-dial grinder's `1.1.0`, and
   shown and edited so; one that reads as a number stays a number, and `.5`
   and `0.5` are one setting.
+
+## 1.6.0
 
 ### Make Viewers once every instance runs this release
 

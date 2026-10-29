@@ -556,9 +556,10 @@ tablets, below).
   so a Machine loading it keeps its own. A Recipe is on Streamline's strip
   exactly while it is in a slot (DYE2 v0.1.32), so it has no switch of its
   own for that, and its content no field: the REST API refuses
-  `showOnDashboard` (400), which 1.5.0 kept there. The release that dropped
-  it, which can't run beside 1.5.0, fixed what 1.5.0 left once, in its
-  migration (`20261029000000_recipes_shown_by_slot`): a Recipe in a slot
+  `showOnDashboard` (400), which releases up to 1.6.0 kept there. The
+  release that dropped it, which can't run beside 1.6.0, fixed what 1.6.0
+  left once, in its migration (`20261029000000_recipes_shown_by_slot`): a
+  Recipe in a slot
   whose `showOnDashboard` was false left its slot, a version from the server,
   the field left every Recipe's content and latest edits, and each open
   Conflict over it was dismissed; past versions keep it as made. What it

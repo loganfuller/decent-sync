@@ -40,7 +40,7 @@ function itemApiPath(kind: ItemKind, id: string): string {
  * Content fields whose names do not spell out as people read them: a
  * Basket's diameter, a Tool's attributes, which DYE2 keeps as `custom`, and
  * a Recipe's items, named by their ids, its dial and hot water, and
- * whether it was shown on the strip, which only its versions made by 1.5.0
+ * whether it was shown on the strip, which only its versions made by 1.6.0
  * and earlier hold.
  */
 const FIELD_LABELS: Readonly<Record<string, string>> = {

@@ -10,12 +10,12 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Seam 1 for tickets #371 and #379: a Recipe is on Streamline's strip exactly
 // while it is in a Recipe Slot (DYE2 v0.1.32), and keeps no
 // `showOnDashboard` of its own. The release that drops it, deployed with
-// every instance stopped, fixes what 1.5.0 left once, in its migration
+// every instance stopped, fixes what 1.6.0 left once, in its migration
 // (`20261029000000_recipes_shown_by_slot`): a Recipe hidden in a slot leaves
 // it, a version from the server, written so to its tablets as they connect
 // again; the field leaves every Recipe's content and latest edits; and an
 // open Conflict over it is dismissed. The migration's SQL is run again on a
-// migrated database holding what 1.5.0 left, through the database, the REST
+// migrated database holding what 1.6.0 left, through the database, the REST
 // API and a simulated tablet. Serials are made up, from 46001.
 
 type Record_ = Record<string, unknown>;
@@ -30,7 +30,7 @@ const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 const MIGRATION = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../prisma/migrations/20261029000000_recipes_shown_by_slot/migration.sql");
 
-describe("Recipes shown on the strip by their slots alone, from 1.5.0's data", { timeout: 90_000 }, () => {
+describe("Recipes shown on the strip by their slots alone, from 1.6.0's data", { timeout: 90_000 }, () => {
   let server: TestServer;
   let api: AdminApi;
 
@@ -57,7 +57,7 @@ describe("Recipes shown on the strip by their slots alone, from 1.5.0's data", {
     const recordOf = (id: string) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((record) => record.decentSyncId === id);
     await expect.poll(() => [hidden, shown, kept].map(({ id }) => recordOf(id)?.showOnStreamlineDashboard), { timeout: 15_000 }).toEqual([true, true, false]);
 
-    // As 1.5.0 leaves them: one hidden in its slot by its switch, an edit of the field; one in a slot shown, with an open
+    // As 1.6.0 leaves them: one hidden in its slot by its switch, an edit of the field; one in a slot shown, with an open
     // Conflict over the field and a used one; one in none shown.
     const database = await server.connectDatabase();
     let conflicts: { open: string; used: string };
