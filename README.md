@@ -17,8 +17,10 @@ business with a roastery lab and several cafes.
 
 **Milestones 1 to 3 are built, and released in
 [v1.0.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.0.0),
-and Milestone 5 in
-[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0).**
+Milestone 5 in
+[v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0), and
+Milestone 4 in
+[v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0).**
 Admins sign in, manage Locations, and adopt Machines, which are identified by
 their hardware and record where they were in a Location History. Adopted
 tablets send their Shots and Steam Records, which the REST API serves, each
@@ -90,7 +92,8 @@ Each Machine's page opens with its Live View
 Machine is doing and measuring, and the curves of a shot or of
 steaming as it runs, streamed from its Tablet while the page is open
 ([ADR-0024](docs/adr/0024-live-view-streams-over-sse-relayed-through-postgresql.md)).
-The Live View is built for the release after 1.4.0.
+The Live View is released from
+[v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0).
 
 [Milestone 5](https://github.com/loganfuller/decent-sync/issues/277) ([GitHub
 milestone](https://github.com/loganfuller/decent-sync/milestone/5)) is built,
