@@ -15,8 +15,8 @@ import { isObject } from "./listed.js";
 // How the parts of a Workflow that follow its Loaded Recipe (ADR-0022,
 // LOADED_RECIPE_PARTS) map to the Recipe's content, both ways: a change of
 // one on the Recipe's Machine is saved into the Recipe, by DYE2 into the
-// Recipe's record where it holds one (`RECORDED_PARTS`), and by Decent Sync
-// otherwise (`valuesFromWorkflow`), but of the Profile, which unloads it
+// Recipe's record (`RECORDED_PARTS`), and by Decent Sync where DYE2 saves
+// none (`valuesFromWorkflow`), but of the Profile, which unloads it
 // instead (DYE2 clears the Workflow's recipe); and a field of the Recipe's
 // that changed since the Workflow last took it, and that the Workflow holds
 // otherwise, is written into it (`dueParts`). A Workflow names its Grinder,
@@ -175,11 +175,13 @@ const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: 
  * where the Workflow changed it from `held`, the parts as it last held them,
  * or, on a load (`held` null), where the Recipe holds none, from the
  * Workflow as it stands (`now`): a dose, yield, grind setting (a number, or
- * text as typed, as DYE2 v0.1.32 saves one), RPM or Basket the Recipe holds
- * none of, though DYE2 v0.1.33 saves a Basket picked after the load too
- * (#389); a Grinder, one of the Location's; and a Bean Batch of the Recipe's
- * own Bean, or with its Bean for a Recipe naming no Bean, but not on a load:
- * a Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
+ * text as typed, as DYE2 v0.1.32 saves one) or RPM the Recipe holds none
+ * of; a Basket the Recipe holds none of, but only on a load, as DYE2 takes
+ * the Machine's as the recipe is applied as its starting point and never
+ * saves it, while from v0.1.33 it saves one picked after (`RECORDED_PARTS`);
+ * a Grinder, one of the Location's; and a Bean Batch of the Recipe's own
+ * Bean, or with its Bean for a Recipe naming no Bean, but not on a load: a
+ * Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
  * applies one (`ce38984`), and a batch picked while it is loaded is a change
  * like any other. A batch of another Bean, a value cleared, and anything the
  * map does not hold stay the Machine's own. With the parts they record.
@@ -195,7 +197,7 @@ export function valuesFromWorkflow(
   const parts: LoadedRecipePart[] = [];
   const changed = (part: LoadedRecipePart) => now[part] !== null && (held === null ? target[part] === null : !samePart(part, held[part], now[part]));
   for (const [part, field] of Object.entries(DIAL_FIELDS) as [keyof typeof DIAL_FIELDS, string][]) {
-    if (target[part] !== null || !changed(part)) continue;
+    if (target[part] !== null || !changed(part) || (part === "basket" && held !== null)) continue;
     const value = part === "basket" ? context.item("basket", now.basket as string) : part === "grind" ? grindSettingOf(now.grind) : now[part];
     if (value === undefined || value === null) continue;
     values[field] = value;

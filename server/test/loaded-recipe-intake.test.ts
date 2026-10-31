@@ -144,12 +144,15 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
     expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), null, { ...HELD, batch: "b3" }, context).values).not.toHaveProperty("beanBatchId");
   });
 
-  it("is a dial value the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting a number where it reads as one and the text as typed otherwise", () => {
-    const { rpm: _, basketId: __, grindSetting: ___, ...bare } = CONTENT;
+  it("is a dose, yield, grind setting or RPM the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting a number where it reads as one and the text as typed otherwise, but no Basket, which DYE2 v0.1.33 saves (#389)", () => {
+    const bare: Record<string, unknown> = { ...CONTENT };
+    for (const field of ["dose", "yield", "ratio", "rpm", "basketId", "grindSetting"]) delete bare[field];
     const target = recipeParts(bare, local);
     const held = { ...HELD, basket: null };
-    const changed = { ...HELD, rpm: 950, basket: "k1", grind: "3.1" };
-    expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({ values: { grindSetting: 3.1, rpm: 950, basketId: BASKET }, parts: ["grind", "rpm", "basket"] });
+    const changed = { ...HELD, dose: 18.5, yield: 40, rpm: 950, basket: "k1", grind: "3.1" };
+    expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({ values: { dose: 18.5, yield: 40, grindSetting: 3.1, rpm: 950 }, parts: ["dose", "yield", "grind", "rpm"] });
+    // A Basket picked after the load is DYE2's to save, as it moved off the none the Workflow held as the recipe was applied.
+    expect(valuesFromWorkflow(bare, target, held, { ...held, basket: "k1" }, context)).toEqual({ values: {}, parts: [] });
     // As DYE2 v0.1.32 saves one (d858b73): a three-dial grinder's setting, or a word.
     for (const typed of ["1.5.", "fine"]) expect(valuesFromWorkflow(bare, target, held, { ...held, grind: ` ${typed} ` }, context).values).toEqual({ grindSetting: typed });
     // One the Recipe holds is DYE2's to save; one unchanged is no edit.
@@ -157,7 +160,7 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
     expect(valuesFromWorkflow(bare, target, HELD, HELD, context).values).toEqual({});
   });
 
-  it("is, on a load, each of those values the Recipe holds none of, as the Workflow stands, never one it holds", () => {
+  it("is, on a load, each of those values the Recipe holds none of, and a Basket, which DYE2 takes as its starting point and never saves, as the Workflow stands, never one it holds", () => {
     const { rpm: _, basketId: __, grinderId: ___, beanBatchId: ____, ...bare } = CONTENT;
     const now = { ...HELD, grinder: "g2", batch: "b2" };
     expect(valuesFromWorkflow(bare, recipeParts(bare, local), null, now, context)).toEqual({
