@@ -52,7 +52,7 @@ const SENSOR_CALIBRATION_WARNING = {
 /** What each note on a field says. */
 const NOTES: Record<SettingsNote, string> = {
   keptByTablet: "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.",
-  putBackByStreamline: "Streamline puts back a value set in its settings page when that page next opens.",
+  putBackByStreamline: "Streamline's settings page puts back the value it remembers when it next opens, where the Machine reads a fan threshold of 50 or a refill kit of Auto-Detect.",
   restartAfterChange: "Restart the Machine after changing it for the change to take effect.",
 };
 

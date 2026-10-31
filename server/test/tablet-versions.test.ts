@@ -1,12 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { Report } from "../src/collections/paired-devices.js";
 import { dye2View, streamlineView, tabletVersionsView } from "../src/collections/tablet-versions.js";
+import { dye2V033Recording } from "./support/simulated-dye2.js";
 import { type PluginsAndSkinsStep, pluginsAndSkinsAt } from "./support/simulated-tablet.js";
 
 // Module tests for ticket #236: the DYE2 and Streamline rows of the Machine
 // page's Versions card, from the plugin list and Skins as Decaid v0.9.0's
 // Linux release answered them (plugins-and-skins-v0.9.0/), or derived from
-// them by the changes named.
+// them by the changes named; and Streamline v0.2.21's `dist` build as Decaid
+// v0.9.1 lists it (dye2-v0.1.33/skins.json).
 
 type Record_ = Record<string, unknown>;
 
@@ -34,6 +36,18 @@ describe("The Streamline row", () => {
     const skins = skinsAt("servedMain");
     expect(skins.skins.map((skin) => skin.id)).toEqual(expect.arrayContaining(["streamline.js", "streamline.js-dist"]));
     expect(streamlineView(skins)).toEqual({ status: "active", version: "0.2.18", build: "main" });
+  });
+
+  it("is a main build's own -dev version, from streamline-js 800a521, as Decaid lists the dist deploy of v0.2.21", () => {
+    const { skins } = dye2V033Recording<{ skins: { response: { body: Record_[] } } }>("skins");
+    const dist = skins.response.body.find((skin) => skin.id === "streamline.js-dist")!;
+    expect(dist.version).toBe("0.2.21-dev.c568255.686");
+    // Derived: served as the tablets pinned to it serve it.
+    expect(streamlineView({ skins: skins.response.body, default: { id: dist.id }, server: { serving: true, path: dist.path } })).toEqual({
+      status: "active",
+      version: "0.2.21-dev.c568255.686",
+      build: "main",
+    });
   });
 
   it("follows the Skin served, not the default, which counts only while nothing installed is served", () => {

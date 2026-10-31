@@ -42,8 +42,9 @@ import type { Skins } from "./skins.js";
 // the Workflow before it has DYE2 save the change, so DYE2 never saves the
 // temperature steam came back at (`steamBackOnFirst`), as turning steam off
 // is no edit. A write of the plugin's that changes the profile is made as
-// two, so DYE2 keeps the recipe (`putNamingRecipe`, interim, until
-// decentespresso/dye2#38). The server unloads one by having the plugin
+// two, so DYE2 keeps the recipe (`putNamingRecipe`, interim until #388, as
+// from v0.1.33, the minimum, DYE2's fingerprint ignores key order,
+// decentespresso/dye2#43). The server unloads one by having the plugin
 // clear the field. On a Capture-only Machine, or while DYE2 is not there,
 // nothing is written or saved.
 //
@@ -600,8 +601,9 @@ export class LoadedRecipes implements LoadedRecipeWrites {
  * names the recipe `recordId` there (DYE2_RECIPE_FIELD), keeping it named: a
  * write changing the profile as DYE2 fingerprints one (`changesProfile`) is
  * made as two, the recipe cleared, then the write with the recipe named
- * again, which DYE2 takes as a new apply of it on the new profile (interim,
- * until decentespresso/dye2#38); where Decaid refuses the second, the
+ * again, which DYE2 takes as a new apply of it on the new profile (interim
+ * until #388, as from v0.1.33, the minimum, DYE2's fingerprint ignores key
+ * order, decentespresso/dye2#43); where Decaid refuses the second, the
  * recipe is named again alone. Each Workflow Decaid answers with is told of,
  * with the body it answered (`answered`). Resolves with Decaid's answer to
  * the write. Throws if Decaid does not answer.

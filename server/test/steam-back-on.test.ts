@@ -18,7 +18,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // usual, and a steam temperature changed once steam is on is the Recipe's
 // edit, as before; steam turned off and back on while a write of the
 // plugin's is under way is turned back on too. Through the built plugin in simulated tablets running
-// DYE2 v0.1.32 and Streamline as recorded (fixtures/decaid/dye2-v0.1.26/),
+// DYE2 v0.1.33 and Streamline as recorded (fixtures/decaid/dye2-v0.1.26/),
 // Machine A on one server instance and C, where Streamline turns steam on,
 // on another sharing one database, with assertions through the REST API and
 // what each simulated tablet holds. Serials are made up, from 49201.

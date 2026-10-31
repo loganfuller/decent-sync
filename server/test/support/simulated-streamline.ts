@@ -1,9 +1,10 @@
 import type { DecaidAnswer } from "./decaid-beans.js";
+import { assignRecipeInDye2 } from "./simulated-dye2.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
-// Streamline (streamline-js) running as a simulated tablet's skin, as on
-// `main` at cec5664, the build Decent Sync supports (ADR-0017), as far as it
-// touches DYE2, the Workflow and the settings it remembers. The plugin is not
+// Streamline (streamline-js) running as a simulated tablet's skin, as at
+// v0.2.21, the release Decent Sync supports (ADR-0017), as far as it touches
+// DYE2, the Workflow and the settings it remembers. The plugin is not
 // told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
 //
@@ -47,7 +48,7 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // back on at the selected DYE2 recipe's steam temperature while its DYE2
 // switch is on, else the one kept, only from off (`setSteamHeaterEnabled` and
 // `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Two
-// more ways turn steam on, as at v0.2.19, the same there as at cec5664. Its
+// more ways turn steam on, the same at v0.2.21 as at cec5664. Its
 // settings page (src/settings/settings.js) reads the Workflow as it opens,
 // stages each steam change made on it, and writes them on Save, keeping the
 // steam time, flow, temperature and milk stop in the store
@@ -67,7 +68,8 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // itself, listed loaded with an HTTP `selection` endpoint
 // (`loadDyeStripData`, `pluginRecordsDialIn`), and places a recipe in the
 // cell of its `stripSlot`, or by its id `1` to `5` where no row has the key
-// (`recipeStripCells`). A tap applies the recipe (`applyRecipe()`): its
+// (`recipeStripCells`). A tap on a cell not highlighted applies the
+// recipe (`applyRecipe()`), and on the highlighted one does nothing: its
 // embedded `workflow`, its context and its Profile whole (`applyStoredWorkflow`),
 // or, without one, its `dashboardVariables` (`applyRecipeLegacy`), the steam,
 // hot water and flush values of its modes, each kept (`mergeRecipeLiveSettings`),
@@ -77,9 +79,12 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // never lands (`armSelection`, streamline-js#148). A favourite applied
 // (`applyFavourite()`) writes `recipeId` null. Its long-press menu saves the
 // dial-in into the selected recipe (`saveChanges()`: `POST .../record`),
-// saves the Workflow as a recipe in a cell's slot (`saveToRecipe()`: "Save to
-// recipe N" on an empty cell, "Replace <name>" on a filled one, `POST
-// .../save-recipe`), and frees a cell (`clearButton()`: the recipe's
+// saves the Workflow as a recipe in an empty cell's slot (`saveToRecipe()`:
+// "Save to recipe N", `POST .../save-recipe`), puts a recipe from DYE2's
+// library in a cell's slot (`assignToCell()`: "Replace <name>" on a filled
+// cell, "Select recipe" on an empty one, which open DYE2's Select Recipe to
+// assign one, streamline-js 35c5917 and 0af3b9d), and frees a cell
+// (`clearButton()`: the recipe's
 // `showOnStreamlineDashboard` set false, and DYE2's selection cleared where
 // the cell was selected). Switched off, it clears DYE2's selection
 // (`disableDye2Ui`): `switchDye2Off()`. Once each Shot's record is stored it
@@ -117,6 +122,8 @@ export interface StreamlineApplied {
   workflow?: DecaidAnswer;
   selection?: DecaidAnswer;
   refused?: string;
+  /** The cell tapped was the highlighted one, so nothing was sent (#159 acceptance 1, 0af3b9d). */
+  inert?: true;
 }
 
 /** How long Streamline waits before pushing a value it pushed on a shot-settings frame again (app.js). */
@@ -167,7 +174,7 @@ const WORKFLOW_WRITERS: Readonly<Record<string, readonly string[]>> = {
   "api.autoSteam": ["steamSettings.duration", "steamSettings.flow", "steamSettings.targetTemperature", "steamSettings.stopAtTemperature"],
   "settings.steam": ["steamSettings.targetTemperature", "steamSettings.duration", "steamSettings.flow", "steamSettings.stopAtTemperature"],
   "profile.send": ["profile", "context.targetDoseWeight", "context.targetYield", "context.grinderSetting", "context.extras.dye"],
-  "profile.wake": ["context.targetDoseWeight", "context.targetYield", "context.grinderSetting", "context.extras.dye"],
+  "profile.wake": ["profile", "context.targetDoseWeight", "context.targetYield", "context.grinderSetting", "context.extras.dye"],
   "shot.clearNote": ["context.extras.note"],
   "dye.applyFavourite": [
     "profile",
@@ -501,10 +508,17 @@ export class SimulatedStreamline {
   /**
    * A barista taps a recipe's cell on the DYE strip, read afresh (`renderStrip`,
    * then `applyRecipe` in dyeStrip.js): the cell of that slot, or the cell
-   * holding the recipe with that record id. It highlights the cell, then
-   * sends as one partial `PUT /workflow` the recipe's embedded `workflow`
-   * (its context and its Profile whole, from the tablet's profiles where it
-   * carries no steps), or without one its `dashboardVariables`, the steam,
+   * holding the recipe with that record id. A tap on the highlighted cell, its
+   * recipe the one DYE2's selection names, does nothing, so it never sets the
+   * Machine back to the recipe's stored values (`inert`): the highlight as
+   * the strip last took it from DYE2, as it applied, or on a push or return
+   * from DYE2 (`repoll()`, which a test changing the Workflow elsewhere calls
+   * before a tap). Otherwise it
+   * highlights the cell, then sends as one partial `PUT /workflow` the
+   * recipe's embedded `workflow` (its context and its Profile whole, from the
+   * tablet's profiles where it carries no steps, and none where neither has
+   * steps, 16903cc), or without one its
+   * `dashboardVariables`, the steam,
    * hot water and flush values of its modes, each kept (`persistSharedValue`),
    * and its id as `recipeId`; then, once Decaid took it, selects it in DYE2,
    * trying once more on a failure but a 404 (`postSelection`). Where that
@@ -519,6 +533,7 @@ export class SimulatedStreamline {
     await this.loadDyeStripData();
     const recipe = this.cells().find(({ slot, recipe }) => (typeof cell === "number" ? slot === cell : recipe?.id === cell))?.recipe;
     if (!recipe) throw new Error(`The DYE strip shows no recipe in ${typeof cell === "number" ? `cell ${cell}` : `a cell as ${cell}`}`);
+    if (recipe.id != null && recipe.id === this.activeItemId) return { inert: true };
     this.activeItemId = recipe.id;
     this.activeModified = false;
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
@@ -532,9 +547,11 @@ export class SimulatedStreamline {
    * A barista taps a favourite's cell on the DYE strip (`applyFavourite` in
    * dyeStrip.js): its embedded `workflow`, or without one its `snapshot` as
    * its `copyMask` allows, and `recipeId` null, sent, then the favourite
-   * selected in DYE2, as `applyRecipe` does.
+   * selected in DYE2, as `applyRecipe` does, and nothing on a tap of the
+   * highlighted one.
    */
   async applyFavourite(favourite: Record_): Promise<StreamlineApplied> {
+    if (favourite.id != null && favourite.id === this.activeItemId) return { inert: true };
     this.activeItemId = favourite.id;
     this.activeModified = false;
     const patch = favourite.workflow ? await this.applyStoredWorkflow(favourite.workflow as Record_) : await this.applyFavLegacy(favourite);
@@ -564,15 +581,37 @@ export class SimulatedStreamline {
   }
 
   /**
-   * "Save to recipe N" on an empty cell's long-press menu, or "Replace
-   * <name>" on a filled one's (`saveToRecipes`): `POST .../save-recipe`
-   * `{"slot":N}`, then the strip's data read again. Resolves with DYE2's
-   * answer.
+   * "Save to recipe N" on an empty cell's long-press menu (`saveToRecipes`):
+   * `POST .../save-recipe` `{"slot":N}`, then the strip's data read again,
+   * and the cell of the recipe the Workflow then names highlighted. A filled
+   * cell offers no such item: its "Replace <name>" is `assignToCell`.
+   * Resolves with DYE2's answer.
    */
   async saveToRecipe(slot: 1 | 2 | 3 | 4 | 5): Promise<DecaidAnswer> {
+    await this.loadDyeStripData();
+    if (this.cells().find((cell) => cell.slot === slot)?.recipe) throw new Error(`The DYE strip's cell ${slot} holds a recipe: it offers "Replace", not "Save to recipe ${slot}"`);
     const answer = await this.tablet.callApi("POST", `/plugins/${DYE2}/save-recipe`, { slot: Number(slot) });
-    if (answer.status === 200) await this.loadDyeStripData();
+    if (answer.status === 200) {
+      await this.loadDyeStripData();
+      await this.syncSelection(false);
+    }
     return answer;
+  }
+
+  /**
+   * "Replace <name>" on a filled cell's long-press menu, or "Select recipe"
+   * on an empty one's (`openPluginOverlay('select-recipe', { slot })`): DYE2's
+   * Select Recipe page opened in assign mode for that cell's slot, where the
+   * recipe with that record id is picked and assigned to it
+   * (`assignRecipeInDye2`), then, back on the strip, its data read again and
+   * its Workflow-derived highlight (`closePluginOverlay(true)`, or the page
+   * loading again where DYE2 is on another origin). Applies nothing. Resolves
+   * with the recipe DYE2 saved.
+   */
+  async assignToCell(slot: 1 | 2 | 3 | 4 | 5, recordId: string): Promise<Record_> {
+    const saved = await assignRecipeInDye2(this.tablet, recordId, slot);
+    await this.repoll();
+    return saved;
   }
 
   /**
@@ -649,10 +688,10 @@ export class SimulatedStreamline {
    * brew temperature (`withSavedBrewTemp`), and in the context its saved
    * dose, else the last dose set, else 18 g, its saved yield, else its target
    * weight, its saved grind setting, else the last one set, and `recipeId`
-   * null, then its saved steam time and flow; but at cec5664 its writer,
-   * `profile.wake`, does not own `profile`, so `assertDeclaredFields` refuses
-   * it before the PUT (listed in `refused`) and nothing is sent. Resolves
-   * with Decaid's answer, or undefined where nothing was sent.
+   * null, then its saved steam time and flow, so a wake onto a profile other
+   * than the Loaded Recipe's unloads it (its writer, `profile.wake`, owns
+   * `profile` from v0.2.19, 1324df8). Resolves with Decaid's answer, or
+   * undefined where nothing was sent.
    */
   async wake(profileId: string): Promise<DecaidAnswer | undefined> {
     return this.sendProfile(profileId, "profile.wake");
@@ -770,15 +809,18 @@ export class SimulatedStreamline {
     return { landed: answer.status === 200, answer };
   }
 
-  /** `applyStoredWorkflow`: an item's stored `workflow`, its context copied and its Profile resolved whole (`resolveFullProfile`). */
+  /** `applyStoredWorkflow`: an item's stored `workflow`, its context copied and its Profile resolved whole (`resolveFullProfile`), none where no profile with steps resolves (`profileWithSteps`). */
   private async applyStoredWorkflow(workflow: Record_): Promise<Record_> {
     const patch: Record_ = {};
     if (workflow.context) patch.context = { ...(workflow.context as Record_) };
-    if (workflow.profile) patch.profile = (await this.resolveFullProfile(workflow.profile)) ?? workflow.profile;
+    if (workflow.profile) {
+      const full = profileWithSteps(await this.resolveFullProfile(workflow.profile));
+      if (full) patch.profile = full;
+    }
     return patch;
   }
 
-  /** `applyRecipeLegacy`: a recipe without a stored `workflow`, its `dashboardVariables` as a context of only what it holds, and its Profile. */
+  /** `applyRecipeLegacy`: a recipe without a stored `workflow`, its `dashboardVariables` as a context of only what it holds, and its Profile, its snapshot or its id's, where either has steps. */
   private async applyRecipeLegacy(recipe: Record_): Promise<Record_> {
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
     const context: Record_ = {};
@@ -792,13 +834,13 @@ export class SimulatedStreamline {
     if (recipe.drinker) context.drinkerName = recipe.drinker;
     const patch: Record_ = Object.keys(context).length > 0 ? { context } : {};
     if (recipe.profileId || recipe.profileTitle) {
-      const snapshot = recipe.profileSnapshot as Record_ | undefined;
-      patch.profile = snapshot && Array.isArray(snapshot.steps) ? snapshot : ((await this.resolveFullProfile(recipe.profileId)) ?? { id: recipe.profileId, title: recipe.profileTitle });
+      const full = profileWithSteps(recipe.profileSnapshot) ?? profileWithSteps(recipe.profileId ? await this.resolveFullProfile(recipe.profileId) : null);
+      if (full) patch.profile = full;
     }
     return patch;
   }
 
-  /** `applyFavLegacy`: a favourite without a stored `workflow`, its `snapshot` as its `copyMask` allows, and its Profile. */
+  /** `applyFavLegacy`: a favourite without a stored `workflow`, its `snapshot` as its `copyMask` allows, and its Profile, its snapshot or its id's, where either has steps. */
   private async applyFavLegacy(favourite: Record_): Promise<Record_> {
     const snapshot = (favourite.snapshot ?? {}) as Record_;
     const mask = (favourite.copyMask ?? {}) as Record_;
@@ -825,8 +867,8 @@ export class SimulatedStreamline {
     if (on("note") && snapshot.note) context.extras = { ...((context.extras ?? {}) as Record_), note: snapshot.note };
     const patch: Record_ = Object.keys(context).length > 0 ? { context } : {};
     if (on("profile") && (snapshot.profileId || snapshot.profileTitle)) {
-      const stored = snapshot.profileSnapshot as Record_ | undefined;
-      patch.profile = stored && Array.isArray(stored.steps) ? stored : ((await this.resolveFullProfile(snapshot.profileId)) ?? { id: snapshot.profileId, title: snapshot.profileTitle });
+      const full = profileWithSteps(snapshot.profileSnapshot) ?? profileWithSteps(snapshot.profileId ? await this.resolveFullProfile(snapshot.profileId) : null);
+      if (full) patch.profile = full;
     }
     return patch;
   }
@@ -864,9 +906,10 @@ export class SimulatedStreamline {
   /** `resolveFullProfile` in dyeStrip.js: a profile with steps as given, else the tablet's record of its id, hidden ones included; null if none. */
   private async resolveFullProfile(stub: unknown): Promise<Record_ | null> {
     if (!stub) return null;
+    // A whole profile first: one a record captured from the Workflow carries no id (0c9652b).
+    if (typeof stub === "object" && profileWithSteps(stub)) return stub as Record_;
     const id = typeof stub === "string" ? stub : (stub as Record_).id;
     if (!id) return null;
-    if (typeof stub === "object" && Array.isArray((stub as Record_).steps) && ((stub as Record_).steps as unknown[]).length > 0) return stub as Record_;
     const record = (await this.availableProfiles(true)).find((candidate) => candidate.id === id);
     return record?.profile ? (record.profile as Record_) : null;
   }
@@ -1087,13 +1130,19 @@ function mergeContext(patch: Record_, fragment: Record_): Record_ {
  * The strip's cells (`recipeStripCells` in dye-selection.js): slots 1 to 5,
  * each holding the first recipe shown on the strip whose `stripSlot` is that
  * number; where no row has a `stripSlot` key, a recipe with id `1` to `5` in
- * that cell, and the others in the blanks left.
+ * that cell, and the others in the blanks left, but a cell whose id-numbered
+ * recipe is hidden from the strip, which stays empty (71ea5cb).
  */
 export function recipeStripCells(recipes: unknown, count = 5): { slot: string; recipe: Record_ | null }[] {
   const cells: { slot: string; recipe: Record_ | null }[] = Array.from({ length: count }, (_, index) => ({ slot: String(index + 1), recipe: null }));
   const rows = (Array.isArray(recipes) ? recipes : []).filter((row): row is Record_ => !!row && typeof row === "object");
   const visible = rows.filter((row) => row.showOnStreamlineDashboard !== false);
   const legacy = !rows.some((row) => row.stripSlot !== undefined);
+  const idCell = (recipe: Record_) => {
+    const slot = parseInt(String(recipe.id), 10);
+    return String(recipe.id) === String(slot) && slot >= 1 && slot <= count ? slot - 1 : null;
+  };
+  const cleared = new Set(legacy ? rows.filter((row) => row.showOnStreamlineDashboard === false).flatMap((row) => idCell(row) ?? []) : []);
   const strays: Record_[] = [];
   for (const recipe of visible) {
     let cell: { slot: string; recipe: Record_ | null } | undefined;
@@ -1111,7 +1160,7 @@ export function recipeStripCells(recipes: unknown, count = 5): { slot: string; r
     if (cell && !cell.recipe) cell.recipe = recipe;
   }
   for (const recipe of strays) {
-    const blank = cells.find((cell) => !cell.recipe);
+    const blank = cells.find((cell, index) => !cell.recipe && !cleared.has(index));
     if (!blank) break;
     blank.recipe = recipe;
   }
@@ -1170,12 +1219,27 @@ function withSentProfile(body: Record_): Record_ {
   return { ...body, profile };
 }
 
-/** A profile as Streamline fingerprints it (`profileFingerprint` in src/modules/dye-selection.js): as DYE2 does, its title, tank temperature and steps but their temperatures, a limiter of 0 as none. */
+/**
+ * `profilePatchWithSteps` in src/modules/dye-selection.js (16903cc): the profile where it has steps, else null, as
+ * `PUT /workflow` merges a profile without them into the loaded one, renaming it rather than replacing it.
+ */
+function profileWithSteps(profile: unknown): Record_ | null {
+  const steps = (profile as Record_ | null | undefined)?.steps;
+  return Array.isArray(steps) && steps.length > 0 ? (profile as Record_) : null;
+}
+
+/**
+ * A profile as Streamline fingerprints it (`profileFingerprint` in src/modules/dye-selection.js): as DYE2 does, its
+ * title, tank temperature and steps but their temperatures, a limiter of 0 as none, every object's keys sorted
+ * (`sortKeysReplacer`, 915c6d1).
+ */
 function streamlineFingerprint(profile: unknown): string | null {
   if (!profile || typeof profile !== "object") return null;
   const record = profile as Record_;
   const steps = Array.isArray(record.steps)
     ? (record.steps as Record_[]).map(({ temperature: _, limiter, ...rest }) => ({ ...rest, limiter: limiter && Number((limiter as Record_).value) !== 0 ? limiter : null }))
     : record.steps;
-  return JSON.stringify({ title: record.title, tank_temperature: record.tank_temperature, steps });
+  const sorted = (_key: string, value: unknown) =>
+    value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.keys(value as Record_).sort().map((key) => [key, (value as Record_)[key]])) : value;
+  return JSON.stringify({ title: record.title, tank_temperature: record.tank_temperature, steps }, sorted);
 }

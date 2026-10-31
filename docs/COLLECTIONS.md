@@ -117,9 +117,11 @@ schedules), its range and its step or choices, whether none is a value too,
 who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: kept by the Tablet, so
 a replacement Tablet or a reset of Decaid's data puts Decaid's default back;
-put back by Streamline's settings page; or to restart the Machine after a
-change. Labels, units, ranges, steps and choices follow Streamline's
-settings page at `cec5664`, and Decaid's own limits where it has none. A ±
+put back by Streamline's settings page where the Machine reads a fan
+threshold of 50 or a refill kit of Auto-Detect, the two values Decaid v0.9.0
+wrote as it connected (ADR-0023); or to restart the Machine after a change.
+Labels, units, ranges, steps and choices follow Streamline's settings page at
+v0.2.21, and Decaid's own limits where it has none. A ±
 button's increment is no step: Streamline's move the flow multipliers of the
 Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
 of 0 or more, so their step of 0.01 is chosen here (ticket
@@ -608,9 +610,11 @@ module tests in `server/test/tablet-versions.test.ts`):
   release, or `streamline.js-dist`, a build of `main` (its `dist` branch),
   whatever else is installed. The row gives its `version` and which it is;
   otherwise the active Skin's name and version, or not installed when no
-  Skin is either id. A build of `main` reports the version of the release
-  before it (`0.2.18` at `cec5664`) and Decaid gives no commit for it, so the
-  row says only "main build".
+  Skin is either id. A build of `main` reports a version of its own: the
+  latest release's, with `-dev`, its commit and the number of the run that
+  built it, such as `0.2.21-dev.c568255.686` for the deploy of v0.2.21 (from
+  streamline-js `800a521`, `server/test/fixtures/decaid/dye2-v0.1.33/skins.json`),
+  which the row shows as it is, with "main build".
 
 Neither row is anything until its collection is reported. The recording in
 `server/test/fixtures/decaid/plugins-and-skins-v0.9.0/` shows Decaid's answers

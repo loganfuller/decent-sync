@@ -28,7 +28,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // from that Machine's tablet, once. Decent Sync records itself what DYE2
 // saves none of: a grinder, a batch of the Recipe's Bean, and a dose, yield,
 // grind setting, RPM or Basket the Recipe holds none of, which a load also
-// gains it from the Workflow. A change made while the plugin writes into
+// gains it from the Workflow, though DYE2 v0.1.33 saves a Basket picked
+// after the load too (#389). A change made while the plugin writes into
 // the Workflow is saved too. A batch of another Bean and a value cleared
 // stay the Machine's own, and nothing unloads it but a change of profile,
 // which saves nothing into it. An edit of the Recipe from anywhere is written
@@ -37,11 +38,12 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // that keep it loaded (decentespresso/dye2#38); a stale copy applied is
 // brought to it. Archiving the Recipe, or making the Machine capture-only,
 // clears it from the Workflow; taking it out of its slot, or moving it to
-// another, keeps it loaded. Through the built plugin in simulated tablets
-// running DYE2 v0.1.32 and Streamline at cec5664 as recorded
-// (fixtures/decaid/dye2-v0.1.26/), Machine A, and D in the tests that use
-// it, on one server instance and C on another sharing one database, with
-// assertions through the REST API and what each simulated tablet holds.
+// another, keeps it loaded, and so does applying it again after its Profile
+// was edited (decentespresso/dye2#43). Through the built plugin in simulated
+// tablets running DYE2 v0.1.33 and Streamline v0.2.21 as recorded
+// (fixtures/decaid/dye2-v0.1.26/ and later), Machine A, and D in the tests
+// that use it, on one server instance and C on another sharing one database,
+// with assertions through the REST API and what each simulated tablet holds.
 // Serials are made up, from 48001.
 
 type Record_ = Record<string, unknown>;
@@ -398,7 +400,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const tablet of [a, c]) await expect.poll(() => [extras(tablet).rpm, context(tablet).targetDoseWeight], { timeout: 15_000 }).toEqual([1444, 19]);
   });
 
-  it("takes an RPM and Basket a Recipe holds none of as its own as they change on its Machine, which DYE2 saves none of, and writes them into D's", async () => {
+  it("takes an RPM a Recipe holds none of as its own as it changes on its Machine, which DYE2 saves none of, and a Basket, which DYE2 saves too, and writes them into D's", async () => {
     const { machines, dye2, a, d, two, load, quiet } = await lab("Unheld", 48131, { d: true });
     await patch(two, { rpm: null, basketId: null });
     await expect.poll(() => [variables(record(a, BRAZIL)).rpm ?? null, variables(record(a, BRAZIL)).basketId ?? null], { timeout: 15_000 }).toEqual([null, null]);
@@ -414,6 +416,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const basket18 = dye2GlobalIdOf((dye2List(a, "baskets") as Record_[]).find((entry) => entry.id === BASKET_18));
     await expect.poll(async () => (await recipe(two)).content, { timeout: 15_000 }).toMatchObject({ rpm: 1234, basketId: basket18 });
     expect(dye2.a.recorded.filter((recorded) => recorded.id === BRAZIL && "rpm" in recorded.patch)).toEqual([]);
+    // DYE2 v0.1.33 saves the Basket, which moved off the none A held as the recipe was applied (163a7c8), as the server
+    // records it from the Workflow too: the two recorders #389 settles.
+    expect(dye2.a.recorded).toContainEqual({ id: BRAZIL, patch: { basketId: BASKET_18, basketName: "Fixture 18g Precision" } });
     await expect.poll(() => extras(d).rpm, { timeout: 15_000 }).toBe(1234);
     await expect.poll(() => extras(d).basketId ?? null, { timeout: 15_000 }).toBe((dye2List(d, "baskets") as Record_[]).find((entry) => dye2GlobalIdOf(entry) === basket18)?.id);
     expect(await loadedRecipe(machines.a)).toBe(two);
@@ -668,6 +673,30 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await a.changeSettings({ context: { grinderSetting: "2.8" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(2.8);
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("2.8");
+  });
+
+  it("keeps the Recipe loaded as a barista applies it again on DYE2's dashboard after its Profile was edited, A's record holding the Profile in PostgreSQL's key order (decentespresso/dye2#43)", async () => {
+    const { machines, dye2, a, one, quiet } = await lab("Reapplied", 48271);
+    const times = await loadedTimes(machines.a);
+    // Decaid refuses the edit's write of the profile into A's Workflow, so A's record holds the new Profile, and its Workflow
+    // the old one, still naming the recipe.
+    a.refuseWrites = ({ method, route, body }) => (method === "PUT" && route === "/workflow" && "profile" in ((body as Record_ | null) ?? {}) ? { status: 400, body: { error: "refused" } } : undefined);
+    await patch(one, { profileId: CLASSIC });
+    const held = () => ((record(a, ETHIOPIA)?.workflow as Record_ | undefined)?.profile ?? null) as Record_ | null;
+    await expect.poll(() => held()?.title, { timeout: 15_000 }).toBe("Classic Italian espresso");
+    await quiet();
+    a.refuseWrites = undefined;
+    expect([profile(a).title, recipeIdInWorkflow(a)]).toEqual(["Adaptive v3", ETHIOPIA]);
+    // In jsonb's key order, as the server writes a record: another order than the Workflow's.
+    expect(Object.keys((held()!.steps as Record_[])[0]!)).not.toEqual(Object.keys(((profile(a).steps as Record_[]) ?? [])[0] ?? {}));
+    const cleared = dye2.a.cleared.length;
+    expect((await (await openDye2Dashboard(a)).applyRecipe(ETHIOPIA)).workflow?.status).toBe(200);
+    await dye2.a.settled();
+    expect([profile(a).title, recipeIdInWorkflow(a)]).toEqual(["Classic Italian espresso", ETHIOPIA]);
+    expect(dye2.a.cleared.length).toBe(cleared);
+    await quiet();
+    await loads(machines.a, one);
+    expect(await loadedTimes(machines.a)).toBe(times);
   });
 
   it("writes an edit made while A's DYE2 was away into A's Workflow once it is back, A having no Loaded Recipe meanwhile", async () => {

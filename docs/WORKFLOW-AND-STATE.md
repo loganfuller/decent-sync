@@ -220,8 +220,8 @@ keeps only the newest 2,000 events, up to 2 Mi characters (above).
 Ticket [#145](https://github.com/loganfuller/decent-sync/issues/145) keeps
 each Machine's Loaded Recipe (ADR-0022), and ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) makes it the
-recipe its Workflow names. DYE2 v0.1.32 and streamline-js `main` at
-`cec5664`, the supported floor (ADR-0017), keep no selection of their own:
+recipe its Workflow names. DYE2 v0.1.33 and Streamline v0.2.21, the
+supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
 the recipe they apply (`DYE2_RECIPE_FIELD` and `dye2RecipeIdOf` in
@@ -311,10 +311,12 @@ through `plugin/src/dye2.ts`, and writes what the pure
 - **A write that changes the profile.** DYE2 clears the Workflow's
   `recipeId` once its profile moves off the one it held when the id
   appeared, by DYE2's fingerprint (`dye2Fingerprint` in `protocol/`, a copy
-  of `profileFingerprint` in `dye2:dye2-plugin/src/utils/workflow-record.ts`:
-  the title, tank temperature and steps, but each step's temperature, a step
-  limiter of value 0 read as none), even where the same write names the same
-  id (`idProfileChanged`). So a write of the plugin's that changes the
+  of v0.1.32's `profileFingerprint` in
+  `dye2:dye2-plugin/src/utils/workflow-record.ts`: the title, tank
+  temperature and steps, but each step's temperature, a step limiter of
+  value 0 read as none; it still tells one profile in two key orders apart,
+  as v0.1.33's no longer does, until #388), even where the same write names
+  the same id (`idProfileChanged`). So a write of the plugin's that changes the
   profile so (`changesProfile`), as a load from a stale copy, or the
   server's write after the Recipe's Profile was edited, is made as two `PUT
   /workflow` (`putNamingRecipe`): `recipeId` cleared (`clearRecipe`), then
@@ -322,7 +324,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   DYE2 takes as a new apply of the recipe on the new profile; where Decaid
   refuses the second, the recipe is named again alone. Both run as one write
   of the plugin's, so the server never reads the Workflow between them, and
-  reads no unload (interim, until decentespresso/dye2#38, ADR-0022).
+  reads no unload (interim until #388, as from v0.1.33, the minimum, DYE2
+  keeps the recipe named on its own profile whatever its key order,
+  decentespresso/dye2#43, ADR-0022).
 - **Saving each change.** Every change on a Machine with a Recipe loaded is
   saved into it (ADR-0022). After each change of the Workflow naming the
   Loaded Recipe, the plugin holds the change back and, in its turn among the
@@ -573,7 +577,8 @@ parts to the Recipe's content both ways.
   the Recipe has seen (ADR-0020, `editContent`), each change from `held` of
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
-  setting, RPM or Basket the Recipe holds none of; a Grinder, one of the
+  setting, RPM or Basket the Recipe holds none of, though DYE2 v0.1.33 saves
+  a Basket picked after the load too (ADR-0022, #389); a Grinder, one of the
   Location's not Archived; and a Bean Batch of the Recipe's own Bean, or any
   batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
   means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
@@ -693,8 +698,10 @@ parts to the Recipe's content both ways.
 
 Known limits: a Recipe applied again from a stale copy while it is loaded,
 as a strip button tapped on a Streamline dashboard that has not read its
-recipes again, is a change of the Workflow, not a load, so the plugin has
-DYE2 save the copy's values into the Recipe. ADR-0022 lists this and the
+recipes again, where its highlight has not caught up with the Workflow
+either (from v0.2.20 a tap on the highlighted button does nothing), is a
+change of the Workflow, not a load, so the plugin has DYE2 save the copy's
+values into the Recipe. ADR-0022 lists this and the
 other gaps accepted until DYE2 and Streamline fix them upstream.
 
 ## REST API
