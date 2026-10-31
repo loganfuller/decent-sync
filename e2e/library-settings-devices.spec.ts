@@ -73,7 +73,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   const shown: [term: string, value: string, ...about: string[]][] = [
     // Above the 50 °C an edit may set, and shown as it is.
     ["Fan threshold", "55 °C", KEPT, PUT_BACK],
-    ["Steam purge mode", "Normal", PUT_BACK],
+    ["Steam purge mode", "Normal"],
     ["Steam flow", "0.8 ml/s", "Set by the Workflow"],
     ["Tank temperature", "20 °C", "Set by each profile"],
     ["USB charger", "Off", "Set by the Tablet's charging mode"],
@@ -86,7 +86,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await tap(general.getByRole("heading", { name: "General" }));
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expectShown(machineSettings.getByRole("region", { name: "Advanced", exact: true }), [
-    ["Idle temperature", "98 °C", PUT_BACK],
+    ["Idle temperature", "98 °C"],
     ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
     ["Refill kit", "Auto-Detect", KEPT, PUT_BACK],
   ]);
@@ -200,7 +200,7 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expectTip(page.getByRole("main"), "Versions", "As last reported by its Tablet.");
   await expect(page.getByText("As reported by the latest accepted connection.")).toHaveCount(0);
   // DYE2's release, and Streamline's release served, though its build of main is the default, as on the test tablet.
-  await expect(field(page, "DYE2")).toHaveText("0.1.32");
+  await expect(field(page, "DYE2")).toHaveText("0.1.33");
   await expect(field(page, "Streamline")).toHaveText("0.2.18 (release)");
 
   // DYE2 is disabled, and Decaid serves another Skin, as Quick Settings can.
@@ -209,7 +209,7 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
   await expect.poll(async () => (await reported()).streamline!.status).toBe("notActive");
   await expect.poll(async () => (await reported()).dye2!.loaded).toBe(false);
   await afterDetailsPolls(page, async () => {
-    await expect(field(page, "DYE2")).toHaveText("0.1.32 (not loaded)", { timeout: CHECK_MS });
+    await expect(field(page, "DYE2")).toHaveText("0.1.33 (not loaded)", { timeout: CHECK_MS });
     await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
   });
 
@@ -244,7 +244,7 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
 });
 
 const KEPT = "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.";
-const PUT_BACK = "Streamline puts back a value set in its settings page when that page next opens.";
+const PUT_BACK = "Streamline's settings page puts back the value it remembers when it next opens, where the Machine reads a fan threshold of 50 or a refill kit of Auto-Detect.";
 
 /** That each field is shown by its label with its value, and its tooltip has each line saying what sets it or noting what may become of it, or that it has none. */
 async function expectShown(scope: Locator, shown: [term: string, value: string, ...about: string[]][]) {

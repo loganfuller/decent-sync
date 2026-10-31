@@ -6,8 +6,8 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.32 and Streamline `main` at cec5664 on a simulated tablet, built
-// from their source at those builds (dye2:dye2-plugin/src/,
+// DYE2 v0.1.33 and Streamline v0.2.21 on a simulated tablet, built from
+// their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
 //
@@ -25,20 +25,24 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // The recorded data (fixtures/decaid/dye2-v0.1.26/, whose README lists the
 // steps and says what they show) names the recording's beans, batches,
 // grinders, baskets and profiles by their ids: load the tablet with
-// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.32 does what
+// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.33 does what
 // that recording shows but where fixtures/decaid/dye2-v0.1.32/ records it
 // otherwise (`dye2V032Recording`, its README says which): a recipe naming
 // no Bean clears the Workflow's, a recipe hidden from Streamline's strip is
 // in no slot, a grind setting is kept as typed, a recipe applied again on
 // its own profile keeps its id, and `record` reads the machine's settings at
-// most once a minute. DYE2's equipment and baskets pages were recorded at
-// 2cf631c (fixtures/decaid/dye2-2cf631c/), and save as v0.1.32's do
+// most once a minute; and where fixtures/decaid/dye2-v0.1.33/ records it
+// otherwise again (`dye2V033Recording`): a profile's fingerprint ignores key
+// order, and `record` saves a Basket picked since the apply into a recipe
+// holding none. DYE2's equipment and baskets pages were recorded at 2cf631c
+// (fixtures/decaid/dye2-2cf631c/), and save as v0.1.33's do
 // (`dye2PagesRecording`).
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
 // migrations and pushes, is `SimulatedDye2` below; its pages are
-// `openDye2Dashboard`, `selectRecipeInDye2`, `openDye2RecipeEditor` and
+// `openDye2Dashboard`, `selectRecipeInDye2`, `assignRecipeInDye2`,
+// `pickBasketInDye2`, `openDye2RecipeEditor` and
 // `saveRecipeFromFavouriteEditor`. Streamline's DYE strip, tiles, wake and
 // remembered values are simulated-streamline.ts.
 
@@ -91,10 +95,14 @@ export type Dye2File =
 const supportDir = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.26");
 const v032Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.32");
+const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
 
 /** The files of fixtures/decaid/dye2-v0.1.32/: what DYE2 v0.1.32 does otherwise than v0.1.26 (its README). */
 export type Dye2V032File = "library" | "loading" | "plugins" | "applies" | "streamline" | "recording" | "save-recipe" | "editor" | "keys";
+
+/** The files of fixtures/decaid/dye2-v0.1.33/: what DYE2 v0.1.33 and Streamline v0.2.21 do otherwise than v0.1.32 and cec5664 (its README). */
+export type Dye2V033File = "library" | "loading" | "plugins" | "applies" | "baskets" | "streamline" | "keys" | "skins";
 
 function readJson<T>(dir: string, file: string): T {
   return JSON.parse(fs.readFileSync(path.join(dir, `${file}.json`), "utf8")) as T;
@@ -117,6 +125,11 @@ export function dye2Recording<T = Record_>(file: Dye2File): T {
 /** A file of fixtures/decaid/dye2-v0.1.32/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
 export function dye2V032Recording<T = Record_>(file: Dye2V032File): T {
   return expandedRecording<T>(v032Fixtures, file);
+}
+
+/** A file of fixtures/decaid/dye2-v0.1.33/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function dye2V033Recording<T = Record_>(file: Dye2V033File): T {
+  return expandedRecording<T>(v033Fixtures, file);
 }
 
 /** A recording's file in that directory, its shorthands expanded (`dye2Recording`). */
@@ -413,24 +426,23 @@ function asList(value: unknown): Record_[] {
   return Array.isArray(value) ? (value as Record_[]) : [];
 }
 
-// ---- DYE2 running on the tablet (dye2:dye2-plugin/src/plugin.ts at v0.1.32).
+// ---- DYE2 running on the tablet (dye2:dye2-plugin/src/plugin.ts at v0.1.33).
 //
 // DYE2 stores no selection: the recipe being dialled in is the Workflow's
 // `context.extras.dye.recipeId` (`recipeIdOf` in utils/workflow-record.ts),
 // which its dashboard, its Select Recipe page and Streamline's strip set as
 // they apply a recipe. On each `workflowUpdated` (`trackWorkflow`, one at a
 // time) it checks that id against a baseline it keeps in memory, the profile
-// fingerprint, brew temperature and machine settings the Workflow held when
-// the id first appeared (`workflowChanged`): a profile moved off the
-// baseline's clears the id, with `PUT /workflow {"context":{"extras":{"dye":
-// {"recipeId":null}}}}`, whatever else the same PUT sent, unless it is the
-// recipe's own, by the fingerprint of the profile its record holds, each
-// step's keys in the order the record holds them (decentespresso/dye2#38,
-// fixtures/decaid/dye2-v0.1.32/applies.json): a recipe applied again after
-// its profile changed keeps its id, and is taken as the new baseline, but
-// one whose record holds its profile in another key order than Decaid's, as
-// Decent Sync's server writes one, does not. Nothing clears it on another
-// batch or grinder. A load loses the baseline. As it loads, DYE2
+// fingerprint, brew temperature, machine settings and Basket the Workflow
+// held when the id first appeared (`workflowChanged`): a profile moved off
+// the baseline's clears the id, with `PUT /workflow {"context":{"extras":
+// {"dye":{"recipeId":null}}}}`, whatever else the same PUT sent, unless it is
+// the recipe's own, by the fingerprint of the profile its record holds
+// (decentespresso/dye2#38): a recipe applied again after its profile changed
+// keeps its id, and is taken as the new baseline, in whatever key order its
+// record holds the profile, as the fingerprint ignores key order
+// (decentespresso/dye2#43, fixtures/decaid/dye2-v0.1.33/applies.json).
+// Nothing clears it on another batch or grinder. A load loses the baseline. As it loads, DYE2
 // would look at the Workflow once (`onLoad`'s `trackWorkflow(wf, true)`)
 // and, with no baseline, compare the recipe record's own profile
 // (`idProfileChanged`); but Decaid sends it the Workflow in a
@@ -444,7 +456,9 @@ function asList(value: unknown): Record_[] {
 // `recipeId` (`handleSelection`, a compat shim). Nothing is written into a
 // recipe unless asked: `POST .../record` (`handleRecord`, Streamline's "Save
 // changes") writes what the Workflow holds otherwise (`recordWorkflow` and
-// `itemPatch`, against the baseline's `armedBrewC` and `armedMachine`), and
+// `itemPatch`, against the baseline's `armedBrewC` and `armedMachine`, a
+// Basket the recipe holds none of once it moved off the one armed,
+// fixtures/decaid/dye2-v0.1.33/baskets.json), and
 // `POST .../save-recipe` (`handleSaveRecipe`) makes a recipe of the Workflow
 // and puts its id in it. It reads the DE1's flush temperature and flow from
 // `GET /machine/settings` at most once a minute, a read kept 60 s
@@ -488,7 +502,7 @@ export interface Dye2Baseline {
   armedBrewC: number | null;
   armedBeanBatchId: null;
   armedGrinderId: null;
-  /** The Workflow's steam, hot water and flush settings, with the DE1's flush pair over them, when the id first appeared, by `dashboardVariables` name. */
+  /** The Workflow's steam, hot water and flush settings, with the DE1's flush pair over them, and its `basketId`, null for none, when the id first appeared, by `dashboardVariables` name. */
   armedMachine: Record_ | null;
 }
 
@@ -535,7 +549,9 @@ export const DYE2_MACHINE_TTL_MS = 60_000;
  * A profile as DYE2 fingerprints it to tell a change of profile
  * (`profileFingerprint` in workflow-record.ts): its title, tank temperature
  * and steps, but each step's temperature, and a step limiter of value 0 as
- * none (dye2#32); its target weight and volume are the yield.
+ * none (dye2#32), every object's keys sorted, so a profile held in another
+ * key order is the same (`sortKeysReplacer`, decentespresso/dye2#43); its
+ * target weight and volume are the yield.
  */
 export function dye2ProfileFingerprint(profile: unknown): string | null {
   if (!profile || typeof profile !== "object") return null;
@@ -546,7 +562,13 @@ export function dye2ProfileFingerprint(profile: unknown): string | null {
         limiter: limiter && Number((limiter as Record_).value) !== 0 ? limiter : null,
       }))
     : record.steps;
-  return JSON.stringify({ title: record.title, tank_temperature: record.tank_temperature, steps });
+  return JSON.stringify({ title: record.title, tank_temperature: record.tank_temperature, steps }, sortKeysReplacer);
+}
+
+/** `sortKeysReplacer` in workflow-record.ts: each plain object as a copy with its keys sorted, which `JSON.stringify` then walks. */
+function sortKeysReplacer(_key: string, value: unknown): unknown {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+  return Object.fromEntries(Object.keys(value as Record_).sort().map((key) => [key, (value as Record_)[key]]));
 }
 
 /** The recipe id the Workflow names (`recipeIdOf`): null for none or "", else as text. */
@@ -616,7 +638,7 @@ function withMachineSettings(workflow: Record_, de1: Record_ | null): Record_ {
   return out;
 }
 
-/** The machine settings of the Workflow that have a value: the baseline's `armedMachine` (`machineFields`). */
+/** The machine settings of the Workflow that have a value (`machineFields`), which the baseline's `armedMachine` holds with its Basket. */
 function dye2MachineFields(workflow: Record_): Record_ {
   const all = dye2RecipeFields(workflow);
   return Object.fromEntries(Object.keys(MACHINE_MAP).filter((key) => all[key] !== undefined).map((key) => [key, all[key]]));
@@ -647,21 +669,31 @@ function dye2ChangedFields(patch: Record_, stored: Record_ | undefined): Record_
 }
 
 /**
+ * Whether a machine setting, or the Basket's id, moved off its value in
+ * `armed` (`movedSinceArming`): never where `armed` is unknown or holds no
+ * value for it.
+ */
+function movedSinceArming(key: string, live: unknown, armed: Record_ | null): boolean {
+  if (!armed || (!(key in MACHINE_MAP) && key !== "basketId")) return false;
+  return armed[key] !== undefined && !sameValue(armed[key], live);
+}
+
+/**
  * What DYE2's record writes onto the item for the Workflow (`itemPatch`):
  * the fields the item holds that differ, the brew temperature only once it
- * moved off `armedBrewC`, a machine setting the item does not hold once it
- * moved off its value in `armedMachine` (`movedSinceArming`), no steam
- * setting while steam is off, and the Basket's id and name together.
+ * moved off `armedBrewC`, a machine setting or Basket the item does not hold
+ * once it moved off its value in `armedMachine` (`movedSinceArming`), no
+ * steam setting while steam is off, no value cleared, and the Basket's id and
+ * name together.
  */
 export function dye2ItemPatch(kind: Dye2Derived["kind"], item: Record_, workflow: Record_, armedBrewC: number | null = null, armedMachine: Record_ | null = null): Record_ {
   const stored = (item[DYE2_TARGETS[kind].field] ?? {}) as Record_;
   const all = kind === "recipe" ? dye2RecipeFields(workflow) : dye2FavouriteFields(workflow);
   const off = steamOff(workflow);
-  const moved = (key: string) => !!armedMachine && key in MACHINE_MAP && armedMachine[key] !== undefined && !sameValue(armedMachine[key], all[key]);
   const known: Record_ = {};
   for (const key of Object.keys(all)) {
     if (off && STEAM_KEYS.includes(key)) continue;
-    if (stored[key] == null && !moved(key)) continue;
+    if (stored[key] == null && !movedSinceArming(key, all[key], armedMachine)) continue;
     if (key === "brewC" && (armedBrewC == null || all.brewC === armedBrewC)) continue;
     known[key] = all[key];
   }
@@ -697,10 +729,16 @@ function profileOf(recipe: Record_): unknown {
   return ((recipe.workflow as Record_ | undefined)?.profile ?? null) || recipe.profileSnapshot || null;
 }
 
-/** Whether the Workflow holds one of the recipe's fields otherwise, its brew temperature only where it names a profile (`recipeModified`). */
-function recipeModified(recipe: Record_, workflow: Record_): boolean {
+/**
+ * Whether the Workflow holds one of the recipe's fields otherwise, or a
+ * Basket picked since the apply (`armed`), which `record` would save, its
+ * brew temperature only where it names a profile (`recipeModified`).
+ */
+function recipeModified(recipe: Record_, workflow: Record_, armed: Record_ | null): boolean {
   const stored = (recipe.dashboardVariables ?? {}) as Record_;
-  const held = heldFields(ownedRecipeFields(workflow), stored);
+  const owned = ownedRecipeFields(workflow);
+  const held = heldFields(owned, stored);
+  if (owned.basketId !== undefined && movedSinceArming("basketId", owned.basketId, armed)) held.basketId = owned.basketId;
   if (!profileOf(recipe)) delete held.brewC;
   return Object.keys(dye2ChangedFields(held, stored)).length > 0;
 }
@@ -726,12 +764,12 @@ function favouriteMatches(favourite: Record_, workflow: Record_): boolean {
   return Object.keys(held).length > 0 && Object.keys(dye2ChangedFields(held, source)).length === 0;
 }
 
-/** The selection DYE2 derives from the Workflow (`deriveSelection`): the recipe `recipeId` names where a row has that id, else the first favourite matching, saved before recent. */
-export function dye2DeriveSelection(workflow: Record_ | null | undefined, rows: { recipes?: unknown[]; favourites?: unknown[] }): Dye2Derived | null {
+/** The selection DYE2 derives from the Workflow (`deriveSelection`): the recipe `recipeId` names where a row has that id, `armed` the baseline's machine settings and Basket for it, else the first favourite matching, saved before recent. */
+export function dye2DeriveSelection(workflow: Record_ | null | undefined, rows: { recipes?: unknown[]; favourites?: unknown[] }, armed: Record_ | null = null): Dye2Derived | null {
   if (!workflow) return null;
   const id = dye2RecipeIdOf(workflow);
   const recipe = id ? (rows.recipes ?? []).find((row) => row && String((row as Record_).id) === id) : undefined;
-  if (recipe) return { kind: "recipe", id: id!, modified: recipeModified(recipe as Record_, workflow) };
+  if (recipe) return { kind: "recipe", id: id!, modified: recipeModified(recipe as Record_, workflow, armed) };
   const favourites = (rows.favourites ?? []).filter((row): row is Record_ => !!row && (row as Record_).id != null) as Record_[];
   const hit = [...favourites.filter((row) => !row.auto), ...favourites.filter((row) => row.auto)].find((row) => favouriteMatches(row, workflow));
   if (!hit) return null;
@@ -830,13 +868,13 @@ function healRecipes(rows: Record_[]): Record_[] {
 }
 
 /**
- * DYE2's entry in `GET /plugins` as recorded once v0.1.32 was installed from
- * its release (dye2-v0.1.32/plugins.json), or from its `dist` branch, which
+ * DYE2's entry in `GET /plugins` as recorded once v0.1.33 was installed from
+ * its release (dye2-v0.1.33/plugins.json), or from its `dist` branch, which
  * builds `main` (plugins-and-skins-v0.9.0/, `dye2Branch`), its `loaded` and
  * `autoLoad` set by `listing()`.
  */
 function recordedDye2Listing(source: Dye2Source): Record_ {
-  if (source === "release") return dye2V032Recording<{ listed: Record_[] }>("plugins").listed[0]!;
+  if (source === "release") return dye2V033Recording<{ listed: Record_[] }>("plugins").listed[0]!;
   const listed = pluginsAndSkinsAt("dye2Branch")["/plugins"]!.body as Record_[];
   return listed.find((plugin) => plugin.id === DYE2_NAMESPACE)!;
 }
@@ -1189,7 +1227,8 @@ export class SimulatedDye2 {
         this.machineRead = null;
         const full = withMachineSettings(workflow, await this.readMachineSettings());
         if (generation !== this.generation) return;
-        const live = ownedRecipeFields(workflow).brewC;
+        const owned = ownedRecipeFields(workflow);
+        const live = owned.brewC;
         this.baselineNow = {
           kind: "recipe",
           id,
@@ -1197,7 +1236,7 @@ export class SimulatedDye2 {
           armedBrewC: typeof live === "number" ? live : null,
           armedBeanBatchId: null,
           armedGrinderId: null,
-          armedMachine: dye2MachineFields(full),
+          armedMachine: { ...dye2MachineFields(full), basketId: owned.basketId ?? null },
         };
       }
     } else this.baselineNow = null;
@@ -1215,11 +1254,12 @@ export class SimulatedDye2 {
     this.announce();
   }
 
-  /** `derive`: the selection derived from the Workflow, the recipes (read unless given), the favourites, and the Shot carrying an id no row has. */
+  /** `derive`: the selection derived from the Workflow, the recipes (read unless given), the favourites, the Shot carrying an id no row has, and the baseline's machine settings and Basket for the id the Workflow names. */
   private async derive(workflow: Record_, known?: Record_[]): Promise<Dye2Derived | null> {
     const [recipes, favourites] = await Promise.all([known ?? this.kv("recipes"), this.kv("autoFavourites")]);
     const history = await this.recipeFor(dye2RecipeIdOf(workflow), recipes);
-    return dye2DeriveSelection(workflow, { recipes: history ? [...recipes, history] : recipes, favourites });
+    const armed = this.baselineNow && this.baselineNow.id === dye2RecipeIdOf(workflow) ? this.baselineNow.armedMachine : null;
+    return dye2DeriveSelection(workflow, { recipes: history ? [...recipes, history] : recipes, favourites }, armed);
   }
 
   /** `recipeFor`: the row with that id, else the newest of the latest 50 Shots carrying it as a stand-in (`resolveRecipeFromHistory`), else null. */
@@ -1480,8 +1520,8 @@ export class SimulatedDye2 {
   }
 }
 
-// ---- DYE2's pages (dye2:dye2-plugin/src/pages/dashboard.ts, select-recipe.ts and recipe-edit.ts, and their
-// utils/dev-api.ts and utils/recipe-strip.ts, at v0.1.32).
+// ---- DYE2's pages (dye2:dye2-plugin/src/pages/dashboard.ts, select-recipe.ts, basket-picker.ts and recipe-edit.ts,
+// and their utils/dev-api.ts and utils/recipe-strip.ts, at v0.1.33).
 
 /** The context fields DYE2 flags for Streamline (`DYE_TOP_KEYS`, `DYE_EXTRAS_KEYS` in dev-api.ts). */
 const DYE_TOP_KEYS = ["beanBatchId", "coffeeName", "coffeeRoaster", "grinderId", "grinderModel", "baristaName", "drinkerName"];
@@ -1730,6 +1770,33 @@ export async function selectRecipeInDye2(tablet: SimulatedTablet, recordId: stri
   await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/shotIndex`);
   if (!recipes.some((recipe) => recipe.id === recordId)) throw new Error(`DYE2's Select Recipe page lists no recipe ${recordId}`);
   return openDye2Dashboard(tablet, { selectedRecipeId: recordId });
+}
+
+/**
+ * DYE2's Select Recipe page in assign mode (`select-recipe?slot=N`, select-recipe.ts), as Streamline's
+ * "Replace <name>" on a filled button and "Select recipe" on an empty one open it: it reads every recipe, and on
+ * ASSIGN TO N of the one with that record id puts it in slot N, shown (`updateRecipe`, whose `takeSlot` frees the slot
+ * on its previous holder, which it leaves shown in no slot), and goes back, applying nothing. Resolves with the recipe
+ * saved.
+ */
+export async function assignRecipeInDye2(tablet: SimulatedTablet, recordId: string, slot: number): Promise<Record_> {
+  const { status, body } = await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`);
+  const recipes = status === 200 ? asList(body).filter((recipe) => recipe && recipe.id) : [];
+  await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/shotIndex`);
+  if (!recipes.some((recipe) => recipe.id === recordId)) throw new Error(`DYE2's Select Recipe page lists no recipe ${recordId}`);
+  return updateRecipe(tablet, recordId, { stripSlot: slot, showOnStreamlineDashboard: true });
+}
+
+/**
+ * DYE2's basket picker (basket-picker.ts), as its dashboard's Basket field opens it: it reads DYE2's baskets, and on
+ * CONFIRM of the one with that id writes it into the Workflow, its id and name flagged (`markDye`), then goes back.
+ * Resolves with Decaid's answer.
+ */
+export async function pickBasketInDye2(tablet: SimulatedTablet, basketId: string): Promise<DecaidAnswer> {
+  const { status, body } = await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/baskets`);
+  const basket = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === basketId);
+  if (!basket) throw new Error(`DYE2's basket picker lists no basket ${basketId}`);
+  return tablet.callApi("PUT", "/workflow", { context: markDye({ extras: { basketId, basketName: basket.name || "Unnamed" } }) });
 }
 
 export class Dye2Dashboard {

@@ -15,6 +15,28 @@ section).
 
 ## Unreleased
 
+### Tablets need DYE2 v0.1.33 and Streamline v0.2.21
+
+This release follows DYE2 v0.1.33 and Streamline v0.2.21
+([ADR-0017](docs/adr/0017-supported-versions.md)), Streamline's first minimum
+that is a release rather than a build of `main`. Decaid installs both on
+every tablet within 12 hours of their release. Check that a tablet whose DYE2
+or Streamline is pinned runs them or later.
+
+- A Recipe applied again on a Machine after its Profile was edited in the
+  management interface stays loaded there.
+- An edit of a Machine's steam purge mode or a heater setting lasts: from
+  v0.2.20, Streamline's settings page keeps a setting changed elsewhere. It
+  still puts back the value it remembers where the Machine reads a fan
+  threshold of 50 or a refill kit of Auto-Detect, which the Settings card now
+  says beside those two alone. A page left open from 1.6.1 shows the old
+  notes until it reloads.
+
+Check each tablet's wake profile. Streamline's "Load Profile on Wake"
+(Settings, Wake Lock) works again from v0.2.19: a wake onto a profile other
+than the Loaded Recipe's own sends that profile, which unloads the Recipe each
+time the Machine wakes. Turn it off on a Machine that follows Recipes.
+
 ## 1.6.1
 
 ### A Recipe is shown on the strip by its slot alone

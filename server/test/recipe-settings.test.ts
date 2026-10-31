@@ -22,8 +22,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // set (ADR-0021); steam-back-on.test.ts covers the ways it turns steam on at
 // another, which take the Recipe's too (#374). With no Recipe loaded, a
 // change of them stays on its Machine (#190). Through the
-// built plugin in simulated tablets running DYE2 v0.1.32 and Streamline at
-// cec5664 as recorded (fixtures/decaid/dye2-v0.1.26/), Machine A, and B in
+// built plugin in simulated tablets running DYE2 v0.1.33 and Streamline
+// v0.2.21 as recorded (fixtures/decaid/dye2-v0.1.26/), Machine A, and B in
 // the tests that use it, on one server instance and C on another sharing
 // one database, with assertions through the REST API and what each
 // simulated tablet holds. Serials are made up, from 49001.

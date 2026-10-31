@@ -1205,8 +1205,9 @@ are never matched (ADR-0018).
   while it is in a slot, DYE2 v0.1.32's `stripTargetOf`). A record the map
   holds whose slot so read differs from the record known's moves its Recipe
   there, or out of its slot for none, as DYE2's editor moves a recipe on the
-  strip or takes it off, Streamline's "Replace <name>" takes one off it, and
-  hiding it does, as Streamline's "Clear button" does keeping its
+  strip or takes it off, DYE2's Select Recipe assigns one to a button for
+  Streamline's "Replace <name>" or "Select recipe", taking the one there off
+  it, and hiding it does, as Streamline's "Clear button" does keeping its
   `stripSlot` and DYE2's editor switching "Show on Streamline Dashboard"
   off; a new Recipe from a tablet takes its
   record's slot the same way (`slotMove` in `recipe-intake.ts`, `moveSlots`

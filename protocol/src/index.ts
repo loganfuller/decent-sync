@@ -932,8 +932,8 @@ export const WORKFLOW_CLEARED = [WORKFLOW_GRINDER, WORKFLOW_BATCH, WORKFLOW_BASK
  * dashboard, its Select Recipe page and Streamline's DYE strip set as they
  * apply a recipe, and DYE2 clears (null) once the Workflow's profile moves off
  * the one it held when the id appeared, but onto the recipe's own
- * (`workflowChanged` in dye2:dye2-plugin/src/plugin.ts at v0.1.32,
- * decentespresso/dye2#36, #38). Decaid
+ * (`workflowChanged` in dye2:dye2-plugin/src/plugin.ts at v0.1.33,
+ * decentespresso/dye2#36, #38, #43). Decaid
  * copies the Workflow onto every Shot pulled with it, offline ones included.
  * The server reads the Machine's Loaded Recipe from it (ADR-0022), and the
  * plugin clears it, as DYE2 does, to unload one.
@@ -955,7 +955,9 @@ export function dye2RecipeIdOf(workflow: unknown): string | null {
  * value 0, which is none, read as none, as Streamline sends it
  * (decentespresso/dye2#32). Its target weight and volume are the yield,
  * which Streamline sends with the profile, so they are left out
- * (decentespresso/dye2#18). Null for none.
+ * (decentespresso/dye2#18). Null for none. From v0.1.33 DYE2 also sorts every
+ * object's keys (decentespresso/dye2#43), which this follows from #388; so
+ * far it still tells one profile in two key orders apart.
  */
 export function dye2Fingerprint(profile: unknown): string | null {
   if (!isObject(profile)) return null;

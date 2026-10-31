@@ -34,11 +34,13 @@ export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
  * The parts DYE2 saves into the Loaded Recipe's record as the plugin has it
  * save a change of the Workflow (`record`), so a change of them on the
  * Machine reaches the server as the tablet's change of the record: its dose,
- * yield, grind setting, RPM, Basket and brew temperature, where the record
- * holds one, and its steam, hot water and flush settings, each where the
- * record holds it, or once it moves off the value the Workflow held as the
- * recipe was applied (`itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32). DYE2 saves
+ * yield, grind setting, RPM and brew temperature, where the record holds
+ * one; its Basket, where the record holds one, or once it moves off the one
+ * the Workflow held as the recipe was applied (`163a7c8`, from v0.1.33); and
+ * its steam, hot water and flush settings, each where the record holds it,
+ * or once it moves off the value the Workflow held as the recipe was applied
+ * (`itemPatch` and `movedSinceArming` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33). DYE2 saves
  * none of steam turned off, a value cleared, the Bean Batch, the Grinder or
  * the Profile.
  */
@@ -173,7 +175,8 @@ const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: 
  * or, on a load (`held` null), where the Recipe holds none, from the
  * Workflow as it stands (`now`): a dose, yield, grind setting (a number, or
  * text as typed, as DYE2 v0.1.32 saves one), RPM or Basket the Recipe holds
- * none of; a Grinder, one of the Location's; and a Bean Batch of the Recipe's
+ * none of, though DYE2 v0.1.33 saves a Basket picked after the load too
+ * (#389); a Grinder, one of the Location's; and a Bean Batch of the Recipe's
  * own Bean, or with its Bean for a Recipe naming no Bean, but not on a load:
  * a Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
  * applies one (`ce38984`), and a batch picked while it is loaded is a change

@@ -4,7 +4,7 @@
 //
 // Each field is named as Decaid v0.9.0's API names it. Labels, units, ranges,
 // steps and choices follow Streamline's settings page
-// (streamline-js:src/settings/settings.js at cec5664) where it has them, and
+// (streamline-js:src/settings/settings.js at v0.2.21) where it has them, and
 // Decaid's own limits otherwise. A reported value outside a field's range is
 // shown as it is; only an edit must be in range.
 
@@ -91,9 +91,13 @@ export interface SettingsChoice {
  *   backups leave it out, so a replacement Tablet, or a reset of Decaid's
  *   data, puts Decaid's default back (`MachineSettingsStore`;
  *   decentespresso/decaid#1043);
- * - `putBackByStreamline`: Streamline writes back a value a barista saved in
- *   its settings page when that page next opens (`checkMachineSettingsDrift`;
- *   decentespresso/streamline-js#172);
+ * - `putBackByStreamline`: Streamline's settings page, as it next opens,
+ *   writes back the value a barista saved there where the Machine reads what
+ *   Decaid v0.9.0 wrote as it connected, a fan threshold of 50 or the refill
+ *   kit on Auto-Detect, and keeps any other value changed elsewhere
+ *   (`checkMachineSettingsDrift`, `RESET_ON_CONNECT` in
+ *   streamline-js:src/settings/settings-restore.js at v0.2.21;
+ *   decentespresso/streamline-js#179);
  * - `restartAfterChange`: the Machine takes the new value once restarted.
  */
 export type SettingsNote = "keptByTablet" | "putBackByStreamline" | "restartAfterChange";
@@ -135,7 +139,6 @@ export function isEditable(field: SettingsField): field is EditableSettingsField
   return "editableBy" in field;
 }
 
-const STREAMLINE: readonly SettingsNote[] = ["putBackByStreamline"];
 const SET_BY_WORKFLOW = "Set by the Workflow";
 
 /**
@@ -159,7 +162,6 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
         { value: 1, label: "Two Tap Stop" },
       ],
       editableBy: "staff",
-      notes: STREAMLINE,
     },
     // Decaid writes the Workflow's back to the Machine on every reconnect (`_setDe1DefaultsFor`), and a Loaded Recipe holds them.
     { path: "steamFlow", label: "Steam flow", unit: "ml/s", kind: "number", setBy: SET_BY_WORKFLOW },
@@ -172,10 +174,10 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     { path: "usb", label: "USB charger", kind: "onOff", setBy: "Set by the Tablet's charging mode" },
   ],
   advancedSettings: [
-    { path: "heaterPh1Flow", label: "Heater warmup flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
-    { path: "heaterPh2Flow", label: "Heater test flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
-    { path: "heaterIdleTemp", label: "Idle temperature", unit: "°C", kind: "wholeNumber", min: 0, max: 99, editableBy: "admin", notes: STREAMLINE },
-    { path: "heaterPh2Timeout", label: "Heater test time-out", unit: "s", kind: "wholeNumber", min: 0, max: 60, editableBy: "admin", notes: STREAMLINE },
+    { path: "heaterPh1Flow", label: "Heater warmup flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin" },
+    { path: "heaterPh2Flow", label: "Heater test flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin" },
+    { path: "heaterIdleTemp", label: "Idle temperature", unit: "°C", kind: "wholeNumber", min: 0, max: 99, editableBy: "admin" },
+    { path: "heaterPh2Timeout", label: "Heater test time-out", unit: "s", kind: "wholeNumber", min: 0, max: 60, editableBy: "admin" },
     // Only the two values Streamline offers: Decaid writes -1 for one outside 90 to 150 and 180 to 260 (`De1HeaterVoltage.fromInt`).
     // Streamline's restore leaves it alone.
     {

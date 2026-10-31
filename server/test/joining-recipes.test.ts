@@ -20,7 +20,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // and keeps its hot water; and it never loads the Location's Recipe through
 // a `recipeId` its Workflow still names, even where that Recipe has the same
 // slot-number record id as the one it had loaded. Through the built plugin in
-// simulated tablets running DYE2 v0.1.32 as recorded
+// simulated tablets running DYE2 v0.1.33 as recorded
 // (fixtures/decaid/dye2-v0.1.26/), on two server instances sharing one
 // database, with assertions through the REST API and what each simulated
 // tablet holds. Serials are made up, from 49001.

@@ -69,14 +69,15 @@ function stableJson(value: unknown): string {
  * which Decaid merges into it) changes its profile as DYE2 fingerprints one
  * (`dye2Fingerprint`), which DYE2 clears the Workflow's recipe on, whoever
  * wrote it (`idProfileChanged` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32), even where the
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33), even where the
  * write names the same recipe, but where the profile is the recipe record's
- * own by that fingerprint, which keeps each step's keys in the record's
- * order, so never one the server wrote (decentespresso/dye2#38): so the
- * plugin makes such a write as two, the recipe cleared (CLEAR_RECIPE) and
- * then named again with the write (`withRecipe`), and DYE2 takes the new
- * profile as the recipe's (interim, until DYE2's fingerprint ignores key
- * order, #186).
+ * own by that fingerprint (decentespresso/dye2#38), which before v0.1.33
+ * kept each step's keys in the record's order, so never matched one the
+ * server wrote: so the plugin makes such a write as two, the recipe cleared
+ * (CLEAR_RECIPE) and then named again with the write (`withRecipe`), and
+ * DYE2 takes the new profile as the recipe's (interim: from v0.1.33, the
+ * minimum, DYE2's fingerprint ignores key order, decentespresso/dye2#43, and
+ * #388 makes it one write).
  */
 export function changesProfile(workflow: Record<string, unknown>, write: Record<string, unknown>): boolean {
   return isObject(write.profile) && dye2Fingerprint(write.profile) !== dye2Fingerprint(workflow.profile);

@@ -6,7 +6,7 @@ import type { Transports } from "./host.js";
 // one its Workflow names (DYE2_RECIPE_FIELD), which DYE2's dashboard, its
 // Select Recipe page and Streamline's DYE strip set as they apply one, and
 // DYE2 clears on a change of profile (`workflowChanged` in
-// dye2:dye2-plugin/src/plugin.ts at v0.1.32). DYE2 stores no selection of its
+// dye2:dye2-plugin/src/plugin.ts at v0.1.33). DYE2 stores no selection of its
 // own, and writes a change of the Workflow into that recipe only when asked
 // (`record`), as Streamline's Save changes does. This module is how the
 // plugin asks it to, tells whether DYE2 is there at all, and hears DYE2's
@@ -21,7 +21,7 @@ const RECORD = `/plugins/${DYE2_NAMESPACE}/record`;
 /**
  * Has DYE2 write into the recipe the Workflow names each value of it the
  * Workflow holds otherwise (`recordWorkflow` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32), as Streamline's
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33), as Streamline's
  * Save changes does: "saved" where it wrote, "unchanged" where it had
  * nothing to write or no recipe to write into, and "unavailable" where DYE2
  * answers 404, as while it is not loaded. Throws if Decaid answers otherwise,

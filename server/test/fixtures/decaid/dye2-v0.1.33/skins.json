@@ -1,0 +1,182 @@
+{
+  "installed": {
+    "request": {
+      "method": "POST",
+      "path": "/webui/skins/install/url",
+      "body": {
+        "url": "https://github.com/decentespresso/streamline-js/archive/aa45652639f4c2715b72a47d4169a8d1e15adec1.zip"
+      }
+    },
+    "response": {
+      "status": 200,
+      "body": {
+        "success": true,
+        "message": "Skin installed successfully from URL",
+        "url": "https://github.com/decentespresso/streamline-js/archive/aa45652639f4c2715b72a47d4169a8d1e15adec1.zip"
+      }
+    }
+  },
+  "skins": {
+    "request": {
+      "method": "GET",
+      "path": "/webui/skins"
+    },
+    "response": {
+      "status": 200,
+      "body": [
+        {
+          "id": "insight",
+          "name": "Insight",
+          "path": "/root/.local/share/decaid/web-ui/insight",
+          "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+          "version": "0.2.7",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "insight",
+            "sourceUrl": "github_release:decentespresso/insight-js@v0.2.7",
+            "lastModified": "2026-09-05T15:38:01Z",
+            "etag": null,
+            "commitHash": "v0.2.7",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:09:12.569734",
+            "lastChecked": "2026-10-31T14:09:12.569734"
+          }
+        },
+        {
+          "id": "NSX-skin",
+          "name": "NSX",
+          "path": "/root/.local/share/decaid/web-ui/NSX-skin",
+          "description": "Skin for Decent.app",
+          "version": "v0.4.3",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "NSX-skin",
+            "sourceUrl": "github_release:NilsBruch/NSX@v0.4.3",
+            "lastModified": "2026-09-06T12:33:09Z",
+            "etag": null,
+            "commitHash": "v0.4.3",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:57.995560",
+            "lastChecked": "2026-10-31T14:08:57.995560"
+          }
+        },
+        {
+          "id": "overdose",
+          "name": "OverDose",
+          "path": "/root/.local/share/decaid/web-ui/overdose",
+          "description": "Recipe-driven espresso UI for Decent Espresso machines.",
+          "version": "0.0.13",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "overdose",
+            "sourceUrl": "github_release:rotium/OverDose@v0.0.13",
+            "lastModified": "2026-08-29T21:18:47Z",
+            "etag": null,
+            "commitHash": "v0.0.13",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:54.524422",
+            "lastChecked": "2026-10-31T14:08:54.524422"
+          }
+        },
+        {
+          "id": "streamline.js-dist",
+          "name": "Streamline.js Dev",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js-dist",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.21-dev.c568255.686",
+          "isBundled": false,
+          "reaMetadata": {
+            "skinId": "streamline.js-dist",
+            "sourceUrl": "https://github.com/decentespresso/streamline-js/archive/aa45652639f4c2715b72a47d4169a8d1e15adec1.zip",
+            "lastModified": null,
+            "etag": "W/\"017b87b65464950d098652bf66e3879f090e24e241296d67c7f8533c37481cc7\"",
+            "commitHash": null,
+            "releaseAssetName": null,
+            "includePrerelease": null,
+            "installedAt": "2026-10-31T14:14:44.681379",
+            "lastChecked": "2026-10-31T14:14:44.681379"
+          }
+        },
+        {
+          "id": "beanie",
+          "name": "Beanie",
+          "path": "/root/.local/share/decaid/web-ui/beanie",
+          "description": "Bean-first dial-in workflow for Decent.app.",
+          "version": "0.3.10",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "beanie",
+            "sourceUrl": "github_release:giladger/Beanie@v0.3.10",
+            "lastModified": "2026-10-28T13:33:59Z",
+            "etag": null,
+            "commitHash": "v0.3.10",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:55.480861",
+            "lastChecked": "2026-10-31T14:08:55.480861"
+          }
+        },
+        {
+          "id": "passione",
+          "name": "Passione",
+          "path": "/root/.local/share/decaid/web-ui/passione",
+          "description": "A work of passion — a modern web interface for the DE1 espresso machine via Streamline-Bridge",
+          "version": "0.9.6",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "passione",
+            "sourceUrl": "github_release:tadelv/passione@v0.9.6",
+            "lastModified": "2026-09-11T10:47:47Z",
+            "etag": null,
+            "commitHash": "v0.9.6",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:53.488665",
+            "lastChecked": "2026-10-31T14:08:53.488665"
+          }
+        },
+        {
+          "id": "workflow-skin",
+          "name": "WorkFlow",
+          "path": "/root/.local/share/decaid/web-ui/workflow-skin",
+          "description": "Profile presets, bag history, recommendations, post-shot review, TDS/EY, and Visualizer workflow for ReaPrime.",
+          "version": "0.4.4",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "workflow-skin",
+            "sourceUrl": "github_release:Sabotage1/WorkFlow-Skin@v0.4.4",
+            "lastModified": "2026-10-31T13:01:10Z",
+            "etag": null,
+            "commitHash": "v0.4.4",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:59.073954",
+            "lastChecked": "2026-10-31T14:08:59.073954"
+          }
+        },
+        {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.21",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.21",
+            "lastModified": "2026-10-30T08:57:14Z",
+            "etag": null,
+            "commitHash": "v0.2.21",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-10-31T14:08:52.334227",
+            "lastChecked": "2026-10-31T14:08:52.334227"
+          }
+        }
+      ]
+    }
+  }
+}

@@ -38,7 +38,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the reporting tablet's map. The Shots list filters by both, and an Admin
 // hard-deletes a Recipe no Shot is linked to, and a Basket or Tool no Shot or
 // Recipe names, from every tablet. Through the built plugin in simulated
-// tablets acting as DYE2 v0.1.32 and Streamline `main` at cec5664 do, with
+// tablets acting as DYE2 v0.1.33 and Streamline v0.2.21 do, with
 // the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 49001.
@@ -203,7 +203,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
 
   /**
    * A Location with a Machine whose tablet is the recording's
-   * (`recordedTablet`), running DYE2 v0.1.32, on the first instance, the
+   * (`recordedTablet`), running DYE2 v0.1.33, on the first instance, the
    * first at the Location, so its recipes join its Recipes with their ids and
    * slots, and another whose tablet has never used DYE2, on the other, which
    * is written every one of them under the same id. Resolves with the
@@ -370,27 +370,24 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     await expect.poll(async () => (await storedShot("recipe-saved-before-intake")).recipe?.id, { timeout: 15_000 }).toBe(savedRecipe);
     expect(recipeIdInWorkflow(tablet)).toBe(savedId);
 
-    // "Replace <name>" on the fourth button: the new recipe takes slot 4, and the one there leaves it, on every tablet, staying
-    // at the Location.
+    // "Replace <name>" on the fourth button opens DYE2's Select Recipe to assign one of its recipes there (Streamline
+    // v0.2.20, 35c5917): the saved recipe takes slot 4, and the one there leaves it, on every tablet, staying at the
+    // Location; the saved one stays loaded, as its record keeps its id.
     const newerSlot4 = dye2GlobalIdOf(list(tablet, "recipes").find((record) => record.stripSlot === 4))!;
-    const replaced = await streamline.saveToRecipe(4);
-    expect(replaced.status).toBe(200);
-    const { id: replacingId } = replaced.body as { id: string };
-    pull(tablet, "recipe-replacing", 49101);
-    await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, replacingId)), { timeout: 15_000 }).toEqual(expect.any(String));
-    const replacing = dye2GlobalIdOf(recordWithId(tablet, replacingId))!;
-    await expect.poll(async () => (await recipesAt(here)).map((held) => [held.id, held.slot]).filter(([id]) => id === replacing || id === newerSlot4)).toEqual(
+    await streamline.assignToCell(4, savedId);
+    pull(tablet, "recipe-reassigned", 49101);
+    await expect.poll(async () => (await recipesAt(here)).map((held) => [held.id, held.slot]).filter(([id]) => id === savedRecipe || id === newerSlot4), { timeout: 15_000 }).toEqual(
       expect.arrayContaining([
-        [replacing, 4],
+        [savedRecipe, 4],
         [newerSlot4, null],
       ]),
     );
-    await expect.poll(() => recordWithId(neverUsed, replacingId)).toMatchObject({ stripSlot: 4 });
+    await expect.poll(() => recordWithId(neverUsed, savedId)).toMatchObject({ stripSlot: 4 });
     expect(recordOf(neverUsed, "recipes", newerSlot4)).toMatchObject({ stripSlot: null });
-    await loads(machine, replacing);
-    await expect.poll(async () => (await storedShot("recipe-replacing")).recipe?.id, { timeout: 15_000 }).toBe(replacing);
+    await loads(machine, savedRecipe);
+    await expect.poll(async () => (await storedShot("recipe-reassigned")).recipe?.id, { timeout: 15_000 }).toBe(savedRecipe);
     // Every recipe, whatever its id, is on both tablets under the same id.
-    expect(await recipesAt(here)).toHaveLength(10);
+    expect(await recipesAt(here)).toHaveLength(9);
     await expect.poll(() => recipeRecords(neverUsed)).toEqual(recipeRecords(tablet));
   });
 

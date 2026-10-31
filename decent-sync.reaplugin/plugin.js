@@ -185,7 +185,6 @@ var __decentSync = (() => {
   function isEditable(field) {
     return "editableBy" in field;
   }
-  var STREAMLINE = ["putBackByStreamline"];
   var SET_BY_WORKFLOW = "Set by the Workflow";
   var SETTINGS_FIELDS = {
     machineSettings: [
@@ -199,8 +198,7 @@ var __decentSync = (() => {
           { value: 0, label: "Normal" },
           { value: 1, label: "Two Tap Stop" }
         ],
-        editableBy: "staff",
-        notes: STREAMLINE
+        editableBy: "staff"
       },
       // Decaid writes the Workflow's back to the Machine on every reconnect (`_setDe1DefaultsFor`), and a Loaded Recipe holds them.
       { path: "steamFlow", label: "Steam flow", unit: "ml/s", kind: "number", setBy: SET_BY_WORKFLOW },
@@ -213,10 +211,10 @@ var __decentSync = (() => {
       { path: "usb", label: "USB charger", kind: "onOff", setBy: "Set by the Tablet's charging mode" }
     ],
     advancedSettings: [
-      { path: "heaterPh1Flow", label: "Heater warmup flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
-      { path: "heaterPh2Flow", label: "Heater test flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin", notes: STREAMLINE },
-      { path: "heaterIdleTemp", label: "Idle temperature", unit: "°C", kind: "wholeNumber", min: 0, max: 99, editableBy: "admin", notes: STREAMLINE },
-      { path: "heaterPh2Timeout", label: "Heater test time-out", unit: "s", kind: "wholeNumber", min: 0, max: 60, editableBy: "admin", notes: STREAMLINE },
+      { path: "heaterPh1Flow", label: "Heater warmup flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin" },
+      { path: "heaterPh2Flow", label: "Heater test flow", unit: "ml/s", kind: "number", min: 0, max: 10, step: 0.1, editableBy: "admin" },
+      { path: "heaterIdleTemp", label: "Idle temperature", unit: "°C", kind: "wholeNumber", min: 0, max: 99, editableBy: "admin" },
+      { path: "heaterPh2Timeout", label: "Heater test time-out", unit: "s", kind: "wholeNumber", min: 0, max: 60, editableBy: "admin" },
       // Only the two values Streamline offers: Decaid writes -1 for one outside 90 to 150 and 180 to 260 (`De1HeaterVoltage.fromInt`).
       // Streamline's restore leaves it alone.
       {

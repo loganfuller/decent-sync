@@ -39,7 +39,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (ADR-0019). And for ticket #216, DYE2's editor saving only what it changed
 // over a fresh read keeps another tablet's change (decentespresso/dye2#28),
 // which replaced ticket #142's stale-save rule. Through the built plugin in
-// simulated tablets, acting as DYE2 v0.1.32 and Streamline at cec5664 do
+// simulated tablets, acting as DYE2 v0.1.33 and Streamline v0.2.21 do
 // with the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up,
