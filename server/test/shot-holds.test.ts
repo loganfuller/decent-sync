@@ -169,7 +169,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     await expect.poll(() => [context(c).grinderSetting, (c.workflow().profile as Record_).title, firstTemperature(c)], { timeout: 15_000 }).toEqual(["3.2", "Classic Italian espresso", 91]);
     // Once the held writes, their reports and anything else they set off are done.
     await quiet();
-    // Written once, the profile's change with the rest, naming the recipe, which DYE2 keeps named.
+    // Written once, the profile's change with the rest, which DYE2 keeps the recipe named through.
     expect(workflowWrites(c)).toBe(writes + 1);
     expect(grinds).not.toContain("3.1");
     expect(recipeIdInWorkflow(c)).toBe(ETHIOPIA);

@@ -1231,10 +1231,10 @@ export const STEAM_ON_FROM = 135;
  * the server did not hold, or that expects none: a part a barista changed
  * since, or cleared, is kept, which its Workflow change brings to the
  * server. A write that changes the profile, as DYE2 fingerprints one
- * (`dye2Fingerprint`), names the Recipe's id at DYE2_RECIPE_FIELD too, in the
- * same `PUT /workflow`: DYE2 keeps the recipe named through a change of
- * profile onto the one the tablet's record of it holds, and a Profile is
- * written only once that record holds it (ADR-0022). A steam temperature
+ * (`dye2Fingerprint`), is one `PUT /workflow` too, naming no recipe: DYE2
+ * keeps the recipe the Workflow names through a change of profile onto the
+ * one the tablet's record of it holds, and a Profile is written only once
+ * that record holds it (ADR-0022). A steam temperature
  * is never written into a Workflow whose steam is off (`steamOff`), as it
  * would turn steam on: the plugin leaves it out. Decaid
  * refuses to change the steam, hot water and flush settings while no

@@ -336,7 +336,7 @@ describe("Telling skins of each write of the server's into the Workflow", () => 
     expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 19, targetYield: 40 }) })]);
   });
 
-  it("pushes once after a Loaded Recipe write changing the profile, made as one write naming the recipe, with the Workflow naming it", async () => {
+  it("pushes once after a Loaded Recipe write changing the profile, made as one write, with the Workflow still naming the recipe", async () => {
     const adaptive = (dye2Library()["/profiles"] as Record_[]).find((profile) => profile.id === "profile:98fa00c191551b435845")!.profile as Record_;
     const puts = workflowPuts();
     const { answer, pushes, held } = await pushesFor(loaded({ profile: adaptive }));

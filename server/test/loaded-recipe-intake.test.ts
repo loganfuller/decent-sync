@@ -309,6 +309,8 @@ describe("The dial written into a Workflow", () => {
     expect(heldByRecord(target, { ...current, workflow: { profile: reordered } }, classic)).toEqual(target);
     expect(heldByRecord(target, { ...current, workflow: { context: {} } }, classic)).toEqual(target);
     expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: renamed }, classic)).toEqual({ ...target, profile: undefined });
+    // A record holding no profile at all, which DYE2 compares nothing with, holds nothing back.
+    expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: null }, classic)).toEqual(target);
   });
 });
 

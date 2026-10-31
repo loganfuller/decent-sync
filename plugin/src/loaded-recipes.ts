@@ -17,7 +17,7 @@ import type { LibraryAccess } from "./library-writes.js";
 import type { WorkflowChanges } from "./machine-events.js";
 import type { ShotGate } from "./shot-gate.js";
 import type { PluginStorage } from "./storage.js";
-import { type LoadContext, changesProfile, clearRecipe, loadWrite, loadable, steamBackOnWrite, steamOnAt, vacatedIds, withRecipe } from "./loaded-recipe-rules.js";
+import { type LoadContext, clearRecipe, loadWrite, loadable, steamBackOnWrite, steamOnAt, vacatedIds } from "./loaded-recipe-rules.js";
 import type { Skins } from "./skins.js";
 
 // Each Machine's Loaded Recipe (ADR-0022): the recipe its Workflow names
@@ -43,10 +43,9 @@ import type { Skins } from "./skins.js";
 // temperature steam came back at (`steamBackOnFirst`), as turning steam off
 // is no edit. A write of the plugin's that changes the profile writes the
 // profile the tablet's record of the recipe holds, which DYE2 keeps the
-// recipe named through, and names the recipe in the same write
-// (`putNamingRecipe`). The server unloads one by having the plugin clear the
-// field. On a Capture-only Machine, or while DYE2 is not there, nothing is
-// written or saved.
+// recipe named through, as one write (`putWorkflow`). The server unloads one
+// by having the plugin clear the field. On a Capture-only Machine, or while
+// DYE2 is not there, nothing is written or saved.
 //
 // A load decided on while the Machine pulls a Shot is held until the Shot
 // ends (`ShotGate`), as every write of the plugin's into the Workflow is,
@@ -531,11 +530,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /**
    * Loads the Recipe the Workflow names, while it still names it: writes
    * into the Workflow what applying a DYE2 recipe leaves out, or a stale
-   * copy got wrong (`loadWrite`), as one write, naming the recipe too where
-   * it changes the profile (`putNamingRecipe`), whose profile is the record's
-   * own. Decaid refuses to change the steam, hot water and flush settings
-   * while no machine is connected, so the rest is then written without
-   * them. A write Decaid takes is told of (`workflowWritten`).
+   * copy got wrong (`loadWrite`), as one write (`putWorkflow`), its profile,
+   * where it writes one, the record's own. Decaid refuses to change the
+   * steam, hot water and flush settings while no machine is connected, so
+   * the rest is then written without them. A write Decaid takes is told of
+   * (`workflowWritten`).
    */
   private async loadRecipe(globalId: string): Promise<void> {
     if (this.stopped || !this.sharing()) return;
@@ -553,10 +552,10 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       const context = await this.loadContext(recipe.record);
       let write = loadWrite(workflow, recipe.record, context);
       if (write === null) return;
-      let answer: Answer | undefined = await putNamingRecipe(workflow, write, recordId, answered);
+      let answer: Answer | undefined = await putWorkflow(write, answered);
       if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in write!) && machineMissing(answer)) {
         write = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
-        answer = write === null ? undefined : await putNamingRecipe(workflow, write, recordId, answered);
+        answer = write === null ? undefined : await putWorkflow(write, answered);
       }
       if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
       const after = answer ? parsed(answer.text) : undefined;
@@ -597,23 +596,20 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 }
 
 /**
- * Writes into the Workflow (`write`, the body of a `PUT /workflow`) that
- * names the recipe `recordId` there (DYE2_RECIPE_FIELD), as one `PUT
- * /workflow`, keeping it named: a write changing the profile as DYE2
- * fingerprints one (`changesProfile`) names the recipe too, as applying a
- * recipe does, and DYE2 keeps it named, as the profile is the one the
- * tablet's record of it holds (`recipeProfileChanged` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts). Decaid's answer, where it
+ * Writes into the Workflow, which names the Loaded Recipe as the plugin has
+ * just read it (DYE2_RECIPE_FIELD), as one `PUT /workflow` (`body`), which
+ * Decaid merges into it, so the Workflow goes on naming the recipe. DYE2
+ * keeps it named through a change of profile onto the one the tablet's
+ * record of it holds (`recipeProfileChanged` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts), which is the profile a
+ * load or the server's Loaded Recipe write writes (ADR-0022). The write names
+ * no recipe itself: where a barista applied another in the moment since the
+ * read, one naming it would name it again over that apply, and the plugin
+ * would then save that recipe's values into it. Decaid's answer, where it
  * holds a Workflow, is told of with the body (`answered`). Resolves with
  * Decaid's answer. Throws if Decaid does not answer.
  */
-export async function putNamingRecipe(
-  workflow: Record<string, unknown>,
-  write: Record<string, unknown>,
-  recordId: string,
-  answered: Answered,
-): Promise<Answer> {
-  const body = changesProfile(workflow, write) ? withRecipe(write, recordId) : write;
+export async function putWorkflow(body: Record<string, unknown>, answered: Answered): Promise<Answer> {
   const answer = await request("PUT", "/workflow", body);
   const updated = answer.ok ? parsed(answer.text) : undefined;
   if (isObject(updated)) answered(updated, body);
