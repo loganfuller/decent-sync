@@ -1,4 +1,4 @@
-import { RECIPE_SETTING_NAMES } from "@decent-sync/protocol";
+import { RECIPE_SETTING_NAMES, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import {
   PARTS,
@@ -274,15 +274,19 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
 
 describe("The dial written into a Workflow", () => {
   const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950, basket: "k2" };
+  /** The Library's `profile:classic`, as the write carries it. */
+  const classic = { title: "Classic", tank_temperature: 0, steps: [{ name: "fill", temperature: 92, pump: "flow" }, { name: "pour", temperature: 90, pump: "pressure" }] };
   const current = {
     profileId: "profile:classic",
     beanBatchId: "b2",
     dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1, rpm: 950, basketId: "k2", brewC: 92 },
+    profileSnapshot: classic,
+    workflow: { profile: profileAtBrewTemperature(classic, 88) },
   };
 
   it("waits for the tablet's record of the Recipe to hold it, as DYE2 records the Workflow's dial into the record, its Grinder, batch and the rest going ahead", () => {
     const stale = { profileId: "profile:adaptive", beanBatchId: "b1", dashboardVariables: { grinderId: "g1", dose: 18, drink: 36, grind: 2.7, rpm: 900, basketId: "k1" } };
-    expect(heldByRecord(target, stale)).toEqual({
+    expect(heldByRecord(target, stale, classic)).toEqual({
       ...target,
       profile: undefined,
       dose: undefined,
@@ -293,8 +297,20 @@ describe("The dial written into a Workflow", () => {
       brewTemperature: undefined,
     });
     // A yield worked out from the ratio, and a grind setting as a number, are held.
-    expect(heldByRecord(target, current)).toEqual(target);
-    expect(heldByRecord(target, null)).toMatchObject({ profile: undefined, grinder: "g2", batch: "b2", dose: undefined, rpm: undefined, hotWaterFlow: 7.5 });
+    expect(heldByRecord(target, current, classic)).toEqual(target);
+    expect(heldByRecord(target, null, classic)).toMatchObject({ profile: undefined, grinder: "g2", batch: "b2", dose: undefined, rpm: undefined, hotWaterFlow: 7.5 });
+  });
+
+  it("waits with the Profile while the record names it but holds it otherwise, by DYE2's fingerprint, as before an edit of its title, which DYE2 would clear the recipe on", () => {
+    const renamed = { ...classic, title: "Classic, renamed" };
+    expect(heldByRecord(target, current, renamed)).toEqual({ ...target, profile: undefined });
+    // The record holds it in another key order, as Decaid and jsonb differ, or only as its snapshot, which DYE2 reads where it embeds none.
+    const reordered = { steps: classic.steps.map(({ pump, temperature, name }) => ({ pump, temperature, name })), tank_temperature: 0, title: "Classic" };
+    expect(heldByRecord(target, { ...current, workflow: { profile: reordered } }, classic)).toEqual(target);
+    expect(heldByRecord(target, { ...current, workflow: { context: {} } }, classic)).toEqual(target);
+    expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: renamed }, classic)).toEqual({ ...target, profile: undefined });
+    // A record holding no profile at all, which DYE2 compares nothing with, holds nothing back.
+    expect(heldByRecord(target, { ...current, workflow: { context: {} }, profileSnapshot: null }, classic)).toEqual(target);
   });
 });
 

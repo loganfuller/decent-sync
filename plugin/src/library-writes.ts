@@ -52,7 +52,7 @@ import { utcTime } from "./local-time.js";
 import type { Outbox } from "./outbox.js";
 import type { ShotGate } from "./shot-gate.js";
 import { clearRecipe, stepsKey } from "./loaded-recipe-rules.js";
-import { type Answered, type LoadedRecipeWrites, machineMissing, putNamingRecipe } from "./loaded-recipes.js";
+import { type Answered, type LoadedRecipeWrites, machineMissing, putWorkflow } from "./loaded-recipes.js";
 import type { Skins } from "./skins.js";
 import { randomUuid } from "./tablet-id.js";
 
@@ -759,10 +759,12 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * moves every step of the profile written, or else the Workflow's, by the
  * same amount (`profileAtBrewTemperature`). It is refused unless the
  * Workflow still names the recipe the write expects (DYE2_RECIPE_FIELD), so
- * it never lands in a recipe a barista applied in the moment between; a
- * write changing the profile, which DYE2 clears that field on, is made as
- * two (`putNamingRecipe`, ADR-0022). A steam temperature is left out of a
- * Workflow whose steam is off (`steamOff`), as it would turn steam on.
+ * it rarely lands in a recipe a barista applied in the moment between; a
+ * write changing the profile is one write (`putWorkflow`), which DYE2 keeps
+ * the recipe named through, as the server writes a Profile only once the
+ * tablet's record of the recipe holds it (ADR-0022). A steam temperature is
+ * left out of a Workflow whose steam is off (`steamOff`), as it would turn
+ * steam on.
  * Decaid refuses to change the steam, hot water and flush settings while no
  * machine is connected, so the rest is then written without them, the
  * Workflow read again first, and a write of only them is refused. A write
@@ -798,7 +800,7 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
     const fields = loadedRecipeFields(write, workflow, machineSettings);
     if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], new Date().toISOString());
     let updated: Record<string, unknown> | undefined;
-    const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow, body) => {
+    const answer = await putWorkflow(loadedRecipePatch(fields, workflow), (workflow, body) => {
       updated = workflow;
       posted.answered?.(workflow, body);
     });

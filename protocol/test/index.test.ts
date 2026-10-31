@@ -895,7 +895,7 @@ describe("Library writes", () => {
     for (const [a, b] of [[".5", "0.6"], ["1.5.", 1.5], ["fine", "Fine"], [null, 0]] as const) expect(sameGrindSetting(a, b), `${a} ${b}`).toBe(false);
   });
 
-  it("reads the recipe a Workflow names by its record id, as DYE2 does, and fingerprints a profile as DYE2 v0.1.26 does", () => {
+  it("reads the recipe a Workflow names by its record id, as DYE2 does, and fingerprints a profile as DYE2 v0.1.33 does, whatever its key order", () => {
     expect(DYE2_RECIPE_FIELD).toBe("context.extras.dye.recipeId");
     expect(dye2RecipeIdOf({ context: { extras: { dye: { v: 1, recipeId: "recipe-mh2k9x1abc" } } } })).toBe("recipe-mh2k9x1abc");
     expect(dye2RecipeIdOf({ context: { extras: { dye: { recipeId: 3 } } } })).toBe("3");
@@ -907,6 +907,10 @@ describe("Library writes", () => {
     expect(dye2Fingerprint({ ...profile, target_weight: 40 })).toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint({ ...profile, title: "Other" })).not.toBe(dye2Fingerprint(profile));
     expect(dye2Fingerprint(null)).toBeNull();
+    // Every object's keys sorted, as DYE2's `sortKeysReplacer` writes them (decentespresso/dye2#43): the same text as DYE2's.
+    const reordered = { steps: profile.steps.map(({ limiter, temperature, name }) => ({ limiter: { range: limiter.range, value: limiter.value }, temperature, name })), tank_temperature: 0, title: "Adaptive" };
+    expect(dye2Fingerprint(reordered)).toBe(dye2Fingerprint(profile));
+    expect(dye2Fingerprint(profile)).toBe('{"steps":[{"limiter":null,"name":"fill"},{"limiter":{"range":0.6,"value":9},"name":"pour"}],"tank_temperature":0,"title":"Adaptive"}');
   });
 
   it("names each steam, hot water and flush setting a Recipe may hold by DYE2's name and the Workflow's, a Loaded Recipe part of its own", () => {

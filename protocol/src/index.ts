@@ -950,14 +950,14 @@ export function dye2RecipeIdOf(workflow: unknown): string | null {
 /**
  * A profile as DYE2 fingerprints one to tell a change of profile, which
  * clears the Workflow's DYE2_RECIPE_FIELD (`profileFingerprint` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.32): its title, tank
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33): its title, tank
  * temperature and steps, but each step's temperature, and a step limiter of
  * value 0, which is none, read as none, as Streamline sends it
- * (decentespresso/dye2#32). Its target weight and volume are the yield,
- * which Streamline sends with the profile, so they are left out
- * (decentespresso/dye2#18). Null for none. From v0.1.33 DYE2 also sorts every
- * object's keys (decentespresso/dye2#43), which this follows from #388; so
- * far it still tells one profile in two key orders apart.
+ * (decentespresso/dye2#32), with every object's keys sorted, so one profile
+ * held in two key orders, as Decaid's and PostgreSQL's `jsonb`, is the same
+ * (`sortKeysReplacer`, decentespresso/dye2#43). Its target weight and volume
+ * are the yield, which Streamline sends with the profile, so they are left
+ * out (decentespresso/dye2#18). The same text as DYE2's; null for none.
  */
 export function dye2Fingerprint(profile: unknown): string | null {
   if (!isObject(profile)) return null;
@@ -969,7 +969,12 @@ export function dye2Fingerprint(profile: unknown): string | null {
         return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : undefined) !== 0 ? limiter : null };
       })
     : profile.steps;
-  return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps });
+  return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
+}
+
+/** DYE2's `sortKeysReplacer`: each plain object as a copy with its keys sorted, which `JSON.stringify` then walks. */
+function sortedKeys(_key: string, value: unknown): unknown {
+  return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])) : value;
 }
 
 /**
@@ -1226,13 +1231,12 @@ export const STEAM_ON_FROM = 135;
  * the server did not hold, or that expects none: a part a barista changed
  * since, or cleared, is kept, which its Workflow change brings to the
  * server. A write that changes the profile, as DYE2 fingerprints one
- * (`dye2Fingerprint`), which DYE2 clears DYE2_RECIPE_FIELD on, is made as two:
- * DYE2_RECIPE_FIELD cleared, then the write with the Recipe's id set there
- * again, so DYE2 takes the new profile as the recipe's (interim until #388,
- * as from v0.1.33, the minimum, DYE2's fingerprint ignores key order,
- * decentespresso/dye2#43); the Workflow's changes between them are not sent.
- * A steam temperature is never written into a Workflow whose steam is off
- * (`steamOff`), as it would turn steam on: the plugin leaves it out. Decaid
+ * (`dye2Fingerprint`), is one `PUT /workflow` too, naming no recipe: DYE2
+ * keeps the recipe the Workflow names through a change of profile onto the
+ * one the tablet's record of it holds, and a Profile is written only once
+ * that record holds it (ADR-0022). A steam temperature
+ * is never written into a Workflow whose steam is off (`steamOff`), as it
+ * would turn steam on: the plugin leaves it out. Decaid
  * refuses to change the steam, hot water and flush settings while no
  * machine is connected (MACHINE_SETTING_PARTS), so the rest is then written
  * without them. Its answer's `record` is the Workflow's `context`, its

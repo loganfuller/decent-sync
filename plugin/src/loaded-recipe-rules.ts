@@ -4,7 +4,6 @@ import {
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   STEAM_ON_FROM,
-  dye2Fingerprint,
   dye2GlobalIdOf,
   sameGrindSetting,
   steamOff,
@@ -64,44 +63,9 @@ function stableJson(value: unknown): string {
   return JSON.stringify(value ?? null);
 }
 
-/**
- * Whether a write into the Workflow (`write`, the body of a `PUT /workflow`,
- * which Decaid merges into it) changes its profile as DYE2 fingerprints one
- * (`dye2Fingerprint`), which DYE2 clears the Workflow's recipe on, whoever
- * wrote it (`idProfileChanged` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33), even where the
- * write names the same recipe, but where the profile is the recipe record's
- * own by that fingerprint (decentespresso/dye2#38), which before v0.1.33
- * kept each step's keys in the record's order, so never matched one the
- * server wrote: so the plugin makes such a write as two, the recipe cleared
- * (CLEAR_RECIPE) and then named again with the write (`withRecipe`), and
- * DYE2 takes the new profile as the recipe's (interim: from v0.1.33, the
- * minimum, DYE2's fingerprint ignores key order, decentespresso/dye2#43, and
- * #388 makes it one write).
- */
-export function changesProfile(workflow: Record<string, unknown>, write: Record<string, unknown>): boolean {
-  return isObject(write.profile) && dye2Fingerprint(write.profile) !== dye2Fingerprint(workflow.profile);
-}
-
-/** A write into the Workflow naming the recipe there too (DYE2_RECIPE_FIELD), by the id of the tablet's record of it. */
-export function withRecipe(write: Record<string, unknown>, recordId: string): Record<string, unknown> {
-  const named = workflowPatch({ [DYE2_RECIPE_FIELD]: recordId });
-  return merged(write, named);
-}
-
 /** A write clearing the recipe the Workflow names (DYE2_RECIPE_FIELD), as DYE2 clears it. */
 export function clearRecipe(): Record<string, unknown> {
   return workflowPatch({ [DYE2_RECIPE_FIELD]: null });
-}
-
-/** Two bodies of `PUT /workflow` as one, merged object by object, the later's values winning. */
-function merged(earlier: Record<string, unknown>, later: Record<string, unknown>): Record<string, unknown> {
-  const result: Record<string, unknown> = { ...earlier };
-  for (const [key, value] of Object.entries(later)) {
-    const kept = result[key];
-    result[key] = isObject(kept) && isObject(value) && key !== "profile" ? merged(kept, value) : value;
-  }
-  return result;
 }
 
 /** The records of a tablet's recipes that can be a Loaded Recipe, by their ids there: those carrying a global id, in a Recipe Slot or not. */

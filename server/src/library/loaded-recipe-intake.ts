@@ -4,6 +4,7 @@ import {
   type LoadedRecipePart,
   RECIPE_SETTING_NAMES,
   type RecipeSetting,
+  dye2Fingerprint,
   grindSettingOf,
   sameGrindSetting,
   sameValue,
@@ -255,14 +256,20 @@ export function recipeParts(
  * grind setting, RPM, Basket and brew temperature), as the record is written
  * first. DYE2 records the Workflow's dial into the record, so a dial written
  * into the Workflow first, as when the tablet refused the record's write,
- * would reach the server as the tablet's change of the record. Each that
- * waits is undefined, as one the tablet holds no record of yet is; the rest
- * of the write goes ahead, its Grinder and Bean Batch included, which DYE2
- * records none of.
+ * would reach the server as the tablet's change of the record. And DYE2
+ * keeps the Workflow's recipe named through a change of profile only onto
+ * the profile its record holds, where it holds one, by its fingerprint
+ * (`recipeProfileChanged` in dye2:dye2-plugin/src/utils/workflow-record.ts):
+ * so the Profile waits until the record names it and holds it as the write
+ * carries it (`profile`, the Library's), not as before an edit of its title,
+ * which keeps its id (ADR-0006). Each that waits is undefined, as one the
+ * tablet holds no record of yet is; the rest of the write goes ahead, its
+ * Grinder and Bean Batch included, which DYE2 records none of.
  */
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
   record: Readonly<Record<string, unknown>> | null,
+  profile: unknown,
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
   const [dose, ratio] = [numberOf(variables.dose), numberOf(variables.ratio)];
@@ -279,7 +286,15 @@ export function heldByRecord(
   for (const part of ["profile", "dose", "yield", "grind", "rpm", "basket", "brewTemperature"] as const) {
     if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
   }
+  const held = dye2Fingerprint(recordProfile(record));
+  if (parts.profile !== null && parts.profile !== undefined && held !== null && held !== dye2Fingerprint(profile)) parts.profile = undefined;
   return parts;
+}
+
+/** The profile DYE2 compares the Workflow's with for a recipe: its record's embedded Workflow's, or else its snapshot (`profileOf` in dye2:dye2-plugin/src/utils/workflow-record.ts). */
+function recordProfile(record: Readonly<Record<string, unknown>> | null): unknown {
+  const workflow = isObject(record?.workflow) ? record.workflow : undefined;
+  return workflow?.profile || record?.profileSnapshot || null;
 }
 
 /**

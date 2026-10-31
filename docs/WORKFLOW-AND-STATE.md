@@ -311,22 +311,26 @@ through `plugin/src/dye2.ts`, and writes what the pure
 - **A write that changes the profile.** DYE2 clears the Workflow's
   `recipeId` once its profile moves off the one it held when the id
   appeared, by DYE2's fingerprint (`dye2Fingerprint` in `protocol/`, a copy
-  of v0.1.32's `profileFingerprint` in
+  of v0.1.33's `profileFingerprint` in
   `dye2:dye2-plugin/src/utils/workflow-record.ts`: the title, tank
   temperature and steps, but each step's temperature, a step limiter of
-  value 0 read as none; it still tells one profile in two key orders apart,
-  as v0.1.33's no longer does, until #388), even where the same write names
-  the same id (`idProfileChanged`). So a write of the plugin's that changes the
-  profile so (`changesProfile`), as a load from a stale copy, or the
-  server's write after the Recipe's Profile was edited, is made as two `PUT
-  /workflow` (`putNamingRecipe`): `recipeId` cleared (`clearRecipe`), then
-  the write with `recipeId` set to the record again (`withRecipe`), which
-  DYE2 takes as a new apply of the recipe on the new profile; where Decaid
-  refuses the second, the recipe is named again alone. Both run as one write
-  of the plugin's, so the server never reads the Workflow between them, and
-  reads no unload (interim until #388, as from v0.1.33, the minimum, DYE2
-  keeps the recipe named on its own profile whatever its key order,
-  decentespresso/dye2#43, ADR-0022).
+  value 0 read as none, every object's keys sorted, so one profile in two
+  key orders is the same, decentespresso/dye2#43), even where the same write
+  names the same id (`idProfileChanged`), but where the profile that arrives
+  is the one its record of the recipe holds (`recipeProfileChanged`,
+  decentespresso/dye2#38). A write of the plugin's that changes the profile
+  so writes that one: a load from a stale copy writes the record's own, and
+  the server's write after the Recipe's Profile was edited carries the
+  Profile only once the tablet's record holds it, by its id and by DYE2's
+  fingerprint (`heldByRecord`, below). So it is one `PUT /workflow`
+  (`putWorkflow`), and DYE2 keeps the recipe named (ADR-0022). The write
+  names no recipe itself, as the Workflow names it already and Decaid
+  merges the write in: one naming it would, where a barista applied another
+  recipe since the plugin's read, name it again over that apply, and the
+  plugin would save that recipe's values into it. The previous release's
+  plugin makes it as two, `recipeId` cleared and then the write with it
+  named again, which DYE2 v0.1.33 takes as a new apply of the recipe, and the
+  server reads no unload between them; that release has the race too.
 - **Saving each change.** Every change on a Machine with a Recipe loaded is
   saved into it (ADR-0022). After each change of the Workflow naming the
   Loaded Recipe, the plugin holds the change back and, in its turn among the
@@ -640,8 +644,12 @@ parts to the Recipe's content both ways.
   and flush setting the Recipe holds, its steam temperature included
   whatever the Machine's steam state (`partsWrite`). It expects too the
   record id the Workflow named (`DYE2_RECIPE_FIELD`). DYE2 saves the
-  Workflow's dial, RPM and Basket into the record, so they wait until the
-  tablet's record of the Recipe, written first, holds them
+  Workflow's dial, RPM and Basket into the record, and keeps the recipe
+  named through a change of profile only onto the one that record holds,
+  so they and the Profile wait until the tablet's record of the Recipe,
+  written first, holds them, the Profile by its id and, where the record
+  holds a profile at all, as DYE2 compares none otherwise, by DYE2's
+  fingerprint, as an edit of a Profile's title keeps its id
   (`heldByRecord`); the rest of the write goes ahead, its Grinder and batch
   included. The plugin writes nothing unless the Workflow it has just read
   still names that record (it refuses the write otherwise, and the writer
@@ -649,11 +657,11 @@ parts to the Recipe's content both ways.
   value expected, the value written or none, so a barista's change since is
   kept, which its own save brings to the Recipe; a brew temperature moves
   every step of the profile written, or else the Workflow's, by the same
-  amount. A write changing the profile is made as two, so the Recipe stays
-  loaded (A write that changes the profile, above). It leaves the steam
-  temperature out of `PUT /workflow` where the Workflow it has just read has
-  steam off (`steamOff`), as a barista may turn steam off after the server
-  plans the write. The steam time, flow and milk stop are written as usual,
+  amount. A write changing the profile is one write too, and the Recipe
+  stays loaded (A write that changes the profile, above). It leaves
+  the steam temperature out of `PUT /workflow` where the Workflow it has
+  just read has steam off (`steamOff`), as a barista may turn steam off after
+  the server plans the write. The steam time, flow and milk stop are written as usual,
   as they do not turn steam on. The Workflow change the write causes is
   sent after the answer, which records what Decaid returned as the
   Workflow's (`recordLoadedRecipeWritten`), where it still names the

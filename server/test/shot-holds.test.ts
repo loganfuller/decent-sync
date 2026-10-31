@@ -15,15 +15,15 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the Shot, the plugin carries out none of the server's changes, answering
 // the one it holds once the Shot is stored, and the server plans afresh
 // then, so a Recipe edited twice is written once, with its latest values, a
-// change of Profile as its two writes together; and it holds its own load
+// change of Profile with the rest; and it holds its own load
 // of a Recipe applied meanwhile, which it keeps in Decaid's plugin storage,
 // so a load held as it stops is made after it starts again. Saves into the
 // Recipe are not held, but for those after steam turned back on during the
 // Shot, held with its write of the Recipe's steam temperature (#374).
-// Through the built plugin in simulated tablets
-// running DYE2 v0.1.26 as recorded (fixtures/decaid/dye2-v0.1.26/), A on one
-// server instance and C, which pulls the Shots, on another sharing one
-// database. Serials are made up, from 51001.
+// Through the built plugin in simulated tablets running DYE2 v0.1.33 as
+// recorded (fixtures/decaid/dye2-v0.1.26/ and later), A on one server
+// instance and C, which pulls the Shots, on another sharing one database.
+// Serials are made up, from 51001.
 
 type Record_ = Record<string, unknown>;
 
@@ -147,7 +147,7 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
   const applyStaleEthiopia = (tablet: SimulatedTablet) =>
     tablet.callApi("PUT", "/workflow", { context: { targetDoseWeight: 18, grinderSetting: "2.5", extras: { dye: { recipeId: ETHIOPIA } } } });
 
-  it("writes two Recipe edits made during C's Shot into its Workflow once it is stored, with the latest values, a Profile change as its two writes together", async () => {
+  it("writes two Recipe edits made during C's Shot into its Workflow once it is stored, with the latest values, a Profile change with the rest as one write", async () => {
     const { machines, c, one, quiet } = await lab("Edits", 51001);
     const times = await loadedTimes(machines.c);
     const grinds: unknown[] = [];
@@ -169,8 +169,8 @@ describe("The plugin holds its Workflow writes while its Machine pulls a Shot", 
     await expect.poll(() => [context(c).grinderSetting, (c.workflow().profile as Record_).title, firstTemperature(c)], { timeout: 15_000 }).toEqual(["3.2", "Classic Italian espresso", 91]);
     // Once the held writes, their reports and anything else they set off are done.
     await quiet();
-    // Written once, the profile's change as the recipe cleared and then named again with the rest.
-    expect(workflowWrites(c)).toBe(writes + 2);
+    // Written once, the profile's change with the rest, which DYE2 keeps the recipe named through.
+    expect(workflowWrites(c)).toBe(writes + 1);
     expect(grinds).not.toContain("3.1");
     expect(recipeIdInWorkflow(c)).toBe(ETHIOPIA);
     await loads(machines.c, one);

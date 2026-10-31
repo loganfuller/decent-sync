@@ -274,27 +274,16 @@ async function followMachine(
  * Whether a Workflow delivered, stored as its Machine's latest
  * (`workflow_events`), changed the profile from the Workflow stored before
  * it, as DYE2 fingerprints one (`dye2Fingerprint`), which DYE2 clears the
- * Workflow's recipe on.
+ * Workflow's recipe on. The fingerprint sorts every object's keys, so the
+ * stored Workflow's profile, in PostgreSQL's `jsonb` key order, and the one
+ * delivered compare alike.
  */
 async function profileChanged(tx: Prisma.TransactionClient, machineId: string, workflow: unknown): Promise<boolean> {
   const rows = await tx.$queryRaw<{ workflow: unknown }[]>`
     SELECT workflow FROM workflow_events WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 2`;
-  // PostgreSQL keeps a jsonb object's keys in an order of its own, so the stored Workflow's profile and the one delivered
-  // are fingerprinted with their keys in one order.
-  const profile = (value: unknown) => dye2Fingerprint(sortedKeys(isObject(value) ? value.profile : undefined));
+  const profile = (value: unknown) => dye2Fingerprint(isObject(value) ? value.profile : undefined);
   const previous = rows.length === 2 ? rows[1]!.workflow : undefined;
   return previous !== undefined && profile(previous) !== profile(workflow);
-}
-
-/** A copy of the value with each object's keys sorted, arrays kept in their order. */
-function sortedKeys(value: unknown): unknown {
-  if (Array.isArray(value)) return value.map(sortedKeys);
-  if (!isObject(value)) return value;
-  return Object.fromEntries(
-    Object.keys(value)
-      .sort()
-      .map((key) => [key, sortedKeys(value[key])]),
-  );
 }
 
 /**
@@ -360,7 +349,7 @@ async function targetParts(tx: Prisma.TransactionClient, tabletId: string, recip
   const [record] = await tx.$queryRaw<{ record: Record<string, unknown> }[]>`
     SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
   const [profile] = await tx.$queryRaw<{ profile: unknown }[]>`SELECT content -> 'profile' AS profile FROM profiles WHERE id = ${String(content.profileId ?? "")}`;
-  return heldByRecord(recipeParts(content, (kind, itemId) => local.local(kind, itemId), firstStepTemperature(profile?.profile)), record?.record ?? null);
+  return heldByRecord(recipeParts(content, (kind, itemId) => local.local(kind, itemId), firstStepTemperature(profile?.profile)), record?.record ?? null, profile?.profile ?? null);
 }
 
 /**

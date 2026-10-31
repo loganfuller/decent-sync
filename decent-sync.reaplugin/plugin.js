@@ -812,7 +812,10 @@ var __decentSync = (() => {
       const { temperature: _, limiter, ...rest } = step;
       return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : void 0) !== 0 ? limiter : null };
     }) : profile.steps;
-    return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps });
+    return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
+  }
+  function sortedKeys(_key, value) {
+    return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])) : value;
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
@@ -1386,23 +1389,8 @@ var __decentSync = (() => {
     if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
     return JSON.stringify(value ?? null);
   }
-  function changesProfile(workflow, write) {
-    return isObject2(write.profile) && dye2Fingerprint(write.profile) !== dye2Fingerprint(workflow.profile);
-  }
-  function withRecipe(write, recordId) {
-    const named = workflowPatch({ [DYE2_RECIPE_FIELD]: recordId });
-    return merged(write, named);
-  }
   function clearRecipe() {
     return workflowPatch({ [DYE2_RECIPE_FIELD]: null });
-  }
-  function merged(earlier, later) {
-    const result = { ...earlier };
-    for (const [key, value] of Object.entries(later)) {
-      const kept = result[key];
-      result[key] = isObject2(kept) && isObject2(value) && key !== "profile" ? merged(kept, value) : value;
-    }
-    return result;
   }
   function loadable(records) {
     return new Map(
@@ -1976,10 +1964,10 @@ var __decentSync = (() => {
     /**
      * Loads the Recipe the Workflow names, while it still names it: writes
      * into the Workflow what applying a DYE2 recipe leaves out, or a stale
-     * copy got wrong (`loadWrite`), as one write, or two where it changes the
-     * profile (`putNamingRecipe`). Decaid refuses to change the steam, hot
-     * water and flush settings while no machine is connected, so the rest is
-     * then written without them. A write Decaid takes is told of
+     * copy got wrong (`loadWrite`), as one write (`putWorkflow`), its profile,
+     * where it writes one, the record's own. Decaid refuses to change the
+     * steam, hot water and flush settings while no machine is connected, so
+     * the rest is then written without them. A write Decaid takes is told of
      * (`workflowWritten`).
      */
     async loadRecipe(globalId) {
@@ -1996,10 +1984,10 @@ var __decentSync = (() => {
         const context = await this.loadContext(recipe.record);
         let write = loadWrite(workflow, recipe.record, context);
         if (write === null) return;
-        let answer = await putNamingRecipe(workflow, write, recordId, answered2);
+        let answer = await putWorkflow(write, answered2);
         if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in write) && machineMissing(answer)) {
           write = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
-          answer = write === null ? void 0 : await putNamingRecipe(workflow, write, recordId, answered2);
+          answer = write === null ? void 0 : await putWorkflow(write, answered2);
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
         const after = answer ? parsed2(answer.text) : void 0;
@@ -2035,18 +2023,10 @@ var __decentSync = (() => {
       return { profile: isObject4(stored) ? steps(stored.profile) : null };
     }
   };
-  async function putNamingRecipe(workflow, write, recordId, answered2) {
-    const put = async (body) => {
-      const answer2 = await request("PUT", "/workflow", body);
-      const updated = answer2.ok ? parsed2(answer2.text) : void 0;
-      if (isObject4(updated)) answered2(updated, body);
-      return answer2;
-    };
-    if (!changesProfile(workflow, write)) return put(write);
-    const cleared = await put(clearRecipe());
-    if (!cleared.ok) return cleared;
-    const answer = await put(withRecipe(write, recordId));
-    if (!answer.ok) await put(withRecipe({}, recordId));
+  async function putWorkflow(body, answered2) {
+    const answer = await request("PUT", "/workflow", body);
+    const updated = answer.ok ? parsed2(answer.text) : void 0;
+    if (isObject4(updated)) answered2(updated, body);
     return answer;
   }
   function fieldPaths(body, prefix = "") {
@@ -2571,7 +2551,7 @@ var __decentSync = (() => {
       const fields = loadedRecipeFields(write, workflow, machineSettings);
       if (Object.keys(fields).length === 0) return written(write, loadedRecipeParts(workflow), [], (/* @__PURE__ */ new Date()).toISOString());
       let updated;
-      const answer = await putNamingRecipe(workflow, loadedRecipePatch(fields, workflow), recordId, (workflow2, body) => {
+      const answer = await putWorkflow(loadedRecipePatch(fields, workflow), (workflow2, body) => {
         updated = workflow2;
         posted.answered?.(workflow2, body);
       });

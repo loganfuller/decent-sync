@@ -10,7 +10,7 @@ import {
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { changesProfile, clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamOnAt, vacatedIds, withRecipe } from "../src/loaded-recipe-rules.js";
+import { clearRecipe, loadWrite, loadable, profileKey, steamBackOnWrite, steamOnAt, vacatedIds } from "../src/loaded-recipe-rules.js";
 
 // Module tests for what the plugin writes into the Workflow as it loads a
 // Recipe the Workflow names, or as steam is turned back on with one loaded
@@ -119,21 +119,10 @@ describe("DYE2's fingerprint of a profile", () => {
   });
 });
 
-describe("a write that changes the profile, as DYE2 fingerprints one", () => {
-  const workflow = applied("dye2-applies", "applyFromSelectRecipe");
-
-  it("is one writing another profile, not one moving its temperatures or writing the dial alone", () => {
-    expect(changesProfile(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
-    expect(changesProfile(workflow, { profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(false);
-    expect(changesProfile(workflow, { context: { targetDoseWeight: 19.5 } })).toBe(false);
-  });
-
-  it("is made naming the recipe again, merged into the write, after a write clearing it", () => {
+describe("an unload", () => {
+  it("clears the recipe the Workflow names, alone, as DYE2 does", () => {
     expect(dye2RecipeIdOf(clearRecipe())).toBeNull();
     expect(clearRecipe()).toEqual({ context: { extras: { dye: { recipeId: null } } } });
-    const named = withRecipe({ context: { targetDoseWeight: 19.5, extras: { basketId: "b" } }, profile: { title: "Another" } }, "recipe-1");
-    expect(named).toEqual({ context: { targetDoseWeight: 19.5, extras: { basketId: "b", dye: { recipeId: "recipe-1" } } }, profile: { title: "Another" } });
-    expect(withRecipe({}, "7a1e")).toEqual({ context: { extras: { dye: { recipeId: "7a1e" } } } });
   });
 });
 
@@ -198,7 +187,7 @@ describe("recording a load", () => {
     const write = loadWrite(workflow, record, { profile: other })!;
     expect(write.context).toMatchObject({ targetDoseWeight: 19.5, targetYield: 40, grinderSetting: "2.9", extras: { rpm: 950 } });
     expect(write.profile).toEqual(other);
-    expect(changesProfile(workflow, write)).toBe(true);
+    expect(dye2Fingerprint(write.profile)).not.toBe(dye2Fingerprint(workflow.profile));
     // A grind setting the Workflow holds as written otherwise, `.5` for the recipe's 0.5, is the same one, as the server judges it.
     Object.assign(record.dashboardVariables as Record_, { grind: 0.5 });
     const typed = { ...workflow, context: { ...(workflow.context as Record_), grinderSetting: ".5" } };
