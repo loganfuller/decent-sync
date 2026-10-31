@@ -16,8 +16,7 @@ Sync relies on only where this README says (What they show, below): the rest
 of the diff is the dashboard's shot history search and filters, its chart
 (ECharts in place of Plotly), Edit Shot's layout and the jump into past
 Shots. Its Select Recipe page's assign mode and its basket picker did not
-change; Streamline v0.2.21 is the first Streamline that opens the assign
-mode.
+change; Streamline opens the assign mode from v0.2.20 (`35c5917`).
 
 A step is `{exchanges, after, pushes, events, timing}`, as in
 `../dye2-v0.1.26/`: its exchanges (of the reads, on DYE2's dashboard and

@@ -513,7 +513,8 @@ export class SimulatedStreamline {
    * Machine back to the recipe's stored values (`inert`). Otherwise it
    * highlights the cell, then sends as one partial `PUT /workflow` the
    * recipe's embedded `workflow` (its context and its Profile whole, from the
-   * tablet's profiles where it carries no steps), or without one its
+   * tablet's profiles where it carries no steps, and none where neither has
+   * steps, 16903cc), or without one its
    * `dashboardVariables`, the steam,
    * hot water and flush values of its modes, each kept (`persistSharedValue`),
    * and its id as `recipeId`; then, once Decaid took it, selects it in DYE2,
@@ -803,15 +804,18 @@ export class SimulatedStreamline {
     return { landed: answer.status === 200, answer };
   }
 
-  /** `applyStoredWorkflow`: an item's stored `workflow`, its context copied and its Profile resolved whole (`resolveFullProfile`). */
+  /** `applyStoredWorkflow`: an item's stored `workflow`, its context copied and its Profile resolved whole (`resolveFullProfile`), none where no profile with steps resolves (`profileWithSteps`). */
   private async applyStoredWorkflow(workflow: Record_): Promise<Record_> {
     const patch: Record_ = {};
     if (workflow.context) patch.context = { ...(workflow.context as Record_) };
-    if (workflow.profile) patch.profile = (await this.resolveFullProfile(workflow.profile)) ?? workflow.profile;
+    if (workflow.profile) {
+      const full = profileWithSteps(await this.resolveFullProfile(workflow.profile));
+      if (full) patch.profile = full;
+    }
     return patch;
   }
 
-  /** `applyRecipeLegacy`: a recipe without a stored `workflow`, its `dashboardVariables` as a context of only what it holds, and its Profile. */
+  /** `applyRecipeLegacy`: a recipe without a stored `workflow`, its `dashboardVariables` as a context of only what it holds, and its Profile, its snapshot or its id's, where either has steps. */
   private async applyRecipeLegacy(recipe: Record_): Promise<Record_> {
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
     const context: Record_ = {};
@@ -825,13 +829,13 @@ export class SimulatedStreamline {
     if (recipe.drinker) context.drinkerName = recipe.drinker;
     const patch: Record_ = Object.keys(context).length > 0 ? { context } : {};
     if (recipe.profileId || recipe.profileTitle) {
-      const snapshot = recipe.profileSnapshot as Record_ | undefined;
-      patch.profile = snapshot && Array.isArray(snapshot.steps) ? snapshot : ((await this.resolveFullProfile(recipe.profileId)) ?? { id: recipe.profileId, title: recipe.profileTitle });
+      const full = profileWithSteps(recipe.profileSnapshot) ?? profileWithSteps(recipe.profileId ? await this.resolveFullProfile(recipe.profileId) : null);
+      if (full) patch.profile = full;
     }
     return patch;
   }
 
-  /** `applyFavLegacy`: a favourite without a stored `workflow`, its `snapshot` as its `copyMask` allows, and its Profile. */
+  /** `applyFavLegacy`: a favourite without a stored `workflow`, its `snapshot` as its `copyMask` allows, and its Profile, its snapshot or its id's, where either has steps. */
   private async applyFavLegacy(favourite: Record_): Promise<Record_> {
     const snapshot = (favourite.snapshot ?? {}) as Record_;
     const mask = (favourite.copyMask ?? {}) as Record_;
@@ -858,8 +862,8 @@ export class SimulatedStreamline {
     if (on("note") && snapshot.note) context.extras = { ...((context.extras ?? {}) as Record_), note: snapshot.note };
     const patch: Record_ = Object.keys(context).length > 0 ? { context } : {};
     if (on("profile") && (snapshot.profileId || snapshot.profileTitle)) {
-      const stored = snapshot.profileSnapshot as Record_ | undefined;
-      patch.profile = stored && Array.isArray(stored.steps) ? stored : ((await this.resolveFullProfile(snapshot.profileId)) ?? { id: snapshot.profileId, title: snapshot.profileTitle });
+      const full = profileWithSteps(snapshot.profileSnapshot) ?? profileWithSteps(snapshot.profileId ? await this.resolveFullProfile(snapshot.profileId) : null);
+      if (full) patch.profile = full;
     }
     return patch;
   }
@@ -897,9 +901,10 @@ export class SimulatedStreamline {
   /** `resolveFullProfile` in dyeStrip.js: a profile with steps as given, else the tablet's record of its id, hidden ones included; null if none. */
   private async resolveFullProfile(stub: unknown): Promise<Record_ | null> {
     if (!stub) return null;
+    // A whole profile first: one a record captured from the Workflow carries no id (0c9652b).
+    if (typeof stub === "object" && profileWithSteps(stub)) return stub as Record_;
     const id = typeof stub === "string" ? stub : (stub as Record_).id;
     if (!id) return null;
-    if (typeof stub === "object" && Array.isArray((stub as Record_).steps) && ((stub as Record_).steps as unknown[]).length > 0) return stub as Record_;
     const record = (await this.availableProfiles(true)).find((candidate) => candidate.id === id);
     return record?.profile ? (record.profile as Record_) : null;
   }
@@ -1201,6 +1206,15 @@ function withSentProfile(body: Record_): Record_ {
     }
   }
   return { ...body, profile };
+}
+
+/**
+ * `profilePatchWithSteps` in src/modules/dye-selection.js (16903cc): the profile where it has steps, else null, as
+ * `PUT /workflow` merges a profile without them into the loaded one, renaming it rather than replacing it.
+ */
+function profileWithSteps(profile: unknown): Record_ | null {
+  const steps = (profile as Record_ | null | undefined)?.steps;
+  return Array.isArray(steps) && steps.length > 0 ? (profile as Record_) : null;
 }
 
 /**

@@ -499,6 +499,29 @@ describe("The simulated Streamline's strip and wake, against its source", () => 
     expect(recipeStripCells([{ id: "a", stripSlot: 1, showOnStreamlineDashboard: false }]).map((cell) => cell.recipe?.id ?? null)).toEqual([null, null, null, null, null]);
   });
 
+  it("sends no profile for a recipe whose profile resolves to none with steps, leaving the Workflow's (16903cc)", async () => {
+    const dye2 = new SimulatedDye2();
+    const tablet = SimulatedTablet.load({ settings: {}, api: { ...recordedDye2MainTablet("10003"), ...dye2Migrated() }, dye2, keepsFlushSettings: false });
+    tablets.push(tablet);
+    await dye2.settled();
+    const title = (tablet.workflow().profile as Record_).title;
+    // In slots 4 and 5, out of whatever held them: a stored Workflow naming a profile the tablet has no record of, and a
+    // legacy recipe holding a snapshot without steps and such an id.
+    const recipes = (dye2List(tablet, "recipes") as Record_[]).map((recipe) => ([4, 5].includes(Number(recipe.stripSlot)) ? { ...recipe, stripSlot: null } : recipe));
+    const stub = { id: "stub-stored", name: "Stub stored", stripSlot: 4, workflow: { context: { targetDoseWeight: 18.4 }, profile: { id: "profile:00000000000000000000", title: "Purged" } } };
+    const legacy = { id: "stub-legacy", name: "Stub legacy", stripSlot: 5, profileId: "profile:00000000000000000000", profileTitle: "Purged", profileSnapshot: { title: "Purged", steps: [] }, dashboardVariables: { dose: 18.6 } };
+    await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, [...recipes, stub, legacy]);
+    const streamline = await startStreamline(tablet);
+    for (const [cell, dose] of [
+      [4, 18.4],
+      [5, 18.6],
+    ] as const) {
+      expect((await streamline.applyRecipe(cell)).workflow?.status).toBe(200);
+      expect(streamline.sent.at(-1)).not.toHaveProperty("profile");
+      expect([(tablet.workflow().profile as Record_).title, (tablet.workflow().context as Record_).targetDoseWeight]).toEqual([title, dose]);
+    }
+  });
+
   it("does nothing on a tap of the highlighted cell, refuses a strip apply of a recipe holding a field its writer does not own before the PUT, and sends its wake with the profile", async () => {
     const dye2 = new SimulatedDye2();
     const tablet = SimulatedTablet.load({ settings: {}, api: { ...recordedDye2MainTablet("10002"), ...dye2Migrated() }, dye2, keepsFlushSettings: false });
