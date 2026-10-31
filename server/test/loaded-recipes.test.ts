@@ -668,14 +668,17 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     let slow = false;
     // The load's read of the Workflow is answered as it arrives, naming the Ethiopia, but reaches the plugin half a second
     // later (25 s of the tablet's clock, which runs 50 times faster).
-    const { tablet, dye2, ethiopia, quiet } = await lab("Late load", 47181, {
+    const { tablet, dye2, ethiopia, brazil, quiet } = await lab("Late load", 47181, {
       answerOnArrival: true,
       apiDelayMs: (method, path) => (slow && method === "GET" && path === "/workflow" ? 25_000 : 0),
     });
-    const held = (await recipe(ethiopia)).content;
+    const [held, heldBrazil] = [(await recipe(ethiopia)).content, (await recipe(brazil)).content];
     // The Ethiopia applied from an out-of-date copy: its dial, on the Workflow's other profile, which its load writes over.
     const dial = variables(record(tablet, ETHIOPIA));
-    const writes = workflowWrites(tablet);
+    const brazilDose = variables(record(tablet, BRAZIL)).dose;
+    expect(brazilDose).not.toBe(dial.dose);
+    const workflows: Record_[] = [];
+    tablet.onWorkflowChange((workflow) => workflows.push(workflow));
     slow = true;
     expect((await tablet.callApi("PUT", "/workflow", { context: { targetDoseWeight: dial.dose, grinderSetting: String(dial.grind), extras: { dye: { recipeId: ETHIOPIA } } } })).status).toBe(200);
     await new Promise((resolve) => setTimeout(resolve, 100));
@@ -684,12 +687,16 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // Brazil's Workflow, before reads are answered at once again.
     await new Promise((resolve) => setTimeout(resolve, 1_000));
     slow = false;
-    await expect.poll(() => writes.some((write) => (write.profile as Record_ | undefined)?.title === "Adaptive v3"), { timeout: 15_000 }).toBe(true);
+    // The window was hit: the load's write of the Ethiopia's profile landed on the Brazil's Workflow, its dose the Brazil's,
+    // which the write left as the read it was planned from held the Ethiopia's.
+    const landed = (workflow: Record_) => (workflow.profile as Record_).title === "Adaptive v3" && (workflow.context as Record_).targetDoseWeight === brazilDose;
+    await expect.poll(() => workflows.some(landed), { timeout: 15_000 }).toBe(true);
     // Once the load's write, what it set off and their reports are done.
     await quiet();
     // The Brazil's values, which the write left, are saved into no Recipe, and the Ethiopia is not named over the Brazil.
     expect(dye2.recorded.filter((recorded) => recorded.id === ETHIOPIA)).toEqual([]);
     expect((await recipe(ethiopia)).content).toEqual(held);
+    expect((await recipe(brazil)).content).toEqual(heldBrazil);
     expect(recipeIdInWorkflow(tablet)).not.toBe(ETHIOPIA);
   });
 

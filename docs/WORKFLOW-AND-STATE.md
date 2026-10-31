@@ -647,7 +647,8 @@ parts to the Recipe's content both ways.
   Workflow's dial, RPM and Basket into the record, and keeps the recipe
   named through a change of profile only onto the one that record holds,
   so they and the Profile wait until the tablet's record of the Recipe,
-  written first, holds them, the Profile by its id and by DYE2's
+  written first, holds them, the Profile by its id and, where the record
+  holds a profile at all, as DYE2 compares none otherwise, by DYE2's
   fingerprint, as an edit of a Profile's title keeps its id
   (`heldByRecord`); the rest of the write goes ahead, its Grinder and batch
   included. The plugin writes nothing unless the Workflow it has just read
