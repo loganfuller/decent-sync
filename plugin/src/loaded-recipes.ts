@@ -42,8 +42,9 @@ import type { Skins } from "./skins.js";
 // the Workflow before it has DYE2 save the change, so DYE2 never saves the
 // temperature steam came back at (`steamBackOnFirst`), as turning steam off
 // is no edit. A write of the plugin's that changes the profile is made as
-// two, so DYE2 keeps the recipe (`putNamingRecipe`, interim, until
-// decentespresso/dye2#38). The server unloads one by having the plugin
+// two, so DYE2 keeps the recipe (`putNamingRecipe`, interim until #388, as
+// from v0.1.33, the minimum, DYE2's fingerprint ignores key order,
+// decentespresso/dye2#43). The server unloads one by having the plugin
 // clear the field. On a Capture-only Machine, or while DYE2 is not there,
 // nothing is written or saved.
 //

@@ -1228,8 +1228,9 @@ export const STEAM_ON_FROM = 135;
  * server. A write that changes the profile, as DYE2 fingerprints one
  * (`dye2Fingerprint`), which DYE2 clears DYE2_RECIPE_FIELD on, is made as two:
  * DYE2_RECIPE_FIELD cleared, then the write with the Recipe's id set there
- * again, so DYE2 takes the new profile as the recipe's (interim, until
- * decentespresso/dye2#38); the Workflow's changes between them are not sent.
+ * again, so DYE2 takes the new profile as the recipe's (interim until #388,
+ * as from v0.1.33, the minimum, DYE2's fingerprint ignores key order,
+ * decentespresso/dye2#43); the Workflow's changes between them are not sent.
  * A steam temperature is never written into a Workflow whose steam is off
  * (`steamOff`), as it would turn steam on: the plugin leaves it out. Decaid
  * refuses to change the steam, hot water and flush settings while no
