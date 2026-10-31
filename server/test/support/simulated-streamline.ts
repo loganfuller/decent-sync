@@ -510,7 +510,10 @@ export class SimulatedStreamline {
    * then `applyRecipe` in dyeStrip.js): the cell of that slot, or the cell
    * holding the recipe with that record id. A tap on the highlighted cell, its
    * recipe the one DYE2's selection names, does nothing, so it never sets the
-   * Machine back to the recipe's stored values (`inert`). Otherwise it
+   * Machine back to the recipe's stored values (`inert`): the highlight as
+   * the strip last took it from DYE2, as it applied, or on a push or return
+   * from DYE2 (`repoll()`, which a test changing the Workflow elsewhere calls
+   * before a tap). Otherwise it
    * highlights the cell, then sends as one partial `PUT /workflow` the
    * recipe's embedded `workflow` (its context and its Profile whole, from the
    * tablet's profiles where it carries no steps, and none where neither has
@@ -544,9 +547,11 @@ export class SimulatedStreamline {
    * A barista taps a favourite's cell on the DYE strip (`applyFavourite` in
    * dyeStrip.js): its embedded `workflow`, or without one its `snapshot` as
    * its `copyMask` allows, and `recipeId` null, sent, then the favourite
-   * selected in DYE2, as `applyRecipe` does.
+   * selected in DYE2, as `applyRecipe` does, and nothing on a tap of the
+   * highlighted one.
    */
   async applyFavourite(favourite: Record_): Promise<StreamlineApplied> {
+    if (favourite.id != null && favourite.id === this.activeItemId) return { inert: true };
     this.activeItemId = favourite.id;
     this.activeModified = false;
     const patch = favourite.workflow ? await this.applyStoredWorkflow(favourite.workflow as Record_) : await this.applyFavLegacy(favourite);
@@ -1125,13 +1130,19 @@ function mergeContext(patch: Record_, fragment: Record_): Record_ {
  * The strip's cells (`recipeStripCells` in dye-selection.js): slots 1 to 5,
  * each holding the first recipe shown on the strip whose `stripSlot` is that
  * number; where no row has a `stripSlot` key, a recipe with id `1` to `5` in
- * that cell, and the others in the blanks left.
+ * that cell, and the others in the blanks left, but a cell whose id-numbered
+ * recipe is hidden from the strip, which stays empty (71ea5cb).
  */
 export function recipeStripCells(recipes: unknown, count = 5): { slot: string; recipe: Record_ | null }[] {
   const cells: { slot: string; recipe: Record_ | null }[] = Array.from({ length: count }, (_, index) => ({ slot: String(index + 1), recipe: null }));
   const rows = (Array.isArray(recipes) ? recipes : []).filter((row): row is Record_ => !!row && typeof row === "object");
   const visible = rows.filter((row) => row.showOnStreamlineDashboard !== false);
   const legacy = !rows.some((row) => row.stripSlot !== undefined);
+  const idCell = (recipe: Record_) => {
+    const slot = parseInt(String(recipe.id), 10);
+    return String(recipe.id) === String(slot) && slot >= 1 && slot <= count ? slot - 1 : null;
+  };
+  const cleared = new Set(legacy ? rows.filter((row) => row.showOnStreamlineDashboard === false).flatMap((row) => idCell(row) ?? []) : []);
   const strays: Record_[] = [];
   for (const recipe of visible) {
     let cell: { slot: string; recipe: Record_ | null } | undefined;
@@ -1149,7 +1160,7 @@ export function recipeStripCells(recipes: unknown, count = 5): { slot: string; r
     if (cell && !cell.recipe) cell.recipe = recipe;
   }
   for (const recipe of strays) {
-    const blank = cells.find((cell) => !cell.recipe);
+    const blank = cells.find((cell, index) => !cell.recipe && !cleared.has(index));
     if (!blank) break;
     blank.recipe = recipe;
   }

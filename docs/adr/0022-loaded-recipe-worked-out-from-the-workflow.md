@@ -85,7 +85,7 @@ The plugin makes no write into the Workflow while its Machine pulls a Shot, whic
 
 Each workaround here does on DYE2's or Streamline's behalf what an upstream ask would have them do, and goes when they do (AGENTS.md):
 
-- **Two writes for a change of profile.** The plugin's write that changes the Workflow's profile is made as two, `recipeId` cleared and then the write with it set again, its Workflow changes between them not delivered (Loading, above), standing in for DYE2 keeping `recipeId` where the profile written is the named recipe's own (decentespresso/dye2#38). What it waits on is in the minimum: from v0.1.33 DYE2 does so for a record the server wrote too, as its fingerprint ignores key order (decentespresso/dye2#43), so the plugin writes one (#388).
+- **Two writes for a change of profile.** The plugin's write that changes the Workflow's profile is made as two, `recipeId` cleared and then the write with it set again, its Workflow changes between them not delivered (Loading, above), standing in for DYE2 keeping `recipeId` where the profile written is the named recipe's own (decentespresso/dye2#38). What it waits on is in the minimum: from v0.1.33 DYE2 does so for a record the server wrote too, as its fingerprint ignores key order (decentespresso/dye2#43), and #388 makes it one write.
 - **The load write's steam, hot water and flush settings.** A load writes each one the Recipe holds that the Workflow holds otherwise, as DYE2's dashboard applies them, standing in for Streamline's strip applying every one the recipe holds, not only those its modes name (decentespresso/streamline-js#154, #186). Its leaving a steam temperature out of a Workflow whose steam is off stands.
 
 And these gaps are accepted until fixed upstream:

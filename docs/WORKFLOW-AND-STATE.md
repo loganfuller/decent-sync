@@ -311,10 +311,12 @@ through `plugin/src/dye2.ts`, and writes what the pure
 - **A write that changes the profile.** DYE2 clears the Workflow's
   `recipeId` once its profile moves off the one it held when the id
   appeared, by DYE2's fingerprint (`dye2Fingerprint` in `protocol/`, a copy
-  of `profileFingerprint` in `dye2:dye2-plugin/src/utils/workflow-record.ts`:
-  the title, tank temperature and steps, but each step's temperature, a step
-  limiter of value 0 read as none), even where the same write names the same
-  id (`idProfileChanged`). So a write of the plugin's that changes the
+  of v0.1.32's `profileFingerprint` in
+  `dye2:dye2-plugin/src/utils/workflow-record.ts`: the title, tank
+  temperature and steps, but each step's temperature, a step limiter of
+  value 0 read as none; it still tells one profile in two key orders apart,
+  as v0.1.33's no longer does, until #388), even where the same write names
+  the same id (`idProfileChanged`). So a write of the plugin's that changes the
   profile so (`changesProfile`), as a load from a stale copy, or the
   server's write after the Recipe's Profile was edited, is made as two `PUT
   /workflow` (`putNamingRecipe`): `recipeId` cleared (`clearRecipe`), then
@@ -322,7 +324,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   DYE2 takes as a new apply of the recipe on the new profile; where Decaid
   refuses the second, the recipe is named again alone. Both run as one write
   of the plugin's, so the server never reads the Workflow between them, and
-  reads no unload (interim, until decentespresso/dye2#38, ADR-0022).
+  reads no unload (interim until #388, as from v0.1.33, the minimum, DYE2
+  keeps the recipe named on its own profile whatever its key order,
+  decentespresso/dye2#43, ADR-0022).
 - **Saving each change.** Every change on a Machine with a Recipe loaded is
   saved into it (ADR-0022). After each change of the Workflow naming the
   Loaded Recipe, the plugin holds the change back and, in its turn among the

@@ -18,8 +18,8 @@ section).
 ### Tablets need DYE2 v0.1.33 and Streamline v0.2.21
 
 This release follows DYE2 v0.1.33 and Streamline v0.2.21
-([ADR-0017](docs/adr/0017-supported-versions.md)), Streamline's first minimum
-that is a release rather than a build of `main`. Decaid installs both on
+([ADR-0017](docs/adr/0017-supported-versions.md)), so Streamline's minimum is
+a release again, rather than a build of `main`. Decaid installs both on
 every tablet within 12 hours of their release. Check that a tablet whose DYE2
 or Streamline is pinned runs them or later.
 

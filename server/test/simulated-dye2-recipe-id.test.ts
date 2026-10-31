@@ -497,6 +497,8 @@ describe("The simulated Streamline's strip and wake, against its source", () => 
     expect(recipeStripCells([{ id: "a", stripSlot: 2 }, { id: "b", stripSlot: null }, { id: "1" }]).map((cell) => cell.recipe?.id ?? null)).toEqual([null, "a", null, null, null]);
     expect(recipeStripCells([{ id: "2" }, { id: "x" }]).map((cell) => cell.recipe?.id ?? null)).toEqual(["x", "2", null, null, null]);
     expect(recipeStripCells([{ id: "a", stripSlot: 1, showOnStreamlineDashboard: false }]).map((cell) => cell.recipe?.id ?? null)).toEqual([null, null, null, null, null]);
+    // By ids, a cell whose recipe is hidden stays empty, not filled from the blanks (71ea5cb).
+    expect(recipeStripCells([{ id: "1", showOnStreamlineDashboard: false }, { id: "x" }]).map((cell) => cell.recipe?.id ?? null)).toEqual([null, "x", null, null, null]);
   });
 
   it("sends no profile for a recipe whose profile resolves to none with steps, leaving the Workflow's (16903cc)", async () => {
