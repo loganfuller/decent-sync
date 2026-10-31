@@ -41,12 +41,12 @@ import type { Skins } from "./skins.js";
 // back on takes the Recipe's steam temperature: the plugin writes it into
 // the Workflow before it has DYE2 save the change, so DYE2 never saves the
 // temperature steam came back at (`steamBackOnFirst`), as turning steam off
-// is no edit. A write of the plugin's that changes the profile is made as
-// two, so DYE2 keeps the recipe (`putNamingRecipe`, interim until #388, as
-// from v0.1.33, the minimum, DYE2's fingerprint ignores key order,
-// decentespresso/dye2#43). The server unloads one by having the plugin
-// clear the field. On a Capture-only Machine, or while DYE2 is not there,
-// nothing is written or saved.
+// is no edit. A write of the plugin's that changes the profile writes the
+// profile the tablet's record of the recipe holds, which DYE2 keeps the
+// recipe named through, and names the recipe in the same write
+// (`putNamingRecipe`). The server unloads one by having the plugin clear the
+// field. On a Capture-only Machine, or while DYE2 is not there, nothing is
+// written or saved.
 //
 // A load decided on while the Machine pulls a Shot is held until the Shot
 // ends (`ShotGate`), as every write of the plugin's into the Workflow is,
@@ -531,11 +531,11 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   /**
    * Loads the Recipe the Workflow names, while it still names it: writes
    * into the Workflow what applying a DYE2 recipe leaves out, or a stale
-   * copy got wrong (`loadWrite`), as one write, or two where it changes the
-   * profile (`putNamingRecipe`). Decaid refuses to change the steam, hot
-   * water and flush settings while no machine is connected, so the rest is
-   * then written without them. A write Decaid takes is told of
-   * (`workflowWritten`).
+   * copy got wrong (`loadWrite`), as one write, naming the recipe too where
+   * it changes the profile (`putNamingRecipe`), whose profile is the record's
+   * own. Decaid refuses to change the steam, hot water and flush settings
+   * while no machine is connected, so the rest is then written without
+   * them. A write Decaid takes is told of (`workflowWritten`).
    */
   private async loadRecipe(globalId: string): Promise<void> {
     if (this.stopped || !this.sharing()) return;
@@ -598,15 +598,14 @@ export class LoadedRecipes implements LoadedRecipeWrites {
 
 /**
  * Writes into the Workflow (`write`, the body of a `PUT /workflow`) that
- * names the recipe `recordId` there (DYE2_RECIPE_FIELD), keeping it named: a
- * write changing the profile as DYE2 fingerprints one (`changesProfile`) is
- * made as two, the recipe cleared, then the write with the recipe named
- * again, which DYE2 takes as a new apply of it on the new profile (interim
- * until #388, as from v0.1.33, the minimum, DYE2's fingerprint ignores key
- * order, decentespresso/dye2#43); where Decaid refuses the second, the
- * recipe is named again alone. Each Workflow Decaid answers with is told of,
- * with the body it answered (`answered`). Resolves with Decaid's answer to
- * the write. Throws if Decaid does not answer.
+ * names the recipe `recordId` there (DYE2_RECIPE_FIELD), as one `PUT
+ * /workflow`, keeping it named: a write changing the profile as DYE2
+ * fingerprints one (`changesProfile`) names the recipe too, as applying a
+ * recipe does, and DYE2 keeps it named, as the profile is the one the
+ * tablet's record of it holds (`recipeProfileChanged` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts). Decaid's answer, where it
+ * holds a Workflow, is told of with the body (`answered`). Resolves with
+ * Decaid's answer. Throws if Decaid does not answer.
  */
 export async function putNamingRecipe(
   workflow: Record<string, unknown>,
@@ -614,17 +613,10 @@ export async function putNamingRecipe(
   recordId: string,
   answered: Answered,
 ): Promise<Answer> {
-  const put = async (body: Record<string, unknown>) => {
-    const answer = await request("PUT", "/workflow", body);
-    const updated = answer.ok ? parsed(answer.text) : undefined;
-    if (isObject(updated)) answered(updated, body);
-    return answer;
-  };
-  if (!changesProfile(workflow, write)) return put(write);
-  const cleared = await put(clearRecipe());
-  if (!cleared.ok) return cleared;
-  const answer = await put(withRecipe(write, recordId));
-  if (!answer.ok) await put(withRecipe({}, recordId));
+  const body = changesProfile(workflow, write) ? withRecipe(write, recordId) : write;
+  const answer = await request("PUT", "/workflow", body);
+  const updated = answer.ok ? parsed(answer.text) : undefined;
+  if (isObject(updated)) answered(updated, body);
   return answer;
 }
 

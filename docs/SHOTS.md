@@ -235,10 +235,8 @@ its Machine had loaded and the Basket DYE2 recorded
   (`loaded_recipes`, `WORKFLOW-AND-STATE.md`, The Loaded Recipe), not by the
   field alone: a Capture-only Machine's Workflow names a recipe that is not
   its Loaded Recipe, and its Shots stay unlinked, even once sharing is back
-  on. A Shot naming no recipe, or a record no Recipe's, is linked to none,
-  as is one pulled between the plugin's two writes for a change of the
-  Loaded Recipe's profile, which carries `recipeId` null (ADR-0022). Pulled
-  means from the Shot's start to its last sample, both by the tablet's
+  on. A Shot naming no recipe, or a record no Recipe's, is linked to none.
+  Pulled means from the Shot's start to its last sample, both by the tablet's
   clock, as the Loaded Recipes are timed; so a Shot started as the Workflow
   came to name the recipe, before the plugin reported it, is still linked.
   A Machine's Loaded Recipes follow one another, so the link reads only its

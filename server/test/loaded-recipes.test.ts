@@ -25,8 +25,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // recipe, from DYE2's dashboard or Select Recipe page or Streamline's strip,
 // names it there, and the plugin loads it, writing into the Workflow what
 // applying it leaves out, as its Basket, or a stale copy got wrong, as its
-// Profile, which it writes as two writes that keep the recipe named
-// (decentespresso/dye2#38). A profile change, a favourite applied,
+// Profile, which it writes in one write naming the recipe, which DYE2 keeps
+// named (decentespresso/dye2#38, #43). A profile change, a favourite applied,
 // Streamline's DYE2 switch turned off or its Clear button on the selected
 // recipe clears the field, which unloads it; another batch or grinder does
 // not, and nor does a restart of DYE2. The plugin has DYE2 save each change
@@ -297,20 +297,20 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const { machine, tablet, dye2, ethiopia, quiet } = await lab("Refused profile", 47121, { pollSeconds: 3600 });
     await selectRecipeInDye2(tablet, ETHIOPIA);
     await loads(machine, ethiopia);
-    // Decaid refuses the Workflow write carrying the Recipe's new Profile, the second of the two the plugin makes of it.
+    // Decaid refuses the Workflow write carrying the Recipe's new Profile, the one write the plugin makes of it.
     tablet.refuseWrites = ({ method, route, body }) =>
       method === "PUT" && route === "/workflow" && typeof body === "object" && body !== null && "profile" in body ? { status: 400, body: { error: "refused" } } : undefined;
     const classic = "profile:39e939592679fb194706";
     const written = tablet.writes.length;
     const received = tablet.received.length;
     expect((await api.call("PATCH", `/recipes/${ethiopia}`, { content: { profileId: classic } })).status).toBe(200);
-    await expect.poll(() => tablet.writes.slice(written).filter((write) => write === "PUT /workflow").length, { timeout: 15_000 }).toBeGreaterThanOrEqual(3);
+    await expect.poll(() => tablet.writes.slice(written).filter((write) => write === "PUT /workflow").length, { timeout: 15_000 }).toBeGreaterThanOrEqual(1);
     // The site's own wait, as the tablet polls too seldom to wait for: the plugin's answers to the server's writes,
     // acknowledged, and then nothing else under way.
     await expect.poll(() => answeredWrites(tablet, received), { timeout: 15_000 }).toBe(true);
     await quiet();
     tablet.refuseWrites = undefined;
-    // The plugin named the recipe again, without the profile: DYE2 cleared nothing, and the server recorded no unload.
+    // The Workflow still names the recipe, on its old profile: DYE2 cleared nothing, and the server recorded no unload.
     expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
     expect((tablet.workflow().profile as Record_).title).toBe("Adaptive v3");
     expect(dye2.cleared).toEqual([]);
@@ -579,7 +579,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await history(machine)).total).toBe(1);
   });
 
-  it("loads a recipe named with none of its values applied, as through DYE2's selection route, writing its Profile as two writes that keep it named", async () => {
+  it("loads a recipe named with none of its values applied, as through DYE2's selection route, writing its Profile in one write that keeps it named", async () => {
     const { machine, tablet, dye2, ethiopia, quiet } = await lab("Named", 47071, { pollSeconds: 3600 });
     expect((tablet.workflow().profile as Record_).title).toBe("Classic Italian espresso");
     const writes = workflowWrites(tablet);
@@ -590,19 +590,19 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await dye2.settled();
     // The site's own wait is the load's Profile above, and DYE2 settled; then the load's reports and anything else under way.
     await quiet();
-    // Its Profile is written as two: the recipe cleared, then the Profile with it named again, which DYE2 takes as the
-    // profile it was named on (decentespresso/dye2#38).
-    const profiled = writes.findIndex((write) => "profile" in write);
-    expect(profiled).toBeGreaterThan(0);
-    expect(writes[profiled - 1]).toEqual(CLEARED);
-    expect(((writes[profiled]!.context as Record_).extras as Record_).dye).toMatchObject({ recipeId: ETHIOPIA });
+    // Its Profile is written with the rest in one write, naming the recipe, which DYE2 keeps named as the profile is its
+    // record's own, and takes as the profile it was named on (decentespresso/dye2#38, #43). Nothing clears the recipe: a
+    // write of the server's that may follow, planned from the Workflow the load wrote over, writes the same profile again.
+    expect(writes[0]).toHaveProperty("profile");
+    expect(((writes[0]!.context as Record_).extras as Record_).dye).toEqual({ recipeId: ETHIOPIA });
+    expect(writes).not.toContainEqual(CLEARED);
     expect(dye2.cleared).toEqual([]);
     expect(dye2.baseline()?.profileFingerprint).toBe(dye2ProfileFingerprint(tablet.workflow().profile));
     expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
     expect(temperatures(tablet)[0]).toBe(92);
     expect(context(tablet)).toMatchObject({ targetDoseWeight: 18, grinderSetting: "2.5" });
     expect(extras(tablet)).toMatchObject({ basketId: BASKET_18, rpm: 900 });
-    // The server read no unload between the two.
+    // The server read no unload.
     expect(await history(machine)).toMatchObject({ total: 1, entries: [{ recipe: { id: ethiopia }, unloadedAt: null }] });
   });
 

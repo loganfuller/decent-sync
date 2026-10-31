@@ -336,12 +336,12 @@ describe("Telling skins of each write of the server's into the Workflow", () => 
     expect(held).toEqual([expect.objectContaining({ context: expect.objectContaining({ targetDoseWeight: 19, targetYield: 40 }) })]);
   });
 
-  it("pushes once after a Loaded Recipe write changing the profile, made as two writes, with the Workflow naming the recipe", async () => {
+  it("pushes once after a Loaded Recipe write changing the profile, made as one write naming the recipe, with the Workflow naming it", async () => {
     const adaptive = (dye2Library()["/profiles"] as Record_[]).find((profile) => profile.id === "profile:98fa00c191551b435845")!.profile as Record_;
     const puts = workflowPuts();
     const { answer, pushes, held } = await pushesFor(loaded({ profile: adaptive }));
     expect(answer).toMatchObject({ type: "written", kind: LOADED_RECIPE_KIND, writtenFields: ["profile"] });
-    expect(workflowPuts()).toBe(puts + 2);
+    expect(workflowPuts()).toBe(puts + 1);
     expect(pushes).toEqual([PUSH]);
     expect(held).toHaveLength(1);
     expect(dye2RecipeIdOf(held[0])).toBe(NAMED);

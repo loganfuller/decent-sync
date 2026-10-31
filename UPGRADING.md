@@ -25,6 +25,10 @@ or Streamline is pinned runs them or later.
 
 - A Recipe applied again on a Machine after its Profile was edited in the
   management interface stays loaded there.
+- A Profile edit, or a load from an out-of-date copy, reaches a Machine with
+  its Recipe loaded in one Workflow write, so a Shot pulled at that moment is
+  no longer left linked to no Recipe. A tablet still on 1.6.1's plugin writes
+  it as two until Decaid updates its plugin.
 - An edit of a Machine's steam purge mode or a heater setting lasts: from
   v0.2.20, Streamline's settings page keeps a setting changed elsewhere. It
   still puts back the value it remembers where the Machine reads a fan

@@ -469,14 +469,14 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as they 
 });
 
 describe("The simulated DYE2's fingerprint", () => {
-  it("is the one the recording computed with every object's keys sorted, as v0.1.33's is, protocol's dye2Fingerprint the one recorded, for each profile a load left, and the record's matched the Workflow's", () => {
+  it("is the one the recording computed with every object's keys sorted, as v0.1.33's is, and so is protocol's dye2Fingerprint, for each profile a load left, and the record's matched the Workflow's", () => {
     type Entry = { name: string; fingerprints: Record<string, string | null>; recordMatchesWorkflow: boolean; recordMatchesWorkflowUpdated: boolean; [profile: string]: unknown };
     const sorted = (_key: string, value: unknown) => (value && typeof value === "object" && !Array.isArray(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, (value as Record_)[key]])) : value);
     for (const entry of dye2Recording<Entry[]>("fingerprints")) {
       for (const [key, fingerprint] of Object.entries(entry.fingerprints)) {
         // decentespresso/dye2#43 (`026054e`): the same fingerprint, its keys sorted at every level.
         expect(dye2ProfileFingerprint(entry[key]), `${entry.name} ${key}`).toBe(fingerprint === null ? null : JSON.stringify(JSON.parse(fingerprint), sorted));
-        expect(dye2Fingerprint(entry[key]), `${entry.name} ${key}`).toBe(fingerprint);
+        expect(dye2Fingerprint(entry[key]), `${entry.name} ${key}`).toBe(dye2ProfileFingerprint(entry[key]));
       }
       expect([entry.recordMatchesWorkflow, entry.recordMatchesWorkflowUpdated]).toEqual([true, true]);
     }
@@ -488,7 +488,7 @@ describe("The simulated DYE2's fingerprint", () => {
     const workflow = steps.reapplyEdited!.after.find(({ request }) => request.path === "/workflow")!.response.body as Record_;
     expect(Object.keys((record.steps as Record_[])[0]!)).not.toEqual(Object.keys(((workflow.profile as Record_).steps as Record_[])[0]!));
     expect(dye2ProfileFingerprint(record)).toBe(dye2ProfileFingerprint(workflow.profile));
-    expect(dye2Fingerprint(record)).not.toBe(dye2Fingerprint(workflow.profile));
+    expect(dye2Fingerprint(record)).toBe(dye2Fingerprint(workflow.profile));
   });
 });
 

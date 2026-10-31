@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, dye2GlobalIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, dye2GlobalIdOf, dye2RecipeIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -34,9 +34,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // stay the Machine's own, and nothing unloads it but a change of profile,
 // which saves nothing into it. An edit of the Recipe from anywhere is written
 // into the Workflow of every Machine that has it loaded, but the one it was
-// made on, its brew temperature as on a load, and a Profile as two writes
-// that keep it loaded (decentespresso/dye2#38); a stale copy applied is
-// brought to it. Archiving the Recipe, or making the Machine capture-only,
+// made on, its brew temperature as on a load, and a Profile in one write
+// naming the Recipe, which DYE2 keeps loaded as the Machine's record of it
+// holds that Profile, in PostgreSQL's key order (decentespresso/dye2#38,
+// #43); a stale copy applied is brought to it. Archiving the Recipe, or making the Machine capture-only,
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded, and so does applying it again after its Profile
 // was edited (decentespresso/dye2#43). Through the built plugin in simulated
@@ -129,6 +130,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     (tablet.received.slice(from).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe") as { fields: Record_ }[]).map(({ fields }) => fields);
   /** How many times the plugin had DYE2 save into the recipe the Workflow names. */
   const saves = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === `POST /plugins/${DYE2_NAMESPACE}/record`).length;
+  /** The plugin's writes into the tablet's Workflow from now on, as it sent them. */
+  const workflowWrites = (tablet: SimulatedTablet) => {
+    const writes: Record_[] = [];
+    tablet.refuseWrites = ({ method, route, body }) => {
+      if (method === "PUT" && route === "/workflow") writes.push(body as Record_);
+      return undefined;
+    };
+    return writes;
+  };
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
@@ -658,13 +668,23 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(profile(c).title).toBe("Adaptive v3");
   });
 
-  it("writes a Profile edit into A's and C's Workflows as two writes each, which keep the Recipe named and loaded on both, the server recording no unload", async () => {
+  it("writes a Profile edit into A's and C's Workflows as one write each, naming the Recipe, which DYE2 keeps named and loaded on both, the server recording no unload", async () => {
     const { machines, dye2, a, c, one, quiet } = await lab("Profile", 48061);
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);
+    const writes = [workflowWrites(a), workflowWrites(c)];
     await patch(one, { profileId: CLASSIC });
     await expect.poll(() => [profile(a).title, profile(c).title], { timeout: 15_000 }).toEqual(["Classic Italian espresso", "Classic Italian espresso"]);
-    // Once the second of each pair of writes, and A's and C's reports of them, are done.
+    // Once each write, and A's and C's reports of it, are done.
     await quiet();
+    for (const [tablet, sent] of [[a, writes[0]!], [c, writes[1]!]] as const) {
+      expect(sent).toHaveLength(1);
+      expect([dye2RecipeIdOf(sent[0]), (sent[0]!.profile as Record_).title]).toEqual([ETHIOPIA, "Classic Italian espresso"]);
+      // The tablet's record holds the Profile in jsonb's key order, as the server writes a record: another order than the
+      // Workflow's, which DYE2 v0.1.33's fingerprint ignores.
+      const held = (record(tablet, ETHIOPIA)!.workflow as Record_).profile as Record_;
+      expect(held.title).toBe("Classic Italian espresso");
+      expect(Object.keys((held.steps as Record_[])[0]!)).not.toEqual(Object.keys((profile(tablet).steps as Record_[])[0]!));
+    }
     expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
     expect([dye2.a.cleared, dye2.c.cleared]).toEqual([[], []]);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);

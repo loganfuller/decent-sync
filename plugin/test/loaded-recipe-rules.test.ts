@@ -122,18 +122,30 @@ describe("DYE2's fingerprint of a profile", () => {
 describe("a write that changes the profile, as DYE2 fingerprints one", () => {
   const workflow = applied("dye2-applies", "applyFromSelectRecipe");
 
-  it("is one writing another profile, not one moving its temperatures or writing the dial alone", () => {
+  it("is one writing another profile, not one moving its temperatures, holding its keys in another order or writing the dial alone", () => {
     expect(changesProfile(workflow, { profile: { ...(workflow.profile as Record_), title: "Another" } })).toBe(true);
     expect(changesProfile(workflow, { profile: profileAtBrewTemperature(workflow.profile, 90) })).toBe(false);
+    const reversed = (value: unknown): unknown =>
+      Array.isArray(value)
+        ? value.map(reversed)
+        : typeof value === "object" && value !== null
+          ? Object.fromEntries(Object.keys(value).reverse().map((key) => [key, reversed((value as Record_)[key])]))
+          : value;
+    expect(changesProfile(workflow, { profile: reversed(workflow.profile) })).toBe(false);
     expect(changesProfile(workflow, { context: { targetDoseWeight: 19.5 } })).toBe(false);
   });
 
-  it("is made naming the recipe again, merged into the write, after a write clearing it", () => {
-    expect(dye2RecipeIdOf(clearRecipe())).toBeNull();
-    expect(clearRecipe()).toEqual({ context: { extras: { dye: { recipeId: null } } } });
+  it("is made naming the recipe too, merged into the write", () => {
     const named = withRecipe({ context: { targetDoseWeight: 19.5, extras: { basketId: "b" } }, profile: { title: "Another" } }, "recipe-1");
     expect(named).toEqual({ context: { targetDoseWeight: 19.5, extras: { basketId: "b", dye: { recipeId: "recipe-1" } } }, profile: { title: "Another" } });
     expect(withRecipe({}, "7a1e")).toEqual({ context: { extras: { dye: { recipeId: "7a1e" } } } });
+  });
+});
+
+describe("an unload", () => {
+  it("clears the recipe the Workflow names, alone, as DYE2 does", () => {
+    expect(dye2RecipeIdOf(clearRecipe())).toBeNull();
+    expect(clearRecipe()).toEqual({ context: { extras: { dye: { recipeId: null } } } });
   });
 });
 

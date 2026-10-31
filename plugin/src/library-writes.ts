@@ -760,9 +760,11 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * same amount (`profileAtBrewTemperature`). It is refused unless the
  * Workflow still names the recipe the write expects (DYE2_RECIPE_FIELD), so
  * it never lands in a recipe a barista applied in the moment between; a
- * write changing the profile, which DYE2 clears that field on, is made as
- * two (`putNamingRecipe`, ADR-0022). A steam temperature is left out of a
- * Workflow whose steam is off (`steamOff`), as it would turn steam on.
+ * write changing the profile names the recipe there too, in the same write,
+ * which DYE2 keeps it named through, as the server writes a Profile only
+ * once the tablet's record of the recipe holds it (`putNamingRecipe`,
+ * ADR-0022). A steam temperature is left out of a Workflow whose steam is
+ * off (`steamOff`), as it would turn steam on.
  * Decaid refuses to change the steam, hot water and flush settings while no
  * machine is connected, so the rest is then written without them, the
  * Workflow read again first, and a write of only them is refused. A write

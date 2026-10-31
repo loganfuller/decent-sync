@@ -812,7 +812,10 @@ var __decentSync = (() => {
       const { temperature: _, limiter, ...rest } = step;
       return { ...rest, limiter: Boolean(limiter) && Number(isObject(limiter) ? limiter.value : void 0) !== 0 ? limiter : null };
     }) : profile.steps;
-    return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps });
+    return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
+  }
+  function sortedKeys(_key, value) {
+    return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])) : value;
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
@@ -1976,11 +1979,11 @@ var __decentSync = (() => {
     /**
      * Loads the Recipe the Workflow names, while it still names it: writes
      * into the Workflow what applying a DYE2 recipe leaves out, or a stale
-     * copy got wrong (`loadWrite`), as one write, or two where it changes the
-     * profile (`putNamingRecipe`). Decaid refuses to change the steam, hot
-     * water and flush settings while no machine is connected, so the rest is
-     * then written without them. A write Decaid takes is told of
-     * (`workflowWritten`).
+     * copy got wrong (`loadWrite`), as one write, naming the recipe too where
+     * it changes the profile (`putNamingRecipe`), whose profile is the record's
+     * own. Decaid refuses to change the steam, hot water and flush settings
+     * while no machine is connected, so the rest is then written without
+     * them. A write Decaid takes is told of (`workflowWritten`).
      */
     async loadRecipe(globalId) {
       if (this.stopped || !this.sharing()) return;
@@ -2036,17 +2039,10 @@ var __decentSync = (() => {
     }
   };
   async function putNamingRecipe(workflow, write, recordId, answered2) {
-    const put = async (body) => {
-      const answer2 = await request("PUT", "/workflow", body);
-      const updated = answer2.ok ? parsed2(answer2.text) : void 0;
-      if (isObject4(updated)) answered2(updated, body);
-      return answer2;
-    };
-    if (!changesProfile(workflow, write)) return put(write);
-    const cleared = await put(clearRecipe());
-    if (!cleared.ok) return cleared;
-    const answer = await put(withRecipe(write, recordId));
-    if (!answer.ok) await put(withRecipe({}, recordId));
+    const body = changesProfile(workflow, write) ? withRecipe(write, recordId) : write;
+    const answer = await request("PUT", "/workflow", body);
+    const updated = answer.ok ? parsed2(answer.text) : void 0;
+    if (isObject4(updated)) answered2(updated, body);
     return answer;
   }
   function fieldPaths(body, prefix = "") {
