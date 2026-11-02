@@ -15,6 +15,8 @@ section).
 
 ## Unreleased
 
+## 1.6.2
+
 ### Tablets need DYE2 v0.1.33 and Streamline v0.2.21
 
 This release follows DYE2 v0.1.33 and Streamline v0.2.21
