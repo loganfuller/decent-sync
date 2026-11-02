@@ -59,16 +59,19 @@ import { profileOfSql } from "../shots/links.js";
 // server as the tablet's change of the record (`recordedByDye2`, recipes.ts),
 // and the server records itself what DYE2 saves none of
 // (`valuesFromWorkflow`): a Grinder, a Bean Batch of the Recipe's Bean, and
-// a dial value the Recipe holds none of. A load gains the Recipe each of
-// those it holds none of. An edit of the Recipe from anywhere is written
-// into the Workflow of every Machine that has it loaded (`loadedRecipeDue`),
-// each part that changed since the Workflow took it, so the plugin's own
-// write is never read as the tablet's edit, and what stays the Machine's
-// own, as a batch of another Bean, a value cleared or steam turned off, is
-// never written back. A Workflow naming a Recipe its Machine does not have
-// loaded, as one Archived, or of a Location it left, or the one the server
-// last had as its Loaded Recipe as it was made capture-only, has the recipe
-// cleared from it; one loaded on a Machine taking part nowhere stays.
+// a dose, yield, grind setting or RPM the Recipe holds none of. A load gains
+// the Recipe each of those it holds none of, and the Machine's Basket where
+// it holds none, which DYE2 takes as the recipe is applied as its starting
+// point and never saves, though it saves one picked after it. An edit of
+// the Recipe from anywhere is written into the Workflow of every Machine
+// that has it loaded (`loadedRecipeDue`), each part that changed since the
+// Workflow took it, so the plugin's own write is never read as the tablet's
+// edit, and what stays the Machine's own, as a batch of another Bean, a
+// value cleared or steam turned off, is never written back. A Workflow
+// naming a Recipe its Machine does not have loaded, as one Archived, or of
+// a Location it left, or the one the server last had as its Loaded Recipe
+// as it was made capture-only, has the recipe cleared from it; one loaded
+// on a Machine taking part nowhere stays.
 
 /** A Recipe as a Machine's Loaded Recipe names it. */
 export interface LoadedRecipeItemView {

@@ -581,9 +581,10 @@ parts to the Recipe's content both ways.
   the Recipe has seen (ADR-0020, `editContent`), each change from `held` of
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
-  setting, RPM or Basket the Recipe holds none of, though DYE2 v0.1.33 saves
-  a Basket picked after the load too (ADR-0022, #389); a Grinder, one of the
-  Location's not Archived; and a Bean Batch of the Recipe's own Bean, or any
+  setting or RPM the Recipe holds none of, but no Basket, which DYE2 v0.1.33
+  saves once picked after the load, reaching the Recipe as the tablet's
+  change of its record (ADR-0022, #389); a Grinder, one of the Location's
+  not Archived; and a Bean Batch of the Recipe's own Bean, or any
   batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
   means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow
@@ -600,10 +601,11 @@ parts to the Recipe's content both ways.
   Recipe's, so no write of the Recipe's value is planned over it.
 - **A load.** On a Workflow that loads the Recipe, the Recipe gains, from
   the Workflow as it stands, each of the values Decent Sync records itself
-  that it holds none of (`valuesFromWorkflow` with no `held`): so a Recipe
-  made without a grinder, Basket, RPM or dial takes those the Machine is
-  using. A value it holds is never taken from a load, which may be a stale
-  copy's. Its `base` starts as the parts the Workflow holds already as the
+  that it holds none of (`valuesFromWorkflow` with no `held`), and the
+  Machine's Basket, which DYE2 takes as the recipe is applied as its
+  starting point and never saves: so a Recipe made without a grinder,
+  Basket, RPM or dial takes those the Machine is using. A value it holds
+  is never taken from a load, which may be a stale copy's. Its `base` starts as the parts the Workflow holds already as the
   Recipe does (`heldAlready`), so every other part the Recipe holds is
   written into it once (To every Machine that has it loaded, below), the
   load write's answer holding most of them already. A Workflow naming the

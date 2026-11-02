@@ -1310,12 +1310,13 @@ others, still on them. Every change of the Workflow of a Machine with a
 Recipe loaded is saved into it (ADR-0022): the plugin has DYE2 save it
 (`record`), which writes the dose, yield, grind setting, RPM, Basket,
 brew temperature and steam, hot water and flush settings into the record,
-each where the record holds one, and a steam, hot water or flush setting it
-holds none of once it moves, which reaches the server as the tablet's
-change of the record, the Machine's edit of its Loaded Recipe; and the
-server records itself, from the Workflow, a grinder, a batch of the
-Recipe's Bean, and a dose, yield, grind setting, RPM or Basket the Recipe
-holds none of. What DYE2 saves that is no edit, as the Workflow left
+each where the record holds one, and a Basket or steam, hot water or flush
+setting it holds none of once it moves off its value at the apply, which
+reaches the server as the tablet's change of the record, the Machine's edit
+of its Loaded Recipe; and the server records itself, from the Workflow, a
+grinder, a batch of the Recipe's Bean, and a dose, yield, grind setting or
+RPM the Recipe holds none of, and on the load a Basket it holds none of,
+which DYE2 never saves (#389). What DYE2 saves that is no edit, as the Workflow left
 behind a write of the server's still to land, is written back
 (`recordedByDye2`, `WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
 sets the Recipe's value its tablet's own latest edit set already is no edit

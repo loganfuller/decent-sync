@@ -18,19 +18,20 @@ import { type SimulatedStreamline, startStreamline } from "./support/simulated-s
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #146, #173, #177, #187, #188, #189 and #216: a Machine
-// follows its Loaded Recipe both ways (ADR-0022), and every change on it is
-// saved into the Recipe. The plugin has DYE2 save each change of the
-// Workflow into the Recipe's record (`record`): its dose, yield, grind
-// setting, RPM, Basket and brew temperature where the record holds one, and
-// a steam, hot water or flush setting it holds, or holds none of once it
-// moves (recipe-settings.test.ts has the settings), an edit of the Recipe
-// from that Machine's tablet, once. Decent Sync records itself what DYE2
-// saves none of: a grinder, a batch of the Recipe's Bean, and a dose, yield,
-// grind setting, RPM or Basket the Recipe holds none of, which a load also
-// gains it from the Workflow, though DYE2 v0.1.33 saves a Basket picked
-// after the load too (#389). A change made while the plugin writes into
-// the Workflow is saved too. A batch of another Bean and a value cleared
+// Seam 1 for tickets #146, #173, #177, #187, #188, #189, #216 and #389: a
+// Machine follows its Loaded Recipe both ways (ADR-0022), and every change
+// on it is saved into the Recipe. The plugin has DYE2 save each change of
+// the Workflow into the Recipe's record (`record`): its dose, yield, grind
+// setting, RPM, Basket and brew temperature where the record holds one, a
+// Basket picked since the apply where it holds none, and a steam, hot water
+// or flush setting it holds, or holds none of once it moves
+// (recipe-settings.test.ts has the settings), an edit of the Recipe from
+// that Machine's tablet, once. Decent Sync records itself what DYE2 saves
+// none of: a grinder, a batch of the Recipe's Bean, and a dose, yield, grind
+// setting or RPM the Recipe holds none of, which a load also gains it from
+// the Workflow, with the Machine's Basket, which DYE2 never saves as the
+// recipe's starting point. A change made while the plugin writes into the
+// Workflow is saved too. A batch of another Bean and a value cleared
 // stay the Machine's own, and nothing unloads it but a change of profile,
 // which saves nothing into it. An edit of the Recipe from anywhere is written
 // into the Workflow of every Machine that has it loaded, but the one it was
@@ -410,7 +411,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const tablet of [a, c]) await expect.poll(() => [extras(tablet).rpm, context(tablet).targetDoseWeight], { timeout: 15_000 }).toEqual([1444, 19]);
   });
 
-  it("takes an RPM a Recipe holds none of as its own as it changes on its Machine, which DYE2 saves none of, and a Basket, which DYE2 saves too, and writes them into D's", async () => {
+  it("takes an RPM a Recipe holds none of as its own as it changes on its Machine, which DYE2 saves none of, leaves a Basket picked there to DYE2's save, as A's edit, and writes them into D's", async () => {
     const { machines, dye2, a, d, two, load, quiet } = await lab("Unheld", 48131, { d: true });
     await patch(two, { rpm: null, basketId: null });
     await expect.poll(() => [variables(record(a, BRAZIL)).rpm ?? null, variables(record(a, BRAZIL)).basketId ?? null], { timeout: 15_000 }).toEqual([null, null]);
@@ -422,13 +423,23 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await recipe(two)).content).not.toHaveProperty("rpm");
     expect((await recipe(two)).content).not.toHaveProperty("basketId");
     const received = a.received.length;
+    // DYE2's save of the change fails, so the server takes the Workflow holding both without it: it records the RPM, and
+    // no Basket (#389).
+    dye2.a.refuse("record");
     await a.changeSettings({ context: { extras: { rpm: 1234, basketId: BASKET_18, basketName: "Fixture 18g Precision" } } });
+    await expect.poll(async () => (await recipe(two)).content.rpm, { timeout: 15_000 }).toBe(1234);
+    // Once A's report of the Workflow holding the Basket has been taken in.
+    await quiet();
+    expect((await recipe(two)).content).not.toHaveProperty("basketId");
+    expect(dye2.a.recorded.filter((recorded) => recorded.id === BRAZIL)).toEqual([]);
+    // The next change has DYE2 save the Basket, which moved off the none A held as the recipe was applied (163a7c8), with
+    // it: an edit of A's record, so of the Recipe, from A.
+    await a.changeSettings({ context: { grinderSetting: "3.2" } });
     const basket18 = dye2GlobalIdOf((dye2List(a, "baskets") as Record_[]).find((entry) => entry.id === BASKET_18));
-    await expect.poll(async () => (await recipe(two)).content, { timeout: 15_000 }).toMatchObject({ rpm: 1234, basketId: basket18 });
+    await expect.poll(async () => (await recipe(two)).content, { timeout: 15_000 }).toMatchObject({ rpm: 1234, grindSetting: 3.2, basketId: basket18 });
+    expect(dye2.a.recorded).toContainEqual({ id: BRAZIL, patch: { grind: 3.2, basketId: BASKET_18, basketName: "Fixture 18g Precision" } });
     expect(dye2.a.recorded.filter((recorded) => recorded.id === BRAZIL && "rpm" in recorded.patch)).toEqual([]);
-    // DYE2 v0.1.33 saves the Basket, which moved off the none A held as the recipe was applied (163a7c8), as the server
-    // records it from the Workflow too: the two recorders #389 settles.
-    expect(dye2.a.recorded).toContainEqual({ id: BRAZIL, patch: { basketId: BASKET_18, basketName: "Fixture 18g Precision" } });
+    expect((await versions(two)).filter((version) => version.fields.basketId === basket18).map((version) => version.source.machine?.id)).toEqual([machines.a.machine.id]);
     await expect.poll(() => extras(d).rpm, { timeout: 15_000 }).toBe(1234);
     await expect.poll(() => extras(d).basketId ?? null, { timeout: 15_000 }).toBe((dye2List(d, "baskets") as Record_[]).find((entry) => dye2GlobalIdOf(entry) === basket18)?.id);
     expect(await loadedRecipe(machines.a)).toBe(two);
