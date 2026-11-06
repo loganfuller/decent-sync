@@ -29,6 +29,23 @@ export async function lockItems(tx: Prisma.TransactionClient, kind: LibraryKind,
 }
 
 /**
+ * Of the values a tablet's records hold of a field (`held`), those of items
+ * that hold none of it and have never had an edit of it, which
+ * `takeInUnseen` takes in, so a report whose records hold only values taken
+ * in already locks and reads none of their items.
+ */
+export async function unseenOf<T extends { id: string }>(tx: Prisma.TransactionClient, kind: LibraryKind, field: string, held: readonly T[]): Promise<T[]> {
+  if (held.length === 0) return [];
+  const description = KINDS[kind];
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id::text AS id FROM ${Prisma.raw(description.table)}
+    WHERE id = ANY(${idsSql(description, [...new Set(held.map((item) => item.id))])})
+      AND NOT jsonb_exists(content, ${field}) AND NOT jsonb_exists(field_edits, ${field})`;
+  const ids = new Set(rows.map((row) => row.id));
+  return held.filter((item) => ids.has(item.id));
+}
+
+/**
  * Takes in, as the tablet's edit, each value its records hold of a field
  * that the item holds none of and has never had an edit of (`held`, each
  * with when the tablet's record was read), the items locked already: one a

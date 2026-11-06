@@ -109,7 +109,9 @@ serves beside this release, it takes in no feed rate, and a Grinder's note
 this release stored may be listed so among the refusals of a tablet it
 serves. A feed rate or Grinder's note saved in DYE2 then is kept on the
 tablet, and taken in once this release serves it, where the Recipe or
-Grinder holds none.
+Grinder holds none. Where two tablets saved different ones for the same
+Recipe or Grinder, the first to connect gives its value, and the other
+tablet's is written over.
 
 ## 1.6.2
 

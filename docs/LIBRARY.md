@@ -494,7 +494,11 @@ tablets, below).
   edited, as one saved in DYE2 while that server served the tablet, the
   next report outside the tablet joining its Location takes it in
   (`takeInUnseen` in `content-edits.ts`), rather than writing the record
-  back without it. A Basket's fields are those DYE2's baskets
+  back without it. Where tablets hold different ones for one item, the
+  first to report gives the item its value, which is written over the
+  others' with no Conflict kept: no edit tells a value never taken in from
+  a record still to be written, so a Conflict would be kept for each such
+  record too. A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
   `diameterMm` and `notes`, and a Tool's those of its equipment page, its
   name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,

@@ -356,14 +356,15 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         if (!current()) return;
         // Where steam came back on, DYE2's recipes are read afresh first: its editor saves a recipe, then applies it again,
         // which turns steam back on with what it just saved, so that edit is not put back as a stale copy's.
-        if (this.steamBackOnFor(save)) this.sawRecipes(await this.readRecipes());
+        const steamBackOn = this.steamBackOnFor(save);
+        if (steamBackOn !== null) this.sawRecipes(await this.readRecipes());
         if (!current()) return;
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? undefined : this.records?.get(recordId)?.globalId;
         // Judged again once Decaid answered, as a recipe applied while its answer was on its way is decided on meanwhile.
         if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
-        if (!(await this.steamBackOnFirst(workflow, recordId, save)) || !current()) return;
+        if (!(await this.steamBackOnFirst(workflow, recordId, save, steamBackOn)) || !current()) return;
         if ((await recordIntoRecipe()) === "saved") await this.reportRecipes();
         this.failing = false;
       })
@@ -448,13 +449,16 @@ export class LoadedRecipes implements LoadedRecipeWrites {
    * afresh before the Workflow, so the Workflow judged is no older than the
    * record, and a load decided on during that read is not written into. While the Machine
    * pulls a Shot, the write, and the save with it, are held until the Shot
-   * ends (`resumeSteamBackOn`). Resolves with whether the save goes on.
+   * ends (`resumeSteamBackOn`). Steam turned back on since the save began
+   * (`began`) is left to the save queued with it, which reads the records
+   * afresh. Resolves with whether the save goes on.
    * Throws if Decaid refuses the write, as with no machine connected: the
    * next change tries again.
    */
-  private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor): Promise<boolean> {
+  private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor, began: SteamBackOn | null): Promise<boolean> {
     const pending = this.steamBackOnFor(save);
     if (pending === null) return true;
+    if (pending !== began) return false;
     const record = this.records?.get(recordId)?.record;
     const write = record === undefined ? null : steamBackOnWrite(workflow, record, pending.turnedOn);
     if (write !== null && this.shot.running()) return false;

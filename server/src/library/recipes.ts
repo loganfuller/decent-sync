@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkRecipeShots, profileOfSql } from "../shots/links.js";
-import { type EditOutcome, editContent, lockItems, recordJoined, takeInUnseen } from "./content-edits.js";
+import { type EditOutcome, editContent, lockItems, recordJoined, takeInUnseen, unseenOf } from "./content-edits.js";
 import { markUnrecognised } from "./dye2-lists.js";
 import { recordedByDye2, recipeMapped } from "../machine-events/loaded-recipes.js";
 import { answeredEquipment, editedContent } from "./equipment-intake.js";
@@ -257,7 +257,7 @@ export async function takeInRecipes(
     SELECT id::text AS id, record_id AS "recordId", archived FROM recipes WHERE location_id = ${locationId}::uuid`;
   const recordIds = new Map(own.flatMap((recipe) => (recipe.archived ? [] : [[recipe.recordId, recipe.id] as const])));
   const steps = planRecipeIntake(reported, mapped, recordIds, listed, new Set(own.map((recipe) => recipe.id)));
-  const unseen = joining ? [] : unseenFeedRates(reported, mapped, new Set(own.map((recipe) => recipe.id)));
+  const unseen = joining ? [] : await unseenOf(tx, "recipe", "feedRate", heldFeedRates(reported, mapped, new Set(own.map((recipe) => recipe.id))));
   if (steps.length === 0 && unseen.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
     return takenInAt;
@@ -347,9 +347,9 @@ export async function takeInRecipes(
  * hold, each by its Recipe, with when the record was read: release 1.6.2
  * kept a record as sent without taking in a feed rate DYE2 v0.1.34 saved
  * there, so one still held is taken in where the Recipe never had one
- * (`takeInUnseen`), rather than written over (#395).
+ * (`unseenOf`, `takeInUnseen`), rather than written over (#395).
  */
-function unseenFeedRates(reported: readonly ReportedRecipe[], mapped: readonly MappedRecipe[], own: ReadonlySet<string>): { id: string; value: string; at: Date }[] {
+function heldFeedRates(reported: readonly ReportedRecipe[], mapped: readonly MappedRecipe[], own: ReadonlySet<string>): { id: string; value: string; at: Date }[] {
   const byLocalId = new Map(mapped.map((record) => [record.localId, record.itemId]));
   return reported.flatMap((record) => {
     const itemId = byLocalId.get(record.localId);

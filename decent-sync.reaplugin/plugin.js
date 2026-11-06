@@ -1832,13 +1832,14 @@ var __decentSync = (() => {
         if (this.queuedSave === save) this.queuedSave = null;
         const current = () => !this.stopped && this.loaded === save.globalId && this.loads === save.load && this.sharing();
         if (!current()) return;
-        if (this.steamBackOnFor(save)) this.sawRecipes(await this.readRecipes());
+        const steamBackOn = this.steamBackOnFor(save);
+        if (steamBackOn !== null) this.sawRecipes(await this.readRecipes());
         if (!current()) return;
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? void 0 : this.records?.get(recordId)?.globalId;
         if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
-        if (!await this.steamBackOnFirst(workflow, recordId, save) || !current()) return;
+        if (!await this.steamBackOnFirst(workflow, recordId, save, steamBackOn) || !current()) return;
         if (await recordIntoRecipe() === "saved") await this.reportRecipes();
         this.failing = false;
       }).catch((error) => this.failed(error)).finally(() => this.changes.release());
@@ -1911,13 +1912,16 @@ var __decentSync = (() => {
      * afresh before the Workflow, so the Workflow judged is no older than the
      * record, and a load decided on during that read is not written into. While the Machine
      * pulls a Shot, the write, and the save with it, are held until the Shot
-     * ends (`resumeSteamBackOn`). Resolves with whether the save goes on.
+     * ends (`resumeSteamBackOn`). Steam turned back on since the save began
+     * (`began`) is left to the save queued with it, which reads the records
+     * afresh. Resolves with whether the save goes on.
      * Throws if Decaid refuses the write, as with no machine connected: the
      * next change tries again.
      */
-    async steamBackOnFirst(workflow, recordId, save) {
+    async steamBackOnFirst(workflow, recordId, save, began) {
       const pending = this.steamBackOnFor(save);
       if (pending === null) return true;
+      if (pending !== began) return false;
       const record3 = this.records?.get(recordId)?.record;
       const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
