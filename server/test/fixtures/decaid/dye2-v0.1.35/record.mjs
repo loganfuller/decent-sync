@@ -597,7 +597,7 @@ async function recordGrinders(browser) {
 const favouriteReads = (route) => route === SELECTION || route === RECIPES || route === FAVOURITES || route === "/workflow";
 
 /**
- * 3. Auto Favourites (`fac6106`, `bf781f9`): `applied`, recipe `1`'s pill;
+ * 3. Auto Favourites (`fac6106`, `c969adb`): `applied`, recipe `1`'s pill;
  * `saved`, DYE2's Auto Favourites edit page opened afresh, as its add card
  * opens it, which takes the Workflow as its snapshot, slot 1 picked on
  * "Assign Fav Number" and SAVE; `picked`, the dashboard opened, then the

@@ -359,7 +359,7 @@ describe("The simulated DYE2 v0.1.35 and Streamline v0.2.23, made again as v0.1.
       async () => {
         const page = await openDye2Dashboard(proxy);
         const recent = page.favourites.filter((favourite) => favourite.auto).sort((a, b) => Number(a.recentRank) - Number(b.recentRank))[0]!;
-        // From the Auto Favourites page, as DYE2's dashboard's rail shows recipes only from v0.1.35 (`bf781f9`).
+        // From the Auto Favourites page, as DYE2's dashboard's rail shows recipes only from v0.1.35 (`c969adb`).
         return pickFavouriteInDye2(proxy, String(recent.id));
       },
       "applyFavourite",

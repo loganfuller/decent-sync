@@ -105,7 +105,9 @@ elsewhere, is listed among that tablet's refusals ("Written, but its record
 still differs as it did") until it changes again or the tablet connects with
 this release's plugin, which then writes it. Its recipe records take the
 feed rate still, which DYE2 applies. In the minute or so that 1.6.2 still
-serves beside this release, it ignores a feed rate.
+serves beside this release, it takes in no feed rate, and a Grinder's note
+this release stored may be listed so among the refusals of a tablet it
+serves.
 
 ## 1.6.2
 

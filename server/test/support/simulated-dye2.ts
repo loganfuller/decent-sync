@@ -1866,7 +1866,7 @@ export class Dye2Dashboard {
    * The recipes the page shows as pills, in order (`renderRecipePills`): the
    * recipe DYE2's derived selection names where it is in no slot, then the
    * recipes in a slot and shown on Streamline's dashboard, by slot. From
-   * v0.1.35 the rail shows recipes only (`bf781f9`): a favourite is applied
+   * v0.1.35 the rail shows recipes only (`c969adb`): a favourite is applied
    * from the Auto Favourites page (`pickFavouriteInDye2`).
    */
   recipePills(): Record_[] {
@@ -2632,7 +2632,7 @@ export async function saveFavouriteInDye2(tablet: SimulatedTablet, { title = "",
  * DYE2's Auto Favourites page (auto-favs.ts): it reads the favourites, and on
  * CONFIRM of the one with that id goes back to the dashboard, which applies
  * it as it opens (`dye_selectedAutoFavId`), `recipeId` cleared, as the
- * dashboard's rail shows recipes only from v0.1.35 (`bf781f9`). Resolves
+ * dashboard's rail shows recipes only from v0.1.35 (`c969adb`). Resolves
  * with the dashboard, its `applied` the apply's answer
  * (fixtures/decaid/dye2-v0.1.35/favourites.json, `picked`).
  */

@@ -483,7 +483,12 @@ tablets, below).
   beside the record's other `extras` keys and its global id, never at the
   top (`Route.inExtras` in `plugin/src/library-writes.ts`), as DYE2's
   grinders page spreads the grinder's own `extras` under it
-  (`buildGrinderBody`). A Basket's fields are those DYE2's baskets
+  (`buildGrinderBody`). The previous release's plugin, which runs beside
+  this one until Decaid updates it (ADR-0025), writes the note at the top,
+  which Decaid drops, and writes no Recipe's feed rate into a Workflow, so
+  such a write is listed among that tablet's refusals ("Written, but its
+  record still differs as it did") until the item changes or the tablet
+  connects with this release's plugin, which writes it. A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
   `diameterMm` and `notes`, and a Tool's those of its equipment page, its
   name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,

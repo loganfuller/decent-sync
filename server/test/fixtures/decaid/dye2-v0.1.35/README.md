@@ -129,8 +129,11 @@ describes (`compactAll`). Nothing else was changed.
     settings DYE2 reads from the machine's settings, which on Decaid's
     simulated machine differ from the Workflow's. Decent Sync reads nothing
     of `modified`.
-  - The dashboard's rail holds the three recipes and no recent favourite
-    (`pills`): from v0.1.35 it shows recipes only (`bf781f9`).
+  - The dashboard's rail holds the three recipes (`pills`), and still
+    only those once a saved favourite exists (`favourites.json`,
+    `pillsAfterSave`): from v0.1.35 it shows recipes only, recent
+    favourites included, which this recording, pulling no Shot, has none of
+    (`c969adb`, `renderRecipePills` in `dye2:dye2-plugin/src/pages/dashboard.ts`).
 - **A grinder's feed rate note lives in its `extras`** (`grinders.json`).
   DYE2's grinders page sends the whole `extras` as the record holds them,
   the global id and the other app's key included, with `feedRate` set
