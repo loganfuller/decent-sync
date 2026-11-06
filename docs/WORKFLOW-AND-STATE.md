@@ -220,7 +220,7 @@ keeps only the newest 2,000 events, up to 2 Mi characters (above).
 Ticket [#145](https://github.com/loganfuller/decent-sync/issues/145) keeps
 each Machine's Loaded Recipe (ADR-0022), and ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) makes it the
-recipe its Workflow names. DYE2 v0.1.33 and Streamline v0.2.21, the
+recipe its Workflow names. DYE2 v0.1.33 and Streamline v0.2.23, the
 supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -275,8 +275,15 @@ through `plugin/src/dye2.ts`, and writes what the pure
   water and flush setting the record holds in DYE2's field of it
   (`RECIPE_SETTINGS`), as DYE2's dashboard applies them and Streamline's
   strip does only in part (decentespresso/streamline-js#154, interim,
-  ADR-0022), but a steam temperature into a Workflow whose steam is off
-  (`steamOff`), which would turn steam on (`loadWrite`). A value the record
+  ADR-0022): from v0.2.23, its milk stop, its hot water volume,
+  temperature, time and flow, its flush time, and its steam time or flow by
+  its steam mode, but no steam temperature, flush temperature or flush flow
+  (`mergeRecipeLiveSettings` in `streamline-js:src/modules/dyeStrip.js`);
+  but a steam temperature or steam time into a Workflow whose steam is off
+  (`steamOff`): the temperature would turn steam on, and Streamline would
+  show the time with the heater off. A record's steam time of 0, as DYE2's
+  editor saves until the server writes the Recipe's back, is none
+  (`steamTimeOf`, `loadWrite`). A value the record
   holds none of is left as the Machine has it, which the server takes into
   the Recipe (Following the Recipe, below), but a Bean: for a record naming
   none it clears the Workflow's batch, coffee and roaster where it holds
@@ -299,10 +306,10 @@ through `plugin/src/dye2.ts`, and writes what the pure
   matching values. Streamline adopts a Workflow change made elsewhere
   (ADR-0021), so it takes the settings written as its own, and its heater
   switch, with its own DYE2 switch on, turns steam back on at the steam
-  temperature of the recipe the Workflow names: the plugin sets nothing of
-  Streamline's (where that heater switch with its DYE2 switch off, its
-  settings page or Auto Steam turn steam on at another, the plugin turns it
-  on at the Recipe's, Steam turned back on, below). Once Decaid takes a
+  temperature and time of the recipe the Workflow names: the plugin sets
+  nothing of Streamline's (where that heater switch with its DYE2 switch
+  off, its settings page or Auto Steam turn steam on with others, the plugin
+  turns it on with the Recipe's, Steam turned back on, below). Once Decaid takes a
   load's write, where it changed
   the Workflow, the plugin pushes `{"what":"workflow"}` on its `changed`
   endpoint, so Streamline's tiles show the steam, hot water and flush
@@ -350,25 +357,29 @@ through `plugin/src/dye2.ts`, and writes what the pure
   would write the new profile's brew temperature into the Recipe. A call
   that fails is logged, and the next change calls again.
 - **Steam turned back on.** Turning steam back on takes the Loaded
-  Recipe's steam temperature, as turning it off is no edit (ADR-0022, Steam
-  on and off, #374). A change naming the Loaded Recipe that turns steam on,
-  its steam temperature at or above `STEAM_ON_FROM` (`steamOnAt` in
+  Recipe's steam temperature and steam time, as turning it off is no edit
+  (ADR-0022, Steam on and off, #374, #394). A change naming the Loaded
+  Recipe that turns steam on, its steam temperature at or above
+  `STEAM_ON_FROM` (`steamOnWith` in
   `loaded-recipe-rules.ts`) where it was below it at the plugin's last
   decision or in any Workflow Decaid reported or answered its writes with
   since (`steamWasOff`), as while a write of its own was under way, whose
   changes it decides on together once that is done, is saved as any change
   is, but in the save's turn, once the plugin's read of the Workflow finds
   it still naming the Recipe, the plugin first writes into it, as one write
-  of its own, the steam temperature the tablet's record of the Recipe holds
-  (`steamBackOnWrite`, `steamBackOnFirst`), and only then calls `record`,
-  which finds the Workflow's steam temperature the record's and saves the
-  change's other values. So the temperature steam came back at is saved
-  nowhere. It writes only while the Workflow still holds that temperature:
-  one set since, with steam on, is the Recipe's edit, and steam turned off
-  again none. A Recipe holding no steam temperature, or a record holding
-  "Off" (0), has none to take, and the change is saved as any is. A change
-  that loads a Recipe is a load (A load, above), whose write writes the
-  record's steam temperature where steam is on. A write Decaid refuses, as
+  of its own, the steam temperature and time the tablet's record of the
+  Recipe holds (`steamBackOnWrite`, `steamBackOnFirst`), and only then
+  calls `record`, which finds the Workflow's steam temperature and time the
+  record's and saves the change's other values. So the temperature and time
+  steam came back with are saved nowhere. It writes each only while the
+  Workflow still holds the one steam came back with and holds another than
+  the record's: one set since, with steam on, is the Recipe's edit, and
+  steam turned off again none. A Recipe holding no steam temperature or
+  time, or a record holding "Off" (0) or a time of 0, has none of it to
+  take, and DYE2 saves the one steam came back with where it moved off the
+  one it had at the apply, an accepted gap. A change that loads a Recipe is
+  a load (A load, above), whose write writes the record's steam temperature
+  and time where steam is on. A write Decaid refuses, as
   with no machine connected, is logged, and the save waits for the next
   change.
 - **DYE2's recipes on each push.** DYE2 pushes `{"what":"workflow"}` on its
@@ -441,7 +452,7 @@ through `plugin/src/dye2.ts`, and writes what the pure
   plugin storage (`heldLoad`) until it is made, so a load held as the
   plugin stops is made once it loads again, where the Workflow still names
   that Recipe. Steam turned back on meanwhile, with a Recipe loaded that
-  holds a steam temperature, has its write of the Recipe's held too, made
+  holds a steam temperature or time, has its write of the Recipe's held too, made
   once the Shot ends, but not kept across the plugin's loads (ADR-0022
   accepts the gap). The server's changes are held too, every kind
   (`LIBRARY.md`, How the plugin writes), and planned afresh once the Shot
@@ -618,14 +629,18 @@ parts to the Recipe's content both ways.
   steam temperature only as one of its parts, never as an edit, and steam
   is off below `STEAM_ON_FROM` (135 °C), as Decaid judges it (`steamOff`).
   DYE2 saves no steam setting while steam is off, so steam turned off
-  reaches no Recipe. A steam time of 0 DYE2 saves is a value, as Streamline
-  v0.2.18 reads it as "no timer". A steam temperature below 135 °C in a
-  record, as DYE2's editor saves "Off" (0), is never taken in
-  (`steamOffPaths` in `recipe-intake.ts`), and the Recipe's is written back
-  into the record. Steam turned back on takes the Recipe's steam
-  temperature in the plugin, before DYE2 saves (Steam turned back on,
-  above), so the server is never brought the temperature it came back at as
-  an edit, and nothing of the server's takes part in it.
+  reaches no Recipe. From Streamline v0.2.22 a steam time of 0 is steam off
+  too, which Streamline writes with a steam temperature of 0, so a Recipe's
+  steam time is 1 to 255 s or none (`RECIPE_FIELDS` in
+  `server/src/library/kinds.ts`). A steam temperature below 135 °C in a
+  record, as DYE2's editor saves "Off" (0), and a steam time below 1 s, as
+  it saves 0, are never taken in (`steamOffPaths` in `recipe-intake.ts`),
+  and the Recipe's, or none, is written back into the record; a stored
+  steam time of 0, as 1.6.2 may take one in, is read as none
+  (`steamTimeOf`). Steam turned back on takes the Recipe's steam
+  temperature and time in the plugin, before DYE2 saves (Steam turned back
+  on, above), so the server is never brought those it came back with as an
+  edit, and nothing of the server's takes part in it.
 - **The same edit once.** A field of the tablet's record that sets the
   Recipe's value its own latest edit set already is no edit
   (`withoutOwnEdits` in `recipe-intake.ts`), so the same edit reaching the
@@ -643,8 +658,8 @@ parts to the Recipe's content both ways.
   overrides parts of the one it loads, and its brew temperature
   (`profile.steps.0.temperature`, its Profile's first step's where the
   Recipe holds none), with any Profile written, and each steam, hot water
-  and flush setting the Recipe holds, its steam temperature included
-  whatever the Machine's steam state (`partsWrite`). It expects too the
+  and flush setting the Recipe holds, its steam temperature and time
+  included whatever the Machine's steam state (`partsWrite`). It expects too the
   record id the Workflow named (`DYE2_RECIPE_FIELD`). DYE2 saves the
   Workflow's dial, RPM and Basket into the record, and keeps the recipe
   named through a change of profile only onto the one that record holds,
@@ -661,17 +676,17 @@ parts to the Recipe's content both ways.
   every step of the profile written, or else the Workflow's, by the same
   amount. A write changing the profile is one write too, and the Recipe
   stays loaded (A write that changes the profile, above). It leaves
-  the steam temperature out of `PUT /workflow` where the Workflow it has
-  just read has steam off (`steamOff`), as a barista may turn steam off after
-  the server plans the write. The steam time, flow and milk stop are written as usual,
-  as they do not turn steam on. The Workflow change the write causes is
+  the steam temperature and time out of `PUT /workflow` where the Workflow
+  it has just read has steam off (`steamOff`), as a barista may turn steam
+  off after the server plans the write. The steam flow and milk stop are
+  written as usual, as they do not turn steam on or off. The Workflow change the write causes is
   sent after the answer, which records what Decaid returned as the
   Workflow's (`recordLoadedRecipeWritten`), where it still names the
   record: each part the write set held as Decaid returned it, and, by the
   latest edit the write carried, as taken by the Workflow (`base`) each
   part it set, each it left out that the Workflow holds as the Recipe
   does, or holds otherwise than before as a barista changed it meanwhile,
-  which the plugin kept, and a steam temperature left
+  which the plugin kept, and a steam temperature or time left
   out of a Workflow whose steam is off, so none is written again until the
   Recipe changes. Decaid refuses the steam, hot water and flush settings
   while no machine is connected: the rest is written, and those, still due,

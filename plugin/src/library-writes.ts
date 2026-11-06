@@ -762,9 +762,10 @@ async function clearWorkflow(write: LibraryWrite, _log: (message: string) => voi
  * it rarely lands in a recipe a barista applied in the moment between; a
  * write changing the profile is one write (`putWorkflow`), which DYE2 keeps
  * the recipe named through, as the server writes a Profile only once the
- * tablet's record of the recipe holds it (ADR-0022). A steam temperature is
- * left out of a Workflow whose steam is off (`steamOff`), as it would turn
- * steam on.
+ * tablet's record of the recipe holds it (ADR-0022). A steam temperature and
+ * a steam time are left out of a Workflow whose steam is off (`steamOff`):
+ * the temperature would turn steam on, and Streamline v0.2.23 would show the
+ * time with the heater off.
  * Decaid refuses to change the steam, hot water and flush settings while no
  * machine is connected, so the rest is then written without them, the
  * Workflow read again first, and a write of only them is refused. A write
@@ -815,8 +816,8 @@ async function writeLoadedRecipe(write: LibraryWrite, _log: (message: string) =>
   }
 }
 
-/** The Workflow field holding its steam temperature. */
-const STEAM_TEMPERATURE = RECIPE_SETTINGS.steamTemperature.workflow;
+/** The Workflow's fields never written while its steam is off: its steam temperature, which would turn steam on, and its steam time (ADR-0022). */
+const STEAM_OFF_KEPT: ReadonlySet<string> = new Set([RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow]);
 
 /** Whether a Workflow field is one of the steam, hot water and flush settings Decaid writes to the machine (MACHINE_SETTING_PARTS). */
 function isMachineSetting(field: string): boolean {
@@ -848,15 +849,15 @@ function loadedRecipePatch(fields: Readonly<Record<string, unknown>>, workflow: 
  * value written already, or the write expects none, as of a Profile: one a
  * barista changed since, or cleared, which stays the Machine's own, is
  * kept; its steam, hot water and flush settings only where
- * `machineSettings` says; and a steam temperature only where the
- * Workflow's steam is on (`steamOff`).
+ * `machineSettings` says; and a steam temperature and a steam time only
+ * where the Workflow's steam is on (`steamOff`).
  */
 function loadedRecipeFields(write: LibraryWrite, workflow: Record<string, unknown>, machineSettings: boolean): Record<string, unknown> {
   return Object.fromEntries(
     Object.values(LOADED_RECIPE_PARTS).flatMap((part: readonly string[]) => {
       const [first] = part as [string];
       if (!(first in write.fields) || (!machineSettings && isMachineSetting(first))) return [];
-      if (first === STEAM_TEMPERATURE && steamOff(workflow)) return [];
+      if (STEAM_OFF_KEPT.has(first) && steamOff(workflow)) return [];
       const held = workflowValueAt(workflow, first);
       const expected = write.expected?.[first];
       // One holding the value written already is written too, so its answer has the server hold it: as where DYE2 recorded

@@ -1118,6 +1118,28 @@ export function itemIdRule(kind: string): ItemIdRule {
 export const STEAM_ON_FROM = 135;
 
 /**
+ * The shortest steam time, in s, and the longest: the DE1 holds its
+ * `TargetSteamLength` in one byte. Streamline from v0.2.22 writes a steam
+ * time of 0 with a steam temperature of 0 as it turns steam off, shows a
+ * steam time of 0 as "Off", and turns steam back on at a steam time from
+ * 1 to 255 s (`steamOffPatch`, `steamOnPatch`, MIN_STEAM_DURATION_S and
+ * MAX_STEAM_DURATION_S in streamline-js:src/modules/steam-mode.js at
+ * v0.2.23, `formatSteamDuration` in src/modules/ui.js), so a steam time
+ * below STEAM_TIME_FROM is steam off, never a Recipe's (ADR-0022).
+ */
+export const STEAM_TIME_FROM = 1;
+export const STEAM_TIME_TO = 255;
+
+/**
+ * A steam time, as a Recipe holds one: a number of STEAM_TIME_FROM s or
+ * more. One below it, 0 included, is steam off, which is none; and so is
+ * anything but a number.
+ */
+export function steamTimeOf(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? value : null;
+}
+
+/**
  * Asks the plugin to write one Library item to its tablet through Decaid's
  * API (ADR-0006). The server sends one at a time, and the next once this one
  * is answered with `written` or `writeRefused`. A write too large for one

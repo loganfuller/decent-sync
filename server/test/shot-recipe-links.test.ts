@@ -38,7 +38,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the reporting tablet's map. The Shots list filters by both, and an Admin
 // hard-deletes a Recipe no Shot is linked to, and a Basket or Tool no Shot or
 // Recipe names, from every tablet. Through the built plugin in simulated
-// tablets acting as DYE2 v0.1.33 and Streamline v0.2.21 do, with
+// tablets acting as DYE2 v0.1.33 and Streamline v0.2.23 do, with
 // the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 49001.
@@ -396,17 +396,17 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const { machine, tablet, quiet } = await lab("Made then applied", 49111, unread.tabletOptions);
     tablet.connectMachine();
     const streamline = await startStreamline(tablet);
-    const hotWater = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.hotWaterDuration.workflow);
-    const own = hotWater();
-    expect(own).not.toBe(47);
+    const flush = () => workflowValueAt(tablet.workflow(), RECIPE_SETTINGS.flushTemperature.workflow);
+    const own = flush();
+    expect(own).not.toBe(87);
 
     // Before the plugin reads it: a new recipe saved in DYE2's editor in slot 5, applied from Streamline's strip, which applies
-    // no hot water time (decentespresso/streamline-js#154).
+    // no flush temperature, at v0.2.23 as before (decentespresso/streamline-js#154).
     await unread.hold();
-    const { saved } = await (await openDye2RecipeEditor(tablet, { slot: 5 })).set({ name: "Made then applied", hotWaterTimeS: 47 }).save();
+    const { saved } = await (await openDye2RecipeEditor(tablet, { slot: 5 })).set({ name: "Made then applied", flushTempC: 87 }).save();
     const savedId = String(saved.id);
     await streamline.applyRecipe(5);
-    expect([recipeIdInWorkflow(tablet), hotWater()]).toEqual([savedId, own]);
+    expect([recipeIdInWorkflow(tablet), flush()]).toEqual([savedId, own]);
     // The site's own wait, as the recipe reads are held: the server has the Workflow naming the new recipe, so its report,
     // timed by the tablet's clock as the host's, comes before the dial change timed from here on.
     await expect.poll(() => namedDelivered(tablet, savedId), { timeout: 15_000 }).toBe(true);
@@ -416,7 +416,7 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const dialled = (frame: Record_) => frame.type === "workflow" && ((frame.workflow as Record_).context as Record_).grinderSetting === "3.1";
     await expect.poll(() => tablet.acknowledgedSome(dialled)).toBe(true);
 
-    // Taken in, it is loaded, and the load writes its hot water time, which DYE2's save of the next change keeps.
+    // Taken in, it is loaded, and the load writes its flush temperature, which DYE2's save of the next change keeps.
     unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
@@ -425,13 +425,13 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     const gained = (await versions()).find((version) => version.fields.grindSetting === 3.1);
     expect(gained).toBeDefined();
     expect(gained!.editedAt >= dialledAt).toBe(true);
-    await expect.poll(hotWater, { timeout: 15_000 }).toBe(47);
+    await expect.poll(flush, { timeout: 15_000 }).toBe(87);
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
     // Once the change's report, DYE2's save of it and anything else they set off are done, the reads no longer held.
     await quiet({ streamline });
     const recorded = (recordWithId(tablet, savedId)?.dashboardVariables ?? {}) as Record_;
-    expect([(await recipe(savedRecipe)).content.hotWaterDuration, hotWater(), recorded.hotWaterTimeS]).toEqual([47, 47, 47]);
+    expect([(await recipe(savedRecipe)).content.flushTemperature, flush(), recorded.flushTempC]).toEqual([87, 87, 87]);
   });
 
   it("links a Shot to the Basket its Workflow named, and to the one DYE2's Edit Shot page sets", async () => {

@@ -57,7 +57,8 @@ at once, so it looked refused (decentespresso/streamline-js#175). Its
 no option equal to it, though the choice stays staged for saving. The first
 attempt's Settings Edit held until that page next opened and put Normal back
 (`checkMachineSettingsDrift`, the `putBackByStreamline` note in
-`protocol/src/settings-fields.ts`), so the second left the page closed.
+`protocol/src/settings-fields.ts` until #394, as Streamline v0.2.22 writes
+nothing back on Decaid v0.9.1), so the second left the page closed.
 #259's capture itself wrote nothing to the tablet.
 
 A third recording, later the same evening for #308, took two steamings with

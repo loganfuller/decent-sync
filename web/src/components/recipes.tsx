@@ -301,7 +301,7 @@ const SETTING_GROUPS: readonly { readonly name: string; readonly settings: reado
     name: "Steam",
     settings: [
       { field: "steamTemperature", term: "Steam temperature", unit: "°C", min: 135, max: 170, whole: true },
-      { field: "steamDuration", term: "Steam time", unit: "s", min: 0, whole: true },
+      { field: "steamDuration", term: "Steam time", unit: "s", min: 1, max: 255, whole: true },
       { field: "steamFlow", term: "Steam flow", unit: "ml/s", min: 0 },
       { field: "steamStopTemperature", term: "Milk stop", unit: "°C", min: 30, max: 80, off: true },
     ],

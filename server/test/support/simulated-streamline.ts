@@ -3,7 +3,7 @@ import { assignRecipeInDye2 } from "./simulated-dye2.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as at
-// v0.2.21, the release Decent Sync supports (ADR-0017), as far as it touches
+// v0.2.23, the release Decent Sync supports (ADR-0017), as far as it touches
 // DYE2, the Workflow and the settings it remembers. The plugin is not
 // told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
@@ -42,19 +42,34 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // store and marks it pending before it changes the Workflow, and clears the
 // mark once the Workflow took it (`pushRemembered`). The steam temperature is
 // kept without a mark, and the flush duration only after the Workflow took it
-// (`updateFlushValue` in src/modules/ui.js). A steam time of 0 is no timer
-// and leaves the heater alone (bc487aa); the heater has a switch of its own,
-// which turns it off at a target of 0, keeping the temperature it was at, and
-// back on at the selected DYE2 recipe's steam temperature while its DYE2
-// switch is on, else the one kept, only from off (`setSteamHeaterEnabled` and
-// `steamHeaterFor`, streamline-js #143 and #156): `setSteamHeater()`. Two
-// more ways turn steam on, the same at v0.2.21 as at cec5664. Its
-// settings page (src/settings/settings.js) reads the Workflow as it opens,
-// stages each steam change made on it, and writes them on Save, keeping the
-// steam time, flow, temperature and milk stop in the store
+// (`updateFlushValue` in src/modules/ui.js). From v0.2.22 a steam time of 0
+// is steam off, the two halves of one state (src/modules/steam-mode.js):
+// the heater's switch turns it off at a target of 0 and a steam time of 0,
+// keeping the temperature and time it was at where above 0, and back on, only
+// from off, at the temperature and time of the selected DYE2 recipe while its
+// DYE2 switch is on, else the ones kept, else, for the time, the one saved
+// for the active profile, else 150 °C and 30 s, each clamped to the range
+// that leaves steam on (`setSteamHeaterEnabled`, `steamHeaterFor`,
+// `steamOnPatch`, `steamOffPatch`): `setSteamHeater()`. A steam time below
+// 1 s set through Streamline's setter turns the heater off, and one set by
+// a barista while it is off turns it back on with that time, but one pushed
+// back while it is off is not sent (`setTargetSteamDuration`,
+// `steamDurationWrite`): `set("last-steam-duration")`. Two more ways turn
+// steam on, Auto Steam the same at v0.2.23 as at cec5664. Its settings page
+// (src/settings/settings.js) reads the Workflow as it opens, stages each
+// steam change made on it, and writes them on Save, keeping the steam time
+// above 0, flow, temperature and milk stop in the store
 // (`flushPendingChanges`); its Settings › Calibration › Steam heater switch
-// turns steam back on at the temperature that page last switched off, else
-// 150 °C, never at the one kept (`setSteamHeaterOn`): `openSettings()`.
+// turns steam off as the main page does, and back on at the temperature and
+// time that page last switched off in Streamline's session, or seeded from
+// the ones kept as it first opened, each where above 0, else the Workflow's
+// where above 0, else
+// 150 °C and 30 s, never at the recipe's (`setSteamHeaterOn`,
+// `seedRememberedSteamValues`): `openSettings()`. Streamline adopts the
+// machine's echo of a steam time of 0 as the one it keeps, as it checks the
+// steam time on every echo whatever the heater (`resyncDriftedShotSettings`),
+// so its heater switch then brings steam back at 1 s, the 0 clamped
+// (fixtures/decaid/streamline-v0.2.23/heater.json).
 // Auto Steam, choosing a pitcher, writes the steam time and flow the Auto
 // Steam Calculator plugin works out, at the Workflow's steam temperature as
 // it was entered, or with the heater off then at the one kept
@@ -71,8 +86,10 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // (`recipeStripCells`). A tap on a cell not highlighted applies the
 // recipe (`applyRecipe()`), and on the highlighted one does nothing: its
 // embedded `workflow`, its context and its Profile whole (`applyStoredWorkflow`),
-// or, without one, its `dashboardVariables` (`applyRecipeLegacy`), the steam,
-// hot water and flush values of its modes, each kept (`mergeRecipeLiveSettings`),
+// or, without one, its `dashboardVariables` (`applyRecipeLegacy`), its steam
+// time or flow by its steam mode, its milk stop, its hot water volume,
+// temperature, time and flow, and its flush time, each kept where Streamline
+// keeps one (`mergeRecipeLiveSettings`),
 // and its id as `recipeId` (`recipeIdPatch`), as one partial `PUT
 // /workflow`, then `POST .../selection` to DYE2, retried in the background
 // where it fails and DYE2 records itself, DYE2's selection cleared where it
@@ -216,6 +233,7 @@ const WORKFLOW_WRITERS: Readonly<Record<string, readonly string[]>> = {
     "steamSettings.targetTemperature",
     "steamSettings.duration",
     "steamSettings.flow",
+    "steamSettings.stopAtTemperature",
     "hotWaterData.targetTemperature",
     "hotWaterData.volume",
     "hotWaterData.duration",
@@ -252,10 +270,15 @@ function assertDeclaredFields(writer: string, patch: Record_): void {
 export interface StreamlineSettings {
   /**
    * The heater switch on Settings › Calibration › Steam (`setSteamHeaterOn`):
-   * off stages a target of 0, keeping in memory the temperature it was at,
-   * where above 0 (`lastEnabledSteamCalibTemp`); on stages that temperature,
-   * else the page's where above 0, else 150 °C. It never reads the one
-   * Streamline keeps in the store.
+   * off stages a target of 0 and a steam time of 0 (`steamOffPatch`),
+   * keeping in memory for Streamline's session the temperature and time it
+   * was at, each where above 0 (`lastEnabledSteamCalibTemp`,
+   * `lastEnabledSteamDuration`), which the page seeds as it first opens from
+   * the ones Streamline keeps in the store, each where above 0
+   * (`seedRememberedSteamValues`); on stages those, else the
+   * page's where above 0, else 150 °C and 30 s (`steamOnPatch`), and the
+   * steam flow only where the page's is below 0.4 ml/s, which it then
+   * leaves as it is. It never reads DYE2's recipe.
    */
   steamHeater(on: boolean): void;
   /** A steam temperature set on that page, in °C (`steamCalibTempInput`). */
@@ -263,9 +286,9 @@ export interface StreamlineSettings {
   /**
    * Save (`flushPendingChanges`): the staged steam fields written into the
    * Workflow as one partial `PUT /workflow` (`settings.steam`), then each
-   * kept in Decaid's store, the steam time and flow, a temperature above 0
-   * and a milk stop above 0 (`persistSharedValue`); nothing where none is
-   * staged.
+   * kept in Decaid's store, a steam time above 0, the flow, a temperature
+   * above 0 and a milk stop above 0 (`persistSharedValue`); nothing where
+   * none is staged.
    */
   save(): Promise<void>;
 }
@@ -326,6 +349,14 @@ export class SimulatedStreamline {
   private activeModified = false;
   /** Its DYE2 switch (`streamline.dye2Enabled`). */
   private dye2Enabled: boolean;
+  /**
+   * What its settings page turns the steam heater back on to, kept for
+   * Streamline's session, as module state of src/settings/settings.js, not
+   * one visit of the page (`lastEnabledSteamCalibTemp`,
+   * `lastEnabledSteamDuration`), and whether it was seeded from the values
+   * kept (`rememberedSteamSeeded`).
+   */
+  private readonly lastEnabledSteam: { temp: number | null; duration: number | null; seeded: boolean } = { temp: null, duration: null, seeded: false };
   /** Each apply's number: only the newest arms, or retries (`applySeq`). */
   private applySeq = 0;
   private readonly selectionRetriesMs: readonly number[];
@@ -353,18 +384,23 @@ export class SimulatedStreamline {
     return this.tablet.storeValue(STREAMLINE_NAMESPACE, key);
   }
 
-  /** A barista changes the value in Streamline, through its setter for it. */
+  /**
+   * A barista changes the value in Streamline, through its setter for it: a
+   * steam time as its tile or numpad sets one, which brings the heater back
+   * on with it where it was off (`rearm`).
+   */
   async set(key: StreamlineKey, value: number): Promise<void> {
-    await this.push(key, value);
+    await this.push(key, value, { rearm: true });
   }
 
   /**
    * The steam heater switched on or off (`setSteamHeaterEnabled`): off sends
-   * a target of 0, keeping the temperature it was at; on, only from off, the
-   * temperature of the recipe DYE2's mirrored selection names, where its DYE2
-   * switch is on and that recipe holds one of 135 or more
-   * (`selectedRecipeSteamTemp`), else the one kept, else nothing; the steam
-   * time is left alone.
+   * a target of 0 and a steam time of 0, keeping the temperature and time it
+   * was at; on, only from off, the temperature and time of the recipe DYE2's
+   * mirrored selection names, where its DYE2 switch is on and that recipe
+   * holds them (`selectedRecipeSteam`), else the ones kept, else, for the
+   * time, the active profile's saved one, else 150 °C and 30 s
+   * (`steamHeaterFor`).
    */
   async setSteamHeater(enabled: boolean): Promise<void> {
     await this.change({ steamSettings: await this.steamHeaterFor(enabled ? 1 : 0) }, "api.steamHeater");
@@ -373,27 +409,43 @@ export class SimulatedStreamline {
   /**
    * Its settings page opened (`loadSettings` in src/settings/settings.js),
    * as far as its steam settings go: it reads the Workflow as it opens
-   * (`settingsCache.workflow`), and holds what it keeps in memory until it
-   * is left, as a page of its own (`loadPage('src/settings/settings.html')`).
-   * See `StreamlineSettings`.
+   * (`settingsCache.workflow`), and holds its staged changes until it is
+   * left, but what its heater switch turns steam back on to for Streamline's
+   * session, which a page loaded afresh, as a new `startStreamline`, starts
+   * without (streamline-v0.2.23/settings.json, `saveOn` and
+   * `saveOnFresh`). See `StreamlineSettings`.
    */
   async openSettings(): Promise<StreamlineSettings> {
     const { status, body } = await this.tablet.callApi("GET", "/workflow");
     if (status !== 200) throw new Error(`Decaid refused the Workflow with ${status}`);
     const cached = { ...(((body as Record_).steamSettings ?? {}) as Record_) };
     let staged: Record_ = {};
-    let lastEnabledSteamCalibTemp: number | null = null;
+    const above = (value: unknown) => (typeof value === "number" && value > 0 ? value : null);
+    const enabled = this.lastEnabledSteam;
+    // Seeded once in Streamline's session from the values it keeps, each where above 0 and none is held yet (`seedRememberedSteamValues`).
+    if (!enabled.seeded) {
+      enabled.seeded = true;
+      const kept = async (key: StreamlineKey) => above((await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/${key}`)).body);
+      enabled.temp ??= await kept("last-steam-temp");
+      enabled.duration ??= await kept("last-steam-duration");
+    }
     const stage = (key: string, value: number) => {
       cached[key] = value;
       staged = { ...staged, [key]: value };
     };
     return {
       steamHeater: (on) => {
-        const current = typeof cached.targetTemperature === "number" ? cached.targetTemperature : 0;
-        let value = 0;
-        if (on) value = lastEnabledSteamCalibTemp ?? (current > 0 ? current : 150);
-        else if (current > 0) lastEnabledSteamCalibTemp = current;
-        stage("targetTemperature", value);
+        if (on) {
+          const patch = steamOnPatch({
+            remembered: { temp: enabled.temp ?? above(cached.targetTemperature), duration: enabled.duration ?? above(cached.duration) },
+            currentFlow: cached.flow,
+          });
+          for (const [key, value] of Object.entries(patch)) stage(key, value);
+          return;
+        }
+        enabled.temp = above(cached.targetTemperature) ?? enabled.temp;
+        enabled.duration = above(cached.duration) ?? enabled.duration;
+        for (const [key, value] of Object.entries(STEAM_OFF)) stage(key, value);
       },
       steamTemperature: (celsius) => stage("targetTemperature", Math.round(celsius)),
       save: async () => {
@@ -401,12 +453,12 @@ export class SimulatedStreamline {
         staged = {};
         if (Object.keys(steam).length === 0) return;
         await this.change({ steamSettings: steam }, "settings.steam");
-        const kept = (key: StreamlineKey, value: unknown, above?: number) =>
-          typeof value === "number" && Number.isFinite(value) && (above === undefined || value > above) ? this.keep(key, value) : undefined;
-        await kept("last-steam-duration", steam.duration);
-        await kept("last-steam-flow", steam.flow);
-        await kept("last-steam-temp", steam.targetTemperature, 0);
-        await kept("last-milk-stop", steam.stopAtTemperature, 0);
+        const keep = (key: StreamlineKey, value: unknown, over?: number) =>
+          typeof value === "number" && Number.isFinite(value) && (over === undefined || value > over) ? this.keep(key, value) : undefined;
+        await keep("last-steam-duration", steam.duration, 0);
+        await keep("last-steam-flow", steam.flow);
+        await keep("last-steam-temp", steam.targetTemperature, 0);
+        await keep("last-milk-stop", steam.stopAtTemperature, 0);
       },
     };
   }
@@ -873,7 +925,13 @@ export class SimulatedStreamline {
     return patch;
   }
 
-  /** `mergeRecipeLiveSettings`: the steam, hot water and flush values of the recipe's modes, each kept (`persistSharedValue`), as the patch's parts. */
+  /**
+   * `mergeRecipeLiveSettings` at v0.2.23: the steam time or flow of the
+   * recipe's steam mode, its milk stop, its hot water volume, temperature,
+   * time and flow whatever its hot water mode, and its flush time, as the
+   * patch's parts, each kept where Streamline keeps one (`persistSharedValue`),
+   * a milk stop only above 0.
+   */
   private async mergeRecipeLiveSettings(dv: Record_): Promise<Record_> {
     const patch: Record_ = {};
     const steam: Record_ = {};
@@ -885,16 +943,22 @@ export class SimulatedStreamline {
       steam.flow = dv.steamFlowMls;
       await this.keep("last-steam-flow", dv.steamFlowMls);
     }
+    if (dv.steamStopAtTempC != null) {
+      steam.stopAtTemperature = dv.steamStopAtTempC;
+      if ((dv.steamStopAtTempC as number) > 0) await this.keep("last-milk-stop", dv.steamStopAtTempC);
+    }
     if (Object.keys(steam).length > 0) patch.steamSettings = steam;
     const water: Record_ = {};
-    if (dv.hotWaterMode === "vol" && dv.hotWaterMl != null) {
+    if (dv.hotWaterMl != null) {
       water.volume = dv.hotWaterMl;
       await this.keep("last-hot-water-volume", dv.hotWaterMl);
     }
-    if (dv.hotWaterMode === "temp" && dv.hotWaterTempC != null) {
+    if (dv.hotWaterTempC != null) {
       water.targetTemperature = dv.hotWaterTempC;
       await this.keep("last-hot-water-temp", dv.hotWaterTempC);
     }
+    if (dv.hotWaterTimeS != null) water.duration = dv.hotWaterTimeS;
+    if (dv.hotWaterFlowMls != null) water.flow = dv.hotWaterFlowMls;
     if (Object.keys(water).length > 0) patch.hotWaterData = water;
     if (dv.flushS != null) {
       patch.rinseData = { duration: dv.flushS };
@@ -945,15 +1009,25 @@ export class SimulatedStreamline {
     return decision.value;
   }
 
-  /** Streamline's setter for the value. */
-  private async push(key: StreamlineKey, value: number): Promise<void> {
+  /** Streamline's setter for the value; for a steam time, `setTargetSteamDuration`, as a barista's own where `rearm`. */
+  private async push(key: StreamlineKey, value: number, { rearm = false }: { rearm?: boolean } = {}): Promise<void> {
     switch (key) {
       case "last-hot-water-volume":
         return this.pushRemembered(key, value, () => this.change({ hotWaterData: { volume: value } }, "api.hotWater"));
       case "last-hot-water-temp":
         return this.pushRemembered(key, value, () => this.change({ hotWaterData: { targetTemperature: value } }, "api.hotWater"));
-      case "last-steam-duration":
+      case "last-steam-duration": {
+        // The two halves of the off state are never written apart (`steamDurationWrite`).
+        const { body: live } = await this.tablet.callApi("GET", "/workflow");
+        const on = !isSteamOff(settingOf((live ?? {}) as Record_, "steamSettings.targetTemperature"));
+        if (!(value >= MIN_STEAM_DURATION_S)) return this.setSteamHeater(false);
+        if (!on && !rearm) return;
+        if (!on) {
+          const patch = await this.steamHeaterFor(1);
+          return this.pushRemembered(key, value, () => this.change({ steamSettings: { ...patch, duration: value } }, "api.steamHeater"));
+        }
         return this.pushRemembered(key, value, () => this.change({ steamSettings: { duration: value } }, "api.steamDuration"));
+      }
       case "last-steam-flow":
         return this.pushRemembered(key, value, () => this.change({ steamSettings: { flow: value } }, "api.steamFlow"));
       case "last-steam-temp": {
@@ -982,23 +1056,36 @@ export class SimulatedStreamline {
     this.pendingPushes.delete(key);
   }
 
-  /** `steamHeaterFor`: off at a target of 0, keeping the temperature it was at; on only from off, at the selected recipe's steam temperature while its DYE2 switch is on, else the one kept, else none. */
+  /**
+   * `steamHeaterFor` at v0.2.23: off at a target of 0 and a steam time of 0,
+   * keeping the temperature and time it was at where above 0; on only from
+   * off, at the selected recipe's steam temperature and time while its DYE2
+   * switch is on, else the ones kept, else the active profile's saved time,
+   * else 150 °C and 30 s (`steamOnPatch`).
+   */
   private async steamHeaterFor(on: number): Promise<Record_> {
     const { body: live } = await this.tablet.callApi("GET", "/workflow");
-    const current = settingOf((live ?? {}) as Record_, "steamSettings.targetTemperature");
+    const workflow = (live ?? {}) as Record_;
+    const current = (workflow.steamSettings ?? {}) as Record_;
     if (on === 0) {
-      if (typeof current === "number" && current > 0) await this.keep("last-steam-temp", current);
-      return { targetTemperature: 0 };
+      if (typeof current.targetTemperature === "number" && current.targetTemperature > 0) await this.keep("last-steam-temp", current.targetTemperature);
+      if (typeof current.duration === "number" && current.duration > 0) await this.keep("last-steam-duration", current.duration);
+      return { ...STEAM_OFF };
     }
     // Back on only from off: a temperature set since is not Streamline's to put back (streamline-js#143).
-    if (typeof current === "number" && current > 0) return {};
+    if (!isSteamOff(current.targetTemperature)) return {};
+    let recipe: SteamValues = {};
     if (this.dye2Enabled) {
       const [selection, recipes] = await Promise.all([this.tablet.callApi("GET", `/store/${DYE2}/selection`), this.tablet.callApi("GET", `/store/${DYE2}/recipes`)]);
-      const temperature = selectedRecipeSteamTemp(selection.body, recipes.body);
-      if (temperature != null) return { targetTemperature: temperature };
+      recipe = selectedRecipeSteam(selection.body, recipes.body);
     }
-    const { body: kept } = await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/last-steam-temp`);
-    return typeof kept === "number" && kept > 0 ? { targetTemperature: Math.round(kept) } : {};
+    const kept = async (key: StreamlineKey) => (await this.tablet.callApi("GET", `/store/${STREAMLINE_NAMESPACE}/${key}`)).body;
+    const remembered = { temp: await kept("last-steam-temp"), duration: await kept("last-steam-duration"), flow: await kept("last-steam-flow") };
+    const active = await this.activeProfile(workflow);
+    const saved = active && typeof active.id === "string" ? await this.savedFor(active.id, active) : {};
+    const positive = (value: unknown) => (typeof value === "number" && value > 0 ? value : null);
+    const profile = { duration: positive(saved.targetSteamDuration), flow: positive(saved.targetSteamFlow) };
+    return steamOnPatch({ recipe, remembered, profile, currentFlow: current.flow });
   }
 
   /** `updateDoseValue`: the dose and yield sent together, the yield as the profile's target weight alone, then saved for the active profile. */
@@ -1167,13 +1254,72 @@ export function recipeStripCells(recipes: unknown, count = 5): { slot: string; r
   return cells;
 }
 
-/** `selectedRecipeSteamTemp` in dye-selection.js: the steam temperature, 135 or more, rounded, of the recipe DYE2's selection names; null otherwise. */
-function selectedRecipeSteamTemp(selection: unknown, recipes: unknown): number | null {
+/** Steam values, each a number or none, as `steamOnPatch` takes them. */
+interface SteamValues {
+  temp?: unknown;
+  tempC?: unknown;
+  duration?: unknown;
+  durationS?: unknown;
+  flow?: unknown;
+}
+
+/** `steamOffPatch` in steam-mode.js: the off state's two halves. */
+const STEAM_OFF = { targetTemperature: 0, duration: 0 } as const;
+
+/** The steam temperatures that leave the heater on (STEAM_ENABLED_MIN_TEMP, STEAM_ENABLED_MAX_TEMP), the steam times (MIN_STEAM_DURATION_S, MAX_STEAM_DURATION_S), the default time, and the least flow the machine takes, in steam-mode.js. */
+const STEAM_ENABLED_MIN_TEMP = 135;
+const STEAM_ENABLED_MAX_TEMP = 170;
+const MIN_STEAM_DURATION_S = 1;
+const MAX_STEAM_DURATION_S = 255;
+const DEFAULT_STEAM_DURATION_S = 30;
+const MIN_STEAM_FLOW = 0.4;
+
+/** `isSteamOff` in steam-mode.js: off below 135 °C, or with no temperature. */
+function isSteamOff(targetTemperature: unknown): boolean {
+  return !(typeof targetTemperature === "number" && targetTemperature >= STEAM_ENABLED_MIN_TEMP);
+}
+
+/**
+ * `steamOnPatch` in steam-mode.js: each of the temperature and time from the
+ * recipe, else the value kept, else (the time) the profile's, else the
+ * default, rounded and clamped to what leaves the heater on; a flow only
+ * where the Workflow's is unusable.
+ */
+function steamOnPatch({ recipe = {}, remembered = {}, profile = {}, currentFlow }: { recipe?: SteamValues; remembered?: SteamValues; profile?: SteamValues; currentFlow?: unknown }): Record<string, number> {
+  const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
+  const temp = num(recipe.tempC) ?? num(remembered.temp) ?? 150;
+  const duration = num(recipe.durationS) ?? num(remembered.duration) ?? num(profile.duration) ?? DEFAULT_STEAM_DURATION_S;
+  const patch: Record<string, number> = {
+    targetTemperature: Math.round(clamp(temp, STEAM_ENABLED_MIN_TEMP, STEAM_ENABLED_MAX_TEMP)),
+    duration: Math.round(clamp(duration, MIN_STEAM_DURATION_S, MAX_STEAM_DURATION_S)),
+  };
+  const current = num(currentFlow);
+  if (current === null || current < MIN_STEAM_FLOW) {
+    const flow = num(recipe.flow) ?? num(remembered.flow) ?? num(profile.flow);
+    if (flow !== null && flow >= MIN_STEAM_FLOW) patch.flow = flow;
+  }
+  return patch;
+}
+
+/**
+ * `selectedRecipeSteam` in dye-selection.js: of the recipe DYE2's selection
+ * names, its steam temperature, 135 or more, rounded, and its steam time and
+ * flow, each above 0; none of each otherwise.
+ */
+function selectedRecipeSteam(selection: unknown, recipes: unknown): SteamValues {
   const selected = (selection ?? null) as Record_ | null;
-  if (!selected || selected.kind !== "recipe" || selected.id == null || !Array.isArray(recipes)) return null;
+  if (!selected || selected.kind !== "recipe" || selected.id == null || !Array.isArray(recipes)) return {};
   const recipe = (recipes as Record_[]).find((row) => row && String(row.id) === String(selected.id));
-  const temperature = Number((recipe?.dashboardVariables as Record_ | undefined)?.steamTempC);
-  return Number.isFinite(temperature) && temperature >= 135 ? Math.round(temperature) : null;
+  const variables = recipe?.dashboardVariables as Record_ | undefined;
+  if (!variables) return {};
+  const positive = (value: unknown) => (Number.isFinite(Number(value)) && Number(value) > 0 ? Number(value) : null);
+  const temperature = Number(variables.steamTempC);
+  return {
+    tempC: Number.isFinite(temperature) && temperature >= 135 ? Math.round(temperature) : null,
+    durationS: positive(variables.steamTimeS),
+    flow: positive(variables.steamFlowMls),
+  };
 }
 
 /**

@@ -7,6 +7,7 @@ import {
   dye2GlobalIdOf,
   sameGrindSetting,
   steamOff,
+  steamTimeOf,
   workflowPatch,
   workflowValueAt,
 } from "@decent-sync/protocol";
@@ -110,11 +111,17 @@ export interface LoadContext {
  * Bean Batch with its Bean's name and roaster, and Profile, as DYE2 applies
  * them, a stale copy having applied others; and of each steam, hot water
  * and flush setting it holds (RECIPE_SETTINGS), as DYE2's dashboard applies
- * them and Streamline's strip does not yet (decentespresso/streamline-js#154),
- * but a steam temperature into a Workflow whose steam is off (`steamOff`),
- * which would turn steam on. Its brew temperature is DYE2's and Streamline's
- * to apply, and so is the Profile at it, which is written only where the
- * Workflow holds another. A value the recipe holds none of is left as the
+ * them, where Streamline's strip at v0.2.23 applies its milk stop, hot water
+ * settings and flush time, and its steam time or flow by its steam mode, but
+ * no steam temperature, flush temperature or flush flow
+ * (`mergeRecipeLiveSettings`, decentespresso/streamline-js#154); but a
+ * steam temperature or steam time into a Workflow whose steam is off
+ * (`steamOff`): the temperature would turn steam on, and Streamline v0.2.23
+ * would show the time with the heater off. A steam time below
+ * STEAM_TIME_FROM, as DYE2's editor saves until the server writes the
+ * Recipe's back, is none (`steamTimeOf`). Its brew temperature is DYE2's
+ * and Streamline's to apply, and so is the Profile at it, which is written
+ * only where the Workflow holds another. A value the recipe holds none of is left as the
  * Workflow has it, which the server takes as the Recipe's (ADR-0022), but
  * the Bean: a recipe naming none means no bean, as DYE2 v0.1.32 applies one
  * (`ce38984`), so the Workflow's batch, coffee and roaster are cleared, as a
@@ -168,9 +175,10 @@ export function loadWrite(
   if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
   const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
     const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
-    const value = numberOf(variables[dye2]);
+    const held = numberOf(variables[dye2]);
+    const value = setting === "steamDuration" ? steamTimeOf(held) : held;
     if (value === null || sameNumber(value, numberOf(workflowValueAt(workflow, path)))) return [];
-    if (setting === "steamTemperature" && steamOff(workflow)) return [];
+    if (TURNS_STEAM_ON.has(setting) && steamOff(workflow)) return [];
     return omit.has(setting) ? [] : [[path, value] as const];
   });
   Object.assign(write, workflowPatch(Object.fromEntries(settings)));
@@ -178,31 +186,58 @@ export function loadWrite(
 }
 
 /**
- * The steam temperature the Workflow has steam on at: STEAM_ON_FROM or
- * more, as Decaid judges it (below it is steam off, `steamOff`). Null where
- * steam is off or the Workflow holds no steam temperature. Steam is turned
- * back on where a Workflow has it on that had it off before.
+ * The settings never written into a Workflow whose steam is off: its steam
+ * temperature, which would turn steam on, and its steam time, which
+ * Streamline from v0.2.22 writes as 0 with it as it turns steam off, and
+ * would show with the heater off (ADR-0022, Steam on and off).
  */
-export function steamOnAt(workflow: Record<string, unknown>): number | null {
+const TURNS_STEAM_ON: ReadonlySet<string> = new Set(["steamTemperature", "steamDuration"]);
+
+/** What a Workflow has steam on with: its steam temperature, STEAM_ON_FROM or more, and its steam time, null for none. */
+export interface SteamOn {
+  temperature: number;
+  duration: number | null;
+}
+
+/**
+ * What the Workflow has steam on with: its steam temperature, STEAM_ON_FROM
+ * or more, as Decaid judges it (below it is steam off, `steamOff`), and its
+ * steam time as it holds it, 0 included. Null where steam is off or the
+ * Workflow holds no steam temperature. Steam is turned back on where a
+ * Workflow has it on that had it off before.
+ */
+export function steamOnWith(workflow: Record<string, unknown>): SteamOn | null {
   const temperature = numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow));
-  return temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
+  if (temperature === null || temperature < STEAM_ON_FROM) return null;
+  return { temperature, duration: numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamDuration.workflow)) };
 }
 
 /**
  * What turning steam back on writes into the Workflow, as it takes the
- * Loaded Recipe's steam temperature (ADR-0022, Steam on and off): the
- * recipe record's, where it holds one of STEAM_ON_FROM or more, as DYE2's
- * editor saves none for "Off", and the Workflow still holds the temperature
- * steam came back at (`turnedOnAt`), not one set since, which is the
- * Recipe's edit, nor steam off again. Null where there is nothing to write.
+ * Loaded Recipe's steam temperature and steam time (ADR-0022, Steam on and
+ * off): each the recipe record holds, a temperature of STEAM_ON_FROM or
+ * more and a time of STEAM_TIME_FROM or more, as DYE2's editor saves 0 for
+ * "Off", where the Workflow still holds the one steam came back with
+ * (`turnedOn`), not one set since, which is the Recipe's edit, and holds
+ * another. Nothing while steam is off again. Null where there is nothing to
+ * write.
  */
-export function steamBackOnWrite(workflow: Record<string, unknown>, record: Record<string, unknown>, turnedOnAt: number): Record<string, unknown> | null {
-  const { dye2, workflow: path } = RECIPE_SETTINGS.steamTemperature;
+export function steamBackOnWrite(workflow: Record<string, unknown>, record: Record<string, unknown>, turnedOn: SteamOn): Record<string, unknown> | null {
+  if (steamOff(workflow)) return null;
   const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
-  const recipes = numberOf(variables[dye2]);
-  const now = numberOf(workflowValueAt(workflow, path));
-  if (recipes === null || recipes < STEAM_ON_FROM || !sameNumber(now, turnedOnAt) || sameNumber(now, recipes)) return null;
-  return workflowPatch({ [path]: recipes });
+  const recipes = {
+    temperature: numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]),
+    duration: steamTimeOf(numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2])),
+  };
+  const fields: Record<string, number> = {};
+  for (const [part, setting] of [["temperature", "steamTemperature"], ["duration", "steamDuration"]] as const) {
+    const path = RECIPE_SETTINGS[setting].workflow;
+    const value = recipes[part];
+    const now = numberOf(workflowValueAt(workflow, path));
+    if (value === null || (part === "temperature" && value < STEAM_ON_FROM)) continue;
+    if (sameNumber(now, turnedOn[part]) && !sameNumber(now, value)) fields[path] = value;
+  }
+  return Object.keys(fields).length > 0 ? workflowPatch(fields) : null;
 }
 
 /** The Workflow's fields naming its Bean and batch, which a recipe naming no Bean clears. */

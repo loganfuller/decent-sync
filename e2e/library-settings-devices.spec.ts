@@ -72,7 +72,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   await expectTip(general, "General", /^Reported at \w{3} \d+, \d{4}/);
   const shown: [term: string, value: string, ...about: string[]][] = [
     // Above the 50 °C an edit may set, and shown as it is.
-    ["Fan threshold", "55 °C", KEPT, PUT_BACK],
+    ["Fan threshold", "55 °C", KEPT],
     ["Steam purge mode", "Normal"],
     ["Steam flow", "0.8 ml/s", "Set by the Workflow"],
     ["Tank temperature", "20 °C", "Set by each profile"],
@@ -82,13 +82,13 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // A tap as iOS Safari makes one, which neither hovers nor focuses the icon, opens its tooltip, and a tap elsewhere closes it.
   await page.mouse.move(0, 0);
   await tap(general.getByRole("button", { name: "About Fan threshold", exact: true }));
-  await expect(page.getByRole("tooltip")).toHaveText(KEPT + PUT_BACK);
+  await expect(page.getByRole("tooltip")).toHaveText(KEPT);
   await tap(general.getByRole("heading", { name: "General" }));
   await expect(page.getByRole("tooltip")).toHaveCount(0);
   await expectShown(machineSettings.getByRole("region", { name: "Advanced", exact: true }), [
     ["Idle temperature", "98 °C"],
     ["Heater voltage", "110 V", "Restart the Machine after changing it for the change to take effect."],
-    ["Refill kit", "Auto-Detect", KEPT, PUT_BACK],
+    ["Refill kit", "Auto-Detect", KEPT],
   ]);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
   await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
@@ -244,7 +244,6 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
 });
 
 const KEPT = "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.";
-const PUT_BACK = "Streamline's settings page puts back the value it remembers when it next opens, where the Machine reads a fan threshold of 50 or a refill kit of Auto-Detect.";
 
 /** That each field is shown by its label with its value, and its tooltip has each line saying what sets it or noting what may become of it, or that it has none. */
 async function expectShown(scope: Locator, shown: [term: string, value: string, ...about: string[]][]) {

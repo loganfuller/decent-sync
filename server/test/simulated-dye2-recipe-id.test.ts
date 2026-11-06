@@ -20,12 +20,13 @@ import {
   pickBasketInDye2,
   recordedDye2MainTablet,
   selectRecipeInDye2,
+  streamlineV0223Recording,
 } from "./support/simulated-dye2.js";
-import { type SimulatedStreamline, recipeStripCells, startStreamline } from "./support/simulated-streamline.js";
+import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, recipeStripCells, startStreamline } from "./support/simulated-streamline.js";
 import { type DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
-// The simulated DYE2 v0.1.33 and Streamline v0.2.21 against what they were
+// The simulated DYE2 v0.1.33 and Streamline v0.2.23 against what they were
 // recorded doing on Decaid v0.9.0's Linux release, at DYE2 v0.1.26 and
 // Streamline `main` at cec5664 (fixtures/decaid/dye2-v0.1.26/, whose README
 // says what each step was and what it shows): the recording's steps are made
@@ -37,15 +38,21 @@ import { runAsSteps } from "./support/steps.js";
 // change must be what was recorded, but where DYE2 v0.1.32 does otherwise,
 // as fixtures/decaid/dye2-v0.1.32/ records it: a recipe applied again on its
 // own profile keeps its id (`KEPT_SINCE_V0132`), and `save-recipe` names a
-// recipe otherwise (`unnamed`); and where Streamline v0.2.21 makes no such
+// recipe otherwise (`unnamed`); where Streamline v0.2.21 makes no such
 // request, as fixtures/decaid/dye2-v0.1.33/ records it: its "Replace <name>"
 // no longer saves a recipe into a filled button, so DYE2's save-recipe is
-// sent as recorded. Then what v0.1.32 was recorded doing otherwise is made
-// again (fixtures/decaid/dye2-v0.1.32/), but where v0.1.33 keeps a recipe
-// whose record holds its profile in another key order (`KEPT_SINCE_V0133`),
-// and last what v0.1.33 and v0.2.21 were recorded doing otherwise
-// (fixtures/decaid/dye2-v0.1.33/). No settings are given, so the plugin does
-// not connect.
+// sent as recorded; and where Streamline v0.2.23 does otherwise, as
+// fixtures/decaid/streamline-v0.2.23/ records it: its strip applies more of
+// a recipe's steam, hot water and flush settings, so from its apply on they
+// are left out of the comparison (`withoutMachineSettings`), and its steam
+// time of 0 and heater switch turn steam off and on whole, made again from
+// that recording instead. Then what v0.1.32 was recorded doing otherwise is
+// made again (fixtures/decaid/dye2-v0.1.32/), but where v0.1.33 keeps a
+// recipe whose record holds its profile in another key order
+// (`KEPT_SINCE_V0133`), then what v0.1.33 and v0.2.21 were recorded doing
+// otherwise (fixtures/decaid/dye2-v0.1.33/), and last what Streamline
+// v0.2.23 was recorded doing around steam (fixtures/decaid/streamline-v0.2.23/).
+// No settings are given, so the plugin does not connect.
 
 type Record_ = Record<string, unknown>;
 
@@ -108,6 +115,20 @@ function keptThenCleared(dye2: SimulatedDye2, tablet: SimulatedTablet, settled: 
     await tablet.callApi("PUT", "/workflow", { context: { extras: { dye: { recipeId: null } } } });
     await settled();
   };
+}
+
+/** A Workflow's steam, hot water and flush settings, its parts that Streamline v0.2.23's strip applies more of than earlier builds did (`mergeRecipeLiveSettings`; streamline-v0.2.23/strip.json). */
+const MACHINE_SETTING_PARTS = ["steamSettings", "hotWaterData", "rinseData"];
+
+/** A step's writes, or its reads after, without the steam, hot water and flush settings of each body that is an object, as a Workflow and a write of one are. */
+function withoutMachineSettings(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutMachineSettings);
+  if (!value || typeof value !== "object") return value;
+  const record = value as Record_;
+  if (record.request && record.response) return { ...record, request: withoutMachineSettings(record.request), response: withoutMachineSettings(record.response) };
+  const body = record.body;
+  if (!body || typeof body !== "object" || Array.isArray(body)) return record;
+  return { ...record, body: Object.fromEntries(Object.entries(body as Record_).filter(([key]) => !MACHINE_SETTING_PARTS.includes(key))) };
 }
 
 /** The writes of a step, and the reads DYE2 answers but `selection` (which pages make on timers): those compared with the recording. */
@@ -181,14 +202,14 @@ function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unname
    * but for a step that restarts Decaid, whose sockets heard nothing while
    * closed (`restarts`).
    */
-  async function again(step: Dye2Step, act: () => Promise<unknown>, name: string, restarts = false): Promise<void> {
+  async function again(step: Dye2Step, act: () => Promise<unknown>, name: string, restarts = false, view: (value: unknown) => unknown = compare): Promise<void> {
     const from = { made: made.length, pushes: dye2.pushes.length, events: events.length };
     await act();
     await settled();
-    expect(compare(made.slice(from.made).filter(compared)), `${name}: writes`).toEqual(compare(step.exchanges.filter(compared)));
+    expect(view(made.slice(from.made).filter(compared)), `${name}: writes`).toEqual(view(step.exchanges.filter(compared)));
     const after: DecaidAnswer[] = [];
     for (const { request } of step.after) after.push(await tablet.callApi(request.method, request.path));
-    expect(compare(after), `${name}: after`).toEqual(compare(step.after.map(({ response }) => response)));
+    expect(view(after), `${name}: after`).toEqual(view(step.after.map(({ response }) => response)));
     if (restarts) return;
     expect(events.slice(from.events), `${name}: events`).toEqual(step.events);
     expect(dye2.pushes.length > from.pushes, `${name}: pushed`).toBe(step.pushes.length > 0);
@@ -197,7 +218,7 @@ function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unname
   return { dye2, tablet, proxy, events, made, pages, script, settled, again };
 }
 
-describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.26 was recorded", () => {
+describe("The simulated DYE2 v0.1.33 and Streamline v0.2.23, made again as v0.1.26 was recorded", () => {
   runAsSteps();
   const { dye2, tablet, proxy, pages, script, settled, again } = replaying(recordedDye2MainTablet("10001", undefined, { asRecorded: true }));
   const generated = { ...dye2Generated };
@@ -300,7 +321,7 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.
     }
   });
 
-  it("applies, saves into and replaces recipes from Streamline's strip, frees a cell, clears the note after a Shot, and sets its steam, as recorded (streamline.json)", async () => {
+  it("applies, saves into and replaces recipes from Streamline's strip, frees a cell and clears the note after a Shot, as recorded (streamline.json)", async () => {
     const steps = dye2Recording<Record<string, Dye2Step> & { freeSlot5: Dye2Exchange[] }>("streamline");
     // DYE2's editor freeing slot 5.
     const freeing = steps.freeSlot5.find(({ request }) => request.method === "POST" && request.path.endsWith("/recipes"))!.request.body as Record_[];
@@ -334,8 +355,11 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.
     await dye2.reload();
     await dye2.settled();
     await again(steps.restarted!, async () => (pages.streamline = await startStreamline(proxy)), "restarted");
-    await again(steps.applyBeforeShot!, () => pages.streamline!.applyRecipe(LIBRARY_RECIPE), "applyBeforeShot");
-    await again(steps.writtenBeforeShot!, () => script(steps.writtenBeforeShot!), "writtenBeforeShot");
+    // The library recipe holds a hot water temperature and a milk stop, which Streamline v0.2.23's strip applies too, and the
+    // Workflow keeps them after (streamline-v0.2.23/strip.json): from here on they are not compared.
+    const sinceStrip = (value: unknown) => withoutMachineSettings(unnamed(value));
+    await again(steps.applyBeforeShot!, () => pages.streamline!.applyRecipe(LIBRARY_RECIPE), "applyBeforeShot", false, sinceStrip);
+    await again(steps.writtenBeforeShot!, () => script(steps.writtenBeforeShot!), "writtenBeforeShot", false, sinceStrip);
     await again(
       steps.shotPulled!,
       async () => {
@@ -343,14 +367,15 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.
         await pages.streamline!.shotStored();
       },
       "shotPulled",
+      false,
+      sinceStrip,
     );
-    await again(steps.steamTimeZero!, () => pages.streamline!.set("last-steam-duration", 0), "steamTimeZero");
-    await again(steps.heaterOff!, () => pages.streamline!.setSteamHeater(false), "heaterOff");
-    await again(steps.heaterOn!, () => pages.streamline!.setSteamHeater(true), "heaterOn");
+    // The recording's steam time of 0 and heater switch, which v0.2.23 makes otherwise, are made again from its own recording
+    // (streamline-v0.2.23/heater.json and tile.json, below).
   });
 });
 
-describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.32 was recorded doing otherwise", () => {
+describe("The simulated DYE2 v0.1.33 and Streamline v0.2.23, made again as v0.1.32 was recorded doing otherwise", () => {
   runAsSteps();
   // From the state DYE2 v0.1.32's install left (dye2-v0.1.32/loading.json), the steps of each file in the recording's order.
   const library = dye2V032Recording<Record_>("library");
@@ -412,7 +437,7 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as v0.1.
   });
 });
 
-describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as they were recorded doing otherwise", () => {
+describe("The simulated DYE2 v0.1.33 and Streamline v0.2.23, made again as v0.1.33 and v0.2.21 were recorded doing otherwise", () => {
   runAsSteps();
   // From the state DYE2 v0.1.33's install left (dye2-v0.1.33/loading.json), the steps of each file in the recording's order.
   const library = dye2V033Recording<Record_>("library");
@@ -465,6 +490,130 @@ describe("The simulated DYE2 v0.1.33 and Streamline v0.2.21, made again as they 
     asSaved(steps.replace!, "3");
     await again(steps.replace!, () => pages.streamline!.assignToCell(4, "3"), "replace");
     expect(named()).toEqual(steps.cellsAfterReplace);
+  });
+});
+
+describe("The simulated Streamline v0.2.23, made again as it was recorded around steam (streamline-v0.2.23/)", () => {
+  // Each file's steps in the recording's order, on a tablet whose Decaid holds the recording's library, DYE2's keys and the
+  // Workflow as the step before the file left them, its machine connected, as Decaid's simulated one is, so a change of the
+  // Workflow is echoed in a shot-settings frame. Each step's Workflow writes, by Streamline or as the script sent them, the
+  // steam, hot water and flush settings of the Workflow after, the steam settings of DYE2's recipes after, and Streamline's
+  // remembered steam values after, must be what was recorded. Page loads are Streamline loaded again (`startStreamline`,
+  // then `reload()`, as `loadInitialData`), the one before closed.
+  runAsSteps();
+  type SteamStep = Dye2Step & { alsoSent?: Record<string, Dye2Exchange[]>; streamline: Record_ };
+  type StepFile = Record<string, SteamStep | unknown>;
+  const REMEMBERED: StreamlineKey[] = ["last-steam-temp", "last-steam-duration", "last-steam-flow"];
+  const library = streamlineV0223Recording<Record_>("library");
+  const seeded = streamlineV0223Recording<{ seeded: { values: Record_; workflow: Record_; streamline: Record_ } }>("loading").seeded;
+  const isStep = (value: unknown): value is SteamStep => !!value && typeof value === "object" && Array.isArray((value as SteamStep).exchanges) && Array.isArray((value as SteamStep).after);
+  const steps = (file: StepFile) => Object.entries(file).filter((entry): entry is [string, SteamStep] => isStep(entry[1]));
+  const afterRead = (step: SteamStep, route: string) => step.after.find(({ request }) => request.path === route)?.response.body;
+  const settingsOf = (workflow: unknown) => Object.fromEntries(MACHINE_SETTING_PARTS.map((part) => [part, (workflow as Record_ | undefined)?.[part] ?? null]));
+  const steamOf = (recipes: unknown) =>
+    (Array.isArray(recipes) ? (recipes as Record_[]) : []).map((recipe) => {
+      const variables = (recipe.dashboardVariables ?? {}) as Record_;
+      return [recipe.id, variables.steamTempC ?? null, variables.steamTimeS ?? null];
+    });
+  // A settings toggle's step holds the toggle's state among its exchanges, `{"toggle": <checked>}`.
+  const workflowWrites = (exchanges: Dye2Exchange[]) => exchanges.filter(({ request }) => request?.method === "PUT" && request.path === "/workflow").map(({ request }) => request.body);
+
+  /** A tablet holding what `from` left: the Workflow, DYE2's recipes and Streamline's remembered values as read after it, or the seeded ones. */
+  function from(step: SteamStep | null) {
+    const values = { ...seeded.values, ...(step ? { recipes: afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`) } : {}) };
+    const remembered = step?.streamline ?? seeded.streamline;
+    const api: DecaidApi = {
+      ...dye2NeverUsed("10006"),
+      "/beans": library.beans,
+      "/bean-batches": library.beanBatches,
+      "/grinders": library.grinders,
+      "/profiles": library.profiles,
+      "/machine/settings": library.machineSettings,
+      "/workflow": step ? (afterRead(step, "/workflow") as Record_) : seeded.workflow,
+    };
+    for (const [key, value] of Object.entries(values)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
+    for (const [key, value] of Object.entries(remembered)) if (value !== null && value !== undefined) api[`/store/${STREAMLINE_NAMESPACE}/${key}`] = value;
+    const replay = replaying(api, (value) => value);
+    replay.tablet.connectMachine();
+    return replay;
+  }
+
+  /** Makes each step of the file again on the tablet, from the step before the file, as `act` says for each by its name, checking it as above. */
+  async function made(file: StepFile, before: SteamStep | null, act: (name: string, step: SteamStep, replay: ReturnType<typeof from>) => Promise<unknown>) {
+    const replay = from(before);
+    await replay.settled();
+    for (const [name, step] of steps(file)) {
+      if (name === "reseeded") continue;
+      const start = replay.made.length;
+      await act(name, step, replay);
+      await replay.settled();
+      const recorded = [...step.exchanges, ...Object.values(step.alsoSent ?? {}).flat()];
+      expect(workflowWrites(replay.made.slice(start)), `${name}: Workflow writes`).toEqual(workflowWrites(recorded));
+      expect(settingsOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's settings after`).toEqual(settingsOf(afterRead(step, "/workflow")));
+      expect(steamOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: DYE2's recipes after`).toEqual(steamOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)));
+      const remembered = Object.fromEntries(REMEMBERED.map((key) => [key, replay.tablet.storeValue(STREAMLINE_NAMESPACE, key)]));
+      expect(remembered, `${name}: Streamline's remembered steam values after`).toEqual(Object.fromEntries(REMEMBERED.map((key) => [key, step.streamline[key] ?? null])));
+    }
+    replay.pages.streamline?.stop();
+    return replay;
+  }
+
+  /** What a step's name says it does on Streamline's main page; otherwise the script's requests as recorded. */
+  async function onMainPage(name: string, step: SteamStep, { proxy, pages, script }: ReturnType<typeof from>): Promise<unknown> {
+    if (name.startsWith("started")) {
+      pages.streamline?.stop();
+      pages.streamline = await startStreamline(proxy, {}, { dye2Enabled: !name.endsWith("Dye2Off") });
+      return pages.streamline.reload();
+    }
+    const applied = /^applyRecipe(\d)/.exec(name);
+    if (applied) return pages.streamline!.applyRecipe(applied[1]!);
+    if (name.startsWith("heaterOn") || name === "plusFromOff") return pages.streamline!.setSteamHeater(true);
+    if (name.startsWith("heaterOff")) return pages.streamline!.setSteamHeater(false);
+    return script(step, ({ request }) => request.method !== "GET");
+  }
+
+  /** The last step of a file, which the next file starts from. */
+  const last = (file: StepFile) => steps(file).at(-1)![1];
+  const strip = streamlineV0223Recording<StepFile>("strip");
+  const heater = streamlineV0223Recording<StepFile>("heater");
+  const settings = streamlineV0223Recording<StepFile>("settings");
+  const tile = streamlineV0223Recording<StepFile>("tile");
+  const records = streamlineV0223Recording<StepFile>("record");
+  const offEdit = streamlineV0223Recording<StepFile>("steam-off-edit");
+
+  it("applies a recipe's milk stop, hot water settings and flush time from the strip, and its steam time by its steam mode (strip.json)", async () => {
+    await made(strip, null, onMainPage);
+  });
+
+  it("turns steam off whole, keeping the steam time it then takes from the machine's echo of 0, and back on with the recipe's while its DYE2 switch is on, else the ones kept, at 1 s for a 0 kept (heater.json)", async () => {
+    await made(heater, heater.reseeded as SteamStep, onMainPage);
+  });
+
+  it("turns steam back on from its settings page at what that page turned off in its session, or as a page loaded afresh at the temperature kept and 30 s (settings.json)", async () => {
+    let page: Awaited<ReturnType<SimulatedStreamline["openSettings"]>> | undefined;
+    await made(settings, settings.reseeded as SteamStep, async (name, step, replay) => {
+      if (name === "openedFresh") {
+        replay.pages.streamline?.stop();
+        replay.pages.streamline = await startStreamline(replay.proxy);
+        await replay.pages.streamline.reload();
+      }
+      if (name.startsWith("opened")) return (page = await replay.pages.streamline!.openSettings());
+      if (name.startsWith("toggle")) return page!.steamHeater(!name.startsWith("toggleOff"));
+      if (name.startsWith("save")) return page!.save();
+      return onMainPage(name, step, replay);
+    });
+  });
+
+  it("turns the heater back on from the steam tile's + while it shows Off (tile.json)", async () => {
+    await made(tile, last(heater), onMainPage);
+  });
+
+  it("has DYE2 save the steam temperature and time steam came back with, into a recipe holding none too (record.json)", async () => {
+    await made(records, records.reseeded as SteamStep, onMainPage);
+  });
+
+  it("takes a steam time written into a Workflow whose steam is off as the one to come back to, and none of the new plugin's write (steam-off-edit.json)", async () => {
+    await made(offEdit, offEdit.reseeded as SteamStep, async (name, step, replay) => (name === "reloaded" ? replay.pages.streamline!.reload() : onMainPage(name, step, replay)));
   });
 });
 

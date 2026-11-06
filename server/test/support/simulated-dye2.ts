@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.33 and Streamline v0.2.21 on a simulated tablet, built from
+// DYE2 v0.1.33 and Streamline v0.2.23 on a simulated tablet, built from
 // their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
@@ -96,6 +96,7 @@ const supportDir = path.dirname(fileURLToPath(import.meta.url));
 const fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.26");
 const v032Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.32");
 const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33");
+const streamlineV0223Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.23");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
 
 /** The files of fixtures/decaid/dye2-v0.1.32/: what DYE2 v0.1.32 does otherwise than v0.1.26 (its README). */
@@ -103,6 +104,9 @@ export type Dye2V032File = "library" | "loading" | "plugins" | "applies" | "stre
 
 /** The files of fixtures/decaid/dye2-v0.1.33/: what DYE2 v0.1.33 and Streamline v0.2.21 do otherwise than v0.1.32 and cec5664 (its README). */
 export type Dye2V033File = "library" | "loading" | "plugins" | "applies" | "baskets" | "streamline" | "keys" | "skins";
+
+/** The files of fixtures/decaid/streamline-v0.2.23/: what Streamline v0.2.23 writes around steam, with DYE2 v0.1.33 (its README). */
+export type StreamlineV0223File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "editor" | "steam-off-edit" | "settings-kept" | "keys";
 
 function readJson<T>(dir: string, file: string): T {
   return JSON.parse(fs.readFileSync(path.join(dir, `${file}.json`), "utf8")) as T;
@@ -130,6 +134,11 @@ export function dye2V032Recording<T = Record_>(file: Dye2V032File): T {
 /** A file of fixtures/decaid/dye2-v0.1.33/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
 export function dye2V033Recording<T = Record_>(file: Dye2V033File): T {
   return expandedRecording<T>(v033Fixtures, file);
+}
+
+/** A file of fixtures/decaid/streamline-v0.2.23/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function streamlineV0223Recording<T = Record_>(file: StreamlineV0223File): T {
+  return expandedRecording<T>(streamlineV0223Fixtures, file);
 }
 
 /** A recording's file in that directory, its shorthands expanded (`dye2Recording`). */
