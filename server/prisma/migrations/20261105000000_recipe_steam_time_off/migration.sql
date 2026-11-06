@@ -24,7 +24,8 @@ WITH "off" AS (
       (SELECT max(("edit" ->> 'decidedAt')::timestamptz) + interval '1 millisecond' FROM jsonb_each(COALESCE("field_edits", '{}'::jsonb)) AS "edits"("field", "edit"))
     ) AS "decided_at"
   FROM "recipes"
-  WHERE jsonb_typeof("content" -> 'steamDuration') = 'number' AND ("content" ->> 'steamDuration')::numeric < 1
+  -- A CASE, as PostgreSQL may cast before it checks the type in an AND.
+  WHERE CASE WHEN jsonb_typeof("content" -> 'steamDuration') = 'number' THEN ("content" ->> 'steamDuration')::numeric < 1 ELSE false END
   FOR UPDATE
 ), "versions" AS (
   INSERT INTO "item_versions" ("id", "kind", "item_id", "location_id", "fields", "edited_at")
@@ -44,6 +45,6 @@ WHERE "recipes"."id" = "off"."id";
 -- An open Conflict whose losing steam time is 0 is dismissed, as it is no steam time to use.
 UPDATE "conflicts" SET "state" = 'DISMISSED'
 WHERE "kind" = 'recipe' AND "field" = 'steamDuration' AND "state" = 'OPEN'
-  AND jsonb_typeof("value") = 'number' AND ("value" #>> '{}')::numeric < 1;
+  AND CASE WHEN jsonb_typeof("value") = 'number' THEN ("value" #>> '{}')::numeric < 1 ELSE false END;
 
 COMMIT;

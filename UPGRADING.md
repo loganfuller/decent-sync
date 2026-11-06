@@ -37,10 +37,17 @@ already, as Decaid installs each release within 12 hours.
   as no steam temperature is, since Streamline would show it with the heater
   off. Its steam flow and milk stop still are.
 - Turning steam back on takes the Recipe's steam time as well as its steam
-  temperature, so the time Streamline comes back with is no edit. Auto Steam
-  choosing a pitcher with the heater off comes back with the Recipe's time
-  too, its flow kept; choose the pitcher again to use its time, which then
+  temperature, so the time Streamline comes back with is no edit. So does a
+  time picked as steam comes back on: a steam time preset or the numpad on
+  Streamline's main page while the heater is off, and Auto Steam choosing a
+  pitcher then, its flow kept. Pick it again once steam is on, and it
   becomes the Recipe's, as before.
+- Give each Recipe that holds no steam time one before updating Tablets to
+  Streamline v0.2.23. Once Streamline v0.2.23 has turned steam off itself, it
+  turns it back on at 1 s where the recipe holds no time, as it then
+  remembers the machine's 0 as the last steam time. DYE2 saves that 1 s into
+  a Recipe holding none, and it reaches every Machine with the Recipe loaded.
+  A Recipe holding a steam time is put back to it.
 - A fan threshold or refill kit written by a Settings Edit now lasts: on
   Decaid v0.9.1, Streamline's settings page no longer puts back the value it
   remembers, and the Settings card no longer says it does. A page left open

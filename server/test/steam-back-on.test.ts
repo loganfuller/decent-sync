@@ -247,6 +247,37 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     expect(watch.saved()).toEqual([145]);
   });
 
+  it("has a steam time set on Streamline's main page while C's heater is off bring steam back with it, which takes the Recipe's, and one set once steam is on is the Recipe's edit", async () => {
+    const { a, c, one, dye2, quiet } = await lab("Steam time", 49241);
+    const streamline = await startStreamline(c);
+    await streamline.setSteamHeater(false);
+    // Once C's report of the heater off, and Streamline's reply, are done.
+    await quiet({ streamline });
+    const edits = { temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") };
+    const watch = watchSteam(dye2, { a, c });
+
+    // 25 s picked with the heater off turns it back on with it (`setTargetSteamDuration` with `rearm`), at the recipe's
+    // temperature, its DYE2 switch on: C takes the Recipe's 40 s instead.
+    await streamline.set("last-steam-duration", 25);
+    await expect.poll(() => [setting(c, "steamTemperature"), setting(c, "steamDuration")], { timeout: 15_000 }).toEqual([160, 40]);
+    // Once C's report of the heater on, the plugin's write, its save and Streamline's reply are done.
+    await quiet({ streamline });
+    expect([watch.taken.c, watch.times.c]).toEqual([[160], [25, 40]]);
+    const content = (await recipe(one)).content;
+    expect([content.steamTemperature, content.steamDuration]).toEqual([160, 40]);
+    expect({ temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") }).toEqual(edits);
+    expect([watch.saved(), watch.savedTimes(), watch.taken.a, watch.times.a]).toEqual([[], [], [], []]);
+
+    // 25 s picked again once steam is on: the Recipe's edit, saved and written into A, as before.
+    await apart();
+    await streamline.set("last-steam-duration", 25);
+    await expect.poll(async () => (await recipe(one)).content.steamDuration, { timeout: 15_000 }).toBe(25);
+    await expect.poll(() => [setting(a, "steamDuration"), recorded(a, "steamDuration")], { timeout: 15_000 }).toEqual([25, 25]);
+    // Once C's report of the change, DYE2's save of it and the write into A are done.
+    await quiet({ streamline });
+    expect([setting(c, "steamDuration"), await editsOf(one, "steamDuration"), watch.savedTimes()]).toEqual([25, edits.duration + 1, [25]]);
+  });
+
   it("takes C's steam turned off and back on at another temperature while a write of the plugin's into its Workflow waits for Decaid as turned back on, saving nothing of it", async () => {
     const { a, c, one, dye2, quiet } = await lab("During write", 49231);
     expect(setting(c, "steamTemperature")).toBe(160);
