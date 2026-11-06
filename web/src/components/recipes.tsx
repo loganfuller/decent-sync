@@ -96,6 +96,13 @@ function grindSettingText(content: Record<string, unknown>): string | undefined 
   return setting === null ? undefined : String(setting);
 }
 
+/** A Recipe's feed rate, text as typed, such as "MF" or "1200", as DYE2 v0.1.34 keeps one; undefined for none. */
+function feedRateText(content: Record<string, unknown>): string | undefined {
+  const feedRate = content.feedRate;
+  if (typeof feedRate === "number") return Number.isFinite(feedRate) ? String(feedRate) : undefined;
+  return typeof feedRate === "string" && feedRate.trim() !== "" ? feedRate : undefined;
+}
+
 /** A Recipe's Grinder and its setting, such as "EK43 at 2.5". */
 function grindText(recipe: Recipe): string | undefined {
   const setting = grindSettingText(recipe.content);
@@ -349,6 +356,7 @@ interface FormValues extends Record<SettingField, string> {
   grinderId: string;
   grindSetting: string;
   rpm: string;
+  feedRate: string;
   brewTemperature: string;
   basketId: string;
   toolIds: string[];
@@ -387,6 +395,7 @@ function valuesOf(content: Record<string, unknown>): FormValues {
     grinderId: id("grinderId"),
     grindSetting: grindSettingText(content) ?? "",
     rpm: number("rpm"),
+    feedRate: feedRateText(content) ?? "",
     brewTemperature: number("brewTemperature"),
     basketId: id("basketId"),
     toolIds: Array.isArray(content.toolIds) ? content.toolIds.filter((tool): tool is string => typeof tool === "string") : [],
@@ -405,8 +414,10 @@ function toolDefaults(tool: EquipmentSummary | undefined): Attribute[] {
  * to clear it, as an empty setting is: a number entered that is not one is
  * refused, so nothing typed is lost unseen, and a setting outside its range
  * is the server's to refuse. The grind setting is a number where it reads as
- * one, and otherwise the text as typed, as DYE2 keeps one. A Tool's attributes are kept only where they differ from
- * the Tool's own, as DYE2's editor keeps those changed for a recipe.
+ * one, and otherwise the text as typed, as DYE2 keeps one, and the feed rate
+ * the text, trimmed as DYE2's editor trims it. A Tool's attributes are kept
+ * only where they differ from the Tool's own, as DYE2's editor keeps those
+ * changed for a recipe.
  */
 function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string, unknown> {
   const content: Record<string, unknown> = {
@@ -426,6 +437,7 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
       }),
     ),
     grindSetting: grindSettingOf(values.grindSetting),
+    feedRate: values.feedRate.trim() === "" ? null : values.feedRate.trim(),
   };
   for (const [field, label] of NUMBERS) {
     const text = values[field].trim();
@@ -800,6 +812,10 @@ function RecipeForm({
           />
         </div>
         {numberInput("rpm")}
+        <div className="grid gap-2">
+          <Label htmlFor={`${id}-feedRate`}>Feed rate</Label>
+          <Input id={`${id}-feedRate`} placeholder="Such as MF or 1200" value={values.feedRate} onChange={(event) => set("feedRate", event.target.value)} />
+        </div>
         {numberInput("brewTemperature")}
 
         <div className="grid gap-2 sm:col-span-2">
@@ -1481,6 +1497,9 @@ export function RecipeDetails({ id }: { id: string }) {
             </Field>
             <Field term="RPM">
               <OrNone>{numberText(content.rpm, "")}</OrNone>
+            </Field>
+            <Field term="Feed rate">
+              <OrNone>{feedRateText(content)}</OrNone>
             </Field>
             <Field term="Brew temperature">
               <OrNone>{numberText(content.brewTemperature, " °C")}</OrNone>

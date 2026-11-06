@@ -193,7 +193,8 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   const cafeTablet = await tabletAt(page, server, "Grinder cafe group", cafe, "15032", tabletApi);
 
   // One model at both Locations is two Grinders; one archived on the lab's tablet is Archived.
-  await labTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish", burrSize: 98, burrType: "flat", notes: "Filter station" });
+  // The lab's with the feed rate note DYE2 v0.1.34's grinders page keeps in its extras.
+  await labTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish", burrSize: 98, burrType: "flat", notes: "Filter station", extras: { feedRate: "manual FF/MF/SF" } });
   await cafeTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish" });
   const preset = await labTablet.addGrinder({ model: "E2E Encore", burrType: "conical", settingType: "preset", settingValues: ["1", "5", "10"], settingSmallStep: 1 });
   await expect.poll(async () => grindersAt(page, "E2E EK43")).toEqual([["Grinder cafe", false], ["Grinder lab", false]]);
@@ -225,6 +226,7 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   await expect(field(grinder, "Burr type")).toHaveText("flat");
   await expect(field(grinder, "Notes")).toHaveText("Filter station");
   await expect(field(grinder, "Setting")).toHaveText("Numbered dial");
+  await expect(field(grinder, "Feed rate")).toHaveText("manual FF/MF/SF");
 
   await page.getByRole("link", { name: "← Grinders" }).click();
   await row("E2E Encore").getByRole("link").click();

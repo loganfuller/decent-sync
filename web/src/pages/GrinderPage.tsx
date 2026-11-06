@@ -161,6 +161,9 @@ function GrinderDetails({ id }: { id: string }) {
                   <OrNone>{contentText(grinder.content[key])}</OrNone>
                 </Field>
               ))}
+              <Field term="Feed rate">
+                <OrNone>{contentText(grinder.content.feedRate)}</OrNone>
+              </Field>
             </Fields>
             {mayChangeAt(grinder.location?.id ?? null) && (
               <div>

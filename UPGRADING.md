@@ -20,15 +20,15 @@ section).
 This release follows Streamline v0.2.23
 ([ADR-0017](docs/adr/0017-supported-versions.md)), in which a steam time of 0
 is steam off. Deploy it first, then update to v0.2.23 each tablet whose
-Streamline is pinned to an earlier release (DYE2 v0.1.33 or later, as
-before). On Streamline v0.2.22
-or later, the plugin of an earlier release has DYE2 save into the Recipe the
-steam time Streamline picks as steam comes back on, which then reaches every
-Machine with it loaded. Tablets whose Streamline isn't pinned run v0.2.23
-already, as Decaid installs each release within 12 hours.
+Streamline is pinned to an earlier release, and its DYE2 to v0.1.35
+(below). On Streamline v0.2.22 or later, the plugin of an earlier release
+has DYE2 save into the Recipe the steam time Streamline picks as steam comes
+back on, which then reaches every Machine with it loaded. Tablets whose
+Streamline isn't pinned run v0.2.23 already, as Decaid installs each release
+within 12 hours.
 
-- A Recipe's steam time is 1 to 255 s, or none; a longer one saved in DYE2's
-  editor is taken as 255 s, the DE1's longest. As it migrates the database,
+- A Recipe's steam time is 1 to 255 s, or none; a longer one, as DYE2's
+  editor saved before v0.1.35, is taken as 255 s, the DE1's longest. As it migrates the database,
   this release makes each Recipe holding a steam time of 0 hold none, a
   version of its own in its history, and dismisses each open Conflict
   offering 0. A steam time of 0 saved in DYE2's editor is no edit: the
@@ -65,6 +65,53 @@ on this release's plugin connected to 1.6.2 leaves the Recipe's steam time out
 of a Workflow whose steam is off, which 1.6.2 lists among that tablet's
 refusals ("Written, but its record still differs as it did") until the Recipe
 changes or the tablet connects to this release.
+
+### Update Tablets to DYE2 v0.1.35 once this release is deployed
+
+This release follows DYE2 v0.1.35
+([ADR-0017](docs/adr/0017-supported-versions.md)), which adds a feed rate to
+its recipes and grinders, and changes how it saves steam settings and Auto
+Favourites. Deploy it first, then update to v0.1.35 each tablet whose DYE2 is
+pinned to an earlier release. Tablets whose DYE2 isn't pinned run v0.1.35
+already, as Decaid installs each release within 12 hours.
+
+- A Recipe holds a feed rate beside its RPM, text as typed: a manual feed
+  such as "MF", or a feeder's RPM. It follows a Machine's Workflow as the
+  RPM does. Set in DYE2's recipe editor or the management interface, it
+  reaches every Machine at the Location. Changed on a Machine with the
+  Recipe loaded, it is saved into the Recipe, and loading a Recipe writes it
+  into the Workflow.
+- A Grinder holds DYE2's feed rate note, the feed rates it takes, such as
+  "manual FF/MF/SF". DYE2 keeps it in the grinder record's `extras`, where
+  this release writes it too. The Grinder's page shows and edits it.
+- DYE2's Auto Favourites page now saves a favourite rather than a recipe, so
+  it adds nothing to the Library. Applying a favourite unloads the Recipe,
+  as before.
+- DYE2 now saves a steam flow or milk stop changed while steam is off, so it
+  becomes the Recipe's edit then rather than once steam is back on.
+- DYE2's editor shows a steam time of 0 as "Off", saves a steam temperature
+  of "Off" with a steam time of 0, and stops a steam time at 255 s. Saving
+  either turns steam off on that Machine, heater included, where a steam
+  time of 0 used to leave the heater on. The Recipe keeps its own steam
+  temperature and time, as before.
+- A steam temperature or time saved in DYE2's editor on a Machine whose
+  steam is off turns steam back on, and is now kept as the Recipe's edit.
+  Before, the plugin could put the Recipe's previous value back over it.
+
+A tablet still on 1.6.2's plugin, until Decaid updates it, can write neither
+a Recipe's feed rate into its Workflow nor a Grinder's note into its record.
+So a feed rate changed on a Recipe loaded there, or a Grinder's note changed
+elsewhere, is listed among that tablet's refusals ("Written, but its record
+still differs as it did") until it changes again or the tablet connects with
+this release's plugin, which then writes it. Its recipe records take the
+feed rate still, which DYE2 applies. In the minute or so that 1.6.2 still
+serves beside this release, it takes in no feed rate, and a Grinder's note
+this release stored may be listed so among the refusals of a tablet it
+serves. A feed rate or Grinder's note saved in DYE2 then is kept on the
+tablet, and taken in once this release serves it, where the Recipe or
+Grinder holds none. Where two tablets saved different ones for the same
+Recipe or Grinder, the first to connect gives its value, and the other
+tablet's is written over.
 
 ## 1.6.2
 

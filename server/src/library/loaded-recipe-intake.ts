@@ -36,22 +36,24 @@ export const PARTS = Object.keys(LOADED_RECIPE_PARTS) as LoadedRecipePart[];
  * The parts DYE2 saves into the Loaded Recipe's record as the plugin has it
  * save a change of the Workflow (`record`), so a change of them on the
  * Machine reaches the server as the tablet's change of the record: its dose,
- * yield, grind setting, RPM and brew temperature, where the record holds
- * one; its Basket, where the record holds one, or once it moves off the one
- * the Workflow held as the recipe was applied (`163a7c8`, from v0.1.33); and
- * its steam, hot water and flush settings, each where the record holds it,
- * or once it moves off the value the Workflow held as the recipe was applied
- * (`itemPatch` and `movedSinceArming` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33). DYE2 saves
- * none of steam turned off, a value cleared, the Bean Batch, the Grinder or
- * the Profile.
+ * yield, grind setting, RPM, feed rate (from v0.1.34) and brew temperature,
+ * where the record holds one; its Basket, where the record holds one, or
+ * once it moves off the one the Workflow held as the recipe was applied
+ * (`163a7c8`, from v0.1.33); and its steam, hot water and flush settings,
+ * each where the record holds it, or once it moves off the value the
+ * Workflow held as the recipe was applied (`itemPatch` and
+ * `movedSinceArming` in dye2:dye2-plugin/src/utils/workflow-record.ts at
+ * v0.1.35), but a steam temperature or steam time while steam is off, the
+ * steam flow and milk stop then being saved too (`STEAM_OFF_KEYS`,
+ * `5561549`, from v0.1.35). DYE2 saves none of steam turned off, a value
+ * cleared, the Bean Batch, the Grinder or the Profile.
  */
-export const RECORDED_PARTS: readonly LoadedRecipePart[] = ["dose", "yield", "grind", "rpm", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES];
+export const RECORDED_PARTS: readonly LoadedRecipePart[] = ["dose", "yield", "grind", "rpm", "feedRate", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES];
 
 /**
- * A part's value as a Workflow holds it: a number, a grind setting's text,
- * the tablet's id for a Grinder, Basket or Bean Batch, or the id of the
- * Library Profile its profile is; null for none.
+ * A part's value as a Workflow holds it: a number, a grind setting's or
+ * feed rate's text, the tablet's id for a Grinder, Basket or Bean Batch, or
+ * the id of the Library Profile its profile is; null for none.
  */
 export type PartValue = number | string | null;
 
@@ -66,6 +68,7 @@ export const RECIPE_FIELDS: Readonly<Record<LoadedRecipePart, string>> = {
   yield: "yield",
   grind: "grindSetting",
   rpm: "rpm",
+  feedRate: "feedRate",
   basket: "basketId",
   batch: "beanBatchId",
   brewTemperature: "brewTemperature",
@@ -91,10 +94,10 @@ export function readParts(value: unknown): WorkflowParts {
   return Object.fromEntries(PARTS.map((part) => [part, partValue(part, stored[part])])) as WorkflowParts;
 }
 
-/** A value as a part holds it: text for a grind setting, a Basket or a batch, a number for the rest; null for none. */
+/** A value as a part holds it: text for a grind setting, a feed rate, a Basket or a batch, a number for the rest; null for none. */
 export function partValue(part: LoadedRecipePart, value: unknown): PartValue {
   if (part === "grind") return typeof value === "number" ? (Number.isFinite(value) ? String(value) : null) : textOf(value);
-  return ITEM_PARTS[part] !== undefined || part === "profile" ? textOf(value) : numberOf(value);
+  return ITEM_PARTS[part] !== undefined || part === "profile" || part === "feedRate" ? textOf(value) : numberOf(value);
 }
 
 /** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3" and a barista may type `.5` for 0.5 (`sameGrindSetting`). */
@@ -167,25 +170,26 @@ export interface WorkflowValuesContext {
 }
 
 /** The parts Decent Sync takes into a Recipe from its Machine's Workflow, but where the Recipe holds a value already: its dial but the brew temperature. */
-const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: "rpm", basket: "basketId" } as const satisfies Partial<Record<LoadedRecipePart, string>>;
+const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: "rpm", feedRate: "feedRate", basket: "basketId" } as const satisfies Partial<Record<LoadedRecipePart, string>>;
 
 /**
  * The values of a Recipe (`content`, its parts `target` as `recipeParts`
  * reads them) that its Machine's Workflow sets, which Decent Sync records
  * itself as the tablet's edit, as DYE2 saves none of them (ADR-0022), each
  * where the Workflow changed it from `held`, the parts as it last held them,
- * or, on a load (`held` null), where the Recipe holds none, from the
- * Workflow as it stands (`now`): a dose, yield, grind setting (a number, or
- * text as typed, as DYE2 v0.1.32 saves one) or RPM the Recipe holds none
- * of; a Basket the Recipe holds none of, but only on a load, as DYE2 takes
- * the Machine's as the recipe is applied as its starting point and never
- * saves it, while from v0.1.33 it saves one picked after (`RECORDED_PARTS`);
- * a Grinder, one of the Location's; and a Bean Batch of the Recipe's own
- * Bean, or with its Bean for a Recipe naming no Bean, but not on a load: a
- * Recipe naming no Bean means no bean as it is loaded, as DYE2 v0.1.32
- * applies one (`ce38984`), and a batch picked while it is loaded is a change
- * like any other. A batch of another Bean, a value cleared, and anything the
- * map does not hold stay the Machine's own. With the parts they record.
+ * or, on a load (`held` null), where the Recipe holds none, from the Workflow
+ * as it stands (`now`): a dose, yield, grind setting (a number, or text as
+ * typed, as DYE2 v0.1.32 saves one), RPM or feed rate (text as typed, which
+ * DYE2 adopts into no recipe holding none) the Recipe holds none of; a Basket
+ * the Recipe holds none of, but only on a load, as DYE2 takes the Machine's
+ * as the recipe is applied as its starting point and never saves it, while
+ * from v0.1.33 it saves one picked after (`RECORDED_PARTS`); a Grinder, one
+ * of the Location's; and a Bean Batch of the Recipe's own Bean, or with its
+ * Bean for a Recipe naming no Bean, but not on a load: a Recipe naming no
+ * Bean means no bean as it is loaded, as DYE2 v0.1.32 applies one
+ * (`ce38984`), and a batch picked while it is loaded is a change like any
+ * other. A batch of another Bean, a value cleared, and anything the map does
+ * not hold stay the Machine's own. With the parts they record.
  */
 export function valuesFromWorkflow(
   content: Readonly<Record<string, unknown>>,
@@ -256,20 +260,21 @@ export function recipeParts(
 
 /**
  * The parts of a Recipe the Workflow is to hold (`target`, as `recipeParts`
- * reads it) that wait for the tablet's record of the Recipe (`record`, as
- * the server last knew it) to hold them too: its dial (Profile, dose, yield,
- * grind setting, RPM, Basket and brew temperature), as the record is written
- * first. DYE2 records the Workflow's dial into the record, so a dial written
- * into the Workflow first, as when the tablet refused the record's write,
- * would reach the server as the tablet's change of the record. And DYE2
- * keeps the Workflow's recipe named through a change of profile only onto
- * the profile its record holds, where it holds one, by its fingerprint
- * (`recipeProfileChanged` in dye2:dye2-plugin/src/utils/workflow-record.ts):
- * so the Profile waits until the record names it and holds it as the write
- * carries it (`profile`, the Library's), not as before an edit of its title,
- * which keeps its id (ADR-0006). Each that waits is undefined, as one the
- * tablet holds no record of yet is; the rest of the write goes ahead, its
- * Grinder and Bean Batch included, which DYE2 records none of.
+ * reads it) that wait for the tablet's record of the Recipe (`record`, as the
+ * server last knew it) to hold them too: its dial (Profile, dose, yield,
+ * grind setting, RPM, feed rate, Basket and brew temperature), as the record
+ * is written first. DYE2 records the Workflow's dial into the record, so a
+ * dial written into the Workflow first, as when the tablet refused the
+ * record's write, would reach the server as the tablet's change of the
+ * record. And DYE2 keeps the Workflow's recipe named through a change of
+ * profile only onto the profile its record holds, where it holds one, by its
+ * fingerprint (`recipeProfileChanged` in
+ * dye2:dye2-plugin/src/utils/workflow-record.ts): so the Profile waits until
+ * the record names it and holds it as the write carries it (`profile`, the
+ * Library's), not as before an edit of its title, which keeps its id
+ * (ADR-0006). Each that waits is undefined, as one the tablet holds no record
+ * of yet is; the rest of the write goes ahead, its Grinder and Bean Batch
+ * included, which DYE2 records none of.
  */
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -284,11 +289,12 @@ export function heldByRecord(
     yield: numberOf(variables.drink) ?? (dose !== null && ratio !== null ? Math.round(dose * ratio * 10) / 10 : null),
     grind: variables.grind ?? null,
     rpm: numberOf(variables.rpm),
+    feedRate: textOf(variables.feedRate),
     basket: variables.basketId ?? null,
     brewTemperature: numberOf(variables.brewC),
   };
   const parts = { ...target };
-  for (const part of ["profile", "dose", "yield", "grind", "rpm", "basket", "brewTemperature"] as const) {
+  for (const part of ["profile", "dose", "yield", "grind", "rpm", "feedRate", "basket", "brewTemperature"] as const) {
     if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
   }
   const held = dye2Fingerprint(recordProfile(record));

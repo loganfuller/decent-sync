@@ -2,6 +2,7 @@ import { GLOBAL_ID_KEY, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { syncingTablet, emptyLibrary } from "./support/loaded-tablets.js";
+import { editGrinderInDye2 } from "./support/simulated-dye2.js";
 import { PluginStorage, type SimulatedTablet, derivedDe1Pro, simulatedLibrary } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -121,6 +122,33 @@ describe("Grinders belonging to a Location", () => {
     // No cafe tablet holds it.
     expect(cafe.grinders()).toEqual([]);
     expect(grinderWrites(cafe)).toEqual([]);
+  });
+
+  it("takes a feed rate note saved on DYE2's grinders page into the Grinder, and writes it to the lab's other tablet in extras.feedRate, beside each record's other extras keys, and one set in the management interface to both (dye2-v0.1.35/grinders.json)", async () => {
+    const { one, two } = await lab("Feed rate", 18101);
+    const { record, grinder } = await enterGrinder(one, two, "Feed rate EG-1");
+    // Another app's key in each tablet's record, as a Beanconqueror import leaves one.
+    const otherKeys = async (tablet: SimulatedTablet, value: string) => {
+      const held = heldGrinder(tablet, grinder.id)[0]!;
+      await tablet.editGrinder(held.id, { extras: { ...(held.extras as Record_), bcUuid: value } });
+    };
+    await otherKeys(one, "fixture-bc-one");
+    await otherKeys(two, "fixture-bc-two");
+    // DYE2's grinders page on one saves the note in its record's extras, over the keys there (`buildGrinderBody`).
+    expect((await editGrinderInDye2(one, String(record.id), { feedRate: "manual FF/MF/SF" })).status).toBe(200);
+    await expect.poll(async () => (await viewGrinder(grinder.id)).content.feedRate).toBe("manual FF/MF/SF");
+    const written = await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "manual FF/MF/SF" } });
+    expect(written).not.toHaveProperty("feedRate");
+    expect(heldGrinder(one, grinder.id)[0]!.extras).toEqual({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "manual FF/MF/SF" });
+    // Set in the management interface, it reaches both, in extras, and the other keys stay.
+    expect((await api.call("PATCH", `/grinders/${grinder.id}`, { content: { feedRate: "feeder RPM 200-1200" } })).status).toBe(200);
+    await holds(one, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "feeder RPM 200-1200" } });
+    await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "feeder RPM 200-1200" } });
+    // Cleared on DYE2's grinders page, it is cleared everywhere.
+    expect((await editGrinderInDye2(two, String(heldGrinder(two, grinder.id)[0]!.id), { feedRate: "" })).status).toBe(200);
+    await expect.poll(async () => (await viewGrinder(grinder.id)).content.feedRate ?? null).toBeNull();
+    await expect.poll(() => (heldGrinder(one, grinder.id)[0]!.extras as Record_).feedRate ?? null).toBeNull();
+    expect(heldGrinder(one, grinder.id)[0]!.extras).toMatchObject({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one" });
   });
 
   it("Archives a Grinder deleted or archived on one lab tablet, archiving it on the lab's other tablet, never deleting it, and restores it when un-archived", async () => {

@@ -354,12 +354,17 @@ export class LoadedRecipes implements LoadedRecipeWrites {
         if (this.queuedSave === save) this.queuedSave = null;
         const current = () => !this.stopped && this.loaded === save.globalId && this.loads === save.load && this.sharing();
         if (!current()) return;
+        // Where steam came back on, DYE2's recipes are read afresh first: its editor saves a recipe, then applies it again,
+        // which turns steam back on with what it just saved, so that edit is not put back as a stale copy's.
+        const steamBackOn = this.steamBackOnFor(save);
+        if (steamBackOn !== null) this.sawRecipes(await this.readRecipes());
+        if (!current()) return;
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? undefined : this.records?.get(recordId)?.globalId;
         // Judged again once Decaid answered, as a recipe applied while its answer was on its way is decided on meanwhile.
         if (recordId === null || named !== save.globalId || dye2Fingerprint(workflow.profile) !== save.fingerprint || !current()) return;
-        if (!(await this.steamBackOnFirst(workflow, recordId, save)) || !current()) return;
+        if (!(await this.steamBackOnFirst(workflow, recordId, save, steamBackOn)) || !current()) return;
         if ((await recordIntoRecipe()) === "saved") await this.reportRecipes();
         this.failing = false;
       })
@@ -435,20 +440,25 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /**
-   * Before a save into the Loaded Recipe, where steam was turned back on
-   * with that Recipe and load (`steamBackOn`): writes the Recipe's steam
+   * Before a save into the Loaded Recipe, where steam was turned back on with
+   * that Recipe and load (`steamBackOn`): writes the Recipe's steam
    * temperature and time, as the tablet's record of it holds them, into the
    * Workflow (`steamBackOnWrite`), each where it still holds the one steam
    * came back with, so DYE2's save, which saves every value of the Workflow
-   * the record holds otherwise, saves neither. While the Machine pulls a
-   * Shot, the write, and the save with it, are held until the Shot ends
-   * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
-   * if Decaid refuses the write, as with no machine connected: the next
-   * change tries again.
+   * the record holds otherwise, saves neither. `saveSoon` reads the records
+   * afresh before the Workflow, so the Workflow judged is no older than the
+   * record, and a load decided on during that read is not written into. While the Machine
+   * pulls a Shot, the write, and the save with it, are held until the Shot
+   * ends (`resumeSteamBackOn`). Steam turned back on since the save began
+   * (`began`) is left to the save queued with it, which reads the records
+   * afresh. Resolves with whether the save goes on.
+   * Throws if Decaid refuses the write, as with no machine connected: the
+   * next change tries again.
    */
-  private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor): Promise<boolean> {
-    const pending = this.steamBackOn;
-    if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
+  private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor, began: SteamBackOn | null): Promise<boolean> {
+    const pending = this.steamBackOnFor(save);
+    if (pending === null) return true;
+    if (pending !== began) return false;
     const record = this.records?.get(recordId)?.record;
     const write = record === undefined ? null : steamBackOnWrite(workflow, record, pending.turnedOn);
     if (write !== null && this.shot.running()) return false;
@@ -463,6 +473,12 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     }
     if (this.steamBackOn === pending) this.steamBackOn = null;
     return true;
+  }
+
+  /** Where steam was turned back on with the Recipe and load the save is for, what it came back with (`steamBackOn`); otherwise null. */
+  private steamBackOnFor(save: SaveFor): SteamBackOn | null {
+    const pending = this.steamBackOn;
+    return pending !== null && pending.globalId === save.globalId && pending.load === save.load ? pending : null;
   }
 
   /** Once a Shot ends: saves where steam turned back on during it is still to be written, which writes it first. */

@@ -67,6 +67,7 @@ const RECIPE_PATHS = [
   ...RECIPE_SETTING_NAMES.map((setting) => `${DV}.${RECIPE_SETTINGS[setting].dye2}`),
   `${DV}.grind`,
   `${DV}.rpm`,
+  `${DV}.feedRate`,
   `${DV}.grinderId`,
   `${DV}.grinderModel`,
   `${DV}.basketId`,
@@ -98,6 +99,7 @@ const EDITED: Readonly<Record<string, string>> = {
   [`${DV}.hotWaterMode`]: "hotWaterMode",
   [`${DV}.grind`]: "grindSetting",
   [`${DV}.rpm`]: "rpm",
+  [`${DV}.feedRate`]: "feedRate",
   ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting])),
 };
 
@@ -471,6 +473,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting === "steamDuration" ? steamTimeOf(content.steamDuration) : value(setting)])),
     [`${DV}.grind`]: value("grindSetting"),
     [`${DV}.rpm`]: value("rpm"),
+    [`${DV}.feedRate`]: value("feedRate"),
     [`${DV}.grinderId`]: local("grinder", grinderId),
     [`${DV}.grinderModel`]: named(context.grinderModels, grinderId),
     [`${DV}.basketId`]: local("basket", basketId),
@@ -496,22 +499,23 @@ function firstStepTemperature(profile: unknown): number | null {
 
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
- * DYE2's `buildRecipeWorkflow` builds it (dye2:dye2-plugin/src/utils/dev-api.ts
- * at v0.1.32) from the record's fields: its dose, yield (or its dose times
- * its ratio), grind setting, RPM, Grinder and Basket by the tablet's ids,
- * barista and drinker, each only where the record holds one; its coffee,
- * roaster and Bean Batch together, each null where it holds none, so
- * applying it clears a batch the Workflow held, and all three null where it
- * names no Bean, so a recipe naming none leaves no bean batch (DYE2
- * `ce38984`); and its full
- * Profile where it names one with steps, at its brew temperature, as
- * Streamline applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26), none where it holds no full Profile, as a stub
- * of its id and title would merge into the Workflow's profile and rename its
- * steps; and each steam, hot water and flush setting the
- * record holds, in partial `steamSettings`, `hotWaterData` and `rinseData`,
- * none where it holds none of them (`recipeMachineSettings`). DYE2's flags
- * of the fields it sets are left out.
+ * DYE2's `buildRecipeWorkflow` builds it
+ * (dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.35) from the record's
+ * fields: its dose, yield (or its dose times its ratio), grind setting, RPM,
+ * feed rate, Grinder and Basket by the tablet's ids, barista and drinker,
+ * each only where the record holds one; its coffee, roaster and Bean Batch
+ * together, each null where it holds none, so applying it clears a batch the
+ * Workflow held, and all three null where it names no Bean, so a recipe
+ * naming none leaves no bean batch (DYE2 `ce38984`); and its full Profile
+ * where it names one with steps, at its brew temperature, as Streamline
+ * applies the profile as it is (`profileAtBrewTemperature`,
+ * decentespresso/dye2#26), none where it holds no full Profile, as a stub of
+ * its id and title would merge into the Workflow's profile and rename its
+ * steps; and each steam, hot water and flush setting the record holds, in
+ * partial `steamSettings`, `hotWaterData` and `rinseData`, none where it
+ * holds none of them (`recipeMachineSettings`), which DYE2 writes as steam
+ * off where a steam time of 0 or a steam temperature below 135 °C is among
+ * them, as no Recipe holds. DYE2's flags of the fields it sets are left out.
  */
 export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
@@ -523,6 +527,7 @@ export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unkno
   else if (typeof at("ratio") === "number" && typeof at("dose") === "number") context.targetYield = Math.round((at("dose") as number) * (at("ratio") as number) * 10) / 10;
   if (present(at("grind"))) context.grinderSetting = String(at("grind"));
   if (present(at("rpm"))) extras.rpm = at("rpm");
+  if (present(at("feedRate"))) extras.feedRate = at("feedRate");
   if (at("grinderId")) context.grinderId = at("grinderId");
   if (at("grinderModel")) context.grinderModel = at("grinderModel");
   if (at("basketId")) extras.basketId = at("basketId");

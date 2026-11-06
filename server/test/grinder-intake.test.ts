@@ -75,6 +75,13 @@ describe("readReportedGrinders", () => {
       fixtureUnknown: "kept",
     });
   });
+
+  it("keeps as content the feed rate note DYE2 v0.1.34 keeps in extras, null once its editor cleared it, but none of extras' other keys (fixtures/decaid/dye2-v0.1.35/grinders.json)", () => {
+    const noted = record(LOCAL[0], { extras: { bcUuid: "fixture-bc-uuid", [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF" } });
+    expect(grinderContent(noted)).toEqual({ model: "Fixture Grinder", burrs: "Fixture 63mm", notes: "Lab", settingType: "numeric", feedRate: "manual FF/MF/SF" });
+    expect(grinderContent(record(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: null } }))).toHaveProperty("feedRate", null);
+    expect(grinderContent(record(LOCAL[0], withId(GLOBAL[0])))).not.toHaveProperty("feedRate");
+  });
 });
 
 describe("planGrinderIntake", () => {
@@ -115,6 +122,14 @@ describe("planGrinderIntake", () => {
     expect(step).not.toHaveProperty("archived");
     expect(planGrinderIntake([reported(LOCAL[0], withId(GLOBAL[0]))], [mapped(GLOBAL[0], LOCAL[0])], new Set())).toEqual([]);
     expect(planGrinderIntake([reported(LOCAL[0], { archived: true, ...withId(GLOBAL[0]) }, "2026-10-08T18:00:00.000Z")], [mapped(GLOBAL[0], LOCAL[0])], new Set())).toEqual([]);
+  });
+
+  it("takes a feed rate note set or cleared in the record's extras as an edit of the Grinder", () => {
+    const known = mapped(GLOBAL[0], LOCAL[0], { record: record(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "SF only" } }) });
+    const [set] = planGrinderIntake([reported(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF" } }, LATER)], [known], new Set());
+    expect(set).toMatchObject({ kind: "update", content: { feedRate: "manual FF/MF/SF" } });
+    const [cleared] = planGrinderIntake([reported(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: null } }, LATER)], [known], new Set());
+    expect(cleared).toMatchObject({ kind: "update", content: { feedRate: null } });
   });
 
   it("keeps a record whose global id another plugin wiped as its Grinder, whatever its time, so the id is written back", () => {

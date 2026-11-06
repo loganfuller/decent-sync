@@ -21,14 +21,14 @@ export interface RecipeView {
    * `beanBatchId`, `profileId`, `grinderId`, `basketId`, `toolIds` and
    * `toolAttributes` (a Tool's attributes for this Recipe, by the Tool's id),
    * `dose`, `yield`, `ratio`, `grindSetting` (a number, or text as typed),
-   * `rpm`, `brewTemperature`, the steam, hot water and flush settings it
-   * holds (RECIPE_SETTINGS: `steamTemperature`, `steamDuration`, `steamFlow`,
-   * `steamStopTemperature`, `hotWaterTemperature`, `hotWaterDuration`,
-   * `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`, `flushDuration`
-   * and `flushFlow`), and DYE2's display modes `steamMode` and
-   * `hotWaterMode`, each left out where it holds none. Its steam time as
-   * `steamTimeOf` reads it: one of 0, as 1.6.2 may have taken one in, is
-   * none, and one above 255 s is 255.
+   * `rpm`, `feedRate` (text as typed), `brewTemperature`, the steam, hot
+   * water and flush settings it holds (RECIPE_SETTINGS: `steamTemperature`,
+   * `steamDuration`, `steamFlow`, `steamStopTemperature`,
+   * `hotWaterTemperature`, `hotWaterDuration`, `hotWaterVolume`,
+   * `hotWaterFlow`, `flushTemperature`, `flushDuration` and `flushFlow`), and
+   * DYE2's display modes `steamMode` and `hotWaterMode`, each left out where
+   * it holds none. Its steam time as `steamTimeOf` reads it: one of 0, as
+   * 1.6.2 may have taken one in, is none, and one above 255 s is 255.
    */
   content: Record<string, unknown>;
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */

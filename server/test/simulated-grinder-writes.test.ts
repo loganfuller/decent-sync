@@ -2,6 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterAll, describe, expect, it } from "vitest";
+import { type Dye2GrinderField, dye2V035Recording, editGrinderInDye2 } from "./support/simulated-dye2.js";
 import { SimulatedTablet } from "./support/simulated-tablet.js";
 
 // The simulated tablet's grinder writes against those recorded on Decaid
@@ -89,6 +90,64 @@ describe("The simulated tablet's grinder writes", () => {
     for (const record of tablet.grinders()) {
       expect(record.createdAt).toMatch(WHOLE_LOCAL_TIME);
       expect(record.updatedAt).toMatch(WHOLE_LOCAL_TIME);
+    }
+  });
+});
+
+describe("DYE2 v0.1.35's grinders page on the simulated tablet, as recorded on Decaid v0.9.1 (fixtures/decaid/dye2-v0.1.35/grinders.json)", () => {
+  type Step = { exchanges: Exchange[] };
+  const steps = dye2V035Recording<Record<string, Step>>("grinders");
+  const written = (step: Step) => step.exchanges.find(({ request }) => request.method === "PUT" || request.method === "POST")!;
+  /** A record without the times Decaid reads from its clock. */
+  const timeless = (value: unknown) => {
+    const { createdAt: _, updatedAt: __, ...rest } = value as Record<string, unknown>;
+    return rest;
+  };
+  const before = written(steps.globalIdWritten!).response.body as Record<string, unknown>;
+  const tablet = SimulatedTablet.load({ settings: {}, api: { "/grinders": [before] } });
+  afterAll(() => tablet.unload());
+  const sent: Exchange["request"][] = [];
+  const page = new Proxy(tablet, {
+    get(target, property) {
+      if (property === "callApi") {
+        return async (method: Exchange["request"]["method"], route: string, body?: unknown) => {
+          if (method !== "GET") sent.push({ method, path: route, ...(body === undefined ? {} : { body }) });
+          return target.callApi(method, route, body);
+        };
+      }
+      const value = Reflect.get(target, property, target) as unknown;
+      return typeof value === "function" ? (value as (...args: unknown[]) => unknown).bind(target) : value;
+    },
+  }) as SimulatedTablet;
+
+  it("sends a feed rate note typed, kept, and cleared in the grinder's extras over its other keys, its global id among them, and a new grinder's in extras alone", async () => {
+    const id = String(before.id);
+    const changes: Record<string, Partial<Record<Dye2GrinderField, string>>> = {
+      noteSet: { feedRate: "manual FF/MF/SF" },
+      otherEdited: { notes: "Fixture notes" },
+      noteCleared: { feedRate: "" },
+    };
+    for (const [name, change] of Object.entries(changes)) {
+      sent.length = 0;
+      const answer = await editGrinderInDye2(page, id, change);
+      const recorded = written(steps[name]!);
+      expect(sent, name).toEqual([recorded.request]);
+      expect({ ...answer, body: timeless(answer.body) }, name).toEqual({ ...recorded.response, body: timeless(recorded.response.body) });
+    }
+    sent.length = 0;
+    const created = await editGrinderInDye2(page, null, { model: "Fixture Feeder Grinder", feedRate: "feeder RPM 200-1200" });
+    const recorded = written(steps.created!);
+    expect(sent).toEqual([recorded.request]);
+    const { id: _, ...made } = timeless(created.body);
+    const { id: __, ...madeThen } = timeless(recorded.response.body);
+    expect({ status: created.status, body: made }).toEqual({ status: recorded.response.status, body: madeThen });
+  });
+
+  it("drops a top-level feedRate, as the previous release's plugin writes a Grinder's note, and keeps one in extras, as this release's writes it", async () => {
+    for (const name of ["topLevel", "inExtras"]) {
+      const { request, response } = written(steps[name]!);
+      const answer = await tablet.callApi(request.method, request.path.replace(/[0-9a-f-]{36}/, String(before.id)), request.body);
+      expect({ ...answer, body: timeless(answer.body) }, name).toEqual({ ...response, body: timeless(response.body) });
     }
   });
 });

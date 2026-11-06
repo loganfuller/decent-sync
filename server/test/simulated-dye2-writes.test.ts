@@ -15,7 +15,6 @@ import {
   openDye2RecipeEditor,
   recordedDye2Tablet,
   saveInDye2,
-  saveRecipeFromFavouriteEditor,
 } from "./support/simulated-dye2.js";
 import { type DecaidApi, SimulatedTablet, de1ProOnDecaid091, derivedDe1Pro } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
@@ -210,16 +209,20 @@ describe("DYE2's recipe editor made again as recorded", () => {
     expectPosted(steps.saveMachineSettings!);
     asRecorded(steps.steamOff!, slotRecipe);
     await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).set({ steamTempC: 0 }).save();
-    expectPosted(steps.steamOff!);
+    // From v0.1.35 a steam temperature of Off is saved with a steam time of 0, steam off whole, in its embedded Workflow too
+    // (dye2-v0.1.35/steam.json, `editorTempOff`).
+    const offWhole = posted(steps.steamOff!).map((recipe) => {
+      if (recipe.id !== slotRecipe) return recipe;
+      const workflow = recipe.workflow as Record_;
+      return {
+        ...recipe,
+        dashboardVariables: { ...(recipe.dashboardVariables as Record_), steamTimeS: 0 },
+        workflow: { ...workflow, steamSettings: { ...(workflow.steamSettings as Record_), duration: 0 } },
+      };
+    });
+    expect(dye2List(tablet, "recipes")).toEqual(offWhole);
   });
 
-  it("saves a recipe from the Auto Favourites page's add card, in no slot, its profile by title alone", async () => {
-    const step = steps.newFromFavouriteEditor!;
-    asRecorded(step);
-    expect(tablet.workflow()).toEqual(step.find(({ request }) => request.path === "/workflow")!.response.body);
-    await saveRecipeFromFavouriteEditor(tablet, "Fixture Favourite Recipe");
-    expectPosted(step);
-  });
 });
 
 describe("The simulated DYE2's first load, as DYE2 v0.1.32 was recorded installing over the keys Decent Sync's server and v0.1.26 left", () => {

@@ -28,6 +28,48 @@ export async function lockItems(tx: Prisma.TransactionClient, kind: LibraryKind,
     SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ANY(${idsSql(description, [...new Set(ids)])}) ORDER BY id FOR NO KEY UPDATE`;
 }
 
+/**
+ * Of the values a tablet's records hold of a field (`held`), those of items
+ * that hold none of it and have never had an edit of it, which
+ * `takeInUnseen` takes in, so a report whose records hold only values taken
+ * in already locks and reads none of their items.
+ */
+export async function unseenOf<T extends { id: string }>(tx: Prisma.TransactionClient, kind: LibraryKind, field: string, held: readonly T[]): Promise<T[]> {
+  if (held.length === 0) return [];
+  const description = KINDS[kind];
+  const rows = await tx.$queryRaw<{ id: string }[]>`
+    SELECT id::text AS id FROM ${Prisma.raw(description.table)}
+    WHERE id = ANY(${idsSql(description, [...new Set(held.map((item) => item.id))])})
+      AND NOT jsonb_exists(content, ${field}) AND NOT jsonb_exists(field_edits, ${field})`;
+  const ids = new Set(rows.map((row) => row.id));
+  return held.filter((item) => ids.has(item.id));
+}
+
+/**
+ * Takes in, as the tablet's edit, each value its records hold of a field
+ * that the item holds none of and has never had an edit of (`held`, each
+ * with when the tablet's record was read), the items locked already: one a
+ * record held while the previous release, which knew no such field, kept it
+ * as sent, so no change of the record brings it in, and the item's none
+ * would be written over it, as a feed rate DYE2 v0.1.34 saved under 1.6.2
+ * (#395). Returns whether any was taken in, so the item's records are due.
+ */
+export async function takeInUnseen(
+  tx: Prisma.TransactionClient,
+  kind: LibraryKind,
+  field: string,
+  held: readonly { id: string; value: unknown; at: Date }[],
+  source: EditSource,
+): Promise<boolean> {
+  let taken = false;
+  for (const { id, value, at } of held) {
+    const current = await readItem(tx, { kind, id });
+    if (!current || current.content[field] !== undefined || Object.prototype.hasOwnProperty.call(current.fieldEdits, field)) continue;
+    taken = (await editContent(tx, { kind, id }, { values: { [field]: value }, at, seenAt: null }, source)).writesDue || taken;
+  }
+  return taken;
+}
+
 /** An item's content as edits merge it, and its fields' latest edits. */
 interface EditedItem {
   content: Record<string, unknown>;

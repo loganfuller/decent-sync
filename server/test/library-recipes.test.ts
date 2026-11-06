@@ -17,8 +17,8 @@ import {
   openDye2RecipeEditor,
   recordedDye2MainTablet,
   recordedDye2Tablet,
+  saveFavouriteInDye2,
   saveInDye2,
-  saveRecipeFromFavouriteEditor,
   selectRecipeInDye2,
 } from "./support/simulated-dye2.js";
 import { recipeStripCells, startStreamline } from "./support/simulated-streamline.js";
@@ -27,10 +27,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #140: the Recipes of a Location, which DYE2 keeps in its
 // `recipes` list in Decaid's store (ADR-0005), reach every tablet at their
-// Location. A recipe saved on one tablet, from DYE2's recipe editor or its
-// Auto Favourites page, joins the Location's Recipes under its record id,
-// opaque as DYE2 makes it, in its Recipe Slot (`stripSlot`) or none, and is
-// written to the Location's other tablets under the same id with its
+// Location. A recipe saved on one tablet, from DYE2's recipe editor, joins
+// the Location's Recipes under its record id, opaque as DYE2 makes it, in
+// its Recipe Slot (`stripSlot`) or none, and is written to the Location's
+// other tablets under the same id with its
 // `stripSlot`, naming its Bean, Grinder and Basket by each tablet's own ids,
 // and to no other Location's; edits merge per field with Conflicts
 // (ADR-0020); a recipe whose `stripSlot` a tablet moves moves its Recipe,
@@ -39,7 +39,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // (ADR-0019). And for ticket #216, DYE2's editor saving only what it changed
 // over a fresh read keeps another tablet's change (decentespresso/dye2#28),
 // which replaced ticket #142's stale-save rule. Through the built plugin in
-// simulated tablets, acting as DYE2 v0.1.33 and Streamline v0.2.23 do
+// simulated tablets, acting as DYE2 v0.1.35 and Streamline v0.2.23 do
 // with the steps recorded from them (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet's store holds. Serials are made up,
@@ -265,20 +265,19 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect(cafeTablet.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "recipes")).toEqual([]);
   });
 
-  it("writes a recipe saved from DYE2's Auto Favourites page, in no slot, to the Location's other tablets under the same id", async () => {
+  it("takes no Recipe from DYE2's Auto Favourites edit page, which saves a favourite from v0.1.34, not a recipe (dye2-v0.1.35/favourites.json)", async () => {
     const { here, one, two } = await lab("Favourite", 42121);
-    // The Workflow the page reads: Decaid's default dial, with the tablet's Grinder at 3 and 1100 RPM.
-    const dialled = { context: { grinderId: RECORDED.grinder, grinderModel: "Fixture Grinder 64", grinderSetting: "3", extras: { rpm: 1100 } } };
+    // The Workflow the page reads: Decaid's default dial, with the tablet's Grinder at 3, 1100 RPM and a feed rate.
+    const dialled = { context: { grinderId: RECORDED.grinder, grinderModel: "Fixture Grinder 64", grinderSetting: "3", extras: { rpm: 1100, feedRate: "MF" } } };
     expect((await one.callApi("PUT", "/workflow", dialled)).status).toBe(200);
-    const saved = await saveRecipeFromFavouriteEditor(one, "Fixture Favourite Recipe");
-    expect(saved).toMatchObject({ [RECIPE_SLOT_FIELD]: null });
-    await expect.poll(async () => (await recipesAt(here)).map(({ name, slot }) => [name, slot])).toEqual([["Fixture Favourite Recipe", null]]);
-    const [joined] = await recipesAt(here);
-    // What the page read from the Workflow, its Grinder in the Library's terms; its profile by title alone names none.
-    expect(joined!.content).toMatchObject({ name: "Fixture Favourite Recipe", dose: 18, yield: 36, grindSetting: 3, rpm: 1100, grinderId: expect.any(String) });
-    expect(joined!.content).not.toHaveProperty("profileId");
-    await expect.poll(() => byId(two, String(saved.id))).toMatchObject({ id: saved.id, [RECIPE_SLOT_FIELD]: null, [GLOBAL_ID_KEY]: joined!.id, name: "Fixture Favourite Recipe" });
-    await expect.poll(() => byId(one, String(saved.id))?.[GLOBAL_ID_KEY]).toBe(joined!.id);
+    const held = dye2List(one, "recipes");
+    const favourite = await saveFavouriteInDye2(one, { title: "Fixture Favourite", favSlot: 1 });
+    expect(favourite.snapshot).toMatchObject({ grinderId: RECORDED.grinder, grindSetting: 3, rpm: 1100, feedRate: "MF" });
+    expect(dye2List(one, "recipes")).toEqual(held);
+    // A recipe the editor saves after it reaches the Location alone: the favourite made none.
+    const { saved } = await (await openDye2RecipeEditor(one)).set({ name: "Fixture Editor Recipe", dose: 18, drink: 36 }).save();
+    await expect.poll(async () => (await recipesAt(here)).map(({ name }) => name)).toEqual(["Fixture Editor Recipe"]);
+    await expect.poll(() => byId(two, String(saved.id))?.[GLOBAL_ID_KEY]).toBe((await recipesAt(here))[0]!.id);
     expect(records(two)).toHaveLength(1);
   });
 

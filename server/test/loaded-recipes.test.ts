@@ -10,7 +10,9 @@ import {
   dye2RecipeIdOf,
   openDye2Dashboard,
   openDye2RecipeEditor,
+  pickFavouriteInDye2,
   recordedDye2MainTablet,
+  saveFavouriteInDye2,
   selectRecipeInDye2,
 } from "./support/simulated-dye2.js";
 import { quiesced } from "./support/quiet.js";
@@ -33,7 +35,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // of the Workflow while a Recipe is loaded (`record`), and reports the recipes
 // it saved at once, never into a recipe applied while the save waited its
 // turn; the server unloads one by having the plugin clear the field.
-// Through the built plugin in simulated tablets running DYE2 v0.1.33 and
+// Through the built plugin in simulated tablets running DYE2 v0.1.35 and
 // Streamline v0.2.23 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 47001.
@@ -345,11 +347,16 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const { machine, tablet, dye2, ethiopia, brazil } = await lab("Unloads", 47051);
     await selectRecipeInDye2(tablet, ETHIOPIA);
     await loads(machine, ethiopia);
-    // A recent favourite's pill on DYE2's dashboard, the only favourites DYE2 makes.
-    const dashboard = await openDye2Dashboard(tablet);
-    expect((await dashboard.applyFavourite({ id: "recent:47051", auto: true, snapshot: { dose: 17.5 } })).workflow?.status).toBe(200);
+    // A favourite saved on DYE2's Auto Favourites edit page, and applied from its Auto Favourites page, as its dashboard's
+    // rail shows recipes only from v0.1.35 (dye2-v0.1.35/favourites.json).
+    const recipes = dye2List(tablet, "recipes");
+    const favourite = await saveFavouriteInDye2(tablet, { title: "Fixture Unloads Favourite", favSlot: 1 });
+    expect(dye2List(tablet, "recipes")).toEqual(recipes);
+    expect((await pickFavouriteInDye2(tablet, String(favourite.id))).applied?.workflow?.status).toBe(200);
     expect(recipeIdInWorkflow(tablet)).toBeNull();
     await loads(machine, null);
+    // Taken out of DYE2's favourites again, so DYE2 derives no favourite from the Workflow below, which it would match.
+    expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/autoFavourites`, [])).status).toBe(200);
 
     // A favourite applied from Streamline's strip.
     const streamline = await startStreamline(tablet);
