@@ -142,7 +142,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   };
   /** A write into a Workflow as a check shows it: as sent, its profile by its title and its steps' temperatures. */
   const shownWrite = ({ profile: written, ...rest }: Record_) =>
-    written === undefined ? rest : { ...rest, profile: { title: (written as Record_).title, temperatures: ((written as Record_).steps as Record_[]).map((step) => step.temperature) } };
+    written === undefined ? rest : { ...rest, profile: { title: (written as Record_).title, temperatures: ((written as Record_).steps as Record_[] | undefined)?.map((step) => step.temperature) } };
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
