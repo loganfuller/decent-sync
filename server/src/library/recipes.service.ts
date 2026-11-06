@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { steamTimeOf } from "@decent-sync/protocol";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { isObject } from "./listed.js";
@@ -25,7 +26,9 @@ export interface RecipeView {
    * `steamStopTemperature`, `hotWaterTemperature`, `hotWaterDuration`,
    * `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`, `flushDuration`
    * and `flushFlow`), and DYE2's display modes `steamMode` and
-   * `hotWaterMode`, each left out where it holds none.
+   * `hotWaterMode`, each left out where it holds none. Its steam time as
+   * `steamTimeOf` reads it: one of 0, as 1.6.2 may have taken one in, is
+   * none, and one above 255 s is 255.
    */
   content: Record<string, unknown>;
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */
@@ -146,7 +149,10 @@ function notFound(): NotFoundException {
 }
 
 function view(row: RecipeRow, location: LocationView | null, { names, at }: Names): RecipeView {
-  const content = isObject(row.content) ? row.content : {};
+  const stored = isObject(row.content) ? row.content : {};
+  const { steamDuration, ...rest } = stored;
+  const steamTime = steamTimeOf(steamDuration);
+  const content = steamTime === null ? rest : { ...stored, steamDuration: steamTime };
   const id = (key: string) => (typeof content[key] === "string" ? (content[key] as string) : null);
   // A Profile's id is Decaid's, kept as it is; the others are UUIDs.
   const name = (kind: string, itemId: string) => names.get(`${kind}:${kind === "profile" ? itemId : itemId.toLowerCase()}`);

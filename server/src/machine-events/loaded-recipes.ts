@@ -513,6 +513,9 @@ async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string) {
   };
 }
 
+/** The parts the plugin leaves out of a Workflow whose steam is off (ADR-0022, Steam on and off). */
+const STEAM_OFF_KEPT: ReadonlySet<LoadedRecipePart> = new Set(["steamTemperature", "steamDuration"]);
+
 /**
  * Records the Workflow Decaid returned for the plugin's write of its Loaded
  * Recipe (`record`, its `context`, steam, hot water and flush settings and
@@ -520,9 +523,9 @@ async function tabletLocals(tx: Prisma.TransactionClient, tabletId: string) {
  * the write set is held as Decaid returned it, and the rest as before; and
  * each part the write set, or carried by the latest edit it carried
  * (`contentSeen`) and left out where the Workflow holds it, a barista
- * changed it meanwhile, which the plugin keeps, or a steam temperature into
- * a Workflow whose steam is off, as taken by the Workflow, so it is not
- * written again until the Recipe changes. A steam, hot water or flush
+ * changed it meanwhile, which the plugin keeps, or a steam temperature or
+ * steam time into a Workflow whose steam is off, as taken by the Workflow,
+ * so it is not written again until the Recipe changes. A steam, hot water or flush
  * setting left out as Decaid refused it for want of a machine stays due.
  * The answer to an unload, which cleared the recipe, or one whose Workflow
  * names another recipe or none by then, leaves nothing named: the Workflow
@@ -575,10 +578,10 @@ export async function recordLoadedRecipeWritten(
         continue;
       }
       // Left out of the write: taken where the Workflow holds it already, where a barista changed it since the server last
-      // knew it, which stays the Machine's own, and a steam temperature left out of a Workflow whose steam is off; not one
-      // Decaid refused for want of a machine, which stays due.
+      // knew it, which stays the Machine's own, and a steam temperature or time left out of a Workflow whose steam is off;
+      // not one Decaid refused for want of a machine, which stays due.
       if (!carried || value === undefined) continue;
-      if (samePart(part, now[part], value) || !samePart(part, now[part], known.held[part]) || (part === "steamTemperature" && steamOff(record))) base[part] = value;
+      if (samePart(part, now[part], value) || !samePart(part, now[part], known.held[part]) || (STEAM_OFF_KEPT.has(part) && steamOff(record))) base[part] = value;
     }
     await saveNamed(tx, tablet.tabletId, { ...known, held, base });
     return "recorded";

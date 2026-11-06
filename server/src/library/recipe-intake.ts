@@ -4,11 +4,13 @@ import {
   RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   STEAM_ON_FROM,
+  STEAM_TIME_FROM,
   dye2GlobalIdOf,
   dye2Records,
   profileAtBrewTemperature,
   recipeSlotOf,
   sameValue,
+  steamTimeOf,
   workflowPatch,
 } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
@@ -101,6 +103,9 @@ const EDITED: Readonly<Record<string, string>> = {
 
 /** The path of a recipe record holding its steam temperature, which DYE2's editor saves as 0 for steam off. */
 const STEAM_TEMPERATURE_PATH = `${DV}.${RECIPE_SETTINGS.steamTemperature.dye2}`;
+
+/** The path of a recipe record holding its steam time, which DYE2's editor saves as 0, steam off from Streamline v0.2.22. */
+const STEAM_TIME_PATH = `${DV}.${RECIPE_SETTINGS.steamDuration.dye2}`;
 
 /** The paths a barista edits, which are taken in as edits of the Recipe: but those DYE2 derives, the barista and drinker, and the server's own field. */
 export const EDITED_PATHS: ReadonlySet<string> = new Set([
@@ -221,9 +226,12 @@ export interface IntakeContext {
  *   of the Recipe's the tablet holds no record of, which it was never
  *   written, where they were;
  * - its steam temperature, but one below STEAM_ON_FROM, which is steam
- *   off, as DYE2's editor saves "Off" as 0: steam on and off is each
- *   Machine's own (`steamOffPaths`), and DYE2 saves none of the steam
- *   settings from a Workflow whose steam is off;
+ *   off, as DYE2's editor saves "Off" as 0; and its steam time, but one
+ *   below STEAM_TIME_FROM, which is steam off from Streamline v0.2.22, as
+ *   DYE2's editor saves 0: steam on and off is each Machine's own
+ *   (`steamOffPaths`), and DYE2 saves none of the steam settings from a
+ *   Workflow whose steam is off; a steam time above STEAM_TIME_TO, which
+ *   DYE2's editor also saves, is STEAM_TIME_TO (`steamTimeOf`);
  * - and the rest of its dial and settings as they are, one the record holds
  *   none of holding none.
  *
@@ -250,7 +258,9 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
-  if (steamOffPaths({ [STEAM_TEMPERATURE_PATH]: view[STEAM_TEMPERATURE_PATH] }).length > 0) delete values.steamTemperature;
+  for (const path of steamOffPaths(view)) delete values[EDITED[path]!];
+  // One above the DE1's longest, which DYE2's editor saves, is the longest (`steamTimeOf`), and written back so.
+  if (typeof values.steamDuration === "number") values.steamDuration = steamTimeOf(values.steamDuration);
   if (changed.has(`${DV}.grinderId`)) {
     const local = view[`${DV}.grinderId`];
     const grinderId = typeof local === "string" ? (ids.item("grinder", local) ?? null) : null;
@@ -330,12 +340,14 @@ export function recipeContent(view: Readonly<RecipeView>, context: IntakeContext
 /**
  * The paths of a tablet's changes of its record (`changed`, its paths with
  * their values) that turn steam off, which is no edit of the Recipe: a steam
- * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off". The
- * Recipe's is written back over it (ADR-0022).
+ * temperature below STEAM_ON_FROM, as DYE2's editor saves for "Off", and a
+ * steam time below STEAM_TIME_FROM, as it saves 0, which Streamline from
+ * v0.2.22 takes for steam off. The Recipe's, or none, is written back over
+ * it (ADR-0022).
  */
 export function steamOffPaths(changed: Readonly<Record<string, unknown>>): string[] {
-  const value = changed[STEAM_TEMPERATURE_PATH];
-  return typeof value === "number" && value < STEAM_ON_FROM ? [STEAM_TEMPERATURE_PATH] : [];
+  const below = (path: string, from: number) => typeof changed[path] === "number" && (changed[path] as number) < from;
+  return [...(below(STEAM_TEMPERATURE_PATH, STEAM_ON_FROM) ? [STEAM_TEMPERATURE_PATH] : []), ...(below(STEAM_TIME_PATH, STEAM_TIME_FROM) ? [STEAM_TIME_PATH] : [])];
 }
 
 /** The paths a barista edited, of those `changed` names (`editedContent` in equipment-intake.ts), that are edits of the Recipe. */
@@ -406,7 +418,9 @@ export interface WriteContext {
  * applies where the Profile is hidden; its brew temperature, its Profile's
  * first step's where it holds none, which DYE2 records into only a record
  * holding one, and applies (ADR-0022); a blank barista and drinker; each
- * steam, hot water and flush setting it holds, blank where it holds none;
+ * steam, hot water and flush setting it holds, blank where it holds none, a
+ * steam time of 0, as 1.6.2 may have taken one in, being none
+ * (`steamTimeOf`);
  * and `title`, `subtitle` and the embedded `workflow` as DYE2 derives them
  * (`recipeWorkflow`).
  */
@@ -454,7 +468,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
     // By volume where it names none, as the management interface shows it: DYE2's editor shows a record holding a
     // temperature and no mode by temperature.
     [`${DV}.hotWaterMode`]: value("hotWaterMode") ?? "vol",
-    ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, value(setting)])),
+    ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`${DV}.${RECIPE_SETTINGS[setting].dye2}`, setting === "steamDuration" ? steamTimeOf(content.steamDuration) : value(setting)])),
     [`${DV}.grind`]: value("grindSetting"),
     [`${DV}.rpm`]: value("rpm"),
     [`${DV}.grinderId`]: local("grinder", grinderId),

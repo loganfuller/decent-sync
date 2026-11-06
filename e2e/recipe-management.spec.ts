@@ -325,23 +325,28 @@ test("a Recipe's page shows its steam, hot water and flush settings, each it hol
   await expect(form.getByLabel("Flush time (s)")).toHaveAttribute("placeholder", "Machine's own");
   // An empty input clears a setting; one outside DYE2's range is refused by the server, saying why, and nothing is saved.
   await form.getByLabel("Steam temperature (°C)").fill("");
+  // A steam time of 0 is steam off from Streamline v0.2.22, each Machine's own, so no Recipe's (#394).
   await form.getByLabel("Steam time (s)").fill("0");
-  await form.getByLabel("Hot water time (s)").fill("3");
+  await form.getByLabel("Hot water time (s)").fill("30");
   await form.getByLabel("Flush time (s)").fill("10");
   await form.getByLabel("Flush flow (ml/s)").fill("4.5");
   await form.getByRole("button", { name: "Save" }).click();
   // Shown above the form, scrolled into view.
+  await expect(form.getByText("steamDuration must be a whole number from 1 to 255")).toBeInViewport();
+  await form.getByLabel("Steam time (s)").fill("45");
+  await form.getByLabel("Hot water time (s)").fill("3");
+  await form.getByRole("button", { name: "Save" }).click();
   await expect(form.getByText("hotWaterDuration must be a whole number from 5 to 120")).toBeInViewport();
   await form.getByLabel("Hot water time (s)").fill("30");
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toBeHidden();
 
-  await shown(steam, { "Steam temperature": "Machine's own", "Steam time": "0 s", "Milk stop": "Off" });
+  await shown(steam, { "Steam temperature": "Machine's own", "Steam time": "45 s", "Milk stop": "Off" });
   await shown(hotWater, { "Hot water time": "30 s", "Hot water volume": "200 ml" });
   await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
   const { recipe: saved } = (await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } };
   expect(saved.content).not.toHaveProperty("steamTemperature");
-  expect(saved.content).toMatchObject({ steamDuration: 0, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
+  expect(saved.content).toMatchObject({ steamDuration: 45, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
 });
 
 test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: the Recipe there leaves its slot, and the copy's history names the original", async ({

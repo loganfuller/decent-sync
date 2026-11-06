@@ -42,7 +42,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded, and so does applying it again after its Profile
 // was edited (decentespresso/dye2#43). Through the built plugin in simulated
-// tablets running DYE2 v0.1.33 and Streamline v0.2.21 as recorded
+// tablets running DYE2 v0.1.33 and Streamline v0.2.23 as recorded
 // (fixtures/decaid/dye2-v0.1.26/ and later), Machine A, and D in the tests
 // that use it, on one server instance and C on another sharing one database,
 // with assertions through the REST API and what each simulated tablet holds.

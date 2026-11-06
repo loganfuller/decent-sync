@@ -189,7 +189,7 @@ var __decentSync = (() => {
   var SETTINGS_FIELDS = {
     machineSettings: [
       // The DE1 holds the fan threshold to 0 to 50 (`MMRItem`), as Streamline's page does (`FAN_THRESHOLD_MAX`).
-      { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet", "putBackByStreamline"] },
+      { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet"] },
       {
         path: "steamPurgeMode",
         label: "Steam purge mode",
@@ -238,7 +238,7 @@ var __decentSync = (() => {
           { value: 0, label: "Force Off" }
         ],
         editableBy: "admin",
-        notes: ["keptByTablet", "putBackByStreamline"]
+        notes: ["keptByTablet"]
       }
     ],
     machineCalibration: [
@@ -877,6 +877,11 @@ var __decentSync = (() => {
     return isLibraryKind(kind) ? LIBRARY_ITEM_KINDS[kind].id : GLOBAL_ITEM_ID;
   }
   var STEAM_ON_FROM = 135;
+  var STEAM_TIME_FROM = 1;
+  var STEAM_TIME_TO = 255;
+  function steamTimeOf(value) {
+    return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
+  }
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var RECORD_CHANGED = "The record changed since the plugin last read the list";
   var SHOTS_STILL_TO_READ = "More Shots are still to be sent than a delete reads; ask again once they are";
@@ -1450,25 +1455,37 @@ var __decentSync = (() => {
     if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
     const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
       const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
-      const value = numberOf(variables[dye2]);
+      const held = numberOf(variables[dye2]);
+      const value = setting === "steamDuration" ? steamTimeOf(held) : held;
       if (value === null || sameNumber(value, numberOf(workflowValueAt(workflow, path)))) return [];
-      if (setting === "steamTemperature" && steamOff(workflow)) return [];
+      if (TURNS_STEAM_ON.has(setting) && steamOff(workflow)) return [];
       return omit.has(setting) ? [] : [[path, value]];
     });
     Object.assign(write, workflowPatch(Object.fromEntries(settings)));
     return Object.keys(write).length > 0 ? write : null;
   }
-  function steamOnAt(workflow) {
+  var TURNS_STEAM_ON = /* @__PURE__ */ new Set(["steamTemperature", "steamDuration"]);
+  function steamOnWith(workflow) {
     const temperature = numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamTemperature.workflow));
-    return temperature !== null && temperature >= STEAM_ON_FROM ? temperature : null;
+    if (temperature === null || temperature < STEAM_ON_FROM) return null;
+    return { temperature, duration: numberOf(workflowValueAt(workflow, RECIPE_SETTINGS.steamDuration.workflow)) };
   }
-  function steamBackOnWrite(workflow, record3, turnedOnAt) {
-    const { dye2, workflow: path } = RECIPE_SETTINGS.steamTemperature;
+  function steamBackOnWrite(workflow, record3, turnedOn) {
+    if (steamOff(workflow)) return null;
     const variables = isObject2(record3.dashboardVariables) ? record3.dashboardVariables : {};
-    const recipes = numberOf(variables[dye2]);
-    const now2 = numberOf(workflowValueAt(workflow, path));
-    if (recipes === null || recipes < STEAM_ON_FROM || !sameNumber(now2, turnedOnAt) || sameNumber(now2, recipes)) return null;
-    return workflowPatch({ [path]: recipes });
+    const recipes = {
+      temperature: numberOf(variables[RECIPE_SETTINGS.steamTemperature.dye2]),
+      duration: steamTimeOf(numberOf(variables[RECIPE_SETTINGS.steamDuration.dye2]))
+    };
+    const fields = {};
+    for (const [part, setting] of [["temperature", "steamTemperature"], ["duration", "steamDuration"]]) {
+      const path = RECIPE_SETTINGS[setting].workflow;
+      const value = recipes[part];
+      const now2 = numberOf(workflowValueAt(workflow, path));
+      if (value === null || part === "temperature" && value < STEAM_ON_FROM) continue;
+      if (sameNumber(now2, turnedOn[part]) && !sameNumber(now2, value)) fields[path] = value;
+    }
+    return Object.keys(fields).length > 0 ? workflowPatch(fields) : null;
   }
   var WORKFLOW_BEAN = ["beanBatchId", "coffeeName", "coffeeRoaster"];
   function numberOf(value) {
@@ -1637,8 +1654,8 @@ var __decentSync = (() => {
       __publicField(this, "loadKept", false);
       /**
        * Steam turned back on with a Recipe loaded, its write of the Recipe's
-       * steam temperature still to make, which the next save of that Recipe and
-       * load makes first (`steamBackOnFirst`); null for none.
+       * steam temperature and time still to make, which the next save of that
+       * Recipe and load makes first (`steamBackOnFirst`); null for none.
        */
       __publicField(this, "steamBackOn", null);
       /**
@@ -1756,14 +1773,14 @@ var __decentSync = (() => {
      * (`changed`) naming the Loaded Recipe is saved into it (`saveSoon`), but
      * for one changing the profile from `previous`, as DYE2 fingerprints one,
      * which DYE2 clears the recipe on. One leaving steam on where it was off
-     * since the last decision (`steamWasOff`, `steamOnAt`), turned back on,
-     * has the save write the Recipe's steam temperature first. A read of the
-     * recipes (`changed` false) saves nothing.
+     * since the last decision (`steamWasOff`, `steamOnWith`), turned back on,
+     * has the save write the Recipe's steam temperature and time first. A
+     * read of the recipes (`changed` false) saves nothing.
      */
     decide(previous, changed) {
       const workflow = this.latest;
       if (workflow === void 0 || this.records === null || this.stopped) return;
-      const turnedOnAt = this.steamWasOff ? steamOnAt(workflow) : null;
+      const turnedOn = this.steamWasOff ? steamOnWith(workflow) : null;
       this.steamWasOff = steamOff(workflow);
       const recordId = dye2RecipeIdOf(workflow);
       const globalId = (recordId === null ? void 0 : this.records.get(recordId))?.globalId ?? null;
@@ -1781,7 +1798,7 @@ var __decentSync = (() => {
       }
       if (!changed || globalId === null || !this.sharing()) return;
       if (previous !== void 0 && dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return;
-      if (turnedOnAt !== null) this.steamBackOn = { globalId, load: this.loads, temperature: turnedOnAt };
+      if (turnedOn !== null) this.steamBackOn = { globalId, load: this.loads, turnedOn };
       this.saveSoon({ globalId, load: this.loads, fingerprint: dye2Fingerprint(workflow.profile) });
     }
     /** Whether the Machine shares and DYE2 is there, so the plugin writes into the Workflow and saves into its recipes. */
@@ -1799,8 +1816,8 @@ var __decentSync = (() => {
      * judged again once Decaid answered that read: a recipe applied
      * meanwhile, whose load write is still to come, or a change of profile,
      * which DYE2 clears the recipe on, is not saved into it. Where steam was
-     * turned back on, the Recipe's steam temperature is written first, or the
-     * save held with that write for a Shot (`steamBackOnFirst`). A save that
+     * turned back on, the Recipe's steam temperature and time are written
+     * first, or the save held with that write for a Shot (`steamBackOnFirst`). A save that
      * fails is tried again at the next change.
      */
     saveSoon(save) {
@@ -1882,10 +1899,10 @@ var __decentSync = (() => {
     /**
      * Before a save into the Loaded Recipe, where steam was turned back on
      * with that Recipe and load (`steamBackOn`): writes the Recipe's steam
-     * temperature, as the tablet's record of it holds it, into the Workflow
-     * (`steamBackOnWrite`), where it still holds the temperature steam came
-     * back at, so DYE2's save, which saves every value of the Workflow the
-     * record holds otherwise, saves none of it. While the Machine pulls a
+     * temperature and time, as the tablet's record of it holds them, into the
+     * Workflow (`steamBackOnWrite`), each where it still holds the one steam
+     * came back with, so DYE2's save, which saves every value of the Workflow
+     * the record holds otherwise, saves neither. While the Machine pulls a
      * Shot, the write, and the save with it, are held until the Shot ends
      * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
      * if Decaid refuses the write, as with no machine connected: the next
@@ -1895,13 +1912,13 @@ var __decentSync = (() => {
       const pending = this.steamBackOn;
       if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
       const record3 = this.records?.get(recordId)?.record;
-      const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.temperature);
+      const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
       if (write !== null) {
         await this.ownWrite(async (answered2) => {
           const answer = await request("PUT", "/workflow", write);
           const updated = answer.ok ? parsed2(answer.text) : void 0;
-          if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on at the Loaded Recipe's steam temperature: ${answer.text.slice(0, 200)}`);
+          if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
           answered2(updated, write);
           this.workflowWritten(workflow, updated);
         });
@@ -2564,7 +2581,7 @@ var __decentSync = (() => {
       machineSettings = false;
     }
   }
-  var STEAM_TEMPERATURE = RECIPE_SETTINGS.steamTemperature.workflow;
+  var STEAM_OFF_KEPT = /* @__PURE__ */ new Set([RECIPE_SETTINGS.steamTemperature.workflow, RECIPE_SETTINGS.steamDuration.workflow]);
   function isMachineSetting(field) {
     return MACHINE_SETTING_PARTS.some((part) => field.startsWith(`${part}.`));
   }
@@ -2583,7 +2600,7 @@ var __decentSync = (() => {
       Object.values(LOADED_RECIPE_PARTS).flatMap((part) => {
         const [first] = part;
         if (!(first in write.fields) || !machineSettings && isMachineSetting(first)) return [];
-        if (first === STEAM_TEMPERATURE && steamOff(workflow)) return [];
+        if (STEAM_OFF_KEPT.has(first) && steamOff(workflow)) return [];
         const held = workflowValueAt(workflow, first);
         const expected = write.expected?.[first];
         if (expected !== void 0 && !sameValue(held, expected) && !sameValue(held, write.fields[first])) return [];

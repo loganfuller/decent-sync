@@ -15,6 +15,57 @@ section).
 
 ## Unreleased
 
+### Update Tablets to Streamline v0.2.23 once this release is deployed
+
+This release follows Streamline v0.2.23
+([ADR-0017](docs/adr/0017-supported-versions.md)), in which a steam time of 0
+is steam off. Deploy it first, then update to v0.2.23 each tablet whose
+Streamline is pinned to an earlier release (DYE2 v0.1.33 or later, as
+before). On Streamline v0.2.22
+or later, the plugin of an earlier release has DYE2 save into the Recipe the
+steam time Streamline picks as steam comes back on, which then reaches every
+Machine with it loaded. Tablets whose Streamline isn't pinned run v0.2.23
+already, as Decaid installs each release within 12 hours.
+
+- A Recipe's steam time is 1 to 255 s, or none; a longer one saved in DYE2's
+  editor is taken as 255 s, the DE1's longest. As it migrates the database,
+  this release makes each Recipe holding a steam time of 0 hold none, a
+  version of its own in its history, and dismisses each open Conflict
+  offering 0. A steam time of 0 saved in DYE2's editor is no edit: the
+  Recipe's, or none, is written back over it.
+- No steam time is written into a Machine's Workflow while its steam is off,
+  as no steam temperature is, since Streamline would show it with the heater
+  off. Its steam flow and milk stop still are.
+- Turning steam back on takes the Recipe's steam time as well as its steam
+  temperature, so the time Streamline comes back with is no edit. Nor is a
+  time picked as steam comes back on, which the Recipe's is written over: a
+  steam time set on Streamline's main page while the heater is off, or Auto
+  Steam choosing a pitcher then, its flow kept. Pick it again once steam is
+  on, and it becomes the Recipe's, as before.
+- Once this release is deployed, give each Recipe holding no steam time one,
+  those whose 0 the migration removed included, before updating pinned
+  Tablets to Streamline v0.2.23. Once Streamline v0.2.23 has turned steam off
+  itself, its heater switch turns it back on at 1 s where the recipe holds
+  no time, as it then remembers the machine's 0 as the last steam time. DYE2
+  saves that 1 s into a Recipe holding none, and it reaches every Machine
+  with the Recipe loaded. A Recipe holding a steam time is put back to it.
+  Tablets already on v0.2.23 are exposed until then, and so is a Recipe left
+  without a steam time later.
+- A fan threshold or refill kit written by a Settings Edit now lasts: on
+  Decaid v0.9.1, Streamline's settings page no longer puts back the value it
+  remembers, and the Settings card no longer says it does. A page left open
+  from 1.6.2 shows that note until it reloads.
+
+Deploy it as any release, beside 1.6.2. For the minute or so that 1.6.2
+still serves beside it, a steam time of 0 it takes in from a tablet is read
+as none by this release. A tablet still on 1.6.2's plugin writes a steam
+time into a Workflow whose steam is off, and puts back only the steam
+temperature as steam comes back on, until Decaid updates its plugin. A tablet
+on this release's plugin connected to 1.6.2 leaves the Recipe's steam time out
+of a Workflow whose steam is off, which 1.6.2 lists among that tablet's
+refusals ("Written, but its record still differs as it did") until the Recipe
+changes or the tablet connects to this release.
+
 ## 1.6.2
 
 ### Tablets need DYE2 v0.1.33 and Streamline v0.2.21

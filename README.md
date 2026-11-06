@@ -528,7 +528,7 @@ the recipe DYE2 and Streamline name in its Workflow as a barista applies one,
 into which the plugin has DYE2 save each change made on the Machine
 ([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)). So
 a Machine that follows Recipes needs DYE2 v0.1.33 or later, and Streamline
-v0.2.21 or later where Streamline is its skin
+v0.2.23 or later where Streamline is its skin
 ([ADR-0017](docs/adr/0017-supported-versions.md)).
 
 | Setting | |

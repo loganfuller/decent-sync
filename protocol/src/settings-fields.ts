@@ -4,7 +4,7 @@
 //
 // Each field is named as Decaid v0.9.0's API names it. Labels, units, ranges,
 // steps and choices follow Streamline's settings page
-// (streamline-js:src/settings/settings.js at v0.2.21) where it has them, and
+// (streamline-js:src/settings/settings.js at v0.2.23) where it has them, and
 // Decaid's own limits otherwise. A reported value outside a field's range is
 // shown as it is; only an edit must be in range.
 
@@ -91,16 +91,9 @@ export interface SettingsChoice {
  *   backups leave it out, so a replacement Tablet, or a reset of Decaid's
  *   data, puts Decaid's default back (`MachineSettingsStore`;
  *   decentespresso/decaid#1043);
- * - `putBackByStreamline`: Streamline's settings page, as it next opens,
- *   writes back the value a barista saved there where the Machine reads what
- *   Decaid v0.9.0 wrote as it connected, a fan threshold of 50 or the refill
- *   kit on Auto-Detect, and keeps any other value changed elsewhere
- *   (`checkMachineSettingsDrift`, `RESET_ON_CONNECT` in
- *   streamline-js:src/settings/settings-restore.js at v0.2.21;
- *   decentespresso/streamline-js#179);
  * - `restartAfterChange`: the Machine takes the new value once restarted.
  */
-export type SettingsNote = "keptByTablet" | "putBackByStreamline" | "restartAfterChange";
+export type SettingsNote = "keptByTablet" | "restartAfterChange";
 
 interface SettingsFieldBase {
   /** Decaid's name for the field, its key in the collection; for `sensorCalibration`, the sensor target. */
@@ -152,7 +145,7 @@ const SET_BY_WORKFLOW = "Set by the Workflow";
 export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsField[]> = {
   machineSettings: [
     // The DE1 holds the fan threshold to 0 to 50 (`MMRItem`), as Streamline's page does (`FAN_THRESHOLD_MAX`).
-    { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet", "putBackByStreamline"] },
+    { path: "fan", label: "Fan threshold", unit: "°C", kind: "wholeNumber", min: 0, max: 50, editableBy: "staff", notes: ["keptByTablet"] },
     {
       path: "steamPurgeMode",
       label: "Steam purge mode",
@@ -201,7 +194,7 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
         { value: 0, label: "Force Off" },
       ],
       editableBy: "admin",
-      notes: ["keptByTablet", "putBackByStreamline"],
+      notes: ["keptByTablet"],
     },
   ],
   machineCalibration: [

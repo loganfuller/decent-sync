@@ -8,6 +8,7 @@ import {
   grindSettingOf,
   sameGrindSetting,
   sameValue,
+  steamTimeOf,
   workflowValueAt,
 } from "@decent-sync/protocol";
 import { isObject } from "./listed.js";
@@ -231,7 +232,8 @@ export function valuesFromWorkflow(
  * Profile by Decaid's id, the same on every tablet. Its yield is its
  * dose times its ratio where it holds none, as DYE2 applies one, and its
  * brew temperature its Profile's first step's (`profileTemperature`) where
- * it holds none, as its records hold one (`recipeRecord`).
+ * it holds none, as its records hold one (`recipeRecord`). A steam time of
+ * 0, as 1.6.2 may have taken one in, is none (`steamTimeOf`).
  */
 export function recipeParts(
   content: Readonly<Record<string, unknown>>,
@@ -244,6 +246,7 @@ export function recipeParts(
     const kind = ITEM_PARTS[part];
     parts[part] = kind !== undefined ? (typeof value === "string" ? local(kind, value) : null) : partValue(part, value);
     if (part === "profile") parts[part] = textOf(value);
+    if (part === "steamDuration") parts[part] = steamTimeOf(value);
   }
   const [dose, ratio] = [numberOf(content.dose), numberOf(content.ratio)];
   if (parts.yield === null && dose !== null && ratio !== null) parts.yield = Math.round(dose * ratio * 10) / 10;

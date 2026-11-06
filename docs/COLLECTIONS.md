@@ -116,12 +116,12 @@ day, a time written HH:MM, days of the week, a local date and time, or wake
 schedules), its range and its step or choices, whether none is a value too,
 who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: kept by the Tablet, so
-a replacement Tablet or a reset of Decaid's data puts Decaid's default back;
-put back by Streamline's settings page where the Machine reads a fan
-threshold of 50 or a refill kit of Auto-Detect, the two values Decaid v0.9.0
-wrote as it connected (ADR-0023); or to restart the Machine after a change.
+a replacement Tablet or a reset of Decaid's data puts Decaid's default back
+(ADR-0023); or to restart the Machine after a change. Streamline's settings
+page no longer puts back a fan threshold of 50 or a refill kit of
+Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.
 Labels, units, ranges, steps and choices follow Streamline's settings page at
-v0.2.21, and Decaid's own limits where it has none. A ±
+v0.2.23, and Decaid's own limits where it has none. A ±
 button's increment is no step: Streamline's move the flow multipliers of the
 Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
 of 0 or more, so their step of 0.01 is chosen here (ticket
@@ -510,7 +510,14 @@ Decaid's 12 two lower (1.005, 1.013 and 1.023). An edit to one the Machine
 holds lower is answered Stored otherwise.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
-collection's next interval. The `volumeFlowMultiplier`,
+collection's next interval. Streamline's calibration page edits it too, from
+v0.2.23 (`0cb60bb`), through `POST /api/v1/machine/calibration`, the route
+the Flow multiplier Settings Edit uses, and only as a barista changes it
+there: its ± buttons step it by 0.01, and it rounds what is typed to 0.01,
+within 0.13 to 2.0 (`clampFlowMultiplier` and `FLOW_MULTIPLIER_STEP` in
+`streamline-js:src/modules/sensor-cal.js`), where the field takes a
+thousandth. Opening the page writes nothing, so a value set here between two
+of its steps stands until a barista changes it there. The `volumeFlowMultiplier`,
 `hotWaterFlowMultiplier` and `weightFlowMultiplier` in `appSettings` are not
 calibration but Decaid's lookahead times, in seconds, for stopping at a volume
 or weight (`ShotSequencer`, `HotWaterSequencer`).
