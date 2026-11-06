@@ -488,7 +488,13 @@ tablets, below).
   which Decaid drops, and writes no Recipe's feed rate into a Workflow, so
   such a write is listed among that tablet's refusals ("Written, but its
   record still differs as it did") until the item changes or the tablet
-  connects with this release's plugin, which writes it. A Basket's fields are those DYE2's baskets
+  connects with this release's plugin, which writes it. The previous
+  release's server takes in no feed rate or note, so where a tablet's
+  record holds one its Recipe or Grinder holds none of, and none was ever
+  edited, as one saved in DYE2 while that server served the tablet, the
+  next report outside the tablet joining its Location takes it in
+  (`takeInUnseen` in `content-edits.ts`), rather than writing the record
+  back without it. A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
   `diameterMm` and `notes`, and a Tool's those of its equipment page, its
   name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,

@@ -28,6 +28,31 @@ export async function lockItems(tx: Prisma.TransactionClient, kind: LibraryKind,
     SELECT 1 FROM ${Prisma.raw(description.table)} WHERE id = ANY(${idsSql(description, [...new Set(ids)])}) ORDER BY id FOR NO KEY UPDATE`;
 }
 
+/**
+ * Takes in, as the tablet's edit, each value its records hold of a field
+ * that the item holds none of and has never had an edit of (`held`, each
+ * with when the tablet's record was read), the items locked already: one a
+ * record held while the previous release, which knew no such field, kept it
+ * as sent, so no change of the record brings it in, and the item's none
+ * would be written over it, as a feed rate DYE2 v0.1.34 saved under 1.6.2
+ * (#395). Returns whether any was taken in, so the item's records are due.
+ */
+export async function takeInUnseen(
+  tx: Prisma.TransactionClient,
+  kind: LibraryKind,
+  field: string,
+  held: readonly { id: string; value: unknown; at: Date }[],
+  source: EditSource,
+): Promise<boolean> {
+  let taken = false;
+  for (const { id, value, at } of held) {
+    const current = await readItem(tx, { kind, id });
+    if (!current || current.content[field] !== undefined || Object.prototype.hasOwnProperty.call(current.fieldEdits, field)) continue;
+    taken = (await editContent(tx, { kind, id }, { values: { [field]: value }, at, seenAt: null }, source)).writesDue || taken;
+  }
+  return taken;
+}
+
 /** An item's content as edits merge it, and its fields' latest edits. */
 interface EditedItem {
   content: Record<string, unknown>;

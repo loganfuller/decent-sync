@@ -4,7 +4,7 @@ import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
 import { archivingInAnswer } from "./bean-intake.js";
-import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined } from "./content-edits.js";
+import { type EditOutcome, editContent, holdsWrittenContent, lockItems, recordJoined, takeInUnseen } from "./content-edits.js";
 import { type ReportedGrinder, grinderContent, planGrinderIntake, readReportedGrinders } from "./grinder-intake.js";
 import { tabletSource } from "./history.js";
 import {
@@ -93,7 +93,8 @@ export async function takeInGrinders(
   const named = reported.flatMap((grinder) => (grinder.globalId !== null && !mappedIds.has(grinder.localId) ? [grinder.globalId] : []));
   const library = named.length === 0 ? [] : await tx.grinder.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planGrinderIntake(reported, mapped, new Set(library.map((grinder) => grinder.id)), listedIds(value));
-  if (steps.length === 0) {
+  const unseen = joining ? [] : unseenFeedRates(reported, mapped);
+  if (steps.length === 0 && unseen.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
     return takenInAt;
   }
@@ -104,7 +105,7 @@ export async function takeInGrinders(
     : steps.flatMap((step) =>
         (step.kind === "update" && (Object.keys(step.content).length > 0 || step.archived !== undefined)) || (step.kind === "delete" && step.archived) ? [step.grinderId] : [],
       );
-  await lockItems(tx, "grinder", edited);
+  await lockItems(tx, "grinder", [...edited, ...unseen.map((held) => held.id)]);
   /** The Grinders the report edits that belong to the tablet's Location, whose Archived state it may change. */
   const here = new Set(
     edited.length === 0 ? [] : (await tx.grinder.findMany({ where: { id: { in: edited }, locationId }, select: { id: true } })).map((grinder) => grinder.id),
@@ -153,8 +154,26 @@ export async function takeInGrinders(
     // A record whose global id is lost has it written back.
     if (grinder.globalId !== grinderId) writesDue = true;
   }
+  writesDue = (await takeInUnseen(tx, "grinder", "feedRate", unseen, source)) || writesDue;
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
+}
+
+/**
+ * The feed rate notes the tablet's records of its Grinders hold in their
+ * `extras`, each by its Grinder, with when the record was read: release
+ * 1.6.2 kept a record as sent without taking in a note DYE2 v0.1.34 saved
+ * there, so one still held is taken in where the Grinder never had one
+ * (`takeInUnseen`), rather than written over (#395).
+ */
+function unseenFeedRates(reported: readonly ReportedGrinder[], mapped: readonly { grinderId: string; localId: string }[]): { id: string; value: string; at: Date }[] {
+  const byLocalId = new Map(mapped.map((grinder) => [grinder.localId, grinder.grinderId]));
+  return reported.flatMap((grinder) => {
+    const grinderId = byLocalId.get(grinder.localId);
+    const feedRate = grinderContent(grinder.record).feedRate;
+    if (grinderId === undefined || (grinder.globalId !== null && grinder.globalId !== grinderId)) return [];
+    return typeof feedRate === "string" && feedRate.trim() !== "" ? [{ id: grinderId, value: feedRate, at: grinder.updatedAt }] : [];
+  });
 }
 
 /** A reported grinder as what the Library leaves out is judged: set aside when archived on the tablet. */

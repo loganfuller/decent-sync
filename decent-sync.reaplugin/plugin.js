@@ -1832,6 +1832,8 @@ var __decentSync = (() => {
         if (this.queuedSave === save) this.queuedSave = null;
         const current = () => !this.stopped && this.loaded === save.globalId && this.loads === save.load && this.sharing();
         if (!current()) return;
+        if (this.steamBackOnFor(save)) this.sawRecipes(await this.readRecipes());
+        if (!current()) return;
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const named = recordId === null ? void 0 : this.records?.get(recordId)?.globalId;
@@ -1902,19 +1904,20 @@ var __decentSync = (() => {
     /**
      * Before a save into the Loaded Recipe, where steam was turned back on with
      * that Recipe and load (`steamBackOn`): writes the Recipe's steam
-     * temperature and time, as the tablet's record of it holds them, read
-     * afresh, into the Workflow (`steamBackOnWrite`), each where it still holds
-     * the one steam came back with, so DYE2's save, which saves every value of
-     * the Workflow the record holds otherwise, saves neither. While the Machine
+     * temperature and time, as the tablet's record of it holds them, into the
+     * Workflow (`steamBackOnWrite`), each where it still holds the one steam
+     * came back with, so DYE2's save, which saves every value of the Workflow
+     * the record holds otherwise, saves neither. `saveSoon` reads the records
+     * afresh before the Workflow, so the Workflow judged is no older than the
+     * record, and a load decided on during that read is not written into. While the Machine
      * pulls a Shot, the write, and the save with it, are held until the Shot
      * ends (`resumeSteamBackOn`). Resolves with whether the save goes on.
      * Throws if Decaid refuses the write, as with no machine connected: the
      * next change tries again.
      */
     async steamBackOnFirst(workflow, recordId, save) {
-      const pending = this.steamBackOn;
-      if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
-      this.sawRecipes(await this.readRecipes());
+      const pending = this.steamBackOnFor(save);
+      if (pending === null) return true;
       const record3 = this.records?.get(recordId)?.record;
       const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
@@ -1929,6 +1932,11 @@ var __decentSync = (() => {
       }
       if (this.steamBackOn === pending) this.steamBackOn = null;
       return true;
+    }
+    /** Where steam was turned back on with the Recipe and load the save is for, what it came back with (`steamBackOn`); otherwise null. */
+    steamBackOnFor(save) {
+      const pending = this.steamBackOn;
+      return pending !== null && pending.globalId === save.globalId && pending.load === save.load ? pending : null;
     }
     /** Once a Shot ends: saves where steam turned back on during it is still to be written, which writes it first. */
     resumeSteamBackOn() {

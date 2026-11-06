@@ -3,7 +3,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkRecipeShots, profileOfSql } from "../shots/links.js";
-import { type EditOutcome, editContent, lockItems, recordJoined } from "./content-edits.js";
+import { type EditOutcome, editContent, lockItems, recordJoined, takeInUnseen } from "./content-edits.js";
 import { markUnrecognised } from "./dye2-lists.js";
 import { recordedByDye2, recipeMapped } from "../machine-events/loaded-recipes.js";
 import { answeredEquipment, editedContent } from "./equipment-intake.js";
@@ -257,13 +257,14 @@ export async function takeInRecipes(
     SELECT id::text AS id, record_id AS "recordId", archived FROM recipes WHERE location_id = ${locationId}::uuid`;
   const recordIds = new Map(own.flatMap((recipe) => (recipe.archived ? [] : [[recipe.recordId, recipe.id] as const])));
   const steps = planRecipeIntake(reported, mapped, recordIds, listed, new Set(own.map((recipe) => recipe.id)));
-  if (steps.length === 0) {
+  const unseen = joining ? [] : unseenFeedRates(reported, mapped, new Set(own.map((recipe) => recipe.id)));
+  if (steps.length === 0 && unseen.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
     return takenInAt;
   }
   // The Recipes the report edits, compared with their content.
   const edited = steps.flatMap((step) => ((step.kind === "update" || step.kind === "edit") && !joining ? [step.itemId] : []));
-  await lockItems(tx, "recipe", edited);
+  await lockItems(tx, "recipe", [...edited, ...unseen.map((held) => held.id)]);
   const recipes = await readRecipes(tx, edited);
   const ids = await readTabletIds(tx, tablet.tabletId);
   const reportedViews = steps.flatMap((step) => ("reported" in step ? [recipeView(step.reported.record)] : []));
@@ -335,9 +336,27 @@ export async function takeInRecipes(
     await saveRecord(tx, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { contentSeen: null, listed: true });
     if (step.kind !== "update") await recordMapped(tx, tablet, itemId, record.localId);
   }
+  writesDue = (await takeInUnseen(tx, "recipe", "feedRate", unseen, source)) || writesDue;
   await moveSlots(tx, locationId, moves, source);
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
+}
+
+/**
+ * The feed rates the tablet's records of its Location's Recipes (`own`)
+ * hold, each by its Recipe, with when the record was read: release 1.6.2
+ * kept a record as sent without taking in a feed rate DYE2 v0.1.34 saved
+ * there, so one still held is taken in where the Recipe never had one
+ * (`takeInUnseen`), rather than written over (#395).
+ */
+function unseenFeedRates(reported: readonly ReportedRecipe[], mapped: readonly MappedRecipe[], own: ReadonlySet<string>): { id: string; value: string; at: Date }[] {
+  const byLocalId = new Map(mapped.map((record) => [record.localId, record.itemId]));
+  return reported.flatMap((record) => {
+    const itemId = byLocalId.get(record.localId);
+    const feedRate = recipeView(record.record)["dashboardVariables.feedRate"];
+    if (itemId === undefined || !own.has(itemId) || (record.globalId !== null && record.globalId !== itemId)) return [];
+    return typeof feedRate === "string" && feedRate.trim() !== "" ? [{ id: itemId, value: feedRate, at: record.updatedAt }] : [];
+  });
 }
 
 /**
