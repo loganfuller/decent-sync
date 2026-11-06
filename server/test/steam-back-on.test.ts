@@ -2,7 +2,7 @@ import { RECIPE_SETTINGS, type RecipeSetting, dye2GlobalIdOf, workflowValueAt } 
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
-import { SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
+import { SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import { quiesced } from "./support/quiet.js";
 import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
@@ -17,7 +17,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // the tablet's record, the Recipe or another Machine. Other changes in the
 // same Workflow change are saved as usual, and a steam temperature changed
 // once steam is on is the Recipe's edit, as before; steam turned off and
-// back on while a write of the plugin's is under way is turned back on too.
+// back on while a write of the plugin's is under way is turned back on too,
+// and one DYE2's editor saves, turning steam back on while a save of the
+// plugin's is reading the Workflow, is the Recipe's edit.
 // Through the built plugin in simulated tablets running DYE2 v0.1.35 and
 // Streamline v0.2.23 as recorded (fixtures/decaid/dye2-v0.1.26/ and
 // fixtures/decaid/streamline-v0.2.23/), Machine A on one server instance and
@@ -300,6 +302,26 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     expect(watch.taken.c).toEqual([0, 140, 160]);
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([160, edits]);
     expect([watch.saved(), watch.taken.a, recorded(c, "steamTemperature"), setting(a, "hotWaterVolume")]).toEqual([[], [], 160, 130]);
+  });
+
+  it("keeps a steam temperature DYE2's editor on C saves while C's steam is off as the Recipe's edit, its apply turning steam back on while a save of the plugin's waits for Decaid's read of C's Workflow", async () => {
+    const { a, c, one, quiet } = await lab("During save", 49251);
+    await c.changeSettings({ steamSettings: { targetTemperature: 0 } });
+    await quiet();
+    const edits = await editsOf(one, "steamTemperature");
+    // A feed rate typed on C, which the plugin saves into the Recipe once it has read C's Workflow, a read Decaid holds.
+    const held = c.holdRequests("GET", "/workflow");
+    await c.changeSettings({ context: { extras: { feedRate: "MF" } } });
+    await expect.poll(() => held.arrived, { timeout: 15_000, interval: 5 }).toBeGreaterThan(0);
+    // Meanwhile DYE2's editor on C saves a steam temperature, and applies the recipe again, which turns steam back on with it.
+    await (await openDye2RecipeEditor(c, { id: LIBRARY })).set({ steamTempC: 150 }).save();
+    await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
+    held.release();
+    await expect.poll(async () => (await recipe(one)).content.feedRate, { timeout: 15_000 }).toBe("MF");
+    // Once C's report, the plugin's save and the write into A are done.
+    await quiet();
+    expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([150, edits + 1]);
+    expect([setting(c, "steamTemperature"), recorded(c, "steamTemperature"), recorded(a, "steamTemperature")]).toEqual([150, 150, 150]);
   });
 
   it("has Auto Steam, choosing a pitcher with C's heater off, turn its steam back on at the Recipe's steam temperature and time, not the one Streamline remembers or the pitcher's, while the pitcher's flow, in the same change, is saved into the Recipe", async () => {
