@@ -43,6 +43,7 @@ import {
   RECIPE_SETTINGS,
   LOADED_RECIPE_PARTS,
   steamOff,
+  steamTimeOf,
   MAX_REFUSAL_LENGTH,
   MAX_WRITTEN_FIELDS,
   PROTOCOL_VERSION,
@@ -923,6 +924,12 @@ describe("Library writes", () => {
     expect(steamOff({ steamSettings: { targetTemperature: 134 } })).toBe(true);
     expect(steamOff({ steamSettings: { targetTemperature: 135 } })).toBe(false);
     expect(steamOff({})).toBe(false);
+  });
+
+  it("reads a steam time of 1 to 255 s as a Recipe holds one: 0 is steam off from Streamline v0.2.22, so none, and a longer one is the DE1's 255 s (#394)", () => {
+    expect([1, 30, 255].map(steamTimeOf)).toEqual([1, 30, 255]);
+    expect([256, 300].map(steamTimeOf)).toEqual([255, 255]);
+    expect([0, 0.5, -1, null, undefined, "30", Number.NaN].map(steamTimeOf)).toEqual([null, null, null, null, null, null, null]);
   });
 
   it("matches Baskets and Tools by name, ignoring case and white space at either end", () => {

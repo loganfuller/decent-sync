@@ -636,8 +636,8 @@ parts to the Recipe's content both ways.
   record, as DYE2's editor saves "Off" (0), and a steam time below 1 s, as
   it saves 0, are never taken in (`steamOffPaths` in `recipe-intake.ts`),
   and the Recipe's, or none, is written back into the record; a stored
-  steam time of 0, as 1.6.2 may take one in, is read as none
-  (`steamTimeOf`). Steam turned back on takes the Recipe's steam
+  steam time of 0, as 1.6.2 may take one in, is read as none, and one above
+  255 s, taken in or stored, as 255 s (`steamTimeOf`). Steam turned back on takes the Recipe's steam
   temperature and time in the plugin, before DYE2 saves (Steam turned back
   on, above), so the server is never brought those it came back with as an
   edit, and nothing of the server's takes part in it.

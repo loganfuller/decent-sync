@@ -230,7 +230,8 @@ export interface IntakeContext {
  *   below STEAM_TIME_FROM, which is steam off from Streamline v0.2.22, as
  *   DYE2's editor saves 0: steam on and off is each Machine's own
  *   (`steamOffPaths`), and DYE2 saves none of the steam settings from a
- *   Workflow whose steam is off;
+ *   Workflow whose steam is off; a steam time above STEAM_TIME_TO, which
+ *   DYE2's editor also saves, is STEAM_TIME_TO (`steamTimeOf`);
  * - and the rest of its dial and settings as they are, one the record holds
  *   none of holding none.
  *
@@ -258,6 +259,8 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;
   }
   for (const path of steamOffPaths(view)) delete values[EDITED[path]!];
+  // One above the DE1's longest, which DYE2's editor saves, is the longest (`steamTimeOf`), and written back so.
+  if (typeof values.steamDuration === "number") values.steamDuration = steamTimeOf(values.steamDuration);
   if (changed.has(`${DV}.grinderId`)) {
     const local = view[`${DV}.grinderId`];
     const grinderId = typeof local === "string" ? (ids.item("grinder", local) ?? null) : null;

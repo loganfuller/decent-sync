@@ -878,8 +878,9 @@ var __decentSync = (() => {
   }
   var STEAM_ON_FROM = 135;
   var STEAM_TIME_FROM = 1;
+  var STEAM_TIME_TO = 255;
   function steamTimeOf(value) {
-    return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? value : null;
+    return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
   }
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var RECORD_CHANGED = "The record changed since the plugin last read the list";

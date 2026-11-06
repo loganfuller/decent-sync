@@ -1132,11 +1132,13 @@ export const STEAM_TIME_TO = 255;
 
 /**
  * A steam time, as a Recipe holds one: a number of STEAM_TIME_FROM s or
- * more. One below it, 0 included, is steam off, which is none; and so is
- * anything but a number.
+ * more, one above STEAM_TIME_TO taken as STEAM_TIME_TO, as Streamline clamps
+ * one it writes and the DE1 holds no longer one (DYE2's editor saves any).
+ * One below STEAM_TIME_FROM, 0 included, is steam off, which is none; and so
+ * is anything but a number.
  */
 export function steamTimeOf(value: unknown): number | null {
-  return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? value : null;
+  return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
 }
 
 /**

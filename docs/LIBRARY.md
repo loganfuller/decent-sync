@@ -548,8 +548,10 @@ tablets, below).
   a steam temperature from 135 to 170 °C, with no "Off"; a milk stop of 0
   (off) or from 30 to 80 °C; a hot water time from 5 to 120 s; a hot water
   flow from 0.5 to 8 ml/s; a flush temperature from 5 to 95 °C; a flush flow
-  from 1 to 8 ml/s; and a steam time, steam flow, hot water volume, hot
-  water temperature or flush time of 0 or more. Its steam and hot water
+  from 1 to 8 ml/s; a steam time from 1 to 255 s, as one of 0 is steam
+  off (Steam, hot water and flush settings, below) and the DE1 holds no
+  longer one; and a steam flow, hot water volume, hot water temperature or
+  flush time of 0 or more. Its steam and hot water
   modes, only which value DYE2's stepper shows, stay as a tablet saved them,
   a new one's by flow and by volume, as DYE2's editor makes one, and are
   not set here (400). A new one holds no steam, hot water or flush setting,
@@ -1807,7 +1809,8 @@ as it turns steam off, and shows it as "Off". So a Recipe's steam time is 1
 to 255 s (`STEAM_TIME_FROM`, `STEAM_TIME_TO`) or none, a tablet's change of
 its record to 0, as DYE2's editor saves one, is no edit, and the Recipe's,
 or none, is written back over it (`steamOffPaths`); a stored 0, as 1.6.2
-may take one in, is read as none (`steamTimeOf`). A steam edit made on one
+may take one in, is read as none, and a time above 255 s, as DYE2's editor
+saves any, as 255 s, which is written back (`steamTimeOf`). A steam edit made on one
 Machine reaches another whose steam is off without turning it on, its
 temperature and time held in the record, which steam comes back on with.
 Turning steam back on takes the Loaded Recipe's steam temperature and steam

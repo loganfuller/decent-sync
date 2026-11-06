@@ -296,7 +296,8 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * editor offers, a whole number where Decaid's field is an int: a steam
  * temperature with no "Off", a steam time from 1 s to 255 s, as a steam time
  * of 0 is steam off from Streamline v0.2.22 and the DE1 holds no longer one
- * (STEAM_TIME_FROM, STEAM_TIME_TO), and a milk stop of 0 for off. Whether it is
+ * (STEAM_TIME_FROM, STEAM_TIME_TO; a tablet's longer one is taken as 255 s,
+ * `steamTimeOf`), and a milk stop of 0 for off. Whether it is
  * shown on Streamline's strip is no field of its own: it is shown exactly
  * while it is in a slot (recipes.ts).
  */

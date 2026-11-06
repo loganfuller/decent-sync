@@ -469,6 +469,17 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     // decentespresso/dye2#46 (ADR-0022), A's own, which the server writes nothing over.
     expect([setting(a, "steamTemperature"), setting(a, "steamDuration")]).toEqual([150, 0]);
 
+    // One longer than the DE1's 255 s, which DYE2's editor saves too, is the Recipe's edit at 255 s, written back into A's record
+    // and Workflow, and C's.
+    await apart();
+    await (await openDye2RecipeEditor(a, { id: LIBRARY })).set({ steam: { mode: "time", value: 300 } }).save();
+    await expect.poll(async () => (await recipe(one)).content.steamDuration, { timeout: 15_000 }).toBe(255);
+    await expect.poll(() => [recorded(a, "steamDuration"), recorded(c, "steamDuration"), setting(c, "steamDuration")], { timeout: 15_000 }).toEqual([255, 255, 255]);
+    await expect.poll(() => setting(a, "steamDuration"), { timeout: 15_000 }).toBe(255);
+    // Once A's report, the writes of the record and the Workflows are done.
+    await quiet();
+    expect([(await recipe(one)).content.steamDuration, await editsOf(one, "steamDuration")]).toEqual([255, edits + 1]);
+
     // The Brazil's Recipe holds no steam time: one of 0 saved there leaves its records holding none.
     const brazil = (tablet: SimulatedTablet) => variables(record(tablet, BRAZIL))[RECIPE_SETTINGS.steamDuration.dye2] ?? null;
     expect((await recipe(two)).content).not.toHaveProperty("steamDuration");

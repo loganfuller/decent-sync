@@ -19,14 +19,16 @@ section).
 
 This release follows Streamline v0.2.23
 ([ADR-0017](docs/adr/0017-supported-versions.md)), in which a steam time of 0
-is steam off. Deploy it first, then update each tablet whose Streamline is
-pinned to v0.2.23 (DYE2 v0.1.33 or later, as before). On Streamline v0.2.22
+is steam off. Deploy it first, then update to v0.2.23 each tablet whose
+Streamline is pinned to an earlier release (DYE2 v0.1.33 or later, as
+before). On Streamline v0.2.22
 or later, the plugin of an earlier release has DYE2 save into the Recipe the
 steam time Streamline picks as steam comes back on, which then reaches every
 Machine with it loaded. Tablets whose Streamline isn't pinned run v0.2.23
 already, as Decaid installs each release within 12 hours.
 
-- A Recipe's steam time is 1 to 255 s, or none. As it migrates the database,
+- A Recipe's steam time is 1 to 255 s, or none; a longer one saved in DYE2's
+  editor is taken as 255 s, the DE1's longest. As it migrates the database,
   this release makes each Recipe holding a steam time of 0 hold none, a
   version of its own in its history, and dismisses each open Conflict
   offering 0. A steam time of 0 saved in DYE2's editor is no edit: the
