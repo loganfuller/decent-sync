@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, dye2GlobalIdOf, dye2RecipeIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, dye2GlobalIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
@@ -140,6 +140,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     };
     return writes;
   };
+  /** A write into a Workflow as a check shows it: as sent, its profile by its title and its steps' temperatures. */
+  const shownWrite = ({ profile: written, ...rest }: Record_) =>
+    written === undefined ? rest : { ...rest, profile: { title: (written as Record_).title, temperatures: ((written as Record_).steps as Record_[] | undefined)?.map((step) => step.temperature) } };
 
   /**
    * A Location with Machines A, whose tablet is the v0.1.26 recording's, on
@@ -148,12 +151,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * recipes, which every tablet there is written under their record ids,
    * and the Ethiopia's (in no slot) is applied from DYE2's Select Recipe page
    * on A and C, and the Brazil's (in slot 2) on D, which each loads, in that
-   * order. A's machine is connected. `apiDelayMs` slows the answers A's
-   * Decaid gives the plugin, as the simulated tablet's option of that name
-   * does. `quiet()` resolves once every tablet and Machine of the lab, and
-   * the Streamlines given, have nothing left under way (`quiesced`), so a
-   * wrong write a step set off has landed before a check after it that it
-   * did not happen.
+   * order, each once the server holds it loaded: the writes into its
+   * Workflow the load sets off, the plugin's and then the server's, may
+   * still be under way as the lab returns. A's machine is connected.
+   * `apiDelayMs` slows the answers A's Decaid gives the plugin, as the
+   * simulated tablet's option of that name does. `quiet()` resolves once
+   * every tablet and Machine of the lab, and the Streamlines given, have
+   * nothing left under way (`quiesced`), so a wrong write a step set off has
+   * landed before a check after it that it did not happen, and the writes
+   * the loads set off before a count of writes begins.
    */
   async function lab<WithD extends boolean = false>(
     scenario: string,
@@ -681,16 +687,20 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
 
   it("writes a Profile edit into A's and C's Workflows as one write each, through which DYE2 keeps the Recipe named and loaded on both, the server recording no unload", async () => {
     const { machines, dye2, a, c, one, quiet } = await lab("Profile", 48061);
+    // Once the writes C's load set off are done, which would be counted below otherwise: the server's may land after the lab
+    // returns.
+    await quiet();
     const times = await Promise.all([loadedTimes(machines.a), loadedTimes(machines.c)]);
     const writes = [workflowWrites(a), workflowWrites(c)];
     await patch(one, { profileId: CLASSIC });
     await expect.poll(() => [profile(a).title, profile(c).title], { timeout: 15_000 }).toEqual(["Classic Italian espresso", "Classic Italian espresso"]);
     // Once each write, and A's and C's reports of it, are done.
     await quiet();
-    for (const [tablet, sent] of [[a, writes[0]!], [c, writes[1]!]] as const) {
-      expect(sent).toHaveLength(1);
-      // The write names no recipe: the Workflow names it already.
-      expect([dye2RecipeIdOf(sent[0]), (sent[0]!.profile as Record_).title]).toEqual([null, "Classic Italian espresso"]);
+    // One write each, of the Profile alone, its four steps at the Recipe's brew temperature, 92: it names no recipe, as the
+    // Workflow names it already.
+    const profileWrite = { profile: { title: "Classic Italian espresso", temperatures: [92, 92, 92, 92] } };
+    expect({ a: writes[0]!.map(shownWrite), c: writes[1]!.map(shownWrite) }).toEqual({ a: [profileWrite], c: [profileWrite] });
+    for (const tablet of [a, c]) {
       // The tablet's record holds the Profile in jsonb's key order, as the server writes a record: another order than the
       // Workflow's, which DYE2 v0.1.33's fingerprint ignores.
       const held = (record(tablet, ETHIOPIA)!.workflow as Record_).profile as Record_;
