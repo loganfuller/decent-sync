@@ -77,10 +77,13 @@ export function readReportedGrinders(value: unknown, updatedAt: readonly (string
 /**
  * A Grinder's content, from a tablet's record of it: Decaid's fields, those
  * this server does not know included, but its id, times, archived flag and
- * `extras`, which belong to that tablet's record.
+ * `extras`, which belong to that tablet's record; and the feed rate note
+ * DYE2 v0.1.34 keeps in `extras.feedRate`, as Decaid drops a top-level
+ * `feedRate`, null where DYE2's editor cleared it.
  */
 export function grinderContent(record: Record<string, unknown>): Record<string, unknown> {
   const { id, createdAt, updatedAt, archived, extras, ...content } = record;
+  if (isObject(extras) && Object.prototype.hasOwnProperty.call(extras, "feedRate")) content.feedRate = extras.feedRate;
   return content;
 }
 

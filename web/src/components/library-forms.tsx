@@ -84,7 +84,7 @@ export const BATCH_FIELDS: FormField[] = [
   { field: "notes", label: "Notes", kind: "longText" },
 ];
 
-/** A Grinder's fields, in Decaid's order. */
+/** A Grinder's fields, in Decaid's order, then the feed rate note DYE2 v0.1.34 keeps in its `extras`. */
 export const GRINDER_FIELDS: FormField[] = [
   { field: "model", label: "Model", kind: "text", required: true },
   { field: "burrs", label: "Burrs", kind: "text" },
@@ -105,6 +105,7 @@ export const GRINDER_FIELDS: FormField[] = [
   { field: "settingBigStep", label: "Big step", kind: "number" },
   { field: "rpmSmallStep", label: "RPM small step", kind: "number" },
   { field: "rpmBigStep", label: "RPM big step", kind: "number" },
+  { field: "feedRate", label: "Feed rate", kind: "text" },
 ];
 
 /** A Basket's fields, as DYE2's baskets page has them. */

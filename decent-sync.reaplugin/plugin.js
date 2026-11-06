@@ -840,6 +840,7 @@ var __decentSync = (() => {
     yield: ["context.targetYield"],
     grind: ["context.grinderSetting"],
     rpm: ["context.extras.rpm"],
+    feedRate: ["context.extras.feedRate"],
     basket: ["context.extras.basketId", "context.extras.basketName"],
     batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
     brewTemperature: [BREW_TEMPERATURE_FIELD],
@@ -1434,6 +1435,8 @@ var __decentSync = (() => {
     }
     const rpm = numberOf(variables.rpm);
     if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm)) && !omit.has("rpm")) extrasWrite.rpm = rpm;
+    const feedRate = textOf(variables.feedRate);
+    if (feedRate !== null && feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
     const basket = textOf(variables.basketId);
     if (basket !== null && basket !== textOf(extras.basketId) && !omit.has("basket")) {
       extrasWrite.basketId = basket;
@@ -1897,20 +1900,21 @@ var __decentSync = (() => {
       }
     }
     /**
-     * Before a save into the Loaded Recipe, where steam was turned back on
-     * with that Recipe and load (`steamBackOn`): writes the Recipe's steam
-     * temperature and time, as the tablet's record of it holds them, into the
-     * Workflow (`steamBackOnWrite`), each where it still holds the one steam
-     * came back with, so DYE2's save, which saves every value of the Workflow
-     * the record holds otherwise, saves neither. While the Machine pulls a
-     * Shot, the write, and the save with it, are held until the Shot ends
-     * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
-     * if Decaid refuses the write, as with no machine connected: the next
-     * change tries again.
+     * Before a save into the Loaded Recipe, where steam was turned back on with
+     * that Recipe and load (`steamBackOn`): writes the Recipe's steam
+     * temperature and time, as the tablet's record of it holds them, read
+     * afresh, into the Workflow (`steamBackOnWrite`), each where it still holds
+     * the one steam came back with, so DYE2's save, which saves every value of
+     * the Workflow the record holds otherwise, saves neither. While the Machine
+     * pulls a Shot, the write, and the save with it, are held until the Shot
+     * ends (`resumeSteamBackOn`). Resolves with whether the save goes on.
+     * Throws if Decaid refuses the write, as with no machine connected: the
+     * next change tries again.
      */
     async steamBackOnFirst(workflow, recordId, save) {
       const pending = this.steamBackOn;
       if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
+      this.sawRecipes(await this.readRecipes());
       const record3 = this.records?.get(recordId)?.record;
       const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
@@ -2176,7 +2180,8 @@ var __decentSync = (() => {
       create: () => "/grinders",
       deferred: ["archived"],
       sameItem: () => false,
-      namedByShots: true
+      namedByShots: true,
+      inExtras: ["feedRate"]
     }
   };
   var WRITERS = {
@@ -2685,7 +2690,8 @@ var __decentSync = (() => {
     }
     const path = route.create(write.fields);
     if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
-    const body = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
+    const { own, extras } = placed(route, write.fields);
+    const body = { ...own, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } };
     for (const field of route.deferred) delete body[field];
     const made = await request("POST", path, body);
     const record3 = made.ok ? parsed3(made.text) : void 0;
@@ -2704,8 +2710,20 @@ var __decentSync = (() => {
     const parsedRecord = parsed3(current.text);
     const record3 = isObject5(parsedRecord) ? parsedRecord : {};
     const extras = isObject5(record3.extras) ? record3.extras : {};
-    const fields = settable(write, (field) => record3[field]);
-    return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
+    const inExtras = new Set(route.inExtras ?? []);
+    const fields = settable(write, (field) => inExtras.has(field) ? extras[field] : record3[field]);
+    const placedFields = placed(route, fields);
+    return {
+      answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
+      written: Object.keys(fields)
+    };
+  }
+  function placed(route, fields) {
+    const inExtras = new Set(route.inExtras ?? []);
+    const own = {};
+    const extras = {};
+    for (const [field, value] of Object.entries(fields)) (inExtras.has(field) ? extras : own)[field] = value;
+    return { own, extras };
   }
   function answerTo(write, answer, writtenFields) {
     const record3 = answer.ok ? parsed3(answer.text) : void 0;

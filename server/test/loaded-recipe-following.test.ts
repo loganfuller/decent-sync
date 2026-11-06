@@ -42,7 +42,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded, and so does applying it again after its Profile
 // was edited (decentespresso/dye2#43). Through the built plugin in simulated
-// tablets running DYE2 v0.1.33 and Streamline v0.2.23 as recorded
+// tablets running DYE2 v0.1.35 and Streamline v0.2.23 as recorded
 // (fixtures/decaid/dye2-v0.1.26/ and later), Machine A, and D in the tests
 // that use it, on one server instance and C on another sharing one database,
 // with assertions through the REST API and what each simulated tablet holds.
@@ -266,6 +266,49 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ rpm: 0 }));
     await expect.poll(() => extras(c).rpm, { timeout: 15_000 }).toBe(0);
     expect(variables(record(c, ETHIOPIA)).rpm).toBe(0);
+  });
+
+  it("takes a feed rate saved in DYE2's editor on A as typed into the Recipe, and writes it into C's record, its embedded Workflow and C's Workflow, as DYE2 v0.1.34 applies one (dye2-v0.1.35/feed-rate.json)", async () => {
+    const { a, c, one } = await lab("Feed rate editor", 48301);
+    const saved = await (await openDye2RecipeEditor(a, { id: ETHIOPIA })).set({ feedRate: " 1200 " }).save();
+    expect([saved.patch.dashboardVariables, saved.reapplied]).toEqual([{ feedRate: "1200" }, true]);
+    await expect.poll(async () => (await recipe(one)).content.feedRate, { timeout: 15_000 }).toBe("1200");
+    for (const tablet of [a, c]) {
+      await expect.poll(() => [variables(record(tablet, ETHIOPIA)).feedRate, extras(tablet).feedRate], { timeout: 15_000 }).toEqual(["1200", "1200"]);
+    }
+    expect((((record(c, ETHIOPIA)!.workflow as Record_).context as Record_).extras as Record_).feedRate).toBe("1200");
+  });
+
+  it("takes a feed rate changed on A as the RPM is: recorded by Decent Sync into a Recipe holding none, which DYE2 adopts into none, saved by DYE2 into one holding one, and written into C's", async () => {
+    const { dye2, a, c, one, quiet } = await lab("Feed rate changed", 48311);
+    expect((await recipe(one)).content).not.toHaveProperty("feedRate");
+    await a.changeSettings({ context: { extras: { feedRate: "MF" } } });
+    await expect.poll(async () => (await recipe(one)).content.feedRate, { timeout: 15_000 }).toBe("MF");
+    await expect.poll(() => extras(c).feedRate, { timeout: 15_000 }).toBe("MF");
+    expect(dye2.a.recorded.filter((recorded) => "feedRate" in recorded.patch)).toEqual([]);
+    // Once A's report and the writes it set off are done: the Recipe holds one now, so DYE2 saves the next change into it.
+    await quiet();
+    await a.changeSettings({ context: { extras: { feedRate: "SF" } } });
+    await expect.poll(async () => (await recipe(one)).content.feedRate, { timeout: 15_000 }).toBe("SF");
+    expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ feedRate: "SF" }));
+    await expect.poll(() => [variables(record(c, ETHIOPIA)).feedRate, extras(c).feedRate], { timeout: 15_000 }).toEqual(["SF", "SF"]);
+    // A feed rate cleared on A, as DYE2's dashboard's Clear writes one, is A's own.
+    await quiet();
+    await a.changeSettings({ context: { extras: { feedRate: null } } });
+    await quiet();
+    expect([(await recipe(one)).content.feedRate, extras(c).feedRate, extras(a).feedRate ?? null]).toEqual(["SF", "SF", null]);
+  });
+
+  it("writes a Recipe's feed rate into the Workflow as a load of it, named there by another app, which applies none, as DYE2 v0.1.34's apply writes one", async () => {
+    const { machines, c, two, quiet } = await lab("Feed rate load", 48321);
+    await patch(two, { feedRate: "FF" });
+    await expect.poll(() => variables(record(c, BRAZIL)).feedRate, { timeout: 15_000 }).toBe("FF");
+    await quiet();
+    expect(extras(c).feedRate ?? null).toBeNull();
+    // Named in C's Workflow by a write of the recipe id alone, so only the plugin's load writes the Recipe's values.
+    expect((await c.callApi("PUT", "/workflow", { context: { extras: { dye: { recipeId: BRAZIL } } } })).status).toBe(200);
+    await loads(machines.c, two);
+    await expect.poll(() => extras(c).feedRate, { timeout: 15_000 }).toBe("FF");
   });
 
   it("writes an RPM and dose saved in DYE2's editor on A, which has the Recipe loaded and applies it again, into C's Workflow, where they stay through A's next change, and keeps the RPM then cleared on A, writing the Recipe's back into none", async () => {

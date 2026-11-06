@@ -351,7 +351,8 @@ An edit of a Library item's content on any tablet reaches every tablet that
 holds the item, at every Location, merged per field with the latest edit
 winning (ADR-0020; `content-edits.ts`, with the pure merge in `merge.ts`). An
 item's content is a Bean's, a Bean Batch's or a Grinder's record fields, but
-those of the tablet's record (its ids, times and `extras`) and of each
+those of the tablet's record (its ids, times and `extras`, but for a
+Grinder's feed rate note, below) and of each
 Location's (a batch's `archived` and `weightRemaining`; a Bean's `archived`,
 which takes it away from the tablet's Location), whether a Grinder is
 Archived, and a Profile's title, author and notes, which are outside its id
@@ -473,7 +474,16 @@ tablets, below).
   the type Decaid takes, so no tablet refuses a write of them
   (`item-input.ts`): an empty value clears a field, but a Bean's roaster and
   name, a Grinder's model and a Bean's `decaf` and a batch's `frozen` flags,
-  which Decaid refuses to clear. A Basket's fields are those DYE2's baskets
+  which Decaid refuses to clear. A Grinder also holds DYE2's feed rate
+  note, `feedRate`, text such as "manual FF/MF/SF" saying which feed rates
+  it takes (DYE2 v0.1.34, `1358750`). DYE2 keeps it in the record's
+  `extras`, as Decaid drops a top-level `feedRate`, so the server reads it
+  from `extras.feedRate` (`grinderContent` in `grinder-intake.ts`, null
+  where DYE2's grinders page cleared it), and the plugin writes it there,
+  beside the record's other `extras` keys and its global id, never at the
+  top (`Route.inExtras` in `plugin/src/library-writes.ts`), as DYE2's
+  grinders page spreads the grinder's own `extras` under it
+  (`buildGrinderBody`). A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
   `diameterMm` and `notes`, and a Tool's those of its equipment page, its
   name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,
@@ -534,7 +544,7 @@ tablets, below).
   every field DYE2's recipe editor saves but the barista, the drinker and
   its steam and hot water modes (`RECIPE_FIELDS` in `kinds.ts`): its name,
   beverage, Bean Batch, Profile, dose, yield, Grinder, grind setting, RPM,
-  brew temperature, Basket, Tools with each Tool's attributes for it
+  feed rate, brew temperature, Basket, Tools with each Tool's attributes for it
   (`toolAttributes`, by the Tool's global id, as DYE2's `equipmentCustom`
   holds them by its own), and its eleven steam, hot water and flush settings
   (Steam, hot water and flush settings, below). Its grind setting is a
@@ -1122,7 +1132,9 @@ are never matched (ADR-0018).
   `beverage`, `beanId`, `beanBatchId`, `profileId` (Decaid's id),
   `grinderId`, `basketId`, `toolIds` and `toolAttributes` (DYE2's
   `equipmentCustom`, by each Tool's global id), `dose`, `yield`, `ratio`,
-  `grindSetting` (a number, or text as typed), `rpm`, `brewTemperature`,
+  `grindSetting` (a number, or text as typed), `rpm`, `feedRate` (text
+  as typed, as DYE2 v0.1.34 keeps one in `dashboardVariables.feedRate` and
+  its embedded Workflow's `context.extras.feedRate`), `brewTemperature`,
   the eleven steam, hot water and flush settings (`steamTemperature`, `steamDuration`,
   `steamFlow`, `steamStopTemperature`, `hotWaterTemperature`,
   `hotWaterDuration`, `hotWaterVolume`, `hotWaterFlow`, `flushTemperature`,
@@ -1150,7 +1162,7 @@ are never matched (ADR-0018).
   temperature below 135 °C (`STEAM_ON_FROM`), as DYE2's editor saves "Off"
   as 0, is no edit, and the Recipe's is written back over it
   (`steamOffPaths`): steam on and off is each Machine's own, and DYE2 saves
-  no steam setting from a Workflow whose steam is off
+  no steam temperature or steam time from a Workflow whose steam is off
   (`WORKFLOW-AND-STATE.md`, The Loaded Recipe). A steam time of 0 is a
   value. The steam
   and hot water modes (`steamMode`, `hotWaterMode`) are DYE2's display
@@ -1310,14 +1322,14 @@ every tablet there; a recipe moved to another slot on one moves on the
 others, and a recipe gone from a tablet's list leaves its slot on the
 others, still on them. Every change of the Workflow of a Machine with a
 Recipe loaded is saved into it (ADR-0022): the plugin has DYE2 save it
-(`record`), which writes the dose, yield, grind setting, RPM, Basket,
-brew temperature and steam, hot water and flush settings into the record,
-each where the record holds one, and a Basket or steam, hot water or flush
+(`record`), which writes the dose, yield, grind setting, RPM, feed rate,
+Basket, brew temperature and steam, hot water and flush settings into the
+record, each where the record holds one, and a Basket or steam, hot water or flush
 setting it holds none of once it moves off its value at the apply, which
 reaches the server as the tablet's change of the record, the Machine's edit
 of its Loaded Recipe; and the server records itself, from the Workflow, a
-grinder, a batch of the Recipe's Bean, and a dose, yield, grind setting or
-RPM the Recipe holds none of, and on the load a Basket it holds none of,
+grinder, a batch of the Recipe's Bean, and a dose, yield, grind setting,
+RPM or feed rate the Recipe holds none of, and on the load a Basket it holds none of,
 which DYE2 never saves (#389). What DYE2 saves that is no edit, as the Workflow left
 behind a write of the server's still to land, is written back
 (`recordedByDye2`, `WORKFLOW-AND-STATE.md`, Following the Recipe). A field of a record that
@@ -1800,8 +1812,9 @@ a Machine joining a Location keeps its own until it loads a Recipe.
 
 Steam on and off stays each Machine's own: a Workflow's steam temperature
 below 135 °C (`STEAM_ON_FROM`) is its steam turned off, as Decaid judges it,
-which never changes a Recipe, as DYE2 saves no steam setting from a
-Workflow whose steam is off, and the plugin writes no steam temperature or
+which never changes a Recipe, as DYE2 saves no steam temperature or steam
+time from a Workflow whose steam is off, though from v0.1.35 it saves its
+steam flow and milk stop then (`5561549`), and the plugin writes no steam temperature or
 steam time into a Workflow whose steam is off, only its steam flow and
 milk stop (ADR-0022, Steam on and off). From Streamline v0.2.22 a steam time
 of 0 is steam off too: Streamline writes it with a steam temperature of 0
@@ -1809,15 +1822,24 @@ as it turns steam off, and shows it as "Off". So a Recipe's steam time is 1
 to 255 s (`STEAM_TIME_FROM`, `STEAM_TIME_TO`) or none, a tablet's change of
 its record to 0, as DYE2's editor saves one, is no edit, and the Recipe's,
 or none, is written back over it (`steamOffPaths`); a stored 0, as 1.6.2
-may take one in, is read as none, and a time above 255 s, as DYE2's editor
-saves any, as 255 s, which is written back (`steamTimeOf`). A steam edit made on one
+may take one in, is read as none, and a time above 255 s, which DYE2's
+editor no longer saves from v0.1.35 but another writer might, as 255 s,
+which is written back (`steamTimeOf`). From v0.1.35 DYE2's editor shows a
+steam time of 0 as "Off" and saves a steam temperature of "Off" with a
+steam time of 0, and its apply writes a record's steam time of 0, or steam
+temperature below 135 °C, as steam off whole, both 0 (`recipeMachineSettings`,
+decentespresso/dye2#46): so such a save turns that Machine's steam off,
+its own, while the Recipe's are written back into the record. A steam edit made on one
 Machine reaches another whose steam is off without turning it on, its
 temperature and time held in the record, which steam comes back on with.
 Turning steam back on takes the Loaded Recipe's steam temperature and steam
 time, whatever it came back with: the plugin writes the ones the tablet's
 record of the Recipe holds into the Workflow before it has DYE2 save the
 change, so those steam came back with reach no Recipe, while the change's
-other values are saved as any are (#374, #394). A steam temperature or time
+other values are saved as any are (#374, #394). It reads that record afresh
+first, as DYE2's editor saves a recipe and then applies it again, which may
+turn steam back on with the temperature or time just saved, which are the
+Recipe's edit (#395). A steam temperature or time
 changed once steam is on is the Recipe's edit. A Recipe holding no steam
 time takes the one steam comes back with, as DYE2 saves it once it moves
 off the one the Workflow held as the recipe was applied: an accepted gap.

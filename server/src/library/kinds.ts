@@ -255,6 +255,7 @@ const BATCH_FIELDS: Readonly<Record<string, FieldType>> = {
   notes: "text",
 };
 
+/** A Grinder's fields, as Decaid keeps them, and the feed rate note DYE2 v0.1.34 keeps in its `extras` (`grinderContent`). */
 const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   model: "name",
   burrs: "text",
@@ -267,6 +268,7 @@ const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   settingBigStep: "number",
   rpmSmallStep: "number",
   rpmBigStep: "number",
+  feedRate: "text",
 };
 
 /** A Basket's fields, as DYE2's baskets page saves them. */
@@ -291,7 +293,8 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * its ratio, kept while its yield is its dose times it
  * (recipe-edits.service.ts). Its Bean is its Bean Batch's. Its grind
  * setting is a number, or text as typed, as DYE2 v0.1.32 keeps one
- * (`grindSettingOf`). Each steam, hot water and flush setting is held or
+ * (`grindSettingOf`). Its feed rate is text as typed, as DYE2 v0.1.34
+ * keeps one. Each steam, hot water and flush setting is held or
  * not, null for the Machine's own, and is checked against the range DYE2's
  * editor offers, a whole number where Decaid's field is an int: a steam
  * temperature with no "Off", a steam time from 1 s to 255 s, as a steam time
@@ -311,6 +314,7 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   grinderId: "id",
   grindSetting: "grindSetting",
   rpm: "number",
+  feedRate: "text",
   brewTemperature: "number",
   basketId: "id",
   toolIds: "ids",

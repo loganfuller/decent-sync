@@ -41,6 +41,7 @@ const CONTENT = {
   ratio: 2,
   grindSetting: 2.7,
   rpm: 900,
+  feedRate: "MF",
   beanId: BEAN,
   beanBatchId: BATCH,
   basketId: BASKET,
@@ -63,7 +64,7 @@ const WORKFLOW = {
     grinderModel: "Niche",
     grinderSetting: "2.7",
     beanBatchId: "b1",
-    extras: { rpm: 900, basketId: "k1", basketName: "18g" },
+    extras: { rpm: 900, feedRate: "MF", basketId: "k1", basketName: "18g" },
   },
   steamSettings: { targetTemperature: 150, duration: 30, flow: 1.5, stopAtTemperature: 0 },
   hotWaterData: { targetTemperature: 88, duration: 40, volume: 120, flow: 7.5 },
@@ -74,7 +75,7 @@ const WORKFLOW = {
 const HELD: WorkflowParts = workflowParts(WORKFLOW, "profile:adaptive");
 
 describe("A Workflow's parts that follow its Loaded Recipe", () => {
-  it("are read as the Workflow holds them, the grind setting as text and the Basket and batch by the tablet's ids", () => {
+  it("are read as the Workflow holds them, the grind setting and feed rate as text and the Basket and batch by the tablet's ids", () => {
     expect(HELD).toEqual({
       profile: "profile:adaptive",
       grinder: "g1",
@@ -82,6 +83,7 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
       yield: 36,
       grind: "2.7",
       rpm: 900,
+      feedRate: "MF",
       basket: "k1",
       batch: "b1",
       // Its first step's temperature.
@@ -100,6 +102,10 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
     });
     expect(readParts(JSON.parse(JSON.stringify(HELD)))).toEqual(HELD);
     expect(workflowParts({ context: { grinderSetting: 3 } })).toMatchObject({ grind: "3", dose: null, batch: null });
+    // A feed rate is text as typed, as DYE2 v0.1.34 keeps one, never coerced; a blank one is none.
+    expect(workflowParts({ context: { extras: { feedRate: " 1200 " } } }).feedRate).toBe(" 1200 ");
+    expect(workflowParts({ context: { extras: { feedRate: " " } } }).feedRate).toBeNull();
+    expect(readParts({ feedRate: "SF" }).feedRate).toBe("SF");
   });
 
   it("compare a grind setting as a number however it is written where both read as one, as the plugin does, and otherwise as text", () => {
@@ -110,7 +116,7 @@ describe("A Workflow's parts that follow its Loaded Recipe", () => {
   });
 
   it("are saved by DYE2 into the Recipe's record, every one but its Grinder, Bean Batch and Profile", () => {
-    expect(RECORDED_PARTS).toEqual(["dose", "yield", "grind", "rpm", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES]);
+    expect(RECORDED_PARTS).toEqual(["dose", "yield", "grind", "rpm", "feedRate", "basket", "brewTemperature", ...RECIPE_SETTING_NAMES]);
     expect(PARTS.filter((part) => !RECORDED_PARTS.includes(part))).toEqual(["profile", "grinder", "batch"]);
   });
 });
@@ -144,28 +150,31 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
     expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), null, { ...HELD, batch: "b3" }, context).values).not.toHaveProperty("beanBatchId");
   });
 
-  it("is a dose, yield, grind setting or RPM the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting a number where it reads as one and the text as typed otherwise, but no Basket, which DYE2 v0.1.33 saves (#389)", () => {
+  it("is a dose, yield, grind setting, RPM or feed rate the Recipe holds none of, changed on the Machine, which DYE2 saves none of, the grind setting a number where it reads as one and the text as typed otherwise, the feed rate as typed, but no Basket, which DYE2 v0.1.33 saves (#389)", () => {
     const bare: Record<string, unknown> = { ...CONTENT };
-    for (const field of ["dose", "yield", "ratio", "rpm", "basketId", "grindSetting"]) delete bare[field];
+    for (const field of ["dose", "yield", "ratio", "rpm", "feedRate", "basketId", "grindSetting"]) delete bare[field];
     const target = recipeParts(bare, local);
     const held = { ...HELD, basket: null };
-    const changed = { ...HELD, dose: 18.5, yield: 40, rpm: 950, basket: "k1", grind: "3.1" };
-    expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({ values: { dose: 18.5, yield: 40, grindSetting: 3.1, rpm: 950 }, parts: ["dose", "yield", "grind", "rpm"] });
+    const changed = { ...HELD, dose: 18.5, yield: 40, rpm: 950, feedRate: "1200", basket: "k1", grind: "3.1" };
+    expect(valuesFromWorkflow(bare, target, held, changed, context)).toEqual({
+      values: { dose: 18.5, yield: 40, grindSetting: 3.1, rpm: 950, feedRate: "1200" },
+      parts: ["dose", "yield", "grind", "rpm", "feedRate"],
+    });
     // A Basket picked after the load is DYE2's to save, as it moved off the none the Workflow held as the recipe was applied.
     expect(valuesFromWorkflow(bare, target, held, { ...held, basket: "k1" }, context)).toEqual({ values: {}, parts: [] });
     // As DYE2 v0.1.32 saves one (d858b73): a three-dial grinder's setting, or a word.
     for (const typed of ["1.5.", "fine"]) expect(valuesFromWorkflow(bare, target, held, { ...held, grind: ` ${typed} ` }, context).values).toEqual({ grindSetting: typed });
     // One the Recipe holds is DYE2's to save; one unchanged is no edit.
-    expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), HELD, { ...HELD, rpm: 950 }, context).values).toEqual({});
+    expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), HELD, { ...HELD, rpm: 950, feedRate: "SF" }, context).values).toEqual({});
     expect(valuesFromWorkflow(bare, target, HELD, HELD, context).values).toEqual({});
   });
 
   it("is, on a load, each of those values the Recipe holds none of, and a Basket, which DYE2 takes as its starting point and never saves, as the Workflow stands, never one it holds", () => {
-    const { rpm: _, basketId: __, grinderId: ___, beanBatchId: ____, ...bare } = CONTENT;
+    const { rpm: _, feedRate: _feedRate, basketId: __, grinderId: ___, beanBatchId: ____, ...bare } = CONTENT;
     const now = { ...HELD, grinder: "g2", batch: "b2" };
     expect(valuesFromWorkflow(bare, recipeParts(bare, local), null, now, context)).toEqual({
-      values: { rpm: 900, basketId: BASKET, grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG },
-      parts: ["rpm", "basket", "grinder", "batch"],
+      values: { rpm: 900, feedRate: "MF", basketId: BASKET, grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG },
+      parts: ["rpm", "feedRate", "basket", "grinder", "batch"],
     });
     expect(valuesFromWorkflow(CONTENT, recipeParts(CONTENT, local), null, now, context).values).toEqual({});
   });
@@ -276,13 +285,13 @@ describe("What a Workflow is written of its Loaded Recipe", () => {
 });
 
 describe("The dial written into a Workflow", () => {
-  const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950, basket: "k2" };
+  const target = { ...HELD, profile: "profile:classic", grinder: "g2", batch: "b2", dose: 19, yield: 38, grind: "3.1", rpm: 950, feedRate: "SF", basket: "k2" };
   /** The Library's `profile:classic`, as the write carries it. */
   const classic = { title: "Classic", tank_temperature: 0, steps: [{ name: "fill", temperature: 92, pump: "flow" }, { name: "pour", temperature: 90, pump: "pressure" }] };
   const current = {
     profileId: "profile:classic",
     beanBatchId: "b2",
-    dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1, rpm: 950, basketId: "k2", brewC: 92 },
+    dashboardVariables: { grinderId: "g2", dose: 19, ratio: 2, grind: 3.1, rpm: 950, feedRate: "SF", basketId: "k2", brewC: 92 },
     profileSnapshot: classic,
     workflow: { profile: profileAtBrewTemperature(classic, 88) },
   };
@@ -296,6 +305,7 @@ describe("The dial written into a Workflow", () => {
       yield: undefined,
       grind: undefined,
       rpm: undefined,
+      feedRate: undefined,
       basket: undefined,
       brewTemperature: undefined,
     });

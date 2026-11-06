@@ -1028,7 +1028,8 @@ export function shiftedTemperatures(base: readonly unknown[], first: number): nu
 
 /**
  * The parts of a Workflow that follow its Loaded Recipe (ADR-0022): its
- * dose, yield, grind setting, RPM, Basket, Bean Batch, brew temperature and
+ * dose, yield, grind setting, RPM, feed rate (text as typed, as DYE2 keeps
+ * one from v0.1.34), Basket, Bean Batch, brew temperature and
  * the eleven steam, hot water and flush settings (RECIPE_SETTINGS, each part
  * named as the setting), and its Grinder and Profile, a change of which
  * there unloads it instead; each with the fields of the Workflow that hold
@@ -1045,6 +1046,7 @@ export const LOADED_RECIPE_PARTS = {
   yield: ["context.targetYield"],
   grind: ["context.grinderSetting"],
   rpm: ["context.extras.rpm"],
+  feedRate: ["context.extras.feedRate"],
   basket: ["context.extras.basketId", "context.extras.basketName"],
   batch: ["context.beanBatchId", "context.coffeeName", "context.coffeeRoaster"],
   brewTemperature: [BREW_TEMPERATURE_FIELD],

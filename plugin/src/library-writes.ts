@@ -112,6 +112,8 @@ interface Route {
    * that has batches.
    */
   listUnder?(parentPath: string): string;
+  /** Fields a record holds in its `extras`, beside its global id, as Decaid drops them at its top: a Grinder's feed rate note, where DYE2 v0.1.34 keeps it. */
+  inExtras?: readonly string[];
 }
 
 /**
@@ -192,6 +194,7 @@ const ROUTES = {
     deferred: ["archived"],
     sameItem: () => false,
     namedByShots: true,
+    inExtras: ["feedRate"],
   },
 } satisfies Readonly<Record<string, Route>>;
 
@@ -986,7 +989,8 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
   }
   const path = route.create(write.fields);
   if (path === null) return refused(write, null, `A ${write.kind} to create must name what it belongs to`);
-  const body: Record<string, unknown> = { ...write.fields, extras: { [GLOBAL_ID_KEY]: write.globalId } };
+  const { own, extras } = placed(route, write.fields);
+  const body: Record<string, unknown> = { ...own, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } };
   for (const field of route.deferred) delete body[field];
   const made = await request("POST", path, body);
   const record = made.ok ? parsed(made.text) : undefined;
@@ -1002,7 +1006,8 @@ async function create(route: Route, write: LibraryWrite): Promise<WriteAnswer> {
 /**
  * Updates the record's fields that it still holds as the server expects, and
  * writes the global id beside the other keys in its `extras`, which Decaid
- * replaces whole. Answers with what Decaid answered last, and the fields set.
+ * replaces whole, with the fields it holds there (`Route.inExtras`).
+ * Answers with what Decaid answered last, and the fields set.
  */
 async function update(route: Route, write: LibraryWrite, localId: string): Promise<{ answer: Answer; written: string[] }> {
   const path = `${route.records}/${encodeURIComponent(localId)}`;
@@ -1011,8 +1016,22 @@ async function update(route: Route, write: LibraryWrite, localId: string): Promi
   const parsedRecord = parsed(current.text);
   const record = isObject(parsedRecord) ? parsedRecord : {};
   const extras = isObject(record.extras) ? record.extras : {};
-  const fields = settable(write, (field) => record[field]);
-  return { answer: await request("PUT", path, { ...fields, extras: { ...extras, [GLOBAL_ID_KEY]: write.globalId } }), written: Object.keys(fields) };
+  const inExtras = new Set(route.inExtras ?? []);
+  const fields = settable(write, (field) => (inExtras.has(field) ? extras[field] : record[field]));
+  const placedFields = placed(route, fields);
+  return {
+    answer: await request("PUT", path, { ...placedFields.own, extras: { ...extras, ...placedFields.extras, [GLOBAL_ID_KEY]: write.globalId } }),
+    written: Object.keys(fields),
+  };
+}
+
+/** A write's fields, split into the record's own and those it holds in its `extras` (`Route.inExtras`). */
+function placed(route: Route, fields: Record<string, unknown>): { own: Record<string, unknown>; extras: Record<string, unknown> } {
+  const inExtras = new Set(route.inExtras ?? []);
+  const own: Record<string, unknown> = {};
+  const extras: Record<string, unknown> = {};
+  for (const [field, value] of Object.entries(fields)) (inExtras.has(field) ? extras : own)[field] = value;
+  return { own, extras };
 }
 
 /** The answer to a write that set `writtenFields`, from what Decaid answered last: the record it holds now, or its refusal. */

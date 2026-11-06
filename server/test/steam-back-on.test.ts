@@ -18,7 +18,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // same Workflow change are saved as usual, and a steam temperature changed
 // once steam is on is the Recipe's edit, as before; steam turned off and
 // back on while a write of the plugin's is under way is turned back on too.
-// Through the built plugin in simulated tablets running DYE2 v0.1.33 and
+// Through the built plugin in simulated tablets running DYE2 v0.1.35 and
 // Streamline v0.2.23 as recorded (fixtures/decaid/dye2-v0.1.26/ and
 // fixtures/decaid/streamline-v0.2.23/), Machine A on one server instance and
 // C, where Streamline turns steam on, on another sharing one database, with

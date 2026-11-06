@@ -1,0 +1,815 @@
+{
+  "globalIdWritten": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b"
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:33:45.961547",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b"
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:45.961547",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "noteSet": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:45.961547",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": null,
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "manual FF/MF/SF"
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:33:49.582232",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "manual FF/MF/SF"
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:49.582232",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:49.582232",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "otherEdited": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:49.582232",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "manual FF/MF/SF"
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:33:55.189059",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "manual FF/MF/SF"
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:55.189059",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:55.189059",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "noteCleared": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:33:55.189059",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "manual FF/MF/SF"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": null
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:34:00.782913",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": null
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:00.782913",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:00.782913",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "topLevel": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "feedRate": "SF only",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": null
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:34:05.304317",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": null
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:05.304317",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": null
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "inExtras": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+          "body": {
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "SF only"
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+            "model": "Fixture Grinder 64",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-06T14:32:24.684874",
+            "updatedAt": "2026-11-06T14:34:07.829500",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+              "feedRate": "SF only"
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:07.829500",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "SF only"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  },
+  "created": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:07.829500",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "SF only"
+              }
+            }
+          ]
+        }
+      },
+      {
+        "request": {
+          "method": "POST",
+          "path": "/grinders",
+          "body": {
+            "model": "Fixture Feeder Grinder",
+            "settingType": "numeric",
+            "extras": {
+              "feedRate": "feeder RPM 200-1200"
+            }
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "ba7337d7-9a8f-4c9e-bebc-6db8335fe305",
+            "model": "Fixture Feeder Grinder",
+            "archived": false,
+            "settingType": "numeric",
+            "createdAt": "2026-11-06T14:34:13.461059",
+            "updatedAt": "2026-11-06T14:34:13.461059",
+            "extras": {
+              "feedRate": "feeder RPM 200-1200"
+            }
+          }
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "ba7337d7-9a8f-4c9e-bebc-6db8335fe305",
+              "model": "Fixture Feeder Grinder",
+              "archived": false,
+              "settingType": "numeric",
+              "createdAt": "2026-11-06T14:34:13.461059",
+              "updatedAt": "2026-11-06T14:34:13.461059",
+              "extras": {
+                "feedRate": "feeder RPM 200-1200"
+              }
+            },
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:07.829500",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "SF only"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders?includeArchived=true"
+        },
+        "response": {
+          "status": 200,
+          "body": [
+            {
+              "id": "ba7337d7-9a8f-4c9e-bebc-6db8335fe305",
+              "model": "Fixture Feeder Grinder",
+              "archived": false,
+              "settingType": "numeric",
+              "createdAt": "2026-11-06T14:34:13.461059",
+              "updatedAt": "2026-11-06T14:34:13.461059",
+              "extras": {
+                "feedRate": "feeder RPM 200-1200"
+              }
+            },
+            {
+              "id": "7aa0aa87-bf4f-4ade-a3bb-c70b257c6555",
+              "model": "Fixture Grinder 64",
+              "burrs": "Fixture 64mm flat",
+              "notes": "Fixture notes",
+              "archived": false,
+              "settingType": "numeric",
+              "settingSmallStep": 0.5,
+              "settingBigStep": 1,
+              "rpmSmallStep": 50,
+              "rpmBigStep": 100,
+              "createdAt": "2026-11-06T14:32:24.684874",
+              "updatedAt": "2026-11-06T14:34:07.829500",
+              "extras": {
+                "bcUuid": "fixture-bc-uuid",
+                "decentSyncId": "6bb8d877-6b2d-4ff4-ad65-5fa7b8a90d7b",
+                "feedRate": "SF only"
+              }
+            }
+          ]
+        }
+      }
+    ],
+    "pushes": [],
+    "events": [],
+    "timing": {
+      "pushes": [],
+      "events": []
+    }
+  }
+}

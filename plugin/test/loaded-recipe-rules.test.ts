@@ -194,6 +194,26 @@ describe("recording a load", () => {
     expect((loadWrite(typed, record, { profile: other })!.context as Record_).grinderSetting).toBeUndefined();
   });
 
+  it("writes the recipe's feed rate as typed where the Workflow holds another or none, as DYE2 v0.1.34 applies one, and leaves the Workflow's where the recipe holds none (fixtures/decaid/dye2-v0.1.35/feed-rate.json)", () => {
+    const workflow = appliedAtOwnTemperatures();
+    const record = written();
+    (record.dashboardVariables as Record_).feedRate = "MF";
+    const extrasOf = (write: Record_ | null) => ((write?.context as Record_ | undefined)?.extras as Record_ | undefined) ?? {};
+    expect(extrasOf(loadWrite(workflow, record, { profile }))).toMatchObject({ feedRate: "MF" });
+    const previous = { ...workflow, context: { ...(workflow.context as Record_), extras: { ...((workflow.context as Record_).extras as Record_), feedRate: "SF" } } };
+    expect(extrasOf(loadWrite(previous, record, { profile })).feedRate).toBe("MF");
+    // A feeder's RPM typed as a number is still text, never coerced.
+    (record.dashboardVariables as Record_).feedRate = "1200";
+    expect(extrasOf(loadWrite(previous, record, { profile })).feedRate).toBe("1200");
+    // A recipe holding none, or one its editor saved blank, leaves the Workflow's, as DYE2's apply does.
+    for (const none of [null, ""]) {
+      (record.dashboardVariables as Record_).feedRate = none;
+      expect(extrasOf(loadWrite(previous, record, { profile }))).not.toHaveProperty("feedRate");
+    }
+    (record.dashboardVariables as Record_).feedRate = "MF";
+    expect(extrasOf(loadWrite(previous, record, { profile }, new Set(["feedRate"])))).not.toHaveProperty("feedRate");
+  });
+
   it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();

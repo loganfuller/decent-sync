@@ -267,8 +267,8 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(picked, ["dashboardVariables.basketId"], { basketId: GLOBAL.basket20 }, intake({ ids: otherIds }))).toEqual({ basketId: GLOBAL.basket18 });
   });
 
-  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, the settings it holds, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
-    const view = recipeRecord(slot1Content, 1, writing(), GLOBAL.recipe);
+  it("writes a Recipe to a tablet under its own ids, with its full Profile, a blank barista, the settings it holds, its feed rate as typed, and what DYE2 derives, its embedded Workflow's Profile at its brew temperature", () => {
+    const view = recipeRecord({ ...slot1Content, feedRate: "MF" }, 1, writing(), GLOBAL.recipe);
     // Adaptive v3 starts at 93 °C: at the Recipe's 92, every step is a degree cooler.
     const adaptiveAt92 = profileAtBrewTemperature(adaptive, 92);
     expect((adaptiveAt92?.steps as Record_[]).map((step) => step.temperature)).toEqual([92, 92, 87, 87, 87, 87, 87]);
@@ -309,6 +309,7 @@ describe("DYE2's recipes as Recipes", () => {
       "dashboardVariables.flushFlowMls": null,
       "dashboardVariables.grind": 2.5,
       "dashboardVariables.rpm": 900,
+      "dashboardVariables.feedRate": "MF",
       "dashboardVariables.grinderId": "other-grinder",
       "dashboardVariables.grinderModel": "Fixture Grinder 64",
       "dashboardVariables.basketId": "other-basket",
@@ -327,7 +328,8 @@ describe("DYE2's recipes as Recipes", () => {
           grinderId: "other-grinder",
           grinderModel: "Fixture Grinder 64",
           // So a Workflow Streamline applies it to names the Recipe.
-          extras: { rpm: 900, basketId: "other-basket", basketName: "Fixture 18g Precision" },
+          // Its feed rate beside the RPM, as DYE2 v0.1.34's `buildRecipeWorkflow` writes it.
+          extras: { rpm: 900, feedRate: "MF", basketId: "other-basket", basketName: "Fixture 18g Precision" },
           // Applying it clears a batch the Workflow held, as DYE2's dashboard does.
           coffeeName: "Fixture Ethiopia",
           coffeeRoaster: "Fixture Roasters",
@@ -400,6 +402,12 @@ describe("DYE2's recipes as Recipes", () => {
     // Taken back in, it changes nothing of the Recipe.
     expect(holdsRecipe(recipeView(record), written)).toBe(true);
     expect(recipeContent(recipeView(record), intake())).toEqual({ ...slot1Content, beanBatchId: GLOBAL.laterEthiopiaBatch });
+    // A feed rate is taken in as typed, and one cleared in DYE2's editor, which saves it null, clears it.
+    const withFeedRate = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), feedRate: " 1200 " } });
+    expect(editedPaths(editedContent(recipeView(record), withFeedRate, null))).toEqual(["dashboardVariables.feedRate"]);
+    expect(libraryValues(withFeedRate, ["dashboardVariables.feedRate"], slot1Content, intake())).toEqual({ feedRate: " 1200 " });
+    const cleared = recipeView({ ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), feedRate: null } });
+    expect(libraryValues(cleared, ["dashboardVariables.feedRate"], { ...slot1Content, feedRate: "MF" }, intake())).toEqual({ feedRate: null });
     // A barista's change of what DYE2 derives, or the barista, is no edit of the Recipe.
     const derived = recipeView({ ...record, title: "Retitled", barista: "Someone" });
     expect(editedPaths(editedContent(recipeView(record), derived, null))).toEqual([]);

@@ -107,26 +107,27 @@ export interface LoadContext {
 /**
  * What a load of the recipe writes into the Workflow, through `PUT
  * /workflow`, which Decaid merges into it: what the Workflow holds otherwise
- * of the recipe's current dose, yield, grind setting, grinder, RPM, Basket,
- * Bean Batch with its Bean's name and roaster, and Profile, as DYE2 applies
- * them, a stale copy having applied others; and of each steam, hot water
- * and flush setting it holds (RECIPE_SETTINGS), as DYE2's dashboard applies
- * them, where Streamline's strip at v0.2.23 applies its milk stop, hot water
- * settings and flush time, and its steam time or flow by its steam mode, but
- * no steam temperature, flush temperature or flush flow
- * (`mergeRecipeLiveSettings`, decentespresso/streamline-js#154); but a
- * steam temperature or steam time into a Workflow whose steam is off
- * (`steamOff`): the temperature would turn steam on, and Streamline v0.2.23
- * would show the time with the heater off. A steam time below
- * STEAM_TIME_FROM, as DYE2's editor saves until the server writes the
- * Recipe's back, is none (`steamTimeOf`). Its brew temperature is DYE2's
- * and Streamline's to apply, and so is the Profile at it, which is written
- * only where the Workflow holds another. A value the recipe holds none of is left as the
- * Workflow has it, which the server takes as the Recipe's (ADR-0022), but
- * the Bean: a recipe naming none means no bean, as DYE2 v0.1.32 applies one
- * (`ce38984`), so the Workflow's batch, coffee and roaster are cleared, as a
- * copy holding none of DYE2's nulls for them leaves them. One `omit` names
- * is left too. Null if the Workflow holds all of it already.
+ * of the recipe's current dose, yield, grind setting, grinder, RPM, feed rate
+ * (text as typed, from DYE2 v0.1.34), Basket, Bean Batch with its Bean's name
+ * and roaster, and Profile, as DYE2 applies them, a stale copy having applied
+ * others; and of each steam, hot water and flush setting it holds
+ * (RECIPE_SETTINGS), as DYE2's dashboard applies them, where Streamline's
+ * strip at v0.2.23 applies its milk stop, hot water settings and flush time,
+ * and its steam time or flow by its steam mode, but no steam temperature,
+ * flush temperature or flush flow (`mergeRecipeLiveSettings`,
+ * decentespresso/streamline-js#154); but a steam temperature or steam time
+ * into a Workflow whose steam is off (`steamOff`): the temperature would turn
+ * steam on, and Streamline v0.2.23 would show the time with the heater off. A
+ * steam time below STEAM_TIME_FROM, as DYE2's editor saves until the server
+ * writes the Recipe's back, is none (`steamTimeOf`). Its brew temperature is
+ * DYE2's and Streamline's to apply, and so is the Profile at it, which is
+ * written only where the Workflow holds another. A value the recipe holds
+ * none of is left as the Workflow has it, which the server takes as the
+ * Recipe's (ADR-0022), but the Bean: a recipe naming none means no bean, as
+ * DYE2 v0.1.32 applies one (`ce38984`), so the Workflow's batch, coffee and
+ * roaster are cleared, as a copy holding none of DYE2's nulls for them leaves
+ * them. One `omit` names is left too. Null if the Workflow holds all of it
+ * already.
  */
 export function loadWrite(
   workflow: Record<string, unknown>,
@@ -153,6 +154,8 @@ export function loadWrite(
   }
   const rpm = numberOf(variables.rpm);
   if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm)) && !omit.has("rpm")) extrasWrite.rpm = rpm;
+  const feedRate = textOf(variables.feedRate);
+  if (feedRate !== null && feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
   const basket = textOf(variables.basketId);
   if (basket !== null && basket !== textOf(extras.basketId) && !omit.has("basket")) {
     extrasWrite.basketId = basket;

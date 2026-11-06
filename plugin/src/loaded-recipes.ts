@@ -435,20 +435,23 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   }
 
   /**
-   * Before a save into the Loaded Recipe, where steam was turned back on
-   * with that Recipe and load (`steamBackOn`): writes the Recipe's steam
-   * temperature and time, as the tablet's record of it holds them, into the
-   * Workflow (`steamBackOnWrite`), each where it still holds the one steam
-   * came back with, so DYE2's save, which saves every value of the Workflow
-   * the record holds otherwise, saves neither. While the Machine pulls a
-   * Shot, the write, and the save with it, are held until the Shot ends
-   * (`resumeSteamBackOn`). Resolves with whether the save goes on. Throws
-   * if Decaid refuses the write, as with no machine connected: the next
-   * change tries again.
+   * Before a save into the Loaded Recipe, where steam was turned back on with
+   * that Recipe and load (`steamBackOn`): writes the Recipe's steam
+   * temperature and time, as the tablet's record of it holds them, read
+   * afresh, into the Workflow (`steamBackOnWrite`), each where it still holds
+   * the one steam came back with, so DYE2's save, which saves every value of
+   * the Workflow the record holds otherwise, saves neither. While the Machine
+   * pulls a Shot, the write, and the save with it, are held until the Shot
+   * ends (`resumeSteamBackOn`). Resolves with whether the save goes on.
+   * Throws if Decaid refuses the write, as with no machine connected: the
+   * next change tries again.
    */
   private async steamBackOnFirst(workflow: Record<string, unknown>, recordId: string, save: SaveFor): Promise<boolean> {
     const pending = this.steamBackOn;
     if (pending === null || pending.globalId !== save.globalId || pending.load !== save.load) return true;
+    // DYE2's editor saves a recipe, then applies it again, which turns steam back on with what it just saved: the record is
+    // read afresh, so that edit is not put back as a stale copy's.
+    this.sawRecipes(await this.readRecipes());
     const record = this.records?.get(recordId)?.record;
     const write = record === undefined ? null : steamBackOnWrite(workflow, record, pending.turnedOn);
     if (write !== null && this.shot.running()) return false;

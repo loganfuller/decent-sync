@@ -66,6 +66,8 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await form.getByLabel("Yield (g)").fill("40");
     // A grind setting is kept as typed, as a three-dial grinder's, as DYE2 keeps one.
     await form.getByLabel("Grind setting").fill("1.1.0");
+    // A feed rate beside the RPM, as text, as DYE2 v0.1.34 keeps one.
+    await form.getByLabel("Feed rate").fill("MF");
     // On the strip exactly while in a slot: no switch of its own.
     await expect(form.getByText("Shown on the dashboard")).toHaveCount(0);
     await form.getByLabel("Recipe Slot").click();
@@ -89,6 +91,7 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
     await expect(field(details, "Grind setting")).toHaveText("1.1.0");
+    await expect(field(details, "Feed rate")).toHaveText("MF");
     await expect(details.locator("dt", { hasText: "Shown on the dashboard" })).toHaveCount(0);
     // A new Recipe holds no steam, hot water or flush setting.
     await expect(field(samsPage.getByLabel("Flush", { exact: true }), "Flush time")).toHaveText("Machine's own");
@@ -98,8 +101,12 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await expect(edit.getByLabel("Grind setting")).toHaveValue("1.1.0");
     await edit.getByLabel("Dose (g)").fill("18.5");
     await edit.getByLabel("Grind setting").fill("2.50");
+    await expect(edit.getByLabel("Feed rate")).toHaveValue("MF");
+    // A feeder's RPM typed as a number is kept as typed.
+    await edit.getByLabel("Feed rate").fill("1200");
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(field(details, "Dose")).toHaveText("18.5 g");
+    await expect(field(details, "Feed rate")).toHaveText("1200");
     // One that reads as a number is kept as one.
     await expect(field(details, "Grind setting")).toHaveText("2.5");
 

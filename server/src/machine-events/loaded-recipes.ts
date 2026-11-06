@@ -59,10 +59,10 @@ import { profileOfSql } from "../shots/links.js";
 // server as the tablet's change of the record (`recordedByDye2`, recipes.ts),
 // and the server records itself what DYE2 saves none of
 // (`valuesFromWorkflow`): a Grinder, a Bean Batch of the Recipe's Bean, and
-// a dose, yield, grind setting or RPM the Recipe holds none of. A load gains
-// the Recipe each of those it holds none of, and the Machine's Basket where
-// it holds none, which DYE2 takes as the recipe is applied as its starting
-// point and never saves, though it saves one picked after it. An edit of
+// a dose, yield, grind setting, RPM or feed rate the Recipe holds none of. A
+// load gains the Recipe each of those it holds none of, and the Machine's
+// Basket where it holds none, which DYE2 takes as the recipe is applied as
+// its starting point and never saves, though it saves one picked after it. An edit of
 // the Recipe from anywhere is written into the Workflow of every Machine
 // that has it loaded (`loadedRecipeDue`), each part that changed since the
 // Workflow took it, so the plugin's own write is never read as the tablet's
@@ -437,7 +437,7 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The paths of a recipe record DYE2 saves into, each with the part of the
  * Workflow it saves from (`RECORDED_PARTS`; `itemPatch` in
- * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.33).
+ * dye2:dye2-plugin/src/utils/workflow-record.ts at v0.1.35).
  */
 const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.dose": "dose",
@@ -445,6 +445,7 @@ const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
   "dashboardVariables.grind": "grind",
   "dashboardVariables.brewC": "brewTemperature",
   "dashboardVariables.rpm": "rpm",
+  "dashboardVariables.feedRate": "feedRate",
   "dashboardVariables.basketId": "basket",
   ...Object.fromEntries(RECIPE_SETTING_NAMES.map((setting) => [`dashboardVariables.${RECIPE_SETTINGS[setting].dye2}`, setting])),
 };
