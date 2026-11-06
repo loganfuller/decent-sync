@@ -809,9 +809,10 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await recipe(created.id)).content).toMatchObject(SETTINGS);
     expect((await versions(created.id))[0]!.fields).toEqual(SETTINGS);
 
-    // 0 is a value: a steam time of 0, and a milk stop of 0, which is off.
-    expect((await edit(created.id, { steamDuration: 0, steamStopTemperature: 0, flushDuration: 0 })).content).toMatchObject({
-      steamDuration: 0,
+    // 0 is a value: a milk stop of 0, which is off, and a flush time of 0. Not a steam time of 0, which is steam off from
+    // Streamline v0.2.22, each Machine's own (#394): the shortest is 1 s.
+    expect((await edit(created.id, { steamDuration: 1, steamStopTemperature: 0, flushDuration: 0 })).content).toMatchObject({
+      steamDuration: 1,
       steamStopTemperature: 0,
       flushDuration: 0,
     });
@@ -838,8 +839,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(await refusal({ steamTemperature: 0 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
     expect(await refusal({ steamTemperature: 171 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
     expect(await refusal({ steamTemperature: 150.5 })).toEqual(refused("steamTemperature", "a whole number from 135 to 170"));
+    // A steam time from 1 s, as 0 is steam off, to the DE1's 255 s (#394).
+    for (const steamDuration of [-1, 0, 256, 30.5]) expect(await refusal({ steamDuration })).toEqual(refused("steamDuration", "a whole number from 1 to 255"));
     // 0 or more, whole or not.
-    expect(await refusal({ steamDuration: -1 })).toEqual(refused("steamDuration", "a whole number of 0 or more"));
     expect(await refusal({ hotWaterVolume: 200.5 })).toEqual(refused("hotWaterVolume", "a whole number of 0 or more"));
     expect(await refusal({ steamFlow: -0.1 })).toEqual(refused("steamFlow", "a number of 0 or more"));
     // 0 for off, or within the range.
