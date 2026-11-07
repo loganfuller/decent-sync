@@ -6,8 +6,13 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import type { Config } from "./config.js";
 import { CONFIG } from "./config.module.js";
 
-/** `/api` and every path under it, matched without regard to case as Express matches routes. */
-const API_PATH = /^\/api(?:\/|$)/i;
+/**
+ * `/api` and every path under it, and `/.well-known` and every path under it,
+ * matched without regard to case as Express matches routes: never a page, so
+ * one nothing serves, such as an assistant's metadata while MCP_ENABLED is
+ * off, answers 404.
+ */
+const NOT_PAGES = /^\/(?:api|\.well-known)(?:\/|$)/i;
 
 /** The header naming the build of the management interface the server serves, which its pages read (`web/src/lib/build.ts`). */
 const BUILD_HEADER = "Decent-Sync-Build";
@@ -17,13 +22,17 @@ const BUILD_NAME = /<meta name="decent-sync-build" content="([0-9a-f]+)">/;
 
 /**
  * Serves the management interface's build, a single-page app: its files as
- * they are, and its `index.html` for any other path outside the API, a missing
+ * they are, and its `index.html` for any other path outside the API and
+ * `/.well-known`, a missing
  * hashed asset included, so a page reloads on a chunk it can no longer find.
  *
  * It replaces `@nestjs/serve-static`, whose fallback sends `index.html` by its
  * absolute path, which `send` refuses with 404 when a segment of that path
  * starts with a dot, as under `~/.t3/` or a hidden directory. Sending it
  * relative to the build's root checks only the path below it.
+ *
+ * Its pages and files forbid framing (`frame-ancestors 'none'`), so no page
+ * can be laid under another site's decoy to take a click.
  *
  * It registers on Express in `onModuleInit`, after Nest's routes and before its
  * not-found handler, so API routes come first and an unknown one keeps Nest's
@@ -56,9 +65,18 @@ export class ManagementInterface implements OnModuleInit {
   onModuleInit(): void {
     const app = this.adapterHost.httpAdapter.getInstance<Express>();
     const root = this.config.webDistDir;
+    // No page may be framed by another, so none can be laid under a decoy to take a click, such as an app's consent
+    // page's Allow: a page on a sibling subdomain is the same site, so the session cookie, SameSite=Lax, would reach it.
+    app.use((req: Request, res: Response, next: NextFunction) => {
+      if (!NOT_PAGES.test(req.path)) {
+        res.setHeader("Content-Security-Policy", "frame-ancestors 'none'");
+        res.setHeader("X-Frame-Options", "DENY");
+      }
+      next();
+    });
     app.use(express.static(root));
     app.get("{*any}", (req: Request, res: Response, next: NextFunction) => {
-      if (API_PATH.test(req.path)) {
+      if (NOT_PAGES.test(req.path)) {
         next();
         return;
       }

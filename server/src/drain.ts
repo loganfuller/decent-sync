@@ -4,6 +4,7 @@ import type { NextFunction, Request, Response } from "express";
 import { type Observable, finalize } from "rxjs";
 import type { Config } from "./config.js";
 import { LiveViews } from "./live-view/live-views.js";
+import { McpListenStreams } from "./mcp/listen-streams.js";
 import { SyncGateway } from "./sync/sync.gateway.js";
 
 /** The signals that stop the server: fly.io's default, Docker's and a terminal's. */
@@ -68,7 +69,9 @@ export class Drain implements NestInterceptor {
  *
  * - the routing check answers 503, the tablets are handed to another
  *   instance (`SyncGateway.handOver`), and the Live Views' streams end, which
- *   the browser opens again (`LiveViews.end`);
+ *   the browser opens again (`LiveViews.end`), as do the MCP endpoint's
+ *   `subscriptions/listen` streams, which their clients open again
+ *   (`McpListenStreams.end`);
  * - requests that still arrive are answered for the grace
  *   (`DRAIN_GRACE_SECONDS`), until the proxy has noticed;
  * - then the server stops listening, finishes the requests under way, and
@@ -89,6 +92,7 @@ export function stopOnSignals(app: INestApplication, config: Config): void {
       const drain = app.get(Drain);
       drain.stopping = true;
       // Long-lived streams end here too, at once: a response still open would hold up `drain.finished()`.
+      if (config.mcpEnabled) app.get(McpListenStreams).end();
       await Promise.all([app.get(SyncGateway).handOver(), app.get(LiveViews).end(), new Promise((resolve) => setTimeout(resolve, config.drainGraceMs))]);
       const server = app.getHttpServer() as Server;
       const closed = new Promise((resolve) => server.close(resolve));

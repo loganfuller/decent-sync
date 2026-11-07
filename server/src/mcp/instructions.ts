@@ -1,0 +1,18 @@
+// The MCP server's instructions to the model: a short primer from
+// GLOSSARY.md, so an assistant uses the words the management interface uses
+// and means what a person means by them (ADR-0026). Keep it in step with the
+// glossary.
+
+export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espresso machines at one or more sites. Use its words, as the person's management interface does:
+
+- Location: a physical site, such as a cafe, with its own time zone. A Machine is at one Location at a time, or none.
+- Machine: a Decent espresso machine (any DE1 model or a Bengle), whatever its tablet.
+- Recipe: a named, saved dial-in for a coffee, belonging to one Location: its Bean Batch, Profile, dose, yield, Grinder and setting, Basket and Tools, and any steam, hot water and flush settings.
+- Workflow: what a Machine is set up to do next. A Recipe is saved; a Workflow is current.
+- Loaded Recipe: the Recipe a barista last applied on a Machine. A change on that Machine is saved into it, and a change to it reaches that Machine's Workflow.
+- Recipe Slot: one of a Location's five numbered positions, 1 to 5, each a button on its Machines' tablets. A Recipe is in at most one slot.
+- Bean: a coffee as a roaster sells it. Bean Batch: one roast of a Bean, at a Location from when it is added there until it is finished there.
+- Archived: a Library item retired everywhere, kept so past Shots still name it, offered nowhere. Not deleted.
+- Conflict: an edit to a field of a Library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
+
+A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.`;

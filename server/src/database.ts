@@ -1,4 +1,4 @@
-import { type ArgumentsHost, Catch, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { type ArgumentsHost, Catch, IntrinsicException, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { BaseExceptionFilter } from "@nestjs/core";
 import pg from "pg";
 import { Prisma } from "./generated/prisma/client.js";
@@ -165,6 +165,9 @@ export function databaseUnreachable(error: unknown): boolean {
   return UNREACHABLE_MESSAGES.has(error.message);
 }
 
+/** Where Nest logs a route's unexpected failure, as `BaseExceptionFilter` and `ExternalExceptionFilter` do. */
+const exceptionsHandler = new Logger("ExceptionsHandler");
+
 /**
  * Answers a request that failed as the database could not be reached
  * (`databaseUnreachable`), in a guard or a handler, with 503 rather than 500,
@@ -172,15 +175,29 @@ export function databaseUnreachable(error: unknown): boolean {
  * reset link's secret. Anything else goes on as Nest would send it. The root
  * module provides it, so Nest tries it after every other global filter,
  * such as `RetryAfterFilter`, which catch exceptions of their own.
+ *
+ * Global filters run around each MCP tool call too, where there is no HTTP
+ * response to send: there it throws the exception on, as the 503's
+ * `ServiceUnavailableException` when the database could not be reached, for
+ * the MCP module to make a tool error of its message. Having caught it, it
+ * logs what Nest would have, as it does a route's: anything but an
+ * `HttpException`, which the app is told only failed.
  */
 @Catch()
 export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   private readonly logger = new Logger("Database");
 
   override catch(exception: unknown, host: ArgumentsHost): void {
-    if (!databaseUnreachable(exception)) return super.catch(exception, host);
+    const http = host.getType() === "http";
+    if (!databaseUnreachable(exception)) {
+      if (http) return super.catch(exception, host);
+      if (exception instanceof Error && !(exception instanceof IntrinsicException)) exceptionsHandler.error(exception);
+      throw exception;
+    }
     // Prisma's message ends with the driver's.
     this.logger.warn(`Answered a request with 503: the database could not be reached, or did not answer in time (${(exception as Error).message.trim().split("\n").at(-1)})`);
-    super.catch(new ServiceUnavailableException("The database can't be reached right now. Try again in a moment."), host);
+    const unavailable = new ServiceUnavailableException("The database can't be reached right now. Try again in a moment.");
+    if (!http) throw unavailable;
+    super.catch(unavailable, host);
   }
 }

@@ -1,3 +1,5 @@
+import { AccountRole } from "../generated/prisma/client.js";
+
 /**
  * The Locations an account works at: every one for an Admin, the ones a
  * Staff member works at, or none for a Viewer, who changes nothing
@@ -20,3 +22,10 @@ export function includesLocation(scope: Scope, locationId: string | null): boole
 
 /** A Viewer's: no Location, and nothing to change. */
 export const NOTHING: Scope = { kind: "nothing" };
+
+/** The Scope of an account with this role, and for Staff these Locations, as read with its session or access token. */
+export function scopeOf(role: AccountRole, staffLocationIds: string[]): Scope {
+  if (role === AccountRole.ADMIN) return EVERYTHING;
+  if (role === AccountRole.VIEWER) return NOTHING;
+  return { kind: "locations", locationIds: staffLocationIds };
+}

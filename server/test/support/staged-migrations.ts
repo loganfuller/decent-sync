@@ -18,7 +18,8 @@ export interface StagedMigrations {
  * A copy of the change's built server, in a directory of its own, with these
  * migrations, keyed by name, after its own, as the next release would bring.
  * Name each so it sorts after every real migration. The copy runs on the
- * checkout's dependencies and management interface.
+ * checkout's dependencies, the server workspace's included, and management
+ * interface.
  */
 export function stageMigrations(migrations: Record<string, string>): StagedMigrations {
   assertBuilt("protocol", "server");
@@ -28,6 +29,10 @@ export function stageMigrations(migrations: Record<string, string>): StagedMigra
     fs.cpSync(path.join(repoDir, "server", entry), path.join(buildDir, "server", entry), { recursive: true });
   }
   fs.symlinkSync(path.join(repoDir, "node_modules"), path.join(buildDir, "node_modules"));
+  // The server workspace's own, where npm installed a version other than the root's, such as Zod 4 beside the
+  // management interface's Zod 3.
+  const serverModules = path.join(repoDir, "server/node_modules");
+  if (fs.existsSync(serverModules)) fs.symlinkSync(serverModules, path.join(buildDir, "server/node_modules"));
   fs.symlinkSync(path.join(repoDir, "web"), path.join(buildDir, "web"));
   for (const [name, sql] of Object.entries(migrations)) {
     const dir = path.join(buildDir, "server/prisma/migrations", name);
