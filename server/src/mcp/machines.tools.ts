@@ -85,7 +85,7 @@ const machineOutput = z.object({
     pluginVersion: z.string().nullable().describe("The Decent Sync plugin's version on its tablet, as its latest connection reported it."),
     decaidVersion: z.string().nullable(),
     locationHistory: z
-      .array(z.object({ location, effectiveFrom: time.describe("When it arrived there. It stayed until the next entry's time.") }))
+      .array(z.object({ location, effectiveFrom: z.string().describe("When it arrived there, ISO 8601 with the offset of that Location's time zone then. It stayed until the next entry's time.") }))
       .describe("Where it has been, oldest first."),
     sharing: z.boolean().describe("Whether it shares the Library at its Location: on unless an Admin turned it off."),
     lastShot: z.object({ id: z.string(), pulledAt: tabletTime.nullable() }).nullable(),

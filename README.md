@@ -303,7 +303,9 @@ and approve it, choosing whether it may only read or may also change things;
 a Viewer's app only reads. Each approval makes a Connected App, which acts as
 that account, within what the account may do. An app unused for 30 days stops
 working until it connects again. Apps that register only by Dynamic Client
-Registration, such as Cursor, can't connect.
+Registration, such as Cursor, can't connect. While Milestone 6 is under way,
+assistants only read: the tools that change things come with its later
+tickets (see [Status](#status)).
 
 Assistants reach the server over HTTPS only: `PUBLIC_URL` must start with
 `https://`, except for an app on the server's own computer that reaches it at
