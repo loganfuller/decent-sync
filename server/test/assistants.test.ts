@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { stripVTControlCharacters } from "node:util";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type LocationView, type MachineView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import {
@@ -166,6 +167,11 @@ describe("connecting an assistant", () => {
     }
     expect(await exchange(server.url, late.code, late.verifier)).toMatchObject({ status: 400, body: { error: "invalid_grant", error_description: "The code has expired; connect again" } });
 
+    const otherClient = await approvedCode(adminCookie);
+    expect(await exchange(server.url, otherClient.code, otherClient.verifier, { client_id: "https://elsewhere.example/client.json" })).toMatchObject({
+      status: 400,
+      body: { error: "invalid_grant" },
+    });
     const redirected = await approvedCode(adminCookie);
     expect(await exchange(server.url, redirected.code, redirected.verifier, { redirect_uri: `${app.redirectUri}?other` })).toMatchObject({ status: 400, body: { error: "invalid_grant" } });
     const elsewhere = await approvedCode(adminCookie);
@@ -329,6 +335,23 @@ describe("connecting an assistant", () => {
       expect((await Assistant.rawCall(server.url, asViewer.body.access_token as string)).status).toBe(200);
       expect(await refresh(server.url, asViewer.body.refresh_token as string)).toMatchObject({ status: 200, body: { scope: "read change" } });
     } finally {
+      await assistant.close();
+    }
+  });
+
+  it("logs a tool call's unexpected failure, as a route's, telling the app only that it failed", async () => {
+    const assistant = await Assistant.connect(server.url, app, adminCookie);
+    const database = await server.connectDatabase();
+    try {
+      // The table gone for a moment, as an unexpected failure of the server's own.
+      await database.query("ALTER TABLE locations RENAME TO locations_away");
+      const logged = server.output().length;
+      const result = await assistant.client.callTool({ name: "list_locations", arguments: {} });
+      expect(result).toMatchObject({ isError: true, content: [{ type: "text", text: "Internal server error" }] });
+      await expect.poll(() => stripVTControlCharacters(server.output().slice(logged))).toMatch(/ERROR \[ExceptionsHandler\] PrismaClientKnownRequestError/);
+    } finally {
+      await database.query("ALTER TABLE IF EXISTS locations_away RENAME TO locations");
+      await database.end();
       await assistant.close();
     }
   });

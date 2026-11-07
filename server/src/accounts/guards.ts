@@ -47,6 +47,9 @@ export const AllowViewer = () => SetMetadata(VIEWER, true);
 
 type SignedInRequest = Request & { signedIn?: SignedIn };
 
+/** The context of an MCP tool call, around which `@nestjs/mcp` runs the global guards again (`MCP_CONTEXT_TYPE`). */
+const MCP_CALL = "mcp";
+
 /** The signed-in account and session of a route that requires one. */
 export const CurrentSession = createParamDecorator((_: unknown, context: ExecutionContext): SignedIn => signedInOf(context));
 
@@ -75,7 +78,7 @@ const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
  *
  * Global guards run again around each MCP tool call, where the "request" is
  * the tool's input: those calls came through the MCP endpoint's route, which
- * this guard checked, so it lets every context that isn't HTTP through.
+ * this guard checked, so it lets them through.
  */
 @Injectable()
 export class SameOriginGuard implements CanActivate {
@@ -86,7 +89,7 @@ export class SameOriginGuard implements CanActivate {
   }
 
   canActivate(context: ExecutionContext): boolean {
-    if (context.getType() !== "http") return true;
+    if (context.getType<string>() === MCP_CALL) return true;
     const request = context.switchToHttp().getRequest<Request>();
     if (SAFE_METHODS.has(request.method)) return true;
 
@@ -109,9 +112,11 @@ export class SameOriginGuard implements CanActivate {
  * changes nothing, uses only those marked `@AllowStaff()` that read, and
  * signing out (`@AllowViewer()`).
  *
- * It lets every context that isn't HTTP through, such as an MCP tool call:
- * the MCP endpoint's route is public to it, and the endpoint authenticates
- * each request by its Connected App's access token (`server/src/mcp/`).
+ * It lets an MCP tool call through: the MCP endpoint's route is public to
+ * it, and the endpoint authenticates each request by its Connected App's
+ * access token (`server/src/mcp/`). Any other context that isn't HTTP fails,
+ * as it reads no HTTP request, so a new kind of handler is closed until it
+ * authenticates.
  */
 @Injectable()
 export class SessionGuard implements CanActivate {
@@ -121,7 +126,7 @@ export class SessionGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    if (context.getType() !== "http") return true;
+    if (context.getType<string>() === MCP_CALL) return true;
     const targets = [context.getHandler(), context.getClass()];
     if (this.reflector.getAllAndOverride<boolean>(PUBLIC, targets)) return true;
 

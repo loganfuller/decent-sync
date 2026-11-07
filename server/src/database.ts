@@ -1,4 +1,4 @@
-import { type ArgumentsHost, Catch, Logger, ServiceUnavailableException } from "@nestjs/common";
+import { type ArgumentsHost, Catch, IntrinsicException, Logger, ServiceUnavailableException } from "@nestjs/common";
 import { BaseExceptionFilter } from "@nestjs/core";
 import pg from "pg";
 import { Prisma } from "./generated/prisma/client.js";
@@ -176,8 +176,13 @@ export function databaseUnreachable(error: unknown): boolean {
  * Global filters run around each MCP tool call too, where there is no HTTP
  * response to send: there it throws the exception on, as the 503's
  * `ServiceUnavailableException` when the database could not be reached, for
- * the MCP module to make a tool error of its message.
+ * the MCP module to make a tool error of its message. Having caught it, it
+ * logs what Nest would have, as it does a route's: anything but an
+ * `HttpException`, which the app is told only failed.
  */
+/** Where Nest logs a route's unexpected failure, as `BaseExceptionFilter` and `ExternalExceptionFilter` do. */
+const exceptionsHandler = new Logger("ExceptionsHandler");
+
 @Catch()
 export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   private readonly logger = new Logger("Database");
@@ -185,8 +190,9 @@ export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   override catch(exception: unknown, host: ArgumentsHost): void {
     const http = host.getType() === "http";
     if (!databaseUnreachable(exception)) {
-      if (!http) throw exception;
-      return super.catch(exception, host);
+      if (http) return super.catch(exception, host);
+      if (exception instanceof Error && !(exception instanceof IntrinsicException)) exceptionsHandler.error(exception);
+      throw exception;
     }
     // Prisma's message ends with the driver's.
     this.logger.warn(`Answered a request with 503: the database could not be reached, or did not answer in time (${(exception as Error).message.trim().split("\n").at(-1)})`);
