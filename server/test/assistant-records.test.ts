@@ -290,6 +290,15 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // A time without its offset names no moment, and a day the calendar lacks none either.
     expect(await toolError("find_shots", { from: "2026-02-10T06:00:00" })).toContain("from");
     expect(await toolError("find_shots", { to: "2026-02-30" })).toContain("to");
+    // ISO 8601 allows a moment PostgreSQL can't read: an offset past 15:59, or year 0.
+    const unread = "Enter from as a time from year 1 with an offset of at most 15:59, such as 2026-11-06T14:30:00-05:00, or as a date";
+    for (const tool of ["find_shots", "find_steam_records"]) {
+      expect(await toolError(tool, { from: "2026-11-06T14:30:00+16:00" })).toBe(unread);
+      expect(await toolError(tool, { from: "0000-01-01T00:00:00Z" })).toBe(unread);
+      expect(await toolError(tool, { to: "2026-11-06T14:30:00-23:00" })).toBe(unread.replace("from", "to"));
+    }
+    // From 20:01 on the 9th up to 04:59 on the 11th, in UTC; two Shots at one moment are ordered by id.
+    expect(await ids({ from: "2026-02-10T12:00:00+15:59", to: "2026-02-10T13:00:00-15:59" })).toEqual(["harbor-next", "uptown-dawn", "harbor-noon", "uptown-before"]);
   });
 
   it("pages as the REST API does, at most 50 a page, saying whether there are more", async () => {

@@ -7,6 +7,8 @@ import type { RecordFilters } from "../record-filters.js";
 // time zone, as the REST API's record lists read one.
 
 const DAY = /^\d{4}-\d\d-\d\d$/;
+/** A moment PostgreSQL reads, which ISO 8601 alone doesn't bound: from year 1, with an offset of at most 15:59. */
+const MOMENT = /^(?!0000)\d{4}-.*(?:Z|[+-](?:0\d|1[0-5]):[0-5]\d)$/;
 
 /** A time range's bound: a date, for each Location's day, or a moment with its offset. */
 export function timeBound(description: string) {
@@ -30,16 +32,22 @@ export function timeRange(from: string | undefined, to: string | undefined): { q
   const filters: Pick<RecordFilters, "fromAt" | "untilAt"> = {};
   if (from !== undefined) {
     if (DAY.test(from)) query.from = from;
-    else filters.fromAt = from;
+    else filters.fromAt = moment("from", from);
   }
   if (to !== undefined) {
     if (DAY.test(to)) query.to = to;
-    else filters.untilAt = to;
+    else filters.untilAt = moment("to", to);
   }
   if (filters.fromAt !== undefined && filters.untilAt !== undefined && Date.parse(filters.untilAt) <= Date.parse(filters.fromAt)) {
     throw new BadRequestException("Choose an end after the start");
   }
   return { query, filters };
+}
+
+/** A moment as given, if PostgreSQL reads it; otherwise refused, as the REST API refuses a time it can't read. */
+function moment(name: string, value: string): string {
+  if (MOMENT.test(value)) return value;
+  throw new BadRequestException(`Enter ${name} as a time from year 1 with an offset of at most 15:59, such as 2026-11-06T14:30:00-05:00, or as a date`);
 }
 
 /**
