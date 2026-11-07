@@ -184,7 +184,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
       // 23:30 on the 10th in Chicago, the 11th in UTC.
       shotAt("uptown-night", "2026-02-11T05:30:00Z", hardware.uptown1, "Ben"),
       // 21:00 on the 9th in Chicago, the 10th in UTC.
-      shotAt("uptown-before", "2026-02-10T03:00:00Z", hardware.uptown1, "Ann"),
+      shotAt("uptown-before", "2026-02-10T03:00:00Z", hardware.uptown1, "Ann", { roaster: "Other Roaster" }),
     ]);
     await deliverShots(harbor1, hardware.harbor1, [
       // 01:00 on the 10th in Tokyo, the 9th in UTC.
@@ -209,14 +209,20 @@ describe("reading Shots and Steam Records through an assistant", () => {
     await server?.stop();
   });
 
-  /** A Shot pulled at a UTC time on the hardware given, by the Barista given, recording the Bean's name and profile's title given, or the fixture's. */
-  function shotAt(id: string, pulledAt: string, recorded: { model: string; serial: string }, barista: string, { bean, profile }: { bean?: string; profile?: string } = {}): Fields {
+  /** A Shot pulled at a UTC time on the hardware given, by the Barista given, recording the Bean's roaster and name and profile's title given, or the fixture's. */
+  function shotAt(
+    id: string,
+    pulledAt: string,
+    recorded: { model: string; serial: string },
+    barista: string,
+    { roaster, bean, profile }: { roaster?: string; bean?: string; profile?: string } = {},
+  ): Fields {
     const { machine, context, profile: recordedProfile, ...workflow } = shotFixture().workflow as Record<string, Fields>;
     return derivedShot(id, {
       timestamp: pulledAt,
       workflow: {
         ...workflow,
-        context: { ...context, baristaName: barista, ...(bean && { coffeeName: bean }) },
+        context: { ...context, baristaName: barista, ...(roaster && { coffeeRoaster: roaster }), ...(bean && { coffeeName: bean }) },
         profile: { ...recordedProfile, ...(profile && { title: profile }) },
         machine: { ...machine, model: recorded.model, serialNumber: recorded.serial },
       },
@@ -301,8 +307,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await findShotsAsRest({ ...february, beanRoaster: "Roux Bakehouse", locationId: uptown.id }, { ...february, coffeeRoaster: "Roux Bakehouse", locationId: uptown.id })).toEqual([
       "uptown-night",
       "uptown-dawn",
-      "uptown-before",
     ]);
+    expect(await findShotsAsRest({ beanRoaster: "Other Roaster" }, { coffeeRoaster: "Other Roaster" })).toEqual(["uptown-before"]);
+    expect(await toolError("find_shots", { beanName: "x".repeat(501) })).toContain("beanName");
     expect(await findShotsAsRest({ profileTitle: "Blooming" }, { profileTitle: "Blooming" })).toEqual(["harbor-next"]);
     // A well-formed id names nothing, as through the REST API.
     const nothing = randomUUID();

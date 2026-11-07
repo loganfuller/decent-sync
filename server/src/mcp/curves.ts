@@ -59,8 +59,10 @@ export function curvesOf<C extends string>(samples: readonly Sample<C>[], curves
 
 /**
  * The samples' readings of one value, leaving out those without one, cut to
- * `MAX_CURVE_POINTS`, keeping its highest reading and the first reading of
- * the peak its record reports, if any reading is that.
+ * `MAX_CURVE_POINTS`, keeping its highest reading and the last reading of
+ * the peak its record reports, if any reading is that: the readings that peak
+ * leaves out, a Shot's Preheat and a Steam Record's carried over from the one
+ * before, come first.
  */
 function seriesOf<C extends string>(samples: readonly Sample<C>[], value: (sample: Sample<C>) => number | null, reported: number | null): Point[] {
   const read: Point[] = [];
@@ -72,7 +74,7 @@ function seriesOf<C extends string>(samples: readonly Sample<C>[], value: (sampl
   read.forEach(([, reading], n) => {
     if (reading > read[highest]![1]) highest = n;
   });
-  const peaks = [highest, read.findIndex(([, reading]) => reading === reported)].filter((n) => n >= 0);
+  const peaks = [highest, read.map(([, reading]) => reading).lastIndexOf(reported ?? Number.NaN)].filter((n) => n >= 0);
   return reduced(read, MAX_CURVE_POINTS, peaks).map(([seconds, reading]) => [hundredths(seconds), hundredths(reading)]);
 }
 
