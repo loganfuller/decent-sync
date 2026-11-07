@@ -1,5 +1,5 @@
 ---
-status: accepted (amended by ADR-0024)
+status: accepted (amended by ADR-0024 and ADR-0026)
 ---
 
 # One WebSocket for the plugin, REST for everything else
