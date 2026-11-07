@@ -24,8 +24,8 @@ offer it. To leave it off, set `MCP_ENABLED=false`. A reverse proxy that passes
 only some paths to the server passes `/.well-known/oauth-authorization-server`
 and `/.well-known/oauth-protected-resource/api/mcp` too. While a deploy moves
 traffic over, an app's request reaching an instance of the previous release
-fails, once: `/api/mcp` answers 404 there, and those two documents the
-management interface's page rather than their JSON.
+fails, once: `/api/mcp` answers 404 there, and the two `/.well-known/`
+documents answer with the management interface's page rather than their JSON.
 
 ## 1.6.3
 

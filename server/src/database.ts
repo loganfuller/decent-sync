@@ -165,6 +165,9 @@ export function databaseUnreachable(error: unknown): boolean {
   return UNREACHABLE_MESSAGES.has(error.message);
 }
 
+/** Where Nest logs a route's unexpected failure, as `BaseExceptionFilter` and `ExternalExceptionFilter` do. */
+const exceptionsHandler = new Logger("ExceptionsHandler");
+
 /**
  * Answers a request that failed as the database could not be reached
  * (`databaseUnreachable`), in a guard or a handler, with 503 rather than 500,
@@ -180,9 +183,6 @@ export function databaseUnreachable(error: unknown): boolean {
  * logs what Nest would have, as it does a route's: anything but an
  * `HttpException`, which the app is told only failed.
  */
-/** Where Nest logs a route's unexpected failure, as `BaseExceptionFilter` and `ExternalExceptionFilter` do. */
-const exceptionsHandler = new Logger("ExceptionsHandler");
-
 @Catch()
 export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   private readonly logger = new Logger("Database");
