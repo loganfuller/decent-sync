@@ -51,8 +51,15 @@ interface Activity {
 
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
-/** The recording's tablet's record id for the Ethiopia's recipe, in no Recipe Slot. */
+/** The recording's tablet's record ids: the Ethiopia's recipe, in no Recipe Slot, and the Brazil's, in slot 2. */
 const ETHIOPIA = "1";
+const BRAZIL = "2";
+
+/** A Staff member or Viewer with an assistant connected as them, and their REST API. */
+interface Person {
+  assistant: Assistant;
+  api: AdminApi;
+}
 
 /** What list_machines gives of a Machine the REST API returns. */
 function listed(machine: RestMachine): Record_ {
@@ -64,6 +71,17 @@ function withoutId<T extends { id: string }>({ id: _, ...rest }: T): Omit<T, "id
   return rest;
 }
 
+/** The value with every lastSeenAt taken out: each heartbeat of an online Machine's plugin moves it, between any two reads. */
+function unseen<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value), (key, field: unknown) => (key === "lastSeenAt" ? undefined : field)) as T;
+}
+
+/** That a tool read an online Machine's lastSeenAt between the REST API's reads of it before and after the call. */
+function seenBetween(before: RestMachine, seen: Record_, after: RestMachine): void {
+  expect(Date.parse(seen.lastSeenAt as string), seen.name as string).toBeGreaterThanOrEqual(Date.parse(before.lastSeenAt!));
+  expect(Date.parse(seen.lastSeenAt as string), seen.name as string).toBeLessThanOrEqual(Date.parse(after.lastSeenAt!));
+}
+
 describe("Machines through an assistant", { timeout: 120_000 }, () => {
   let server: TestServer;
   let api: AdminApi;
@@ -73,6 +91,10 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   let bar: CreatedMachine;
   let tablet: SimulatedTablet;
   let ethiopia: string;
+  let roaster: CreatedMachine;
+  /** A Staff member at the Lab and a Viewer, each with an assistant connected as them. */
+  let sam: Person;
+  let vic: Person;
   const tablets = new LoadedTablets();
 
   runAsSteps();
@@ -86,6 +108,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   });
   afterAll(async () => {
     await assistant?.close();
+    await sam?.assistant.close();
+    await vic?.assistant.close();
     await tablets.unloadAll();
     await app?.close();
     await server?.stop();
@@ -94,7 +118,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   const restMachine = async ({ machine }: CreatedMachine, as = api) => (await as.get<{ machine: RestMachine }>(`/machines/${machine.id}`)).machine;
 
   /** A Staff member or Viewer with an assistant connected as them, and their REST API. */
-  async function person(email: string, role: "staff" | "viewer", locations: LocationView[] = []): Promise<{ assistant: Assistant; api: AdminApi }> {
+  async function person(email: string, role: "staff" | "viewer", locations: LocationView[] = []): Promise<Person> {
     const { link } = await api.invite(email, role, locations.map((location) => location.id));
     const cookie = await acceptInvite(server.url, link, { name: email, password: "a password for apps" });
     return { assistant: await Assistant.connect(server.url, app, cookie, { allowed: ["read"] }), api: AdminApi.signedInAs(server.url, cookie) };
@@ -128,10 +152,12 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     const unshared = await api.createMachine("Lab spare", lab.id);
     await api.send("PUT", `/machines/${unshared.machine.id}/sharing`, { sharing: false });
 
+    const before = (await api.get<{ machines: RestMachine[] }>("/machines")).machines;
     const { machines } = await assistant.call<{ machines: Record_[] }>("list_machines");
     const rest = (await api.get<{ machines: RestMachine[] }>("/machines")).machines;
-    expect(machines).toEqual(rest.map(listed));
+    expect(unseen(machines)).toEqual(unseen(rest.map(listed)));
     const byName = (name: string) => machines.find((machine) => machine.name === name);
+    seenBetween(before.find((machine) => machine.id === bar.machine.id)!, byName("Lab bar")!, rest.find((machine) => machine.id === bar.machine.id)!);
     expect(byName("Lab bar")).toMatchObject({
       location: { id: lab.id, name: "Lab", timeZone: "America/Chicago" },
       online: true,
@@ -144,18 +170,20 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   });
 
   it("gives one Machine as the REST API does: its Workflow, Machine Settings, Tablet Settings, Location History, sharing status and tablet versions", async () => {
-    const result = await assistant.call<Record_>("get_machine", { machineId: bar.machine.id });
+    const before = await restMachine(bar);
+    const result = await assistant.call<Record_ & { machine: Record_ }>("get_machine", { machineId: bar.machine.id });
     const path = `/machines/${bar.machine.id}`;
     const rest = await restMachine(bar);
+    seenBetween(before, result.machine, rest);
     const collection = async (name: string) => {
       const { collection } = await api.get<{ collection: Record_ | null }>(`${path}/collections/${name}`);
       return collection && { available: collection.available, reportedAt: collection.reportedAt, receivedAt: collection.receivedAt, value: collection.value, utcOffsetMinutes: collection.utcOffsetMinutes };
     };
     const { workflow } = await api.get<{ workflow: Record_ }>(`${path}/workflow`);
     const { status } = await api.get<{ status: Record_ & { refused: Record_[] } }>(`${path}/sharing-status`);
-    expect(result).toEqual({
+    expect(unseen(result)).toEqual({
       machine: {
-        ...listed(rest),
+        ...unseen(listed(rest)),
         serial: rest.serial,
         firmware: rest.reported?.firmware ?? null,
         pluginVersion: rest.pluginVersion,
@@ -206,7 +234,6 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
   });
 
   describe("a Machine's activity over a time range", () => {
-    let roaster: CreatedMachine;
     // Monday 2 November 2026 in Chicago (UTC-6): asleep at 6, a Workflow at 6:30, awake at 7, another Workflow at 8, a
     // Shot at 9, a third Workflow at 10, idle again at 11.
     const at = (hour: number, minute = 0) => new Date(Date.UTC(2026, 10, 2, hour + 6, minute)).toISOString();
@@ -311,21 +338,62 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       }
     });
 
-    it("gives each Loaded Recipe loaded at any time in a range, as the REST API lists them", async () => {
-      const { entries } = await api.get<{ entries: (Record_ & { id: string; loadedAt: string })[] }>(`/machines/${bar.machine.id}/loaded-recipes`);
-      expect(entries).toHaveLength(1);
-      const loadedAt = Date.parse(entries[0]!.loadedAt);
-      const recipes = (args: Record_) => assistant.call<Activity>("get_machine_activity", { machineId: bar.machine.id, kinds: ["loadedRecipes"], ...args });
-      expect(await recipes({})).toEqual({ loadedRecipes: { entries: entries.map(withoutId), more: false } });
+    it("gives each Loaded Recipe loaded at any time in a range, as the REST API lists them, a Recipe unloaded as another loads in neither range that meets at that moment", async () => {
+      type Entry = Record_ & { id: string; recipe: { id: string }; loadedAt: string; unloadedAt: string | null };
+      const history = async () => (await api.get<{ entries: Entry[] }>(`/machines/${bar.machine.id}/loaded-recipes`)).entries;
+      const recipes = async (args: Record_) =>
+        (await assistant.call<Activity>("get_machine_activity", { machineId: bar.machine.id, kinds: ["loadedRecipes"], ...args })).loadedRecipes!;
+      const ids = (page: Page<{ recipe: Record_ }>) => page.entries.map((entry) => entry.recipe.id);
+      expect((await history()).map((entry) => entry.recipe.id)).toEqual([ethiopia]);
+      const loadedAt = Date.parse((await history())[0]!.loadedAt);
       // Still loaded, so in a range long after its load, but not in one ending as it was loaded.
-      expect((await recipes({ from: new Date(loadedAt + 60_000).toISOString() })).loadedRecipes!.entries).toHaveLength(1);
-      expect((await recipes({ to: new Date(loadedAt).toISOString() })).loadedRecipes!.entries).toHaveLength(0);
+      expect(ids(await recipes({ from: new Date(loadedAt + 60_000).toISOString() }))).toEqual([ethiopia]);
+      expect(ids(await recipes({ to: new Date(loadedAt).toISOString() }))).toEqual([]);
+
+      // The Brazil's applied from DYE2's Select Recipe page, which unloads the Ethiopia's as it loads.
+      await selectRecipeInDye2(tablet, BRAZIL);
+      await expect.poll(async () => (await history()).length, { timeout: 15_000 }).toBe(2);
+      await quiesced(api, { tablets: { tablet }, machines: { machine: bar } });
+      const entries = await history();
+      const [brazil, earlier] = entries;
+      expect(earlier!.recipe.id).toBe(ethiopia);
+      expect(earlier!.unloadedAt).toBe(brazil!.loadedAt);
+      const switchedAt = Date.parse(brazil!.loadedAt);
+      const iso = (ms: number) => new Date(ms).toISOString();
+
+      expect(await recipes({})).toEqual({ entries: entries.map(withoutId), more: false });
+      // From the switch, only the Brazil's; up to it, only the Ethiopia's; across it, both.
+      expect(ids(await recipes({ from: iso(switchedAt) }))).toEqual([brazil!.recipe.id]);
+      expect(ids(await recipes({ to: iso(switchedAt) }))).toEqual([ethiopia]);
+      expect(ids(await recipes({ from: iso(switchedAt - 1), to: iso(switchedAt + 1) }))).toEqual([brazil!.recipe.id, ethiopia]);
+      // A page at a time, latest loaded first.
+      expect(await recipes({ limit: 1 })).toEqual({ entries: [withoutId(brazil!)], more: true });
+      expect(await recipes({ limit: 1, offset: 1 })).toEqual({ entries: [withoutId(earlier!)], more: false });
+      expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], more: false });
     });
   });
 
+  it("reads every Machine through a Staff member's or a Viewer's assistant as through their REST API, which is as an Admin reads it, a Machine outside Staff's Locations included", async () => {
+    sam = await person("sam@example.com", "staff", [lab]);
+    vic = await person("vic@example.com", "viewer");
+    const van = (await api.get<{ machines: RestMachine[] }>("/machines")).machines.find((machine) => machine.name === "In the van")!;
+    for (const [who, as] of [
+      ["Staff", sam],
+      ["a Viewer", vic],
+    ] as const) {
+      const { machines } = await as.assistant.call<{ machines: Record_[] }>("list_machines");
+      expect(unseen(machines), who).toEqual(unseen((await as.api.get<{ machines: RestMachine[] }>("/machines")).machines.map(listed)));
+      expect(unseen(machines), who).toEqual(unseen((await assistant.call<{ machines: Record_[] }>("list_machines")).machines));
+      for (const machineId of [bar.machine.id, van.id]) {
+        const read = (through: Assistant) => through.call<Record_>("get_machine", { machineId });
+        expect(unseen(await read(as.assistant)), who).toEqual(unseen(await read(assistant)));
+      }
+      const activity = (through: Assistant) => through.call<Activity>("get_machine_activity", { machineId: roaster.machine.id });
+      expect(await activity(as.assistant), who).toEqual(await activity(assistant));
+    }
+  });
+
   it("lists a Machine's Settings Edits as the REST API does, newest first, naming who made each only to Admins", async () => {
-    const sam = await person("sam@example.com", "staff", [lab]);
-    const vic = await person("vic@example.com", "viewer");
     const path = `/machines/${bar.machine.id}/settings-edits`;
     const make = async (body: unknown, as: AdminApi) => (await as.send<{ settingsEdit: { id: string } }>("POST", path, body, 201)).settingsEdit.id;
     const answered = (id: string) => expect.poll(async () => (await api.get<{ settingsEdit: { answeredAt: string | null } }>(`${path}/${id}`)).settingsEdit.answeredAt, { timeout: 15_000 }).not.toBeNull();
@@ -334,30 +402,25 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     await answered(await make({ collection: "machineSettings", fields: { fan: 45 }, expected: { fan: 55 } }, sam.api));
 
     const asListed = (edits: Record_[]) => edits.map(({ machineId: _, ...edit }) => edit);
-    try {
-      for (const [who, as, through] of [
-        ["an Admin", api, assistant],
-        ["Staff", sam.api, sam.assistant],
-        ["a Viewer", vic.api, vic.assistant],
-      ] as const) {
-        const rest = await as.get<{ settingsEdits: Record_[] }>(path);
-        const listedEdits = await through.call<{ settingsEdits: Record_[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id });
-        expect(listedEdits, who).toEqual({ settingsEdits: asListed(rest.settingsEdits), more: false });
-      }
-      const { settingsEdits } = await assistant.call<{ settingsEdits: Record_[] }>("list_settings_edits", { machineId: bar.machine.id });
-      expect(settingsEdits).toMatchObject([
-        { fields: { fan: 45 }, outcome: "refused", refusal: { reason: "changedSince", current: { fan: 40 } }, account: { name: "sam@example.com" } },
-        { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" } },
-      ]);
-      expect((await sam.assistant.call<{ settingsEdits: { account: { name: string | null } }[] }>("list_settings_edits", { machineId: bar.machine.id })).settingsEdits.map((edit) => edit.account.name)).toEqual([null, null]);
-
-      const page = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1 });
-      expect([page.settingsEdits.map((edit) => edit.id), page.more]).toEqual([[settingsEdits[0]!.id], true]);
-      const last = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1, offset: 1 });
-      expect([last.settingsEdits.map((edit) => edit.id), last.more]).toEqual([[settingsEdits[1]!.id], false]);
-    } finally {
-      await sam.assistant.close();
-      await vic.assistant.close();
+    for (const [who, as, through] of [
+      ["an Admin", api, assistant],
+      ["Staff", sam.api, sam.assistant],
+      ["a Viewer", vic.api, vic.assistant],
+    ] as const) {
+      const rest = await as.get<{ settingsEdits: Record_[] }>(path);
+      const listedEdits = await through.call<{ settingsEdits: Record_[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id });
+      expect(listedEdits, who).toEqual({ settingsEdits: asListed(rest.settingsEdits), more: false });
     }
+    const { settingsEdits } = await assistant.call<{ settingsEdits: Record_[] }>("list_settings_edits", { machineId: bar.machine.id });
+    expect(settingsEdits).toMatchObject([
+      { fields: { fan: 45 }, outcome: "refused", refusal: { reason: "changedSince", current: { fan: 40 } }, account: { name: "sam@example.com" } },
+      { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" } },
+    ]);
+    expect((await sam.assistant.call<{ settingsEdits: { account: { name: string | null } }[] }>("list_settings_edits", { machineId: bar.machine.id })).settingsEdits.map((edit) => edit.account.name)).toEqual([null, null]);
+
+    const page = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1 });
+    expect([page.settingsEdits.map((edit) => edit.id), page.more]).toEqual([[settingsEdits[0]!.id], true]);
+    const last = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1, offset: 1 });
+    expect([last.settingsEdits.map((edit) => edit.id), last.more]).toEqual([[settingsEdits[1]!.id], false]);
   });
 });
