@@ -1,4 +1,9 @@
-# decent-sync
+<h1>
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="web/src/assets/decent-sync-logo-dark.svg">
+    <img src="web/src/assets/decent-sync-logo.svg" alt="Decent Sync" width="400">
+  </picture>
+</h1>
 
 Decent Sync connects Decent espresso machines (any DE1 model or a Bengle)
 running [Decaid](https://github.com/decentespresso/decaid) to one self-hosted

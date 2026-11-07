@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useLocation } from "react-route
 import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { lazyPage, useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
+import { CentredPage } from "@/pages/AuthForm";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
 import { BeanBatchPage } from "@/pages/BeanBatchPage";
@@ -169,8 +170,8 @@ function AdminOnly({ children }: { children: ReactNode }): ReactNode {
 
 function Unreachable() {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-4">
+    <CentredPage>
       <p role="alert">The Decent Sync server can't be reached. Reload the page to try again.</p>
-    </main>
+    </CentredPage>
   );
 }

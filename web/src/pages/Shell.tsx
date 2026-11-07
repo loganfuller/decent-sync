@@ -3,6 +3,7 @@ import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 import { useAuth, useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
+import { Logo, Logomark } from "@/components/logo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -38,8 +39,8 @@ export function Shell() {
     <div className="flex min-h-svh flex-col bg-background">
       <header className="border-b">
         <div className="mx-auto flex h-14 max-w-6xl items-center gap-4 px-4">
-          <Link to="/" className="font-semibold">
-            Decent Sync
+          <Link to="/" className="shrink-0">
+            <Logo className="h-7" />
           </Link>
           {/* With an Admin's links, a short name and the theme button the row needs about 810 px, so below lg (1024),
               an iPad held upright included, it is in a menu. Its links don't wrap: a longer name truncates instead. */}
@@ -73,7 +74,10 @@ export function Shell() {
               }}
             >
               <SheetHeader>
-                <SheetTitle>Decent Sync</SheetTitle>
+                <SheetTitle className="flex items-center gap-2">
+                  <Logomark className="size-6" />
+                  Decent Sync
+                </SheetTitle>
                 {account && <SheetDescription className="wrap-anywhere">Signed in as {account.name}</SheetDescription>}
                 {account?.role === "viewer" && <ViewerRole />}
               </SheetHeader>
