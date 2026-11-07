@@ -56,11 +56,10 @@ const UTC_TIME = /Z$/;
 /**
  * A result, a tool's or the REST API's, as the two are compared: each ISO
  * 8601 time as its instant, since the REST API gives them in UTC and the
- * tools with a Location's offset, and without the tablet ids the REST API
- * names sources by, which the tools leave out.
+ * tools with a Location's offset.
  */
 function comparable(value: unknown): unknown {
-  return JSON.parse(JSON.stringify(value), (key, field: unknown) => (key === "tabletId" ? undefined : typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
+  return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
 }
 
 /** The Locations an item of the kind is at, as find_library_items filters by them, read from the REST API's view of it. */
@@ -363,9 +362,9 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     const adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
     const samId = (await sam.api.get<{ account: { id: string } }>("/session")).account.id;
     // The latest first: the yield changed by Harbor's Staff member, the dose by the Admin, and the Recipe made in slot 1, each named to an Admin.
-    const byAdmin = { machine: null, account: { id: adminId, name: "Ada Admin" } };
+    const byAdmin = { machine: null, tabletId: null, account: { id: adminId, name: "Ada Admin" } };
     expect(read.history.entries.map(({ fields, source, editedAt }) => ({ fields, source, editedAt }))).toEqual([
-      { fields: { yield: 42 }, source: { machine: null, account: { id: samId, name: "sam-409@example.com" } }, editedAt: expect.stringMatching(HARBOR_TIME) },
+      { fields: { yield: 42 }, source: { machine: null, tabletId: null, account: { id: samId, name: "sam-409@example.com" } }, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: { dose: 18.5 }, source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: { slot: 1 }, source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: expect.objectContaining({ name: "Harbor Espresso", dose: 18 }), source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
@@ -392,7 +391,7 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
       field: "burrs",
       value: "Offline burrs",
       location: null,
-      source: { machine: { id: bar.machine.id, name: "Uptown bar" }, account: null },
+      source: { machine: { id: bar.machine.id, name: "Uptown bar" }, tabletId: expect.any(String), account: null },
       current: { value: "Management burrs", source: { machine: null, account: { name: "Ada Admin" } }, editedAt: expect.stringMatching(UPTOWN_TIME) },
       resolvable: true,
       ...onClock(UPTOWN_TIME),
