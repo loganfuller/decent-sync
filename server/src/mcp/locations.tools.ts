@@ -17,9 +17,10 @@ const locationsOutput = z.object({
 });
 
 /**
- * Locations and Machines, read through an assistant as the REST API reads
- * them, calling the same services (ADR-0026). Every account reads every
- * Location, as through the REST API.
+ * Locations, read through an assistant as the REST API reads them, calling
+ * the same services (ADR-0026), with the Machines at each; `MachinesTools`
+ * reads the Machines themselves. Every account reads every Location, as
+ * through the REST API.
  */
 @Injectable()
 export class LocationsTools {

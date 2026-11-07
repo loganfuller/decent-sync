@@ -134,7 +134,17 @@ describe("connecting an assistant", () => {
       expect(assistant.tokens).toMatchObject({ token_type: "Bearer", expires_in: 3600, scope: "read change" });
       expect(assistant.client.getInstructions()).toContain("A day, such as \"yesterday\", is each Location's own day in its time zone.");
       const { tools } = await assistant.client.listTools();
-      expect(tools.map((tool) => tool.name)).toEqual(["list_locations", "find_shots", "get_shot", "find_steam_records", "get_steam_record"]);
+      expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "find_shots",
+        "find_steam_records",
+        "get_machine",
+        "get_machine_activity",
+        "get_shot",
+        "get_steam_record",
+        "list_locations",
+        "list_machines",
+        "list_settings_edits",
+      ]);
       for (const tool of tools) expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true });
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));

@@ -8,10 +8,32 @@ import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { type LoadedRecipeView, loadedRecipeHistory, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type LoadedRecipeView, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
+
+/** A span of time, from `from` up to but not including `to`; null leaves that end open. */
+export interface TimeRange {
+  from: Date | null;
+  to: Date | null;
+}
+
+/** The kinds of a Machine's activity. */
+export type ActivityKind = "workflowChanges" | "loadedRecipes" | "machineStates";
+
+/** A page of one kind of a Machine's activity, and how many there are in all. */
+export interface ActivityPage<T> {
+  entries: T[];
+  total: number;
+}
+
+/** A Machine's activity over a time range, a page of each kind asked for. */
+export interface ActivityView {
+  workflowChanges?: ActivityPage<WorkflowEventView>;
+  loadedRecipes?: ActivityPage<LoadedRecipeView>;
+  machineStates?: ActivityPage<MachineStateEventView>;
+}
 
 /** A Workflow recorded for a Machine, as the REST API returns it. */
 export interface WorkflowEventView {
@@ -133,9 +155,91 @@ export class MachineEventsService {
     return { events: events.map(viewMachineStateEvent), total, ...page };
   }
 
+  /**
+   * What the Machine was doing over a time range, a page of each kind asked
+   * for, each latest first, by the tablet's clock: the Workflows and Machine
+   * States in effect at any time in it, those observed in it and the one in
+   * effect as it began, the latest observed then or before; and the Loaded
+   * Recipes loaded at any time in it.
+   */
+  async activity(machineId: string, range: TimeRange, page: Page, kinds: readonly ActivityKind[]): Promise<ActivityView> {
+    await this.requireMachine(machineId);
+    const bounds = boundsOf(range);
+    const [workflowChanges, loadedRecipes, machineStates] = await Promise.all([
+      kinds.includes("workflowChanges") ? this.workflowEventsDuring(machineId, bounds, page) : undefined,
+      kinds.includes("loadedRecipes") ? loadedRecipesDuring(this.prisma, machineId, bounds, page) : undefined,
+      kinds.includes("machineStates") ? this.machineStateEventsDuring(machineId, bounds, page) : undefined,
+    ]);
+    return { workflowChanges, loadedRecipes, machineStates };
+  }
+
+  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<WorkflowEventView>> {
+    const table = Prisma.sql`workflow_events`;
+    const [rows, total] = await Promise.all([
+      this.prisma.$queryRaw<Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow
+        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
+        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+      countInEffect(this.prisma, table, machineId, bounds),
+    ]);
+    return { entries: rows.map(viewWorkflowEvent), total };
+  }
+
+  private async machineStateEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<MachineStateEventView>> {
+    const table = Prisma.sql`machine_state_events`;
+    const [rows, total] = await Promise.all([
+      this.prisma.$queryRaw<Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", state, substate
+        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, state, substate`, machineId, bounds, page)}
+        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+      countInEffect(this.prisma, table, machineId, bounds),
+    ]);
+    return { entries: rows.map(viewMachineStateEvent), total };
+  }
+
   private async requireMachine(id: string): Promise<void> {
     if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
+}
+
+/** A time range's ends as PostgreSQL takes them, an open end as infinity. */
+interface Bounds {
+  from: string;
+  to: string;
+}
+
+function boundsOf(range: TimeRange): Bounds {
+  return { from: range.from?.toISOString() ?? "-infinity", to: range.to?.toISOString() ?? "infinity" };
+}
+
+/**
+ * The Machine's events in effect at any time in the range, with these
+ * columns of an event table, as a subquery to select from, latest first as
+ * far as the page reaches: the latest observed as it began or before, which
+ * lasted until the next, and each observed after its start and before its
+ * end. The table's (machine_id, observed_at, id) index finds both, stopping
+ * once the page is read, as each part has its limit.
+ */
+function inEffectDuring(table: Prisma.Sql, columns: Prisma.Sql, machineId: string, bounds: Bounds, page: Page): Prisma.Sql {
+  return Prisma.sql`(
+    (SELECT ${columns} FROM ${table}
+      WHERE machine_id = ${machineId}::uuid AND observed_at <= ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz
+      ORDER BY observed_at DESC, id DESC LIMIT 1)
+    UNION ALL
+    (SELECT ${columns} FROM ${table}
+      WHERE machine_id = ${machineId}::uuid AND observed_at > ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz
+      ORDER BY observed_at DESC, id DESC LIMIT ${page.offset + page.limit})
+  ) AS during`;
+}
+
+/** How many of the Machine's events were in effect at any time in the range (`inEffectDuring`), counted from the same index alone. */
+async function countInEffect(prisma: PrismaService, table: Prisma.Sql, machineId: string, bounds: Bounds): Promise<number> {
+  const [{ total }] = await prisma.$queryRaw<[{ total: number }]>`
+    SELECT ((SELECT count(*) FROM ${table}
+        WHERE machine_id = ${machineId}::uuid AND observed_at > ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz)
+      + (SELECT count(*) FROM (SELECT 1 FROM ${table}
+        WHERE machine_id = ${machineId}::uuid AND observed_at <= ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz LIMIT 1) AS began))::int AS total`;
+  return total;
 }
 
 /** The events credited as this one is, as a condition on an event table. */
@@ -145,7 +249,7 @@ function heldBy(credit: Credit): Prisma.Sql {
     : Prisma.sql`pending_machine_id = ${credit.pendingMachineId}::uuid`;
 }
 
-function viewWorkflowEvent(event: WorkflowEvent): WorkflowEventView {
+function viewWorkflowEvent(event: Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">): WorkflowEventView {
   return {
     id: event.id.toString(),
     observedAt: event.observedAt.toISOString(),
@@ -154,7 +258,7 @@ function viewWorkflowEvent(event: WorkflowEvent): WorkflowEventView {
   };
 }
 
-function viewMachineStateEvent(event: MachineStateEvent): MachineStateEventView {
+function viewMachineStateEvent(event: Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">): MachineStateEventView {
   return {
     id: event.id.toString(),
     state: event.state,

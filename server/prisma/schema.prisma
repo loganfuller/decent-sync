@@ -761,6 +761,8 @@ model WorkflowEvent {
   workflow         Json            @db.JsonB
 
   @@index([machineId, id])
+  /// Over a time range, as an assistant reads a Machine's activity.
+  @@index([machineId, observedAt, id])
   @@index([pendingMachineId, id])
   @@map("workflow_events")
 }
@@ -782,6 +784,8 @@ model MachineStateEvent {
   substate         String
 
   @@index([machineId, id])
+  /// Over a time range, as an assistant reads a Machine's activity.
+  @@index([machineId, observedAt, id])
   @@index([pendingMachineId, id])
   @@map("machine_state_events")
 }
