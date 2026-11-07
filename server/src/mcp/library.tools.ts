@@ -45,7 +45,7 @@ const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sen
 
 /** Each time's offset, which every tool's description states. */
 const TIMES =
-  "Times are ISO 8601, each with the offset of the Location it happened at: where an item joined the Library, where a Location's state of it changed, such as a Bean Batch added there, and for a Grinder or Recipe the Location it belongs to; others in UTC.";
+  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to. Others, such as a Bean's content edits, are in UTC.";
 
 const time = (what: string) => z.string().describe(what);
 const joinedAt = time("When it joined the Library.");
@@ -79,7 +79,7 @@ const batchSummary = z.object({
   archived: z.boolean(),
   locations: z
     .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams; null for none."), since: time("When it was last added there.") }))
-    .describe("The Locations it is at, by name."),
+    .describe("The Locations it is at, by name, kept while it or its Bean is Archived, though neither is offered anywhere then."),
   createdAt: joinedAt,
   createdLocation,
 });
@@ -193,7 +193,7 @@ const findInput = z.object({
   locationId: id
     .optional()
     .describe(
-      "Those at this Location: a Bean offered there, a Bean Batch at it, a Profile, Basket or Tool shown there, and a Grinder or Recipe belonging to it. A Bean, Profile, Basket or Tool that is Archived is offered nowhere.",
+      "Those this Location offers: a Bean offered there, a Bean Batch at it, and a Profile, Basket or Tool shown there, none of them while Archived, nor a Bean Batch whose Bean is; and a Grinder or Recipe belonging to it, Archived or not.",
     ),
   name: z
     .string()
@@ -202,6 +202,7 @@ const findInput = z.object({
     .describe("Those whose name has each of these words in it, ignoring case: a Bean's roaster and name, a Bean Batch's Bean's, a Profile's title, a Grinder's model, and a Basket's, Tool's or Recipe's name."),
   archived: z.boolean().optional().describe("true for those Archived alone, false for those not Archived alone; both if not given."),
   ...page,
+  offset: page.offset.describe("How many to skip: the previous page's offset plus its length."),
 });
 
 const findOutput = z.object({
@@ -299,9 +300,15 @@ export class LibraryTools {
         return { beans: entries, ...rest };
       }
       case "beanBatch": {
+        // A batch keeps the Locations it is at while it or its Bean is Archived, but no Location offers it then (LIBRARY.md).
+        const archivedBeans = at === undefined ? new Set<string>() : await this.archivedBeans();
         const { entries, ...rest } = paged(
           await this.batches.list(),
-          (batch) => ({ archived: batch.archived, names: [batch.bean.roaster, batch.bean.name], at: batch.locations.map((here) => here.location) }),
+          (batch) => ({
+            archived: batch.archived,
+            names: [batch.bean.roaster, batch.bean.name],
+            at: batch.archived || archivedBeans.has(batch.bean.id) ? [] : batch.locations.map((here) => here.location),
+          }),
           batchOf,
         );
         return { beanBatches: entries, ...rest };
@@ -382,6 +389,11 @@ export class LibraryTools {
     const id = readLocationId(locationId).toLowerCase();
     if ((await this.prisma.location.count({ where: { id } })) === 0) throw locationNotFound();
     return id;
+  }
+
+  /** The ids of the Archived Beans. */
+  private async archivedBeans(): Promise<Set<string>> {
+    return new Set((await this.prisma.bean.findMany({ where: { archived: true }, select: { id: true } })).map((bean) => bean.id));
   }
 
   /** One item as the REST API returns it, with how history and Conflicts name it and the Location it belongs to, if one. */

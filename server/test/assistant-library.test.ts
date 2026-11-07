@@ -62,14 +62,19 @@ function comparable(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
 }
 
-/** The Locations an item of the kind is at, as find_library_items filters by them, read from the REST API's view of it. */
-function locationsOf(kind: Kind, item: Record_): string[] {
+/**
+ * The Locations offering an item of the kind, as find_library_items filters
+ * by them, read from the REST API's view of it: a Bean Batch's those it is
+ * at, but none while it or its Bean, one of the Archived Beans given, is
+ * Archived.
+ */
+function locationsOf(kind: Kind, item: Record_, archivedBeans: ReadonlySet<string>): string[] {
   const ids = (entries: unknown) => (entries as { location: LocationView }[]).map((here) => here.location.id);
   switch (kind) {
     case "bean":
       return (item.offeredAt as LocationView[]).map((location) => location.id);
     case "beanBatch":
-      return ids(item.locations);
+      return item.archived || archivedBeans.has((item.bean as { id: string }).id) ? [] : ids(item.locations);
     case "profile":
     case "basket":
     case "tool":
@@ -190,6 +195,13 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     });
     await send("/recipes", { locationId: harbor.id, slot: null, content: { name: "Harbor Decaf", dose: 17 } });
     made = { bean, batch, grinder, basket, tool, espresso, retired };
+    // A batch at Harbor whose Bean is Archived, and one Archived itself: each still at Harbor, but offered nowhere.
+    const retiredBean = await send("/beans", { content: { roaster: "Roux", name: "Harbor Sumatra" } });
+    await send("/bean-batches", { beanId: retiredBean, content: { roastDate: "2026-09-01" }, locations: [{ locationId: harbor.id }] });
+    await api.send("PUT", `/beans/${retiredBean}/archived`, { archived: true });
+    const sidamo = await send("/beans", { content: { roaster: "Roux", name: "Harbor Sidamo" } });
+    const retiredBatch = await send("/bean-batches", { beanId: sidamo, content: { roastDate: "2026-09-02" }, locations: [{ locationId: harbor.id }] });
+    await api.send("PUT", `/bean-batches/${retiredBatch}/archived`, { archived: true });
 
     // Its dose changed by the Admin, then its yield by Harbor's Staff member.
     sam = await person("sam-409@example.com", "staff", [harbor]);
@@ -257,13 +269,17 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
   });
 
   it("finds items by Location, by the words of their names, ignoring case, and by whether Archived, as the REST API's lists hold them", async () => {
+    const archivedBeans = new Set((await restList("bean")).flatMap((bean) => (bean.archived ? [bean.id as string] : [])));
+    expect(archivedBeans.size).toBe(1);
     for (const kind of EVERY_KIND) {
       const rest = await restList(kind);
+      const locationsOf_ = (item: Record_) => locationsOf(kind, item, archivedBeans);
       for (const [filter, keeps] of [
-        [{ locationId: harbor.id }, (item: Record_) => locationsOf(kind, item).includes(harbor.id)],
-        [{ locationId: uptown.id.toUpperCase() }, (item: Record_) => locationsOf(kind, item).includes(uptown.id)],
+        [{ locationId: harbor.id }, (item: Record_) => locationsOf_(item).includes(harbor.id)],
+        [{ locationId: uptown.id.toUpperCase() }, (item: Record_) => locationsOf_(item).includes(uptown.id)],
         [{ archived: true }, (item: Record_) => item.archived === true],
-        [{ archived: false, locationId: harbor.id }, (item: Record_) => item.archived === false && locationsOf(kind, item).includes(harbor.id)],
+        [{ archived: false, locationId: harbor.id }, (item: Record_) => item.archived === false && locationsOf_(item).includes(harbor.id)],
+        [{ archived: true, locationId: harbor.id }, (item: Record_) => item.archived === true && locationsOf_(item).includes(harbor.id)],
         [{ name: " FIXTURE " }, (item: Record_) => nameOf(kind, item).includes("fixture")],
         [{ name: "harbor 15G" }, (item: Record_) => nameOf(kind, item).includes("harbor") && nameOf(kind, item).includes("15g")],
       ] as const) {
@@ -285,6 +301,15 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     expect(await names("basket", { archived: true })).toEqual(["Harbor retired 22g"]);
     expect(await names("tool", { locationId: harbor.id, name: "wdt" })).toEqual(["Harbor WDT"]);
     expect(await names("tool", { locationId: uptown.id })).toEqual([]);
+    // Harbor offers one batch: neither the one Archived nor the one whose Bean is, though both are listed at Harbor.
+    expect(await names("beanBatch", { locationId: harbor.id }, "id")).toEqual([made.batch]);
+    expect(await names("beanBatch", { locationId: harbor.id, archived: true }, "id")).toEqual([]);
+    const atHarbor = (await find("beanBatch", { name: "harbor" })).items;
+    expect(atHarbor.map((batch) => [(batch.bean as Record_).name, batch.archived, (batch.locations as { location: LocationView }[]).map((here) => here.location.name)])).toEqual([
+      ["Harbor Kenya", false, ["Harbor"]],
+      ["Harbor Sidamo", true, ["Harbor"]],
+      ["Harbor Sumatra", false, ["Harbor"]],
+    ]);
 
     // A Location that doesn't exist is refused, as the REST API refuses a Location's Recipes, for every kind.
     const nowhere = randomUUID();
@@ -376,6 +401,22 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     expect(second.history).toMatchObject({ total: 4, offset: 1, more: true });
     // Neither unless asked for.
     expect(Object.keys(await assistant.call<Record_>("get_library_item", { kind: "recipe", id: made.espresso }))).toEqual(["recipe"]);
+  });
+
+  it("reads a Bean Batch's and a Profile's history as the REST API gives it, each edit of a Location's state on that Location's clock and of their content in UTC", async () => {
+    const adaptive = (await restList("profile")).find((profile) => profile.title === "Adaptive v3")!.id as string;
+    for (const [kind, id] of [["beanBatch", made.batch], ["profile", adaptive]] as const) {
+      const { history } = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind, id, history: true });
+      const { versions } = (await restItem(kind, id, "/history")) as { versions: Record_[] };
+      expect(comparable(history.entries), kind).toEqual(comparable(versions));
+      const where = history.entries.map((entry) => (entry.location as LocationView | null)?.name ?? null);
+      // Its joining the Library, and its batch added at Harbor with its weight there, or the Profile shown there.
+      expect(where, kind).toEqual(expect.arrayContaining([null, "Harbor"]));
+      history.entries.forEach((entry, at) => {
+        const clock = { Harbor: HARBOR_TIME, Uptown: UPTOWN_TIME }[where[at] ?? ""] ?? UTC_TIME;
+        expect([entry.editedAt, entry.receivedAt], `${kind} at ${where[at]}`).toEqual([expect.stringMatching(clock), expect.stringMatching(clock)]);
+      });
+    }
   });
 
   it("lists the open Conflicts, and an item's, as the REST API gives them, each on the clock of the Location its item belongs to, or in UTC", async () => {
