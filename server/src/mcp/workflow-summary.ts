@@ -1,8 +1,10 @@
 import * as z from "zod";
 
 // A Workflow as an assistant reads it among a Machine's activity: the parts
-// the management interface shows of one (web/src/components/workflow.tsx),
-// rather than the whole of Decaid's, whose Profile alone runs to kilobytes.
+// the management interface's Workflow card shows of one
+// (web/src/components/workflow.tsx), and its Basket, which a Shot's page
+// shows, rather than the whole of Decaid's, whose Profile alone runs to
+// kilobytes. A grind setting is given as text, as the card shows it.
 // Any part may be missing, or sent differently by another supported Decaid
 // version, and is then null.
 
@@ -25,11 +27,11 @@ export const workflowSummaryOutput = z
     hotWater: z.object({ temperature: amount("°C"), volume: amount("ml") }).nullable(),
     flush: z.object({ temperature: amount("°C"), duration: amount("s") }).nullable(),
   })
-  .describe("The parts of the Workflow the management interface shows, each null where it has none.");
+  .describe("The parts of the Workflow the management interface shows, and its Basket, each null where it has none.");
 
 export type WorkflowSummary = z.infer<typeof workflowSummaryOutput>;
 
-/** The parts of a Workflow, as Decaid sent it, that the management interface shows. */
+/** The parts of a Workflow, as Decaid sent it, that the management interface shows, and its Basket. */
 export function workflowSummary(workflow: Record<string, unknown>): WorkflowSummary {
   const profile = record(workflow.profile);
   const context = record(workflow.context);

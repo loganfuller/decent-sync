@@ -321,6 +321,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         const result = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...range } });
         expect(result).toMatchObject({ isError: true, content: [{ text: "The range's start must be before its end" }] });
       }
+      // A time in the year 0, which PostgreSQL has none of, is refused.
+      const yearZero = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, from: "0000-06-01T00:00:00Z" } });
+      expect(yearZero).toMatchObject({ isError: true, content: [{ text: "Times must be in the year 1 or later" }] });
       // A time without an offset is not taken.
       const local = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, from: "2026-11-02T07:30:00" } });
       expect(local.isError).toBe(true);
