@@ -4,9 +4,9 @@ import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
+import type { Account, Prisma } from "../generated/prisma/client.js";
 import { accountDeactivated } from "./accounts.service.js";
-import { EVERYTHING, NOTHING, type Scope } from "./scope.js";
+import { type Scope, scopeOf } from "./scope.js";
 
 const COOKIE_NAME = "decent_sync_session";
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -124,12 +124,7 @@ export class SessionsService {
       this.setCookie(response, token, LIFETIME_MS);
     }
     const { locations, ...account } = session.account;
-    const scope: Scope =
-      account.role === AccountRole.ADMIN
-        ? EVERYTHING
-        : account.role === AccountRole.VIEWER
-          ? NOTHING
-          : { kind: "locations", locationIds: locations.map((location) => location.locationId) };
+    const scope = scopeOf(account.role, locations.map((location) => location.locationId));
     return { account, sessionId: session.id, scope };
   }
 

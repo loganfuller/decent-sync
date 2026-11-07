@@ -35,14 +35,17 @@ COPY web/ web/
 RUN npm run build -w protocol && npm run build -w web && npm run build -w server
 
 # Only the server's production dependencies, with Prisma's engines for the
-# target platform.
+# target platform. Those npm keeps in the server workspace's own node_modules,
+# where another workspace needs a different version at the root, such as Zod 4
+# beside the management interface's Zod 3, go there.
 FROM base AS deps
 COPY --from=manifests /app/ ./
-RUN npm ci --omit=dev -w server && npm cache clean --force
+RUN npm ci --omit=dev -w server && mkdir -p server/node_modules && npm cache clean --force
 
 FROM base
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules node_modules/
+COPY --from=deps /app/server/node_modules server/node_modules/
 COPY --from=deps /app/package.json ./
 COPY --from=build /app/protocol/package.json protocol/
 COPY --from=build /app/protocol/dist protocol/dist/

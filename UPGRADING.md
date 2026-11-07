@@ -15,6 +15,17 @@ section).
 
 ## Unreleased
 
+### Assistants connect through `/api/mcp`, on by default
+
+People can now connect AI assistants, such as Claude and ChatGPT, to the
+server by adding its public URL followed by `/api/mcp`, and signing in to
+approve them (the README's Connecting an assistant). Nothing is needed to
+offer it. To leave it off, set `MCP_ENABLED=false`. A reverse proxy that passes
+only some paths to the server passes `/.well-known/oauth-authorization-server`
+and `/.well-known/oauth-protected-resource/api/mcp` too. While a deploy moves
+traffic over, a request reaching an instance of the previous release answers
+404, once.
+
 ## 1.6.3
 
 ### Update Tablets to Streamline v0.2.23 once this release is deployed

@@ -172,15 +172,26 @@ export function databaseUnreachable(error: unknown): boolean {
  * reset link's secret. Anything else goes on as Nest would send it. The root
  * module provides it, so Nest tries it after every other global filter,
  * such as `RetryAfterFilter`, which catch exceptions of their own.
+ *
+ * Global filters run around each MCP tool call too, where there is no HTTP
+ * response to send: there it throws the exception on, as the 503's
+ * `ServiceUnavailableException` when the database could not be reached, for
+ * the MCP module to make a tool error of its message.
  */
 @Catch()
 export class DatabaseUnreachableFilter extends BaseExceptionFilter {
   private readonly logger = new Logger("Database");
 
   override catch(exception: unknown, host: ArgumentsHost): void {
-    if (!databaseUnreachable(exception)) return super.catch(exception, host);
+    const http = host.getType() === "http";
+    if (!databaseUnreachable(exception)) {
+      if (!http) throw exception;
+      return super.catch(exception, host);
+    }
     // Prisma's message ends with the driver's.
     this.logger.warn(`Answered a request with 503: the database could not be reached, or did not answer in time (${(exception as Error).message.trim().split("\n").at(-1)})`);
-    super.catch(new ServiceUnavailableException("The database can't be reached right now. Try again in a moment."), host);
+    const unavailable = new ServiceUnavailableException("The database can't be reached right now. Try again in a moment.");
+    if (!http) throw unavailable;
+    super.catch(unavailable, host);
   }
 }

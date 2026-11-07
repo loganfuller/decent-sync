@@ -32,6 +32,19 @@ export interface Config {
   drainGraceMs: number;
   /** How long a Live View's stream goes with nothing to send before it sends a comment, so proxies don't close it as idle. */
   liveViewKeepAliveMs: number;
+  /**
+   * Whether assistants connect: the MCP endpoint at `/api/mcp` and the
+   * authorization server Connected Apps are approved through (ADR-0026,
+   * ADR-0027). Off, they and their metadata answer 404, so no Connected App's
+   * token is accepted.
+   */
+  mcpEnabled: boolean;
+  /**
+   * For tests only (TEST_LOOPBACK_CLIENT_METADATA): an app's Client ID
+   * Metadata Document may be fetched over plain HTTP from a loopback address,
+   * as a test app serves it, rather than only over HTTPS from public ones.
+   */
+  loopbackClientMetadata: boolean;
 }
 
 /** A reason the server cannot start that its message fully explains. */
@@ -75,6 +88,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
   // fly.io's routing check every 10 s, with a timeout of 5 s.
   const drainGraceMs = parseSeconds("DRAIN_GRACE_SECONDS", env.DRAIN_GRACE_SECONDS, 15, problems, { zero: true });
   const liveViewKeepAliveMs = parseSeconds("LIVE_VIEW_KEEP_ALIVE_SECONDS", env.LIVE_VIEW_KEEP_ALIVE_SECONDS, 15, problems);
+  const mcpEnabled = parseBoolean("MCP_ENABLED", env.MCP_ENABLED, true, problems);
+  const loopbackClientMetadata = parseBoolean("TEST_LOOPBACK_CLIENT_METADATA", env.TEST_LOOPBACK_CLIENT_METADATA, false, problems);
 
   if (problems.length > 0) throw new ConfigError(problems);
 
@@ -89,6 +104,8 @@ export function loadConfig(env: NodeJS.ProcessEnv): Config {
     clientAddressHeader,
     drainGraceMs,
     liveViewKeepAliveMs,
+    mcpEnabled,
+    loopbackClientMetadata,
   };
 }
 
@@ -141,6 +158,16 @@ function parseSeconds(
     problems.push(`${name} must be a ${zero ? "non-negative" : "positive"} number of seconds, not ${raw}`);
   }
   return Math.round(seconds * 1000);
+}
+
+/** `true` or `false`, in any case, or the default when blank. */
+function parseBoolean(name: string, value: string | undefined, defaultValue: boolean, problems: string[]): boolean {
+  const raw = value?.trim().toLowerCase();
+  if (!raw) return defaultValue;
+  if (raw === "true") return true;
+  if (raw === "false") return false;
+  problems.push(`${name} must be true or false, not ${value!.trim()}`);
+  return defaultValue;
 }
 
 /** An HTTP header name (a token, RFC 9110), lower-cased, or undefined when blank. */

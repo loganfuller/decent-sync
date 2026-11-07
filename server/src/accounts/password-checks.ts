@@ -63,10 +63,11 @@ class PasswordChecksBusy extends TooManyRequests {
   }
 }
 
-/** Sends a TooManyRequests refusal as any other is sent, with its `Retry-After`. */
+/** Sends a TooManyRequests refusal as any other is sent, with its `Retry-After`; outside HTTP, such as in an MCP tool call, it throws it on. */
 @Catch(TooManyRequests)
 export class RetryAfterFilter extends BaseExceptionFilter {
   override catch(exception: TooManyRequests, host: ArgumentsHost): void {
+    if (host.getType() !== "http") throw exception;
     host.switchToHttp().getResponse<Response>().setHeader("Retry-After", String(exception.retryAfterSeconds));
     super.catch(exception, host);
   }

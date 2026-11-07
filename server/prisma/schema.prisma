@@ -53,6 +53,7 @@ model Account {
   itemVersions  ItemVersion[]
   conflicts     Conflict[]
   settingsEdits SettingsEdit[]
+  connectedApps ConnectedApp[]
 
   @@map("accounts")
 }
@@ -160,6 +161,104 @@ model LiveViewLease {
   @@index([machineId, expiresAt])
   @@index([sessionId])
   @@map("live_view_leases")
+}
+
+/// An assistant app a person allowed to read, or to read and change, the
+/// server's data as them, on the consent page of the authorization server
+/// (ADR-0027, server/src/connected-apps/). Each approval makes one. Its tokens
+/// are refused once it is disconnected, its account is deactivated, or it
+/// lapses, 30 days after it was last used.
+model ConnectedApp {
+  id             String    @id @default(uuid(7)) @db.Uuid
+  accountId      String    @map("account_id") @db.Uuid
+  account        Account   @relation(fields: [accountId], references: [id], onDelete: Cascade)
+  /// The app's client id: the URL of its Client ID Metadata Document.
+  clientId       String    @map("client_id")
+  /// The client id's host, which the consent page shows above the name.
+  clientHost     String    @map("client_host")
+  /// The name and logo its document gave as it was approved.
+  name           String
+  logoUri        String?   @map("logo_uri")
+  /// `read`, and `change` if the person allowed it.
+  scopes         String[]
+  approvedAt     DateTime  @default(dbgenerated("transaction_timestamp()")) @map("approved_at") @db.Timestamptz(3)
+  /// By PostgreSQL's clock, recorded at most once an hour.
+  lastUsedAt     DateTime  @default(dbgenerated("transaction_timestamp()")) @map("last_used_at") @db.Timestamptz(3)
+  disconnectedAt DateTime? @map("disconnected_at") @db.Timestamptz(3)
+
+  authorizationCodes AuthorizationCode[]
+  accessTokens       AccessToken[]
+  refreshTokens      RefreshToken[]
+
+  @@index([accountId])
+  @@index([lastUsedAt])
+  @@map("connected_apps")
+}
+
+/// An app's request to connect, kept from the authorization endpoint until
+/// the person approves or denies it on the consent page, which any instance
+/// may serve, or it expires, by PostgreSQL's clock.
+model AuthorizationRequest {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  clientId      String   @map("client_id")
+  clientHost    String   @map("client_host")
+  /// The name and logo the app's Client ID Metadata Document gives.
+  clientName    String   @map("client_name")
+  logoUri       String?  @map("logo_uri")
+  redirectUri   String   @map("redirect_uri")
+  /// PKCE's S256 challenge.
+  codeChallenge String   @map("code_challenge")
+  resource      String
+  /// What the app may be allowed: `read`, and `change` if it asked for it.
+  scopes        String[]
+  state         String?
+  expiresAt     DateTime @map("expires_at") @db.Timestamptz(3)
+
+  @@index([expiresAt])
+  @@map("authorization_requests")
+}
+
+/// A single-use authorization code an approval issued to its Connected App.
+/// The code is a random secret; only its SHA-256 hash is stored.
+model AuthorizationCode {
+  codeHash       Bytes        @id @map("code_hash")
+  connectedAppId String       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+  redirectUri    String       @map("redirect_uri")
+  codeChallenge  String       @map("code_challenge")
+  resource       String
+  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(3)
+
+  @@index([connectedAppId])
+  @@index([expiresAt])
+  @@map("authorization_codes")
+}
+
+/// A Connected App's access token for the MCP endpoint, which lasts an hour.
+/// The token is a random secret; only its SHA-256 hash is stored.
+model AccessToken {
+  tokenHash      Bytes        @id @map("token_hash")
+  connectedAppId String       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+  /// The endpoint it was issued for (RFC 8707).
+  resource       String
+  expiresAt      DateTime     @map("expires_at") @db.Timestamptz(3)
+
+  @@index([connectedAppId])
+  @@index([expiresAt])
+  @@map("access_tokens")
+}
+
+/// A Connected App's refresh token, replaced each time it is used, and kept
+/// while its Connected App is. Only its SHA-256 hash is stored.
+model RefreshToken {
+  tokenHash      Bytes        @id @map("token_hash")
+  connectedAppId String       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp @relation(fields: [connectedAppId], references: [id], onDelete: Cascade)
+  createdAt      DateTime     @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+
+  @@index([connectedAppId])
+  @@map("refresh_tokens")
 }
 
 /// Recent sign-in attempts for one email, shared by every server instance.

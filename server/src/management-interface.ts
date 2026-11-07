@@ -6,8 +6,13 @@ import express, { type Express, type NextFunction, type Request, type Response }
 import type { Config } from "./config.js";
 import { CONFIG } from "./config.module.js";
 
-/** `/api` and every path under it, matched without regard to case as Express matches routes. */
-const API_PATH = /^\/api(?:\/|$)/i;
+/**
+ * `/api` and every path under it, and `/.well-known` and every path under it,
+ * matched without regard to case as Express matches routes: never a page, so
+ * one nothing serves, such as an assistant's metadata while MCP_ENABLED is
+ * off, answers 404.
+ */
+const NOT_PAGES = /^\/(?:api|\.well-known)(?:\/|$)/i;
 
 /** The header naming the build of the management interface the server serves, which its pages read (`web/src/lib/build.ts`). */
 const BUILD_HEADER = "Decent-Sync-Build";
@@ -17,7 +22,8 @@ const BUILD_NAME = /<meta name="decent-sync-build" content="([0-9a-f]+)">/;
 
 /**
  * Serves the management interface's build, a single-page app: its files as
- * they are, and its `index.html` for any other path outside the API, a missing
+ * they are, and its `index.html` for any other path outside the API and
+ * `/.well-known`, a missing
  * hashed asset included, so a page reloads on a chunk it can no longer find.
  *
  * It replaces `@nestjs/serve-static`, whose fallback sends `index.html` by its
@@ -58,7 +64,7 @@ export class ManagementInterface implements OnModuleInit {
     const root = this.config.webDistDir;
     app.use(express.static(root));
     app.get("{*any}", (req: Request, res: Response, next: NextFunction) => {
-      if (API_PATH.test(req.path)) {
+      if (NOT_PAGES.test(req.path)) {
         next();
         return;
       }

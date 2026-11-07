@@ -7,8 +7,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // server maps at startup, read from its log, so a route added later is checked
 // too. Every route requires a signed-in Admin unless marked @Public() or
 // @AllowStaff() (server/src/accounts/guards.ts); these lists name the routes
-// so marked. A Viewer's are worked out from Staff's: those that read, and
-// signing out. Files on each feature test what a route does once let through.
+// so marked. A Viewer's are worked out from Staff's: those that read, signing
+// out and answering an app's request to connect. The MCP endpoint takes an
+// access token instead. Files on each feature test what a route does once
+// let through.
 
 /** Routes anyone may use, signed in or not. */
 const PUBLIC = [
@@ -20,7 +22,15 @@ const PUBLIC = [
   "POST /api/invite-links/:secret/accept",
   "GET /api/password-reset-links/:secret",
   "POST /api/password-reset-links/:secret/redeem",
+  "GET /api/oauth/authorize",
+  "POST /api/oauth/token",
 ];
+
+/**
+ * The MCP endpoint, which an assistant reaches with its Connected App's access token rather than a session
+ * (ADR-0026): public to SessionGuard, it refuses every request without such a token, signed in or not.
+ */
+const BEARER = ["ALL /api/mcp"];
 
 /**
  * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations,
@@ -116,10 +126,21 @@ const STAFF = [
   "GET /api/steam-records",
   "GET /api/steam-records/:id",
   "GET /api/steam-records/:id/measurements",
+  "GET /api/oauth/requests/:id",
+  "POST /api/oauth/requests/:id/approve",
+  "POST /api/oauth/requests/:id/deny",
 ];
 
-/** Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, and signing out. */
-const VIEWER = [...STAFF.filter((name) => name.startsWith("GET ")), "DELETE /api/session"];
+/**
+ * Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, signing out, and
+ * answering an app's request to connect, which acts as the Viewer, reading only.
+ */
+const VIEWER = [
+  ...STAFF.filter((name) => name.startsWith("GET ")),
+  "DELETE /api/session",
+  "POST /api/oauth/requests/:id/approve",
+  "POST /api/oauth/requests/:id/deny",
+];
 
 interface Route {
   method: string;
@@ -163,19 +184,28 @@ describe("who may use each route", () => {
 
   it("names only routes the server maps", () => {
     expect(routes.length).toBeGreaterThan(PUBLIC.length + STAFF.length);
-    expect([...PUBLIC, ...STAFF].filter((name) => !routes.some((route) => route.name === name))).toEqual([]);
+    expect([...PUBLIC, ...BEARER, ...STAFF].filter((name) => !routes.some((route) => route.name === name))).toEqual([]);
   });
 
   it("refuses every route but the public ones to anyone not signed in", async () => {
-    for (const route of routes) {
+    for (const route of routes.filter((route) => !BEARER.includes(route.name))) {
       const { status, message } = await refusal(route, undefined);
       if (PUBLIC.includes(route.name)) expect(status, route.name).not.toBe(401);
       else expect({ route: route.name, status, message }).toEqual({ route: route.name, status: 401, message: "Sign in to continue" });
     }
   });
 
+  it("refuses the MCP endpoint to anyone without an access token, signed in or not", async () => {
+    for (const route of routes.filter((route) => BEARER.includes(route.name))) {
+      for (const as of [undefined, staff, viewer]) {
+        const { status, message } = await refusal({ ...route, method: "POST" }, as);
+        expect({ route: route.name, status, message }).toEqual({ route: route.name, status: 401, message: undefined });
+      }
+    }
+  });
+
   it("refuses Staff every route but the public ones and those for Staff", async () => {
-    for (const route of routes.filter((route) => !PUBLIC.includes(route.name))) {
+    for (const route of routes.filter((route) => !PUBLIC.includes(route.name) && !BEARER.includes(route.name))) {
       const { status, message } = await refusal(route, staff);
       const refused = status === 403 && message === "Only an Admin can do this";
       expect({ route: route.name, refused, status }).toEqual({ route: route.name, refused: !STAFF.includes(route.name), status: expect.any(Number) });
@@ -183,7 +213,7 @@ describe("who may use each route", () => {
   });
 
   it("refuses a Viewer every route but the public ones and those for Viewers, saying why", async () => {
-    for (const route of routes.filter((route) => !PUBLIC.includes(route.name))) {
+    for (const route of routes.filter((route) => !PUBLIC.includes(route.name) && !BEARER.includes(route.name))) {
       const { status, message } = await refusal(route, viewer);
       const why = VIEWER.includes(route.name) ? undefined : STAFF.includes(route.name) ? "A Viewer can't change anything" : "Only an Admin can do this";
       expect({ route: route.name, refused: status === 403 ? message : undefined }).toEqual({ route: route.name, refused: why });

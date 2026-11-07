@@ -2,7 +2,8 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { AdminApi } from "../support/admin-api.js";
+import { AdminApi, acceptInvite } from "../support/admin-api.js";
+import { ASSISTANT_ENV, Assistant, serveTestApp } from "../support/assistants.js";
 import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag } from "../support/latest-release.mjs";
 import { syncingTablet } from "../support/loaded-tablets.js";
@@ -35,7 +36,7 @@ describe("the latest release beside the change", () => {
   let releaseApi: AdminApi;
 
   beforeAll(async () => {
-    change = await startTestServer({ env });
+    change = await startTestServer({ env: { ...env, ...ASSISTANT_ENV } });
     release = await startTestServer({ env, sharing: change, latestRelease: true });
     api = await AdminApi.setUp(change.url);
     releaseApi = api.at(release.url);
@@ -67,5 +68,29 @@ describe("the latest release beside the change", () => {
     // Online once the server has accepted the hello, which it answers a query later, so the welcome may still be on its way.
     await expect.poll(() => tablet.received[0]).toMatchObject({ type: "welcome" });
     expect(tablet.sent[0]).toMatchObject({ type: "hello", pluginVersion: readBuiltPlugin().manifest.version });
+  });
+
+  it("answers 404 at the MCP endpoint, which the change serves, and deactivates an account whose Connected App the change then refuses", async () => {
+    // As the first release with the endpoint reaches it during a deploy, a request may reach the latest release once.
+    const call = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) };
+    expect((await fetch(`${release.url}/api/mcp`, call)).status).toBe(404);
+    expect((await fetch(`${change.url}/api/mcp`, call)).status).toBe(401);
+
+    const app = await serveTestApp();
+    try {
+      const { link } = await api.invite("sol@example.com", "staff", [(await api.createLocation("Assisted", "UTC")).id]);
+      const cookie = await acceptInvite(change.url, link, { name: "Sol Staff", password: "sol's password 1" });
+      const assistant = await Assistant.connect(change.url, app, cookie);
+      try {
+        expect((await Assistant.rawCall(change.url, assistant.tokens.access_token)).status).toBe(200);
+        const sol = (await releaseApi.accounts()).find((account) => account.email === "sol@example.com")!;
+        await releaseApi.send("POST", `/accounts/${sol.id}/deactivate`);
+        expect((await Assistant.rawCall(change.url, assistant.tokens.access_token)).status).toBe(401);
+      } finally {
+        await assistant.close();
+      }
+    } finally {
+      await app.close();
+    }
   });
 });

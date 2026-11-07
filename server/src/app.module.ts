@@ -3,6 +3,7 @@ import { APP_FILTER, APP_INTERCEPTOR } from "@nestjs/core";
 import { AccountsModule } from "./accounts/accounts.module.js";
 import type { Config } from "./config.js";
 import { ConfigModule } from "./config.module.js";
+import { ConnectedAppsModule } from "./connected-apps/connected-apps.module.js";
 import { DatabaseUnreachableFilter } from "./database.js";
 import { Drain } from "./drain.js";
 import { HealthController } from "./health.controller.js";
@@ -10,6 +11,7 @@ import { LibraryModule } from "./library/library.module.js";
 import { LiveViewModule } from "./live-view/live-view.module.js";
 import { LocationsModule } from "./locations/locations.module.js";
 import { MachinesModule } from "./machines/machines.module.js";
+import { McpEndpointModule } from "./mcp/mcp-endpoint.module.js";
 import { ManagementInterface } from "./management-interface.js";
 import { NotificationsModule } from "./notifications.module.js";
 import { PrismaModule } from "./prisma.module.js";
@@ -30,6 +32,8 @@ export class AppModule {
         LibraryModule,
         LiveViewModule,
         SyncModule,
+        // Assistants (ADR-0026, ADR-0027): with MCP_ENABLED off, none of their routes exist, so each answers 404.
+        ...(config.mcpEnabled ? [ConnectedAppsModule, McpEndpointModule.register(config)] : []),
       ],
       controllers: [HealthController],
       providers: [

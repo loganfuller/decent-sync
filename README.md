@@ -197,6 +197,7 @@ in the `db-data` volume. These variables in `.env` configure the stack:
 | `POSTGRES_PASSWORD` | the database password (default `decent_sync`); letters and digits only, since it goes into a URL. It takes effect only when the volume is first created |
 | `POSTGRES_PORT` | the loopback port PostgreSQL is published on, for backups and inspection (default 5432) |
 | `CLIENT_ADDRESS_HEADER` | optional: the request header a reverse proxy puts the tablet's address in, such as `X-Forwarded-For` (see [On the internet](#on-the-internet)) |
+| `MCP_ENABLED` | optional: `false` turns off connecting assistants (default `true`; see [Connecting an assistant](#connecting-an-assistant)) |
 
 To upgrade, pull the newer image and restart. The server is offline until
 the new one has started and migrated the database, usually a few seconds:
@@ -272,6 +273,41 @@ takes the header's last comma-separated entry, the one the nearest proxy
 added, when it is an IP address, and the connection's own address otherwise.
 Any client can send that header, so set it only when every request reaches the
 server through a proxy that sets or overwrites it.
+
+### Connecting an assistant
+
+People connect AI assistants to the server, to ask about its data in words and
+change it, as themselves
+([ADR-0026](docs/adr/0026-assistants-reach-the-server-through-mcp.md),
+[ADR-0027](docs/adr/0027-the-server-authorizes-connected-apps-itself.md)). The
+URL to add is the server's public URL followed by `/api/mcp`, such as
+`https://sync.example.com/api/mcp`:
+
+- in Claude, on the web, its phone apps or the desktop app, as a custom
+  connector;
+- in ChatGPT, as a connector;
+- in Claude Code, with `claude mcp add --transport http decent-sync https://sync.example.com/api/mcp`;
+- in VS Code, as an HTTP MCP server.
+
+The app sends the person to the server, where they sign in with their account
+and approve it, choosing whether it may only read or may also change things;
+a Viewer's app only reads. Each approval makes a Connected App, which acts as
+that account, within what the account may do. An app unused for 30 days stops
+working until it connects again. Apps that register only by Dynamic Client
+Registration, such as Cursor, can't connect.
+
+Assistants reach the server over HTTPS only: `PUBLIC_URL` must start with
+`https://`, except for an app on the server's own computer that reaches it at
+`localhost`. Claude and ChatGPT, on the web and on phones, reach the server
+from their own clouds, so for them it must be reachable from the internet at
+its public URL. A server reachable only on a local network serves only apps on
+that network. A reverse proxy in front of the server passes
+`/.well-known/oauth-authorization-server` and
+`/.well-known/oauth-protected-resource/api/mcp` to it as well as `/api`.
+
+To turn assistants off, set `MCP_ENABLED=false`: the endpoint, the
+authorization server and their metadata then answer 404, and no Connected
+App's token is accepted.
 
 ### fly.io
 
@@ -572,10 +608,12 @@ required variable is missing or invalid.
 | `DRAIN_GRACE_SECONDS` | how long a stopping server, its health check answering 503, still answers requests, so a proxy that routes by that check notices and sends them elsewhere (default 15, a 10 s check interval plus a 5 s timeout; 0 with one instance). It then finishes those under way and exits |
 | `LIVE_VIEW_KEEP_ALIVE_SECONDS` | how long a Machine's Live View stream goes with nothing to send before the server sends a comment on it, so a proxy doesn't close it as idle (default 15) |
 | `CLIENT_ADDRESS_HEADER` | the request header, such as `X-Forwarded-For` or `X-Real-IP`, whose last entry, when an IP address, is a tablet's address instead of the connection's (default unset: the connection's). Set it only when every request reaches the server through a proxy that sets or overwrites that header ([On the internet](#on-the-internet)) |
+| `MCP_ENABLED` | whether assistants connect: the MCP endpoint at `/api/mcp` and the authorization server they are approved through (default `true`; `false` answers 404 there, [Connecting an assistant](#connecting-an-assistant)) |
 
 On startup the server applies pending database migrations, then serves the
-REST API under `/api`, the plugin's WebSocket at `/sync`, and the management
-interface everywhere else.
+REST API under `/api`, the MCP endpoint at `/api/mcp`, the plugin's WebSocket
+at `/sync`, the authorization server's metadata under `/.well-known`, and the
+management interface everywhere else.
 
 | Command | |
 |---|---|

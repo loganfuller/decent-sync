@@ -12,8 +12,10 @@
   },
   "dependencies": {
     "@decent-sync/protocol": "*",
+    "@modelcontextprotocol/server": "~2.4.0",
     "@nestjs/common": "^12.0.0",
     "@nestjs/core": "^12.0.0",
+    "@nestjs/mcp": "0.0.4",
     "@nestjs/platform-express": "^12.0.0",
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
@@ -22,9 +24,11 @@
     "prisma": "7.10.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.0",
-    "ws": "^8.22.0"
+    "ws": "^8.22.0",
+    "zod": "^4.6.7"
   },
   "devDependencies": {
+    "@modelcontextprotocol/client": "~2.4.0",
     "@nestjs/cli": "^12.0.0",
     "@types/express": "^5.0.6",
     "@types/pg": "^8.23.1",

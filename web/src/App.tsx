@@ -4,6 +4,7 @@ import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { lazyPage, useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { CentredPage } from "@/pages/AuthForm";
+import { ConnectPage } from "@/pages/ConnectPage";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
 import { BeanBatchPage } from "@/pages/BeanBatchPage";
@@ -45,6 +46,7 @@ export function App() {
           <Route path="/sign-in" element={<Gate page="sign-in" />} />
           <Route path="/invite/:secret" element={<Gate page="invite" />} />
           <Route path="/reset-password/:secret" element={<Gate page="reset-password" />} />
+          <Route path="/connect/:id" element={<Gate page="connect" />} />
           <Route element={<Gate page="signed-in" />}>
             <Route index element={<HomePage />} />
             <Route
@@ -124,7 +126,7 @@ function NewBuildOnNavigation(): null {
   return null;
 }
 
-interface ReturnTo {
+interface ReturnTo extends SignInState {
   from?: string;
 }
 
@@ -132,9 +134,11 @@ interface ReturnTo {
  * Shows a page only in the state it belongs to: setup while the server has no
  * accounts, sign-in while signed out, and everything else while signed in.
  * Any other page redirects. An invite or password reset link opens whether
- * or not someone is signed in, and says what to do either way.
+ * or not someone is signed in, and says what to do either way. An app's
+ * request to connect, its consent page, has someone signed out sign in
+ * first and come back to it.
  */
-function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "reset-password" | "signed-in" }): ReactNode {
+function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "reset-password" | "connect" | "signed-in" }): ReactNode {
   const { state } = useAuth();
   const location = useLocation();
 
@@ -145,6 +149,7 @@ function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "reset-password
 
   if (state.status === "signed-in") {
     if (page === "signed-in") return <Shell />;
+    if (page === "connect") return <ConnectPage />;
     return <Navigate to={(location.state as ReturnTo | null)?.from ?? "/"} replace />;
   }
 
@@ -160,7 +165,8 @@ function Gate({ page }: { page: "setup" | "sign-in" | "invite" | "reset-password
     const notice: SignInState = { notice: "This server is already set up. Sign in instead." };
     return <Navigate to="/sign-in" replace state={notice} />;
   }
-  return <Navigate to="/sign-in" replace state={{ from: location.pathname } satisfies ReturnTo} />;
+  const notice = page === "connect" ? "Sign in to connect an app to Decent Sync." : undefined;
+  return <Navigate to="/sign-in" replace state={{ from: location.pathname, notice } satisfies ReturnTo} />;
 }
 
 /** A page only Admins can use: the server refuses Staff what it shows, so they go home instead. */
