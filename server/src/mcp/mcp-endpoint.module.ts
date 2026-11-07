@@ -10,10 +10,13 @@ import { LocationsModule } from "../locations/locations.module.js";
 import { MachineEventsModule } from "../machine-events/machine-events.module.js";
 import { MachinesModule } from "../machines/machines.module.js";
 import { SettingsEditsModule } from "../settings-edits/settings-edits.module.js";
+import { ShotsModule } from "../shots/shots.module.js";
+import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
 import { McpListenStreams } from "./listen-streams.js";
 import { LocationsTools } from "./locations.tools.js";
 import { MachinesTools } from "./machines.tools.js";
+import { RecordsTools } from "./records.tools.js";
 import { AccessTokenVerifier } from "./token-verifier.js";
 
 /**
@@ -39,6 +42,8 @@ export class McpEndpointModule implements NestModule {
         MachineEventsModule,
         CollectionsModule,
         SettingsEditsModule,
+        ShotsModule,
+        SteamRecordsModule,
         McpModule.forRoot({
           path: MCP_PATH.slice(1),
           decorators: [Public()],
@@ -60,7 +65,7 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools, MachinesTools],
+      providers: [McpListenStreams, LocationsTools, MachinesTools, RecordsTools],
       exports: [McpListenStreams],
     };
   }

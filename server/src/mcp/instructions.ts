@@ -17,5 +17,7 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Bean: a coffee as a roaster sells it. Bean Batch: one roast of a Bean, at a Location from when it is added there until it is finished there.
 - Archived: a Library item retired everywhere, kept so past Shots still name it, offered nowhere. Not deleted.
 - Conflict: an edit to a field of a Library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
+- Shot: one extraction recorded on a Machine. Its Preheat, the Machine heating its water before the profile starts, is shown with it but not counted in its duration or peaks.
+- Steam Record: one recorded use of a Machine's steam wand. Its duration counts only the steaming, not the steam starting up, its pauses, puffs or purge.
 
 A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.`;

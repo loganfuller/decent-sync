@@ -19,7 +19,7 @@ import { amount, present, record } from "@/components/workflow";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { ApiError, api, type SteamRecord } from "@/lib/api";
-import { STEAM_CURVES, type Sample, type SteamCurve, steamSamples } from "@/lib/curves";
+import { STEAM_CURVES, type Sample, type SteamCurve, steamSamples, steamStopAt } from "@/lib/curves";
 
 interface SteamRecordData {
   steamRecord: SteamRecord;
@@ -39,8 +39,7 @@ async function loadSteamRecord(id: string): Promise<SteamRecordData> {
     api<{ steamRecord: SteamRecord }>("GET", path),
     api<{ measurements: unknown }>("GET", `${path}/measurements`),
   ]);
-  const stopAt = record(record(steamRecord.record.workflow)?.steamSettings)?.stopAtTemperature;
-  return { steamRecord, samples: steamSamples(measurements, typeof stopAt === "number" && stopAt > 0 ? stopAt : null) };
+  return { steamRecord, samples: steamSamples(measurements, steamStopAt(steamRecord.record)) };
 }
 
 function SteamRecordDetails({ id }: { id: string }) {
