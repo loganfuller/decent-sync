@@ -97,13 +97,14 @@ describe("The machine's own settings and sensor calibration, read only while the
     }
   });
 
-  it("wait after a Shot leaves espresso until Decaid stores it", async () => {
+  it("wait after a Shot leaves espresso until Decaid stores it, holding up no Settings Edit at idle meanwhile", async () => {
     const standIn = await StandInServer.start();
     try {
       // At the tablet's pace, so Decaid has 10 s to store the Shot before the plugin stops waiting for it, far longer than
       // the full read below takes.
-      const { tablet, sent } = standInTablet(standIn, "40302", 1);
+      const { tablet, served, sent } = standInTablet(standIn, "40302", 1);
       await expect.poll(() => COLLECTION_NAMES.map((name) => sent(name).length)).toEqual(COLLECTION_NAMES.map(() => 1));
+      const fan = (served["/machine/settings"] as { fan: number }).fan;
 
       tablet.reportState("espresso", "pouring");
       tablet.reportState("idle", "idle");
@@ -114,10 +115,19 @@ describe("The machine's own settings and sensor calibration, read only while the
       await expect.poll(() => OTHERS.filter((name) => sent(name).length < 2)).toEqual([]);
       expect(fromMachineSince(tablet, since)).toEqual([]);
 
+      // The machine state is idle, so a Settings Edit goes ahead, and is read back, ahead of the reads waiting.
+      const edit = { type: "settingsEdit", id: randomUUID(), collection: "machineSettings", fields: { fan: fan - 10 }, expected: { fan }, timeLeftMs: 60_000 } as const;
+      expect(await standIn.ask(edit)).toMatchObject({ outcome: "written", values: { fan: fan - 10 } });
+      expect(fromMachineSince(tablet, since).filter((route) => route !== "/machine/settings")).toEqual([]);
+
       const storedAt = tablet.readClock();
+      const before = FROM_MACHINE.map((name) => sent(name).length);
       tablet.pullShot(derivedShot("not-yet-stored-40302"));
-      await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
-      expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
+      await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual(before.map((count) => count + 1));
+      expect(sent("machineSettings").at(-1)).toMatchObject({ value: { steamFlow: 1.5, fan: fan - 10 } });
+      // A pass after them, which shows none read twice.
+      await polls(tablet, 1);
+      expect(FROM_MACHINE.map((name) => sent(name).length)).toEqual(before.map((count) => count + 1));
       for (const route of FROM_MACHINE_ROUTES) expect(readTimes(tablet, route).filter((time) => time >= storedAt)).toHaveLength(1);
     } finally {
       await standIn.stop();
@@ -164,6 +174,9 @@ describe("The machine's own settings and sensor calibration, read only while the
       tablet.pullShot(derivedShot("welcomed-40304"));
       await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       for (const name of FROM_MACHINE) expect(sent(name)[1]).toMatchObject({ available: true, value: sent(name)[0]!.value });
+      // A pass after them, which shows none read twice.
+      await polls(tablet, 1);
+      expect(FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       for (const route of SENSOR_CALIBRATION_ROUTES) expect(readTimes(tablet, route).filter((time) => time >= storedAt)).toHaveLength(1);
     } finally {
       await standIn.stop();
@@ -191,12 +204,12 @@ describe("The machine's own settings and sensor calibration, read only while the
       // A full read's: each sent, changed or not, once.
       await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
-      for (const route of SENSOR_CALIBRATION_ROUTES) expect(readTimes(tablet, route).filter((time) => time > idleAt)).toHaveLength(1);
-      // Their next read is on their interval, a minute after that one.
+      // Their next read is on their interval, a minute after that one, and the sensor calibration's on the next full read.
       for (const route of MACHINE_SETTINGS_ROUTES) {
         await expect.poll(() => readTimes(tablet, route).filter((time) => time > idleAt).length).toBeGreaterThanOrEqual(2);
         for (const gap of gaps(readTimes(tablet, route).filter((time) => time > idleAt))) expect(gap).toBeGreaterThan(55_000);
       }
+      for (const route of SENSOR_CALIBRATION_ROUTES) expect(readTimes(tablet, route).filter((time) => time > idleAt)).toHaveLength(1);
     } finally {
       await standIn.stop();
     }
@@ -230,6 +243,9 @@ describe("The machine's own settings and sensor calibration, read only while the
       await expect.poll(() => OTHERS.filter((name) => sent(name).length < 2)).toEqual([]);
       await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
+      // A pass after them, which shows none read twice.
+      await polls(tablet, 1);
+      expect(FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       for (const route of FROM_MACHINE_ROUTES) {
         const times = readTimes(tablet, route).filter((time) => time > idleAt);
         expect(times.length).toBeGreaterThanOrEqual(1);
@@ -271,7 +287,7 @@ describe("The machine's own settings and sensor calibration, read only while the
     }
   });
 
-  it("hold up nothing else while they wait: the server's Library writes are carried out, and DYE2's recipes and the Tablet Settings read and sent", async () => {
+  it("hold up nothing else while they wait: the server's Library writes are carried out, a Settings Edit answered, and DYE2's recipes and the Tablet Settings read and sent", async () => {
     const standIn = await StandInServer.start();
     try {
       const { tablet, served, sent } = standInTablet(standIn, "40307", 50);
@@ -279,14 +295,18 @@ describe("The machine's own settings and sensor calibration, read only while the
 
       tablet.reportState("steam", "steaming");
       const since = tablet.requests.length;
-      // Derived: a recipe saved in DYE2, and Decaid's own settings changed, while a read of the machine waits.
-      const recipes = served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[];
-      const settings = served["/settings"] as Record<string, unknown>;
-      tablet.serve({ ...served, "/store/dye2.reaplugin/recipes": [{ ...recipes[0], name: "Saved while steaming" }, ...recipes.slice(1)], "/settings": { ...settings, weightFlowMultiplier: 1.5 } });
       await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
+      // While a read of the machine waits: a recipe saved in DYE2, and Decaid's own settings changed, as a skin changes them.
+      const recipes = served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[];
+      const saved = [{ ...recipes[0], name: "Saved while steaming" }, ...recipes.slice(1)];
+      expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", saved)).status).toBe(200);
+      expect((await tablet.callApi("POST", "/settings", { chargingMode: "balanced" })).status).toBe(200);
       await expect.poll(() => [sent("dye2Recipes").length, sent("appSettings").length]).toEqual([2, 2]);
       const write = { type: "write", id: "basket-40307", kind: "basket", globalId: randomUUID(), localId: null, fields: { name: "Written while steaming" } } as const;
       expect(await standIn.ask(write)).toMatchObject({ type: "written" });
+      const fan = (served["/machine/settings"] as { fan: number }).fan;
+      const edit = { type: "settingsEdit", id: randomUUID(), collection: "machineSettings", fields: { fan: fan - 10 }, expected: { fan }, timeLeftMs: 60_000 } as const;
+      expect(await standIn.ask(edit)).toMatchObject({ outcome: "refused", reason: "machineBusy", state: "steam" });
       expect(fromMachineSince(tablet, since)).toEqual([]);
 
       tablet.reportState("idle", "idle");
