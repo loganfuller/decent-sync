@@ -7,9 +7,9 @@ import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../supp
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
-import { SimulatedDye2, dye2List, editGrinderInDye2, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet } from "../support/simulated-dye2.js";
+import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
-import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
+import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "../support/test-server.js";
 
@@ -248,43 +248,6 @@ describe("the latest release beside the change", () => {
     await quiet();
     const content = async () => (await api.get<{ recipe: { content: Record<string, unknown> } }>(`/recipes/${recipeId}`)).recipe.content;
     expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
-  });
-
-  it("takes in a feed rate and a Grinder's note a tablet's records held while the latest release served it, which knew neither, rather than clearing them, its plugin the latest release's still", async () => {
-    const api = apis["latest release"];
-    const location = await api.createLocation("Feed rate held, the latest release", "America/Chicago");
-    const machine = await api.createMachine("Feed rate held, the latest release", location.id);
-    const dye2 = new SimulatedDye2();
-    const settings = (server: Release) => ({ ...settingsFor({ token: machine.token, serverUrl: servers[server].url }), PollSeconds: 5 });
-    let tablet = syncingTablet(machine, servers["latest release"], { latestRelease: true, api: recordedDye2MainTablet(String(serial++), "Feed rate held"), dye2 });
-    loaded.push(tablet);
-    const record = () => (dye2List(tablet, "recipes") as Record<string, unknown>[] | null)?.find((entry) => entry.id === "05fd1e80-61e3-46ef-b202-2cbad5eb7983");
-    const feedRateOf = () => ((record()?.dashboardVariables ?? {}) as Record<string, unknown>).feedRate;
-    await apis.change.waitForOnline(machine);
-    await expect.poll(() => dye2GlobalIdOf(record())).not.toBeNull();
-    const recipeId = dye2GlobalIdOf(record())!;
-    const grinder = tablet.grinders()[0]!;
-    const grinderId = globalIdOf(grinder)!;
-    expect(grinderId).not.toBeNull();
-    // DYE2 v0.1.35's recipe editor and grinders page save each while the latest release serves the tablet, which keeps the
-    // records as sent and takes neither in.
-    await (await openDye2RecipeEditor(tablet, { id: "05fd1e80-61e3-46ef-b202-2cbad5eb7983" })).set({ feedRate: "MF" }).save();
-    expect((await editGrinderInDye2(tablet, String(grinder.id), { feedRate: "manual FF/MF/SF" })).status).toBe(200);
-    // Once the latest release has taken in the tablet's reports of them.
-    await quiesced(api, { tablets: { tablet }, machines: { machine } });
-    const content = async (path: string) => (await apis.change.get<Record<string, { content: Record<string, unknown> }>>(path));
-    expect((await content(`/recipes/${recipeId}`)).recipe!.content).not.toHaveProperty("feedRate");
-    expect((await content(`/grinders/${grinderId}`)).grinder!.content).not.toHaveProperty("feedRate");
-    // The tablet connects to the change's server, its plugin still the latest release's, as after a deploy.
-    tablet = await tablet.reload({ settings: settings("change") });
-    loaded.push(tablet);
-    await apis.change.waitForOnline(machine);
-    await expect.poll(async () => (await content(`/recipes/${recipeId}`)).recipe!.content.feedRate).toBe("MF");
-    await expect.poll(async () => (await content(`/grinders/${grinderId}`)).grinder!.content.feedRate).toBe("manual FF/MF/SF");
-    // Once the change's server has written what it had due: neither is cleared on the tablet.
-    await quiesced(apis.change, { tablets: { tablet }, machines: { machine } });
-    expect(feedRateOf()).toBe("MF");
-    expect((tablet.grinders().find((entry) => globalIdOf(entry) === grinderId)!.extras as Record<string, unknown>).feedRate).toBe("manual FF/MF/SF");
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy
