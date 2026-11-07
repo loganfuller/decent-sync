@@ -17,6 +17,10 @@ export interface RecordFilters {
   from?: string;
   /** Recorded before this local time, as `YYYY-MM-DDTHH:MM:SS`. */
   until?: string;
+  /** Recorded at or after this moment, as ISO 8601 with an offset: an assistant's (`server/src/mcp/times.ts`). */
+  fromAt?: string;
+  /** Recorded before this moment, as ISO 8601 with an offset. */
+  untilAt?: string;
 }
 
 const LOCAL_TIME = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d)(?::(\d\d))?)?$/;
@@ -70,11 +74,12 @@ export function readRecordFilters(query: Record<string, unknown>, problems: stri
 /**
  * The conditions for the filters, on a record table aliased `alias` whose
  * time is the column `time`, joined to its Location as `l`. Both names are
- * written into the query as given, so they are never input. Times compare the
- * record's time on its Location's wall clock with the times given, so a day
- * is that Location's day, 23 or 25 hours long across a daylight-saving
- * change, and an hour the clocks repeat is listed twice. A record whose time
- * is unknown matches no time.
+ * written into the query as given, so they are never input. Local times
+ * compare the record's time on its Location's wall clock with the times
+ * given, so a day is that Location's day, 23 or 25 hours long across a
+ * daylight-saving change, and an hour the clocks repeat is listed twice;
+ * moments compare the record's time itself. A record whose time is unknown
+ * matches no time.
  */
 export function recordFilterSql(filters: RecordFilters, alias: string, time: string): Prisma.Sql {
   const column = (name: string) => Prisma.raw(`${alias}.${name}`);
@@ -97,6 +102,8 @@ export function recordFilterSql(filters: RecordFilters, alias: string, time: str
     conditions.push(Prisma.sql`${at} < (${filters.until}::timestamp AT TIME ZONE 'UTC') + interval '24 hours'`);
     conditions.push(Prisma.sql`${local} < ${filters.until}::timestamp`);
   }
+  if (filters.fromAt !== undefined) conditions.push(Prisma.sql`${at} >= ${filters.fromAt}::timestamptz`);
+  if (filters.untilAt !== undefined) conditions.push(Prisma.sql`${at} < ${filters.untilAt}::timestamptz`);
   return conditions.length === 0 ? Prisma.sql`TRUE` : Prisma.join(conditions, " AND ");
 }
 
