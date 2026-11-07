@@ -86,6 +86,22 @@ function instants(value: unknown): unknown {
   return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
 }
 
+/** The offset a time zone had at a moment, as ISO 8601 writes it, such as -06:00, or -05:00 in the summer, in Chicago. */
+function offsetIn(timeZone: string, at: string): string {
+  const named = new Intl.DateTimeFormat("en-US", { timeZone, timeZoneName: "longOffset" }).formatToParts(Date.parse(at)).find((part) => part.type === "timeZoneName")!.value;
+  return named.replace(/^GMT/, "") || "+00:00";
+}
+
+/** That each time, stamped as the test runs, carries the offset the time zone had then. */
+function expectZoned(timeZone: string, ...times: unknown[]): void {
+  for (const at of times) {
+    expect(typeof at, String(at)).toBe("string");
+    expect((at as string).slice(-6), at as string).toBe(offsetIn(timeZone, at as string));
+  }
+}
+
+const CHICAGO = "America/Chicago";
+
 /** That a tool read an online Machine's lastSeenAt between the REST API's reads of it before and after the call. */
 function seenBetween(before: RestMachine, seen: Record_, after: RestMachine): void {
   expect(Date.parse(seen.lastSeenAt as string), seen.name as string).toBeGreaterThanOrEqual(Date.parse(before.lastSeenAt!));
@@ -168,15 +184,16 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect(instants(unseen(machines))).toEqual(instants(unseen(rest.map(listed))));
     const byName = (name: string) => machines.find((machine) => machine.name === name);
     seenBetween(before.find((machine) => machine.id === bar.machine.id)!, byName("Lab bar")!, rest.find((machine) => machine.id === bar.machine.id)!);
-    expect(byName("Lab bar")).toMatchObject({
-      location: { id: lab.id, name: "Lab", timeZone: "America/Chicago" },
+    const labBar = byName("Lab bar") as Record_ & { machineState: { observedAt: string }; loadedRecipe: { loadedAt: string } };
+    expect(labBar).toMatchObject({
+      location: { id: lab.id, name: "Lab", timeZone: CHICAGO },
       online: true,
-      // Its times with the Lab's offset in November.
-      lastSeenAt: expect.stringMatching(/-06:00$/),
-      machineState: { state: "idle", substate: "idle", observedAt: expect.stringMatching(/-06:00$/) },
-      loadedRecipe: { recipe: { id: ethiopia, archived: false }, loadedAt: expect.stringMatching(/-06:00$/), unloadedAt: null },
+      machineState: { state: "idle", substate: "idle" },
+      loadedRecipe: { recipe: { id: ethiopia, archived: false }, unloadedAt: null },
       captureOnly: [],
     });
+    // Its times with the Lab's offset then.
+    expectZoned(CHICAGO, labBar.lastSeenAt, labBar.machineState.observedAt, labBar.loadedRecipe.loadedAt);
     expect(byName("In the van")).toMatchObject({ id: van.machine.id, location: null, online: false, lastSeenAt: null, machineState: null, loadedRecipe: null, captureOnly: ["noLocation"] });
     expect(byName("Lab spare")).toMatchObject({ captureOnly: ["sharingOff"] });
   });
@@ -215,9 +232,10 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       sharingStatus: { waiting: status.waiting, lastApplied: status.lastApplied, refused: status.refused, unrecognisedLists: status.unrecognisedLists },
       tabletVersions: (await api.get<{ tabletVersions: unknown }>(`${path}/tablet-versions`)).tabletVersions,
     }));
+    const shown = result as Record_ & { machine: { locationHistory: { effectiveFrom: string }[] }; workflow: { observedAt: string; receivedAt: string } };
+    expectZoned(CHICAGO, shown.machine.locationHistory[0]!.effectiveFrom, shown.workflow.observedAt, shown.workflow.receivedAt);
     expect(result).toMatchObject({
-      machine: { locationHistory: [{ location: { name: "Lab" }, effectiveFrom: expect.stringMatching(/-06:00$/) }], sharing: true },
-      workflow: { observedAt: expect.stringMatching(/-06:00$/), receivedAt: expect.stringMatching(/-06:00$/) },
+      machine: { locationHistory: [{ location: { name: "Lab" } }], sharing: true },
       machineSettings: { machineSettings: { available: true, value: { fan: 55 } } },
       tabletSettings: { presenceSettings: { available: true } },
       tabletVersions: { dye2: { status: "installed" } },
@@ -232,10 +250,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     });
     expect(moved.machine.location).toEqual(uptown);
     // Each arrival with the offset of where it arrived: Chicago's, then New York's.
-    expect(moved.machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom.slice(-6)])).toEqual([
-      ["Lab", "-06:00"],
-      ["Uptown", "-05:00"],
-    ]);
+    expect(moved.machine.locationHistory.map((entry) => entry.location.name)).toEqual(["Lab", "Uptown"]);
+    expectZoned(CHICAGO, moved.machine.locationHistory[0]!.effectiveFrom);
+    expectZoned("America/New_York", moved.machine.locationHistory[1]!.effectiveFrom);
     expect(moved.workflow).toBeNull();
   });
 
@@ -315,7 +332,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       // With the Lab's offset while it was there, received today too, and UTC's before it was anywhere.
       expect(all.machineStates!.entries.map((entry) => entry.observedAt)).toEqual([local(23), local(11), local(9), local(7), local(6)]);
       expect(all.workflowChanges!.entries.map((entry) => entry.observedAt)).toEqual([local(10), local(8), local(6, 30), BEFORE_THE_LAB]);
-      expect(all.machineStates!.entries.every((entry) => entry.receivedAt.endsWith("-06:00"))).toBe(true);
+      expectZoned(CHICAGO, ...all.machineStates!.entries.map((entry) => entry.receivedAt));
 
       // As sent, Decaid's numbers and names; as summarized, those the Workflow card shows, to two decimal places.
       const sent = workflows[0]!.workflow as { profile: Record_ & { steps: Record_[] }; context: Record_; steamSettings: Record_; hotWaterData: Record_; rinseData: Record_ };
@@ -472,8 +489,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     const { settingsEdits } = await assistant.call<{ settingsEdits: Record_[] }>("list_settings_edits", { machineId: bar.machine.id });
     expect(settingsEdits).toMatchObject([
       { fields: { fan: 45 }, outcome: "refused", refusal: { reason: "changedSince", current: { fan: 40 } }, account: { name: "sam@example.com" } },
-      { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" }, madeAt: expect.stringMatching(/-06:00$/), answeredAt: expect.stringMatching(/-06:00$/) },
+      { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" } },
     ]);
+    expectZoned(CHICAGO, ...settingsEdits.flatMap((edit) => [edit.madeAt, edit.sentAt, edit.answeredAt]));
     expect((await sam.assistant.call<{ settingsEdits: { account: { name: string | null } }[] }>("list_settings_edits", { machineId: bar.machine.id })).settingsEdits.map((edit) => edit.account.name)).toEqual([null, null]);
 
     type EditsPage = { settingsEdits: { id: string }[]; total: number; offset: number; more: boolean };
