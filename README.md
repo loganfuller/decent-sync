@@ -116,8 +116,8 @@ way, and not yet in a release. People connect AI assistants, such as Claude
 and ChatGPT, through the server's MCP endpoint (see
 [Connecting an assistant](#connecting-an-assistant)). So far an assistant
 reads Locations, Machines with their activity, settings and Settings Edits,
-and Shots and Steam Records. Reading the Library, changing things, and the
-Connected Apps pages come next.
+Shots and Steam Records, and the Library with each item's history and
+Conflicts. Changing things, and the Connected Apps pages, come next.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.

@@ -2347,7 +2347,10 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    answer, as `beans.ts` does, with a pure planning module and its module
    tests, as `bean-intake.ts` has; the changes of a Location's state of it,
    if any (`location-state.ts`); its REST API, with each new route named in
-   `server/test/access.test.ts`; and, if a Shot names it, its columns on a
+   `server/test/access.test.ts`; its reads through an assistant, in
+   `server/src/mcp/library.tools.ts`, whose kinds `KIND_NAMES` lists, and
+   whose switches over kinds then fail to compile until they read it; and,
+   if a Shot names it, its columns on a
    Shot (`shotLink`) and how a Shot's metadata names it
    (`server/src/shots/links.ts`).
 6. **The management interface** (`web/src/lib/library-kinds.ts`): an entry
