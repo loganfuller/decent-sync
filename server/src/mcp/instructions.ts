@@ -15,6 +15,7 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Loaded Recipe: the Recipe a barista last applied on a Machine. A change on that Machine is saved into it, and a change to it reaches that Machine's Workflow.
 - Recipe Slot: one of a Location's five numbered positions, 1 to 5, each a button on its Machines' tablets. A Recipe is in at most one slot.
 - Bean: a coffee as a roaster sells it. Bean Batch: one roast of a Bean, at a Location from when it is added there until it is finished there.
+- Library: the Beans, Bean Batches, Profiles, Grinders, Baskets, Tools and Recipes Decent Sync keeps and shares with Machines. A Profile is a program a Machine follows while pulling a Shot, such as a pressure or flow curve; each Location shows or hides each Profile, Basket and Tool. A Grinder belongs to one Location.
 - Archived: a Library item retired everywhere, kept so past Shots still name it, offered nowhere. Not deleted.
 - Conflict: an edit to a field of a Library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
 - Shot: one extraction recorded on a Machine. Its Preheat, the Machine heating its water before the profile starts, is shown with it but not counted in its duration or peaks.

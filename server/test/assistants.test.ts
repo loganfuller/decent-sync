@@ -135,12 +135,15 @@ describe("connecting an assistant", () => {
       expect(assistant.client.getInstructions()).toContain("A day, such as \"yesterday\", is each Location's own day in its time zone.");
       const { tools } = await assistant.client.listTools();
       expect(tools.map((tool) => tool.name).sort()).toEqual([
+        "find_library_items",
         "find_shots",
         "find_steam_records",
+        "get_library_item",
         "get_machine",
         "get_machine_activity",
         "get_shot",
         "get_steam_record",
+        "list_conflicts",
         "list_locations",
         "list_machines",
         "list_settings_edits",

@@ -5,6 +5,7 @@ import { Public } from "../accounts/guards.js";
 import type { Config } from "../config.js";
 import { CollectionsModule } from "../collections/collections.module.js";
 import { ConnectedAppsModule } from "../connected-apps/connected-apps.module.js";
+import { LibraryModule } from "../library/library.module.js";
 import { CHANGE, MCP_PATH, READ, issuerOf, resourceOf } from "../connected-apps/oauth.js";
 import { LocationsModule } from "../locations/locations.module.js";
 import { MachineEventsModule } from "../machine-events/machine-events.module.js";
@@ -13,6 +14,7 @@ import { SettingsEditsModule } from "../settings-edits/settings-edits.module.js"
 import { ShotsModule } from "../shots/shots.module.js";
 import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
+import { LibraryTools } from "./library.tools.js";
 import { McpListenStreams } from "./listen-streams.js";
 import { LocationsTools } from "./locations.tools.js";
 import { MachinesTools } from "./machines.tools.js";
@@ -38,6 +40,7 @@ export class McpEndpointModule implements NestModule {
       module: McpEndpointModule,
       imports: [
         LocationsModule,
+        LibraryModule,
         MachinesModule,
         MachineEventsModule,
         CollectionsModule,
@@ -65,7 +68,7 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools, MachinesTools, RecordsTools],
+      providers: [McpListenStreams, LocationsTools, LibraryTools, MachinesTools, RecordsTools],
       exports: [McpListenStreams],
     };
   }
