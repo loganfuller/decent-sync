@@ -40,6 +40,8 @@ interface RestMachine {
 
 interface Page<T> {
   entries: T[];
+  total: number;
+  offset: number;
   more: boolean;
 }
 
@@ -300,12 +302,14 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const path = `/machines/${roaster.machine.id}`;
       const workflows = (await api.get<{ events: { observedAt: string; receivedAt: string; workflow: Record_ }[] }>(`${path}/workflow-events`)).events;
       const transitions = (await api.get<{ events: { state: string; substate: string; observedAt: string; receivedAt: string }[] }>(`${path}/machine-state-events`)).events;
-      expect(instants(all.machineStates)).toEqual(instants({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), more: false }));
+      expect(instants(all.machineStates)).toEqual(
+        instants({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), total: 5, offset: 0, more: false }),
+      );
       expect(instants(all.workflowChanges!.entries.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt })))).toEqual(
         instants(workflows.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt }))),
       );
-      expect(all.workflowChanges!.more).toBe(false);
-      expect(all.loadedRecipes).toEqual({ entries: [], more: false });
+      expect(all.workflowChanges).toMatchObject({ total: 4, offset: 0, more: false });
+      expect(all.loadedRecipes).toEqual({ entries: [], total: 0, offset: 0, more: false });
       expect(states(all)).toEqual(["sleeping", "idle", "espresso", "idle", "sleeping"]);
       expect(doses(all)).toEqual([19, 18.5, 18, 17]);
       // With the Lab's offset while it was there, received today too, and UTC's before it was anywhere.
@@ -340,6 +344,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(states(morning)).toEqual(["espresso", "idle"]);
       expect(doses(morning)).toEqual([18.5, 18]);
       expect(morning.machineStates!.entries.map((entry) => entry.observedAt)).toEqual([local(9), local(7)]);
+      expect([morning.machineStates!.total, morning.workflowChanges!.total]).toEqual([2, 2]);
       // The same range in UTC.
       expect(await activity({ from: at(7, 30), to: at(9, 30) })).toEqual(morning);
       // From exactly 8: the Workflow observed then is the one in effect, and the range's end is not in it.
@@ -375,13 +380,17 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(states(await activity({ from: "2026-11-02", to: chicago(7) }))).toEqual(["sleeping"]);
     });
 
-    it("pages each list by limit and offset, at most 50, saying whether more follow, and gives only the lists asked for", async () => {
+    it("pages each list by limit and offset, at most 50, saying how many match and whether more follow, and gives only the lists asked for", async () => {
       const first = await activity({ limit: 2 });
+      expect([first.machineStates, first.workflowChanges]).toMatchObject([
+        { total: 5, offset: 0 },
+        { total: 4, offset: 0 },
+      ]);
       expect([states(first), first.machineStates!.more, doses(first), first.workflowChanges!.more]).toEqual([["sleeping", "idle"], true, [19, 18.5], true]);
       const second = await activity({ limit: 2, offset: 2 });
       expect([states(second), second.machineStates!.more, doses(second), second.workflowChanges!.more]).toEqual([["espresso", "idle"], true, [18, 17], false]);
       const only = await activity({ kinds: ["machineStates"], limit: 1, offset: 4 });
-      expect(only).toEqual({ machineStates: { entries: [expect.objectContaining({ state: "sleeping", observedAt: local(6) })], more: false } });
+      expect(only).toEqual({ machineStates: { entries: [expect.objectContaining({ state: "sleeping", observedAt: local(6) })], total: 5, offset: 4, more: false } });
       for (const page of [{ limit: 51 }, { limit: 0 }, { offset: -1 }]) {
         expect((await refusal(page)).isError, JSON.stringify(page)).toBe(true);
       }
@@ -410,15 +419,15 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const switchedAt = Date.parse(brazil!.loadedAt);
       const iso = (ms: number) => new Date(ms).toISOString();
 
-      expect(instants(await recipes({}))).toEqual(instants({ entries: entries.map(withoutId), more: false }));
+      expect(instants(await recipes({}))).toEqual(instants({ entries: entries.map(withoutId), total: 2, offset: 0, more: false }));
       // From the switch, only the Brazil's; up to it, only the Ethiopia's; across it, both.
       expect(ids(await recipes({ from: iso(switchedAt) }))).toEqual([brazil!.recipe.id]);
       expect(ids(await recipes({ to: iso(switchedAt) }))).toEqual([ethiopia]);
       expect(ids(await recipes({ from: iso(switchedAt - 1), to: iso(switchedAt + 1) }))).toEqual([brazil!.recipe.id, ethiopia]);
       // A page at a time, latest loaded first.
-      expect(instants(await recipes({ limit: 1 }))).toEqual(instants({ entries: [withoutId(brazil!)], more: true }));
-      expect(instants(await recipes({ limit: 1, offset: 1 }))).toEqual(instants({ entries: [withoutId(earlier!)], more: false }));
-      expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], more: false });
+      expect(instants(await recipes({ limit: 1 }))).toEqual(instants({ entries: [withoutId(brazil!)], total: 2, offset: 0, more: true }));
+      expect(instants(await recipes({ limit: 1, offset: 1 }))).toEqual(instants({ entries: [withoutId(earlier!)], total: 2, offset: 1, more: false }));
+      expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], total: 2, offset: 2, more: false });
     });
   });
 
@@ -456,9 +465,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       ["Staff", sam.api, sam.assistant],
       ["a Viewer", vic.api, vic.assistant],
     ] as const) {
-      const rest = await as.get<{ settingsEdits: Record_[] }>(path);
-      const listedEdits = await through.call<{ settingsEdits: Record_[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id });
-      expect(instants(listedEdits), who).toEqual(instants({ settingsEdits: asListed(rest.settingsEdits), more: false }));
+      const rest = await as.get<{ settingsEdits: Record_[]; total: number }>(path);
+      const listedEdits = await through.call<Record_>("list_settings_edits", { machineId: bar.machine.id });
+      expect(instants(listedEdits), who).toEqual(instants({ settingsEdits: asListed(rest.settingsEdits), total: rest.total, offset: 0, more: false }));
     }
     const { settingsEdits } = await assistant.call<{ settingsEdits: Record_[] }>("list_settings_edits", { machineId: bar.machine.id });
     expect(settingsEdits).toMatchObject([
@@ -467,9 +476,10 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     ]);
     expect((await sam.assistant.call<{ settingsEdits: { account: { name: string | null } }[] }>("list_settings_edits", { machineId: bar.machine.id })).settingsEdits.map((edit) => edit.account.name)).toEqual([null, null]);
 
-    const page = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1 });
-    expect([page.settingsEdits.map((edit) => edit.id), page.more]).toEqual([[settingsEdits[0]!.id], true]);
-    const last = await assistant.call<{ settingsEdits: { id: string }[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id, limit: 1, offset: 1 });
-    expect([last.settingsEdits.map((edit) => edit.id), last.more]).toEqual([[settingsEdits[1]!.id], false]);
+    type EditsPage = { settingsEdits: { id: string }[]; total: number; offset: number; more: boolean };
+    const page = await assistant.call<EditsPage>("list_settings_edits", { machineId: bar.machine.id, limit: 1 });
+    expect([page.settingsEdits.map((edit) => edit.id), page.total, page.offset, page.more]).toEqual([[settingsEdits[0]!.id], 2, 0, true]);
+    const last = await assistant.call<EditsPage>("list_settings_edits", { machineId: bar.machine.id, limit: 1, offset: 1 });
+    expect([last.settingsEdits.map((edit) => edit.id), last.total, last.offset, last.more]).toEqual([[settingsEdits[1]!.id], 2, 1, false]);
   });
 });

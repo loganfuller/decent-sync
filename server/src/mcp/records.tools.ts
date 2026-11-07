@@ -9,24 +9,12 @@ import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { curveSchema, curvesOf, shadedSchema } from "./curves.js";
+import { page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
 // Shots and Steam Records, found and read through an assistant as the REST
 // API lists and reads them, calling the same services (#408, ADR-0026).
 // Every account reads every one, as through the REST API.
-
-/** At most this many records a page, as #405 sets for every list through the endpoint. */
-const MAX_PAGE = 50;
-
-const page = {
-  limit: z.number().int().min(1).max(MAX_PAGE).default(20).describe(`How many to list, from 1 to ${MAX_PAGE}.`),
-  offset: z.number().int().min(0).max(1 << 30).default(0).describe("How many to skip, newest first: the previous page's offset plus its length."),
-};
-const pageOutput = {
-  total: z.number().int().describe("How many match."),
-  offset: z.number().int(),
-  more: z.boolean().describe("Whether more match after this page."),
-};
 
 const id = z.string();
 const machine = z.object({ id, name: z.string() }).nullable().describe("The Machine it is credited to; null while it waits for an Admin to name the Machine that recorded it.");
@@ -183,7 +171,7 @@ export class RecordsTools {
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
     const found = await this.shots.list(limit, offset, filters);
-    return { shots: found.shots.map(shotSummaryOf), total: found.total, offset, more: offset + found.shots.length < found.total };
+    return { shots: found.shots.map(shotSummaryOf), ...pageOf(found.total, offset, found.shots.length) };
   }
 
   @Tool({
@@ -232,7 +220,7 @@ export class RecordsTools {
     const filters = { ...readRecordFilters({ ...named, ...times.query }, problems), ...times.filters };
     if (problems.length > 0) throw new BadRequestException(problems);
     const found = await this.steamRecords.list(limit, offset, filters);
-    return { steamRecords: found.steamRecords.map(steamSummaryOf), total: found.total, offset, more: offset + found.steamRecords.length < found.total };
+    return { steamRecords: found.steamRecords.map(steamSummaryOf), ...pageOf(found.total, offset, found.steamRecords.length) };
   }
 
   @Tool({

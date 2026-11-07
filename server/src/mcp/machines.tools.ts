@@ -7,12 +7,12 @@ import { READ } from "../connected-apps/oauth.js";
 import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
-import { type ActivityKind, MachineEventsService } from "../machine-events/machine-events.service.js";
+import { type ActivityKind, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
 import { readMachineId } from "../machines/input.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
-import { pageInput, pageOf } from "./paging.js";
+import { page, pageOf, pageOutput } from "./paging.js";
 import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 import { workflowSummary, workflowSummaryOutput } from "./workflow-summary.js";
@@ -137,11 +137,10 @@ const activityInput = z.object({
   from: timeBound("The range's start; none for since the first.", MACHINE_DAY),
   to: timeBound("The range's end, not included, or through the end of a day given as a date; none for until now.", MACHINE_DAY),
   kinds: z.array(z.enum(ACTIVITY_KINDS)).min(1).optional().describe("Which lists to give; all three if none."),
-  ...pageInput,
+  ...page,
 });
 
-const activityPage = <T extends z.ZodType>(entry: T, what: string) =>
-  z.object({ entries: z.array(entry), more: z.boolean().describe("Whether more follow, at a higher offset.") }).optional().describe(what);
+const activityPage = <T extends z.ZodType>(entry: T, what: string) => z.object({ entries: z.array(entry), ...pageOutput }).optional().describe(what);
 
 const activityOutput = z.object({
   workflowChanges: activityPage(
@@ -155,7 +154,7 @@ const activityOutput = z.object({
   ),
 });
 
-const settingsEditsInput = z.object({ machineId, ...pageInput });
+const settingsEditsInput = z.object({ machineId, ...page });
 
 const settingsEditsOutput = z.object({
   settingsEdits: z.array(
@@ -190,7 +189,7 @@ const settingsEditsOutput = z.object({
       readBack: z.record(z.string(), z.unknown()).nullable().describe("Its fields as read back after the write, or as held when refused as changed since."),
     }),
   ),
-  more: z.boolean().describe("Whether more follow, at a higher offset."),
+  ...pageOutput,
 });
 
 /**
@@ -285,18 +284,15 @@ export class MachinesTools {
       throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
     }
     if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
-    const activity = await this.events.activity(machine.id, range, pageOf(input), input.kinds ?? ACTIVITY_KINDS);
+    const { limit, offset } = input;
+    const activity = await this.events.activity(machine.id, range, { limit, offset }, input.kinds ?? ACTIVITY_KINDS);
     const zone = zoneOf(machine);
+    const paged = <T, R>(list: ActivityPage<T> | undefined, view: (entry: T) => R) =>
+      list && { entries: list.entries.map(view), ...pageOf(list.total, offset, list.entries.length) };
     return {
-      workflowChanges: activity.workflowChanges && {
-        entries: activity.workflowChanges.entries.map((event) => ({ observedAt: zone(event.observedAt), receivedAt: zone(event.receivedAt), workflow: workflowSummary(event.workflow) })),
-        more: activity.workflowChanges.more,
-      },
-      loadedRecipes: activity.loadedRecipes && { entries: activity.loadedRecipes.entries.map((entry) => loaded(entry, zone)), more: activity.loadedRecipes.more },
-      machineStates: activity.machineStates && {
-        entries: activity.machineStates.entries.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),
-        more: activity.machineStates.more,
-      },
+      workflowChanges: paged(activity.workflowChanges, (event) => ({ observedAt: zone(event.observedAt), receivedAt: zone(event.receivedAt), workflow: workflowSummary(event.workflow) })),
+      loadedRecipes: paged(activity.loadedRecipes, (entry) => loaded(entry, zone)),
+      machineStates: paged(activity.machineStates, ({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),
     };
   }
 
@@ -310,9 +306,9 @@ export class MachinesTools {
     scopes: [READ],
   })
   async listSettingsEdits(input: z.infer<typeof settingsEditsInput>, context: McpContext): Promise<z.infer<typeof settingsEditsOutput>> {
-    const page = pageOf(input);
+    const { limit, offset } = input;
     const machine = await this.machines.get(readMachineId(input.machineId));
-    const { settingsEdits, total } = await this.settingsEdits.list(machine.id, page, callerOf(context).scope);
+    const { settingsEdits, total } = await this.settingsEdits.list(machine.id, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
     return {
       settingsEdits: settingsEdits.map(({ id, collection, schedule, fields, expected, account, madeAt, sentAt, answeredAt, outcome, late, adjusted, refusal, readBack }) => ({
@@ -331,7 +327,7 @@ export class MachinesTools {
         refusal,
         readBack,
       })),
-      more: page.offset + settingsEdits.length < total,
+      ...pageOf(total, offset, settingsEdits.length),
     };
   }
 }

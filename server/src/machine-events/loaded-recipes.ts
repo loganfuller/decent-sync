@@ -609,19 +609,20 @@ export async function loadedRecipeHistory(prisma: Prisma.TransactionClient, mach
 /**
  * The Machine's Loaded Recipes loaded at any time in a range, its ends as
  * PostgreSQL takes them: each loaded before its end and unloaded after its
- * start, if at all; latest loaded first, `take` of them after `skip`.
+ * start, if at all; a page of them, latest loaded first, and how many in all.
  */
 export async function loadedRecipesDuring(
   prisma: Prisma.TransactionClient,
   machineId: string,
   range: { from: string; to: string },
-  take: number,
-  skip: number,
-): Promise<LoadedRecipeView[]> {
-  const rows = await prisma.$queryRaw<LoadedRow[]>`${SELECT_LOADED}
-    WHERE l.machine_id = ${machineId}::uuid AND l.loaded_at < ${range.to}::timestamptz AND (l.unloaded_at IS NULL OR l.unloaded_at > ${range.from}::timestamptz)
-    ORDER BY l.loaded_at DESC, l.id DESC LIMIT ${take} OFFSET ${skip}`;
-  return rows.map(viewLoaded);
+  page: { limit: number; offset: number },
+): Promise<{ entries: LoadedRecipeView[]; total: number }> {
+  const during = Prisma.sql`l.machine_id = ${machineId}::uuid AND l.loaded_at < ${range.to}::timestamptz AND (l.unloaded_at IS NULL OR l.unloaded_at > ${range.from}::timestamptz)`;
+  const [rows, [counted]] = await Promise.all([
+    prisma.$queryRaw<LoadedRow[]>`${SELECT_LOADED} WHERE ${during} ORDER BY l.loaded_at DESC, l.id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+    prisma.$queryRaw<{ total: number }[]>`SELECT count(*)::int AS total FROM loaded_recipes AS l WHERE ${during}`,
+  ]);
+  return { entries: rows.map(viewLoaded), total: counted?.total ?? 0 };
 }
 
 interface LoadedRow {

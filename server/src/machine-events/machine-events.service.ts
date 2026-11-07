@@ -22,10 +22,10 @@ export interface TimeRange {
 /** The kinds of a Machine's activity. */
 export type ActivityKind = "workflowChanges" | "loadedRecipes" | "machineStates";
 
-/** A page of one kind of a Machine's activity, and whether more follow it. */
+/** A page of one kind of a Machine's activity, and how many there are in all. */
 export interface ActivityPage<T> {
   entries: T[];
-  more: boolean;
+  total: number;
 }
 
 /** A Machine's activity over a time range, a page of each kind asked for. */
@@ -167,26 +167,34 @@ export class MachineEventsService {
     const bounds = boundsOf(range);
     const [workflowChanges, loadedRecipes, machineStates] = await Promise.all([
       kinds.includes("workflowChanges") ? this.workflowEventsDuring(machineId, bounds, page) : undefined,
-      kinds.includes("loadedRecipes") ? loadedRecipesDuring(this.prisma, machineId, bounds, page.limit + 1, page.offset).then((entries) => pageOf(entries, page)) : undefined,
+      kinds.includes("loadedRecipes") ? loadedRecipesDuring(this.prisma, machineId, bounds, page) : undefined,
       kinds.includes("machineStates") ? this.machineStateEventsDuring(machineId, bounds, page) : undefined,
     ]);
     return { workflowChanges, loadedRecipes, machineStates };
   }
 
   private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<WorkflowEventView>> {
-    const rows = await this.prisma.$queryRaw<Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">[]>`
-      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow
-      FROM ${inEffectDuring(Prisma.sql`workflow_events`, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
-      ORDER BY observed_at DESC, id DESC LIMIT ${page.limit + 1} OFFSET ${page.offset}`;
-    return pageOf(rows.map(viewWorkflowEvent), page);
+    const table = Prisma.sql`workflow_events`;
+    const [rows, total] = await Promise.all([
+      this.prisma.$queryRaw<Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow
+        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
+        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+      countInEffect(this.prisma, table, machineId, bounds),
+    ]);
+    return { entries: rows.map(viewWorkflowEvent), total };
   }
 
   private async machineStateEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<MachineStateEventView>> {
-    const rows = await this.prisma.$queryRaw<Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">[]>`
-      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", state, substate
-      FROM ${inEffectDuring(Prisma.sql`machine_state_events`, Prisma.sql`id, observed_at, received_at, state, substate`, machineId, bounds, page)}
-      ORDER BY observed_at DESC, id DESC LIMIT ${page.limit + 1} OFFSET ${page.offset}`;
-    return pageOf(rows.map(viewMachineStateEvent), page);
+    const table = Prisma.sql`machine_state_events`;
+    const [rows, total] = await Promise.all([
+      this.prisma.$queryRaw<Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", state, substate
+        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, state, substate`, machineId, bounds, page)}
+        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+      countInEffect(this.prisma, table, machineId, bounds),
+    ]);
+    return { entries: rows.map(viewMachineStateEvent), total };
   }
 
   private async requireMachine(id: string): Promise<void> {
@@ -207,10 +215,10 @@ function boundsOf(range: TimeRange): Bounds {
 /**
  * The Machine's events in effect at any time in the range, with these
  * columns of an event table, as a subquery to select from, latest first as
- * far as the page reaches, read one past it: the latest observed as it
- * began or before, which lasted until the next, and each observed after its
- * start and before its end. The table's (machine_id, observed_at, id) index
- * finds both, stopping once the page is read, as each part has its limit.
+ * far as the page reaches: the latest observed as it began or before, which
+ * lasted until the next, and each observed after its start and before its
+ * end. The table's (machine_id, observed_at, id) index finds both, stopping
+ * once the page is read, as each part has its limit.
  */
 function inEffectDuring(table: Prisma.Sql, columns: Prisma.Sql, machineId: string, bounds: Bounds, page: Page): Prisma.Sql {
   return Prisma.sql`(
@@ -220,13 +228,18 @@ function inEffectDuring(table: Prisma.Sql, columns: Prisma.Sql, machineId: strin
     UNION ALL
     (SELECT ${columns} FROM ${table}
       WHERE machine_id = ${machineId}::uuid AND observed_at > ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz
-      ORDER BY observed_at DESC, id DESC LIMIT ${page.offset + page.limit + 1})
+      ORDER BY observed_at DESC, id DESC LIMIT ${page.offset + page.limit})
   ) AS during`;
 }
 
-/** A page of entries read one past its limit, which says whether more follow. */
-function pageOf<T>(entries: T[], page: Page): ActivityPage<T> {
-  return { entries: entries.slice(0, page.limit), more: entries.length > page.limit };
+/** How many of the Machine's events were in effect at any time in the range (`inEffectDuring`), counted from the same index alone. */
+async function countInEffect(prisma: PrismaService, table: Prisma.Sql, machineId: string, bounds: Bounds): Promise<number> {
+  const [{ total }] = await prisma.$queryRaw<[{ total: number }]>`
+    SELECT ((SELECT count(*) FROM ${table}
+        WHERE machine_id = ${machineId}::uuid AND observed_at > ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz)
+      + (SELECT count(*) FROM (SELECT 1 FROM ${table}
+        WHERE machine_id = ${machineId}::uuid AND observed_at <= ${bounds.from}::timestamptz AND observed_at < ${bounds.to}::timestamptz LIMIT 1) AS began))::int AS total`;
+  return total;
 }
 
 /** The events credited as this one is, as a condition on an event table. */
