@@ -99,6 +99,10 @@ _Avoid_: User (when the role matters), barista (a barista may not have an accoun
 A person who sees everything Staff see and changes nothing.
 _Avoid_: Read-only user, guest, observer
 
+**Connected App**:
+An assistant app, such as Claude or ChatGPT, that a person has allowed to read, or to read and change, the server's data as them, within what their own account may do. Each approval makes one, so Claude Code on two laptops is two Connected Apps. It lasts until the person or an Admin disconnects it.
+_Avoid_: Token (a Machine's), API key, integration, client, connection
+
 ## Coffee
 
 **Bean**:
