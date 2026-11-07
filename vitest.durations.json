@@ -21,6 +21,7 @@
   "server/test/account-management.test.ts": 33,
   "server/test/accounts.test.ts": 10,
   "server/test/advanced-settings-edits.test.ts": 5,
+  "server/test/assistant-records.test.ts": 14,
   "server/test/assistants.test.ts": 11,
   "server/test/batch-intake.test.ts": 0,
   "server/test/bean-intake.test.ts": 0,

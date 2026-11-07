@@ -7,9 +7,12 @@ import { ConnectedAppsModule } from "../connected-apps/connected-apps.module.js"
 import { CHANGE, MCP_PATH, READ, issuerOf, resourceOf } from "../connected-apps/oauth.js";
 import { LocationsModule } from "../locations/locations.module.js";
 import { MachinesModule } from "../machines/machines.module.js";
+import { ShotsModule } from "../shots/shots.module.js";
+import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
 import { McpListenStreams } from "./listen-streams.js";
 import { LocationsTools } from "./locations.tools.js";
+import { RecordsTools } from "./records.tools.js";
 import { AccessTokenVerifier } from "./token-verifier.js";
 
 /**
@@ -32,6 +35,8 @@ export class McpEndpointModule implements NestModule {
       imports: [
         LocationsModule,
         MachinesModule,
+        ShotsModule,
+        SteamRecordsModule,
         McpModule.forRoot({
           path: MCP_PATH.slice(1),
           decorators: [Public()],
@@ -53,7 +58,7 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools],
+      providers: [McpListenStreams, LocationsTools, RecordsTools],
       exports: [McpListenStreams],
     };
   }
