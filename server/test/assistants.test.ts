@@ -205,6 +205,19 @@ describe("connecting an assistant", () => {
       const named = await fetch(authorizationUrl(server.url, impostor, challenge), { redirect: "manual" });
       expect(named.status).toBe(400);
       expect(((await named.json()) as { message: string }).message).toBe("The app's Client ID Metadata Document names another client_id than its URL");
+
+      // A redirect the consent page would send the browser to with location.assign, where it could run script, is
+      // refused even when the document lists it, so no request reaches Allow or Deny.
+      const hostile = ["javascript:globalThis.ran=true;//", "data:text/html,<script>parent.ran=true</script>", "http://sync.example/callback", `${impostor.redirectUri}#fragment`];
+      impostor.serve({ client_id: impostor.clientId, client_name: "Claude", redirect_uris: hostile });
+      for (const redirectUri of hostile) {
+        const refused = await fetch(authorizationUrl(server.url, impostor, challenge, { redirect_uri: redirectUri }), { redirect: "manual" });
+        expect({ redirectUri, status: refused.status, message: ((await refused.json()) as { message: string }).message }).toEqual({
+          redirectUri,
+          status: 400,
+          message: "The app's redirect_uri must be an https:// URL, or an http:// one on this computer, with no fragment",
+        });
+      }
     } finally {
       await impostor.close();
     }
@@ -348,6 +361,31 @@ describe("connecting an assistant", () => {
         await moved.close();
         await assistant.close();
       }
+    });
+
+    it("answers a request to connect, a code and a refresh token once, used on both instances at once", async () => {
+      const { challenge, verifier } = pkce();
+      const requestId = await openAuthorization(authorizationUrl(server.url, app, challenge));
+      const answer = (url: string) =>
+        fetch(`${url}/api/oauth/requests/${requestId}/approve`, {
+          method: "POST",
+          headers: { Cookie: adminCookie, "Content-Type": "application/json" },
+          body: JSON.stringify({ scopes: ["read"] }),
+        });
+      const approvals = await Promise.all([answer(server.url), answer(other.url)]);
+      expect(approvals.map((response) => response.status).sort()).toEqual([200, 404]);
+      const code = new URL(((await approvals.find((response) => response.status === 200)!.json()) as { redirect: string }).redirect).searchParams.get("code")!;
+      rememberSecret(code);
+
+      const exchanges = await Promise.all([exchange(server.url, code, verifier), exchange(other.url, code, verifier)]);
+      expect(exchanges.map(({ status }) => status).sort()).toEqual([200, 400]);
+      const tokens = exchanges.find(({ status }) => status === 200)!.body;
+
+      const refreshes = await Promise.all([refresh(server.url, tokens.refresh_token as string), refresh(other.url, tokens.refresh_token as string)]);
+      expect(refreshes.map(({ status }) => status).sort()).toEqual([200, 400]);
+      const replaced = refreshes.find(({ status }) => status === 200)!.body;
+      expect((await Assistant.rawCall(other.url, replaced.access_token as string)).status).toBe(200);
+      expect(await refresh(server.url, replaced.refresh_token as string)).toMatchObject({ status: 200 });
     });
 
     it("ends a subscriptions/listen stream at once as its instance stops, while it still answers", async () => {

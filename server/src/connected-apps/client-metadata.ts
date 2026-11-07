@@ -58,10 +58,14 @@ export class ClientMetadataDocuments {
     return this.read(clientId, url, document);
   }
 
-  /** Whether a redirect URI the app sent is one its document lists: the same, or for a loopback one, the same but for its port (RFC 8252). */
+  /**
+   * Whether the browser may be sent to a redirect URI an app sent: one it
+   * may be sent to at all (`redirectAllowed`), and one its document lists,
+   * the same, or for a loopback one, the same but for its port (RFC 8252).
+   */
   static redirectListed(redirectUri: string, listed: readonly string[]): boolean {
+    if (!redirectAllowed(redirectUri)) return false;
     if (listed.includes(redirectUri)) return true;
-    if (!URL.canParse(redirectUri)) return false;
     const requested = new URL(redirectUri);
     if (!isLoopbackRedirect(requested)) return false;
     return listed.some((entry) => {
@@ -170,6 +174,21 @@ export class ClientMetadataDocuments {
     if (url.protocol === "https:" || (this.loopback && url.protocol === "http:" && isLoopbackAddress(url.hostname))) return url.href;
     return null;
   }
+}
+
+/**
+ * Whether the browser may be sent to a redirect URI at all: an https:// one,
+ * or for an app on the person's own computer, an http:// one on a loopback
+ * address (RFC 8252, section 7.3), with no credentials or fragment. Never
+ * another scheme, which a page could make run script, such as `javascript:`,
+ * as the consent page sends the browser on with `location.assign`. The apps
+ * assistants connect from use only these.
+ */
+export function redirectAllowed(redirectUri: string): boolean {
+  if (!URL.canParse(redirectUri)) return false;
+  const url = new URL(redirectUri);
+  if (url.username || url.password || url.hash || redirectUri.includes("#")) return false;
+  return url.protocol === "https:" || isLoopbackRedirect(url);
 }
 
 /** A loopback redirect of a native app, whose port the app chooses as it starts (RFC 8252, section 7.3). */

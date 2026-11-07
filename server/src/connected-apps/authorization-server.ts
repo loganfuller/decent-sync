@@ -5,7 +5,7 @@ import type { Config } from "../config.js";
 import { AccountRole, Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
-import { ClientMetadataDocuments, ClientRefused } from "./client-metadata.js";
+import { ClientMetadataDocuments, ClientRefused, redirectAllowed } from "./client-metadata.js";
 import {
   ACCESS_TOKEN_SECONDS,
   CHANGE,
@@ -102,6 +102,9 @@ export class AuthorizationServer {
     } catch (error) {
       if (error instanceof ClientRefused) throw new BadRequestException(error.message);
       throw error;
+    }
+    if (!redirectAllowed(redirectUri)) {
+      throw new BadRequestException("The app's redirect_uri must be an https:// URL, or an http:// one on this computer, with no fragment");
     }
     if (!ClientMetadataDocuments.redirectListed(redirectUri, client.redirectUris)) {
       throw new BadRequestException("The app's redirect_uri is not one its Client ID Metadata Document lists");
