@@ -141,12 +141,12 @@ const activityPage = <T extends z.ZodType>(entry: T, what: string) =>
 const activityOutput = z.object({
   workflowChanges: activityPage(
     z.object({ observedAt: tabletTime, receivedAt: time, workflow: workflowSummaryOutput }),
-    "Its Workflow each time it changed, latest first, each what it was set up to do next from then; the last, the oldest, is the one in effect as the range began.",
+    "Its Workflow each time it changed, latest first, each what it was set up to do next from then. One observed before the range, last, is the one in effect as it began.",
   ),
   loadedRecipes: activityPage(loadedRecipe, "Each Recipe loaded at any time in the range, latest loaded first."),
   machineStates: activityPage(
     z.object({ state: z.string(), substate: z.string(), observedAt: tabletTime, receivedAt: time }),
-    "Each Machine State it went into, latest first, each until the next one reported; the last, the oldest, is the one it was in as the range began. Nothing is reported while its tablet is offline.",
+    "Each Machine State it went into, latest first, each until the next one reported. One observed before the range, last, is the one it was in as the range began. Nothing is reported while the machine isn't connected to its tablet or Decaid isn't running; changes while its tablet is offline arrive as it reconnects, with when they were observed.",
   ),
 });
 
@@ -265,7 +265,7 @@ export class MachinesTools {
     name: "get_machine_activity",
     title: "Get a Machine's activity",
     description:
-      "What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, is what was in effect as the range began. limit and offset page each list.",
+      "What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from before the range: what was in effect as it began. limit and offset page each list.",
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
@@ -274,8 +274,10 @@ export class MachinesTools {
   async getMachineActivity(input: z.infer<typeof activityInput>): Promise<z.infer<typeof activityOutput>> {
     const id = readMachineId(input.machineId);
     const range = { from: input.from === undefined ? null : new Date(input.from), to: input.to === undefined ? null : new Date(input.to) };
-    // PostgreSQL has no year 0, which an ISO 8601 time may name.
-    if ([range.from, range.to].some((end) => end && end.getUTCFullYear() < 1)) throw new BadRequestException("Times must be in the year 1 or later");
+    // PostgreSQL takes neither the year 0, which an ISO 8601 time may name, nor a year past 9999 in UTC.
+    if ([range.from, range.to].some((end) => end && (end.getUTCFullYear() < 1 || end.getUTCFullYear() > 9999))) {
+      throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
+    }
     if (range.from && range.to && range.from >= range.to) throw new BadRequestException("The range's start must be before its end");
     const activity = await this.events.activity(id, range, pageOf(input), input.kinds ?? ACTIVITY_KINDS);
     return {
