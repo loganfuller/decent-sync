@@ -101,7 +101,7 @@ describe("The machine's own settings and sensor calibration, read only while the
     const standIn = await StandInServer.start();
     try {
       // At the tablet's pace, so Decaid has 10 s to store the Shot before the plugin stops waiting for it, far longer than
-      // the full read below takes.
+      // the full read and the Settings Edit below take.
       const { tablet, served, sent } = standInTablet(standIn, "40302", 1);
       await expect.poll(() => COLLECTION_NAMES.map((name) => sent(name).length)).toEqual(COLLECTION_NAMES.map(() => 1));
       const fan = (served["/machine/settings"] as { fan: number }).fan;
@@ -300,7 +300,8 @@ describe("The machine's own settings and sensor calibration, read only while the
       const recipes = served["/store/dye2.reaplugin/recipes"] as Record<string, unknown>[];
       const saved = [{ ...recipes[0], name: "Saved while steaming" }, ...recipes.slice(1)];
       expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", saved)).status).toBe(200);
-      expect((await tablet.callApi("POST", "/settings", { chargingMode: "balanced" })).status).toBe(200);
+      const chargingMode = (served["/settings"] as { chargingMode: string }).chargingMode === "balanced" ? "longevity" : "balanced";
+      expect((await tablet.callApi("POST", "/settings", { chargingMode })).status).toBe(200);
       await expect.poll(() => [sent("dye2Recipes").length, sent("appSettings").length]).toEqual([2, 2]);
       const write = { type: "write", id: "basket-40307", kind: "basket", globalId: randomUUID(), localId: null, fields: { name: "Written while steaming" } } as const;
       expect(await standIn.ask(write)).toMatchObject({ type: "written" });
