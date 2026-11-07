@@ -14,6 +14,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // preload fails reads of its `vanishing-*` file, as a rebuild removing it would.
 // Ticket #283: every response names the build in its Decent-Sync-Build header,
 // as the build's index.html names it, so a page can follow it (ADR-0025).
+// Ticket #406: no page or file may be framed, as an app's consent page is
+// among them, and /.well-known is never a page.
 
 const BUILD = "0f1e2d3c4b5a6978";
 const INDEX = `<!doctype html><title>Decent Sync</title><meta name="decent-sync-build" content="${BUILD}">`;
@@ -85,6 +87,19 @@ describe("The management interface", () => {
     await expectNotFound(await get("/api"), "Cannot GET /api");
     await expectNotFound(await get("/API/no-such-route"), "Cannot GET /API/no-such-route");
     await expectIndex(await get("/apix"));
+  });
+
+  it("forbids framing its pages and files, so none can be laid under a decoy to take a click, and leaves /.well-known alone", async () => {
+    for (const urlPath of ["/", "/connect/0f6c2a4e-1d2b-4c3a-8e9f-0a1b2c3d4e5f", "/sign-in", "/assets/app.js"]) {
+      const response = await get(urlPath);
+      expect(response.status).toBe(200);
+      expect({ urlPath, csp: response.headers.get("content-security-policy"), xfo: response.headers.get("x-frame-options") }).toEqual({
+        urlPath,
+        csp: "frame-ancestors 'none'",
+        xfo: "DENY",
+      });
+    }
+    await expectNotFound(await get("/.well-known/no-such-document"), "Cannot GET /.well-known/no-such-document");
   });
 
   it("sends only the default caching headers", async () => {
