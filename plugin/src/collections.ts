@@ -261,6 +261,8 @@ export class CollectionCapture {
   private read(kind: "changes" | "full"): void {
     if (this.stopped) return;
     if (kind === "full" || this.wanted === undefined) this.wanted = kind;
+    // Asked for now, so a pass under way that reaches them reads them as the full read's, and the full read not again.
+    if (kind === "full") this.wantFromMachine(FROM_MACHINE, true);
     void this.run();
   }
 
@@ -275,7 +277,6 @@ export class CollectionCapture {
         const recipes = polled || this.recipesWanted;
         this.wanted = undefined;
         this.recipesWanted = false;
-        if (full) this.wantFromMachine(FROM_MACHINE, true);
         const sentLists = new Set<CollectionName>();
         for (const source of SOURCES) {
           if (this.stopped) return;

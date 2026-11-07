@@ -3104,6 +3104,7 @@ var __decentSync = (() => {
     read(kind) {
       if (this.stopped) return;
       if (kind === "full" || this.wanted === void 0) this.wanted = kind;
+      if (kind === "full") this.wantFromMachine(FROM_MACHINE, true);
       void this.run();
     }
     async run() {
@@ -3116,7 +3117,6 @@ var __decentSync = (() => {
           const recipes = polled || this.recipesWanted;
           this.wanted = void 0;
           this.recipesWanted = false;
-          if (full) this.wantFromMachine(FROM_MACHINE, true);
           const sentLists = /* @__PURE__ */ new Set();
           for (const source of SOURCES) {
             if (this.stopped) return;

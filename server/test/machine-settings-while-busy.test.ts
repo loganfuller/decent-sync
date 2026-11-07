@@ -98,23 +98,30 @@ describe("The machine's own settings and sensor calibration, read only while the
   });
 
   it("wait after a Shot leaves espresso until Decaid stores it", async () => {
-    const machine = await api.createMachine("Shot not yet stored");
-    // At the tablet's pace, so Decaid has 10 s to store the Shot before the plugin stops waiting for it.
-    const tablet = syncingTablet(machine, server, { api: derivedDe1Pro({ serial: "40302" }), timeScale: 1 });
-    await expect.poll(() => allReported(machine)).toBe(true);
+    const standIn = await StandInServer.start();
+    try {
+      // At the tablet's pace, so Decaid has 10 s to store the Shot before the plugin stops waiting for it, far longer than
+      // the full read below takes.
+      const { tablet, sent } = standInTablet(standIn, "40302", 1);
+      await expect.poll(() => COLLECTION_NAMES.map((name) => sent(name).length)).toEqual(COLLECTION_NAMES.map(() => 1));
 
-    tablet.reportState("espresso", "pouring");
-    tablet.reportState("idle", "idle");
-    const since = tablet.requests.length;
-    // A Workflow change that has them read again at once while the Machine runs nothing, then the poll behind it.
-    await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
-    await polls(tablet, 1);
-    expect(fromMachineSince(tablet, since)).toEqual([]);
+      tablet.reportState("espresso", "pouring");
+      tablet.reportState("idle", "idle");
+      const since = tablet.requests.length;
+      // A Workflow change, which has them read again at once while the Machine runs nothing, and the server asking for everything.
+      await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
+      standIn.send({ type: "requestCollections" });
+      await expect.poll(() => OTHERS.filter((name) => sent(name).length < 2)).toEqual([]);
+      expect(fromMachineSince(tablet, since)).toEqual([]);
 
-    const storedAt = tablet.readClock();
-    tablet.pullShot(derivedShot("not-yet-stored-40302"));
-    await expect.poll(async () => (await collection(machine, "machineSettings"))?.value).toMatchObject({ steamFlow: 1.5 });
-    for (const route of MACHINE_SETTINGS_ROUTES) expect(readTimes(tablet, route).filter((time) => time >= storedAt)).toHaveLength(1);
+      const storedAt = tablet.readClock();
+      tablet.pullShot(derivedShot("not-yet-stored-40302"));
+      await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
+      expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
+      for (const route of FROM_MACHINE_ROUTES) expect(readTimes(tablet, route).filter((time) => time >= storedAt)).toHaveLength(1);
+    } finally {
+      await standIn.stop();
+    }
   });
 
   it("are read once the Machine is idle after a Workflow change of the settings Decaid wrote to it while it steamed or poured hot water, and not before", async () => {
@@ -185,9 +192,48 @@ describe("The machine's own settings and sensor calibration, read only while the
       await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
       expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
       for (const route of SENSOR_CALIBRATION_ROUTES) expect(readTimes(tablet, route).filter((time) => time > idleAt)).toHaveLength(1);
+      // Their next read is on their interval, a minute after that one.
       for (const route of MACHINE_SETTINGS_ROUTES) {
-        // Their next read is on their interval, a minute after this one.
+        await expect.poll(() => readTimes(tablet, route).filter((time) => time > idleAt).length).toBeGreaterThanOrEqual(2);
         for (const gap of gaps(readTimes(tablet, route).filter((time) => time > idleAt))) expect(gap).toBeGreaterThan(55_000);
+      }
+    } finally {
+      await standIn.stop();
+    }
+  });
+
+  it("are read once when the Machine runs nothing again, though a pass under way reaches them before the full read the server asked for meanwhile", async () => {
+    const standIn = await StandInServer.start();
+    try {
+      // Five times faster, so a held read has 6 s before the plugin's fetch gives up.
+      const { tablet, sent } = standInTablet(standIn, "40308", 5);
+      await expect.poll(() => COLLECTION_NAMES.map((name) => sent(name).length)).toEqual(COLLECTION_NAMES.map(() => 1));
+      const workflows = () => standIn.received.filter((message) => message.type === "workflow").length;
+
+      // While the Machine steams, a Workflow change of its steam settings.
+      tablet.reportState("steam", "steaming");
+      const changed = workflows();
+      await tablet.changeSettings({ steamSettings: { flow: 1.5 } });
+      await expect.poll(workflows).toBeGreaterThan(changed);
+      // A poll is held reading the beans, as behind the server's writes, while the server asks for everything, which sends
+      // the Workflow again, and the Machine then turns idle.
+      const held = tablet.holdRequests("GET", "/beans");
+      await expect.poll(() => held.arrived).toBe(1);
+      const asked = workflows();
+      standIn.send({ type: "requestCollections" });
+      await expect.poll(workflows).toBeGreaterThan(asked);
+      const idleAt = tablet.readClock();
+      tablet.reportState("idle", "idle");
+      held.release();
+
+      // The held poll reads them, as the full read's: each sent once, changed or not, and not read again by the full read.
+      await expect.poll(() => OTHERS.filter((name) => sent(name).length < 2)).toEqual([]);
+      await expect.poll(() => FROM_MACHINE.map((name) => sent(name).length)).toEqual([2, 2, 2, 2]);
+      expect(sent("machineSettings")[1]).toMatchObject({ value: { steamFlow: 1.5 } });
+      for (const route of FROM_MACHINE_ROUTES) {
+        const times = readTimes(tablet, route).filter((time) => time > idleAt);
+        expect(times.length).toBeGreaterThanOrEqual(1);
+        for (const gap of gaps(times)) expect(gap).toBeGreaterThan(55_000);
       }
     } finally {
       await standIn.stop();
@@ -216,7 +262,8 @@ describe("The machine's own settings and sensor calibration, read only while the
       tablet.reportState("idle", "idle");
       tablet.pullShot(derivedShot("mid-pass-40306"));
       await expect.poll(() => rest.map((name) => sent(name).length)).toEqual([1, 1, 1]);
-      // The machine's settings, read before the Shot, are next read on their interval, a minute after that read.
+      // The machine's settings, read before the Shot, are not read again with the rest: any later read of them is on their
+      // interval, a minute after that one.
       const [first, ...later] = readTimes(tablet, "/machine/settings");
       for (const time of later) expect(time - first!).toBeGreaterThan(55_000);
     } finally {
