@@ -86,9 +86,10 @@ export class MachineEvents implements WorkflowChanges {
     private readonly machineSettingsChanged: () => void = () => {},
     /**
      * Told of the machine's state in each update, after a change is queued,
-     * so the plugin's writes into the Workflow wait out a Shot (`ShotGate`):
-     * every update, as the gate may have been opened meanwhile, as when no
-     * machine was found.
+     * so the plugin's writes into the Workflow wait out a Shot (`ShotGate`),
+     * and its reads of the machine's own settings wait while it runs
+     * something (`MachineActivity`): every update, as the gate may have been
+     * opened meanwhile, as when no machine was found.
      */
     private readonly stateReported: (state: string) => void = () => {},
   ) {}

@@ -25,6 +25,7 @@ import { KeptDeliveries } from "./kept-deliveries.js";
 import { LibraryAccess, LibraryWrites } from "./library-writes.js";
 import { LiveView } from "./live-view.js";
 import { LoadedRecipes } from "./loaded-recipes.js";
+import { MachineActivity } from "./machine-activity.js";
 import { MachineEvents } from "./machine-events.js";
 import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
@@ -173,6 +174,8 @@ export class SyncConnection {
   private readonly settingsEdits: SettingsEdits;
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
   private readonly shot = new ShotGate();
+  /** Whether the Machine runs nothing, which the reads of its own settings and sensor calibration wait for. */
+  private readonly activity = new MachineActivity(this.shot);
   /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024), opening Decaid's sockets meanwhile. */
   private readonly liveView: LiveView;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
@@ -234,10 +237,15 @@ export class SyncConnection {
       this.outbox,
       (workflow) => this.loadedRecipes.observe(workflow),
       () => this.collections.readMachineSettings(),
-      (state) => this.shot.state(state),
+      (state) => {
+        this.shot.state(state);
+        this.activity.state(state);
+      },
     );
     const settingsAccess = new SettingsAccess();
-    this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1000, (value) => this.loadedRecipes.sawRecipes(value));
+    this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1000, this.activity, (value) =>
+      this.loadedRecipes.sawRecipes(value),
+    );
     this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
     this.writes = new LibraryWrites(
       library,

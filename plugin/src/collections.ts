@@ -16,6 +16,7 @@ import { FirstReads, type Fingerprint, type Reading, decide, ifNoneMatch, paired
 import { readCollection } from "./decaid.js";
 import { type LibraryAccess, libraryListPath } from "./library-writes.js";
 import { utcTime } from "./local-time.js";
+import type { MachineActivity } from "./machine-activity.js";
 import type { Outbox } from "./outbox.js";
 import { SENSOR_CALIBRATION_TARGETS } from "./sensor-calibration.js";
 import type { SettingsAccess } from "./settings-edits.js";
@@ -95,6 +96,15 @@ const MACHINE_SETTINGS_MS = 60_000;
 const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
 
 /**
+ * The collections Decaid reads from the machine itself on each request, the
+ * machine's own settings and its sensor calibration, read only while the
+ * machine runs nothing (`MachineActivity`): a read the machine leaves
+ * unanswered has Decaid v0.9.1 drop it, which during a Shot costs the Shot
+ * (#403).
+ */
+const FROM_MACHINE: ReadonlySet<CollectionName> = new Set([...MACHINE_SETTINGS, ...FULL_READS_ONLY]);
+
+/**
  * The tablet's library, settings, presence settings, paired devices, plugins and Skins, through the outbox.
  * Decaid has no event for them, so while connected the plugin reads each one
  * every poll interval and sends it, whole, when it changed
@@ -107,6 +117,15 @@ const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration
  * counts as a read of the machine's settings for their interval. Reads run
  * one at a time, one collection after another, and a read asked for while
  * one runs waits for it.
+ *
+ * The machine's own settings and its sensor calibration (`FROM_MACHINE`)
+ * are read only while the machine runs nothing (`MachineActivity`), as a
+ * pass reaches each of them. A read of them that falls due while it runs
+ * something, on their interval, after a Workflow change or in a full read,
+ * waits, and the rest of its pass goes on: the reads waiting make one read
+ * of each, which runs once the machine next runs nothing, sending it
+ * whatever it holds if a full read was among them. A read already under way
+ * as the machine turns busy finishes, as Decaid can't cancel it.
  *
  * A Library list the server writes to is read, and its report queued,
  * between the server's writes to the tablet (`LibraryAccess`), so a report
@@ -130,8 +149,14 @@ export class CollectionCapture {
   private wanted: "changes" | "full" | undefined;
   /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
   private recipesWanted = false;
-  /** Whether the machine's own settings are to be read, on their interval or after the Workflow wrote them (`readMachineSettings`). */
-  private machineSettingsWanted = false;
+  /**
+   * The reads from the machine (`FROM_MACHINE`) asked for and not yet begun,
+   * each with whether it is to be sent whatever it holds, as a full read's:
+   * of the machine's own settings on their interval or after the Workflow
+   * wrote them (`readMachineSettings`), and of all of them in a full read.
+   * They wait here while the machine runs something.
+   */
+  private readonly fromMachineWanted = new Map<CollectionName, boolean>();
   private reading = false;
   private stopped = false;
   private pollTimer?: number;
@@ -144,12 +169,18 @@ export class CollectionCapture {
     private readonly library: LibraryAccess,
     private readonly settings: SettingsAccess,
     private readonly pollMs: number,
+    /** Whether the machine runs nothing, which the reads from it wait for. */
+    private readonly machine: Pick<MachineActivity, "runningNothing" | "onRunningNothing">,
     /** Told of each value of DYE2's recipes read (`LoadedRecipes.sawRecipes`). */
     private readonly sawRecipes: (value: unknown) => void = () => {},
   ) {
     // One of DYE2's lists the plugin wrote is reported on its next read, as it may read as last reported, its write lost.
     library.onWrite((list) => this.last.delete(list));
     this.machineSettingsMs = Math.max(MACHINE_SETTINGS_MS, pollMs);
+    // While disconnected, the reads waiting wait for the next welcome, which reads everything.
+    machine.onRunningNothing(() => {
+      if (!this.stopped && this.outbox.connected && this.fromMachineWanted.size > 0) void this.run();
+    });
   }
 
   start(): void {
@@ -198,11 +229,12 @@ export class CollectionCapture {
    * connected: after a Workflow change of its steam, hot water or flush
    * settings, which Decaid writes to the machine before it reports the
    * Workflow (`MachineEvents`), so the change reaches the server then, not
-   * only on their interval.
+   * only on their interval. While the machine runs something, once it next
+   * runs nothing.
    */
   readMachineSettings(): void {
     if (this.stopped || !this.outbox.connected) return;
-    this.machineSettingsWanted = true;
+    this.wantFromMachine(MACHINE_SETTINGS, false);
     void this.run();
   }
 
@@ -229,6 +261,8 @@ export class CollectionCapture {
   private read(kind: "changes" | "full"): void {
     if (this.stopped) return;
     if (kind === "full" || this.wanted === undefined) this.wanted = kind;
+    // Asked for now, so a pass under way that reaches them reads them as the full read's, and the full read not again.
+    if (kind === "full") this.wantFromMachine(FROM_MACHINE, true);
     void this.run();
   }
 
@@ -236,30 +270,21 @@ export class CollectionCapture {
     if (this.reading) return;
     this.reading = true;
     try {
-      while ((this.wanted !== undefined || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
+      while ((this.wanted !== undefined || this.recipesWanted || this.fromMachineDue()) && !this.stopped) {
         const full = this.wanted === "full";
         // A poll reads DYE2's recipes too.
         const polled = this.wanted !== undefined;
         const recipes = polled || this.recipesWanted;
         this.wanted = undefined;
         this.recipesWanted = false;
-        let machineSettings = false;
         const sentLists = new Set<CollectionName>();
         for (const source of SOURCES) {
           if (this.stopped) return;
-          if (MACHINE_SETTINGS.has(source.name)) {
-            // Read on a full read or when wanted, decided as the pass reaches them, which may be long after it began, behind
-            // the server's writes: so any read asked for until then is this one. Their interval waits meanwhile.
-            if (!machineSettings && (full || this.machineSettingsWanted)) {
-              machineSettings = true;
-              this.machineSettingsWanted = false;
-              if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
-              this.machineSettingsTimer = undefined;
-            }
-            if (!machineSettings) continue;
-          } else if (FULL_READS_ONLY.has(source.name)) {
-            if (!full) continue;
-          } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
+          if (FROM_MACHINE.has(source.name)) {
+            if (this.fromMachineWanted.has(source.name)) await this.settings.run(() => this.readFromMachine(source));
+            continue;
+          }
+          if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
           const parent = isLibraryList(source.name) ? parentList(source.name) : undefined;
           const sent = await (WRITTEN_LISTS.has(source.name)
             ? this.library.run(() => this.capture(source, full || (parent !== undefined && sentLists.has(parent))))
@@ -267,13 +292,43 @@ export class CollectionCapture {
               ? this.settings.run(() => this.capture(source, full))
               : this.capture(source, full));
           if (sent) sentLists.add(source.name);
-          // Their interval runs from the end of their latest read, so a slow read of one shortens neither's.
-          if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
         }
       }
     } finally {
       this.reading = false;
     }
+  }
+
+  /** Asks for reads from the machine, one of each however many are asked for, sent whatever they hold if `always` was among them. */
+  private wantFromMachine(names: ReadonlySet<CollectionName>, always: boolean): void {
+    for (const name of names) this.fromMachineWanted.set(name, always || (this.fromMachineWanted.get(name) ?? false));
+  }
+
+  /** Whether a read from the machine is asked for that can run now, as the machine runs nothing. */
+  private fromMachineDue(): boolean {
+    return this.fromMachineWanted.size > 0 && this.machine.runningNothing();
+  }
+
+  /**
+   * Reads one of the collections Decaid reads from the machine, within
+   * `SettingsAccess.run`, if it is asked for and the machine runs nothing,
+   * decided as the read would begin: the pass may reach it long after it
+   * began, behind the server's writes or a Settings Edit, so any read of it
+   * asked for until then is this one. Otherwise the read keeps waiting, and
+   * holds up neither the pass nor the Settings Edits.
+   */
+  private async readFromMachine(source: Source): Promise<void> {
+    const always = this.fromMachineWanted.get(source.name);
+    if (always === undefined || this.stopped || !this.machine.runningNothing()) return;
+    this.fromMachineWanted.delete(source.name);
+    const interval = MACHINE_SETTINGS.has(source.name);
+    // Their interval waits meanwhile, and runs from the end of their latest read, so a slow read of one shortens neither's.
+    if (interval && this.machineSettingsTimer !== undefined) {
+      clearTimeout(this.machineSettingsTimer);
+      this.machineSettingsTimer = undefined;
+    }
+    await this.capture(source, always);
+    if (interval && !this.stopped) this.scheduleMachineSettings();
   }
 
   /**

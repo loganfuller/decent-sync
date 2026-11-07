@@ -463,6 +463,28 @@ tests (`plugin/test/change-detection.test.ts`):
   go to the machine (below), and its values change only through a deliberate
   calibration (`PUT` on the same route), so a recalibration reaches the
   server on the tablet's next reconnect or `requestCollections`.
+- It reads the machine's own settings and its sensor calibration only while
+  the machine runs nothing (`plugin/src/machine-activity.ts`, #403): the
+  latest state Decaid reported in `stateUpdate` is one of
+  `SETTINGS_EDIT_STATES` (`idle`, `schedIdle`, `sleeping`, `needsWater`), the
+  states a Settings Edit goes ahead in, and no Shot is yet to be stored
+  (`ShotGate.running`), so a Shot that left `espresso` but isn't stored yet
+  still counts. Before the first state update after the plugin loads, the
+  machine runs nothing. A read of them that falls due while it runs something,
+  on their interval, after a Workflow change or in a full read, waits, and the
+  rest of its pass, DYE2's recipes, the server's Library writes and Settings
+  Edits go on. The reads waiting make one read of each, which runs as soon as
+  the machine next runs nothing, without waiting for their interval, and sends
+  them whatever they hold where a full read was among them. A pass checks as
+  it reaches each of them, so a Shot started mid-pass stops the reads not yet
+  begun; the read under way finishes, as Decaid can't cancel it. Their
+  interval still runs from the end of their latest read. A machine left in
+  another state, such as `heating`, `error` or `fwUpgrade`, keeps them waiting
+  for as long as it stays there, and the server keeps the values it took, as
+  Settings Edits are refused then too. A machine that disconnects keeps the
+  state it last reported, as Decaid sends no update as it goes. On Bluetooth,
+  Decaid v0.9.1 drops a machine that leaves a read unanswered
+  (`AI_RUNTIME_NOTES.md`), which mid-Shot lost a Shot.
 - Whenever it sends the beans, it sends the bean batches in full after them,
   changed or not, as the server takes in a batch only once it knows the
   batch's bean (`LIBRARY.md`). The library's lists the server writes to (the
@@ -483,7 +505,8 @@ through `headers.get` (`PluginManager` in
 advanced settings and the flow calibration by reading them from the machine's
 memory over its Bluetooth or USB connection (`UnifiedDe1`), fourteen reads
 each time, on the link the scale also uses, which is why the plugin reads them
-less often than the rest. Only the advanced settings' `heaterVoltage` and
+less often than the rest, and only while the machine runs nothing. Only the
+advanced settings' `heaterVoltage` and
 `refillKitSetting` are what Decaid holds rather than reads: the voltage it read
 as the machine connected, and the refill kit setting it last wrote, each until
 written through Decaid. As the machine connects, Decaid writes the refill kit
@@ -718,8 +741,11 @@ Workflow, and how many of each library collection its tablet reported, loaded
 every 30 s rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
-plugin and raw frames on two instances sharing PostgreSQL, and
-`e2e/library-settings-devices.spec.ts` the management interface.
+plugin and raw frames on two instances sharing PostgreSQL,
+`server/test/machine-settings-while-busy.test.ts` the reads from the machine
+waiting while it runs something, with `plugin/test/machine-activity.test.ts`
+when it runs nothing, and `e2e/library-settings-devices.spec.ts` the
+management interface.
 
 Known limits: a collection read from a connection whose `hello` reported no
 machine belongs to the token's Machine, as everything on that connection does.
