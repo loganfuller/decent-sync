@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SHOT_CURVES, STEAM_CURVES, globalIdOf, shadedSpans, shotSamples, steamSamples, steamStopAt } from "@decent-sync/protocol";
+import { SHOT_CURVES, STEAM_CURVES, globalIdOf, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -152,11 +152,13 @@ describe("reading Shots and Steam Records through an assistant", () => {
   let harbor: LocationView;
   let uptown1: CreatedMachine;
   let harbor1: CreatedMachine;
+  let roaming: CreatedMachine;
   const raws: RawConnection[] = [];
 
   const hardware = {
     uptown1: { model: "DE1Pro", serial: "40801" },
     harbor1: { model: "DE1XL", serial: "40802" },
+    roaming: { model: "DE1Pro", serial: "40804" },
   };
 
   beforeAll(async () => {
@@ -169,6 +171,8 @@ describe("reading Shots and Steam Records through an assistant", () => {
     harbor = await api.createLocation("Harbor", "Asia/Tokyo");
     uptown1 = await api.createMachine("Uptown 1");
     harbor1 = await api.createMachine("Harbor 1");
+    // Never at a Location.
+    roaming = await api.createMachine("Roaming");
     for (const [machine, location] of [[uptown1, uptown], [harbor1, harbor]] as const) {
       const moved = await api.call("POST", `/machines/${machine.machine.id}/location-history`, { locationId: location.id, effectiveFrom: "2025-01-01T00:00:00Z" });
       expect(moved.status).toBe(201);
@@ -186,12 +190,15 @@ describe("reading Shots and Steam Records through an assistant", () => {
       // 01:00 on the 10th in Tokyo, the 9th in UTC.
       shotAt("harbor-early", "2026-02-09T16:00:00Z", hardware.harbor1, "Ann"),
       // Noon on the 10th in Tokyo.
-      shotAt("harbor-noon", "2026-02-10T03:00:00Z", hardware.harbor1, "Cat"),
+      shotAt("harbor-noon", "2026-02-10T03:00:00Z", hardware.harbor1, "Cat", { bean: "Kenya Nyeri" }),
       // 01:00 on the 11th in Tokyo, the 10th in UTC.
-      shotAt("harbor-next", "2026-02-10T16:00:00Z", hardware.harbor1, "Cat"),
+      shotAt("harbor-next", "2026-02-10T16:00:00Z", hardware.harbor1, "Cat", { bean: "Kenya Nyeri", profile: "Blooming" }),
     ]);
+    // 19:00 on the 5th in Chicago, but at no Location: the 6th in UTC.
+    await deliverShots(roaming, hardware.roaming, [shotAt("roaming-late", "2026-03-06T01:00:00Z", hardware.roaming, "Dee")]);
     await deliverSteams(uptown1, hardware.uptown1, { "steam-uptown-dawn": "2026-02-10T12:00:00Z", "steam-uptown-night": "2026-02-11T05:30:00Z", "steam-uptown-before": "2026-02-10T03:00:00Z" });
     await deliverSteams(harbor1, hardware.harbor1, { "steam-harbor-early": "2026-02-09T16:00:00Z", "steam-harbor-next": "2026-02-10T16:00:00Z" });
+    await deliverSteams(roaming, hardware.roaming, { "steam-roaming-late": "2026-03-06T01:00:00Z" });
 
     assistant = await Assistant.connect(server.url, app, adminCookie, { allowed: ["read"] });
   });
@@ -202,12 +209,17 @@ describe("reading Shots and Steam Records through an assistant", () => {
     await server?.stop();
   });
 
-  /** A Shot pulled at a UTC time on the hardware given, by the Barista given. */
-  function shotAt(id: string, pulledAt: string, recorded: { model: string; serial: string }, barista: string): Fields {
-    const { machine, context, ...workflow } = shotFixture().workflow as Record<string, Fields>;
+  /** A Shot pulled at a UTC time on the hardware given, by the Barista given, recording the Bean's name and profile's title given, or the fixture's. */
+  function shotAt(id: string, pulledAt: string, recorded: { model: string; serial: string }, barista: string, { bean, profile }: { bean?: string; profile?: string } = {}): Fields {
+    const { machine, context, profile: recordedProfile, ...workflow } = shotFixture().workflow as Record<string, Fields>;
     return derivedShot(id, {
       timestamp: pulledAt,
-      workflow: { ...workflow, context: { ...context, baristaName: barista }, machine: { ...machine, model: recorded.model, serialNumber: recorded.serial } },
+      workflow: {
+        ...workflow,
+        context: { ...context, baristaName: barista, ...(bean && { coffeeName: bean }) },
+        profile: { ...recordedProfile, ...(profile && { title: profile }) },
+        machine: { ...machine, model: recorded.model, serialNumber: recorded.serial },
+      },
     });
   }
 
@@ -227,6 +239,23 @@ describe("reading Shots and Steam Records through an assistant", () => {
         raw.deliver({ type: "steam", id: randomUUID(), steamId, steamedAt: new Date(at).toISOString(), steam: derivedSteam(steamId, {}, fixture) }),
       ),
     );
+  }
+
+  /**
+   * Derived: the real Steam Record stopped on time, with milk temperatures from a probe, as a Bengle records them: its
+   * first three readings carried over from the Steam Record before, at 65 °C, then rising from 5 °C to 60 °C while it
+   * steams, and 60.3 °C after the stop but for 60.4 °C at the second sample after it, as the probe catches up. Its peak
+   * is that 60.4 °C, which leaves out the readings carried over, and which a cut that keeps only the curve's highest
+   * reading and its highest while steaming loses.
+   */
+  function milkAfterStop(): Fields {
+    const fixture = liveSteamFixture("steam-record-timed-stop");
+    const measurements = fixture.measurements as Fields[];
+    const phases = steamPhases(measurements);
+    const [first, last] = [phases.indexOf("steaming"), phases.lastIndexOf("steaming")];
+    const milk = (n: number) =>
+      n < 3 ? 65 : n <= last ? Math.round((5 + (55 * Math.max(0, n - first)) / (last - first)) * 100) / 100 : n === last + 2 ? 60.4 : 60.3;
+    return { ...fixture, measurements: measurements.map((sample, n) => ({ ...sample, milkTemperature: milk(n) })) };
   }
 
   async function restShots(query: Record<string, string>, at = api): Promise<{ shots: RestShot[]; total: number }> {
@@ -266,6 +295,15 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     expect(await findShotsAsRest({ machineId: uptown1.machine.id, barista: "Ann" }, { machineId: uptown1.machine.id, barista: "Ann" })).toEqual(["uptown-dawn", "uptown-before"]);
     expect(await findShotsAsRest({ barista: "Cat" }, { barista: "Cat" })).toEqual(["harbor-next", "harbor-noon"]);
+    // The Bean and profile each Shot recorded, as the Shots page filters them, linked to the Library or not.
+    expect(await findShotsAsRest({ beanName: "Kenya Nyeri" }, { coffeeName: "Kenya Nyeri" })).toEqual(["harbor-next", "harbor-noon"]);
+    const february = { from: "2026-02-09", to: "2026-02-11" };
+    expect(await findShotsAsRest({ ...february, beanRoaster: "Roux Bakehouse", locationId: uptown.id }, { ...february, coffeeRoaster: "Roux Bakehouse", locationId: uptown.id })).toEqual([
+      "uptown-night",
+      "uptown-dawn",
+      "uptown-before",
+    ]);
+    expect(await findShotsAsRest({ profileTitle: "Blooming" }, { profileTitle: "Blooming" })).toEqual(["harbor-next"]);
     // A well-formed id names nothing, as through the REST API.
     const nothing = randomUUID();
     expect(await findShotsAsRest({ beanBatchId: nothing }, { beanBatchId: nothing })).toEqual([]);
@@ -288,8 +326,8 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await toolError("find_shots", { from: "2026-02-10T12:00:00Z", to: "2026-02-10T12:00:00Z" })).toBe("Choose an end after the start");
     expect(await toolError("find_shots", { from: "2026-02-11", to: "2026-02-10" })).toBe("Choose an end after the start");
     // A time without its offset names no moment, and a day the calendar lacks none either.
-    expect(await toolError("find_shots", { from: "2026-02-10T06:00:00" })).toContain("from");
-    expect(await toolError("find_shots", { to: "2026-02-30" })).toContain("to");
+    const unparsed = "Enter a date, such as 2026-11-06, or a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00";
+    for (const bound of [{ from: "2026-02-10T06:00:00" }, { from: "2026-02-10T06:00-06:00" }, { to: "2026-02-30" }]) expect(await toolError("find_shots", bound)).toContain(unparsed);
     // ISO 8601 allows a moment PostgreSQL can't read: an offset past 15:59, or year 0.
     const unread = "Enter from as a time from year 1 with an offset of at most 15:59, such as 2026-11-06T14:30:00-05:00, or as a date";
     for (const tool of ["find_shots", "find_steam_records"]) {
@@ -299,6 +337,17 @@ describe("reading Shots and Steam Records through an assistant", () => {
     }
     // From 20:01 on the 9th up to 04:59 on the 11th, in UTC; two Shots at one moment are ordered by id.
     expect(await ids({ from: "2026-02-10T12:00:00+15:59", to: "2026-02-10T13:00:00-15:59" })).toEqual(["harbor-next", "uptown-dawn", "harbor-noon", "uptown-before"]);
+  });
+
+  it("gives a record whose Location is unknown its time in UTC, and reads a date as a UTC day for it, as the REST API does", async () => {
+    const { shots } = await assistant.call<{ shots: ToolShot[] }>("find_shots", { machineId: roaming.machine.id });
+    expect(shots).toEqual([expect.objectContaining({ id: "roaming-late", pulledAt: "2026-03-06T01:00:00.000Z", location: null, locationInferred: false })]);
+    for (const day of ["2026-03-06", "2026-03-05"]) {
+      const query = { machineId: roaming.machine.id, from: day, to: day };
+      expect(await findShotsAsRest(query, query)).toEqual(day === "2026-03-06" ? ["roaming-late"] : []);
+    }
+    const { steamRecords } = await assistant.call<{ steamRecords: ToolSteamRecord[] }>("find_steam_records", { machineId: roaming.machine.id, from: "2026-03-06", to: "2026-03-06" });
+    expect(steamRecords).toEqual([expect.objectContaining({ id: "steam-roaming-late", steamedAt: "2026-03-06T01:00:00.000Z", location: null })]);
   });
 
   it("pages as the REST API does, at most 50 a page, saying whether there are more", async () => {
@@ -457,10 +506,12 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(byMachine.steamRecords.map((steam) => [steam.id, steam.steamedAt])).toEqual([["steam-harbor-next", "2026-02-11T01:00:00.000+09:00"]]);
     expect(byMachine).toMatchObject({ total: 2, more: true });
 
-    // A real Steam Record stopped on time and then by a tap, and one from a Bengle whose milk probe reported temperatures.
+    // A real Steam Record stopped on time and then by a tap, one from a Bengle whose milk probe reported temperatures,
+    // and one derived from the first with a probe's readings.
     await deliverSteams(uptown1, hardware.uptown1, { "steam-timed-stop": "2026-02-12T12:00:00Z" }, liveSteamFixture("steam-record-timed-stop"));
     await deliverSteams(uptown1, hardware.uptown1, { "steam-milk-probe": "2026-02-12T12:05:00Z" }, milkProbeSteamFixture());
-    for (const id of ["steam-timed-stop", "steam-milk-probe"]) {
+    await deliverSteams(uptown1, hardware.uptown1, { "steam-milk-after-stop": "2026-02-12T12:10:00Z" }, milkAfterStop());
+    for (const id of ["steam-timed-stop", "steam-milk-probe", "steam-milk-after-stop"]) {
       const shown = (await api.get<{ steamRecord: RestSteamRecord }>(`/steam-records/${id}`)).steamRecord;
       const { measurements } = await api.get<{ measurements: unknown }>(`/steam-records/${id}/measurements`);
       const settings = (shown.record!.workflow as Record<string, Fields>).steamSettings!;
@@ -489,7 +540,13 @@ describe("reading Shots and Steam Records through an assistant", () => {
         if (readings.length > 0) expect(Math.max(...curve.values.map(([, value]) => value))).toBe(peak(readings));
         else expect(curve.values).toEqual([]);
       }
+      // The peak milk temperature it shows is kept too, though it leaves out a reading carried over from the Steam Record before.
+      if (shown.peakMilkTemperature !== null) expect(curves.milkTemperature!.values.map(([, value]) => value)).toContain(hundredths(shown.peakMilkTemperature));
     }
+    // Its milk peaked at 60.4 °C after the stop, below the 65 °C carried over, among more readings than a series keeps.
+    const afterStop = await assistant.call<{ peakMilkTemperature: number; curves: { milkTemperature: Curve } }>("get_steam_record", { id: "steam-milk-after-stop", curves: true });
+    expect(afterStop.peakMilkTemperature).toBe(60.4);
+    expect(afterStop.curves.milkTemperature.values).toHaveLength(100);
     // Stopped on time, then by a tap: it starts up, pauses, puffs, pauses again and purges, over more samples than a series keeps.
     const timed = (await assistant.call<{ curves: { shaded: Shaded[]; flow: Curve } }>("get_steam_record", { id: "steam-timed-stop", curves: true })).curves;
     expect(timed.shaded.map((shaded) => shaded.phase)).toEqual(["Preparing", "Paused", "Puffing", "Paused", "Purge"]);

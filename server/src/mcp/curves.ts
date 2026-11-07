@@ -14,7 +14,7 @@ type Point = [seconds: number, value: number];
 
 const points = z
   .array(z.tuple([z.number(), z.number()]))
-  .describe(`Points as [seconds, value], in order, cut to at most ${MAX_CURVE_POINTS} keeping the curve's shape and peaks. A gap in the seconds is a stretch with no reading.`);
+  .describe(`Points as [seconds, value], in order, cut to at most ${MAX_CURVE_POINTS} keeping the curve's shape and peaks.`);
 
 /** One curve's schema: its unit, readings and targets. */
 export function curveSchema(description: string) {
@@ -36,16 +36,20 @@ export function shadedSchema(description: string) {
  * A record's curves from its samples (`shotSamples`, `steamSamples`): its
  * shaded phases, each by name from its first sample to the sample after its
  * last, as the management interface shades them, and each curve's readings
- * and targets, rounded to hundredths.
+ * and targets, rounded to hundredths. `peaks` are the peaks the record
+ * reports of its curves, which their readings keep: those its summary shows,
+ * such as a Shot's peak flow, which leaves out the heater test's in Preheat,
+ * or a Steam Record's peak milk temperature, which leaves out a reading
+ * carried over from the Steam Record before.
  */
-export function curvesOf<C extends string>(samples: readonly Sample<C>[], curves: Record<C, CurveInfo>) {
+export function curvesOf<C extends string>(samples: readonly Sample<C>[], curves: Record<C, CurveInfo>, peaks: Partial<Record<C, number | null>> = {}) {
   const series = Object.fromEntries(
     (Object.keys(curves) as C[]).map((curve) => [
       curve,
       {
         unit: curves[curve].unit,
-        values: seriesOf(samples, (sample) => sample.values[curve]),
-        targets: seriesOf(samples, (sample) => sample.targets[curve]),
+        values: seriesOf(samples, (sample) => sample.values[curve], peaks[curve] ?? null),
+        targets: seriesOf(samples, (sample) => sample.targets[curve], null),
       },
     ]),
   ) as Record<C, { unit: string; values: Point[]; targets: Point[] }>;
@@ -55,40 +59,32 @@ export function curvesOf<C extends string>(samples: readonly Sample<C>[], curves
 
 /**
  * The samples' readings of one value, leaving out those without one, cut to
- * `MAX_CURVE_POINTS`. Its peak is kept, and its peak in the time the record's
- * duration counts, outside its shaded phases, which its own peaks are of,
- * such as a Shot's peak flow, which leaves out the heater test's in Preheat.
+ * `MAX_CURVE_POINTS`, keeping its highest reading and the first reading of
+ * the peak its record reports, if any reading is that.
  */
-function seriesOf<C extends string>(samples: readonly Sample<C>[], value: (sample: Sample<C>) => number | null): Point[] {
+function seriesOf<C extends string>(samples: readonly Sample<C>[], value: (sample: Sample<C>) => number | null, reported: number | null): Point[] {
   const read: Point[] = [];
-  const counted: boolean[] = [];
   for (const sample of samples) {
     const reading = value(sample);
-    if (reading === null) continue;
-    read.push([sample.seconds, reading]);
-    counted.push(sample.shade === null);
+    if (reading !== null) read.push([sample.seconds, reading]);
   }
-  const peaks = [peakOf(read, () => true), peakOf(read, (n) => counted[n]!)].filter((n) => n >= 0);
-  return reduced(read, MAX_CURVE_POINTS, peaks).map(([seconds, reading]) => [hundredths(seconds), hundredths(reading)]);
-}
-
-/** The index of the highest of the points `included` picks, the first if several are, or -1 without any. */
-function peakOf(read: readonly Point[], included: (n: number) => boolean): number {
-  let peak = -1;
+  let highest = 0;
   read.forEach(([, reading], n) => {
-    if (included(n) && (peak < 0 || reading > read[peak]![1])) peak = n;
+    if (reading > read[highest]![1]) highest = n;
   });
-  return peak;
+  const peaks = [highest, read.findIndex(([, reading]) => reading === reported)].filter((n) => n >= 0);
+  return reduced(read, MAX_CURVE_POINTS, peaks).map(([seconds, reading]) => [hundredths(seconds), hundredths(reading)]);
 }
 
 /**
  * At most `max` of the points, in order, the `kept` among them: all of them
  * if there are few enough, otherwise those Largest-Triangle-Three-Buckets
- * picks (`largestTriangles`), leaving room for the kept.
+ * picks (`largestTriangles`), leaving room for the kept but the first and
+ * last, which it always picks.
  */
-export function reduced(read: readonly Point[], max: number, kept: readonly number[] = []): Point[] {
+function reduced(read: readonly Point[], max: number, kept: readonly number[]): Point[] {
   if (read.length <= max) return [...read];
-  const anchors = new Set(kept);
+  const anchors = new Set(kept.filter((n) => n > 0 && n < read.length - 1));
   const chosen = new Set(largestTriangles(read, Math.max(2, max - anchors.size)));
   for (const n of anchors) chosen.add(n);
   return [...chosen].sort((a, b) => a - b).map((n) => read[n]!);

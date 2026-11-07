@@ -13,7 +13,9 @@ const MOMENT = /^(?!0000)\d{4}-.*(?:Z|[+-](?:0\d|1[0-5]):[0-5]\d)$/;
 /** A time range's bound: a date, for each Location's day, or a moment with its offset. */
 export function timeBound(description: string) {
   return z
-    .union([z.iso.date(), z.iso.datetime({ offset: true })])
+    .union([z.iso.date(), z.iso.datetime({ offset: true })], {
+      error: "Enter a date, such as 2026-11-06, or a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00",
+    })
     .optional()
     .describe(
       `${description} A date, such as 2026-11-06, is that day at each Location, in its own time zone, and in UTC for a record whose Location is unknown. ` +

@@ -72,7 +72,10 @@ const shotDetails = shotSummary.extend({
   extractionYield: z.number().nullable().describe("In %."),
   notes: z.string().nullable().describe("As typed on the tablet."),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
-  previousShot: z.object({ id, pulledAt: z.string() }).nullable().describe("The Shot pulled just before it on the same Machine."),
+  previousShot: z
+    .object({ id, pulledAt: z.string() })
+    .nullable()
+    .describe("The Shot pulled just before it on the same Machine, its time with this Shot's Location's offset."),
   curves: z
     .object({
       shaded: shadedSchema("Its Preheat, the Machine heating its water before the profile starts, as the management interface shades it: before 0 s, with the heater test's targets, left out of its duration and peaks."),
@@ -132,6 +135,9 @@ const findShotsInput = z.object({
   basketId: id.optional().describe("Shots that used this Library Basket."),
   recipeId: id.optional().describe("Shots pulled with this Recipe loaded."),
   barista: z.string().optional().describe("Shots by this Barista, named exactly as each Shot records it."),
+  beanRoaster: z.string().optional().describe("Shots whose Bean's roaster is this, exactly as each Shot records it, linked to the Library or not."),
+  beanName: z.string().optional().describe("Shots whose Bean's name is this, exactly as each Shot records it, linked to the Library or not."),
+  profileTitle: z.string().optional().describe("Shots whose profile's title is this, exactly as each Shot records it."),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
   ...page,
@@ -166,16 +172,16 @@ export class RecordsTools {
   @Tool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, Barista and time. ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time. ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput>> {
-    const { from, to, limit, offset, ...named } = input;
+    const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
-    const filters = { ...readShotFilters({ ...named, ...times.query }), ...times.filters };
+    const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
     const found = await this.shots.list(limit, offset, filters);
     return { shots: found.shots.map(shotSummaryOf), total: found.total, offset, more: offset + found.shots.length < found.total };
   }
@@ -204,7 +210,9 @@ export class RecordsTools {
       notes: text(annotations.espressoNotes),
       stopReason: text(record.stopReason),
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
-      ...(curves && { curves: curvesOf(shotSamples(await this.shots.measurements(id), object(record.workflow).profile), SHOT_CURVES) }),
+      ...(curves && {
+        curves: curvesOf(shotSamples(await this.shots.measurements(id), object(record.workflow).profile), SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }),
+      }),
     };
   }
 
@@ -247,7 +255,11 @@ export class RecordsTools {
         flow: number(settings.flow),
         stopAtMilkTemperature: steamStopAt(steamRecord.record),
       },
-      ...(curves && { curves: curvesOf(steamSamples(await this.steamRecords.measurements(id), steamStopAt(steamRecord.record)), STEAM_CURVES) }),
+      ...(curves && {
+        curves: curvesOf(steamSamples(await this.steamRecords.measurements(id), steamStopAt(steamRecord.record)), STEAM_CURVES, {
+          milkTemperature: steamRecord.peakMilkTemperature,
+        }),
+      }),
     };
   }
 }
