@@ -23,7 +23,8 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
   `decaid:lib/src/plugins/plugin_manager.dart`), so the plugin never reads
   `GET /workflow`. Every one is sent. One whose steam, hot water or flush
   settings differ from the last one's has the machine's own settings read
-  again too, as Decaid wrote them to the machine (`COLLECTIONS.md`).
+  again too, as Decaid wrote them to the machine, once the machine runs
+  nothing (`COLLECTIONS.md`).
 - `stateUpdate` arrives several times a second while a machine is connected.
   Only a change of state or substate from the last one queued is sent.
 - On every `welcome`, the latest Workflow is sent again in a new delivery,

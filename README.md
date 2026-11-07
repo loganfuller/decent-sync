@@ -535,7 +535,7 @@ v0.2.23 or later where Streamline is its skin
 |---|---|
 | Server URL | the server's `PUBLIC_URL`, such as `https://sync.example.com` |
 | Token | the Machine's token (stored securely by Decaid) |
-| Poll interval | seconds between checks for changes to the library, Tablet Settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them |
+| Poll interval | seconds between checks for changes to the library, Tablet Settings, paired devices, scale, sensors and Steam Records (default 30, at least 5); the machine's own settings are read every 60 s, or this often if longer, and whenever a Workflow change writes them, but only while the machine runs nothing: a read that falls due during a Shot, steam, hot water or a flush waits until it is idle again |
 
 ## Development
 

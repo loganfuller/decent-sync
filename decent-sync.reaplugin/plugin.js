@@ -2995,13 +2995,15 @@ var __decentSync = (() => {
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
   var FULL_READS_ONLY = /* @__PURE__ */ new Set(["sensorCalibration"]);
+  var FROM_MACHINE = /* @__PURE__ */ new Set([...MACHINE_SETTINGS, ...FULL_READS_ONLY]);
   var CollectionCapture = class {
-    constructor(outbox, library, settings, pollMs, sawRecipes = () => {
+    constructor(outbox, library, settings, pollMs, machine, sawRecipes = () => {
     }) {
       __publicField(this, "outbox", outbox);
       __publicField(this, "library", library);
       __publicField(this, "settings", settings);
       __publicField(this, "pollMs", pollMs);
+      __publicField(this, "machine", machine);
       __publicField(this, "sawRecipes", sawRecipes);
       /** What was last queued for each collection. */
       __publicField(this, "last", /* @__PURE__ */ new Map());
@@ -3014,8 +3016,14 @@ var __decentSync = (() => {
       __publicField(this, "wanted");
       /** Whether DYE2's recipes alone are to be read, as after DYE2 pushes (`readRecipes`). */
       __publicField(this, "recipesWanted", false);
-      /** Whether the machine's own settings are to be read, on their interval or after the Workflow wrote them (`readMachineSettings`). */
-      __publicField(this, "machineSettingsWanted", false);
+      /**
+       * The reads from the machine (`FROM_MACHINE`) asked for and not yet begun,
+       * each with whether it is to be sent whatever it holds, as a full read's:
+       * of the machine's own settings on their interval or after the Workflow
+       * wrote them (`readMachineSettings`), and of all of them in a full read.
+       * They wait here while the machine runs something.
+       */
+      __publicField(this, "fromMachineWanted", /* @__PURE__ */ new Map());
       __publicField(this, "reading", false);
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
@@ -3024,6 +3032,9 @@ var __decentSync = (() => {
       __publicField(this, "machineSettingsMs");
       library.onWrite((list) => this.last.delete(list));
       this.machineSettingsMs = Math.max(MACHINE_SETTINGS_MS, pollMs);
+      machine.onRunningNothing(() => {
+        if (!this.stopped && this.outbox.connected && this.fromMachineWanted.size > 0) void this.run();
+      });
     }
     start() {
       this.schedulePoll();
@@ -3066,11 +3077,12 @@ var __decentSync = (() => {
      * connected: after a Workflow change of its steam, hot water or flush
      * settings, which Decaid writes to the machine before it reports the
      * Workflow (`MachineEvents`), so the change reaches the server then, not
-     * only on their interval.
+     * only on their interval. While the machine runs something, once it next
+     * runs nothing.
      */
     readMachineSettings() {
       if (this.stopped || !this.outbox.connected) return;
-      this.machineSettingsWanted = true;
+      this.wantFromMachine(MACHINE_SETTINGS, false);
       void this.run();
     }
     schedulePoll() {
@@ -3098,36 +3110,57 @@ var __decentSync = (() => {
       if (this.reading) return;
       this.reading = true;
       try {
-        while ((this.wanted !== void 0 || this.recipesWanted || this.machineSettingsWanted) && !this.stopped) {
+        while ((this.wanted !== void 0 || this.recipesWanted || this.fromMachineDue()) && !this.stopped) {
           const full = this.wanted === "full";
           const polled = this.wanted !== void 0;
           const recipes = polled || this.recipesWanted;
           this.wanted = void 0;
           this.recipesWanted = false;
-          let machineSettings = false;
+          if (full) this.wantFromMachine(FROM_MACHINE, true);
           const sentLists = /* @__PURE__ */ new Set();
           for (const source of SOURCES) {
             if (this.stopped) return;
-            if (MACHINE_SETTINGS.has(source.name)) {
-              if (!machineSettings && (full || this.machineSettingsWanted)) {
-                machineSettings = true;
-                this.machineSettingsWanted = false;
-                if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
-                this.machineSettingsTimer = void 0;
-              }
-              if (!machineSettings) continue;
-            } else if (FULL_READS_ONLY.has(source.name)) {
-              if (!full) continue;
-            } else if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
+            if (FROM_MACHINE.has(source.name)) {
+              if (this.fromMachineWanted.has(source.name)) await this.settings.run(() => this.readFromMachine(source));
+              continue;
+            }
+            if (!(source.name === "dye2Recipes" ? recipes : polled)) continue;
             const parent = isLibraryList(source.name) ? parentList(source.name) : void 0;
             const sent = await (WRITTEN_LISTS.has(source.name) ? this.library.run(() => this.capture(source, full || parent !== void 0 && sentLists.has(parent))) : SETTINGS.has(source.name) ? this.settings.run(() => this.capture(source, full)) : this.capture(source, full));
             if (sent) sentLists.add(source.name);
-            if (MACHINE_SETTINGS.has(source.name) && !this.stopped) this.scheduleMachineSettings();
           }
         }
       } finally {
         this.reading = false;
       }
+    }
+    /** Asks for reads from the machine, one of each however many are asked for, sent whatever they hold if `always` was among them. */
+    wantFromMachine(names, always) {
+      for (const name of names) this.fromMachineWanted.set(name, always || (this.fromMachineWanted.get(name) ?? false));
+    }
+    /** Whether a read from the machine is asked for that can run now, as the machine runs nothing. */
+    fromMachineDue() {
+      return this.fromMachineWanted.size > 0 && this.machine.runningNothing();
+    }
+    /**
+     * Reads one of the collections Decaid reads from the machine, within
+     * `SettingsAccess.run`, if it is asked for and the machine runs nothing,
+     * decided as the read would begin: the pass may reach it long after it
+     * began, behind the server's writes or a Settings Edit, so any read of it
+     * asked for until then is this one. Otherwise the read keeps waiting, and
+     * holds up neither the pass nor the Settings Edits.
+     */
+    async readFromMachine(source) {
+      const always = this.fromMachineWanted.get(source.name);
+      if (always === void 0 || this.stopped || !this.machine.runningNothing()) return;
+      this.fromMachineWanted.delete(source.name);
+      const interval = MACHINE_SETTINGS.has(source.name);
+      if (interval && this.machineSettingsTimer !== void 0) {
+        clearTimeout(this.machineSettingsTimer);
+        this.machineSettingsTimer = void 0;
+      }
+      await this.capture(source, always);
+      if (interval && !this.stopped) this.scheduleMachineSettings();
     }
     /**
      * Queues a report of a settings collection a Settings Edit read, within
@@ -3676,6 +3709,36 @@ var __decentSync = (() => {
     }
     newBudget() {
       return new LiveBudget((frame) => this.streaming ? this.streaming(frame) : Promise.reject(new Error("Not streaming")));
+    }
+  };
+
+  // src/machine-activity.ts
+  var MachineActivity = class {
+    constructor(shot) {
+      __publicField(this, "shot", shot);
+      __publicField(this, "latest");
+      /** Whether it ran nothing as last judged, so only a turn to running nothing is told. */
+      __publicField(this, "wasRunningNothing", true);
+      __publicField(this, "listeners", /* @__PURE__ */ new Set());
+      shot.onEnd(() => this.judge());
+    }
+    runningNothing() {
+      return (this.latest === void 0 || SETTINGS_EDIT_STATES.includes(this.latest)) && !this.shot.running();
+    }
+    /** Decaid's `stateUpdate`, with the machine's state, after the `ShotGate` is told of it. */
+    state(state) {
+      this.latest = state;
+      this.judge();
+    }
+    /** Calls `listener` each time the machine turns to running nothing. */
+    onRunningNothing(listener) {
+      this.listeners.add(listener);
+    }
+    judge() {
+      const now2 = this.runningNothing();
+      const turned = now2 && !this.wasRunningNothing;
+      this.wasRunningNothing = now2;
+      if (turned) for (const listener of this.listeners) listener();
     }
   };
 
@@ -4988,6 +5051,8 @@ var __decentSync = (() => {
       __publicField(this, "settingsEdits");
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
       __publicField(this, "shot", new ShotGate());
+      /** Whether the Machine runs nothing, which the reads of its own settings and sensor calibration wait for. */
+      __publicField(this, "activity", new MachineActivity(this.shot));
       /** Streams Decaid's live frames while the server asks, for the Live View (ADR-0024), opening Decaid's sockets meanwhile. */
       __publicField(this, "liveView");
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
@@ -5041,10 +5106,20 @@ var __decentSync = (() => {
         this.outbox,
         (workflow) => this.loadedRecipes.observe(workflow),
         () => this.collections.readMachineSettings(),
-        (state) => this.shot.state(state)
+        (state) => {
+          this.shot.state(state);
+          this.activity.state(state);
+        }
       );
       const settingsAccess = new SettingsAccess();
-      this.collections = new CollectionCapture(this.outbox, library, settingsAccess, settings.pollSeconds * 1e3, (value) => this.loadedRecipes.sawRecipes(value));
+      this.collections = new CollectionCapture(
+        this.outbox,
+        library,
+        settingsAccess,
+        settings.pollSeconds * 1e3,
+        this.activity,
+        (value) => this.loadedRecipes.sawRecipes(value)
+      );
       this.settingsEdits = new SettingsEdits(settingsAccess, this.outbox, this.collections, log);
       this.writes = new LibraryWrites(
         library,
