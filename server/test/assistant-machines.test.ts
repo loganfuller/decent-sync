@@ -76,6 +76,14 @@ function unseen<T>(value: T): T {
   return JSON.parse(JSON.stringify(value), (key, field: unknown) => (key === "lastSeenAt" ? undefined : field)) as T;
 }
 
+/** An ISO 8601 time with its offset. */
+const ISO_TIME = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d+)?(?:Z|[+-]\d\d:\d\d)$/;
+
+/** The value with each ISO 8601 time as its instant: the REST API gives times in UTC, the tools with the offset of the Location the Machine was at then. */
+function instants(value: unknown): unknown {
+  return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "string" && ISO_TIME.test(field) ? Date.parse(field) : field));
+}
+
 /** That a tool read an online Machine's lastSeenAt between the REST API's reads of it before and after the call. */
 function seenBetween(before: RestMachine, seen: Record_, after: RestMachine): void {
   expect(Date.parse(seen.lastSeenAt as string), seen.name as string).toBeGreaterThanOrEqual(Date.parse(before.lastSeenAt!));
@@ -155,14 +163,16 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     const before = (await api.get<{ machines: RestMachine[] }>("/machines")).machines;
     const { machines } = await assistant.call<{ machines: Record_[] }>("list_machines");
     const rest = (await api.get<{ machines: RestMachine[] }>("/machines")).machines;
-    expect(unseen(machines)).toEqual(unseen(rest.map(listed)));
+    expect(instants(unseen(machines))).toEqual(instants(unseen(rest.map(listed))));
     const byName = (name: string) => machines.find((machine) => machine.name === name);
     seenBetween(before.find((machine) => machine.id === bar.machine.id)!, byName("Lab bar")!, rest.find((machine) => machine.id === bar.machine.id)!);
     expect(byName("Lab bar")).toMatchObject({
       location: { id: lab.id, name: "Lab", timeZone: "America/Chicago" },
       online: true,
-      machineState: { state: "idle", substate: "idle" },
-      loadedRecipe: { recipe: { id: ethiopia, archived: false }, unloadedAt: null },
+      // Its times with the Lab's offset in November.
+      lastSeenAt: expect.stringMatching(/-06:00$/),
+      machineState: { state: "idle", substate: "idle", observedAt: expect.stringMatching(/-06:00$/) },
+      loadedRecipe: { recipe: { id: ethiopia, archived: false }, loadedAt: expect.stringMatching(/-06:00$/), unloadedAt: null },
       captureOnly: [],
     });
     expect(byName("In the van")).toMatchObject({ id: van.machine.id, location: null, online: false, lastSeenAt: null, machineState: null, loadedRecipe: null, captureOnly: ["noLocation"] });
@@ -181,7 +191,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     };
     const { workflow } = await api.get<{ workflow: Record_ }>(`${path}/workflow`);
     const { status } = await api.get<{ status: Record_ & { refused: Record_[] } }>(`${path}/sharing-status`);
-    expect(unseen(result)).toEqual({
+    expect(instants(unseen(result))).toEqual(instants({
       machine: {
         ...unseen(listed(rest)),
         serial: rest.serial,
@@ -202,9 +212,10 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       tabletSettings: { appSettings: await collection("appSettings"), presenceSettings: await collection("presenceSettings") },
       sharingStatus: { waiting: status.waiting, lastApplied: status.lastApplied, refused: status.refused, unrecognisedLists: status.unrecognisedLists },
       tabletVersions: (await api.get<{ tabletVersions: unknown }>(`${path}/tablet-versions`)).tabletVersions,
-    });
+    }));
     expect(result).toMatchObject({
-      machine: { locationHistory: [{ location: { name: "Lab" } }], sharing: true },
+      machine: { locationHistory: [{ location: { name: "Lab" }, effectiveFrom: expect.stringMatching(/-06:00$/) }], sharing: true },
+      workflow: { observedAt: expect.stringMatching(/-06:00$/), receivedAt: expect.stringMatching(/-06:00$/) },
       machineSettings: { machineSettings: { available: true, value: { fan: 55 } } },
       tabletSettings: { presenceSettings: { available: true } },
       tabletVersions: { dye2: { status: "installed" } },
@@ -214,9 +225,15 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     const van = await api.createMachine("Moved van", lab.id);
     const uptown = await api.createLocation("Uptown", "America/New_York");
     await api.send("POST", `/machines/${van.machine.id}/location-history`, { locationId: uptown.id }, 201);
-    const moved = await assistant.call<{ machine: { location: LocationView; locationHistory: { location: LocationView }[] }; workflow: unknown }>("get_machine", { machineId: van.machine.id });
+    const moved = await assistant.call<{ machine: { location: LocationView; locationHistory: { location: LocationView; effectiveFrom: string }[] }; workflow: unknown }>("get_machine", {
+      machineId: van.machine.id,
+    });
     expect(moved.machine.location).toEqual(uptown);
-    expect(moved.machine.locationHistory.map((entry) => entry.location.name)).toEqual(["Lab", "Uptown"]);
+    // Each arrival with the offset of where it arrived: Chicago's, then New York's.
+    expect(moved.machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom.slice(-6)])).toEqual([
+      ["Lab", "-06:00"],
+      ["Uptown", "-05:00"],
+    ]);
     expect(moved.workflow).toBeNull();
   });
 
@@ -235,23 +252,30 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
   describe("a Machine's activity over a time range", () => {
     // Monday 2 November 2026 in Chicago (UTC-6): asleep at 6, a Workflow at 6:30, awake at 7, another Workflow at 8, a
-    // Shot at 9, a third Workflow at 10, idle again at 11.
+    // Shot at 9, a third Workflow at 10, idle again at 11 and asleep at 11 at night, which is 3 November in UTC. Its
+    // Workflow before, on 30 October, was from before it was at the Lab, which it was from 1 November.
     const at = (hour: number, minute = 0) => new Date(Date.UTC(2026, 10, 2, hour + 6, minute)).toISOString();
     const chicago = (hour: number, minute = 0) => `2026-11-02T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00-06:00`;
+    /** As the tool gives a time on 2 November: with the Lab's offset, to the millisecond. */
+    const local = (hour: number, minute = 0) => `2026-11-02T${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}:00.000-06:00`;
+    const BEFORE_THE_LAB = "2026-10-30T12:00:00.000Z";
     const STATES = [
       ["sleeping", "noState", at(6)],
       ["idle", "idle", at(7)],
       ["espresso", "pouring", at(9)],
       ["idle", "idle", at(11)],
+      ["sleeping", "noState", at(23)],
     ] as const;
     const DOSES = [
+      [17, BEFORE_THE_LAB],
       [18, at(6, 30)],
       [18.5, at(8)],
       [19, at(10)],
     ] as const;
 
     beforeAll(async () => {
-      // Its records sent as raw frames at those times, from a tablet at no Location, which takes no part in the Library.
+      // Its records sent as raw frames at those times, from a tablet at no Location then, which took no part in the
+      // Library; then an Admin records that it has been at the Lab since 1 November.
       roaster = await api.createMachine("Roastery");
       const raw = await RawConnection.welcomed(server.url, helloWith(roaster.token));
       try {
@@ -263,23 +287,31 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       } finally {
         await raw.close();
       }
+      await api.send("POST", `/machines/${roaster.machine.id}/location-history`, { locationId: lab.id, effectiveFrom: "2026-11-01T00:00:00.000Z" }, 201);
     });
 
     const activity = (args: Record_) => assistant.call<Activity>("get_machine_activity", { machineId: roaster.machine.id, ...args });
+    const refusal = async (args: Record_) => assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...args } });
     const doses = (result: Activity) => result.workflowChanges!.entries.map((entry) => entry.workflow.dose);
     const states = (result: Activity) => result.machineStates!.entries.map((entry) => entry.state);
 
-    it("gives every Workflow change and Machine State, latest first, as the REST API lists them, each Workflow as the management interface shows it", async () => {
+    it("gives every Workflow change and Machine State, latest first, as the REST API lists them, with the offset of where it was then, each Workflow as the management interface shows it", async () => {
       const all = await activity({});
       const path = `/machines/${roaster.machine.id}`;
       const workflows = (await api.get<{ events: { observedAt: string; receivedAt: string; workflow: Record_ }[] }>(`${path}/workflow-events`)).events;
       const transitions = (await api.get<{ events: { state: string; substate: string; observedAt: string; receivedAt: string }[] }>(`${path}/machine-state-events`)).events;
-      expect(all.machineStates).toEqual({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), more: false });
-      expect(all.workflowChanges!.entries.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt }))).toEqual(workflows.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt })));
+      expect(instants(all.machineStates)).toEqual(instants({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), more: false }));
+      expect(instants(all.workflowChanges!.entries.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt })))).toEqual(
+        instants(workflows.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt }))),
+      );
       expect(all.workflowChanges!.more).toBe(false);
       expect(all.loadedRecipes).toEqual({ entries: [], more: false });
-      expect(states(all)).toEqual(["idle", "espresso", "idle", "sleeping"]);
-      expect(doses(all)).toEqual([19, 18.5, 18]);
+      expect(states(all)).toEqual(["sleeping", "idle", "espresso", "idle", "sleeping"]);
+      expect(doses(all)).toEqual([19, 18.5, 18, 17]);
+      // With the Lab's offset while it was there, received today too, and UTC's before it was anywhere.
+      expect(all.machineStates!.entries.map((entry) => entry.observedAt)).toEqual([local(23), local(11), local(9), local(7), local(6)]);
+      expect(all.workflowChanges!.entries.map((entry) => entry.observedAt)).toEqual([local(10), local(8), local(6, 30), BEFORE_THE_LAB]);
+      expect(all.machineStates!.entries.every((entry) => entry.receivedAt.endsWith("-06:00"))).toBe(true);
 
       // As sent, Decaid's numbers and names; as summarized, those the Workflow card shows, to two decimal places.
       const sent = workflows[0]!.workflow as { profile: Record_ & { steps: Record_[] }; context: Record_; steamSettings: Record_; hotWaterData: Record_; rinseData: Record_ };
@@ -307,39 +339,51 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const morning = await activity({ from: chicago(7, 30), to: chicago(9, 30) });
       expect(states(morning)).toEqual(["espresso", "idle"]);
       expect(doses(morning)).toEqual([18.5, 18]);
-      expect(morning.machineStates!.entries.map((entry) => entry.observedAt)).toEqual([at(9), at(7)]);
+      expect(morning.machineStates!.entries.map((entry) => entry.observedAt)).toEqual([local(9), local(7)]);
       // The same range in UTC.
       expect(await activity({ from: at(7, 30), to: at(9, 30) })).toEqual(morning);
       // From exactly 8: the Workflow observed then is the one in effect, and the range's end is not in it.
       expect(doses(await activity({ from: chicago(8), to: chicago(10) }))).toEqual([18.5]);
-      // Before the first, nothing; after the last, only what was in effect.
-      expect(await activity({ to: chicago(6) })).toMatchObject({ workflowChanges: { entries: [] }, machineStates: { entries: [] } });
+      // Before the first state, none, and only the Workflow from before the Lab; after the last, only what was in effect.
+      const early = await activity({ to: chicago(6) });
+      expect([states(early), doses(early)]).toEqual([[], [17]]);
       const evening = await activity({ from: chicago(18) });
-      expect([states(evening), doses(evening)]).toEqual([["idle"], [19]]);
+      expect([states(evening), doses(evening)]).toEqual([["sleeping", "idle"], [19]]);
       // A start not before its end is refused.
-      for (const range of [{ from: chicago(9), to: chicago(9) }, { from: chicago(10), to: chicago(9) }]) {
-        const result = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...range } });
-        expect(result).toMatchObject({ isError: true, content: [{ text: "The range's start must be before its end" }] });
+      for (const range of [{ from: chicago(9), to: chicago(9) }, { from: chicago(10), to: chicago(9) }, { from: "2026-11-03", to: "2026-11-02" }]) {
+        expect(await refusal(range), JSON.stringify(range)).toMatchObject({ isError: true, content: [{ text: "Choose an end after the start" }] });
       }
       // A time in the year 0, or past 9999, in UTC, which PostgreSQL takes neither of, is refused.
       for (const range of [{ from: "0000-06-01T00:00:00Z" }, { to: "9999-12-31T23:30:00-01:00" }]) {
-        const result = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...range } });
-        expect(result, JSON.stringify(range)).toMatchObject({ isError: true, content: [{ text: "Times must be in the years 1 to 9999, in UTC" }] });
+        expect(await refusal(range), JSON.stringify(range)).toMatchObject({ isError: true, content: [{ text: "Times must be in the years 1 to 9999, in UTC" }] });
       }
       // A time without an offset is not taken.
-      const local = await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, from: "2026-11-02T07:30:00" } });
-      expect(local.isError).toBe(true);
+      expect((await refusal({ from: "2026-11-02T07:30:00" })).isError).toBe(true);
+    });
+
+    it("takes a date as that day at the Location the Machine was at, in its time zone, through its end for the range's end", async () => {
+      // All of 2 November in Chicago, to 6 in the morning of 3 November in UTC: the night's sleep at 11 included.
+      const monday = await activity({ from: "2026-11-02", to: "2026-11-02" });
+      expect(states(monday)).toEqual(["sleeping", "idle", "espresso", "idle", "sleeping"]);
+      expect(doses(monday)).toEqual([19, 18.5, 18, 17]);
+      expect(await activity({ to: "2026-11-02" })).toEqual(monday);
+      // 3 November in Chicago starts after the night's sleep began, which is in effect then.
+      const tuesday = await activity({ from: "2026-11-03" });
+      expect([states(tuesday), doses(tuesday)]).toEqual([["sleeping"], [19]]);
+      expect(tuesday.machineStates!.entries[0]!.observedAt).toBe(local(23));
+      // A date and a time mix.
+      expect(states(await activity({ from: "2026-11-02", to: chicago(7) }))).toEqual(["sleeping"]);
     });
 
     it("pages each list by limit and offset, at most 50, saying whether more follow, and gives only the lists asked for", async () => {
       const first = await activity({ limit: 2 });
-      expect([states(first), first.machineStates!.more, doses(first), first.workflowChanges!.more]).toEqual([["idle", "espresso"], true, [19, 18.5], true]);
+      expect([states(first), first.machineStates!.more, doses(first), first.workflowChanges!.more]).toEqual([["sleeping", "idle"], true, [19, 18.5], true]);
       const second = await activity({ limit: 2, offset: 2 });
-      expect([states(second), second.machineStates!.more, doses(second), second.workflowChanges!.more]).toEqual([["idle", "sleeping"], false, [18], false]);
-      const only = await activity({ kinds: ["machineStates"], limit: 1, offset: 3 });
-      expect(only).toEqual({ machineStates: { entries: [expect.objectContaining({ state: "sleeping" })], more: false } });
+      expect([states(second), second.machineStates!.more, doses(second), second.workflowChanges!.more]).toEqual([["espresso", "idle"], true, [18, 17], false]);
+      const only = await activity({ kinds: ["machineStates"], limit: 1, offset: 4 });
+      expect(only).toEqual({ machineStates: { entries: [expect.objectContaining({ state: "sleeping", observedAt: local(6) })], more: false } });
       for (const page of [{ limit: 51 }, { limit: 0 }, { offset: -1 }]) {
-        expect((await assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...page } })).isError, JSON.stringify(page)).toBe(true);
+        expect((await refusal(page)).isError, JSON.stringify(page)).toBe(true);
       }
     });
 
@@ -366,14 +410,14 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const switchedAt = Date.parse(brazil!.loadedAt);
       const iso = (ms: number) => new Date(ms).toISOString();
 
-      expect(await recipes({})).toEqual({ entries: entries.map(withoutId), more: false });
+      expect(instants(await recipes({}))).toEqual(instants({ entries: entries.map(withoutId), more: false }));
       // From the switch, only the Brazil's; up to it, only the Ethiopia's; across it, both.
       expect(ids(await recipes({ from: iso(switchedAt) }))).toEqual([brazil!.recipe.id]);
       expect(ids(await recipes({ to: iso(switchedAt) }))).toEqual([ethiopia]);
       expect(ids(await recipes({ from: iso(switchedAt - 1), to: iso(switchedAt + 1) }))).toEqual([brazil!.recipe.id, ethiopia]);
       // A page at a time, latest loaded first.
-      expect(await recipes({ limit: 1 })).toEqual({ entries: [withoutId(brazil!)], more: true });
-      expect(await recipes({ limit: 1, offset: 1 })).toEqual({ entries: [withoutId(earlier!)], more: false });
+      expect(instants(await recipes({ limit: 1 }))).toEqual(instants({ entries: [withoutId(brazil!)], more: true }));
+      expect(instants(await recipes({ limit: 1, offset: 1 }))).toEqual(instants({ entries: [withoutId(earlier!)], more: false }));
       expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], more: false });
     });
   });
@@ -387,7 +431,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       ["a Viewer", vic],
     ] as const) {
       const { machines } = await as.assistant.call<{ machines: Record_[] }>("list_machines");
-      expect(unseen(machines), who).toEqual(unseen((await as.api.get<{ machines: RestMachine[] }>("/machines")).machines.map(listed)));
+      expect(instants(unseen(machines)), who).toEqual(instants(unseen((await as.api.get<{ machines: RestMachine[] }>("/machines")).machines.map(listed))));
       expect(unseen(machines), who).toEqual(unseen((await assistant.call<{ machines: Record_[] }>("list_machines")).machines));
       for (const machineId of [bar.machine.id, van.id]) {
         const read = (through: Assistant) => through.call<Record_>("get_machine", { machineId });
@@ -414,12 +458,12 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     ] as const) {
       const rest = await as.get<{ settingsEdits: Record_[] }>(path);
       const listedEdits = await through.call<{ settingsEdits: Record_[]; more: boolean }>("list_settings_edits", { machineId: bar.machine.id });
-      expect(listedEdits, who).toEqual({ settingsEdits: asListed(rest.settingsEdits), more: false });
+      expect(instants(listedEdits), who).toEqual(instants({ settingsEdits: asListed(rest.settingsEdits), more: false }));
     }
     const { settingsEdits } = await assistant.call<{ settingsEdits: Record_[] }>("list_settings_edits", { machineId: bar.machine.id });
     expect(settingsEdits).toMatchObject([
       { fields: { fan: 45 }, outcome: "refused", refusal: { reason: "changedSince", current: { fan: 40 } }, account: { name: "sam@example.com" } },
-      { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" } },
+      { fields: { fan: 40 }, outcome: "applied", account: { name: "Ada Admin" }, madeAt: expect.stringMatching(/-06:00$/), answeredAt: expect.stringMatching(/-06:00$/) },
     ]);
     expect((await sam.assistant.call<{ settingsEdits: { account: { name: string | null } }[] }>("list_settings_edits", { machineId: bar.machine.id })).settingsEdits.map((edit) => edit.account.name)).toEqual([null, null]);
 

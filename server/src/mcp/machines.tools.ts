@@ -4,6 +4,7 @@ import * as z from "zod";
 import type { CollectionView } from "../collections/collections.service.js";
 import { CollectionsService } from "../collections/collections.service.js";
 import { READ } from "../connected-apps/oauth.js";
+import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
 import { type ActivityKind, MachineEventsService } from "../machine-events/machine-events.service.js";
@@ -12,11 +13,15 @@ import { type MachineView, MachinesService } from "../machines/machines.service.
 import { PrismaService } from "../prisma.service.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { pageInput, pageOf } from "./paging.js";
+import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 import { workflowSummary, workflowSummaryOutput } from "./workflow-summary.js";
 
-const time = z.string().describe("ISO 8601, in UTC.");
-const tabletTime = z.string().describe("ISO 8601, in UTC, by the tablet's clock.");
+const time = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.");
+const tabletTime = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none, by the tablet's clock.");
+
+/** What a date given for a bound of a Machine's activity means. */
+const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
 
 const location = z.object({
   id: z.string(),
@@ -129,8 +134,8 @@ const ACTIVITY_KINDS = ["workflowChanges", "loadedRecipes", "machineStates"] as 
 
 const activityInput = z.object({
   machineId,
-  from: z.iso.datetime({ offset: true }).optional().describe("The range's start, ISO 8601 with an offset, such as 2026-11-07T06:00:00-05:00. None for since the first."),
-  to: z.iso.datetime({ offset: true }).optional().describe("The range's end, not included. None for until now."),
+  from: timeBound("The range's start; none for since the first.", MACHINE_DAY),
+  to: timeBound("The range's end, not included, or through the end of a day given as a date; none for until now.", MACHINE_DAY),
   kinds: z.array(z.enum(ACTIVITY_KINDS)).min(1).optional().describe("Which lists to give; all three if none."),
   ...pageInput,
 });
@@ -214,7 +219,7 @@ export class MachinesTools {
     scopes: [READ],
   })
   async listMachines(): Promise<z.infer<typeof machinesOutput>> {
-    return { machines: (await this.machines.list()).map(listed) };
+    return { machines: (await this.machines.list()).map((machine) => listed(machine, zoneOf(machine))) };
   }
 
   @Tool({
@@ -236,26 +241,27 @@ export class MachinesTools {
       sharingStatus(this.prisma, id),
       this.collections.tabletVersions(id),
     ]);
-    const [machineSettings, advancedSettings, machineCalibration, sensorCalibration, appSettings, presenceSettings] = settings.map(collection);
+    const zone = zoneOf(machine);
+    const [machineSettings, advancedSettings, machineCalibration, sensorCalibration, appSettings, presenceSettings] = settings.map((view) => collection(view, zone));
     return {
       machine: {
-        ...listed(machine),
+        ...listed(machine, zone),
         serial: machine.serial,
         firmware: machine.reported?.firmware ?? null,
         pluginVersion: machine.pluginVersion,
         decaidVersion: machine.decaidVersion,
-        locationHistory: machine.locationHistory.map((entry) => ({ location: locationOf(entry.location), effectiveFrom: entry.effectiveFrom })),
+        locationHistory: machine.locationHistory.map((entry) => ({ location: locationOf(entry.location), effectiveFrom: zone(entry.effectiveFrom) })),
         sharing: machine.sharing,
-        lastShot: machine.lastShot,
+        lastShot: machine.lastShot && { id: machine.lastShot.id, pulledAt: zoneMaybe(zone, machine.lastShot.pulledAt) },
       },
-      workflow: workflow && { observedAt: workflow.observedAt, receivedAt: workflow.receivedAt, workflow: workflow.workflow },
+      workflow: workflow && { observedAt: zone(workflow.observedAt), receivedAt: zone(workflow.receivedAt), workflow: workflow.workflow },
       machineSettings: { machineSettings: machineSettings!, advancedSettings: advancedSettings!, machineCalibration: machineCalibration!, sensorCalibration: sensorCalibration! },
       tabletSettings: { appSettings: appSettings!, presenceSettings: presenceSettings! },
       sharingStatus: {
         waiting: status.waiting,
-        lastApplied: status.lastApplied && { ...changeOf(status.lastApplied), appliedAt: status.lastApplied.appliedAt },
-        refused: status.refused.map((refusal) => ({ ...changeOf(refusal), status: refusal.status, error: refusal.error, refusedAt: refusal.refusedAt })),
-        unrecognisedLists: status.unrecognisedLists,
+        lastApplied: status.lastApplied && { ...changeOf(status.lastApplied), appliedAt: zone(status.lastApplied.appliedAt) },
+        refused: status.refused.map((refusal) => ({ ...changeOf(refusal), status: refusal.status, error: refusal.error, refusedAt: zone(refusal.refusedAt) })),
+        unrecognisedLists: status.unrecognisedLists.map(({ list, since }) => ({ list, since: zone(since) })),
       },
       tabletVersions,
     };
@@ -265,29 +271,30 @@ export class MachinesTools {
     name: "get_machine_activity",
     title: "Get a Machine's activity",
     description:
-      "What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list.",
+      "What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list.",
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
   })
   async getMachineActivity(input: z.infer<typeof activityInput>): Promise<z.infer<typeof activityOutput>> {
-    const id = readMachineId(input.machineId);
-    const range = { from: input.from === undefined ? null : new Date(input.from), to: input.to === undefined ? null : new Date(input.to) };
+    const machine = await this.machines.get(readMachineId(input.machineId));
+    const range = { from: boundOf(input.from, machine, false), to: boundOf(input.to, machine, true) };
     // PostgreSQL has no year 0, and doesn't parse the six-digit year toISOString writes past 9999 or before 1.
     if ([range.from, range.to].some((end) => end && (end.getUTCFullYear() < 1 || end.getUTCFullYear() > 9999))) {
       throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
     }
-    if (range.from && range.to && range.from >= range.to) throw new BadRequestException("The range's start must be before its end");
-    const activity = await this.events.activity(id, range, pageOf(input), input.kinds ?? ACTIVITY_KINDS);
+    if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
+    const activity = await this.events.activity(machine.id, range, pageOf(input), input.kinds ?? ACTIVITY_KINDS);
+    const zone = zoneOf(machine);
     return {
       workflowChanges: activity.workflowChanges && {
-        entries: activity.workflowChanges.entries.map((event) => ({ observedAt: event.observedAt, receivedAt: event.receivedAt, workflow: workflowSummary(event.workflow) })),
+        entries: activity.workflowChanges.entries.map((event) => ({ observedAt: zone(event.observedAt), receivedAt: zone(event.receivedAt), workflow: workflowSummary(event.workflow) })),
         more: activity.workflowChanges.more,
       },
-      loadedRecipes: activity.loadedRecipes && { entries: activity.loadedRecipes.entries.map(loaded), more: activity.loadedRecipes.more },
+      loadedRecipes: activity.loadedRecipes && { entries: activity.loadedRecipes.entries.map((entry) => loaded(entry, zone)), more: activity.loadedRecipes.more },
       machineStates: activity.machineStates && {
-        entries: activity.machineStates.entries.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })),
+        entries: activity.machineStates.entries.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),
         more: activity.machineStates.more,
       },
     };
@@ -304,7 +311,9 @@ export class MachinesTools {
   })
   async listSettingsEdits(input: z.infer<typeof settingsEditsInput>, context: McpContext): Promise<z.infer<typeof settingsEditsOutput>> {
     const page = pageOf(input);
-    const { settingsEdits, total } = await this.settingsEdits.list(readMachineId(input.machineId), page, callerOf(context).scope);
+    const machine = await this.machines.get(readMachineId(input.machineId));
+    const { settingsEdits, total } = await this.settingsEdits.list(machine.id, page, callerOf(context).scope);
+    const zone = zoneOf(machine);
     return {
       settingsEdits: settingsEdits.map(({ id, collection, schedule, fields, expected, account, madeAt, sentAt, answeredAt, outcome, late, adjusted, refusal, readBack }) => ({
         id,
@@ -313,9 +322,9 @@ export class MachinesTools {
         fields,
         expected,
         account,
-        madeAt,
-        sentAt,
-        answeredAt,
+        madeAt: zone(madeAt),
+        sentAt: zoneMaybe(zone, sentAt),
+        answeredAt: zoneMaybe(zone, answeredAt),
         outcome,
         late,
         adjusted,
@@ -330,16 +339,56 @@ export class MachinesTools {
 /** The collections holding a Machine's Machine Settings, then its tablet's Tablet Settings. */
 const SETTINGS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings", "presenceSettings"] as const;
 
-function listed(machine: MachineView): z.infer<typeof listedMachine> {
+/** A time the REST API gives, given again with the offset of the Location the Machine was at then. */
+type Zone = (at: string) => string;
+
+/**
+ * A Machine's times, each given with the offset of the time zone of the
+ * Location it was at then, by its Location History, as a Shot's are with its
+ * Location's (`zonedTime`), and UTC's while it was at none.
+ */
+function zoneOf(machine: MachineView): Zone {
+  return (at) => zonedTime(new Date(at), locationAt(machine, Date.parse(at))?.timeZone);
+}
+
+function zoneMaybe(zone: Zone, at: string | null): string | null {
+  return at === null ? null : zone(at);
+}
+
+/** The Location the Machine was at, at a moment, by its Location History, oldest first; null before its first entry. */
+function locationAt(machine: MachineView, at: number): LocationView | null {
+  let found: LocationView | null = null;
+  for (const entry of machine.locationHistory) {
+    if (Date.parse(entry.effectiveFrom) > at) break;
+    found = entry.location;
+  }
+  return found;
+}
+
+/**
+ * A bound of a range of the Machine's activity as a moment: one given with
+ * its offset as itself, and a date as when that day began at the Location
+ * the Machine was at, or for an end the day after it, through its end, in
+ * UTC while it was at none. The day's Location is the one it was at at noon
+ * UTC that day, within the day nearly everywhere, which differs only on a
+ * day it moved between time zones.
+ */
+function boundOf(bound: string | undefined, machine: MachineView, end: boolean): Date | null {
+  if (bound === undefined) return null;
+  if (!isDay(bound)) return new Date(bound);
+  return startOfDay(bound, locationAt(machine, Date.parse(`${bound}T12:00:00Z`))?.timeZone, end ? 1 : 0);
+}
+
+function listed(machine: MachineView, zone: Zone): z.infer<typeof listedMachine> {
   return {
     id: machine.id,
     name: machine.name,
     model: machine.model,
     location: machine.location && locationOf(machine.location),
     online: machine.online,
-    lastSeenAt: machine.lastSeenAt,
-    machineState: machine.machineState && { state: machine.machineState.state, substate: machine.machineState.substate, observedAt: machine.machineState.observedAt },
-    loadedRecipe: machine.loadedRecipe && loaded(machine.loadedRecipe),
+    lastSeenAt: zoneMaybe(zone, machine.lastSeenAt),
+    machineState: machine.machineState && { state: machine.machineState.state, substate: machine.machineState.substate, observedAt: zone(machine.machineState.observedAt) },
+    loadedRecipe: machine.loadedRecipe && loaded(machine.loadedRecipe, zone),
     captureOnly: machine.captureOnly,
   };
 }
@@ -348,12 +397,18 @@ function locationOf({ id, name, timeZone }: z.infer<typeof location>): z.infer<t
   return { id, name, timeZone };
 }
 
-function loaded({ recipe, loadedAt, unloadedAt }: LoadedRecipeView): z.infer<typeof loadedRecipe> {
-  return { recipe: { id: recipe.id, name: recipe.name, slot: recipe.slot, locationId: recipe.locationId, archived: recipe.archived }, loadedAt, unloadedAt };
+function loaded({ recipe, loadedAt, unloadedAt }: LoadedRecipeView, zone: Zone): z.infer<typeof loadedRecipe> {
+  return {
+    recipe: { id: recipe.id, name: recipe.name, slot: recipe.slot, locationId: recipe.locationId, archived: recipe.archived },
+    loadedAt: zone(loadedAt),
+    unloadedAt: zoneMaybe(zone, unloadedAt),
+  };
 }
 
-function collection(view: CollectionView | null): z.infer<typeof settingsCollection> {
-  return view && { available: view.available, reportedAt: view.reportedAt, receivedAt: view.receivedAt, value: view.value, utcOffsetMinutes: view.utcOffsetMinutes };
+function collection(view: CollectionView | null, zone: Zone): z.infer<typeof settingsCollection> {
+  return (
+    view && { available: view.available, reportedAt: zone(view.reportedAt), receivedAt: zoneMaybe(zone, view.receivedAt), value: view.value, utcOffsetMinutes: view.utcOffsetMinutes }
+  );
 }
 
 function changeOf({ change, kind, item, localId }: ChangeView) {

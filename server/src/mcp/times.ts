@@ -10,17 +10,17 @@ const DAY = /^\d{4}-\d\d-\d\d$/;
 /** A moment PostgreSQL reads, which ISO 8601 alone doesn't bound: from year 1, with an offset of at most 15:59. */
 const MOMENT = /^(?!0000)\d{4}-.*(?:Z|[+-](?:0\d|1[0-5]):[0-5]\d)$/;
 
-/** A time range's bound: a date, for each Location's day, or a moment with its offset. */
-export function timeBound(description: string) {
+/** What a date given for a record list's bound means. */
+const RECORDS_DAY = "A date, such as 2026-11-06, is that day at each Location, in its own time zone, and in UTC for a record whose Location is unknown.";
+
+/** A time range's bound: a date, for each Location's day (`day` says whose), or a moment with its offset. */
+export function timeBound(description: string, day = RECORDS_DAY) {
   return z
     .union([z.iso.date(), z.iso.datetime({ offset: true })], {
       error: "Enter a date, such as 2026-11-06, or a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00",
     })
     .optional()
-    .describe(
-      `${description} A date, such as 2026-11-06, is that day at each Location, in its own time zone, and in UTC for a record whose Location is unknown. ` +
-        "A time with its offset, such as 2026-11-06T14:30:00-05:00, is that moment everywhere.",
-    );
+    .describe(`${description} ${day} A time with its offset, such as 2026-11-06T14:30:00-05:00, is that moment everywhere.`);
 }
 
 /**
@@ -44,6 +44,25 @@ export function timeRange(from: string | undefined, to: string | undefined): { q
     throw new BadRequestException("Choose an end after the start");
   }
   return { query, filters };
+}
+
+/** Whether a bound is a date, for a day, rather than a moment. */
+export function isDay(bound: string): boolean {
+  return DAY.test(bound);
+}
+
+/**
+ * When a day, or the day `days` after it, began in a time zone, UTC's for
+ * none or for a zone this runtime doesn't know: its first moment, which
+ * daylight saving time may move from midnight.
+ */
+export function startOfDay(day: string, timeZone: string | null | undefined, days = 0): Date {
+  const date = Temporal.PlainDate.from(day).add({ days });
+  try {
+    return new Date(date.toZonedDateTime(timeZone ?? "UTC").epochMilliseconds);
+  } catch {
+    return new Date(date.toZonedDateTime("UTC").epochMilliseconds);
+  }
 }
 
 /** A moment as given, if PostgreSQL reads it; otherwise refused, as the REST API refuses a time it can't read. */
