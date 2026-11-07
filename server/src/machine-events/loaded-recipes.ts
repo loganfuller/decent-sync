@@ -606,6 +606,24 @@ export async function loadedRecipeHistory(prisma: Prisma.TransactionClient, mach
   return { entries: rows.map(viewLoaded), total: counted?.total ?? 0, ...page };
 }
 
+/**
+ * The Machine's Loaded Recipes loaded at any time in a range, its ends as
+ * PostgreSQL takes them: each loaded before its end and unloaded after its
+ * start, if at all; latest loaded first, `take` of them after `skip`.
+ */
+export async function loadedRecipesDuring(
+  prisma: Prisma.TransactionClient,
+  machineId: string,
+  range: { from: string; to: string },
+  take: number,
+  skip: number,
+): Promise<LoadedRecipeView[]> {
+  const rows = await prisma.$queryRaw<LoadedRow[]>`${SELECT_LOADED}
+    WHERE l.machine_id = ${machineId}::uuid AND l.loaded_at < ${range.to}::timestamptz AND (l.unloaded_at IS NULL OR l.unloaded_at > ${range.from}::timestamptz)
+    ORDER BY l.loaded_at DESC, l.id DESC LIMIT ${take} OFFSET ${skip}`;
+  return rows.map(viewLoaded);
+}
+
 interface LoadedRow {
   id: bigint;
   machineId: string;

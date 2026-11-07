@@ -134,8 +134,8 @@ describe("connecting an assistant", () => {
       expect(assistant.tokens).toMatchObject({ token_type: "Bearer", expires_in: 3600, scope: "read change" });
       expect(assistant.client.getInstructions()).toContain("A day, such as \"yesterday\", is each Location's own day in its time zone.");
       const { tools } = await assistant.client.listTools();
-      expect(tools.map((tool) => tool.name)).toEqual(["list_locations"]);
-      expect(tools[0]!.annotations).toMatchObject({ readOnlyHint: true });
+      expect(tools.map((tool) => tool.name).sort()).toEqual(["get_machine", "get_machine_activity", "list_locations", "list_machines", "list_settings_edits"]);
+      for (const tool of tools) expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true });
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));
       expect(locations.find((location) => location.name === "Uptown")!.machines.map((machine) => machine.name)).toEqual(["Uptown Left", "Uptown Right"]);

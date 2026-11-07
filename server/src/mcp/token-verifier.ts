@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import type { McpTokenVerifier } from "@nestjs/mcp";
+import type { McpContext, McpTokenVerifier } from "@nestjs/mcp";
 import type { AuthInfo } from "@modelcontextprotocol/server";
 import { type ConnectedAppAccess, ConnectedAppTokens } from "../connected-apps/access.js";
 
@@ -32,4 +32,12 @@ export class AccessTokenVerifier implements McpTokenVerifier {
       extra: { access } satisfies McpCaller,
     };
   }
+}
+
+/** Who a tool call acts as, as its access token was verified for this request. */
+export function callerOf(context: McpContext): ConnectedAppAccess {
+  const caller = context.authInfo?.extra as McpCaller | undefined;
+  // The module verifies every request's token before any tool is called.
+  if (!caller) throw new Error("A tool was called without a verified access token");
+  return caller.access;
 }
