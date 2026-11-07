@@ -110,6 +110,15 @@ several server instances upgrade without taking anything offline, and a plugin
 and server a release apart work together, whichever is upgraded first (see
 [Upgrading](#upgrading)).
 
+[Milestone 6](https://github.com/loganfuller/decent-sync/issues/405) ([GitHub
+milestone](https://github.com/loganfuller/decent-sync/milestone/6)) is under
+way, and not yet in a release. People connect AI assistants, such as Claude
+and ChatGPT, through the server's MCP endpoint (see
+[Connecting an assistant](#connecting-an-assistant)). So far an assistant
+reads Locations, Machines with their activity, settings and Settings Edits,
+and Shots and Steam Records. Reading the Library, changing things, and the
+Connected Apps pages come next.
+
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
 
@@ -739,10 +748,18 @@ holding its spec, tickets and pull requests.
    on two fly.io VMs deployed blue-green. Built before the Live View, whose
    messages are the first to need it. Spec:
    [#277](https://github.com/loganfuller/decent-sync/issues/277).
-6. **Analytics.** Broader views across Machines and Locations, and Barista
+6. **[Assistants](https://github.com/loganfuller/decent-sync/milestone/6).**
+   AI assistants such as Claude and ChatGPT, on the web, a phone or a
+   computer, read and change the server's data as the person who connected
+   them, through an MCP endpoint every server instance serves (ADR-0026). Each
+   is approved through the server's own authorization server as a Connected
+   App (ADR-0027), which its person sees and disconnects. Nothing an assistant
+   does grants access or deletes anything for good. Spec:
+   [#405](https://github.com/loganfuller/decent-sync/issues/405).
+7. **Analytics.** Broader views across Machines and Locations, and Barista
    grouping, including who dialled each Recipe. Machine status, Shot filtering and comparison with the
    previous Shot on the same Machine are already in milestone 1.
-7. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
+8. **Stock.** Deliveries, transfers, counts and the coffee each shot uses.
 
 ## License
 
