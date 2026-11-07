@@ -4,6 +4,11 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Decent Sync</title>
+    <!-- The logomark, drawn into public/ by scripts/render-icons.mjs: SVG where the browser takes it, the ICO where it
+         doesn't, and the PNG on an iOS or iPadOS home screen. -->
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
     <!-- Paints the first frame in the chosen theme, before the app's JavaScript runs: src/lib/theme.ts reads the same
          key and values, and keeps the page in the theme from then on. -->
     <script>

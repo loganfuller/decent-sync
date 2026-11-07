@@ -1,4 +1,5 @@
 import { type FormEvent, type ReactNode, useState } from "react";
+import { Logo } from "@/components/logo";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -54,7 +55,7 @@ export function AuthForm({
   }
 
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-4">
+    <CentredPage>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>
@@ -101,14 +102,14 @@ export function AuthForm({
           </form>
         </CardContent>
       </Card>
-    </main>
+    </CentredPage>
   );
 }
 
 /** A centred card with a message instead of a form, such as a one-time link that can no longer be used. */
 export function AuthMessage({ title, description, children }: { title: string; description?: string; children: ReactNode }) {
   return (
-    <main className="flex min-h-svh items-center justify-center bg-background p-4">
+    <CentredPage>
       <Card className="w-full max-w-sm">
         <CardHeader>
           <CardTitle>
@@ -118,6 +119,16 @@ export function AuthMessage({ title, description, children }: { title: string; d
         </CardHeader>
         <CardContent className="grid gap-4">{children}</CardContent>
       </Card>
+    </CentredPage>
+  );
+}
+
+/** A page holding the logo and, centred below it, a card or a message, for someone not signed in or a server not reached. */
+export function CentredPage({ children }: { children: ReactNode }) {
+  return (
+    <main className="flex min-h-svh flex-col items-center justify-center gap-6 bg-background p-4">
+      <Logo className="h-10" />
+      {children}
     </main>
   );
 }
