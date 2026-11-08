@@ -58,6 +58,9 @@ describe("A Workflow delivery naming a Recipe whose slot is moving", { timeout: 
     await api.waitForMachine(machine.machine.name, (viewed) => !viewed.online, 15_000);
     const raw = await RawConnection.welcomed(server.url, hello);
     const delivery = { type: "workflow", id: randomUUID(), observedAt: new Date().toISOString(), workflow, cause: "other" };
+    const stored = async () => (await api.get<{ workflow: { workflow: Record_ } | null }>(`/machines/${machine.machine.id}/workflow`)).workflow?.workflow;
+    // A change, so the delivery stores it, its link holding the Recipe's row: one the same as the latest is not stored.
+    expect(await stored()).not.toEqual(workflow);
 
     const database = await server.connectDatabase();
     let moved: Promise<Response>;
@@ -79,8 +82,7 @@ describe("A Workflow delivery naming a Recipe whose slot is moving", { timeout: 
     expect((await moved).status).toBe(200);
     await raw.acknowledged(delivery.id);
     expect((await api.get<{ recipe: { slot: number | null } }>(`/recipes/${brazil}`)).recipe.slot).toBe(5);
-    const current = await api.get<{ workflow: { workflow: Record_ } | null }>(`/machines/${machine.machine.id}/workflow`);
-    expect(current.workflow?.workflow).toEqual(workflow);
+    expect(await stored()).toEqual(workflow);
     const viewed = await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.machine.id}`);
     expect(viewed.machine.loadedRecipe?.recipe.id).toBe(brazil);
     await raw.close();
