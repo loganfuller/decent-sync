@@ -118,11 +118,12 @@ export class SettingsHistoryService {
    */
   async changes(machineId: string, filters: SettingsHistoryFilters, page: Page, scope: Scope): Promise<SettingsHistoryPage> {
     await this.requireMachine(machineId);
-    const names = filters.collections ?? SETTINGS_HISTORY_COLLECTIONS;
+    // Each once, however often it is named.
+    const names = [...new Set(filters.collections ?? SETTINGS_HISTORY_COLLECTIONS)];
     const rows = await this.prisma.$queryRaw<Row[]>`
       SELECT id, name, value, received_at AS "receivedAt", settings_edit_id AS "settingsEditId", edited_fields AS "editedFields"
       FROM settings_history
-      WHERE machine_id = ${machineId}::uuid AND name = ANY(${[...names]}::text[])
+      WHERE machine_id = ${machineId}::uuid AND name = ANY(${names}::text[])
       ORDER BY id`;
     const found: Found[] = [];
     for (const collection of names) {
@@ -161,7 +162,9 @@ export class SettingsHistoryService {
    * `at`, by its Settings History: of the values received by then, the last
    * written, given as the REST API gives the latest value, `available` and
    * its report time that value's, as the history keeps only reports with a
-   * value; null for one with none received by then.
+   * value; null for one with none received by then, or none kept from then:
+   * a history begins with the value stored as it was first kept, at the time
+   * that value was last reported.
    */
   async asOf<Name extends SettingsHistoryCollection>(machineId: string, names: readonly Name[], at: Date): Promise<Record<Name, CollectionView | null>> {
     await this.requireMachine(machineId);

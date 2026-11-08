@@ -520,6 +520,10 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const briefToo = await through.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings", "appSettings"], includeBrief: true, limit: 1 });
       expect(instants(briefToo), who).toEqual(instants(await rest(as, "?collection=machineSettings&collection=appSettings&includeBrief=true&limit=1")));
     }
+    // A collection named twice is listed once.
+    const twice = await assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings", "machineSettings"] });
+    expect(twice).toEqual(await assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings"] }));
+    expect(twice.total).toBe(1);
     // The fan threshold the Admin's edit applied, and no change for Sam's, which was refused.
     const { changes } = await assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings"] });
     const { settingsEdits } = await api.get<{ settingsEdits: { id: string; fields: Record_ }[] }>(`${path}/settings-edits`);

@@ -177,7 +177,8 @@ function fieldLabel(collection: string, { field, before, after }: SettingsHistor
   }
   if (isEditableSettingsCollection(collection)) return labelOf(collection, field);
   const named = [after, before].map(nameOf).find((name) => name !== undefined);
-  return named ?? OTHER_LABELS[`${collection}/${field}`] ?? field;
+  // A value of another shape than Decaid's is one field, keyed "".
+  return named ?? OTHER_LABELS[`${collection}/${field}`] ?? (field || "Value");
 }
 
 /** The name an entry of the plugins, paired devices or sensors reports for itself. */

@@ -848,7 +848,9 @@ alike (ADR-0026):
   is folded wherever a range or page ends.
 - **As of a time:** of each collection's values received at or before it,
   the last written, whole as sent, with when it was received; none before
-  its first. As the history keeps only reports with a value and their
+  its first. A baseline taken from a stored value has that value's
+  `received_at`, when it was last reported, not first, so a time before it
+  gives none though the Machine held a value then. As the history keeps only reports with a value and their
   changes, what it compares none of, such as the Tablet's battery, may have
   changed since without being kept.
 
