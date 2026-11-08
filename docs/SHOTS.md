@@ -331,7 +331,16 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   (Links to the Library, above), each null when none: `beanBatch` (`{ id,
   bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`),
   `profile` (`{ id, title }`), `recipe` (`{ id, name }`) and `basket` (`{
-  id, name }`).
+  id, name }`). Each also gives what it recorded beyond those columns, read
+  from the parts of its record that hold it as the Shot page shows them
+  (`recordedDetails`), each null where it recorded none or blank text:
+  `grinderModel` and `basketName`, the names its Grinder and Basket recorded,
+  `grinderSetting`, `stopReason`, `notes` (whole), `tds` and
+  `extractionYield`. The MCP endpoint's `find_shots` lists these rows
+  compactly: each Library item by the Library's id and name, or a null id
+  and the name the Shot recorded, each field with no value left out, the
+  names people type cut beyond about 60 characters and notes beyond about
+  200, which `get_shot` reads whole, with `grinderModel` and `basketName`.
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):

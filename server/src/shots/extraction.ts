@@ -28,6 +28,34 @@ export function extractShot(record: unknown) {
 }
 
 /**
+ * What a Shot recorded beyond what its columns keep, read from its record
+ * as the management interface's Shot page shows it: the Grinder and Basket
+ * it named, by the names it recorded, its grind setting, what stopped it,
+ * and how it turned out. Each is null where it recorded none, or blank text.
+ */
+export function recordedDetails(record: unknown) {
+  const shot = object(record);
+  const context = object(object(shot.workflow).context);
+  const annotations = object(shot.annotations);
+  return {
+    grinderModel: recordedText(context.grinderModel),
+    grinderSetting: recordedText(context.grinderSetting),
+    basketName: recordedText(shotBasket(annotations, context).basketName),
+    stopReason: recordedText(shot.stopReason),
+    notes: recordedText(annotations.espressoNotes),
+    tds: number(annotations.drinkTds),
+    extractionYield: number(annotations.drinkEy),
+  };
+}
+
+/** Text Decaid recorded, or a number as its text, as the management interface shows it; null for none or blank. */
+export function recordedText(value: unknown): string | null {
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  const recorded = string(value);
+  return recorded !== null && recorded.trim() !== "" ? recorded : null;
+}
+
+/**
  * The Basket DYE2 recorded for a Shot, by its id on the tablet, as DYE2 reads
  * it (`shotBasketRpm` in dye2:dye2-plugin/src/utils/recorded-shot.ts): its
  * Edit Shot page's, in the annotations' extras, wherever that page set a
@@ -35,9 +63,13 @@ export function extractShot(record: unknown) {
  * extras.
  */
 function shotBasketId(annotations: Record<string, unknown>, context: Record<string, unknown>): string | null {
+  return string(shotBasket(annotations, context).basketId) || null;
+}
+
+/** Where a Shot's record holds the Basket DYE2 recorded, by its id and name (`shotBasketId`). */
+function shotBasket(annotations: Record<string, unknown>, context: Record<string, unknown>): Record<string, unknown> {
   const edited = object(annotations.extras);
-  const recorded = edited.basketId != null || edited.basketName != null ? edited : object(context.extras);
-  return string(recorded.basketId) || null;
+  return edited.basketId != null || edited.basketName != null ? edited : object(context.extras);
 }
 
 /**

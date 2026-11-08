@@ -124,6 +124,22 @@ describe("withinBudget", () => {
     expect(fitted).not.toHaveProperty("cut");
   });
 
+  it("gives the cut note of a tool that cut text itself again only where the entries kept still hold that text", () => {
+    // A tool, as find_shots does, cuts a name in its oldest entry and notes it first; ending the page sooner leaves that entry out.
+    const note = "Text ending in …[cut] was cut to keep this response small; never send it back in a change, which is refused. Read one whole.";
+    const shots = Array.from({ length: 50 }, (_, n) => ({ id: `shot-${n}`, parts: Array.from({ length: 6 }, () => "x".repeat(150)), barista: n === 49 ? `${"b".repeat(60)}${CUT_MARK}` : "Ann" }));
+    const fitted = withinBudget({ cut: note, ...page("shots", shots) }, { rest: "Read one whole." }, "find_shots") as unknown as Fields & { shots: Fields[] };
+    expect(fitted.more).toBe(true);
+    expect(fitted.shots.some((shot) => cutText(shot.barista))).toBe(false);
+    expect(fitted).not.toHaveProperty("cut");
+    // Where the entry is kept, the note is given first, once.
+    const kept = withinBudget({ cut: note, ...page("shots", [...shots].reverse()) }, { rest: "Read one whole." }, "find_shots") as unknown as Fields & { shots: Fields[] };
+    expect(kept.more).toBe(true);
+    expect(cutText(kept.shots[0]!.barista)).toBe(true);
+    expect(Object.keys(kept)[0]).toBe("cut");
+    expect(kept.cut).toBe(note);
+  });
+
   it("keeps one entry a page, returns what can't fit as it is then, and logs it", () => {
     const warn = vi.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
     try {

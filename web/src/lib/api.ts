@@ -523,6 +523,18 @@ export interface ShotSummary {
   recipe: NamedLink | null;
   /** The Library's Basket DYE2 recorded for it, through its tablet's ids, as the Bean Batch is. */
   basket: NamedLink | null;
+  /** The Grinder's model and the Basket's name as it recorded them, linked to the Library or not. */
+  grinderModel: string | null;
+  basketName: string | null;
+  grinderSetting: string | null;
+  /** What stopped it, as Decaid recorded it. */
+  stopReason: string | null;
+  /** As typed on the tablet. */
+  notes: string | null;
+  /** Total dissolved solids, in %. */
+  tds: number | null;
+  /** In %. */
+  extractionYield: number | null;
 }
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
