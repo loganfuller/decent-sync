@@ -4,6 +4,7 @@ import { AuthProvider, useAuth, useIsAdmin } from "@/auth";
 import { lazyPage, useNewBuildOnNavigation } from "@/lib/build";
 import { AccountsPage } from "@/pages/AccountsPage";
 import { CentredPage } from "@/pages/AuthForm";
+import { ConnectedAppsPage } from "@/pages/ConnectedAppsPage";
 import { ConnectPage } from "@/pages/ConnectPage";
 import { BasketPage } from "@/pages/BasketPage";
 import { BasketsPage } from "@/pages/BasketsPage";
@@ -57,6 +58,7 @@ export function App() {
                 </AdminOnly>
               }
             />
+            <Route path="/connected-apps" element={<ConnectedAppsPage />} />
             <Route path="/library" element={<Navigate to="/library/beans" replace />} />
             <Route path="/library/beans" element={<BeansPage />} />
             <Route path="/library/beans/:id" element={<BeanPage />} />

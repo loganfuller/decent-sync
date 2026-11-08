@@ -117,7 +117,8 @@ and ChatGPT, through the server's MCP endpoint (see
 [Connecting an assistant](#connecting-an-assistant)). So far an assistant
 reads Locations, Machines with their activity, settings and Settings Edits,
 Shots and Steam Records, and the Library with each item's history and
-Conflicts. Changing things, and the Connected Apps pages, come next.
+Conflicts, and each person sees and disconnects their Connected Apps.
+Changing things comes next.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
@@ -307,6 +308,12 @@ Registration, such as Cursor, can't connect. While Milestone 6 is under way,
 assistants only read: the tools that change things come with its later
 tickets (see [Status](#status)).
 
+Each person sees their Connected Apps on the Connected Apps page, in the
+account menu under their name, and disconnects one there, which stops it at
+once. Admins see and disconnect every account's on the Accounts page, and
+deactivating an account disconnects all of its Connected Apps, which stay
+disconnected if it is reactivated.
+
 Assistants reach the server over HTTPS only: `PUBLIC_URL` must start with
 `https://`, except for an app on the server's own computer that reaches it at
 `localhost`. Claude and ChatGPT, on the web and on phones, reach the server
@@ -318,7 +325,8 @@ that network. A reverse proxy in front of the server passes
 
 To turn assistants off, set `MCP_ENABLED=false`: the endpoint, the
 authorization server and their metadata then answer 404, and no Connected
-App's token is accepted.
+App's token is accepted. The Connected Apps pages still list and disconnect
+them.
 
 ### fly.io
 

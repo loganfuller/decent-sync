@@ -1,7 +1,8 @@
 import { type FormEvent, useCallback, useEffect, useId, useRef, useState } from "react";
 import { useAuth } from "@/auth";
+import { ConnectedAppTable } from "@/components/connected-apps";
 import { CopyField } from "@/components/copy-field";
-import { CardTitleWithInfo, PageTitleWithInfo } from "@/components/info-tip";
+import { CardTitleWithInfo, InfoTip, PageTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -23,19 +24,29 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { api, type CreatedInvite, type Invite, type IssuedPasswordReset, type ManagedAccount, type Role } from "@/lib/api";
+import {
+  type AccountConnectedApp,
+  api,
+  type CreatedInvite,
+  type Invite,
+  type IssuedPasswordReset,
+  type ManagedAccount,
+  type Role,
+} from "@/lib/api";
 
 const LIST = new Intl.ListFormat(undefined, { type: "conjunction" });
 
 /**
- * Accounts: the people who can sign in and the invites waiting to be used.
- * An Admin changes an account's role and Locations, deactivates it, issues
- * a password reset link, revokes an invite, and invites someone new.
+ * Accounts: the people who can sign in, every account's Connected Apps, and
+ * the invites waiting to be used. An Admin changes an account's role and
+ * Locations, deactivates it, issues a password reset link, disconnects a
+ * Connected App, revokes an invite, and invites someone new.
  */
 export function AccountsPage() {
   const { state, refresh } = useAuth();
   const me = state.status === "signed-in" ? state.account.id : undefined;
   const [accounts, setAccounts] = useState<ManagedAccount[]>();
+  const [connectedApps, setConnectedApps] = useState<AccountConnectedApp[]>();
   const [invites, setInvites] = useState<Invite[]>();
   const [loadError, setLoadError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
@@ -45,11 +56,13 @@ export function AccountsPage() {
 
   const reload = useCallback(async () => {
     try {
-      const [listed, waiting] = await Promise.all([
+      const [listed, connected, waiting] = await Promise.all([
         api<{ accounts: ManagedAccount[] }>("GET", "/accounts"),
+        api<{ connectedApps: AccountConnectedApp[] }>("GET", "/accounts/connected-apps"),
         api<{ invites: Invite[] }>("GET", "/invites"),
       ]);
       setAccounts(listed.accounts);
+      setConnectedApps(connected.connectedApps);
       setInvites(waiting.invites);
       setLoadError(undefined);
     } catch (error) {
@@ -111,6 +124,27 @@ export function AccountsPage() {
           onReactivate={(account) => act(() => api("POST", `/accounts/${account.id}/reactivate`), account.id)}
         />
       )}
+
+      <div className="grid gap-3">
+        <div className="flex items-center gap-1.5">
+          <h2 className="text-lg font-semibold">Connected Apps</h2>
+          <InfoTip label="About Connected Apps">
+            <p>
+              Assistant apps, such as Claude or ChatGPT, that each person allowed to act as them, within what their account
+              may do. Disconnecting one stops it at once. Deactivating an account disconnects all of its apps.
+            </p>
+          </InfoTip>
+        </div>
+        {connectedApps?.length === 0 && <p className="text-muted-foreground">No apps are connected to any account.</p>}
+        {connectedApps && connectedApps.length > 0 && (
+          <ConnectedAppTable
+            label="Connected Apps"
+            apps={connectedApps}
+            accounts
+            onDisconnect={(app) => act(() => api("POST", `/connected-apps/${app.id}/disconnect`))}
+          />
+        )}
+      </div>
 
       <div className="grid gap-3">
         <h2 className="text-lg font-semibold">Invites</h2>
@@ -222,8 +256,8 @@ function AccountTable({
                         title={account.id === me ? "Deactivate your own account?" : `Deactivate ${account.name}?`}
                         description={
                           account.id === me
-                            ? "You are signed out everywhere, including here, and can no longer sign in. Another Admin can reactivate your account."
-                            : `${account.name} is signed out everywhere and can no longer sign in. Their account is kept, and you can reactivate it later.`
+                            ? "You are signed out everywhere, including here, your Connected Apps are disconnected, and you can no longer sign in. Another Admin can reactivate your account."
+                            : `${account.name} is signed out everywhere, their Connected Apps are disconnected, and they can no longer sign in. Their account is kept, and you can reactivate it later.`
                         }
                         confirmLabel="Deactivate"
                         variant="destructive"

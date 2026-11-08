@@ -115,6 +115,25 @@ export interface CreatedInvite {
   link: string;
 }
 
+/** An assistant app, such as Claude, that a person allowed to read, or to read and change, as them (ADR-0027). */
+export interface ConnectedApp {
+  id: string;
+  /** The name the app gave itself as it was approved. */
+  name: string;
+  /** The host its client id is published at, which, unlike the name, no other app can give. */
+  host: string;
+  /** What it may do now: `read`, and `change` if it was allowed to and its account is not a Viewer. */
+  scopes: string[];
+  approvedAt: string;
+  /** Recorded at most once an hour. */
+  lastUsedAt: string;
+}
+
+/** A Connected App as an Admin sees every account's: also whose it is. */
+export interface AccountConnectedApp extends ConnectedApp {
+  account: { id: string; name: string; email: string };
+}
+
 export interface Location {
   id: string;
   name: string;

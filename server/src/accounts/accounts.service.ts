@@ -1,4 +1,5 @@
 import { BadRequestException, ConflictException, ForbiddenException, Injectable, UnauthorizedException } from "@nestjs/common";
+import { disconnectEvery } from "../connected-apps/connected-apps.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type Account, AccountRole, type Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
@@ -152,9 +153,9 @@ export class AccountsService {
 
   /**
    * Deactivates the account: its sessions end, its password reset link is
-   * withdrawn, and it can no longer sign in. Everything else about it is
-   * kept. The last active Admin stays active. Deactivating one already
-   * deactivated changes nothing.
+   * withdrawn, its Connected Apps are disconnected, and it can no longer
+   * sign in. Everything else about it is kept. The last active Admin stays
+   * active. Deactivating one already deactivated changes nothing.
    */
   async deactivate(adminId: string, accountId: string): Promise<ManagedAccountView> {
     return administer(this.prisma, adminId, accountId, async (tx, account) => {
@@ -168,6 +169,8 @@ export class AccountsService {
       });
       await tx.session.deleteMany({ where: { accountId } });
       await tx.passwordReset.deleteMany({ where: { accountId } });
+      // After the account's row: an approval holds it while it makes a Connected App, so one made first is found here.
+      await disconnectEvery(tx, accountId);
       return viewManagedAccount(deactivated);
     });
   }
