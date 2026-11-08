@@ -1,5 +1,6 @@
 import { LIBRARY_ITEM_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, dye2GlobalIdOf, dye2Records, isRecordId, recipeSlotOf, sameValue } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkRecipeShots, profileOfSql } from "../shots/links.js";
@@ -515,13 +516,15 @@ export async function recordRecipeWritten(
 
 /**
  * Once the tablet's map holds its record of a Recipe under that id, which it
- * held none of: the Shots the tablet reported naming that id are linked to
- * it (`linkRecipeShots`), and a Workflow of the tablet's naming it loads it
- * (`recipeMapped`), as for a recipe DYE2's `save-recipe` made and named at
- * once, whose record reaches the server after the Workflow naming it.
+ * held none of: the Shots and Workflow changes the tablet reported naming
+ * that id are linked to it (`linkRecipeShots`, `linkWorkflowChanges`), and a
+ * Workflow of the tablet's naming it loads it (`recipeMapped`), as for a
+ * recipe DYE2's `save-recipe` made and named at once, whose record reaches
+ * the server after the Workflow naming it.
  */
 async function recordMapped(tx: Prisma.TransactionClient, tablet: ReportingTablet, recipeId: string, localId: string): Promise<void> {
   await linkRecipeShots(tx, tablet.tabletId, recipeId, localId);
+  await linkWorkflowChanges(tx, "recipe", tablet.tabletId, recipeId, localId);
   await recipeMapped(tx, tablet, localId);
 }
 

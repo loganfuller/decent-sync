@@ -484,25 +484,26 @@ model Tablet {
   /// When a `hello` with it was first accepted, by PostgreSQL's clock.
   firstSeenAt DateTime @map("first_seen_at") @db.Timestamptz(3)
 
-  machines     MachineTablet[]
-  beans        TabletBean[]
-  beanBatches  TabletBeanBatch[]
-  grinders     TabletGrinder[]
-  profiles     TabletProfile[]
-  baskets      TabletBasket[]
-  tools        TabletTool[]
-  recipes      TabletRecipe[]
-  unrecognised TabletUnrecognisedList[]
-  itemVersions ItemVersion[]
-  conflicts    Conflict[]
-  deletions    TabletDeletion[]
-  reports      TabletReport[]
-  workflow     WorkflowClear?
-  loaded       TabletLoadedRecipe?
-  leftOut      TabletLeftOut[]
-  refusals     TabletRefusal[]
-  lastApplied  TabletLastApplied?
-  shots        Shot[]
+  machines       MachineTablet[]
+  beans          TabletBean[]
+  beanBatches    TabletBeanBatch[]
+  grinders       TabletGrinder[]
+  profiles       TabletProfile[]
+  baskets        TabletBasket[]
+  tools          TabletTool[]
+  recipes        TabletRecipe[]
+  unrecognised   TabletUnrecognisedList[]
+  itemVersions   ItemVersion[]
+  conflicts      Conflict[]
+  deletions      TabletDeletion[]
+  reports        TabletReport[]
+  workflow       WorkflowClear?
+  loaded         TabletLoadedRecipe?
+  leftOut        TabletLeftOut[]
+  refusals       TabletRefusal[]
+  lastApplied    TabletLastApplied?
+  shots          Shot[]
+  workflowEvents WorkflowEvent[]
 
   @@map("tablets")
 }
@@ -766,11 +767,36 @@ model WorkflowEvent {
   receivedAt       DateTime        @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
   /// Decaid's Workflow, as sent.
   workflow         Json            @db.JsonB
+  /// Who changed it, as the delivery said (`WorkflowDelivery.cause`):
+  /// `plugin` or `other`; null for unknown, as for one stored before #434
+  /// or from a plugin that says nothing.
+  cause            String?
+  /// For a `plugin` change, the plugin's write (PLUGIN_WORKFLOW_WRITES).
+  pluginWrite      String?         @map("plugin_write")
+  /// The tablet that reported it, whose ids the Workflow names its items by;
+  /// null for one stored before #434.
+  tabletId         String?         @map("tablet_id") @db.Uuid
+  tablet           Tablet?         @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  /// The Library's Bean Batch, Grinder, Basket and Recipe the Workflow names
+  /// by that tablet's ids, through its map, as it was stored or once the map
+  /// gains the id, never unlinked after (workflow-links.ts); null for an
+  /// item never resolved, whose name the Workflow keeps. Its Profile is read
+  /// from its profile, as a Shot's is (`profileOfSql`), not stored.
+  libraryBatchId   String?         @map("library_batch_id") @db.Uuid
+  libraryBatch     BeanBatch?      @relation(fields: [libraryBatchId], references: [id], onDelete: SetNull)
+  libraryGrinderId String?         @map("library_grinder_id") @db.Uuid
+  libraryGrinder   Grinder?        @relation(fields: [libraryGrinderId], references: [id], onDelete: SetNull)
+  libraryBasketId  String?         @map("library_basket_id") @db.Uuid
+  libraryBasket    Basket?         @relation(fields: [libraryBasketId], references: [id], onDelete: SetNull)
+  recipeId         String?         @map("recipe_id") @db.Uuid
+  recipe           Recipe?         @relation(fields: [recipeId], references: [id], onDelete: SetNull)
 
   @@index([machineId, id])
   /// Over a time range, as an assistant reads a Machine's activity.
   @@index([machineId, observedAt, id])
   @@index([pendingMachineId, id])
+  /// The migrations also index those not linked yet, by their tablet and
+  /// the id each names, partially; Prisma cannot express that.
   @@map("workflow_events")
 }
 
@@ -1141,9 +1167,10 @@ model BeanBatch {
   /// its version (server/src/library/content-edits.ts).
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
-  locations BatchLocation[]
-  tablets   TabletBeanBatch[]
-  shots     Shot[]
+  locations      BatchLocation[]
+  tablets        TabletBeanBatch[]
+  shots          Shot[]
+  workflowEvents WorkflowEvent[]
 
   @@index([beanId])
   @@map("bean_batches")
@@ -1239,8 +1266,9 @@ model Grinder {
   /// `Bean.fieldEdits` keeps a Bean's.
   fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
 
-  tablets TabletGrinder[]
-  shots   Shot[]
+  tablets        TabletGrinder[]
+  shots          Shot[]
+  workflowEvents WorkflowEvent[]
 
   @@index([locationId])
   @@map("grinders")
@@ -1388,9 +1416,10 @@ model Basket {
   /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
   fieldEdits        Json      @default("{}") @map("field_edits") @db.JsonB
 
-  locations BasketLocation[]
-  tablets   TabletBasket[]
-  shots     Shot[]
+  locations      BasketLocation[]
+  tablets        TabletBasket[]
+  shots          Shot[]
+  workflowEvents WorkflowEvent[]
 
   @@index([matchKey])
   @@map("baskets")
@@ -1579,8 +1608,9 @@ model Recipe {
   /// Each content field's latest edit (ADR-0020), as `Bean.fieldEdits`.
   fieldEdits Json      @default("{}") @map("field_edits") @db.JsonB
 
-  tablets  TabletRecipe[]
-  loadedOn LoadedRecipe[]
+  tablets        TabletRecipe[]
+  loadedOn       LoadedRecipe[]
+  workflowEvents WorkflowEvent[]
 
   @@unique([locationId, slot])
   @@map("recipes")

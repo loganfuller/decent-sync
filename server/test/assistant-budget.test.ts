@@ -240,6 +240,9 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           id: randomUUID(),
           observedAt,
           workflow: derivedWorkflow({ targetDoseWeight: 18 + (n % 5) / 10, grinderSetting: String(2 + (n % 7) / 10), coffeeName: "Ethiopia Guji Hambela", baristaName: "Ann" }),
+          // Who made it, by the plugin's write of the longest name.
+          cause: "plugin",
+          pluginWrite: "loadedRecipe",
         });
       }
       const range = { machineId: roastery.machine.id, from: "2026-11-03", to: "2026-11-03" };

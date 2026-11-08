@@ -27,6 +27,14 @@ release isn't recorded: the next change this release records is compared
 with the value before it. Until a Tablet's plugin updates to this release,
 its Settings Edits' changes are recorded as made outside Decent Sync.
 
+### Who made each Workflow change
+
+Each Workflow change recorded from this release says whether Decent Sync
+made it, as when it loads a Recipe, or someone else did. Nothing is needed.
+Changes recorded before, those a Tablet's plugin of the previous release
+sends, and those an instance of the previous release stores during a deploy
+say unknown.
+
 ## 1.7.0
 
 ### Assistants connect through `/api/mcp`, on by default

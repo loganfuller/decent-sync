@@ -86,3 +86,13 @@ export function recipeNamedInWorkflow(tablet: SimulatedTablet): string | null {
   const record: unknown = id === null || !Array.isArray(records) ? undefined : records.find((entry: unknown) => (entry as { id?: unknown } | null)?.id === id);
   return record === undefined ? null : dye2GlobalIdOf(record);
 }
+
+/**
+ * Who made each of the Machine's Workflow changes the server stored, oldest
+ * first, as the REST API gives them (#434): `plugin:` and the plugin's
+ * write, `other` or `unknown`. Of its latest hundred.
+ */
+export async function workflowCauses(api: { get<T>(path: string): Promise<T> }, { machine }: { machine: { id: string } }): Promise<string[]> {
+  const { events } = await api.get<{ events: { cause: string; pluginWrite: string | null }[] }>(`/machines/${machine.id}/workflow-events?limit=100`);
+  return events.map(({ cause, pluginWrite }) => (pluginWrite === null ? cause : `${cause}:${pluginWrite}`)).reverse();
+}

@@ -470,7 +470,42 @@ export interface WorkflowDelivery {
    * at `observedAt`.
    */
   recipeNamedAt?: string;
+  /**
+   * Who changed the Workflow (WORKFLOW_CAUSES): `plugin` for a change the
+   * plugin released at the end of one of its own writes into the Workflow,
+   * which `pluginWrite` names, and `other` for any other, as a barista's on
+   * Streamline, Streamline's own or DYE2's, which the plugin can't tell
+   * apart, and the Workflow it reports as it loads or sends again. A change
+   * another writer makes while the plugin holds the Workflow's changes back
+   * for its write is released with it, so a `plugin` change may carry
+   * another writer's too. Absent, as from the previous release's plugin, it
+   * is unknown.
+   */
+  cause?: WorkflowCause;
+  /** For a `plugin` change, the first of its writes Decaid took while it was held back (PLUGIN_WORKFLOW_WRITES); absent otherwise. */
+  pluginWrite?: PluginWorkflowWrite;
 }
+
+/** Who changed a tablet's Workflow, as a Workflow delivery says (`WorkflowDelivery.cause`). */
+export const WORKFLOW_CAUSES = ["plugin", "other"] as const;
+export type WorkflowCause = (typeof WORKFLOW_CAUSES)[number];
+
+/**
+ * The plugin's own writes into the Workflow, as a `plugin` change names
+ * them (`WorkflowDelivery.pluginWrite`):
+ *
+ * - `load`: the load of the Recipe the Workflow came to name, writing what
+ *   applying the tablet's record of it leaves out (ADR-0022);
+ * - `loadedRecipe`: a change of the Loaded Recipe made elsewhere, which the
+ *   server writes (LOADED_RECIPE_KIND);
+ * - `clear`: clearing the recipe the Workflow names, as the server unloads
+ *   its Recipe or before a post of DYE2's recipes replaces its record, or
+ *   the grinder, batch and Basket a Location does not offer (WORKFLOW_KIND);
+ * - `steamOn`: the Loaded Recipe's steam temperature and time, as steam is
+ *   turned back on.
+ */
+export const PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn"] as const;
+export type PluginWorkflowWrite = (typeof PLUGIN_WORKFLOW_WRITES)[number];
 
 /** A change of the machine's state or substate, from Decaid's `stateUpdate` event. */
 export interface MachineStateDelivery {
@@ -1950,6 +1985,9 @@ function checkMachineEvent(object: Fields & { type: string }): Decoded<WorkflowD
       fields.objectField("workflow");
       fields.optionalBoolean("dye2Absent");
       if (object.recipeNamedAt !== undefined) fields.instant("recipeNamedAt");
+      if (object.cause !== undefined) fields.oneOf("cause", WORKFLOW_CAUSES);
+      if (object.cause === "plugin") fields.oneOf("pluginWrite", PLUGIN_WORKFLOW_WRITES);
+      else fields.absent("pluginWrite");
     });
   }
   return check<MachineStateDelivery>(object, "machineState", (fields) => {

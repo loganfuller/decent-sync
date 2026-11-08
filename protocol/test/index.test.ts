@@ -472,6 +472,23 @@ describe("Workflow and machine state envelopes", () => {
       problem: "workflow.recipeNamedAt must be a UTC time such as 2026-10-05T14:07:03.341Z",
     });
   });
+
+  it("reads who changed a Workflow, where it says: one of the plugin's writes, by name, or another writer", () => {
+    for (const pluginWrite of ["load", "loadedRecipe", "clear", "steamOn"]) {
+      expect(decodePluginMessage(frame({ ...workflow, cause: "plugin", pluginWrite }))).toEqual({ ok: true, message: { ...workflow, cause: "plugin", pluginWrite } });
+    }
+    expect(decodePluginMessage(frame({ ...workflow, cause: "other" }))).toEqual({ ok: true, message: { ...workflow, cause: "other" } });
+    for (const [extra, problem] of [
+      [{ cause: "barista" }, "workflow.cause must be one of plugin, other"],
+      [{ cause: null }, "workflow.cause must be one of plugin, other"],
+      [{ cause: "plugin" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn"],
+      [{ cause: "plugin", pluginWrite: "save" }, "workflow.pluginWrite must be one of load, loadedRecipe, clear, steamOn"],
+      [{ cause: "other", pluginWrite: "load" }, "workflow.pluginWrite must be absent"],
+      [{ pluginWrite: "load" }, "workflow.pluginWrite must be absent"],
+    ] as const) {
+      expect(decodePluginMessage(frame({ ...workflow, ...extra }))).toEqual({ ok: false, error: "protocol_error", problem });
+    }
+  });
 });
 
 describe("Live View messages", () => {

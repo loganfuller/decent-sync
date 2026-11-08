@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
-import { SETTINGS_HISTORY_COLLECTIONS } from "@decent-sync/protocol";
+import { PLUGIN_WORKFLOW_WRITES, SETTINGS_HISTORY_COLLECTIONS } from "@decent-sync/protocol";
 import * as z from "zod";
 import type { CollectionView } from "../collections/collections.service.js";
 import { CollectionsService } from "../collections/collections.service.js";
@@ -102,10 +102,25 @@ export const machineDetail = listedMachine.extend({
   lastShot: z.object({ id: z.string(), pulledAt: tabletTime.nullable() }).nullable(),
 });
 
+/** Who made a Workflow change, as get_machine and get_machine_activity give it. */
+const workflowCause = {
+  cause: z
+    .enum(["plugin", "other", "unknown"])
+    .describe(
+      "Who made it: plugin, one of Decent Sync's own writes, which pluginWrite names; other, anyone else, such as a barista on Streamline, Streamline itself or DYE2, which can't be told apart; unknown for one received before Decent Sync recorded this. A change someone else made while one of Decent Sync's writes was under way is given with it, as plugin.",
+    ),
+  pluginWrite: z
+    .enum(PLUGIN_WORKFLOW_WRITES)
+    .nullable()
+    .describe(
+      "For a plugin change: load, the Recipe the Workflow came to name loaded; loadedRecipe, an edit of the Loaded Recipe made elsewhere written into it; clear, the Recipe unloaded, or a grinder, batch or Basket the Location doesn't offer cleared; steamOn, steam turned back on at the Loaded Recipe's steam temperature and time. Null for any other.",
+    ),
+};
+
 const machineOutput = z.object({
   machine: machineDetail,
   workflow: z
-    .object({ observedAt: tabletTime, receivedAt: time, workflow: z.record(z.string(), z.unknown()).describe("Decaid's Workflow, as sent.") })
+    .object({ observedAt: tabletTime, receivedAt: time, ...workflowCause, workflow: z.record(z.string(), z.unknown()).describe("Decaid's Workflow, as sent.") })
     .nullable()
     .describe("Its Workflow: what it is set up to do next, as its tablet last reported it; null before any."),
   machineSettings: z
@@ -158,7 +173,7 @@ const activityPage = <T extends z.ZodType>(entry: T, what: string) => z.object({
 
 const activityOutput = z.object({
   workflowChanges: activityPage(
-    z.object({ observedAt: tabletTime, receivedAt: time, workflow: workflowSummaryOutput }),
+    z.object({ observedAt: tabletTime, receivedAt: time, ...workflowCause, workflow: workflowSummaryOutput }),
     "Its Workflow each time it changed, latest first, each what it was set up to do next from then. One observed at or before the range's start, last, is the one in effect as it began.",
   ),
   loadedRecipes: activityPage(loadedRecipe, "Each Recipe loaded at any time in the range, latest loaded first."),
@@ -331,7 +346,13 @@ export class MachinesTools {
     const [machineSettings, advancedSettings, machineCalibration, sensorCalibration, appSettings, presenceSettings] = settings.map((view) => collection(view, zone));
     return {
       machine: detailed(machine),
-      workflow: workflow && { observedAt: zone(workflow.observedAt), receivedAt: zone(workflow.receivedAt), workflow: workflow.workflow },
+      workflow: workflow && {
+        observedAt: zone(workflow.observedAt),
+        receivedAt: zone(workflow.receivedAt),
+        cause: workflow.cause,
+        pluginWrite: workflow.pluginWrite,
+        workflow: workflow.workflow,
+      },
       machineSettings: { machineSettings: machineSettings!, advancedSettings: advancedSettings!, machineCalibration: machineCalibration!, sensorCalibration: sensorCalibration! },
       tabletSettings: { appSettings: appSettings!, presenceSettings: presenceSettings! },
       sharingStatus: {
@@ -347,7 +368,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives the parts of the Workflow the management interface shows: dose and yield in grams, brewTemperature in °C (its Profile's first step's), and steam, hot water and flush settings in °C, seconds, ml/s and ml. A Machine State lasts until the next one reported.`,
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives who made it, Decent Sync itself (plugin) or anyone else, and the parts of the Workflow the management interface shows: dose and yield in grams, brewTemperature in °C (its Profile's first step's), and steam, hot water and flush settings in °C, seconds, ml/s and ml. A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
@@ -368,7 +389,13 @@ export class MachinesTools {
     const paged = <T, R>(list: ActivityPage<T> | undefined, view: (entry: T) => R) =>
       list && { ...pageOf(list.total, offset, list.entries.length), entries: list.entries.map(view) };
     return {
-      workflowChanges: paged(activity.workflowChanges, (event) => ({ observedAt: zone(event.observedAt), receivedAt: zone(event.receivedAt), workflow: workflowSummary(event.workflow) })),
+      workflowChanges: paged(activity.workflowChanges, (event) => ({
+        observedAt: zone(event.observedAt),
+        receivedAt: zone(event.receivedAt),
+        cause: event.cause,
+        pluginWrite: event.pluginWrite,
+        workflow: workflowSummary(event.workflow),
+      })),
       loadedRecipes: paged(activity.loadedRecipes, (entry) => loaded(entry, zone)),
       machineStates: paged(activity.machineStates, ({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),
     };

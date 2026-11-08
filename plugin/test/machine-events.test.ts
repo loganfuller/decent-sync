@@ -113,6 +113,98 @@ describe("Workflow changes held while the plugin writes into the Workflow", () =
   });
 });
 
+describe("Who changed the Workflow", () => {
+  /** Each Workflow delivery's dose and cause, with the plugin's write where it names one. */
+  const causes = (deliveries: (WorkflowDelivery | MachineStateDelivery)[]) =>
+    deliveries.flatMap((delivery) =>
+      delivery.type === "workflow" ? [[(delivery.workflow.context as Workflow).targetDoseWeight, delivery.cause, ...(delivery.pluginWrite ? [delivery.pluginWrite] : [])]] : [],
+    );
+
+  it("sends a change reported while nothing is held as another's, and one released after a write of the plugin's Decaid took as the plugin's, by that write", () => {
+    const { machineEvents, deliveries } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    for (const write of ["load", "loadedRecipe", "clear", "steamOn"] as const) {
+      // As LoadedRecipes.ownWrite does: Decaid reports the write's change before it answers it.
+      machineEvents.hold();
+      machineEvents.workflowUpdated(dosed(19));
+      machineEvents.wrote(write);
+      machineEvents.release();
+      machineEvents.workflowUpdated(dosed(18));
+    }
+    expect(causes(deliveries)).toEqual([
+      [18, "other"],
+      ...["load", "loadedRecipe", "clear", "steamOn"].flatMap((write) => [
+        [19, "plugin", write],
+        [18, "other"],
+      ]),
+    ]);
+  });
+
+  it("sends a change made by another while the plugin's write was held back with it, as the plugin's, by the first write Decaid took", () => {
+    const { machineEvents, deliveries } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    // A save into the Loaded Recipe holds a barista's change, then turns steam back on first, as with the Recipe's load after it.
+    machineEvents.hold();
+    machineEvents.workflowUpdated(dosed(19));
+    machineEvents.hold();
+    machineEvents.workflowUpdated(dosed(20));
+    machineEvents.wrote("steamOn");
+    machineEvents.release();
+    machineEvents.hold();
+    machineEvents.workflowUpdated(dosed(21));
+    machineEvents.wrote("load");
+    machineEvents.release();
+    expect(causes(deliveries)).toEqual([[18, "other"]]);
+    machineEvents.release();
+    expect(causes(deliveries)).toEqual([
+      [18, "other"],
+      [21, "plugin", "steamOn"],
+    ]);
+  });
+
+  it("sends a change held back while no write of the plugin's was taken as another's, as during a save, or a write Decaid refused", () => {
+    const { machineEvents, deliveries } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    machineEvents.hold();
+    machineEvents.workflowUpdated(dosed(19));
+    machineEvents.release();
+    // Told of a write outside a hold, as none is, it changes nothing.
+    machineEvents.wrote("load");
+    machineEvents.workflowUpdated(dosed(20));
+    // A write Decaid took that changed nothing: the next change is another's.
+    machineEvents.hold();
+    machineEvents.wrote("loadedRecipe");
+    machineEvents.release();
+    machineEvents.workflowUpdated(dosed(21));
+    expect(causes(deliveries)).toEqual([
+      [18, "other"],
+      [19, "other"],
+      [20, "other"],
+      [21, "other"],
+    ]);
+  });
+
+  it("sends the Workflow sent again on a welcome as another's, alone or held back, but where a write of the plugin's made a change held with it", () => {
+    const { machineEvents, deliveries } = events();
+    machineEvents.workflowUpdated(dosed(18));
+    machineEvents.welcome();
+    machineEvents.hold();
+    machineEvents.welcome();
+    machineEvents.release();
+    machineEvents.hold();
+    machineEvents.welcome();
+    machineEvents.workflowUpdated(dosed(19));
+    machineEvents.wrote("clear");
+    machineEvents.release();
+    expect(causes(deliveries)).toEqual([
+      [18, "other"],
+      [18, "other"],
+      [18, "other"],
+      [19, "plugin", "clear"],
+    ]);
+  });
+});
+
 describe("DYE2 absent", () => {
   it("sends a Workflow naming a recipe again as DYE2 goes and comes back, every delivery meanwhile saying so, and once held, as released", () => {
     const { machineEvents, deliveries } = events();
