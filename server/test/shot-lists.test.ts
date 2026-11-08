@@ -218,6 +218,27 @@ describe("Shots lists", () => {
     expect(await ids({ machineId: lab1.machine.id, pendingMachineId })).toEqual([]);
   });
 
+  it("matches each text filter exactly by default, as the Shots page's choices pass what Shots recorded, and by each word anywhere, ignoring case, with match=words", async () => {
+    expect(await ids({ coffeeName: "ethiopia guji" })).toEqual([]);
+    expect(await ids({ coffeeName: "ethiopia guji", match: "exact" })).toEqual([]);
+    expect(await ids({ coffeeName: "Ethiopia Guji", match: "exact" })).toEqual(await ids({ coffeeName: ethiopia.bean }));
+    // Each word anywhere in what the Shot recorded, in any order, each filter its own words.
+    const words = (query: Record<string, string>) => ids({ ...query, match: "words" });
+    expect(await words({ coffeeName: "guji ETHIOPIA" })).toEqual(await ids({ coffeeName: ethiopia.bean }));
+    expect(await words({ coffeeRoaster: "roux", coffeeName: "GUJ" })).toEqual(await ids({ coffeeRoaster: ethiopia.roaster, coffeeName: ethiopia.bean }));
+    // All but the Kenya Nyeri and the Shot that recorded no Bean, the rest recording an Ethiopia Guji or the real Shot's Ethiopia Generic 100g Sample.
+    expect(await words({ coffeeName: "ethiopia" })).toHaveLength(21);
+    expect(await words({ coffeeName: "guji kenya" })).toEqual([]);
+    expect(await words({ barista: "an" })).toEqual(await ids({ barista: "Ann" }));
+    expect(await words({ profileTitle: "bloom" })).toEqual(await ids({ profileTitle: "Blooming" }));
+    // A filter of no words finds the Shots that recorded none, as an empty one does; what LIKE reads specially is itself.
+    expect(await words({ coffeeRoaster: " ", coffeeName: "" })).toEqual(["lab-blank"]);
+    expect(await words({ barista: "\t " })).toEqual(["lab-blank"]);
+    for (const special of ["%", "_", "\\"]) expect(await words({ coffeeName: special }), special).toEqual([]);
+    expect(await problem("match=loose")).toEqual({ status: 400, message: ["Enter match as exact or words"] });
+    expect(await problem("match=words&match=exact")).toEqual({ status: 400, message: ["Give match once"] });
+  });
+
   it("reads times in each Shot's own Location's time zone, and UTC for Shots with none", async () => {
     // 06:00 to noon on February 10 is 13:00 to 19:00 UTC at the Lab, 12:00 to 18:00 at Uptown, and 06:00 to 12:00 without a Location.
     expect(await ids({ from: "2026-02-10T06:00", to: "2026-02-10T12:00" })).toEqual(["lab-feb-morning", "uptown-feb-morning", "roaming-dawn"]);

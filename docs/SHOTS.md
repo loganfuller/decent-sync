@@ -348,8 +348,14 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     Shots with no Location. A malformed id is a 404, as in a path.
   - `coffeeRoaster` and `coffeeName` (together, a Bean as each Shot recorded
     it, so the same Bean is found across Machines), `barista` and
-    `profileTitle`: exact matches on what the Shot recorded. An empty value
-    matches Shots that recorded none.
+    `profileTitle`: exact matches on what the Shot recorded, as the Shots
+    page's choices pass them. An empty value matches Shots that recorded
+    none.
+  - `match`: `exact`, the default, or `words`, for those four to match each
+    of their words anywhere in what the Shot recorded, in any order and
+    ignoring case, as the MCP endpoint's `find_library_items` matches names;
+    one of no words, only spaces, then matches Shots that recorded none, as
+    an empty one does. The MCP endpoint's `find_shots` matches words.
   - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
     or Grinder (Links to the Library, above), whichever tablet's id for it
     they recorded, so a batch is compared across Machines and Locations;
@@ -374,7 +380,11 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   roastDate }`, as the Bean Batches list orders them), Grinders (`{ id,
   model, location }`, by model, then Location), Recipes (`{ id, name,
   location }`, by name, then Location) and Baskets (`{ id, name }`, by name)
-  listed Shots are linked to, with null last for Shots linked to none.
+  listed Shots are linked to, with null last for Shots linked to none. The
+  MCP endpoint's `list_shot_values` gives the same lists, each a page at a
+  time, `kinds` asking for some alone: each Bean as `{ roaster, name }`, the
+  profile titles as `profileTitles`, a roast date as its day, and a
+  Location as `{ id, name }`.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
