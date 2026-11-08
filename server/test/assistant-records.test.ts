@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { SHOT_CURVES, STEAM_CURVES, globalIdOf, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt } from "@decent-sync/protocol";
+import { SHOT_CURVES, STEAM_CURVES, globalIdOf, lastRecordedWeight, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt, stepSpans } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -55,6 +55,10 @@ interface RestShot {
   notes: string | null;
   record?: Fields;
   previousShot?: { id: string; pulledAt: string } | null;
+  /** Only in a Shot read on its own. */
+  steps?: { frame: number; name: string; from: number; until: number }[];
+  lastStep?: { frame: number; name: string } | null;
+  lastRecordedWeight?: { weight: number; seconds: number } | null;
 }
 
 /** A Steam Record as the REST API lists or shows it. */
@@ -98,8 +102,9 @@ interface Page {
   more: boolean;
 }
 
-/** What a tool's summary of a Shot holds, from the REST API's, but for its time, which `sameTimes` compares. */
+/** What a tool's summary of a Shot holds, from the REST API's, but for its time, which `sameTimes` compares, its last recorded weight to hundredths. */
 function shotSummary(shot: RestShot): Fields {
+  const weight = shot.lastRecordedWeight;
   return {
     id: shot.id,
     machine: shot.machine,
@@ -117,12 +122,18 @@ function shotSummary(shot: RestShot): Fields {
     actualDose: shot.actualDose,
     targetYield: shot.targetYield,
     actualYield: shot.actualYield,
+    lastRecordedWeight: weight && { weight: hundredths(weight.weight), seconds: hundredths(weight.seconds) },
     duration: shot.duration,
     enjoyment: shot.enjoyment,
     barista: shot.barista,
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
   };
+}
+
+/** A Shot's steps as a tool gives them, from the REST API's, their seconds to hundredths. */
+function toolSteps(steps: NonNullable<RestShot["steps"]>): Fields[] {
+  return steps.map((step) => ({ ...step, from: hundredths(step.from), until: hundredths(step.until) }));
 }
 
 /**
@@ -184,8 +195,8 @@ function sameTimes(tool: (string | null)[], rest: (string | null)[]): void {
   expect(tool.map((time) => time && Date.parse(time))).toEqual(rest.map((time) => time && Date.parse(time)));
 }
 
-/** A curve's highest reading as the tool rounds it. */
-const hundredths = (value: number) => Math.round(value * 100) / 100;
+/** A value as the tool rounds it, and JSON then sends it, -0 as 0. */
+const hundredths = (value: number) => Math.round(value * 100) / 100 || 0;
 const peak = (readings: number[]) => hundredths(Math.max(...readings));
 
 describe("reading Shots and Steam Records through an assistant", () => {
@@ -579,8 +590,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, ...summary } = read;
+    const { pulledAt, previousShot, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, steps, lastStep, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
+    expect({ steps, lastStep }).toEqual({ steps: toolSteps(rest.steps!), lastStep: rest.lastStep });
     sameTimes([pulledAt], [rest.pulledAt]);
     expect(pulledAt).toMatch(/-0[56]:00$/);
     expect({ grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason }).toEqual({
@@ -622,6 +634,56 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // The peaks the Shot shows, which leave out its Preheat, are kept too.
     expect(Math.max(...curves.pressure!.values.filter(([seconds]) => seconds >= 0).map(([, value]) => value))).toBe(hundredths(rest.peakPressure!));
     expect(Math.max(...curves.flow!.values.filter(([seconds]) => seconds >= 0).map(([, value]) => value))).toBe(hundredths(rest.peakFlow!));
+  });
+
+  it("gives the steps of its Profile a Shot ran, the one it ended in and its last recorded weight, without curves, as the REST API does, timed as its curves", async () => {
+    const fixture = preheatShotFixture();
+    const workflow = fixture.workflow as Record<string, Fields>;
+    const measurements = fixture.measurements as Fields[];
+    const recorded = { ...workflow, machine: { ...workflow.machine, model: hardware.uptown1.model, serialNumber: hardware.uptown1.serial } };
+    // Derived from the real Shot with a Preheat, which ran to its Profile's last step: stopped in Pressurize, before
+    // its Profile's last two steps; stopped in its Preheat; and pulled without a scale.
+    const shots: Record<string, Fields[]> = {
+      "assistant-stopped-early": measurements.slice(0, 120),
+      "assistant-stopped-in-preheat": measurements.slice(0, 43),
+      "assistant-no-scale": measurements.map((sample) => ({ ...sample, scale: null })),
+    };
+    await deliverShots(uptown1, hardware.uptown1, Object.entries(shots).map(([id, samples]) => ({ ...fixture, id, workflow: recorded, measurements: samples })));
+    type Read = { steps: Fields[]; lastStep: Fields | null; lastRecordedWeight: { weight: number; seconds: number } | null };
+    const reads: Record<string, Read> = {};
+    const rests: Record<string, RestShot> = {};
+    for (const [id, samples] of Object.entries(shots)) {
+      // The REST API's, from the samples the Shot page reads, and the tool's the same, to hundredths.
+      const rest = (rests[id] = (await api.get<{ shot: RestShot }>(`/shots/${id}`)).shot);
+      const read = shotSamples(samples, workflow.profile);
+      const steps = stepSpans(read);
+      expect(rest.steps, id).toEqual(steps);
+      expect(rest.lastStep, id).toEqual(steps.length === 0 ? null : { frame: steps.at(-1)!.frame, name: steps.at(-1)!.name });
+      expect(rest.lastRecordedWeight, id).toEqual(lastRecordedWeight(read));
+      const tool = await assistant.call<ToolShot & Read>("get_shot", { id });
+      expect(tool).not.toHaveProperty("curves");
+      expect(tool.steps, id).toEqual(toolSteps(rest.steps!));
+      expect(tool.lastStep, id).toEqual(rest.lastStep);
+      expect(tool.lastRecordedWeight, id).toEqual(shotSummary(rest).lastRecordedWeight);
+      reads[id] = tool;
+    }
+    const early = reads["assistant-stopped-early"]!;
+    expect(early.steps.map((step) => step.name)).toEqual(["Prefill", "Compressing", "Dripping", "Pressurize"]);
+    expect(early.steps[0]).toMatchObject({ frame: 0, from: 0 });
+    expect(early.lastStep).toEqual({ frame: 4, name: "Pressurize" });
+    // Its last weight is its weight curve's last point.
+    expect(early.lastRecordedWeight).toEqual({ weight: 4.6, seconds: early.steps.at(-1)!.until });
+    const { curves } = await assistant.call<{ curves: { weight: Curve } }>("get_shot", { id: "assistant-stopped-early", curves: true });
+    expect(curves.weight.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.lastRecordedWeight!.weight]);
+    // Stopped in its Preheat, it ran no step, and its scale's last weight is before 0 s.
+    const preheat = reads["assistant-stopped-in-preheat"]!;
+    expect({ steps: preheat.steps, lastStep: preheat.lastStep }).toEqual({ steps: [], lastStep: null });
+    expect(preheat.lastRecordedWeight).toMatchObject({ weight: 0 });
+    expect(rests["assistant-stopped-in-preheat"]!.lastRecordedWeight!.seconds).toBeLessThan(0);
+    // Without a scale, it has its steps but no last weight.
+    const unweighed = reads["assistant-no-scale"]!;
+    expect(unweighed.lastStep).toEqual({ frame: 6, name: "Extraction" });
+    expect(unweighed.lastRecordedWeight).toBeNull();
   });
 
   it("finds Steam Records as the REST API lists them, counting a day per Location, and reads one with its curves only when asked, its start-up, pauses, puffs and purge marked as the management interface shows them", async () => {

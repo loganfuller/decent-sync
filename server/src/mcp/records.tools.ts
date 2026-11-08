@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { SHOT_CURVES, STEAM_CURVES, shotSamples, steamSamples, steamStopAt } from "@decent-sync/protocol";
+import { SHOT_CURVES, STEAM_CURVES, steamSamples, steamStopAt } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
@@ -8,7 +8,7 @@ import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf } from "./budget.js";
-import { curveSchema, curvesOf, shadedSchema } from "./curves.js";
+import { curveSchema, curvesOf, hundredths, shadedSchema } from "./curves.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
@@ -46,12 +46,18 @@ const shotSummary = z.object({
   actualDose: z.number().nullable().describe("Weighed, in grams."),
   targetYield: z.number().nullable().describe("In grams."),
   actualYield: z.number().nullable().describe("Weighed, in grams."),
+  lastRecordedWeight: z
+    .object({ weight: z.number(), seconds: z.number() })
+    .nullable()
+    .describe("The scale's last weight sample, in grams, at its seconds on its curves' axis, just before the stop; null without scale samples."),
   duration: seconds("How long its profile ran, leaving out its Preheat"),
   enjoyment: z.number().nullable().describe("As rated on the tablet."),
   barista: z.string().nullable(),
   peakPressure: z.number().nullable().describe("In bar, leaving out its Preheat."),
   peakFlow: z.number().nullable().describe("In ml/s, leaving out its Preheat."),
 });
+
+const step = z.object({ frame: z.number().describe("Its index among its Profile's steps, from 0."), name: z.string() });
 
 const shotDetails = shotSummary.extend({
   grinderSetting: z.string().nullable().describe("Its Grinder's setting, as its Workflow recorded it."),
@@ -60,6 +66,10 @@ const shotDetails = shotSummary.extend({
   extractionYield: z.number().nullable().describe("In %."),
   notes: z.string().nullable().describe("As typed on the tablet."),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
+  lastStep: step.nullable().describe("The step of its Profile it ended in; null when it stopped in its Preheat."),
+  steps: z
+    .array(step.extend({ from: z.number(), until: z.number() }))
+    .describe("The steps of its Profile it ran, in order, each from and until in seconds on its curves' axis, until where the next starts or it ends."),
   previousShot: z
     .object({ id, pulledAt: z.string() })
     .nullable()
@@ -161,6 +171,10 @@ const SHOT_UNITS =
 const STOP_REASONS =
   "stopReason is what Decaid recorded stopping it: targetWeight, Decaid stopping it as the scale's projected weight reached the target yield; targetVolume, Decaid stopping it at the target water volume, without a scale; machineEnded, the Machine ending it itself, as its profile finishes or it is stopped on the Machine; appStop, the Stop button in Decaid's own app; apiStop, a stop through Decaid's API, as a skin's such as Streamline's; error, the Machine going into an error state. Another value is Decaid's name for what stopped it.";
 
+/** What get_shot's steps, lastStep and lastRecordedWeight are. */
+const SHOT_STEPS =
+  "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample, in grams, at its seconds, null without one. Decaid records no sample after the stop, so it is just before the stop, not at it. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus it is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell.";
+
 /** What a Steam Record's numbers mean. */
 const STEAM_UNITS =
   "duration is in seconds, counting only the steaming, not the steam starting up, its pauses, puffs or purge. Milk temperatures are in °C, peakMilkTemperature leaving out a reading carried over from the Steam Record before.";
@@ -246,7 +260,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} Its curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks: pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
     inputSchema: z.object({ id: id.describe("The Shot's id."), curves: curvesInput }),
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
@@ -254,8 +268,8 @@ export class RecordsTools {
     budget: { rest: "Asked for without curves, it has more of its text." },
   })
   async getShot({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof shotDetails>> {
-    const shot = await this.shots.get(id);
-    const record = object(shot.record);
+    // One read of its measurements, for its steps, last weight and curves.
+    const { shot, samples } = await this.shots.read(id);
     const timeZone = shot.location?.timeZone;
     return {
       ...shotSummaryOf(shot),
@@ -265,10 +279,10 @@ export class RecordsTools {
       extractionYield: shot.extractionYield,
       notes: shot.notes,
       stopReason: shot.stopReason,
+      lastStep: shot.lastStep,
+      steps: shot.steps.map(({ from, until, ...step }) => ({ ...step, from: hundredths(from), until: hundredths(until) })),
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
-      ...(curves && {
-        curves: curvesOf(shotSamples(await this.shots.measurements(id), object(record.workflow).profile), SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }),
-      }),
+      ...(curves && { curves: curvesOf(samples, SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }) }),
     };
   }
 
@@ -388,6 +402,7 @@ function shotSummaryOf(shot: ShownShot): z.infer<typeof shotSummary> {
     actualDose: shot.actualDose,
     targetYield: shot.targetYield,
     actualYield: shot.actualYield,
+    lastRecordedWeight: shot.lastRecordedWeight && { weight: hundredths(shot.lastRecordedWeight.weight), seconds: hundredths(shot.lastRecordedWeight.seconds) },
     duration: shot.duration,
     enjoyment: shot.enjoyment,
     barista: shot.barista,

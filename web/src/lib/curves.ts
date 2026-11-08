@@ -2,7 +2,7 @@
 // package reads from its measurements (`shotSamples`, `steamSamples`), which
 // the server's MCP tools read too.
 
-import { type Sample, type Step, shadedPhaseChanges } from "@decent-sync/protocol";
+import { type Sample, type Step, shadedPhaseChanges, stepSpans } from "@decent-sync/protocol";
 
 export {
   type CurveInfo,
@@ -13,29 +13,27 @@ export {
   type ShotCurve,
   type SteamCurve,
   type Step,
+  type StepSpan,
+  lastRecordedWeight,
   profileStep,
   shadedSpans,
   shotSamples,
   steamSamples,
   steamStopAt,
+  stepSpans,
 } from "@decent-sync/protocol";
 
 /**
  * The seconds at which a Shot's samples move from one step of its Profile to
- * another: each sample whose frame differs from the last one reported before
- * it, from the first sample after Preheat on, so none is at 0 s or in
- * Preheat. A step that ends between two samples, or lasts none, shows no
- * change of its own: one change marks the frame change the samples show.
+ * another: where each step it ran but its first starts (`stepSpans`), so none
+ * is at 0 s or in Preheat. A step that ends between two samples, or lasts
+ * none, shows no change of its own: one change marks the frame change the
+ * samples show.
  */
 export function stepChanges(samples: Sample<string>[]): number[] {
-  const changes: number[] = [];
-  let frame: number | undefined;
-  for (const sample of samples) {
-    if (!sample.step) continue;
-    if (frame !== undefined && sample.step.frame !== frame) changes.push(sample.seconds);
-    frame = sample.step.frame;
-  }
-  return changes;
+  return stepSpans(samples)
+    .slice(1)
+    .map((span) => span.from);
 }
 
 /**

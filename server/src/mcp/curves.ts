@@ -137,6 +137,7 @@ function largestTriangles(read: readonly Point[], count: number): number[] {
   return chosen;
 }
 
-function hundredths(value: number): number {
+/** A value rounded to hundredths, as the curves' readings and seconds are. */
+export function hundredths(value: number): number {
   return Math.round(value * 100) / 100;
 }

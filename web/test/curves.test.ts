@@ -5,6 +5,7 @@ import preheatShot from "../../server/test/fixtures/decaid/de1pro-v0.9.0/shot-pr
 import {
   chartPoints,
   firstSecond,
+  lastRecordedWeight,
   lastSecond,
   phaseChanges,
   secondTicks,
@@ -14,6 +15,7 @@ import {
   steamSamples,
   stepAt,
   stepChanges,
+  stepSpans,
 } from "../src/lib/curves";
 
 // A Shot the test tablet's Decaid v0.9.0 recorded with a long Preheat: its
@@ -127,6 +129,24 @@ describe("a Shot's Profile steps", () => {
     expect(stepChanges(shotSamples(measurements.slice(0, 43), profile))).toEqual([]);
   });
 
+  it("gives each step it ran from its first sample to the next step's first, and the last to the Shot's last sample", () => {
+    const samples = shotSamples(measurements, profile);
+    const at = (n: number) => samples[n]!.seconds;
+    // Fill and Extraction start, which the samples never show, are left out, as the Shot page marks no change for them.
+    expect(stepSpans(samples)).toEqual([
+      { frame: 0, name: "Prefill", from: 0, until: at(67) },
+      { frame: 2, name: "Compressing", from: at(67), until: at(72) },
+      { frame: 3, name: "Dripping", from: at(72), until: at(101) },
+      { frame: 4, name: "Pressurize", from: at(101), until: at(127) },
+      { frame: 6, name: "Extraction", from: at(127), until: lastSecond(samples) },
+    ]);
+    expect(stepChanges(samples)).toEqual(stepSpans(samples).slice(1).map((span) => span.from));
+    // Derived: the real Shot stopped in Pressurize, before its Profile's last steps, ends in Pressurize, at its last sample.
+    expect(stepSpans(shotSamples(measurements.slice(0, 120), profile)).at(-1)).toEqual({ frame: 4, name: "Pressurize", from: at(101), until: at(119) });
+    // Stopped in Preheat, it ran none.
+    expect(stepSpans(shotSamples(measurements.slice(0, 43), profile))).toEqual([]);
+  });
+
   it("names a step with no name, or a frame past the Profile's steps, Step N, counting from 1", () => {
     // Derived: the real Shot's Profile with its Dripping step's name blank, and with only its first three steps.
     const blank = { ...profile, steps: profile.steps.map((step, n) => (n === 3 ? { ...step, name: " " } : step)) };
@@ -149,6 +169,7 @@ describe("a Shot's Profile steps", () => {
     const samples = shotSamples(missing, profile);
     expect(samples[110]!.step).toBeNull();
     expect(stepChanges(samples)).toEqual(stepChanges(shotSamples(measurements, profile)));
+    expect(stepSpans(samples)).toEqual(stepSpans(shotSamples(measurements, profile)));
   });
 
   it("reads the step at a chart's time from the last sample at or before it", () => {
@@ -159,6 +180,24 @@ describe("a Shot's Profile steps", () => {
     expect(stepAt(samples, -1)).toBeNull();
     expect(stepAt(samples, lastSecond(samples))?.name).toBe("Extraction");
     expect(stepAt(samples, lastSecond(samples) + 0.1)).toBeNull();
+  });
+});
+
+describe("lastRecordedWeight", () => {
+  const scaled = measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
+
+  it("is the scale's last weight the samples recorded, at its seconds", () => {
+    const samples = shotSamples(measurements);
+    expect(lastRecordedWeight(samples)).toEqual({ weight: 32.4, seconds: lastSecond(samples) });
+    // Derived: the real Shot with the scale's last two readings gone, as when it disconnects, ends at its third last.
+    const disconnected = shotSamples(scaled.map((sample, n) => (n < 166 ? sample : { ...sample, scale: null })));
+    expect(lastRecordedWeight(disconnected)).toEqual({ weight: 31.1, seconds: disconnected[165]!.seconds });
+  });
+
+  it("is null without a scale's readings", () => {
+    // Derived: the real Shot without a scale.
+    expect(lastRecordedWeight(shotSamples(scaled.map((sample) => ({ ...sample, scale: null }))))).toBeNull();
+    expect(lastRecordedWeight([])).toBeNull();
   });
 });
 
