@@ -47,6 +47,7 @@ export function AccountsPage() {
   const me = state.status === "signed-in" ? state.account.id : undefined;
   const [accounts, setAccounts] = useState<ManagedAccount[]>();
   const [connectedApps, setConnectedApps] = useState<AccountConnectedApp[]>();
+  const [connectedAppsError, setConnectedAppsError] = useState<string>();
   const [invites, setInvites] = useState<Invite[]>();
   const [loadError, setLoadError] = useState<string>();
   const [actionError, setActionError] = useState<string>();
@@ -55,19 +56,27 @@ export function AccountsPage() {
   const [reset, setReset] = useState<IssuedPasswordReset>();
 
   const reload = useCallback(async () => {
+    // On its own, so the accounts and invites show if it fails, such as from an instance of the previous release, which
+    // has no Connected Apps, during a deploy.
+    const connected = api<{ connectedApps: AccountConnectedApp[] }>("GET", "/accounts/connected-apps").then(
+      ({ connectedApps }) => {
+        setConnectedApps(connectedApps);
+        setConnectedAppsError(undefined);
+      },
+      (error: unknown) => setConnectedAppsError(error instanceof Error ? error.message : "The Connected Apps could not be loaded"),
+    );
     try {
-      const [listed, connected, waiting] = await Promise.all([
+      const [listed, waiting] = await Promise.all([
         api<{ accounts: ManagedAccount[] }>("GET", "/accounts"),
-        api<{ connectedApps: AccountConnectedApp[] }>("GET", "/accounts/connected-apps"),
         api<{ invites: Invite[] }>("GET", "/invites"),
       ]);
       setAccounts(listed.accounts);
-      setConnectedApps(connected.connectedApps);
       setInvites(waiting.invites);
       setLoadError(undefined);
     } catch (error) {
       setLoadError(error instanceof Error ? error.message : "The accounts could not be loaded");
     }
+    await connected;
   }, []);
 
   useEffect(() => {
@@ -135,6 +144,11 @@ export function AccountsPage() {
             </p>
           </InfoTip>
         </div>
+        {connectedAppsError && (
+          <Alert variant="destructive">
+            <AlertDescription>{connectedAppsError}</AlertDescription>
+          </Alert>
+        )}
         {connectedApps?.length === 0 && <p className="text-muted-foreground">No apps are connected to any account.</p>}
         {connectedApps && connectedApps.length > 0 && (
           <ConnectedAppTable

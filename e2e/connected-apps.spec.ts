@@ -146,6 +146,17 @@ test("an Admin sees every account's Connected Apps on the Accounts page and disc
   }
 });
 
+test("the Accounts page still lists accounts when Connected Apps can't be loaded, as from the previous release during a deploy", async ({ page }) => {
+  // The previous release has no such route, so it answers 404, as Nest does for any route it lacks.
+  await page.route("**/api/accounts/connected-apps", (route) =>
+    route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ message: "Cannot GET /api/accounts/connected-apps", statusCode: 404 }) }),
+  );
+  await page.goto("/accounts");
+  await expect(rows(page.getByRole("table", { name: "Accounts" }))).not.toHaveCount(0);
+  await expect(page.getByText("Cannot GET /api/accounts/connected-apps")).toBeVisible();
+  await expect(page.getByRole("table", { name: "Connected Apps" })).toHaveCount(0);
+});
+
 test("on a phone, the menu leads to the Connected Apps page, which fits the screen", async ({ browser }) => {
   const context = await browser.newContext({ baseURL: server.url(), viewport: { width: 393, height: 852 }, isMobile: true, hasTouch: true });
   try {

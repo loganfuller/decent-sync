@@ -45,7 +45,7 @@ export function ConnectedAppsPage() {
         </p>
         <p>
           Disconnecting one stops it at once. An app not used for 30 days stops working by itself, and leaves this list.
-          When each was last used is recorded at most once an hour.
+          When each was last used is recorded at most once an hour, and approving one counts as using it.
         </p>
       </PageTitleWithInfo>
 
