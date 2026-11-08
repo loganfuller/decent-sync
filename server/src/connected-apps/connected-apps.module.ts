@@ -1,19 +1,15 @@
 import { Module } from "@nestjs/common";
-import { ConnectedAppTokens } from "./access.js";
-import { AuthorizationController, AuthorizationServerMetadata } from "./authorization.controller.js";
-import { AuthorizationServer } from "./authorization-server.js";
-import { ClientMetadataDocuments } from "./client-metadata.js";
-import { ConnectedAppsCleanup } from "./cleanup.js";
+import { ConnectedAppsController } from "./connected-apps.controller.js";
+import { ConnectedAppsService } from "./connected-apps.service.js";
 
 /**
- * The authorization server assistants connect through (ADR-0027): its
- * metadata, the authorization endpoint, the consent page's routes and the
- * token endpoint, and the check of a Connected App's access token, which the
- * MCP endpoint makes on each request. Imported only while MCP_ENABLED is on.
+ * The Connected Apps pages' routes: each account's own Connected Apps, every
+ * account's for an Admin, and disconnecting one. Always imported, so with
+ * MCP_ENABLED off, when `AuthorizationServerModule` is not, people still see
+ * and disconnect the Connected Apps they have.
  */
 @Module({
-  controllers: [AuthorizationController],
-  providers: [AuthorizationServer, AuthorizationServerMetadata, ClientMetadataDocuments, ConnectedAppTokens, ConnectedAppsCleanup],
-  exports: [ConnectedAppTokens],
+  controllers: [ConnectedAppsController],
+  providers: [ConnectedAppsService],
 })
 export class ConnectedAppsModule {}

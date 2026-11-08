@@ -1,4 +1,4 @@
-import { MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
+import { ChevronDownIcon, MenuIcon, MonitorIcon, MoonIcon, SunIcon } from "lucide-react";
 import { useState } from "react";
 import { Link, NavLink, Outlet } from "react-router";
 import { useAuth, useIsAdmin } from "@/auth";
@@ -9,16 +9,18 @@ import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
+  DropdownMenuItem,
   DropdownMenuRadioGroup,
   DropdownMenuRadioItem,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
 import { chooseTheme, type ThemeChoice, useThemeChoice } from "@/lib/theme";
 
 /**
- * The signed-in frame: a header with the account and sign-out, in a menu on a narrow screen, and a page. The theme
- * button stays in the header at every width.
+ * The signed-in frame: a header with the main navigation and the account menu, which holds Connected Apps and
+ * Sign out, all in one menu on a narrow screen, and a page. The theme button stays in the header at every width.
  */
 export function Shell() {
   const { state, signOut } = useAuth();
@@ -47,16 +49,27 @@ export function Shell() {
           <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
             <MainNav className="flex flex-1 items-center gap-4 text-sm whitespace-nowrap" />
             {account && (
-              <span className="min-w-0 truncate text-sm text-muted-foreground" data-testid="signed-in-account">
-                {account.name}
-              </span>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <Button variant="ghost" size="sm" className="min-w-0 shrink text-muted-foreground" data-testid="signed-in-account">
+                    <span className="truncate">{account.name}</span>
+                    <ChevronDownIcon />
+                  </Button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem asChild>
+                    <Link to="/connected-apps">Connected Apps</Link>
+                  </DropdownMenuItem>
+                  <DropdownMenuSeparator />
+                  <DropdownMenuItem disabled={signingOut} onSelect={() => void handleSignOut()}>
+                    Sign out
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
             )}
             {account?.role === "viewer" && <ViewerRole />}
           </div>
           <ThemeMenu className="ml-auto lg:ml-0 lg:size-7" />
-          <Button variant="outline" size="sm" className="hidden lg:inline-flex" onClick={handleSignOut} disabled={signingOut}>
-            Sign out
-          </Button>
           <Sheet open={menuOpen} onOpenChange={setMenuOpen}>
             <SheetTrigger asChild>
               <Button variant="outline" size="icon" className="lg:hidden">
@@ -83,6 +96,11 @@ export function Shell() {
               </SheetHeader>
               <MainNav className="grid px-4 text-base *:py-2" onNavigate={() => setMenuOpen(false)} />
               <SheetFooter>
+                <nav aria-label="Account" className="grid text-base *:py-2">
+                  <NavLink to="/connected-apps" className={navLinkClass} onClick={() => setMenuOpen(false)}>
+                    Connected Apps
+                  </NavLink>
+                </nav>
                 <Button variant="outline" onClick={handleSignOut} disabled={signingOut}>
                   Sign out
                 </Button>

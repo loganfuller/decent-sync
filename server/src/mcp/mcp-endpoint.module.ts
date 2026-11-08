@@ -4,7 +4,7 @@ import { McpModule } from "@nestjs/mcp";
 import { Public } from "../accounts/guards.js";
 import type { Config } from "../config.js";
 import { CollectionsModule } from "../collections/collections.module.js";
-import { ConnectedAppsModule } from "../connected-apps/connected-apps.module.js";
+import { AuthorizationServerModule } from "../connected-apps/authorization-server.module.js";
 import { LibraryModule } from "../library/library.module.js";
 import { CHANGE, MCP_PATH, READ, issuerOf, resourceOf } from "../connected-apps/oauth.js";
 import { LocationsModule } from "../locations/locations.module.js";
@@ -51,7 +51,7 @@ export class McpEndpointModule implements NestModule {
         McpModule.forRoot({
           path: MCP_PATH.slice(1),
           decorators: [Public()],
-          imports: [ConnectedAppsModule],
+          imports: [AuthorizationServerModule],
           name: "decent-sync",
           title: "Decent Sync",
           version: serverVersion(),

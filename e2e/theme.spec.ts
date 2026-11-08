@@ -1,6 +1,7 @@
 import { type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
-import { signInAsAdmin } from "./support/seed.js";
+import { signOut } from "./support/locators.js";
+import { admin, signInAsAdmin } from "./support/seed.js";
 
 // The theme: Light, Dark or System, chosen from the header's Theme button and
 // kept in the browser. System, the default, follows the device's appearance
@@ -45,7 +46,7 @@ test("Light or Dark overrides the device, through a reload and a sign-out, and t
   await expectTheme(page, "dark");
   await expectChoice(page, "Dark");
 
-  await page.getByRole("banner").getByRole("button", { name: "Sign out" }).click();
+  await signOut(page, admin.name);
   await expect(page.getByRole("heading", { name: "Sign in to Decent Sync" })).toBeVisible();
   await expectTheme(page, "dark");
   await page.reload();

@@ -1,6 +1,7 @@
 import { type Browser, type BrowserContext, expect, type Page, test } from "@playwright/test";
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signOut } from "./support/locators.js";
 import { nextRefusedPoll } from "./support/polling.js";
 import { admin } from "./support/seed.js";
 
@@ -57,7 +58,7 @@ test("signing in survives a browser restart, and signing out ends the session on
   // Keep a copy of the signed-in cookie, as a browser that ignored the
   // sign-out (or someone who copied the cookie) would.
   const copied = await restarted.storageState();
-  await pageAfterRestart.getByRole("button", { name: "Sign out" }).click();
+  await signOut(pageAfterRestart, admin.name);
   await expect(pageAfterRestart).toHaveURL(/\/sign-in$/);
   await expect(pageAfterRestart.getByRole("heading", { name: "Sign in to Decent Sync" })).toBeVisible();
 
@@ -115,7 +116,7 @@ test("signing out in one tab sends another to sign-in at its next action, and ba
 
   const otherTab = await page.context().newPage();
   await otherTab.goto("/");
-  await otherTab.getByRole("button", { name: "Sign out" }).click();
+  await signOut(otherTab, admin.name);
   await expect(otherTab).toHaveURL(/\/sign-in$/);
 
   // The Locations page doesn't poll, so it learns at its next request.
@@ -138,7 +139,7 @@ async function signIn(page: Page, credentials: { email: string; password: string
 async function expectSignedIn(page: Page) {
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: `Welcome, ${admin.name}` })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Sign out" })).toBeVisible();
+  await expect(page.getByRole("banner").getByRole("button", { name: admin.name })).toBeVisible();
 }
 
 async function restart(browser: Browser, context: BrowserContext): Promise<BrowserContext> {
