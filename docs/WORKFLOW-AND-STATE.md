@@ -233,7 +233,8 @@ Workflow names by that tablet's ids (`context.beanBatchId`,
 `context.grinderId`, `context.extras.basketId` and DYE2_RECIPE_FIELD),
 resolved through the tablet's map as the event is stored, under the tablet's
 row lock (`server/src/machine-events/workflow-links.ts`). An event taken in
-at a Location (below) is stored under that Location's lock too, taken first:
+at a Location (below) is stored under that Location's lock too, taken after
+the tablet's and before the event is stored:
 its links hold the rows of the items they name for key share, and a move of
 a Recipe's slot, under that lock, waits for a key share on the Recipe's row
 (#452). An id the map does
