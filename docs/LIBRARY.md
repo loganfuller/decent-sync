@@ -470,15 +470,25 @@ and commits with a `NOTIFY` on `library_changes`, so every tablet that holds
 the item, or whose Location offers it now, is written it (Writing to
 tablets, below).
 
-An assistant makes the same changes through the MCP endpoint (ADR-0026),
-so far creating and editing Beans and Bean Batches, Archiving and restoring
-any item, and showing and hiding Profiles, Baskets and Tools and adding and
-finishing batches at Locations (`server/src/mcp/library-changes.tools.ts`,
-#411). Each calls the service its REST route calls, so it is timed, merged,
-written to tablets, limited for Staff and refused exactly as that route's,
-with the same message. It is a version from the account through its
-Connected App (`Editor` in `history.ts`), as is a Conflict keeping a value
-of it that a later edit replaced. A lapsed Connected App that a version or
+An assistant makes the same changes through the MCP endpoint (ADR-0026):
+creating and editing Beans, Bean Batches, Grinders, Baskets and Tools,
+Archiving and restoring any item, showing and hiding Profiles, Baskets and
+Tools and adding and finishing batches at Locations, and using and
+dismissing Conflicts' values (`server/src/mcp/library-changes.tools.ts`,
+#411, #412); and creating and editing Recipes, moving them between Recipe
+Slots and copying them to Locations (`server/src/mcp/recipe-changes.tools.ts`,
+#412), a Recipe's edit reaching the Workflow of every Machine that has it
+loaded as the management interface's does (ADR-0022). Each calls the
+service its REST route calls, so it is timed, merged, written to tablets,
+limited for Staff and refused exactly as that route's, with the same
+message. Each tool takes a kind's fields at the top level, by the names the
+REST API's `content` takes, and reads them again with the REST API's readers
+(`item-input.ts`), so its schema gives each field's type and what it takes
+in words (`contentFields`), and a value those readers refuse is refused with
+their message. It is a version from the account through its Connected App
+(`Editor` in `history.ts`), as is a Conflict keeping a value of it that a
+later edit replaced; dismissing a Conflict records no one, in the
+management interface either. A lapsed Connected App that a version or
 Conflict names is kept, still refused, so history goes on naming it
 (`server/src/connected-apps/cleanup.ts`).
 
@@ -2366,7 +2376,10 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    `server/test/access.test.ts`; its reads through an assistant, in
    `server/src/mcp/library.tools.ts`, whose kinds `KIND_NAMES` lists, and
    its changes, in `server/src/mcp/library-changes.tools.ts`, both of whose
-   switches over kinds then fail to compile until they read it; and,
+   switches over kinds then fail to compile until they read it, as do the
+   latter's notes on each kind's fields (`FIELD_NOTES`) until they have the
+   kind's, and its schemas of each type of field (`fieldSchema`) until they
+   have any new type's; and,
    if a Shot names it, its columns on a
    Shot (`shotLink`) and how a Shot's metadata names it
    (`server/src/shots/links.ts`).

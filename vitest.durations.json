@@ -24,6 +24,7 @@
   "server/test/assistant-library-changes.test.ts": 14,
   "server/test/assistant-library.test.ts": 15,
   "server/test/assistant-machines.test.ts": 11,
+  "server/test/assistant-recipe-changes.test.ts": 19,
   "server/test/assistant-records.test.ts": 14,
   "server/test/assistants.test.ts": 11,
   "server/test/batch-intake.test.ts": 0,
