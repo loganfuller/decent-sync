@@ -41,7 +41,7 @@ const slotInput = z.strictObject({
 const copyInput = z.strictObject({
   id: recipeId,
   locationId: id.describe("The id of the Location to copy it to, another than its own, as list_locations gives it."),
-  slot: slot.optional().describe(`The copy's. ${SLOTS} A Recipe in that slot is taken out of it. None if not given.`),
+  slot: slot.optional().describe(`The copy's. ${SLOTS} A Recipe in that slot is taken out of it. None if not given, or if next finds none free.`),
   grinderId: id
     .nullable()
     .describe("The copy's Grinder: the id of one of that Location's, not Archived, as find_library_items gives it, or null for none. A Grinder belongs to one Location, so the Recipe's own is never the copy's."),

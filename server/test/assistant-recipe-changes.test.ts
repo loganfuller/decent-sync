@@ -311,6 +311,10 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     expect(await slot(made.recipe, 1)).toBe(1);
     expect((await restItem("recipe", made.ristretto)).slot).toBeNull();
     await expect.poll(slotsOn).toEqual(["1:Assistant Espresso", "-:Assistant Ristretto"]);
+    // Its own slot again, by its id in upper case, changes nothing.
+    const moves = (await versions("recipe", made.recipe)).length;
+    expect(await slot(made.recipe.toUpperCase(), 1)).toBe(1);
+    expect(await versions("recipe", made.recipe)).toHaveLength(moves);
 
     // Each move a version at Uptown through the Connected App.
     expect((await versions("recipe", made.recipe)).slice(0, 4).map((version) => [version.location?.name, version.fields, version.source])).toEqual([
@@ -474,6 +478,9 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     const harborStaff = await person("hal-412@example.com", "staff", [harbor]);
     expect(await toolError(harborStaff.assistant, "resolve_conflict", { id: notes.id, resolution: "dismiss" })).toBe(
       await restRefusal(harborStaff.api, "POST", `/conflicts/${notes.id}/dismiss`, {}, 403),
+    );
+    expect(await toolError(harborStaff.assistant, "resolve_conflict", { id: notes.id, resolution: "use", seen: notes.current.versionId })).toBe(
+      await restRefusal(harborStaff.api, "POST", `/conflicts/${notes.id}/use`, { seen: notes.current.versionId }, 403),
     );
     expect(await toolError(assistant, "resolve_conflict", { id: notes.id, resolution: "use" })).toBe(await restRefusal(api, "POST", `/conflicts/${notes.id}/use`, {}, 400));
     expect(await toolError(assistant, "resolve_conflict", { id: notes.id, resolution: "use", seen: randomUUID() })).toBe(

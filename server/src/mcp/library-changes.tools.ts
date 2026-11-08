@@ -499,7 +499,8 @@ export class LibraryChangesTools {
     description: `Uses an open Conflict's value, which becomes the field's latest edit, written to every tablet that holds the item, or dismisses it, changing nothing else; either closes it. Its value is used only over the value now that the person was shown (seen), and is refused if the field has changed since. Staff resolve one about what a Location offers, or about a Grinder or Recipe, only at the Locations they work at: list_conflicts says whether this account may (resolvable). ${TIMES}`,
     inputSchema: conflictInput,
     outputSchema: z.object({ conflict }),
-    annotations: { ...CHANGES, idempotentHint: true },
+    // Not idempotent: a repeat is refused, as the Conflict is closed already.
+    annotations: CHANGES,
     scopes: [READ, CHANGE],
   })
   async resolveConflict({ id: conflictId, resolution, seen }: z.infer<typeof conflictInput>, context: McpContext): Promise<{ conflict: ConflictOutput }> {
