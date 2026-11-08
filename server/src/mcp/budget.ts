@@ -89,7 +89,7 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
   // As the client receives it: a Date as its text, and what is undefined left out.
   const sent = JSON.parse(JSON.stringify(response)) as Record<string, unknown>;
   const whole = (budget.whole ?? []).map((path) => path.split("/").slice(1));
-  const note = `Text ending in ${CUT_MARK} was cut to keep this response small; never send it back in a change, which is refused. ${budget.rest ?? "The management interface shows it whole."}`;
+  const note = cutNoteOf(budget);
   const fitted = (at: number, entries: number) => {
     const shape = new Shape(whole, at, entries);
     const value = shape.of(sent, []) as Record<string, unknown>;
@@ -111,6 +111,15 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
   const length = size(value);
   if (length > MAX_RESPONSE_CHARS) logger.warn(`${tool}'s response is ${length} characters, over ${MAX_RESPONSE_CHARS} even with its free text cut and its pages at one entry each`);
   return value as T;
+}
+
+/**
+ * The `cut` note a response holding cut text gives first, saying so and how
+ * to have more of it: the guard's, and a tool's that cuts text of its own to
+ * keep each entry of a list small, as find_shots does.
+ */
+export function cutNoteOf(budget: Budget): string {
+  return `Text ending in ${CUT_MARK} was cut to keep this response small; never send it back in a change, which is refused. ${budget.rest ?? "The management interface shows it whole."}`;
 }
 
 /**
@@ -190,7 +199,7 @@ function pageList(object: Record<string, unknown>): string | undefined {
 }
 
 /** Text cut to at most `at` characters, not splitting a character, ending in `CUT_MARK`; as it is if no longer than that would make it. */
-function cut(text: string, at: number): string {
+export function cut(text: string, at: number): string {
   if (text.length <= at + CUT_MARK.length) return text;
   const end = /[\uD800-\uDBFF]/.test(text.charAt(at - 1)) ? at - 1 : at;
   return text.slice(0, end) + CUT_MARK;

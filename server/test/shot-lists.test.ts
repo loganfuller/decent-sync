@@ -168,6 +168,11 @@ describe("Shots lists", () => {
     ]);
     const byId = new Map(all.shots.map((shot) => [shot.id, shot]));
     expect(byId.get("lab-feb-morning")).toMatchObject({ machineId: lab1.machine.id, location: lab, machineInferred: false, locationInferred: false });
+    // What it recorded beyond its columns, as its page shows it: the real Shot's names, setting and stop, and no
+    // notes or refractometer's readings.
+    const recorded = { grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless", grinderSetting: "8", stopReason: "targetWeight", notes: null, tds: null, extractionYield: null };
+    expect(byId.get("lab-feb-morning")).toMatchObject(recorded);
+    expect(await detail("lab-feb-morning")).toMatchObject(recorded);
     expect(byId.get("uptown-inferred")).toMatchObject({ machineId: uptown1.machine.id, location: uptown, machineInferred: true, locationInferred: true });
     // A Pending Machine's Shots, and those of a Machine that has never been at a Location, have none.
     expect(byId.get("pending-shot")).toMatchObject({ machineId: null, pendingMachineId, location: null, locationInferred: false });

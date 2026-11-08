@@ -167,25 +167,41 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       raw = await connectionOf(roastery, "43101");
     });
 
-    it("finds Shots a page at a time, each page that 50 would overrun ending sooner, and every Shot on some page once", async () => {
+    it("finds Shots 50 a page, and every Shot on some page once", async () => {
       // 60 Shots the bar's tablet pulls one morning, each linked to its Library's Bean Batch, Grinder, Basket and
-      // Profile, as the real one it is derived from is, by four Baristas, recording three Beans.
+      // Profile, as the real one it is derived from is, by four Baristas, recording three Beans. Every third is
+      // measured with a refractometer, and every other has notes, as Baristas type them while dialling in: a few
+      // words, or a few lines.
       const baristas = ["Ann", "Ben", "Cat", "Dee"];
       const beans = [
         ["Roux Bakehouse", "Ethiopia Guji Hambela"],
         ["Monogram", "Colombia El Paraiso Lychee"],
         ["Pilot", "Kenya Nyeri Gatomboya AA"],
       ];
+      const notes = [
+        "Sour, grind finer.",
+        "Sweet and balanced, a little thin; up the dose half a gram.",
+        "Ran fast after the grinder was cleaned, channelled at 12 s. Bitter finish, with a dry, ashy aftertaste; went two steps finer and redistributed before tamping.",
+      ];
       for (let n = 0; n < 60; n++) {
         const [roaster, name] = beans[n % 3]!;
-        tablet.pullShot(shotAt(`morning-${String(n).padStart(2, "0")}`, n, BAR_SERIAL, { context: { baristaName: baristas[n % 4], coffeeRoaster: roaster, coffeeName: name } }));
+        const measured = n % 3 === 0 && { drinkTds: 9.2 + (n % 5) / 10, drinkEy: 19.5 + (n % 7) / 10 };
+        const noted = n % 2 === 0 && { espressoNotes: notes[(n / 2) % 3] };
+        tablet.pullShot(
+          shotAt(`morning-${String(n).padStart(2, "0")}`, n, BAR_SERIAL, {
+            context: { baristaName: baristas[n % 4], coffeeRoaster: roaster, coffeeName: name },
+            annotations: { ...measured, ...noted },
+          }),
+        );
       }
       await expect.poll(async () => (await api.get<{ total: number }>(`/shots?machineId=${bar.machine.id}`)).total).toBe(60);
       const { ids, lengths } = await everyPage("find_shots", "shots", { machineId: bar.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: bar.machine.id }));
-      expect(lengths[0]).toBeLessThan(50);
-      const { shots } = await assistant.call<{ shots: Fields[] }>("find_shots", { machineId: bar.machine.id, limit: 1 });
-      expect(shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
+      expect(lengths).toEqual([50, 10]);
+      // About 850 characters a Shot, a quarter of them the ids of the items each names, so 50 fit, uncut.
+      const { result } = await assistant.callWithinBudget<{ shots: Fields[] }>("find_shots", { machineId: bar.machine.id, limit: 50 });
+      expect(result).not.toHaveProperty("cut");
+      expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
     });
 
     it("reads a Shot with its curves", async () => {
@@ -451,11 +467,19 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     });
 
     it("finds Shots whose names run far longer than any typed, each cut and marked, their ids whole, a page at a time", async () => {
+      const extras = (shotFixture().workflow as { context: { extras: Fields } }).context.extras;
       await deliverShots(
         raw,
         Array.from({ length: 55 }, (_, n) =>
           shotAt(`haunted-${String(n).padStart(2, "0")}`, 200 + n, "43102", {
-            context: { baristaName: hostile(3_000), coffeeRoaster: hostile(3_000), coffeeName: hostile(3_000) },
+            context: {
+              baristaName: hostile(3_000),
+              coffeeRoaster: hostile(3_000),
+              coffeeName: hostile(3_000),
+              grinderModel: hostile(3_000),
+              grinderSetting: hostile(3_000),
+              extras: { ...extras, basketName: hostile(3_000) },
+            },
             profile: { title: hostile(3_000) },
             annotations: { espressoNotes: hostile(60_000) },
           }),
@@ -466,7 +490,13 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(first.result.cut).toContain("get_shot");
       expect(first.result.shots.map((shot) => shot.id)).toEqual(Array.from({ length: first.result.shots.length }, (_, n) => `haunted-${String(54 - n).padStart(2, "0")}`));
       for (const shot of first.result.shots) {
-        expect([shot.barista, shot.profileTitle, (shot.bean as Fields).roaster, (shot.bean as Fields).name].every(cut), shot.id as string).toBe(true);
+        type Row = { barista: string; profile: Fields; beanBatch: Fields; grinder: Fields; basket: Fields; notes: string; grinderSetting: string };
+        const { barista, profile, beanBatch, grinder, basket, notes, grinderSetting } = shot as unknown as Row;
+        // The names people type each cut to about 60 characters, and its notes to about 200.
+        const names = [barista, profile.title, beanBatch.roaster, beanBatch.name, grinder.model, basket.name];
+        expect(names.every((name) => cut(name) && (name as string).length <= 60 + CUT_MARK.length), shot.id as string).toBe(true);
+        expect(cut(notes) && notes.length <= 200 + CUT_MARK.length).toBe(true);
+        expect(cut(grinderSetting)).toBe(true);
       }
       const { ids } = await everyPage("find_shots", "shots", { machineId: haunted.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: haunted.machine.id }));

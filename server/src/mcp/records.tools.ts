@@ -3,11 +3,11 @@ import { SHOT_CURVES, STEAM_CURVES, shotSamples, steamSamples, steamStopAt } fro
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
-import { number, object, string } from "../shots/extraction.js";
+import { number, object, recordedText } from "../shots/extraction.js";
 import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
-import { BudgetedTool } from "./budget.js";
+import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf } from "./budget.js";
 import { curveSchema, curvesOf, shadedSchema } from "./curves.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
@@ -74,6 +74,46 @@ const shotDetails = shotSummary.extend({
     })
     .optional()
     .describe("Only when asked for. Seconds from the start of its profile, after its Preheat."),
+});
+
+/** The most characters a name typed by people keeps in a find_shots row, and its notes, each cut beyond them ending in CUT_MARK. */
+const ROW_NAME = 60;
+const ROW_NOTES = MIN_CUT;
+
+const libraryItem = <T extends z.ZodRawShape>(names: T, what: string) =>
+  z
+    .object({ id: id.nullable(), ...names })
+    .nullable()
+    .describe(`${what}: the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded; null where it has neither.`);
+const nullableName = z.string().nullable();
+
+/** A Shot as find_shots lists it: compact, without what a list repeats, and with how it went (#437). */
+const shotRow = z.object({
+  id,
+  pulledAt: z.string().nullable().describe("When it was pulled; null when unknown."),
+  machine,
+  machineInferred: z.literal(true).optional().describe("Only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it."),
+  location: z.object({ id, name: z.string() }).nullable().describe("The Location its Machine was at then; null when unknown."),
+  locationInferred: z.literal(true).optional().describe("Only when true: its Location comes from the Location History of a Machine it is credited to by inference."),
+  recipe: z.object({ id, name: nullableName }).nullable().describe("The Recipe its Machine had loaded as it was pulled, by the Library's name."),
+  profile: libraryItem({ title: nullableName }, "The Profile it was pulled with"),
+  beanBatch: libraryItem({ roaster: nullableName, name: nullableName, roastDate: z.string().nullable() }, "The Bean Batch it used, by its Bean's roaster and name, and the Library's roast date"),
+  grinder: libraryItem({ model: nullableName }, "The Grinder it used"),
+  grinderSetting: z.string().nullable().describe("As its Workflow recorded it."),
+  basket: libraryItem({ name: nullableName }, "The Basket it used"),
+  targetDose: z.number().nullable().describe("In grams."),
+  actualDose: z.number().nullable().describe("Weighed, in grams."),
+  targetYield: z.number().nullable().describe("In grams."),
+  actualYield: z.number().nullable().describe("Weighed, in grams."),
+  duration: seconds("How long its profile ran, leaving out its Preheat"),
+  peakPressure: z.number().nullable().describe("In bar, leaving out its Preheat."),
+  peakFlow: z.number().nullable().describe("In ml/s, leaving out its Preheat."),
+  stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
+  enjoyment: z.number().nullable().describe("As rated on the tablet."),
+  barista: nullableName,
+  tds: z.number().nullable().describe("Total dissolved solids, in %."),
+  extractionYield: z.number().nullable().describe("In %."),
+  notes: z.string().nullable().describe(`As typed on the tablet, cut beyond ${ROW_NOTES} characters.`),
 });
 
 const steamSummary = z.object({
@@ -146,7 +186,11 @@ const findShotsInput = z.object({
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
   ...page,
 });
-const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotSummary) });
+const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
+const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
+
+/** What a find_shots row's fields mean, for its description. */
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over ${ROW_NAME} characters and notes over ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 const findSteamRecordsInput = z.object({
   locationId: id.optional().describe("Steam Records at this Location."),
@@ -176,19 +220,27 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time. ${SHOT_UNITS} ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot or find_library_items gives, such as a Bean's. ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { rest: "get_shot reads one Shot with more of it." },
+    budget: findShotsBudget,
   })
-  async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput>> {
+  async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
     const found = await this.shots.list(limit, offset, filters);
-    return { ...pageOf(found.total, offset, found.shots.length), shots: found.shots.map(shotSummaryOf) };
+    const cuts = { any: false };
+    const shorten = (text: string | null, at: number) => {
+      const kept = text === null ? null : cut(text, at);
+      if (kept !== text) cuts.any = true;
+      return kept;
+    };
+    const shots = found.shots.map((shot) => shotRowOf(shot, shorten));
+    // First, as the guard's note is, which says the same.
+    return { ...(cuts.any && { cut: cutNoteOf(findShotsBudget) }), ...pageOf(found.total, offset, found.shots.length), shots };
   }
 
   @BudgetedTool({
@@ -204,17 +256,15 @@ export class RecordsTools {
   async getShot({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof shotDetails>> {
     const shot = await this.shots.get(id);
     const record = object(shot.record);
-    const context = object(object(record.workflow).context);
-    const annotations = object(record.annotations);
     const timeZone = shot.location?.timeZone;
     return {
       ...shotSummaryOf(shot),
-      grinderSetting: text(context.grinderSetting),
+      grinderSetting: shot.grinderSetting,
       grinderBurrs: shot.grinderBurrs,
-      tds: number(annotations.drinkTds),
-      extractionYield: number(annotations.drinkEy),
-      notes: text(annotations.espressoNotes),
-      stopReason: text(record.stopReason),
+      tds: shot.tds,
+      extractionYield: shot.extractionYield,
+      notes: shot.notes,
+      stopReason: shot.stopReason,
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
       ...(curves && {
         curves: curvesOf(shotSamples(await this.shots.measurements(id), object(record.workflow).profile), SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }),
@@ -272,8 +322,54 @@ export class RecordsTools {
   }
 }
 
-/** A Shot as the REST API lists it, in the glossary's words, with its time on its Location's clock. */
-function shotSummaryOf(shot: ListedShot | ShownShot): z.infer<typeof shotSummary> {
+/**
+ * A Shot as find_shots lists it, from the REST API's list: each Library item
+ * it names by the Library's id and name, or else by the name it recorded,
+ * the names people type and its notes shortened as given, and its credit's
+ * inference only where inferred.
+ */
+function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) => string | null): z.infer<typeof shotRow> {
+  const named = (library: string | null | undefined, recorded: string | null) => shorten(recordedText(library) ?? recordedText(recorded), ROW_NAME);
+  const item = <T extends Record<string, string | null>>(libraryId: string | undefined, names: T) =>
+    libraryId === undefined && Object.values(names).every((value) => value === null) ? null : { id: libraryId ?? null, ...names };
+  const batch = shot.beanBatch;
+  const hundredths = (value: number | null) => value === null ? null : Math.round(value * 100) / 100;
+  return {
+    id: shot.id,
+    pulledAt: shot.pulledAt && zonedTime(shot.pulledAt, shot.location?.timeZone),
+    machine: shot.machine,
+    ...(shot.machineInferred && { machineInferred: true as const }),
+    location: shot.location && { id: shot.location.id, name: shot.location.name },
+    ...(shot.locationInferred && { locationInferred: true as const }),
+    recipe: shot.recipe && { id: shot.recipe.id, name: shorten(shot.recipe.name, ROW_NAME) },
+    profile: item(shot.profile?.id, { title: named(shot.profile?.title, shot.profileTitle) }),
+    beanBatch: item(batch?.id, { roaster: named(batch?.bean.roaster, shot.coffeeRoaster), name: named(batch?.bean.name, shot.coffeeName), roastDate: dayOf(batch?.roastDate ?? null) }),
+    grinder: item(shot.grinder?.id, { model: named(shot.grinder?.model, shot.grinderModel) }),
+    grinderSetting: shot.grinderSetting,
+    basket: item(shot.basket?.id, { name: named(shot.basket?.name, shot.basketName) }),
+    targetDose: hundredths(shot.targetDose),
+    actualDose: hundredths(shot.actualDose),
+    targetYield: hundredths(shot.targetYield),
+    actualYield: hundredths(shot.actualYield),
+    duration: hundredths(shot.duration),
+    peakPressure: hundredths(shot.peakPressure),
+    peakFlow: hundredths(shot.peakFlow),
+    stopReason: shot.stopReason,
+    enjoyment: shot.enjoyment,
+    barista: shorten(recordedText(shot.barista), ROW_NAME),
+    tds: hundredths(shot.tds),
+    extractionYield: hundredths(shot.extractionYield),
+    notes: shorten(shot.notes, ROW_NOTES),
+  };
+}
+
+/** The day a date the Library holds as a day names, such as a roast date, which it stores as that day's midnight. */
+function dayOf(date: string | null): string | null {
+  return date === null ? null : (/^\d{4}-\d\d-\d\d/.exec(date)?.[0] ?? date);
+}
+
+/** A Shot as the REST API reads it, in the glossary's words, with its time on its Location's clock. */
+function shotSummaryOf(shot: ShownShot): z.infer<typeof shotSummary> {
   return {
     id: shot.id,
     pulledAt: shot.pulledAt && zonedTime(shot.pulledAt, shot.location?.timeZone),
@@ -312,11 +408,4 @@ function steamSummaryOf(steamRecord: ShownSteamRecord | Awaited<ReturnType<Steam
     finalMilkTemperature: steamRecord.finalMilkTemperature,
     barista: steamRecord.barista,
   };
-}
-
-/** Text Decaid recorded, or a number as its text, as the management interface shows it; null for none or blank. */
-function text(value: unknown): string | null {
-  if (typeof value === "number" && Number.isFinite(value)) return String(value);
-  const recorded = string(value);
-  return recorded !== null && recorded.trim() !== "" ? recorded : null;
 }
