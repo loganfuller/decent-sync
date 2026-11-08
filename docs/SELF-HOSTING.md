@@ -100,8 +100,8 @@ account. Setup then closes, and everyone else signs in.
 
 | Role | What they can do |
 |---|---|
-| Admin | Everything, including accounts, Machines, tokens and deleting for good. |
-| Staff | Work at the Locations chosen for them: edit the Library's shared content anywhere, and at their Locations move Machines, edit Machine settings, change what the Location offers, and manage Recipes. |
+| Admin | Everything, including accounts, Machines, tokens, every setting and deleting for good. |
+| Staff | Work at the Locations chosen for them: edit the Library's shared content anywhere, and at their Locations move Machines, edit the Machine and Tablet Settings open to Staff, change what the Location offers, and manage Recipes. Some settings only an Admin may change. |
 | Viewer | See everything Staff see, and change nothing. |
 
 To bring someone in, an Admin creates an invite under **Accounts** and sends

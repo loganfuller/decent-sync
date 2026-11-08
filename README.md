@@ -90,9 +90,10 @@ everything they record to your server.
   curves, plus Workflow changes, machine state, settings and paired devices.
 - **History included.** When the plugin first connects, the server collects
   every Shot and Steam Record already on the tablet, newest first.
-- **Credited correctly.** Each Shot goes to the Machine that pulled it, even if
-  the tablet has since moved to another machine, and to the Location that
-  Machine was at.
+- **Credited correctly.** Each Shot is credited by the hardware it recorded,
+  so it goes to the Machine that pulled it even if the tablet has since moved
+  to another machine, and to the Location that Machine was at. A Shot from
+  hardware no Machine has yet waits under a Pending Machine for an Admin.
 - **Linked to what made it.** Each Shot names its Bean Batch, Grinder,
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
   and date. Each item's page lists its Shots.
@@ -133,8 +134,8 @@ Connect Claude, ChatGPT or another MCP app, and ask in plain words:
 - "Add this week's roast of the house blend at the cafe."
 - "Put the new espresso recipe in slot 2."
 
-The assistant acts as you, within what your account may do, and every change
-it makes is recorded as made through it. See
+The assistant acts as you, within what your account may do. Each Library
+change and Settings Edit it makes is recorded as made through it. See
 [Connecting an assistant](#connecting-an-assistant).
 
 ### Runs on your terms
@@ -256,8 +257,8 @@ offers, put Recipes in Recipe Slots and copy them to other Locations, use or
 dismiss a Conflict's value, make Settings Edits, and move Machines between
 Locations. An Admin's assistant can also turn a Machine's sharing on or off,
 and create and edit Locations. Nothing an assistant does grants access or
-deletes anything for good. Each change it makes is recorded as
-"*account*, through *app*".
+deletes anything for good. Each Library change and Settings Edit it makes is
+recorded as "*account*, through *app*".
 
 To see or disconnect your apps, open **Connected Apps** in the account menu.
 
