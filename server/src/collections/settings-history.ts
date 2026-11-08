@@ -45,11 +45,13 @@ export interface HistoryReport {
 export async function recordSettingsHistory(tx: Prisma.TransactionClient, credit: Credit, report: HistoryReport): Promise<void> {
   const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
   const holderId = credit.machineId ?? credit.pendingMachineId;
+  // The latest written, by id: written under the holder's locks, ids are in the order reports were recorded, where
+  // received times, each its transaction's start, may not be, as a transaction can wait for the locks.
   const latest = async () =>
     (
       await tx.$queryRaw<{ value: unknown }[]>`
         SELECT value FROM settings_history WHERE ${holder} = ${holderId}::uuid AND name = ${report.name}
-        ORDER BY received_at DESC, id DESC LIMIT 1`
+        ORDER BY id DESC LIMIT 1`
     )[0];
   let before = await latest();
   if (!before) {
@@ -107,6 +109,9 @@ async function takeBaselines(tx: Prisma.TransactionClient, holder: Prisma.Sql, h
 export const SETTINGS_HISTORY_BASELINE_INTERVAL_MS = 60 * 60_000;
 /** The most Machines, or Pending Machines, one transaction takes baselines for. */
 export const SETTINGS_HISTORY_BASELINE_BATCH = 50;
+
+/** Long enough for a batch to copy its values on a slow database; waiting for a connection is limited as for any other transaction. */
+const BASELINE_TRANSACTION = { maxWait: 2_000, timeout: 60_000 } as const;
 
 /**
  * Takes the baseline of every stored collection a Settings History keeps
@@ -181,7 +186,7 @@ export class SettingsHistoryBaselines implements OnApplicationBootstrap, OnModul
         FOR NO KEY UPDATE SKIP LOCKED`;
       if (machines.length === 0) return { holders: 0, baselines: 0 };
       return { holders: machines.length, baselines: await takeBaselines(tx, Prisma.sql`machine_id`, machines.map((machine) => machine.id)) };
-    });
+    }, BASELINE_TRANSACTION);
   }
 
   /**
@@ -201,7 +206,7 @@ export class SettingsHistoryBaselines implements OnApplicationBootstrap, OnModul
       for (const { id, model, serial } of pending) if (await tryLockHardware(tx, { model, serial })) locked.push(id);
       const baselines = locked.length === 0 ? 0 : await takeBaselines(tx, Prisma.sql`pending_machine_id`, locked);
       return { last: pending.length < SETTINGS_HISTORY_BASELINE_BATCH ? null : pending.at(-1)!.id, baselines };
-    });
+    }, BASELINE_TRANSACTION);
   }
 }
 

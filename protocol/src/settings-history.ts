@@ -65,10 +65,11 @@ export const LEFT_OUT_OF_SETTINGS_HISTORY: Readonly<Partial<Record<SettingsHisto
 const DEVICE_CONNECTION_FIELDS = ["state", "available", "connectionRole"];
 
 /**
- * A plugin's `source` fields that move with each of Decaid's update checks,
- * whatever they find: `lastChecked`.
+ * A plugin's `source` fields that Decaid's update checks write, whatever
+ * they find: `lastChecked`, and `lastError`, set by a check that fails,
+ * as one does while the Tablet is offline, and cleared by the next.
  */
-const PLUGIN_CHECK_FIELDS = ["lastChecked"];
+const PLUGIN_CHECK_FIELDS = ["lastChecked", "lastError"];
 
 /** How a wake schedule's field is keyed among a projection's fields: `schedules/<id>`, by the id Decaid gave it. */
 export const SCHEDULE_KEY_PREFIX = "schedules/";
@@ -87,7 +88,7 @@ export const SCHEDULE_KEY_PREFIX = "schedules/";
  *   value a Settings Edit of it sets.
  * - The plugins, paired devices and sensors are a field per entry, keyed by
  *   its id; each paired device without its connection, and each plugin's
- *   `source` without its update checks' time.
+ *   `source` without what its update checks write.
  * - Any other value that is no object is one field, keyed "".
  */
 export function settingsHistoryFields(name: SettingsHistoryCollection, value: unknown): Record<string, unknown> {

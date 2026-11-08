@@ -724,8 +724,8 @@ differs from the one before it, whatever changed it, as a row of
 (`server/src/collections/settings-history.ts`). A row holds the Machine, or
 Pending Machine, the collection is credited to, the tablet whose connection
 reported it, the value as sent, with the UTC offset sent beside it, when the
-server received it (PostgreSQL's clock, the same time as the latest value's
-`received_at`), and its source. Nothing reads it through the REST API or the
+server received it (PostgreSQL's clock: for a report, the same time as the
+latest value's `received_at`), and its source. Nothing reads it through the REST API or the
 MCP endpoint yet; ticket #433 shows it.
 
 - **What counts as a change.** Values are compared field by field, through a
@@ -738,8 +738,9 @@ MCP endpoint yet; ticket #433 shows it.
   `presenceSettings.keepAwakeUntil`; each paired device's `state`,
   `available` and `connectionRole`, how it is connected now (Decaid's
   inventory carries no battery level); `scaleInfo.batteryLevel`; and each
-  plugin's `source.lastChecked`, which moves with every one of Decaid's update
-  checks. The wake schedules are compared one by one, by their ids, each as
+  plugin's `source.lastChecked` and `source.lastError`, which Decaid's update
+  checks write, the error set by a check that fails, as while the Tablet is
+  offline, and cleared by the next. The wake schedules are compared one by one, by their ids, each as
   a wake schedule's Settings Edit names its fields; the sensor calibration by
   target, its `measuredValue`; the plugins, paired devices and sensors entry
   by entry, by their ids, in any order. A field absent counts as null, and an
@@ -768,7 +769,7 @@ MCP endpoint yet; ticket #433 shows it.
   edit, or one of another Machine or collection, was made outside Decent
   Sync, and is tied to no person.
 - **Recorded once.** A report is compared with the latest row of its
-  collection in the transaction storing it, before the latest value is
+  collection, the last written, in the transaction storing it, before the latest value is
   replaced, under the locks of its credit, so two instances never record one
   change twice, and a delivery handled before records nothing.
 - **Pending Machines.** A Pending Machine's history moves, whole, to the

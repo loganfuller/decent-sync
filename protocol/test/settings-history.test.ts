@@ -78,13 +78,16 @@ describe("changedSettingsHistoryFields", () => {
     expect(changedSettingsHistoryFields("sensorCalibration", calibration, { ...calibration, pressure: read("pressure", 1.0199966430664062) })).toEqual(["pressure"]);
   });
 
-  it("compares the plugins by id, leaving out when Decaid last checked each for an update", () => {
+  it("compares the plugins by id, leaving out what Decaid's update checks write", () => {
     const source = { kind: "github_release", repo: "loganfuller/decent-sync", releaseTag: "v1.7.1", lastChecked: "2026-11-07T07:10:46.408380", lastError: null };
     const plugins = [
       { id: "visualizer.reaplugin", version: "1.5.11", loaded: true, source: null },
       { id: "decent-sync.reaplugin", version: "1.7.1", loaded: true, source },
     ];
     const checked = [plugins[0], { ...plugins[1], source: { ...source, lastChecked: "2026-11-08T07:10:46.408380" } }];
+    // A check that failed while the Tablet was offline, then the next.
+    const failed = [plugins[0], { ...plugins[1], source: { ...source, lastError: "Couldn't reach GitHub" } }];
+    expect(changedSettingsHistoryFields("plugins", plugins, failed)).toEqual([]);
     expect(changedSettingsHistoryFields("plugins", plugins, checked)).toEqual([]);
     expect(changedSettingsHistoryFields("plugins", plugins, [plugins[1], plugins[0]])).toEqual([]);
     const updated = [plugins[0], { ...plugins[1], version: "1.8.0", source: { ...source, releaseTag: "v1.8.0" } }];
