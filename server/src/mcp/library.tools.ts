@@ -171,7 +171,8 @@ const version = z.object({
     .describe("For a copy, as a Recipe copied to a Location, its first version names the item it was copied from, and that item's Location then."),
 });
 
-const conflict = z.object({
+/** A Conflict as list_conflicts and get_library_item read it, and as resolve_conflict returns it. */
+export const conflict = z.object({
   id,
   item: z.object({ kind, id, name: z.string().nullable() }).describe("The Library item it is about, by its kind, id and name."),
   field: z.string().describe("The field it is about: of the item's content, by Decaid's names, or of a Location's state of it (atLocation, remainingWeight, shown)."),
@@ -269,6 +270,7 @@ type FindInput = z.infer<typeof findInput>;
 type FindOutput = z.infer<typeof findOutput>;
 type GetOutput = z.infer<typeof getOutput>;
 export type ItemOutput = z.infer<typeof itemOutput>;
+export type ConflictOutput = z.infer<typeof conflict>;
 
 /**
  * The Library, read through an assistant: each kind's items as the REST API
@@ -399,6 +401,12 @@ export class LibraryTools {
   /** One item as get_library_item reads it, without its history or Conflicts: 404's message, as the REST API's, for none. */
   async read(kind: LibraryKind, itemId: string): Promise<ItemOutput> {
     return (await this.item(kind, itemId)).item;
+  }
+
+  /** A Conflict as list_conflicts reads it. */
+  async conflict(entry: ConflictView): Promise<ConflictOutput> {
+    const itemLocations = await this.itemLocations([entry]);
+    return conflictOf(entry, itemLocations.get(`${entry.item.kind}:${entry.item.id}`) ?? null);
   }
 
   /** A Location a list is filtered by, by its id in lower case, as the REST API reads one; refused as no Location if there is none. */
@@ -628,7 +636,7 @@ function versionOf(entry: VersionView, itemLocation: LocationView | null): z.inf
 }
 
 /** A Conflict, its times with the offset of the Location whose state it is about, or else of the one its item belongs to. */
-function conflictOf(entry: ConflictView, itemLocation: LocationView | null): z.infer<typeof conflict> {
+function conflictOf(entry: ConflictView, itemLocation: LocationView | null): ConflictOutput {
   const where = entry.location ?? itemLocation;
   const { current } = entry;
   return {

@@ -383,10 +383,10 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(asStaff.at(-1)!.source).toEqual({ ...throughApp, account: { id: throughApp.account!.id, name: null } });
   });
 
-  it("refuses every changing tool, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
+  it("refuses each of these tools, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
     const batches = async () => (await api.get<{ batches: unknown[] }>("/bean-batches")).batches.length;
     const before = { batches: await batches(), bean: await restItem("bean", made.bean), batch: await restItem("beanBatch", made.batch) };
-    /** Each changing tool, with arguments it would take from an account allowed to change. */
+    /** Each tool of this ticket, with arguments it would take from an account allowed to change. assistants.test.ts refuses every changing tool, whatever its arguments. */
     const calls = (name: string): [string, Record_][] => [
       ["create_bean", { roaster: "Roux", name }],
       ["edit_bean", { id: made.bean, notes: `${name} notes` }],
@@ -395,8 +395,6 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       ["set_archived", { kind: "bean", id: made.bean, archived: true }],
       ["set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, offered: false }],
     ];
-    const { tools } = await reader.client.listTools();
-    expect(tools.filter((tool) => tool.annotations?.readOnlyHint === false).map((tool) => tool.name).sort()).toEqual(calls("").map(([name]) => name).sort());
     const refuse = async (accessToken: string, who: string) => {
       for (const [name, args] of calls(who)) {
         const refused = await Assistant.rawCall(server.url, accessToken, "tools/call", { name, arguments: args });

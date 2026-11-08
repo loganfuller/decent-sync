@@ -222,7 +222,8 @@ export class RecipeEditsService {
       const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown }[]>`
         SELECT slot, archived, content FROM recipes WHERE id = ${id}::uuid`;
       if (!row) throw new NotFoundException("No such Recipe");
-      const recipe: Placed = { id, locationId: owned.locationId, slot: row.slot, archived: row.archived, content: isObject(row.content) ? row.content : {} };
+      // Its id as PostgreSQL writes it, however the request spelled it, as the slots it is compared with name it (`freeSlot`).
+      const recipe: Placed = { id: id.toLowerCase(), locationId: owned.locationId, slot: row.slot, archived: row.archived, content: isObject(row.content) ? row.content : {} };
       if (await apply(tx, recipe, accountSource(editor), await editTime(tx))) {
         await notify(tx, "library_changes", owned.locationId);
       }
