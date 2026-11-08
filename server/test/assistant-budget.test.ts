@@ -198,7 +198,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const { ids, lengths } = await everyPage("find_shots", "shots", { machineId: bar.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: bar.machine.id }));
       expect(lengths).toEqual([50, 10]);
-      // About 850 characters a Shot, a quarter of them the ids of the items each names, so 50 fit, uncut.
+      // About 800 characters a Shot, a quarter of them the ids of the items each names, so 50 fit, uncut.
       const { result } = await assistant.callWithinBudget<{ shots: Fields[] }>("find_shots", { machineId: bar.machine.id, limit: 50 });
       expect(result).not.toHaveProperty("cut");
       expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
