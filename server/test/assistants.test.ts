@@ -290,6 +290,46 @@ describe("connecting an assistant", () => {
     }
   });
 
+  it("accepts a document offering none among its token endpoint auth methods, whatever it prefers, as ChatGPT's does, and refuses one that doesn't offer none", async () => {
+    const chatgpt = await serveTestApp("ChatGPT");
+    try {
+      const document = { client_id: chatgpt.clientId, client_name: "ChatGPT", redirect_uris: [chatgpt.redirectUri] };
+      // ChatGPT's document prefers private_key_jwt and offers none beside it. It picks none, the only method this
+      // server's metadata names, and exchanges its code with PKCE and no client authentication.
+      chatgpt.serve({ ...document, token_endpoint_auth_method: "private_key_jwt", token_endpoint_auth_methods_supported: ["none", "private_key_jwt"] });
+      const assistant = await Assistant.connect(server.url, chatgpt, adminCookie);
+      try {
+        expect(assistant.tokens).toMatchObject({ token_type: "Bearer", scope: "read change" });
+        expect((await assistant.call<{ locations: ListedLocation[] }>("list_locations")).locations).toEqual(await restLocations(api));
+      } finally {
+        await assistant.close();
+      }
+
+      const { challenge } = pkce();
+      /** Where the authorization endpoint sends the browser for the document with these fields, or why it refuses it. */
+      const authorizing = async (methods: Record<string, unknown>) => {
+        chatgpt.serve({ ...document, ...methods });
+        const response = await fetch(authorizationUrl(server.url, chatgpt, challenge), { redirect: "manual" });
+        return response.status === 302 ? response.headers.get("location")! : ((await response.json()) as { message: string }).message;
+      };
+      expect(await authorizing({})).toMatch(/^\/connect\//);
+      expect(await authorizing({ token_endpoint_auth_methods_supported: ["none"] })).toMatch(/^\/connect\//);
+      // A null list, as some serializers write a field left unset, is no list.
+      expect(await authorizing({ token_endpoint_auth_method: "none", token_endpoint_auth_methods_supported: null })).toMatch(/^\/connect\//);
+      // The list decides, whatever the app prefers.
+      const refused = (methods: string) => `The app authenticates with ${methods}, which this server doesn't support`;
+      expect(await authorizing({ token_endpoint_auth_method: "none", token_endpoint_auth_methods_supported: ["private_key_jwt"] })).toBe(refused("private_key_jwt"));
+      expect(await authorizing({ token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"] })).toBe(refused("private_key_jwt or client_secret_basic"));
+      expect(await authorizing({ token_endpoint_auth_method: "private_key_jwt" })).toBe(refused("private_key_jwt"));
+      expect(await authorizing({ token_endpoint_auth_methods_supported: [{ toString: null }] })).toBe(refused('{"toString":null}'));
+      for (const supported of ["none", []]) {
+        expect(await authorizing({ token_endpoint_auth_methods_supported: supported })).toBe("The app's Client ID Metadata Document lists no token_endpoint_auth_methods_supported");
+      }
+    } finally {
+      await chatgpt.close();
+    }
+  });
+
   it("shows the request to the signed-in person, and denying it sends the app access_denied, once", async () => {
     const { challenge } = pkce();
     const requestId = await openAuthorization(authorizationUrl(server.url, app, challenge));

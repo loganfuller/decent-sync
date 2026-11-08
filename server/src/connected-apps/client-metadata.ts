@@ -153,9 +153,11 @@ export class ClientMetadataDocuments {
     if (!Array.isArray(redirectUris) || redirectUris.length === 0 || !redirectUris.every((uri) => typeof uri === "string" && URL.canParse(uri))) {
       throw new ClientRefused("The app's Client ID Metadata Document lists no redirect_uris");
     }
-    const method = fields.token_endpoint_auth_method;
-    if (method !== undefined && method !== "none") {
-      throw new ClientRefused(`The app authenticates with ${String(method)}, which this server doesn't support`);
+    const methods = authMethods(fields);
+    if (!methods.includes("none")) {
+      // JSON for what isn't a string, which String() can throw on, such as {"toString": null}.
+      const named = methods.map((method) => (typeof method === "string" ? method : JSON.stringify(method)));
+      throw new ClientRefused(`The app authenticates with ${named.join(" or ")}, which this server doesn't support`);
     }
     const name = typeof fields.client_name === "string" ? fields.client_name.trim().slice(0, MAX_NAME_LENGTH) : "";
     return {
@@ -189,6 +191,29 @@ export function redirectAllowed(redirectUri: string): boolean {
   const url = new URL(redirectUri);
   if (url.username || url.password || url.hash || redirectUri.includes("#")) return false;
   return url.protocol === "https:" || isLoopbackRedirect(url);
+}
+
+/**
+ * The ways an app can authenticate at the token endpoint, by its document:
+ * its `token_endpoint_auth_methods_supported` when it has one, whatever its
+ * `token_endpoint_auth_method` prefers, since an app uses one that its
+ * authorization server's metadata names too (ChatGPT's prefers
+ * `private_key_jwt` and offers `none` beside it); otherwise its
+ * `token_endpoint_auth_method`, or `none` when it names neither. A list that
+ * is `null`, as some serializers write a field left unset, counts as absent.
+ * This server supports only `none`, a public client's PKCE exchange
+ * (ADR-0027).
+ */
+function authMethods(fields: Record<string, unknown>): unknown[] {
+  const supported = fields.token_endpoint_auth_methods_supported;
+  if (supported === undefined || supported === null) {
+    const method = fields.token_endpoint_auth_method;
+    return [method === undefined ? "none" : method];
+  }
+  if (!Array.isArray(supported) || supported.length === 0) {
+    throw new ClientRefused("The app's Client ID Metadata Document lists no token_endpoint_auth_methods_supported");
+  }
+  return supported;
 }
 
 /** A loopback redirect of a native app, whose port the app chooses as it starts (RFC 8252, section 7.3). */
