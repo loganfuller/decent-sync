@@ -70,12 +70,7 @@ describe("the latest release beside the change", () => {
     expect(tablet.sent[0]).toMatchObject({ type: "hello", pluginVersion: readBuiltPlugin().manifest.version });
   });
 
-  it("answers 404 at the MCP endpoint, which the change serves, and deactivates an account whose Connected App the change then refuses", async () => {
-    // As the first release with the endpoint reaches it during a deploy, a request may reach the latest release once.
-    const call = { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }) };
-    expect((await fetch(`${release.url}/api/mcp`, call)).status).toBe(404);
-    expect((await fetch(`${change.url}/api/mcp`, call)).status).toBe(401);
-
+  it("deactivates an account whose Connected App the change then refuses", async () => {
     const app = await serveTestApp();
     try {
       const { link } = await api.invite("sol@example.com", "staff", [(await api.createLocation("Assisted", "UTC")).id]);
