@@ -8,6 +8,7 @@ import type { EquipmentKind } from "./equipment.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "./equipment.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewEquipment, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 
@@ -38,27 +39,27 @@ abstract class EquipmentController {
   /** Creates one, shown at the Location: `{ locationId, content }`, its name required. 409, with the `existing` item and whether it is Archived, if one has its name. */
   protected async create(body: unknown, session: SignedIn): Promise<EquipmentView> {
     const { locationId, content } = readNewEquipment(this.kind, body);
-    return this.equipment.get(this.kind, await this.edits.createEquipment(this.kind, locationId, content, session.account.id, session.scope));
+    return this.equipment.get(this.kind, await this.edits.createEquipment(this.kind, locationId, content, managementEditor(session.account.id), session.scope));
   }
 
   /** Edits its content: `{ content }`, each field to change, null to clear it. */
   protected async edit(id: string, body: unknown, session: SignedIn): Promise<EquipmentView> {
     const itemId = readEquipmentId(this.kind, id);
-    await this.edits.editEquipment(this.kind, itemId, readContentEdit(this.kind, body), session.account.id);
+    await this.edits.editEquipment(this.kind, itemId, readContentEdit(this.kind, body), managementEditor(session.account.id));
     return this.equipment.get(this.kind, itemId);
   }
 
   /** Archives it or restores it: `{ archived }`. */
   protected async archive(id: string, body: unknown, session: SignedIn): Promise<EquipmentView> {
     const itemId = readEquipmentId(this.kind, id);
-    await this.edits.archiveEquipment(this.kind, itemId, readArchived(body), session.account.id);
+    await this.edits.archiveEquipment(this.kind, itemId, readArchived(body), managementEditor(session.account.id));
     return this.equipment.get(this.kind, itemId);
   }
 
   /** Shows it at the Location or hides it there: `{ shown }`. */
   protected async show(id: string, locationId: string, body: unknown, session: SignedIn): Promise<EquipmentView> {
     const itemId = readEquipmentId(this.kind, id);
-    await this.edits.showEquipment(this.kind, itemId, readLocationId(locationId).toLowerCase(), readShown(body), session.account.id, session.scope);
+    await this.edits.showEquipment(this.kind, itemId, readLocationId(locationId).toLowerCase(), readShown(body), managementEditor(session.account.id), session.scope);
     return this.equipment.get(this.kind, itemId);
   }
 

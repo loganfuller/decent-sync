@@ -5,8 +5,9 @@ import { KINDS } from "./kinds.js";
 
 // Each Library item's versions and Conflicts (ADR-0020). Every accepted edit
 // is kept as a version: the fields it set, with their values, the Machine and
-// tablet or the account it came from, when it was made and when the server
-// took it in. An edit of a Location's state of the item names that Location.
+// tablet or the account it came from, with the Connected App the account made
+// it through, if one (ADR-0026), when it was made and when the server took it
+// in. An edit of a Location's state of the item names that Location.
 // An edit that lost to another of the same field made without seeing it, or
 // that such an edit replaced, is kept as a Conflict, open until someone uses
 // its value, which makes it a new edit, or dismisses it (conflicts.service.ts).
@@ -17,21 +18,38 @@ export interface ItemRef {
   id: string;
 }
 
-/** Where an edit came from: a Machine's tablet, or an account in the management interface. */
+/** Where an edit came from: a Machine's tablet, or an account, in the management interface or through a Connected App. */
 export interface EditSource {
   machineId: string | null;
   tabletId: string | null;
   accountId: string | null;
+  connectedAppId: string | null;
+}
+
+/**
+ * Who makes a change to the Library through the server rather than on a
+ * tablet: an account, in the management interface, or through a Connected
+ * App acting as it (ADR-0026), each change then recorded as through it.
+ */
+export interface Editor {
+  accountId: string;
+  /** The Connected App the change comes through; null for the management interface. */
+  connectedAppId: string | null;
+}
+
+/** The account, changing the Library in the management interface. */
+export function managementEditor(accountId: string): Editor {
+  return { accountId, connectedAppId: null };
 }
 
 /** An edit made on a tablet, which its report or answer brought. */
 export function tabletSource(tablet: ReportingTablet): EditSource {
-  return { machineId: tablet.machineId, tabletId: tablet.tabletId, accountId: null };
+  return { machineId: tablet.machineId, tabletId: tablet.tabletId, accountId: null, connectedAppId: null };
 }
 
-/** An edit made in the management interface by the account. */
-export function accountSource(accountId: string): EditSource {
-  return { machineId: null, tabletId: null, accountId };
+/** An edit made by an account, in the management interface or through a Connected App. */
+export function accountSource({ accountId, connectedAppId }: Editor): EditSource {
+  return { machineId: null, tabletId: null, accountId, connectedAppId };
 }
 
 /**
@@ -108,7 +126,10 @@ export async function recordReplaced(
   versionId: string | null,
 ): Promise<void> {
   if (versionId === null) return;
-  const version = await tx.itemVersion.findUnique({ where: { id: versionId }, select: { machineId: true, tabletId: true, accountId: true, editedAt: true } });
+  const version = await tx.itemVersion.findUnique({
+    where: { id: versionId },
+    select: { machineId: true, tabletId: true, accountId: true, connectedAppId: true, editedAt: true },
+  });
   if (!version) return;
   const { editedAt, ...source } = version;
   await recordConflict(tx, item, locationId, field, value, source, editedAt);

@@ -7,7 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import { mayResolve } from "./conflict-access.js";
 import { editContent, lockItems } from "./content-edits.js";
 import { type ConflictView, HistoryService } from "./history.service.js";
-import { type EditSource, type ItemRef, accountSource } from "./history.js";
+import { type EditSource, type Editor, type ItemRef, accountSource } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, idSql } from "./kinds.js";
 import { isObject } from "./listed.js";
@@ -53,10 +53,10 @@ export class ConflictsService {
    * item. The Conflict is closed as used. 409 if the field was decided
    * since, as by a tablet's edit, which the account has not seen.
    */
-  async use(id: string, seen: string | null, accountId: string, scope: Scope): Promise<ConflictView> {
+  async use(id: string, seen: string | null, editor: Editor, scope: Scope): Promise<ConflictView> {
     await this.prisma.$transaction(async (tx) => {
       const conflict = await this.lockOpen(tx, readConflictId(id), scope);
-      await useValue(tx, conflict, seen, accountSource(accountId));
+      await useValue(tx, conflict, seen, accountSource(editor));
       await tx.$executeRaw`UPDATE conflicts SET state = 'USED' WHERE id = ${id}::uuid`;
     }, INTAKE_TRANSACTION);
     return this.history.conflict(id, scope);

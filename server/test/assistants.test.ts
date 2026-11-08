@@ -134,7 +134,7 @@ describe("connecting an assistant", () => {
       expect(assistant.tokens).toMatchObject({ token_type: "Bearer", expires_in: 3600, scope: "read change" });
       expect(assistant.client.getInstructions()).toContain("A day, such as \"yesterday\", is each Location's own day in its time zone.");
       const { tools } = await assistant.client.listTools();
-      expect(tools.map((tool) => tool.name).sort()).toEqual([
+      const reading = [
         "find_library_items",
         "find_shots",
         "find_steam_records",
@@ -147,8 +147,13 @@ describe("connecting an assistant", () => {
         "list_locations",
         "list_machines",
         "list_settings_edits",
-      ]);
-      for (const tool of tools) expect(tool.annotations, tool.name).toMatchObject({ readOnlyHint: true });
+      ];
+      const changing = ["create_bean", "create_bean_batch", "edit_bean", "edit_bean_batch", "set_archived", "set_location_offering"];
+      expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
+      // Archiving retires an item everywhere, which an app may ask about more carefully; nothing else changing is destructive.
+      for (const tool of tools) {
+        expect(tool.annotations, tool.name).toMatchObject(changing.includes(tool.name) ? { readOnlyHint: false, destructiveHint: tool.name === "set_archived" } : { readOnlyHint: true });
+      }
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));
       expect(locations.find((location) => location.name === "Uptown")!.machines.map((machine) => machine.name)).toEqual(["Uptown Left", "Uptown Right"]);
@@ -443,7 +448,7 @@ describe("connecting an assistant", () => {
       }
     });
 
-    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps, as an instance starts, keeping the rest", async () => {
+    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps but those the Library's history names, as an instance starts, keeping the rest", async () => {
       const hash = (secret: string) => createHash("sha256").update(secret).digest();
       const kept = await approvedCode(adminCookie);
       const keptTokens = await exchange(server.url, kept.code, kept.verifier);
@@ -454,13 +459,18 @@ describe("connecting an assistant", () => {
       const lapsing = await person("cl@example.com", "staff", [uptown]);
       const lapsed = await approvedCode(lapsing.cookie);
       const lapsedTokens = await exchange(server.url, lapsed.code, lapsed.verifier);
+      // A lapsed Connected App that changed the Library is kept, so its history still names it, but refused.
+      const changing = await person("ch@example.com", "staff", [uptown]);
+      const changer = await Assistant.connect(server.url, app, changing.cookie);
+      const { bean } = await changer.call<{ bean: { id: string } }>("create_bean", { roaster: "Roux", name: "Kept through a lapsed app" });
+      await changer.close();
       const database = await server.connectDatabase();
       try {
         // Aged by PostgreSQL's clock, as waiting would not fit in a test.
         await database.query("UPDATE authorization_requests SET expires_at = now() - interval '1 second' WHERE id = $1", [unanswered]);
         await database.query("UPDATE authorization_codes SET expires_at = now() - interval '1 second' WHERE code_hash = $1", [hash(unexchanged.code)]);
         await database.query("UPDATE access_tokens SET expires_at = now() - interval '1 second' WHERE token_hash = $1", [hash(expiringTokens.body.access_token as string)]);
-        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = $1", [lapsing.id]);
+        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [[lapsing.id, changing.id]]);
 
         const starting = await startTestServer({ env: ASSISTANT_ENV, sharing: server, publicUrl: server.url });
         try {
@@ -474,6 +484,8 @@ describe("connecting an assistant", () => {
             [unanswered, hash(unexchanged.code), [hash(expiringTokens.body.access_token as string), hash(lapsedTokens.body.access_token as string)], lapsing.id],
           );
           expect(rows[0]).toEqual({ requests: 0, codes: 0, tokens: 0, apps: 0 });
+          const kept = await database.query<{ count: number }>("SELECT count(*)::int AS count FROM connected_apps WHERE account_id = $1", [changing.id]);
+          expect(kept.rows[0]!.count).toBe(1);
         } finally {
           await starting.stop();
         }
@@ -481,6 +493,9 @@ describe("connecting an assistant", () => {
         await database.end();
       }
       expect((await Assistant.rawCall(server.url, keptTokens.body.access_token as string)).status).toBe(200);
+      expect((await Assistant.rawCall(server.url, changer.tokens.access_token)).status).toBe(401);
+      const [created] = (await api.get<{ versions: { source: { connectedApp: { name: string } | null } }[] }>(`/beans/${bean.id}/history`)).versions;
+      expect(created!.source.connectedApp).toMatchObject({ name: "Test Assistant" });
       // An expired access token's Connected App stays, and refreshes.
       expect(await refresh(server.url, expiringTokens.body.refresh_token as string)).toMatchObject({ status: 200 });
     });

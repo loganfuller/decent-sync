@@ -6,6 +6,7 @@ import { readLocationId } from "../locations/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "./profiles.service.js";
@@ -48,7 +49,7 @@ export class ProfilesController {
     @CurrentSession() session: SignedIn,
   ): Promise<{ profile: ProfileView }> {
     const profileId = readProfileId(id);
-    await this.edits.showProfile(profileId, readLocationId(locationId).toLowerCase(), readShown(body), session.account.id, session.scope);
+    await this.edits.showProfile(profileId, readLocationId(locationId).toLowerCase(), readShown(body), managementEditor(session.account.id), session.scope);
     return { profile: await this.profiles.get(profileId) };
   }
 
@@ -57,7 +58,7 @@ export class ProfilesController {
   @Put(":id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ profile: ProfileView }> {
     const profileId = readProfileId(id);
-    await this.edits.archiveProfile(profileId, readArchived(body), session.account.id);
+    await this.edits.archiveProfile(profileId, readArchived(body), managementEditor(session.account.id));
     return { profile: await this.profiles.get(profileId) };
   }
 

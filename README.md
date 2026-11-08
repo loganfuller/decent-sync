@@ -117,7 +117,9 @@ and ChatGPT, through the server's MCP endpoint (see
 [Connecting an assistant](#connecting-an-assistant)). So far an assistant
 reads Locations, Machines with their activity, settings and Settings Edits,
 Shots and Steam Records, and the Library with each item's history and
-Conflicts. Changing things, and the Connected Apps pages, come next.
+Conflicts. It creates and edits Beans and Bean Batches, Archives and restores
+Library items, and changes what a Location offers, each change shown as made
+through it. Changing the rest, and the Connected Apps pages, come next.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
@@ -303,9 +305,12 @@ and approve it, choosing whether it may only read or may also change things;
 a Viewer's app only reads. Each approval makes a Connected App, which acts as
 that account, within what the account may do. An app unused for 30 days stops
 working until it connects again. Apps that register only by Dynamic Client
-Registration, such as Cursor, can't connect. While Milestone 6 is under way,
-assistants only read: the tools that change things come with its later
-tickets (see [Status](#status)).
+Registration, such as Cursor, can't connect. The app asks the person before
+each change, which is recorded as theirs, through the app, and shown as
+"<account>, through <app>" in the item's history and its Conflicts. While
+Milestone 6 is under way, assistants change only Beans and Bean Batches,
+whether items are Archived, and what a Location offers: the tools that change
+the rest come with its later tickets (see [Status](#status)).
 
 Assistants reach the server over HTTPS only: `PUBLIC_URL` must start with
 `https://`, except for an app on the server's own computer that reaches it at

@@ -3,6 +3,7 @@ import { AllowStaff, CurrentSession } from "../accounts/guards.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { ConflictsService, readSeen } from "./conflicts.service.js";
 import { type ConflictView, HistoryService } from "./history.service.js";
+import { managementEditor } from "./history.js";
 
 /**
  * The Library's Conflicts (ADR-0020). Staff read them as Admins do, and use
@@ -30,7 +31,7 @@ export class ConflictsController {
   @Post(":id/use")
   @HttpCode(200)
   async use(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ conflict: ConflictView }> {
-    return { conflict: await this.conflicts.use(id, readSeen(body), session.account.id, session.scope) };
+    return { conflict: await this.conflicts.use(id, readSeen(body), managementEditor(session.account.id), session.scope) };
   }
 
   /** Closes it, changing nothing else. */

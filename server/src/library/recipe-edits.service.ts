@@ -5,7 +5,7 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
-import { type CopiedFrom, type EditSource, accountSource, recordVersion } from "./history.js";
+import { type CopiedFrom, type EditSource, type Editor, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
@@ -80,12 +80,12 @@ export class RecipeEditsService {
    * if there is no such Location, 403 for Staff elsewhere, and 400 or 409 for
    * an item it cannot use there (`setUses`).
    */
-  async create(locationId: string, content: Record<string, unknown>, slot: SlotChoice, accountId: string, scope: Scope): Promise<string> {
+  async create(locationId: string, content: Record<string, unknown>, slot: SlotChoice, editor: Editor, scope: Scope): Promise<string> {
     if (!includesLocation(scope, locationId)) throw staffElsewhere("create a Recipe");
     return this.prisma.$transaction(async (tx) => {
       if ((await tx.location.count({ where: { id: locationId } })) === 0) throw new NotFoundException("No such Location");
       await lockLocation(tx, locationId);
-      const source = accountSource(accountId);
+      const source = accountSource(editor);
       const at = await editTime(tx);
       const values = await setUses(tx, locationId, content, {}, source, at);
       return insertRecipe(tx, locationId, values, slot, source, at);
@@ -108,7 +108,7 @@ export class RecipeEditsService {
    * Location, and 400 or 409 for an item the copy cannot use there; an item
    * the Library no longer has is left out of the copy (`withoutDeleted`).
    */
-  async copy(id: string, to: RecipeCopy, accountId: string, scope: Scope): Promise<string> {
+  async copy(id: string, to: RecipeCopy, editor: Editor, scope: Scope): Promise<string> {
     if (!includesLocation(scope, to.locationId)) throw staffElsewhere("copy a Recipe to a Location");
     return this.prisma.$transaction(async (tx) => {
       if ((await tx.location.count({ where: { id: to.locationId } })) === 0) throw new NotFoundException("No such Location");
@@ -128,7 +128,7 @@ export class RecipeEditsService {
         delete content.beanBatchId;
         if (to.beanBatchId !== null) content.beanBatchId = to.beanBatchId;
       }
-      const source = accountSource(accountId);
+      const source = accountSource(editor);
       const at = await editTime(tx);
       const set = await recipeEditValues(tx, to.locationId, content, {}, source, at);
       // A new Recipe holds no field it has no value for.
@@ -146,8 +146,8 @@ export class RecipeEditsService {
    * attributes only while it names the Tool. 404 for no such Recipe, 403 for
    * Staff elsewhere.
    */
-  async edit(id: string, values: Record<string, unknown>, accountId: string, scope: Scope): Promise<void> {
-    await this.change(id, accountId, scope, "edit a Recipe", async (tx, recipe, source, at) => {
+  async edit(id: string, values: Record<string, unknown>, editor: Editor, scope: Scope): Promise<void> {
+    await this.change(id, editor, scope, "edit a Recipe", async (tx, recipe, source, at) => {
       const set = await recipeEditValues(tx, recipe.locationId, values, recipe.content, source, at);
       const edited = await editContent(tx, { kind: "recipe", id }, { values: set, at, seenAt: "everything" }, source);
       return edited.writesDue;
@@ -160,8 +160,8 @@ export class RecipeEditsService {
    * one's place: its old slot, or none. 404 for no such Recipe, 403 for Staff
    * elsewhere, 409 for one Archived, which is in no slot.
    */
-  async place(id: string, slot: SlotChoice, accountId: string, scope: Scope): Promise<void> {
-    await this.change(id, accountId, scope, "move a Recipe", async (tx, recipe, source, at) => {
+  async place(id: string, slot: SlotChoice, editor: Editor, scope: Scope): Promise<void> {
+    await this.change(id, editor, scope, "move a Recipe", async (tx, recipe, source, at) => {
       if (recipe.archived && slot !== null) throw new ConflictException("This Recipe is Archived: restore it before putting it in a slot");
       if (slot === null) {
         if (recipe.slot === null) return false;
@@ -181,8 +181,8 @@ export class RecipeEditsService {
    * at its Location in no slot. 404 for no such Recipe, 403 for Staff
    * elsewhere.
    */
-  async archive(id: string, archived: boolean, accountId: string, scope: Scope): Promise<void> {
-    await this.change(id, accountId, scope, archived ? "Archive a Recipe" : "restore a Recipe", async (tx, recipe, source, at) => {
+  async archive(id: string, archived: boolean, editor: Editor, scope: Scope): Promise<void> {
+    await this.change(id, editor, scope, archived ? "Archive a Recipe" : "restore a Recipe", async (tx, recipe, source, at) => {
       if (recipe.archived === archived) return false;
       if (recipe.slot !== null) await setSlot(tx, recipe, null, source, at);
       // A Recipe restored keeps its record id, unless another of its Location has taken that id since, as one a tablet
@@ -206,7 +206,7 @@ export class RecipeEditsService {
    */
   private async change(
     id: string,
-    accountId: string,
+    editor: Editor,
     scope: Scope,
     what: string,
     apply: (tx: Prisma.TransactionClient, recipe: Placed, source: EditSource, at: Date) => Promise<boolean>,
@@ -223,7 +223,7 @@ export class RecipeEditsService {
         SELECT slot, archived, content FROM recipes WHERE id = ${id}::uuid`;
       if (!row) throw new NotFoundException("No such Recipe");
       const recipe: Placed = { id, locationId: owned.locationId, slot: row.slot, archived: row.archived, content: isObject(row.content) ? row.content : {} };
-      if (await apply(tx, recipe, accountSource(accountId), await editTime(tx))) {
+      if (await apply(tx, recipe, accountSource(editor), await editTime(tx))) {
         await notify(tx, "library_changes", owned.locationId);
       }
     }, INTAKE_TRANSACTION);
