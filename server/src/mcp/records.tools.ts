@@ -49,7 +49,7 @@ const shotSummary = z.object({
   lastRecordedWeight: z
     .object({ weight: z.number(), seconds: z.number() })
     .nullable()
-    .describe("The scale's last weight sample, in grams, at its seconds on its curves' axis, just before the stop; null without scale samples."),
+    .describe("The scale's last weight sample after its Preheat, in grams, at its seconds on its curves' axis, just before the stop; null without one."),
   duration: seconds("How long its profile ran, leaving out its Preheat"),
   enjoyment: z.number().nullable().describe("As rated on the tablet."),
   barista: z.string().nullable(),
@@ -178,7 +178,7 @@ const STOP_REASONS =
 
 /** What get_shot's steps, lastStep and lastRecordedWeight are. */
 const SHOT_STEPS =
-  "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat or its samples name no step; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample, in grams, at its seconds, null without one. Decaid records no sample after the stop, so it is just before the stop, not at it. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus it is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell.";
+  "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, Step N, from 1, where the Profile names none, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat or its samples name no step; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample after its Preheat, in grams, at its seconds, null without one. Decaid records no sample after the stop, so it is just before the stop, not at it. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus it is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell.";
 
 /** What a Steam Record's numbers mean. */
 const STEAM_UNITS =

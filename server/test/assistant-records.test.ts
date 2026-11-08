@@ -664,10 +664,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     await deliverShots(uptown1, hardware.uptown1, Object.entries(shots).map(([id, samples]) => ({ ...fixture, id, workflow: recorded, measurements: samples })));
     type Read = { steps: Fields[]; lastStep: Fields | null; lastRecordedWeight: { weight: number; seconds: number } | null };
     const reads: Record<string, Read> = {};
-    const rests: Record<string, RestShot> = {};
     for (const [id, samples] of Object.entries(shots)) {
       // The REST API's, from the samples the Shot page reads, and the tool's the same, to hundredths.
-      const rest = (rests[id] = (await api.get<{ shot: RestShot }>(`/shots/${id}`)).shot);
+      const rest = (await api.get<{ shot: RestShot }>(`/shots/${id}`)).shot;
       const read = shotSamples(samples, workflow.profile);
       const steps = stepSpans(read);
       expect(rest.steps, id).toEqual(steps);
@@ -688,11 +687,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(early.lastRecordedWeight).toEqual({ weight: 4.6, seconds: early.steps.at(-1)!.until });
     const { curves } = await assistant.call<{ curves: { weight: Curve } }>("get_shot", { id: "assistant-stopped-early", curves: true });
     expect(curves.weight.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.lastRecordedWeight!.weight]);
-    // Stopped in its Preheat, it ran no step, and its scale's last weight is before 0 s.
+    // Stopped in its Preheat, it ran no step, and has no last weight: Decaid records 0 for the scale until it tares it.
     const preheat = reads["assistant-stopped-in-preheat"]!;
-    expect({ steps: preheat.steps, lastStep: preheat.lastStep }).toEqual({ steps: [], lastStep: null });
-    expect(preheat.lastRecordedWeight).toMatchObject({ weight: 0 });
-    expect(rests["assistant-stopped-in-preheat"]!.lastRecordedWeight!.seconds).toBeLessThan(0);
+    expect({ steps: preheat.steps, lastStep: preheat.lastStep, lastRecordedWeight: preheat.lastRecordedWeight }).toEqual({ steps: [], lastStep: null, lastRecordedWeight: null });
     // Without a scale, it has its steps but no last weight.
     const unweighed = reads["assistant-no-scale"]!;
     expect(unweighed.lastStep).toEqual({ frame: 6, name: "Extraction" });

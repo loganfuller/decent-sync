@@ -194,9 +194,11 @@ describe("lastRecordedWeight", () => {
     expect(lastRecordedWeight(disconnected)).toEqual({ weight: 31.1, seconds: disconnected[165]!.seconds });
   });
 
-  it("is null without a scale's readings", () => {
-    // Derived: the real Shot without a scale.
+  it("is null without a scale's readings after Preheat, where Decaid records 0 for the scale before taring it", () => {
+    // Derived: the real Shot without a scale, and stopped in its Preheat, whose 43 samples each weigh 0.
     expect(lastRecordedWeight(shotSamples(scaled.map((sample) => ({ ...sample, scale: null }))))).toBeNull();
+    expect(scaled.slice(0, 43).every((sample) => sample.scale?.weight === 0)).toBe(true);
+    expect(lastRecordedWeight(shotSamples(measurements.slice(0, 43)))).toBeNull();
     expect(lastRecordedWeight([])).toBeNull();
   });
 });
