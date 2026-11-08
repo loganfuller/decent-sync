@@ -180,6 +180,12 @@ describe("dialInTrail", () => {
       { kind: "changed", observedAt: iso(0), lastObservedAt: iso(2), cause: "unknown", loadedRecipe: null, changes: { dose: [18, 19], grindSetting: ["8.8", "9"] } },
       { kind: "changed", observedAt: iso(9), lastObservedAt: null, cause: "unknown", loadedRecipe: null, changes: { dose: [19, 20] } },
     ]);
+    // A strip's load and the plugin's load write 2 s later, both stored before #434: one entry; a barista's change since, apart.
+    const loading = changes([20, UNKNOWN, { recipeId: BRAZIL.id }], [22, UNKNOWN, { steam: { temperature: 150, duration: 25, flow: 1.5 } }], [23, OTHER, { dose: 19 }]);
+    expect(shown(dialInTrail({ baseline: baseline(), changes: loading, recipeEvents: loads(["loaded", 20, BRAZIL]), loadedAtStart: null }))).toEqual([
+      { kind: "loaded", observedAt: iso(20), lastObservedAt: iso(22), cause: "unknown", loadedRecipe: "Brazil", changes: { recipeId: [null, BRAZIL.id], "steam.duration": [30, 25] } },
+      { kind: "changed", observedAt: iso(23), lastObservedAt: null, cause: "other", loadedRecipe: "Brazil", changes: { dose: [18, 19] } },
+    ]);
   });
 
   it("gives the plugin's write of an edit of the Loaded Recipe made elsewhere as that Recipe updated", () => {

@@ -232,12 +232,13 @@ export class MachineEventsService {
    * it, grouped whole before the page is taken, so its total counts the
    * trail's entries, of the cause asked for, the first always given. Each
    * Profile is found once, however many changes name it, and each Workflow
-   * read once, so a long range is read whole quickly enough: 25,000 changes,
-   * a year of a busy Machine's, took about 0.6 s on 2026-11-08, and a day's
-   * a few ms.
+   * read in two passes, one for its Profile and one for its summary, each
+   * reading its parts at once (`jsonb_to_record`), as materializing them
+   * would spill a long range to disk: 25,000 changes, a year of a busy
+   * Machine's, took about 0.6 s on 2026-11-08, and a day's a few ms.
    */
   private async workflowTrail(machineId: string, range: TimeRange, bounds: Bounds, page: Page, cause: ChangeCause | undefined): Promise<ActivityPage<TrailEntry>> {
-    // Each Workflow's parts read in one pass of it (jsonb_to_record), rather than one for each part.
+    // Each Workflow's parts read at once (jsonb_to_record), rather than once for each part.
     const during = (where: Prisma.Sql) => Prisma.sql`
       SELECT e.id, e.observed_at, e.cause, e.plugin_write, e.library_batch_id, e.library_grinder_id, e.library_basket_id, e.recipe_id, parts.profile,
         jsonb_build_object(

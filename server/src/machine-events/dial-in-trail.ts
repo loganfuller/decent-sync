@@ -29,7 +29,9 @@ import type { WorkflowSummary } from "./workflow-summary.js";
 //   Loaded Recipe made elsewhere (`loadedRecipe`) is that Recipe updated,
 //   whose own history says who changed it;
 // - changes stored before Decent Sync recorded who made them (`unknown`)
-//   merge by the 5 s window alone, as of one cause;
+//   merge by the 5 s window alone, as of one cause, and a load whose first
+//   change is one takes the others in its 5 s, as its load write was stored
+//   so too;
 // - an entry left with no field changed is dropped, but for a load or unload,
 //   which is a change in itself.
 //
@@ -152,7 +154,8 @@ export function dialInTrail({ baseline, changes, recipeEvents, loadedAtStart }: 
     let group: Group;
     if (recipeGroup && at - recipeGroup.at <= MERGE_WITHIN_MS && (recipeGroup.count === 0 || key === recipeGroup.folds)) {
       group = recipeGroup;
-      if (group.count === 0) group.folds = group.kind === "loaded" ? "plugin:load" : key;
+      // A load takes the plugin's load writes after its first change, stored as unknown before #434, as that change was.
+      if (group.count === 0) group.folds = group.kind === "loaded" && key !== "unknown" ? "plugin:load" : key;
     } else if (burst && key === burst.folds && at - burst.last <= MERGE_WITHIN_MS && at - burst.at <= LONGEST_GROUP_MS) {
       group = burst;
     } else {

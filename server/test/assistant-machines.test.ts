@@ -538,7 +538,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     });
 
     it("merges changes stored before who made them was recorded by time alone, within 5 s, and pages the trail as grouped, total counting its entries", async () => {
-      // Four Workflows from a plugin that says nothing of who made them: one in effect, then three, the first two 2 s apart.
+      // Five Workflows from a plugin that says nothing of who made them: one in effect, then four, the first two 2 s apart,
+      // and the last two at one moment, taken in the order stored.
       const old = await api.createMachine("Old roastery");
       const raw = await RawConnection.welcomed(server.url, helloWith(old.token));
       const sent: [string, Record_][] = [
@@ -546,13 +547,14 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         [at(12), { targetDoseWeight: 17, grinderSetting: "2.2" }],
         [new Date(Date.parse(at(12)) + 2_000).toISOString(), { targetDoseWeight: 17.5, grinderSetting: "2.2" }],
         [new Date(Date.parse(at(12)) + 20_000).toISOString(), { targetDoseWeight: 18, grinderSetting: "2.2" }],
+        [new Date(Date.parse(at(12)) + 20_000).toISOString(), { targetDoseWeight: 18.5, grinderSetting: "2.2" }],
       ];
       try {
         for (const [observedAt, context] of sent) await raw.deliver({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow(context) });
       } finally {
         await raw.close();
       }
-      expect((await api.get<{ total: number }>(`/machines/${old.machine.id}/workflow-events`)).total).toBe(4);
+      expect((await api.get<{ total: number }>(`/machines/${old.machine.id}/workflow-events`)).total).toBe(5);
       const trail = async (args: Record_ = {}) =>
         (await assistant.call<Activity>("get_machine_activity", { machineId: old.machine.id, kinds: ["workflowChanges"], ...args })).workflowChanges!;
       const all = await trail();
@@ -562,7 +564,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
           offset: 0,
           more: false,
           entries: [
-            { kind: "changed", observedAt: sent[3]![0], cause: "unknown", pluginWrite: null, loadedRecipe: null, changes: [{ field: "dose", before: 17.5, after: 18 }] },
+            { kind: "changed", observedAt: sent[3]![0], cause: "unknown", pluginWrite: null, loadedRecipe: null, changes: [{ field: "dose", before: 17.5, after: 18.5 }] },
             {
               kind: "changed",
               observedAt: sent[1]![0],
@@ -729,6 +731,17 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         ["inEffect", recipe],
       ]);
       expect(later.entries.slice(0, 3)).toEqual(entries.slice(0, 3));
+      // From exactly the load: the strip's change, observed then, is in effect, the Brazil's loaded with it, and the
+      // plugin's load write after it a change of its own.
+      const atLoad = await trail({ from: loaded.observedAt });
+      expect(atLoad.entries.map(({ kind, cause, pluginWrite, loadedRecipe }) => [kind, cause, pluginWrite, loadedRecipe])).toEqual([
+        ["unloaded", "other", null, recipe],
+        ["recipeUpdated", "plugin", "loadedRecipe", recipe],
+        ["changed", "other", null, recipe],
+        ["changed", "plugin", "load", recipe],
+        ["inEffect", "other", null, recipe],
+      ]);
+      expect(atLoad.entries[3]!.changes).toEqual([{ field: "steam.duration", before: 50, after: 25 }]);
       // Recipe sync's writes alone, and the barista's.
       expect((await trail({ cause: "plugin" })).entries.map((entry) => entry.kind)).toEqual(["recipeUpdated", "inEffect"]);
       expect((await trail({ cause: "other" })).total).toBe(4);
