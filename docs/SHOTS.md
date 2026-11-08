@@ -385,9 +385,9 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   (`stepSpans`), each `{ frame, name, from, until }` from its first sample to
   the next step's first, the last to the Shot's last sample, a step that
   ended between two samples left out; `lastStep` (`{ frame, name }`), the
-  one it ended in, null when it stopped in its Preheat; and
-  `lastRecordedWeight` (`{ weight, seconds }`), the scale's last weight
-  sample, null without one. Decaid records no sample after the stop, so that
+  one it ended in, null when it stopped in its Preheat or its samples
+  name no step; and `lastRecordedWeight` (`{ weight, seconds }`), the
+  scale's last weight sample, null without one. Decaid records no sample after the stop, so that
   is the weight just before it, while `actualYield` is what Decaid weighed
   once the flow settled. The MCP endpoint's `get_shot` gives them too, to
   hundredths, from the same read of the measurements as its curves.

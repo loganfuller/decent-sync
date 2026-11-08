@@ -517,6 +517,19 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.steps).not.toEqual([]);
     });
 
+    it("reads a Shot whose Profile's step names run long with its steps whole, as a Profile's steps are", async () => {
+      // Derived: the real Shot with a Preheat, its Profile's step names far longer than any typed, and its notes too.
+      const fixture = preheatShotFixture();
+      const profile = (fixture.workflow as { profile: { steps: Fields[] } }).profile;
+      const steps = profile.steps.map((step, n) => ({ ...step, name: `${n} ${hostile(3_000)}` }));
+      await deliverShots(raw, [shotAt("haunted-steps", 400, "43102", { profile: { steps }, annotations: { espressoNotes: hostile(60_000) } }, fixture)]);
+      const { result } = await assistant.callWithinBudget<Fields & { steps: { frame: number; name: string }[] }>("get_shot", { id: "haunted-steps", curves: true });
+      expect(cut(result.notes)).toBe(true);
+      // The five it ran, Prefill, Compressing, Dripping, Pressurize and Extraction, each named whole, as trimmed.
+      expect(result.steps.map((step) => step.frame)).toEqual([0, 2, 3, 4, 6]);
+      expect(result.steps.map((step) => step.name)).toEqual([0, 2, 3, 4, 6].map((n) => steps[n]!.name.trim()));
+    });
+
     it("gives a Machine whose Workflow's text runs long with that text cut, summarised and whole, its Profile's steps and its settings whole", async () => {
       const workflow = derivedWorkflow({ coffeeName: hostile(20_000), baristaName: hostile(5_000) });
       const profile: Fields = { ...(workflow.profile as Fields), notes: hostile(60_000), title: hostile(5_000) };

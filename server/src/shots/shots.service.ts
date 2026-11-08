@@ -231,12 +231,12 @@ export class ShotsService {
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
-    const measurements = await this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } });
+    const [measurements, previousShot] = await Promise.all([
+      this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } }),
+      this.previous(shot!),
+    ]);
     const samples = shotSamples(measurements?.data ?? null, object(object(found.record).workflow).profile);
-    return {
-      shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), previousShot: await this.previous(shot!) },
-      samples,
-    };
+    return { shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), previousShot }, samples };
   }
 
   async measurements(id: string) {

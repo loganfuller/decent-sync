@@ -51,7 +51,7 @@ export function recordedDetails(record: unknown) {
 /**
  * What a Shot's samples (`shotSamples`) show beyond its curves: the steps of
  * its Profile it ran (`stepSpans`), the one it ended in, null when it stopped
- * in its Preheat, and the scale's last weight, null without one
+ * in its Preheat or its samples name no step, and the scale's last weight, null without one
  * (`lastRecordedWeight`), each timed on its curves' axis.
  */
 export function measuredDetails(samples: readonly Sample<ShotCurve>[]) {
