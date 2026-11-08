@@ -1,4 +1,3 @@
-import { DYE2_RECIPE_FIELD, WORKFLOW_BASKET, WORKFLOW_BATCH, WORKFLOW_GRINDER } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { profileOfSql } from "../shots/links.js";
 
@@ -13,13 +12,14 @@ import { profileOfSql } from "../shots/links.js";
 // then null.
 //
 // A Workflow names its Bean Batch, Grinder, Basket and Recipe by the ids of
-// their records on the tablet that reported it, which resolve to the
-// Library's items through that tablet's map (ADR-0006), as a Shot's do
-// (shots/links.ts); one the map doesn't hold, as a batch made on the tablet
+// their records on the tablet that reported it, which the event keeps linked
+// to the Library's items as that tablet's map resolves them
+// (workflow-links.ts); one never resolved, as a batch made on the tablet
 // that hasn't joined the Library, is null, its name as the Workflow recorded
-// it kept. It names its Profile by the profile itself, which is resolved as
-// a Shot's is (`profileOfSql`), the same through any tablet. It records no
-// Recipe's name, so the Recipe's is the Library's.
+// it kept, and so is every one of an event stored before #434, which keeps
+// no links. It names its Profile by the profile itself, which is found as a
+// Shot's is (`profileOfSql`). It records no Recipe's name, so the Recipe's
+// is the Library's.
 
 /** The Library items a Workflow names, as its summary gives them: each one's id, null for none, and the Recipe's name. */
 export interface WorkflowLinks {
@@ -94,30 +94,21 @@ export function workflowSummary(workflow: Record<string, unknown>, links: Workfl
   };
 }
 
-/** A field of a Workflow, as the protocol names it, such as context.extras.basketId, as a path `#>>` takes. */
-function pathOf(field: string): string {
-  return `{${field.split(".").join(",")}}`;
-}
-
 /**
- * The Library items the Workflow names, as the columns of WorkflowLinks: its
- * Profile by its profile (`profileOfSql`), and its Bean Batch, Grinder,
- * Basket and Recipe through the map of the tablet given, each null where the
- * map holds no record under the id the Workflow names it by, read as text as
- * a Shot's recipe is, or where the tablet is null.
+ * The Library items the Workflow event of `workflow_events` aliased `alias`
+ * names, as the columns of WorkflowLinks: its Profile by its profile
+ * (`profileOfSql`), and the Bean Batch, Grinder, Basket and Recipe it keeps
+ * linked, with the Recipe's name.
  */
-export function workflowLinksSql(workflow: Prisma.Sql, tabletId: Prisma.Sql): Prisma.Sql {
-  const named = (field: string) => Prisma.sql`(${workflow} #>> ${pathOf(field)})`;
-  const recipe = (column: Prisma.Sql) => Prisma.sql`(
-    SELECT ${column} FROM tablet_recipes AS mapped JOIN recipes AS r ON r.id = mapped.recipe_id
-    WHERE mapped.tablet_id = ${tabletId} AND mapped.local_id = ${named(DYE2_RECIPE_FIELD)})`;
+export function workflowLinksSql(alias: string): Prisma.Sql {
+  const event = Prisma.raw(alias);
   return Prisma.sql`
-    ${profileOfSql(Prisma.sql`(${workflow} -> 'profile')`)} AS "profileId",
-    (SELECT batch_id::text FROM tablet_bean_batches WHERE tablet_id = ${tabletId} AND local_id = ${named(WORKFLOW_BATCH[0])}) AS "beanBatchId",
-    (SELECT grinder_id::text FROM tablet_grinders WHERE tablet_id = ${tabletId} AND local_id = ${named(WORKFLOW_GRINDER[0])}) AS "grinderId",
-    (SELECT basket_id::text FROM tablet_baskets WHERE tablet_id = ${tabletId} AND local_id = ${named(WORKFLOW_BASKET[0])}) AS "basketId",
-    ${recipe(Prisma.sql`r.id::text`)} AS "recipeId",
-    ${recipe(Prisma.sql`r.content ->> 'name'`)} AS "recipeName"`;
+    ${profileOfSql(Prisma.sql`(${event}.workflow -> 'profile')`)} AS "profileId",
+    ${event}.library_batch_id::text AS "beanBatchId",
+    ${event}.library_grinder_id::text AS "grinderId",
+    ${event}.library_basket_id::text AS "basketId",
+    ${event}.recipe_id::text AS "recipeId",
+    (SELECT content ->> 'name' FROM recipes WHERE id = ${event}.recipe_id) AS "recipeName"`;
 }
 
 function record(value: unknown): Record<string, unknown> | undefined {

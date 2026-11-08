@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet, workflowCauses } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   SimulatedDye2,
@@ -551,6 +551,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
 
   it("has DYE2 save a Workflow change only while a Recipe is loaded, not its load or the plugin's own writes, and unloads one Archived by clearing the recipe from the Workflow", async () => {
     const { machine, tablet, dye2, ethiopia, quiet } = await lab("Saves", 47151, { pollSeconds: 3600 });
+    /** Who made each Workflow change stored since the last call (`workflowCauses`, #434). */
+    const causes = async () => {
+      const all = await workflowCauses(api, machine);
+      const since = all.slice(seen);
+      seen = all.length;
+      return since;
+    };
+    let seen = (await workflowCauses(api, machine)).length;
     // Nothing loaded: a change of the Workflow is sent as it is, and nothing is saved.
     await tablet.changeSettings({ context: { targetDoseWeight: 19 } });
     await tablet.changeSettings({ context: { targetDoseWeight: 19.5 } });
@@ -559,6 +567,8 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await expect.poll(async () => ((await storedWorkflow(machine))?.context as Record_ | undefined)?.targetDoseWeight, { timeout: 15_000 }).toBe(19.5);
     await quiet();
     expect(posts(tablet, "record")).toBe(0);
+    // Each another's, the plugin's being none.
+    expect(new Set(await causes())).toEqual(new Set(["other"]));
 
     // The change that loads a Recipe, a stale copy's maybe, and the plugin's load write are saved into nothing.
     await tablet.changeSettings({ context: { extras: { basketId: BASKET_20 } } });
@@ -568,11 +578,17 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // The site's own wait is the load's write above; then its report and anything else under way.
     await quiet();
     expect(posts(tablet, "record")).toBe(0);
+    // The changes up to DYE2's apply are another's, and the load's write the plugin's.
+    const loading = await causes();
+    expect([new Set(loading.slice(0, -1)), loading.at(-1)]).toEqual([new Set(["other"]), "plugin:load"]);
     // With it loaded, each change is.
     await tablet.changeSettings({ context: { targetDoseWeight: 18.8 } });
     await expect.poll(() => posts(tablet, "record")).toBe(1);
     await expect.poll(async () => (await recipe(ethiopia)).content.dose, { timeout: 15_000 }).toBe(18.8);
     expect(dye2.recorded.at(-1)).toMatchObject({ id: ETHIOPIA, patch: { dose: 18.8 } });
+    // Held back while DYE2 saves it, it is still another's, as the plugin wrote nothing into the Workflow meanwhile.
+    await quiet();
+    expect(await causes()).toEqual(["other"]);
 
     // Archived, the server unloads it: the plugin clears the recipe from the Workflow, as DYE2 does, posting no selection.
     const writes = workflowWrites(tablet);
@@ -584,6 +600,8 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(dye2.cleared).toEqual([]);
     await expect.poll(() => record(tablet, ETHIOPIA), { timeout: 15_000 }).toBeUndefined();
     expect((await history(machine)).total).toBe(1);
+    await quiet();
+    expect(await causes()).toEqual(["plugin:clear"]);
   });
 
   it("loads a recipe named with none of its values applied, as through DYE2's selection route, writing its Profile in one write that keeps it named", async () => {

@@ -462,8 +462,10 @@ export class LibraryWrites {
     if (!writerOf(write.kind)?.changesWorkflow) {
       return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
     }
+    // A write of LOADED_RECIPE_KIND naming DYE2_RECIPE_FIELD alone unloads the Recipe, clearing it (`writeLoadedRecipe`).
+    const named = write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
     return this.afterShot(again, () =>
-      this.loaded.ownWrite(async (answered) => {
+      this.loaded.ownWrite(named, async (answered) => {
         const answer = await carryOut(write, this.log, Object.assign((key: Dye2Key) => this.posted(key), this.posted, { answered }));
         if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
         this.outbox.enqueue(answer);

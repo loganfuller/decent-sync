@@ -692,6 +692,8 @@ var __decentSync = (() => {
     const id = isObject(extras) ? extras[GLOBAL_ID_KEY] : void 0;
     return isGlobalId(id) ? id.toLowerCase() : null;
   }
+  var WORKFLOW_CAUSES = ["plugin", "other"];
+  var PLUGIN_WORKFLOW_WRITES = ["load", "loadedRecipe", "clear", "steamOn"];
   var UTC_OFFSET_COLLECTIONS = ["appSettings", "presenceSettings"];
   function hasUtcOffset(name) {
     return UTC_OFFSET_COLLECTIONS.includes(name);
@@ -935,6 +937,9 @@ var __decentSync = (() => {
         fields.objectField("workflow");
         fields.optionalBoolean("dye2Absent");
         if (object3.recipeNamedAt !== void 0) fields.instant("recipeNamedAt");
+        if (object3.cause !== void 0) fields.oneOf("cause", WORKFLOW_CAUSES);
+        if (object3.cause === "plugin") fields.oneOf("pluginWrite", PLUGIN_WORKFLOW_WRITES);
+        else fields.absent("pluginWrite");
       });
     }
     return check(object3, "machineState", (fields) => {
@@ -1718,7 +1723,7 @@ var __decentSync = (() => {
       this.records = loadable(records);
       if (this.writing === 0) this.decide(this.latest, false);
     }
-    async ownWrite(work) {
+    async ownWrite(write, work) {
       if (this.writing === 0) this.duringWrite = { reported: false, answered: void 0, before: this.latest, written: /* @__PURE__ */ new Set() };
       this.writing++;
       this.changes.hold();
@@ -1726,6 +1731,7 @@ var __decentSync = (() => {
         return await work((workflow, body) => {
           this.duringWrite.answered = workflow;
           for (const path of fieldPaths(body)) this.duringWrite.written.add(path);
+          this.changes.wrote(write);
         });
       } finally {
         this.writing--;
@@ -1756,7 +1762,7 @@ var __decentSync = (() => {
     async beforePost(before, after) {
       const vacated = new Set(vacatedIds(before, after));
       if (vacated.size === 0) return;
-      await this.ownWrite(async (answered2) => {
+      await this.ownWrite("clear", async (answered2) => {
         const workflow = await workflowNow();
         const named = dye2RecipeIdOf(workflow);
         if (named === null || !vacated.has(named)) return;
@@ -1929,7 +1935,7 @@ var __decentSync = (() => {
       const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
       if (write !== null) {
-        await this.ownWrite(async (answered2) => {
+        await this.ownWrite("steamOn", async (answered2) => {
           const answer = await request("PUT", "/workflow", write);
           const updated = answer.ok ? parsed2(answer.text) : void 0;
           if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
@@ -2012,7 +2018,7 @@ var __decentSync = (() => {
         if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
         return;
       }
-      await this.ownWrite(async (answered2) => {
+      await this.ownWrite("load", async (answered2) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const recipe = recordId === null ? void 0 : this.records?.get(recordId);
@@ -2388,9 +2394,10 @@ var __decentSync = (() => {
       if (!writerOf(write.kind)?.changesWorkflow) {
         return this.afterShot(again, async () => this.outbox.enqueue(this.wrote(write.kind, await carryOut(write, this.log, this.posted))));
       }
+      const named = write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
       return this.afterShot(
         again,
-        () => this.loaded.ownWrite(async (answered2) => {
+        () => this.loaded.ownWrite(named, async (answered2) => {
           const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered: answered2 }));
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
@@ -3816,6 +3823,13 @@ var __decentSync = (() => {
       /** A change reported while held, which `release` sends. */
       __publicField(this, "heldChange", false);
       /**
+       * The first of the plugin's writes into the Workflow that Decaid took
+       * while held, whose change `release` sends as the plugin's: Decaid
+       * reports a write's change before it answers it, so that change is held
+       * already, with any change another writer made meanwhile.
+       */
+      __publicField(this, "heldWrite");
+      /**
        * When Decaid reported the Workflow first naming the recipe it names now
        * (`dye2RecipeIdOf`), where that was while held: `release` sends it as the
        * delivery's `recipeNamedAt`, as a later report meanwhile, such as the
@@ -3848,20 +3862,27 @@ var __decentSync = (() => {
     hold() {
       this.holds++;
     }
+    wrote(write) {
+      if (this.holds > 0) this.heldWrite ?? (this.heldWrite = write);
+    }
     /**
      * Once no write is under way, sends the latest Workflow, observed when
      * Decaid reported it, or now for a resend alone, if it changed while held:
      * that holds the plugin's own writes, and any change a barista made
      * meanwhile. Where the recipe it names changed while held, it says when
-     * Decaid first reported it naming that one (`recipeNamedAt`).
+     * Decaid first reported it naming that one (`recipeNamedAt`), and where
+     * Decaid took a write of the plugin's meanwhile, that it is the plugin's
+     * change (`cause`).
      */
     release() {
       this.holds = Math.max(0, this.holds - 1);
       if (this.holds > 0) return;
+      const write = this.heldReport ? this.heldWrite : void 0;
+      this.heldWrite = void 0;
       if (this.heldChange && this.workflow) {
         this.heldChange = false;
         const resend = this.heldResend && !this.heldReport;
-        const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt);
+        const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt, write);
         if (resend) this.resent = id;
         this.heldResend = false;
         this.heldReport = false;
@@ -3921,15 +3942,16 @@ var __decentSync = (() => {
         this.heldResend = true;
       } else this.resent = this.queueWorkflow(this.workflow);
     }
-    /** Queues the Workflow as observed now, returning its delivery's id. */
-    queueWorkflow(workflow, observedAt = now(), recipeNamedAt) {
+    /** Queues the Workflow as observed now, the plugin's change where one of its writes made it, returning its delivery's id. */
+    queueWorkflow(workflow, observedAt = now(), recipeNamedAt, write) {
       const delivery = {
         type: "workflow",
         id: this.outbox.nextId(),
         observedAt,
         workflow,
         ...this.absent ? { dye2Absent: true } : {},
-        ...recipeNamedAt !== void 0 ? { recipeNamedAt } : {}
+        ...recipeNamedAt !== void 0 ? { recipeNamedAt } : {},
+        ...write !== void 0 ? { cause: "plugin", pluginWrite: write } : { cause: "other" }
       };
       this.outbox.enqueue(delivery);
       return delivery.id;
@@ -5131,6 +5153,7 @@ var __decentSync = (() => {
         {
           hold: () => this.machineEvents.hold(),
           release: () => this.machineEvents.release(),
+          wrote: (write) => this.machineEvents.wrote(write),
           dye2Absent: (absent) => this.machineEvents.dye2Absent(absent)
         },
         library,

@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
-import type { MachineStateDelivery, WorkflowDelivery } from "@decent-sync/protocol";
+import { PLUGIN_WORKFLOW_WRITES, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
-import { INTAKE_TRANSACTION } from "../library/intake.js";
+import { INTAKE_TRANSACTION, lockTablet } from "../library/intake.js";
 import { takeInWorkflow } from "../library/joining.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
@@ -9,6 +9,7 @@ import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type LoadedRecipeView, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
 import { type WorkflowLinks, type WorkflowSummary, workflowLinksSql, workflowSummary } from "./workflow-summary.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
@@ -43,6 +44,17 @@ export interface WorkflowEventView {
   observedAt: string;
   /** When the server stored it, by PostgreSQL's clock. */
   receivedAt: string;
+  /**
+   * Who changed it, as its delivery said: `plugin`, for a change the plugin
+   * released at the end of one of its writes into the Workflow, which may
+   * carry another writer's change made meanwhile too; `other`, for any
+   * other, as a barista's on Streamline, Streamline's own or DYE2's; and
+   * `unknown`, for one stored before Decent Sync recorded this, or from a
+   * plugin that says nothing.
+   */
+  cause: "plugin" | "other" | "unknown";
+  /** For a `plugin` change, the plugin's write (PLUGIN_WORKFLOW_WRITES); otherwise null. */
+  pluginWrite: PluginWorkflowWrite | null;
   /** Decaid's Workflow, as sent. */
   workflow: Prisma.JsonObject;
 }
@@ -53,10 +65,7 @@ export interface LinkedWorkflowEventView extends WorkflowEventView {
 }
 
 /** A Workflow recorded for a Machine, summarised, as the REST API's summary route returns it. */
-export interface WorkflowSummaryView {
-  id: string;
-  observedAt: string;
-  receivedAt: string;
+export interface WorkflowSummaryView extends Omit<WorkflowEventView, "workflow"> {
   /** Its summary, with the Library's ids of what it names (workflow-summary.ts). */
   workflow: WorkflowSummary;
 }
@@ -84,8 +93,11 @@ export interface MachineStateEventView extends MachineStateView {
  * remembers. The latest event stored is the current one; one delivered late
  * keeps the time the plugin observed it.
  *
- * A Workflow from a connection that is not mismatched, for its token's
- * Machine, is also taken in at its Location in the same transaction
+ * A Workflow is stored with who changed it, as its delivery says, the tablet
+ * that reported it, and the Library's items it names, through that tablet's
+ * map (workflow-links.ts). A Workflow from a connection that is not
+ * mismatched, for its token's Machine, is also taken in at its Location in
+ * the same transaction
  * (`takeInWorkflow`), as its tablet joins it, and into the Machine's Loaded
  * Recipe (`takeInLoadedRecipe`, ADR-0022).
  */
@@ -104,12 +116,18 @@ export class MachineEventsService {
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
       if (!credit) return undefined;
+      // The tablet's map, which its ids resolve through, changes only under this lock, which takeInWorkflow takes too.
+      await lockTablet(tx, reporter.tabletId);
       await tx.$executeRaw`
-        INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow)
-        SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, ${workflow}::jsonb
+        WITH reported AS (SELECT ${workflow}::jsonb AS workflow)
+        INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow, cause, plugin_write, tablet_id, ${WORKFLOW_LINK_COLUMNS})
+        SELECT ${credit.machineId}::uuid, ${credit.pendingMachineId}::uuid, ${message.observedAt}::timestamptz, reported.workflow,
+          ${message.cause ?? null}::text, ${message.pluginWrite ?? null}::text, ${reporter.tabletId}::uuid,
+          ${resolvedLinksSql(reporter.tabletId, Prisma.sql`reported.workflow`)}
+        FROM reported
         WHERE NOT EXISTS (
           SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
-          WHERE latest.workflow = ${workflow}::jsonb
+          WHERE latest.workflow = reported.workflow
         )`;
       // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
       if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
@@ -144,21 +162,12 @@ export class MachineEventsService {
     return latest ? viewWorkflowEvent(latest) : null;
   }
 
-  /**
-   * The Machine's current Workflow, as `currentWorkflow` gives it, with the
-   * Library items it names, resolved through the map of the tablet its
-   * latest connection came from (`machine_tablets`' `last_hello`), which
-   * reports the Workflow as its connection begins: the tablet that reported
-   * it, but for a moment as a tablet connects or takes over, or while its
-   * plugin holds the Workflow back during a write of its own, until its
-   * report is stored.
-   */
+  /** The Machine's current Workflow, as `currentWorkflow` gives it, with the Library items it names (`workflowLinksSql`). */
   async currentLinkedWorkflow(machineId: string): Promise<LinkedWorkflowEventView | null> {
     await this.requireMachine(machineId);
-    const tablet = Prisma.sql`(SELECT tablet_id FROM machine_tablets WHERE machine_id = ${machineId}::uuid ORDER BY last_hello DESC LIMIT 1)`;
     const [latest] = await this.prisma.$queryRaw<LinkedRow[]>`
-      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`latest.workflow`, tablet)}
-      FROM (SELECT id, observed_at, received_at, workflow FROM workflow_events WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 1) AS latest`;
+      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("latest")}
+      FROM workflow_events AS latest WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 1`;
     return latest ? viewLinkedWorkflowEvent(latest) : null;
   }
 
@@ -208,18 +217,16 @@ export class MachineEventsService {
 
   /**
    * The Workflows in effect over the range (`inEffectDuring`), a page of
-   * them, each with the Library items it names, resolved for the page alone:
-   * its Profile, read from its profile; the rest only through the map of the
-   * tablet that reported it, which no change records yet, so null.
+   * them, each with the Library items it names (`workflowLinksSql`), read for
+   * the page's alone.
    */
   private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<LinkedWorkflowEventView>> {
     const table = Prisma.sql`workflow_events`;
     const [rows, total] = await Promise.all([
       this.prisma.$queryRaw<LinkedRow[]>`
-        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`paged.workflow`, Prisma.sql`NULL::uuid`)}
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("paged")}
         FROM (
-          SELECT id, observed_at, received_at, workflow
-          FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
+          SELECT ${VIEWED_COLUMNS} FROM ${inEffectDuring(table, VIEWED_COLUMNS, machineId, bounds, page)}
           ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}
         ) AS paged
         ORDER BY observed_at DESC, id DESC`,
@@ -292,25 +299,39 @@ function heldBy(credit: Credit): Prisma.Sql {
     : Prisma.sql`pending_machine_id = ${credit.pendingMachineId}::uuid`;
 }
 
-function viewWorkflowEvent(event: Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">): WorkflowEventView {
+/** What a Workflow event's view is made from. */
+type ViewedWorkflowEvent = Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow" | "cause" | "pluginWrite">;
+
+function viewWorkflowEvent(event: ViewedWorkflowEvent): WorkflowEventView {
+  const plugin = event.cause === "plugin";
   return {
     id: event.id.toString(),
     observedAt: event.observedAt.toISOString(),
     receivedAt: event.receivedAt.toISOString(),
+    cause: plugin ? "plugin" : event.cause === "other" ? "other" : "unknown",
+    pluginWrite: plugin ? pluginWriteOf(event.pluginWrite) : null,
     workflow: event.workflow as Prisma.JsonObject,
   };
 }
 
+/** A `plugin` change's write as stored, or null for one this release doesn't know, as a later release beside it may store. */
+function pluginWriteOf(write: string | null): PluginWorkflowWrite | null {
+  return (PLUGIN_WORKFLOW_WRITES as readonly (string | null)[]).includes(write) ? (write as PluginWorkflowWrite) : null;
+}
+
+/** The columns of `workflow_events` a Workflow event's view, with the Library items it names, is read from. */
+const VIEWED_COLUMNS = Prisma.sql`id, observed_at, received_at, workflow, cause, plugin_write, ${WORKFLOW_LINK_COLUMNS}`;
+
 /** A Workflow event as read with the Library items it names (`workflowLinksSql`). */
-type LinkedRow = Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow"> & WorkflowLinks;
+type LinkedRow = ViewedWorkflowEvent & WorkflowLinks;
 
 function viewLinkedWorkflowEvent({ profileId, beanBatchId, grinderId, basketId, recipeId, recipeName, ...event }: LinkedRow): LinkedWorkflowEventView {
   return { ...viewWorkflowEvent(event), links: { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } };
 }
 
 /** A Workflow event summarised, as the REST API's summary route returns it. */
-export function summarised({ id, observedAt, receivedAt, workflow, links }: LinkedWorkflowEventView): WorkflowSummaryView {
-  return { id, observedAt, receivedAt, workflow: workflowSummary(workflow, links) };
+export function summarised({ workflow, links, ...event }: LinkedWorkflowEventView): WorkflowSummaryView {
+  return { ...event, workflow: workflowSummary(workflow, links) };
 }
 
 function viewMachineStateEvent(event: Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">): MachineStateEventView {

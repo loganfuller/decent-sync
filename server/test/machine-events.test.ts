@@ -15,13 +15,14 @@ import {
 } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #13: the built plugin in a simulated tablet, or raw
-// frames, against real servers sharing one PostgreSQL database, with every
-// assertion made through the REST API. Workflows and machine states are
-// derived from the test tablet's (see the fixtures' README); serials are
-// made up.
+// Seam 1 for tickets #13 and #434: the built plugin in a simulated tablet,
+// or raw frames, against real servers sharing one PostgreSQL database, with
+// every assertion made through the REST API, but for the tablet and Library
+// items a Workflow change keeps, which nothing gives yet, read from the
+// database. Workflows and machine states are derived from the test tablet's
+// (see the fixtures' README); serials are made up.
 
-interface WorkflowEvent { id: string; observedAt: string; receivedAt: string; workflow: Record<string, unknown> }
+interface WorkflowEvent { id: string; observedAt: string; receivedAt: string; cause: string; pluginWrite: string | null; workflow: Record<string, unknown> }
 interface StateEvent { id: string; state: string; substate: string; observedAt: string; receivedAt: string }
 interface EventPage<T> { events: T[]; total: number; limit: number; offset: number }
 interface Frame { type: string; id?: string }
@@ -88,6 +89,36 @@ describe("Workflow changes and machine state transitions", () => {
   const workflowDelivery = (workflow: Record<string, unknown>, observedAt: string) =>
     ({ type: "workflow", id: randomUUID(), observedAt, workflow });
 
+  /** The tablet and Library items each of the Machine's Workflow changes keeps, oldest first, read from the database. */
+  async function storedLinks(machine: CreatedMachine) {
+    const database = await server.connectDatabase();
+    try {
+      const { rows } = await database.query(
+        `SELECT tablet_id AS "tabletId", library_batch_id AS "libraryBatchId", library_grinder_id AS "libraryGrinderId",
+           library_basket_id AS "libraryBasketId", recipe_id AS "recipeId"
+         FROM workflow_events WHERE machine_id = $1 ORDER BY id`,
+        [machine.machine.id],
+      );
+      return rows;
+    } finally {
+      await database.end();
+    }
+  }
+
+  /** Resolves with the Library item the tablet's map holds under that id, once it holds one. */
+  async function mappedItem(tabletId: string, map: string, column: string, localId: unknown): Promise<string> {
+    const read = async () => {
+      const database = await server.connectDatabase();
+      try {
+        return (await database.query(`SELECT ${column} AS id FROM ${map} WHERE tablet_id = $1 AND local_id = $2`, [tabletId, localId])).rows[0]?.id as string | undefined;
+      } finally {
+        await database.end();
+      }
+    };
+    await expect.poll(read, { timeout: 15_000 }).toBeTruthy();
+    return (await read())!;
+  }
+
   it("requires a Machine and valid pagination for the history reads", async () => {
     const machine = await api.createMachine("History reads");
     const paths = ["/workflow", "/workflow-events", "/machine-state-events"];
@@ -129,6 +160,73 @@ describe("Workflow changes and machine state transitions", () => {
     expect(history.total).toBe(2);
     expect(history.events[0]).toMatchObject({ id: expect.any(String), workflow: dialledIn });
     expect((await currentWorkflow(machine))!.workflow).toEqual(dialledIn);
+  });
+
+  it("records who changed each Workflow, as its delivery says, and unknown where it says nothing, as the previous release's plugin does", async () => {
+    const machine = await api.createMachine("Workflow causes");
+    const connection = await connect(machine);
+    const deliveries = [
+      { ...workflowDelivery(derivedWorkflow({ grinderSetting: "7.5" }), new Date(Date.now() - 4_000).toISOString()), cause: "other" },
+      { ...workflowDelivery(derivedWorkflow({ grinderSetting: "7.5", targetYield: 40 }), new Date(Date.now() - 3_000).toISOString()), cause: "plugin", pluginWrite: "load" },
+      workflowDelivery(derivedWorkflow({ grinderSetting: "7.4" }), new Date(Date.now() - 2_000).toISOString()),
+      { ...workflowDelivery(derivedWorkflow({ grinderSetting: "7.4", targetYield: 38 }), new Date(Date.now() - 1_000).toISOString()), cause: "plugin", pluginWrite: "steamOn" },
+    ];
+    for (const delivery of deliveries) await connection.deliver(delivery);
+    // A change of nothing but who made it is no change.
+    await connection.deliver({ ...workflowDelivery(deliveries[3]!.workflow, new Date().toISOString()), cause: "other" });
+    await connection.close();
+    expect((await workflowEvents(machine)).events.map(({ cause, pluginWrite }) => [cause, pluginWrite])).toEqual([
+      ["plugin", "steamOn"],
+      ["unknown", null],
+      ["plugin", "load"],
+      ["other", null],
+    ]);
+    expect(await currentWorkflow(machine)).toMatchObject({ cause: "plugin", pluginWrite: "steamOn" });
+
+    // The built plugin's Workflow as Decaid sends it on loading, and a barista's change, are another's.
+    const built = await api.createMachine("Workflow causes, built");
+    const tablet = load(built);
+    await loadedWorkflowsAcknowledged(tablet);
+    tablet.setWorkflow(derivedWorkflow({ targetYield: 40 }));
+    await expect.poll(async () => (await workflowEvents(built)).total).toBe(2);
+    expect((await workflowEvents(built)).events.map(({ cause, pluginWrite }) => [cause, pluginWrite])).toEqual([
+      ["other", null],
+      ["other", null],
+    ]);
+  });
+
+  it("keeps the tablet each Workflow change came from, and the Library's batch, Grinder, Basket and Recipe it names through that tablet's map, linking those it gains later", async () => {
+    // At no Location, the tablet's batches, Grinders, Baskets and recipes stay out of the Library.
+    const machine = await api.createMachine("Workflow links");
+    const library = derivedDe1Pro({ serial: machine.machine.id.replaceAll("-", "") });
+    const beans = (library["/beans"] as Record<string, unknown>[]).map((bean) => ({ ...bean, name: `Links ${String(bean.name)}` }));
+    const tablet = load(machine, { api: { ...library, "/beans": beans } });
+    await loadedWorkflowsAcknowledged(tablet);
+    const tabletId = (tablet.sent.find((frame) => frameType(frame) === "hello") as { tabletId: string }).tabletId;
+    // The test tablet's Workflow names one of its batches, Grinders and Baskets; this one its recipe too.
+    const context = workflowFixture().context as Record<string, unknown>;
+    const named = derivedWorkflow({ extras: { ...(context.extras as Record<string, unknown>), dye: { v: 1, recipeId: "1" } } });
+    tablet.setWorkflow(named);
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(2);
+    const unlinked = { tabletId, libraryBatchId: null, libraryGrinderId: null, libraryBasketId: null, recipeId: null };
+    expect(await storedLinks(machine)).toEqual([unlinked, unlinked]);
+
+    // Moved to a Location offering none of them yet, its tablet brings its own, which join the Library one list at a time.
+    const location = await api.createLocation("Workflow links cafe", "America/Chicago");
+    expect((await api.call("POST", `/machines/${machine.machine.id}/location-history`, { locationId: location.id })).status).toBe(201);
+    const mapped = {
+      tabletId,
+      libraryBatchId: await mappedItem(tabletId, "tablet_bean_batches", "batch_id", context.beanBatchId),
+      libraryGrinderId: await mappedItem(tabletId, "tablet_grinders", "grinder_id", context.grinderId),
+      libraryBasketId: await mappedItem(tabletId, "tablet_baskets", "basket_id", (context.extras as Record<string, unknown>).basketId),
+      recipeId: await mappedItem(tabletId, "tablet_recipes", "recipe_id", "1"),
+    };
+    await expect.poll(() => storedLinks(machine), { timeout: 15_000 }).toEqual([{ ...mapped, recipeId: null }, mapped]);
+
+    // A change stored once the map holds them is linked as it is stored.
+    tablet.setWorkflow({ ...named, context: { ...(named.context as Record<string, unknown>), grinderSetting: "7.5" } });
+    await expect.poll(async () => (await workflowEvents(machine)).total).toBe(3);
+    expect((await storedLinks(machine)).at(-1)).toEqual(mapped);
   });
 
   it("records only the transitions in a series of state updates, a change of substate alone included", async () => {
