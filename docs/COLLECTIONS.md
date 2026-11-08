@@ -5,7 +5,7 @@ protocol version 1 with one delivery, defined and validated in `protocol/`:
 
 | Direction | Message | Fields |
 |---|---|---|
-| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80); for one of `UTC_OFFSET_COLLECTIONS`, `utcOffsetMinutes` too (ticket #229) |
+| Plugin to server | `collection` | `id` (delivery id), `name` (one of `COLLECTION_NAMES`), `available`, and `value` (opaque, as Decaid's API answered) while available; for one of `LIBRARY_LISTS`, `updatedAt` too (ticket #80); for one of `UTC_OFFSET_COLLECTIONS`, `utcOffsetMinutes` too (ticket #229); for a Settings Edit's read-back, `settingsEditId` too (ticket #432, Settings History below) |
 
 It is acknowledged with `ack` once stored, or set aside because storing it
 fails in a way that would repeat, as Shots are (`AI_PROTOCOL_NOTES.md`,
@@ -284,7 +284,8 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
      DE1's firmware holds some flow multipliers lower still (below); the
      heater voltage and refill kit read back as Decaid holds them (below);
   5. whether Decaid took the write or not, reads the collection again and
-     queues it as a `collection` delivery, then queues its answer,
+     queues it as a `collection` delivery naming the edit
+     (`settingsEditId`, Settings History below), then queues its answer,
      `settingsEdited`, behind it: `written` with the values read back, or
      refused by `decaid` with Decaid's status and its `error` or `message`,
      and the values read back, as Decaid writes the fields one at a time. The
@@ -471,12 +472,17 @@ tests (`plugin/test/change-detection.test.ts`):
   the Machine's Location changes, after sending its latest Workflow again
   (`LIBRARY.md`, Joining a Location). Either counts as a read of the
   machine's own settings for their interval.
-- It reads the sensor calibration (`sensorCalibration`) only on those full
-  reads, on every `welcome` and `requestCollections`: never on a poll, on the
-  machine settings' interval or after a Workflow change. Its three reads each
-  go to the machine (below), and its values change only through a deliberate
-  calibration (`PUT` on the same route), so a recalibration reaches the
-  server on the tablet's next reconnect or `requestCollections`.
+- It reads the sensor calibration (`sensorCalibration`) on those full
+  reads, on every `welcome` and `requestCollections`, and once a day while
+  connected, a day after the end of the latest of those reads, sending it
+  then only if it changed (#432): never on a poll, on the machine settings'
+  interval or after a Workflow change. Its three reads each go to the
+  machine (below), and its values change only through a deliberate
+  calibration (`PUT` on the same route), so a recalibration on the Tablet
+  reaches the server within a day, or at its next reconnect or
+  `requestCollections` if sooner, for the Machine's Settings History. A day
+  that ends while the plugin is disconnected waits for the next `welcome`,
+  which reads it.
 - It reads the machine's own settings and its sensor calibration only while
   the machine runs nothing (`plugin/src/machine-activity.ts`, #403): the
   latest state Decaid reported in `stateUpdate` is one of
@@ -705,6 +711,110 @@ reconnect. Its report time, received time and item count are recorded just as
 for a changed value. jsonb counts numbers equal however they are written, so a
 value that changes only `1.0` to `1` keeps the spelling stored.
 
+## Settings History
+
+Ticket [#432](https://github.com/loganfuller/decent-sync/issues/432) keeps
+each Machine's Settings History (`GLOSSARY.md`): every value its tablet
+reports for a collection other than the Library's lists
+(`SETTINGS_HISTORY_COLLECTIONS` in `protocol/src/settings-history.ts`: the
+Machine Settings, the Tablet Settings and presence settings, the plugins and
+Skins, the paired devices, the scale's information and the sensors) that
+differs from the one before it, whatever changed it, as a row of
+`settings_history`, kept forever
+(`server/src/collections/settings-history.ts`). A row holds the Machine, or
+Pending Machine, the collection is credited to, the tablet whose connection
+reported it, the value as sent, with the UTC offset sent beside it, when the
+server received it (PostgreSQL's clock: for a report, the same time as the
+latest value's `received_at`), and its source. Nothing reads it through the REST API or the
+MCP endpoint yet; ticket #433 shows it.
+
+- **What counts as a change.** Values are compared field by field, through a
+  projection that leaves out what something other than these settings sets,
+  or what changes on its own (`settingsHistoryFields`): in
+  `machineSettings`, the steam, hot water and flush settings, which the
+  Workflow sets and whose changes are Workflow changes, the tank
+  temperature, which each profile sets, and `usb`, which the charging mode
+  switches (ADR-0023); `appSettings.chargingState`;
+  `presenceSettings.keepAwakeUntil`; each paired device's `state`,
+  `available` and `connectionRole`, how it is connected now (Decaid's
+  inventory carries no battery level); `scaleInfo.batteryLevel`; and each
+  plugin's `source.lastChecked` and `source.lastError`, which Decaid's update
+  checks write, the error set by a check that fails, as while the Tablet is
+  offline, and cleared by the next, and its `pendingUpdate.detectedAt`,
+  written again by each check while an update waits for its new permissions
+  to be approved. The wake schedules are compared one by one, by their ids, each as
+  a wake schedule's Settings Edit names its fields; the sensor calibration by
+  target, its `measuredValue`; the plugins, paired devices and sensors entry
+  by entry, by their ids, in any order. A field absent counts as null, and an
+  object's keys may come in any order, as `sameValue` judges an edit's
+  expected values. The value stored stays whole. A report changed only in what
+  is left out, or only in its UTC offset, records nothing, and neither does an
+  unavailable report.
+- **Baseline.** The first value of each Machine's collection is its
+  baseline. Collections stored before the history was kept take theirs from
+  the latest value stored, as and when it was received, and with no tablet,
+  as none was stored: as the server starts and hourly, in batches in the
+  background (`SettingsHistoryBaselines`), each under the lock a report's
+  credit takes (the Machine's row, or a Pending Machine's hardware lock),
+  skipping one another transaction holds; or as a report finds none yet,
+  before comparing itself with it. A collection never stored takes its first
+  report as its baseline.
+- **Source.** A report naming a Settings Edit of its Machine and collection
+  (`settingsEditId`), which the plugin sends only with an edit's read-back,
+  labels the changes of the fields that edit set with it, whatever came of
+  it: applied, adjusted or partly refused (`settings_edit_id`, and
+  `edited_fields`, the fields as `settingsHistoryFields` keys them). A wake
+  schedule's change or delete set the schedule it names; an add, the
+  schedule new in the read-back that holds the fields it set, as Decaid gives
+  its id only in the edit's answer, which follows the read-back. Any other
+  field changed in the same report, and every change in a report naming no
+  edit, or one of another Machine or collection, was made outside Decent
+  Sync, and is tied to no person.
+- **Recorded once.** A report is compared with the latest row of its
+  collection, the last written, in the transaction storing it, before the
+  latest value is replaced, under the locks of its credit, so two instances
+  never record one change twice, and a delivery handled before records
+  nothing.
+- **Pending Machines.** A Pending Machine's history moves, whole, to the
+  Machine that takes over its hardware, with its collections
+  (`transferPendingCollections`). Each row keeps its id and when its value was
+  received, so where both reported a collection, its history holds both,
+  interleaved. A history's order is the order its rows were written, by id,
+  which a report is compared in. That is about the order their values were
+  received, but for a report that waited for its Machine's lock behind a
+  later one, which by its received time comes before it, and a baseline
+  taken from a stored value, which keeps that value's time: a Pending
+  Machine's baseline taken after the Machine's own rows sorts after them,
+  though received before, until the next report.
+- **Limits.** Times are when the server received a report. A change on the
+  Tablet reaches it within about 30 to 60 s: at the next poll, or the machine
+  settings' next read, later while the Machine runs something (Plugin,
+  above); a sensor calibration change within a day. A change from outside
+  Decent Sync is tied to no person. A previous release's server, beside this
+  one during a deploy (ADR-0025), records no history: a change it stores is
+  missed, though the next report this release stores is compared with the
+  latest row, and a collection it alone stored takes its baseline from it;
+  and a Machine it gives a Pending Machine's hardware to doesn't take the
+  Pending Machine's history, which goes with it.
+  A previous release's plugin names no edit, so its edits' read-backs are
+  labelled as from outside, and so is an edit's change where the read-back
+  itself failed, as an unavailable report names none, and the next poll
+  reports the change.
+- **Volume.** Estimated for #432 from Roux's Belmont on 2026-11-07, two
+  DE1XXLs, at one to three rows per Machine on a usual day, each under 1 KB
+  but the plugin list's 16 KB: the projection leaves out what changes
+  through the day, the Tablet's battery, the charging switch, the
+  Workflow's steam and flush settings, the wake schedules' keep-awake end,
+  device connections and update checks. What remains is mostly a remembered
+  scale the plugin leaves out of the paired devices while Decaid lists it
+  `discovered`, for the few seconds between switching it on and connecting
+  (Plugin, above), caught by a poll and put back by the next, which #433
+  folds as a brief change; on a Machine whose kept refill kit is not
+  automatic, the refill kit Decaid shows on automatic after each reconnect
+  of the machine and the value it keeps (ADR-0023); a plugin or Skin
+  updated; and a deliberate change. A Bengle's sensors list its milk probe
+  only while it is connected, so each of its drops adds two rows.
+
 ## REST API
 
 All endpoints require the account session, and answer 404 for an unknown
@@ -756,6 +866,8 @@ every 30 s rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL,
+`server/test/settings-history.test.ts` the Settings History, with
+`protocol/test/settings-history.test.ts` its projection,
 `server/test/machine-settings-while-busy.test.ts` the reads from the machine
 waiting while it runs something, with `plugin/test/machine-activity.test.ts`
 when it runs nothing, and `e2e/library-settings-devices.spec.ts` the

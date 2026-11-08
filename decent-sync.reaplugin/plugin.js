@@ -2994,8 +2994,9 @@ var __decentSync = (() => {
   var SETTINGS = new Set(SETTINGS_COLLECTION_NAMES);
   var MACHINE_SETTINGS = /* @__PURE__ */ new Set(["machineSettings", "advancedSettings", "machineCalibration"]);
   var MACHINE_SETTINGS_MS = 6e4;
-  var FULL_READS_ONLY = /* @__PURE__ */ new Set(["sensorCalibration"]);
-  var FROM_MACHINE = /* @__PURE__ */ new Set([...MACHINE_SETTINGS, ...FULL_READS_ONLY]);
+  var DAILY = /* @__PURE__ */ new Set(["sensorCalibration"]);
+  var DAILY_MS = 24 * 60 * 6e4;
+  var FROM_MACHINE = /* @__PURE__ */ new Set([...MACHINE_SETTINGS, ...DAILY]);
   var CollectionCapture = class {
     constructor(outbox, library, settings, pollMs, machine, sawRecipes = () => {
     }) {
@@ -3020,7 +3021,8 @@ var __decentSync = (() => {
        * The reads from the machine (`FROM_MACHINE`) asked for and not yet begun,
        * each with whether it is to be sent whatever it holds, as a full read's:
        * of the machine's own settings on their interval or after the Workflow
-       * wrote them (`readMachineSettings`), and of all of them in a full read.
+       * wrote them (`readMachineSettings`), of the sensor calibration once a
+       * day, and of all of them in a full read.
        * They wait here while the machine runs something.
        */
       __publicField(this, "fromMachineWanted", /* @__PURE__ */ new Map());
@@ -3028,6 +3030,7 @@ var __decentSync = (() => {
       __publicField(this, "stopped", false);
       __publicField(this, "pollTimer");
       __publicField(this, "machineSettingsTimer");
+      __publicField(this, "dailyTimer");
       /** How often the machine's own settings are read while connected. */
       __publicField(this, "machineSettingsMs");
       library.onWrite((list) => this.last.delete(list));
@@ -3039,11 +3042,13 @@ var __decentSync = (() => {
     start() {
       this.schedulePoll();
       this.scheduleMachineSettings();
+      this.scheduleDaily();
     }
     stop() {
       this.stopped = true;
       if (this.pollTimer !== void 0) clearTimeout(this.pollTimer);
       if (this.machineSettingsTimer !== void 0) clearTimeout(this.machineSettingsTimer);
+      if (this.dailyTimer !== void 0) clearTimeout(this.dailyTimer);
     }
     /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
     sendAll() {
@@ -3101,6 +3106,22 @@ var __decentSync = (() => {
         else if (!this.stopped) this.scheduleMachineSettings();
       }, this.machineSettingsMs);
     }
+    /**
+     * Reads the sensor calibration once a day has passed since the end of its
+     * latest full or daily read, and sends it if it changed, once the machine
+     * runs nothing. While disconnected, it waits for the next welcome, which
+     * reads everything.
+     */
+    scheduleDaily() {
+      if (this.dailyTimer !== void 0) clearTimeout(this.dailyTimer);
+      this.dailyTimer = setTimeout(() => {
+        this.dailyTimer = void 0;
+        if (this.stopped) return;
+        if (!this.outbox.connected) return this.scheduleDaily();
+        this.wantFromMachine(DAILY, false);
+        void this.run();
+      }, DAILY_MS);
+    }
     read(kind) {
       if (this.stopped) return;
       if (kind === "full" || this.wanted === void 0) this.wanted = kind;
@@ -3155,25 +3176,31 @@ var __decentSync = (() => {
       if (always === void 0 || this.stopped || !this.machine.runningNothing()) return;
       this.fromMachineWanted.delete(source.name);
       const interval = MACHINE_SETTINGS.has(source.name);
+      const daily = DAILY.has(source.name);
       if (interval && this.machineSettingsTimer !== void 0) {
         clearTimeout(this.machineSettingsTimer);
         this.machineSettingsTimer = void 0;
       }
+      if (daily && this.dailyTimer !== void 0) {
+        clearTimeout(this.dailyTimer);
+        this.dailyTimer = void 0;
+      }
       await this.capture(source, always);
       if (interval && !this.stopped) this.scheduleMachineSettings();
+      if (daily && !this.stopped) this.scheduleDaily();
     }
     /**
      * Queues a report of a settings collection a Settings Edit read, within
      * `SettingsAccess.run`: if it changed since the last one queued, or, when
-     * `always`, whatever it holds, as an edit's read-back is. The edit's answer
-     * follows it, so it is kept where it is: a later report of the collection
-     * is queued after it rather than superseding it, which would put the answer
-     * ahead of the read-back it reports. A read of the machine's own settings
-     * counts for their interval.
+     * `always`, whatever it holds, as an edit's read-back is, which names the
+     * edit (`readBackOf`). The edit's answer follows it, so it is kept where it
+     * is: a later report of the collection is queued after it rather than
+     * superseding it, which would put the answer ahead of the read-back it
+     * reports. A read of the machine's own settings counts for their interval.
      */
-    reportSettings(name, reading, always) {
+    reportSettings(name, reading, always, readBackOf) {
       if (this.stopped) return;
-      this.queueReading(name, reading, always);
+      this.queueReading(name, reading, always, readBackOf);
       this.queued.delete(name);
       if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
     }
@@ -3204,10 +3231,11 @@ var __decentSync = (() => {
      * Queues a collection read if it is to be sent: if it changed since the
      * last one queued, or whatever it holds when `full`. A value of one of the
      * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
-     * compared with it, so a daylight saving change is sent too. Says whether
-     * a value was queued.
+     * compared with it, so a daylight saving change is sent too. A value an
+     * edit read back names the edit (`settingsEditId`). Says whether a value
+     * was queued.
      */
-    queueReading(name, reading, full) {
+    queueReading(name, reading, full, readBackOf) {
       if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? reading.value : void 0;
       const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : void 0;
       const last = this.last.get(name);
@@ -3216,7 +3244,16 @@ var __decentSync = (() => {
       if (decision.next) this.last.set(name, decision.next);
       if (!decision.send || reading.kind === "notModified") return false;
       const id = this.outbox.nextId();
-      const delivery = reading.kind === "value" ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value), ...utcOffsetMinutes === void 0 ? {} : { utcOffsetMinutes } } : { type: "collection", id, name, available: false };
+      const delivery = reading.kind === "value" ? {
+        type: "collection",
+        id,
+        name,
+        available: true,
+        value: reading.value,
+        ...this.placedInTime(name, reading.value),
+        ...utcOffsetMinutes === void 0 ? {} : { utcOffsetMinutes },
+        ...readBackOf === void 0 ? {} : { settingsEditId: readBackOf }
+      } : { type: "collection", id, name, available: false };
       const earlier = this.queued.get(name);
       if (earlier) {
         if (delivery.available || earlier.latest !== earlier.value) this.outbox.supersede(earlier.latest);
@@ -4412,7 +4449,7 @@ var __decentSync = (() => {
         failure = describe(error);
       }
       const after = await readObject(route).catch(() => void 0);
-      this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+      this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, edit.id);
       return answered(edit, written2, failure, after?.ok ? edited(edit, after.value) : void 0);
     }
     /**
@@ -4450,7 +4487,7 @@ var __decentSync = (() => {
       }
       const after = await readObject(route).catch(() => void 0);
       const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, after.value, true) : void 0;
-      this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
+      this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true, edit.id);
       return answered(edit, written2, failure, after?.ok ? calibrated(target, after.value) : void 0);
     }
     /**
@@ -4487,10 +4524,11 @@ var __decentSync = (() => {
       }
       const id = schedule.action === "add" ? written2?.ok ? addedId(written2.text) : void 0 : schedule.id;
       const after = await readObject(route).catch(() => void 0);
-      this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+      const gone = schedule.action !== "add" && written2?.status === 404;
+      this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? void 0 : edit.id);
       const held = after?.ok && id !== void 0 ? scheduleIn(after.value, id) : void 0;
       const readBack = after?.ok && id !== void 0 ? held ? scheduleValues(held) : {} : void 0;
-      if (schedule.action !== "add" && written2?.status === 404) return changedSince(edit, readBack);
+      if (gone) return changedSince(edit, readBack);
       const answer = answered(edit, written2, failure, readBack);
       return answer.outcome === "written" && id !== void 0 && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
     }

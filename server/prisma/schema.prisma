@@ -387,6 +387,7 @@ model Machine {
   machineStateEvents MachineStateEvent[]
   eventDeliveries    MachineEventDelivery[]
   collections        ReportedCollection[]
+  settingsHistory    SettingsHistoryEntry[]
   tablets            MachineTablet[]
   setAsideDeliveries SetAsideDelivery[]
   itemVersions       ItemVersion[]
@@ -466,6 +467,7 @@ model PendingMachine {
   workflowEvents     WorkflowEvent[]
   machineStateEvents MachineStateEvent[]
   collections        ReportedCollection[]
+  settingsHistory    SettingsHistoryEntry[]
   tablets            MachineTablet[]
 
   @@unique([model, serial])
@@ -850,6 +852,47 @@ model ReportedCollection {
   @@map("reported_collections")
 }
 
+/// A Machine's Settings History (#432): each value its tablet reported for
+/// one of SETTINGS_HISTORY_COLLECTIONS (protocol/src/settings-history.ts)
+/// that differs from the one before it, as compared field by field through
+/// `settingsHistoryFields`, whatever changed it, for a Machine, or held by a
+/// Pending Machine until a Machine takes over its hardware. The first is the
+/// collection's baseline. Kept forever. See
+/// server/src/collections/settings-history.ts.
+model SettingsHistoryEntry {
+  id               BigInt          @id @default(autoincrement())
+  machineId        String?         @map("machine_id") @db.Uuid
+  machine          Machine?        @relation(fields: [machineId], references: [id], onDelete: Cascade)
+  pendingMachineId String?         @map("pending_machine_id") @db.Uuid
+  pendingMachine   PendingMachine? @relation(fields: [pendingMachineId], references: [id], onDelete: Cascade)
+  /// The tablet that reported it; null for a baseline taken from the latest
+  /// value stored before the history was kept, whose tablet was not.
+  tabletId         String?         @map("tablet_id") @db.Uuid
+  /// One of SETTINGS_HISTORY_COLLECTIONS.
+  name             String
+  /// The value as Decaid sent it. lz4 column compression is set by the migration.
+  value            Json            @db.JsonB
+  /// For a collection sent with the tablet's UTC offset (UTC_OFFSET_COLLECTIONS
+  /// in protocol/), the offset as the value was read; otherwise null.
+  utcOffsetMinutes Int?            @map("utc_offset_minutes")
+  /// When the server received the value, by PostgreSQL's clock.
+  receivedAt       DateTime        @default(dbgenerated("transaction_timestamp()")) @map("received_at") @db.Timestamptz(3)
+  /// The Settings Edit whose read-back this was, where it changed a field
+  /// the edit set; null for a change made outside Decent Sync, and for a
+  /// baseline.
+  settingsEditId   String?         @map("settings_edit_id") @db.Uuid
+  settingsEdit     SettingsEdit?   @relation(fields: [settingsEditId], references: [id], onDelete: SetNull)
+  /// The fields, as `settingsHistoryFields` keys them, whose change the
+  /// Settings Edit made; any other field that changed was changed outside
+  /// Decent Sync.
+  editedFields     String[]        @default([]) @map("edited_fields")
+
+  /// Finds each collection's latest row, by id, the order rows are written in.
+  @@index([machineId, name, id])
+  @@index([pendingMachineId, name, id])
+  @@map("settings_history")
+}
+
 /// A delivery whose storage failed in a way that would repeat whenever it was
 /// sent again, such as a NUL in a string, which jsonb and text cannot hold
 /// (server/src/set-aside-deliveries/repeating-failures.ts). It is kept here as
@@ -973,6 +1016,8 @@ model SettingsEdit {
   decaidMessage String?              @map("decaid_message")
   /// The edit's fields as the plugin read them: back after the write, or, for CHANGED_SINCE, as the tablet held them.
   readBack      Json?                @map("read_back") @db.JsonB
+  /// The Settings History's changes its read-back made.
+  historyEntries SettingsHistoryEntry[]
 
   @@index([machineId, madeAt])
   /// Finds the edits a connection has yet to send.

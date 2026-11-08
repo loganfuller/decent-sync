@@ -43,6 +43,10 @@ _Avoid_: App settings, preferences, config
 A change to a machine's or tablet's settings made through the server, as in the management interface, kept with who made it and when, and what came of it.
 _Avoid_: Settings change, command
 
+**Settings History**:
+A machine's record of what its tablet reported for its Machine Settings, Tablet Settings, scale, paired devices, sensors, plugins and Skins: each value from when the server received it, whatever changed it, and for a change made through a Settings Edit, that edit. A change made on the tablet, by another app or by the machine itself is kept too, but tied to no person.
+_Avoid_: Settings log, audit log, Settings changes (a Settings Edit is one change made through the server)
+
 **Machine State**:
 What a machine is doing at a moment, such as pulling a shot, steaming, purging after steaming, flushing, pouring hot water, idling or sleeping. Purging is the steam wand's purge after steaming, not a flush of the group head or draining the machine for transport.
 _Avoid_: Status (a machine's status is whether it is online), mode, purge (for a flush)

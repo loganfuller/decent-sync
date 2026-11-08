@@ -71,9 +71,10 @@ export interface SettingsReports {
   /**
    * Queues a report of a settings collection: if it changed since the last
    * one queued, or whatever it holds when `always`, and counts a read of the
-   * machine's own settings for their interval.
+   * machine's own settings for their interval. An edit's read-back names the
+   * edit (`readBackOf`), which the server labels its fields' changes with.
    */
-  reportSettings(name: EditableSettingsCollection, reading: Reading, always: boolean): void;
+  reportSettings(name: EditableSettingsCollection, reading: Reading, always: boolean, readBackOf?: string): void;
   /**
    * The sensor calibration with this read of one target in place of its
    * last, the other targets as last read; where they are not, all read again
@@ -99,9 +100,10 @@ export interface SettingsReports {
  * still holds the value it expected; checks the fields against their
  * definitions, writing none without one; and writes only those fields.
  * Whether Decaid took the write or not, it reads the collection again and
- * queues it as a report before the answer, so the server takes in the
- * read-back first. Decaid's settings writes apply fields one at a time, so
- * the read-back decides what each field holds. A sensor's calibration is
+ * queues it as a report naming the edit before the answer, so the server
+ * takes in the read-back first, and labels its changes with the edit.
+ * Decaid's settings writes apply fields one at a time, so the read-back
+ * decides what each field holds. A sensor's calibration is
  * set by target, one per edit (`setSensorCalibration`), and a wake schedule
  * added, changed or deleted, one per edit (`editSchedule`). A Shot started
  * between the state's read and the write is an accepted gap (#220).
@@ -190,7 +192,7 @@ export class SettingsEdits {
     }
     // Read back whether or not Decaid took it: a refusal part-way leaves the fields before it written.
     const after = await readObject(route).catch(() => undefined);
-    this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+    this.reports.reportSettings(edit.collection, after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, edit.id);
     return answered(edit, written, failure, after?.ok ? edited(edit, after.value) : undefined);
   }
 
@@ -230,7 +232,7 @@ export class SettingsEdits {
     }
     const after = await readObject(route).catch(() => undefined);
     const readBack = after?.ok ? await this.reports.sensorCalibrationWith(target, after.value, true) : undefined;
-    this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true);
+    this.reports.reportSettings("sensorCalibration", readBack ?? { kind: "unavailable" }, true, edit.id);
     return answered(edit, written, failure, after?.ok ? calibrated(target, after.value) : undefined);
   }
 
@@ -269,10 +271,12 @@ export class SettingsEdits {
     }
     const id = schedule.action === "add" ? (written?.ok ? addedId(written.text) : undefined) : schedule.id;
     const after = await readObject(route).catch(() => undefined);
-    this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true);
+    // A schedule Decaid answers 404 for went since: its read-back shows what another change did, and names no edit.
+    const gone = schedule.action !== "add" && written?.status === 404;
+    this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? undefined : edit.id);
     const held = after?.ok && id !== undefined ? scheduleIn(after.value, id) : undefined;
     const readBack = after?.ok && id !== undefined ? (held ? scheduleValues(held) : {}) : undefined;
-    if (schedule.action !== "add" && written?.status === 404) return changedSince(edit, readBack);
+    if (gone) return changedSince(edit, readBack);
     const answer = answered(edit, written, failure, readBack);
     return answer.outcome === "written" && id !== undefined && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
   }

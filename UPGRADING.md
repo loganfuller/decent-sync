@@ -15,6 +15,18 @@ Releasing).
 
 ## Unreleased
 
+### Settings History starts with this release
+
+The server now keeps each Machine's Settings History: every change its
+Tablet reports to its Machine Settings, Tablet Settings, scale, paired
+devices, sensors, plugins and Skins, and the Settings Edit that made it.
+Nothing is needed. As it starts, it takes each Machine's baseline from the
+latest values stored, in the background. While a deploy runs this release
+beside the previous one, a change that reaches an instance of the previous
+release isn't recorded: the next change this release records is compared
+with the value before it. Until a Tablet's plugin updates to this release,
+its Settings Edits' changes are recorded as made outside Decent Sync.
+
 ## 1.7.0
 
 ### Assistants connect through `/api/mcp`, on by default

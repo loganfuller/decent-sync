@@ -620,6 +620,14 @@ describe("Collection envelopes", () => {
     expect(decodePluginMessage(frame({ ...noScale, utcOffsetMinutes: -240 }))).toMatchObject({ ok: false, problem: "collection.utcOffsetMinutes must be absent" });
   });
 
+  it("names the Settings Edit whose read-back it is by the edit's UUID, which a receiver may ignore", () => {
+    const readBack = { type: "collection", id: "delivery-read-back", name: "machineSettings", available: true, value: { fan: 40 }, settingsEditId: "0199c5a4-6b7e-7c3d-9a1b-2c3d4e5f6a7b" };
+    expect(decodePluginMessage(frame(readBack))).toEqual({ ok: true, message: readBack });
+    for (const settingsEditId of ["", "edit-1", 3, null]) {
+      expect(decodePluginMessage(frame({ ...readBack, settingsEditId }))).toMatchObject({ ok: false, problem: "collection.settingsEditId must be a UUID" });
+    }
+  });
+
   it("requires a value, and not null, while available, and none while unavailable", () => {
     for (const value of [undefined, null]) {
       expect(decodePluginMessage(frame({ ...beans, value }))).toMatchObject({ ok: false, problem: "collection.value must be present and not null" });
