@@ -813,7 +813,9 @@ that takes their hardware over. Staff read them as Admins do.
   Profile is found from the profile, as a Shot's is; the rest are the links
   the event keeps (Server, above), each null for an item never resolved, with
   the name the Workflow recorded kept, and for an event stored before #434.
-  `get_machine_activity` gives each Workflow change the same summary.
+  `get_machine_activity` gives the Workflow in effect as a range began the
+  same summary, and what changed after it as a dial-in trail (Dial-in trail,
+  below).
 - `GET /api/machines` and `GET /api/machines/:id` include `loadedRecipe:
   { id, recipe: { id, name, slot, locationId, archived }, loadedAt,
   unloadedAt } | null`, the Machine's Loaded Recipe now, `unloadedAt` null.
@@ -826,6 +828,53 @@ that takes their hardware over. Staff read them as Admins do.
   `{ events, total, limit, offset }`, latest first. A Workflow event is as
   `/workflow` gives one, and a state event
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
+
+### Dial-in trail
+
+From [#436](https://github.com/loganfuller/decent-sync/issues/436),
+`get_machine_activity` gives a Machine's Workflow changes over a range as one
+list, latest first, of the Recipes loaded and unloaded and what changed
+between them, so an assistant reads what a barista changed without comparing
+whole Workflows (`server/src/machine-events/dial-in-trail.ts`, a pure module
+`MachineEventsService.workflowTrail` feeds). It reshapes only what the REST
+API gives, the Workflow changes with who made each and the Loaded Recipes,
+which keep their raw lists above. Its entries, each with its time, who made
+its first change (`cause`, `pluginWrite`) and the Loaded Recipe:
+
+- **`inEffect`**, its oldest: the Workflow in effect as the range began, the
+  latest observed at or before its start, or the first observed in it where
+  none was, summarised whole.
+- **`loaded`** and **`unloaded`**: a Recipe loaded or unloaded, as
+  `loaded_recipes` times it, with the first change within 5 s after it, which
+  made it, and in those 5 s, for a load the plugin's `load` writes (Streamline's
+  strip, then the plugin's write of what it leaves out, as a steam time, about
+  2 s later), and for an unload changes of that first one's cause (Streamline's
+  profile switch, which clears the recipe in the same write, then the steam
+  time it saved for that profile). A Recipe loaded as another unloads, at one
+  moment, is one `loaded` entry naming the one it `replaced`.
+- **`recipeUpdated`**: the plugin's write of an edit of the Loaded Recipe made
+  elsewhere (`loadedRecipe`), whose own history says who made it.
+- **`changed`**: any other.
+
+Every entry but the first gives each field of the summary that changed,
+before its first change and after its last, a part's as `steam.duration`,
+and `lastObservedAt`, the last change it took after it began. A load or
+unload no change came within 5 s of, as when its Machine joins a Location
+with its Workflow unchanged, is of cause `unknown`. Other changes of one
+cause, the plugin's write included, one within 5 s of the one before it,
+merge, a group spanning at most 30 s, and never across a load or unload;
+those stored before #434, of cause `unknown`, merge by time alone. A load
+whose first change is `unknown` takes the other `unknown` changes in its
+5 s, its load write among them, as well as the plugin's load writes, as when
+the previous release stored the first during a deploy. At one moment a load
+or unload comes before a change, then each by stored id. An entry left with
+no field changed is dropped, except a load or unload, which is a change in
+itself. The trail is grouped whole before a page of it is taken, so pages
+and `total` stay as they are, and `cause` keeps the entries of one cause and
+the first, each `before` then as the changes left out left it. Each Profile
+is found once (`profileOfSql`), and each Workflow read in two passes, one
+for its Profile and one for its summary, each taking its parts at once
+(`jsonb_to_record`).
 
 The Machines list shows each Machine's state and last Shot; the Machine page
 also shows its current Workflow, its fields as a Shot's page shows them, the
@@ -841,6 +890,9 @@ built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
 `server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
 `plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back and who each change is from, with each cause through the built plugin in `server/test/loaded-recipes.test.ts`, `loaded-recipe-following.test.ts`, `steam-back-on.test.ts`, `joining.test.ts` and `joining-recipes.test.ts`, and the tablet and Library items an event keeps in `server/test/machine-events.test.ts`,
+`server/test/dial-in-trail.test.ts` the dial-in trail's pure module, with
+the trail through `get_machine_activity` on simulated tablets in
+`server/test/assistant-machines.test.ts`,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and
 `e2e/workflow-and-state.spec.ts` and `e2e/loaded-recipes.spec.ts` the

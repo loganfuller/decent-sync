@@ -44,6 +44,7 @@
   "server/test/database-timeouts.test.ts": 3,
   "server/test/delivery-id-cleanup.test.ts": 0,
   "server/test/delivery-id-retention.test.ts": 14,
+  "server/test/dial-in-trail.test.ts": 0,
   "server/test/durable-outbox.test.ts": 19,
   "server/test/equipment-intake.test.ts": 0,
   "server/test/grinder-intake.test.ts": 0,
