@@ -372,13 +372,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     it("gives all five collections of what a Machine's tablet reports besides its settings, its plugin list as large as a cafe's", async () => {
       // Eight plugins shaped as DYE2's listing, about 16 KB as Belmont's tablets list theirs; the Skins Decaid's Linux
       // release lists with both of Streamline's builds installed besides its bundled ones; Decaid's simulated devices and
-      // sensors, and, derived, their scale reporting its firmware and battery level.
+      // sensors, without the machine only discovered nearby, as the plugin sends them, and, derived, their scale reporting
+      // its firmware and battery level.
       const plugins = Array.from({ length: 8 }, (_, n) => ({ ...pluginListing(), id: `plugin-${n}.reaplugin` }));
       expect(JSON.stringify(plugins).length).toBeGreaterThan(14_000);
       const answers = pluginsAndSkinsAt("streamlineMain");
       const skins = { skins: answers["/webui/skins"]!.body, default: answers["/webui/skins/default"]!.body, server: answers["/webui/server/status"]!.body };
       const simulated = simulatedDevices();
-      const reported = { scaleInfo: { firmwareVersion: "1.2.0", batteryLevel: 80 }, sensors: simulated["/sensors"], pairedDevices: simulated["/devices"], plugins, skins };
+      const reported = { scaleInfo: { firmwareVersion: "1.2.0", batteryLevel: 80 }, sensors: simulated["/sensors"], pairedDevices: (simulated["/devices"] as { state: string }[]).filter((device) => device.state !== "discovered"), plugins, skins };
       for (const [name, value] of Object.entries(reported)) await raw.deliver({ type: "collection", id: randomUUID(), name, available: true, value });
       const { result } = await assistant.callWithinBudget<Record<string, { value: unknown }>>("get_machine_reports", { machineId: roastery.machine.id });
       expect(result).not.toHaveProperty("cut");

@@ -919,8 +919,9 @@ loaded every 30 s rather than every 5 s as the Machine's status is. Through
 the MCP endpoint, `get_machine` gives the Machine Settings, the Tablet
 Settings and the Versions card's rows, and `get_machine_reports` (ticket
 [#441](https://github.com/loganfuller/decent-sync/issues/441)) gives
-`scaleInfo`, `sensors`, `plugins` and `skins` as
-`GET /api/machines/:id/collections/:name` does and the paired devices as
+`scaleInfo`, `sensors`, `plugins` and `skins` with the `available`,
+`reportedAt`, `receivedAt` and `value` that
+`GET /api/machines/:id/collections/:name` gives, and the paired devices as
 `GET /api/machines/:id/paired-devices` and the Machine page do, each the latest
 reported.
 
