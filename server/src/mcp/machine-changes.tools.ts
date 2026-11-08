@@ -125,7 +125,7 @@ export class MachineChangesTools {
     name: "move_machine",
     title: "Move a Machine",
     description:
-      "Moves a Machine to another Location, from now: its Location History gains an entry, its Shots and Steam Records from then on are credited to that Location, and its tablet takes part in that Location's Library from then, as when moved in the management interface. Staff move a Machine only from a Location they work at to another. Earlier entries of its Location History are corrected only in the management interface.",
+      "Moves a Machine to another Location, from now: its Location History gains an entry, its Shots and Steam Records from then on are credited to that Location, and its tablet takes part in that Location's Library from then, as when moved in the management interface. Staff move a Machine only from a Location they work at to another they work at. Earlier entries of its Location History are corrected only in the management interface.",
     inputSchema: moveInput,
     outputSchema: machineOutput,
     annotations: { ...CHANGES, idempotentHint: true },

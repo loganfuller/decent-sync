@@ -269,6 +269,8 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
         await restRefusal(api, "POST", `/machines/${machineId}/location-history`, { locationId }, status),
       );
     }
+    // An id in upper case is the same Location, which the REST API's check, comparing ids as given, would miss.
+    expect(await toolError(assistant, "move_machine", { machineId, locationId: harbor.id.toUpperCase() })).toBe(`It is already at ${harbor.name}`);
     expect(await toolError(assistant, "move_machine", { machineId, locationId: uptown.id, effectiveFrom: "2026-11-01T00:00:00Z" })).toContain("effectiveFrom");
     expect((await restMachine()).locationHistory).toHaveLength(2);
   });
@@ -353,9 +355,9 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
       expect(await toolError(sam.assistant, tool, args), tool).toBe(await restRefusal(sam.api, "POST", path, body, 403));
     }
 
-    // Working at both, Sam moves it back to Uptown.
+    // Working at both, Sam moves it back to Uptown, named by an id in upper case, which is still one of Sam's.
     await api.send("PUT", `/accounts/${sam.id}/access`, { role: "staff", locationIds: [harbor.id, uptown.id] });
-    const { machine: moved } = await sam.assistant.call<{ machine: Machine }>("move_machine", { machineId, locationId: uptown.id });
+    const { machine: moved } = await sam.assistant.call<{ machine: Machine }>("move_machine", { machineId, locationId: uptown.id.toUpperCase() });
     expect(moved.locationHistory.map((entry) => entry.location.name)).toEqual(["Uptown", "Harbor", "Uptown"]);
     expect((await restMachine()).location).toEqual(uptown);
   });
