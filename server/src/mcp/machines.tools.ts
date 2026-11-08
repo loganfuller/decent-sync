@@ -8,6 +8,7 @@ import { SettingsHistoryService } from "../collections/settings-history.service.
 import { READ } from "../connected-apps/oauth.js";
 import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
+import type { TrailEntry } from "../machine-events/dial-in-trail.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
 import { type ActivityKind, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
 import { workflowSummary } from "../machine-events/workflow-summary.js";
@@ -107,6 +108,10 @@ export const machineDetail = listedMachine.extend({
 const WORKFLOW_CAUSE =
   "cause says who made a Workflow change: plugin, one of Decent Sync's own writes, which pluginWrite names; other, anyone else, such as a barista on Streamline, Streamline itself or DYE2, which can't be told apart; unknown, for one received before Decent Sync recorded this, or from a tablet whose plugin is older. pluginWrite is load, the Recipe the Workflow came to name loaded; loadedRecipe, an edit of the Loaded Recipe made elsewhere written into it; clear, the Recipe unloaded, or a grinder, batch or Basket the Location doesn't offer cleared; or steamOn, steam turned back on at the Loaded Recipe's steam temperature and time. A plugin change may also hold a change someone else made while Decent Sync's write was under way, as a barista turning steam back on is given as steamOn.";
 
+/** What get_machine_activity's dial-in trail is, and how it folds and merges Workflow changes (dial-in-trail.ts). */
+const DIAL_IN_TRAIL =
+  "The dial-in trail is one list of its Recipes loaded and unloaded and what changed between them, by kind: inEffect, its last (oldest) entry, the Workflow in effect as the range began, whole (workflow); loaded, a Recipe loaded, with replaced, one unloaded as it loaded; unloaded; recipeUpdated, Decent Sync writing in an edit of the Loaded Recipe made elsewhere, whose own history says who made it; changed, any other. Each gives who made its first change, and loadedRecipe, the Recipe loaded, unloaded or updated, else the one loaded then; each but inEffect gives changes, each field of the summary that changed, before and after, a part's as steam.duration. A load or unload folds in the first change within 5 s after it, which made it, and in those 5 s Decent Sync's load writes, or for an unload changes of that one's cause. Other changes of one cause within 5 s of each other merge, a group spanning at most 30 s and never a load or unload, lastObservedAt its last; unknown ones by time alone. An entry left with no field changed is dropped. total counts the entries; cause keeps those of one cause, and inEffect.";
+
 /** Who made a Workflow change, as get_machine and get_machine_activity give it (WORKFLOW_CAUSE). */
 const workflowCause = {
   cause: z.enum(["plugin", "other", "unknown"]).describe("Who made it: Decent Sync itself (plugin), anyone else (other), or unknown."),
@@ -127,7 +132,7 @@ const machineOutput = z.object({
       raw: z.record(z.string(), z.unknown()).optional().describe("With raw, Decaid's Workflow, as sent."),
     })
     .nullable()
-    .describe("Its Workflow: what it is set up to do next, as its tablet last reported it, summarised as get_machine_activity gives a change of it; null before any."),
+    .describe("Its Workflow: what it is set up to do next, as its tablet last reported it, summarised as get_machine_activity gives the one in effect as a range begins; null before any."),
   machineSettings: z
     .object({
       machineSettings: settingsCollection,
@@ -171,15 +176,32 @@ const activityInput = z.object({
   from: timeBound("The range's start; none for since the first.", MACHINE_DAY),
   to: timeBound("The range's end, not included, or through the end of a day given as a date; none for until now.", MACHINE_DAY),
   kinds: z.array(z.enum(ACTIVITY_KINDS)).min(1).optional().describe("Which lists to give; all three if none."),
+  cause: z.enum(["plugin", "other", "unknown"]).optional().describe("Only the Workflow changes of this cause, with the one in effect as the range began; all if none."),
   ...page,
 });
 
 const activityPage = <T extends z.ZodType>(entry: T, what: string) => z.object({ ...pageOutput, entries: z.array(entry) }).optional().describe(what);
 
+const trailRecipe = z.object({ id: z.string(), name: z.string().nullable() });
+
+const trailEntry = z.object({
+  kind: z.enum(["inEffect", "loaded", "unloaded", "recipeUpdated", "changed"]),
+  observedAt: tabletTime.describe("When it began: the load's or unload's time, or its first change's."),
+  lastObservedAt: tabletTime.optional().describe("When changes merged into it, the last one's time."),
+  ...workflowCause,
+  loadedRecipe: trailRecipe.nullable().describe("The Recipe loaded, unloaded or updated; for any other, its Loaded Recipe then, null for none."),
+  replaced: trailRecipe.optional().describe("For loaded, the Recipe unloaded as it loaded."),
+  workflow: workflowSummaryOutput.optional().describe("For inEffect, the Workflow summarised whole."),
+  changes: z
+    .array(z.object({ field: z.string(), before: z.union([z.string(), z.number(), z.null()]), after: z.union([z.string(), z.number(), z.null()]) }))
+    .optional()
+    .describe("For any other, each field of the summary that changed, before and after, a part's as steam.duration."),
+});
+
 const activityOutput = z.object({
   workflowChanges: activityPage(
-    z.object({ observedAt: tabletTime, receivedAt: time, ...workflowCause, workflow: workflowSummaryOutput }),
-    "Its Workflow each time it changed, latest first, each what it was set up to do next from then. One observed at or before the range's start, last, is the one in effect as it began.",
+    trailEntry,
+    "Its dial-in trail, latest first: its Recipes loaded and unloaded and what changed between them, the last (oldest) entry the Workflow in effect as the range began.",
   ),
   loadedRecipes: activityPage(loadedRecipe, "Each Recipe loaded at any time in the range, latest loaded first."),
   machineStates: activityPage(
@@ -375,7 +397,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives who made it, and the Workflow summarised. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} A Machine State lasts until the next one reported.`,
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes as a dial-in trail, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} ${DIAL_IN_TRAIL} ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
@@ -391,18 +413,12 @@ export class MachinesTools {
     }
     if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
     const { limit, offset } = input;
-    const activity = await this.events.activity(machine.id, range, { limit, offset }, input.kinds ?? ACTIVITY_KINDS);
+    const activity = await this.events.activity(machine.id, range, { limit, offset }, input.kinds ?? ACTIVITY_KINDS, { cause: input.cause });
     const zone = zoneOf(machine);
     const paged = <T, R>(list: ActivityPage<T> | undefined, view: (entry: T) => R) =>
       list && { ...pageOf(list.total, offset, list.entries.length), entries: list.entries.map(view) };
     return {
-      workflowChanges: paged(activity.workflowChanges, (event) => ({
-        observedAt: zone(event.observedAt),
-        receivedAt: zone(event.receivedAt),
-        cause: event.cause,
-        pluginWrite: event.pluginWrite,
-        workflow: workflowSummary(event.workflow, event.links),
-      })),
+      workflowChanges: paged(activity.workflowChanges, (entry) => trailEntryOf(entry, zone)),
       loadedRecipes: paged(activity.loadedRecipes, (entry) => loaded(entry, zone)),
       machineStates: paged(activity.machineStates, ({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),
     };
@@ -559,6 +575,21 @@ function listed(machine: MachineView, zone: Zone): z.infer<typeof listedMachine>
 
 function locationOf({ id, name, timeZone }: z.infer<typeof location>): z.infer<typeof location> {
   return { id, name, timeZone };
+}
+
+/** An entry of a Machine's dial-in trail as get_machine_activity gives it: what applies to its kind alone, its times with the offset of the Location it was at then. */
+function trailEntryOf(entry: TrailEntry, zone: Zone): z.infer<typeof trailEntry> {
+  const { kind, observedAt, lastObservedAt, cause, pluginWrite, loadedRecipe, replaced, workflow, changes } = entry;
+  return {
+    kind,
+    observedAt: zone(observedAt),
+    ...(lastObservedAt !== null && { lastObservedAt: zone(lastObservedAt) }),
+    cause,
+    pluginWrite,
+    loadedRecipe,
+    ...(replaced !== null && { replaced }),
+    ...(workflow !== null ? { workflow } : { changes }),
+  };
 }
 
 function loaded({ recipe, loadedAt, unloadedAt }: LoadedRecipeView, zone: Zone): z.infer<typeof loadedRecipe> {

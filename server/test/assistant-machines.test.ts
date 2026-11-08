@@ -1,9 +1,11 @@
 import { randomUUID } from "node:crypto";
+import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets } from "./support/loaded-tablets.js";
-import { SimulatedDye2, recordedDye2MainTablet, selectRecipeInDye2 } from "./support/simulated-dye2.js";
+import { SimulatedDye2, dye2List, dye2NeverUsed, recordedDye2MainTablet, selectRecipeInDye2 } from "./support/simulated-dye2.js";
+import { startStreamline } from "./support/simulated-streamline.js";
 import { quiesced } from "./support/quiet.js";
 import { runAsSteps } from "./support/steps.js";
 import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith } from "./support/simulated-tablet.js";
@@ -45,8 +47,21 @@ interface Page<T> {
   more: boolean;
 }
 
+/** An entry of a Machine's dial-in trail. */
+interface TrailEntry {
+  kind: "inEffect" | "loaded" | "unloaded" | "recipeUpdated" | "changed";
+  observedAt: string;
+  lastObservedAt?: string;
+  cause: string;
+  pluginWrite: string | null;
+  loadedRecipe: { id: string; name: string | null } | null;
+  replaced?: { id: string; name: string | null };
+  workflow?: Record_;
+  changes?: { field: string; before: unknown; after: unknown }[];
+}
+
 interface Activity {
-  workflowChanges?: Page<{ observedAt: string; receivedAt: string; cause: string; pluginWrite: string | null; workflow: Record_ }>;
+  workflowChanges?: Page<TrailEntry>;
   loadedRecipes?: Page<{ recipe: Record_; loadedAt: string; unloadedAt: string | null }>;
   machineStates?: Page<{ state: string; substate: string; observedAt: string; receivedAt: string }>;
 }
@@ -56,6 +71,9 @@ const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_
 /** The recording's tablet's record ids: the Ethiopia's recipe, in no Recipe Slot, and the Brazil's, in slot 2. */
 const ETHIOPIA = "1";
 const BRAZIL = "2";
+
+/** The Ethiopia's recipe's profile, by its id; the Brazil's is `Classic Italian espresso`. */
+const ADAPTIVE = "profile:98fa00c191551b435845";
 
 /** A Staff member or Viewer with an assistant connected as them, and their REST API. */
 interface Person {
@@ -279,9 +297,9 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect(whole.raw).toEqual(sent);
     expect(Object.keys((await api.get<{ workflow: Record_ }>(`${path}/workflow`)).workflow).sort()).toEqual(["cause", "id", "observedAt", "pluginWrite", "receivedAt", "workflow"]);
 
-    // Its activity gives the same summary of it, by the Library items the change keeps linked.
-    const changes = (await assistant.call<Activity>("get_machine_activity", { machineId: bar.machine.id, kinds: ["workflowChanges"], limit: 1 })).workflowChanges!;
-    expect(changes.entries[0]!.workflow).toEqual(summary);
+    // Its activity gives the same summary of it as in effect from now, by the Library items the change keeps linked.
+    const changes = (await assistant.call<Activity>("get_machine_activity", { machineId: bar.machine.id, kinds: ["workflowChanges"], from: new Date().toISOString() })).workflowChanges!;
+    expect(changes.entries).toEqual([expect.objectContaining({ kind: "inEffect", workflow: summary })]);
   });
 
   it("refuses a Machine that doesn't exist, as the REST API does", async () => {
@@ -346,10 +364,12 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
     const activity = (args: Record_) => assistant.call<Activity>("get_machine_activity", { machineId: roaster.machine.id, ...args });
     const refusal = async (args: Record_) => assistant.client.callTool({ name: "get_machine_activity", arguments: { machineId: roaster.machine.id, ...args } });
-    const doses = (result: Activity) => result.workflowChanges!.entries.map((entry) => entry.workflow.dose);
+    /** The dose of the Workflow in effect, then the dose each change of the trail after it, newest first, changed it to. */
+    const doses = (result: Activity) =>
+      result.workflowChanges!.entries.map((entry) => (entry.kind === "inEffect" ? entry.workflow!.dose : entry.changes!.find((change) => change.field === "dose")?.after));
     const states = (result: Activity) => result.machineStates!.entries.map((entry) => entry.state);
 
-    it("gives every Workflow change and Machine State, latest first, as the REST API lists them, with the offset of where it was then, each Workflow as the management interface shows it", async () => {
+    it("gives every Machine State, and the Workflow changes as a dial-in trail, latest first, as the REST API lists them, with the offset of where it was then, the Workflow in effect as the management interface shows it", async () => {
       const all = await activity({});
       const path = `/machines/${roaster.machine.id}`;
       const workflows = (await api.get<{ events: { observedAt: string; receivedAt: string; cause: string; pluginWrite: string | null; workflow: Record_ }[] }>(`${path}/workflow-events`))
@@ -358,10 +378,22 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(instants(all.machineStates)).toEqual(
         instants({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), total: 5, offset: 0, more: false }),
       );
-      expect(instants(all.workflowChanges!.entries.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt })))).toEqual(
-        instants(workflows.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt }))),
-      );
+      // Hours apart, so each its own entry: the first in effect, and each after it what it changed.
+      expect(instants(all.workflowChanges!.entries.map(({ observedAt }) => observedAt))).toEqual(instants(workflows.map(({ observedAt }) => observedAt)));
       expect(all.workflowChanges).toMatchObject({ total: 4, offset: 0, more: false });
+      // The plugin's write of an edit of its Loaded Recipe made elsewhere is that Recipe updated, though the server holds
+      // none loaded, as its tablet was at no Location then; its load write, with no load, a change like any other.
+      expect(all.workflowChanges!.entries.map(({ kind, loadedRecipe }) => [kind, loadedRecipe])).toEqual([
+        ["recipeUpdated", null],
+        ["changed", null],
+        ["changed", null],
+        ["inEffect", null],
+      ]);
+      expect(all.workflowChanges!.entries.slice(0, 3).map((entry) => entry.changes)).toEqual([
+        [{ field: "dose", before: 18.5, after: 19 }],
+        [{ field: "dose", before: 18, after: 18.5 }],
+        [{ field: "dose", before: 17, after: 18 }],
+      ]);
       // Who made each, as REST gives it.
       const causes = [
         ["plugin", "loadedRecipe"],
@@ -380,12 +412,12 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
       // As sent, Decaid's numbers and names; as summarized, those the Workflow card shows, to two decimal places, with
       // none of the Library's ids: it has no such Profile, and the records its tablet named never joined it.
-      const sent = workflows[0]!.workflow as { profile: Record_ & { steps: Record_[] }; context: Record_; steamSettings: Record_; hotWaterData: Record_; rinseData: Record_ };
-      expect(all.workflowChanges!.entries[0]!.workflow).toEqual({
+      const sent = workflows[3]!.workflow as { profile: Record_ & { steps: Record_[] }; context: Record_; steamSettings: Record_; hotWaterData: Record_; rinseData: Record_ };
+      expect(all.workflowChanges!.entries[3]!.workflow).toEqual({
         profile: sent.profile.title,
         profileId: null,
         brewTemperature: sent.profile.steps[0]!.temperature,
-        dose: 19,
+        dose: 17,
         yield: sent.context.targetYield,
         bean: sent.context.coffeeName,
         roaster: sent.context.coffeeRoaster,
@@ -485,6 +517,76 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       }
     });
 
+    it("keeps the Workflow changes of one cause with cause, and the Workflow in effect as the range began whoever made it", async () => {
+      const trail = async (args: Record_) => (await activity({ kinds: ["workflowChanges"], ...args })).workflowChanges!;
+      const plugin = await trail({ cause: "plugin" });
+      expect([plugin.entries.map(({ kind, cause, pluginWrite }) => [kind, cause, pluginWrite]), plugin.total]).toEqual([
+        [
+          ["recipeUpdated", "plugin", "loadedRecipe"],
+          ["changed", "plugin", "load"],
+          ["inEffect", "unknown", null],
+        ],
+        3,
+      ]);
+      expect(doses({ workflowChanges: await trail({ cause: "other" }) })).toEqual([18, 17]);
+      expect((await trail({ cause: "unknown" })).entries.map((entry) => entry.kind)).toEqual(["inEffect"]);
+      // From 7:30, the 6:30 change by another is the one in effect, and every change after it the plugin's.
+      expect(doses({ workflowChanges: await trail({ from: chicago(7, 30), cause: "other" }) })).toEqual([18]);
+      // The other lists are as they are.
+      expect((await activity({ cause: "other" })).machineStates).toEqual((await activity({})).machineStates);
+      expect((await refusal({ cause: "barista" })).isError).toBe(true);
+    });
+
+    it("merges changes stored before who made them was recorded by time alone, within 5 s, and pages the trail as grouped, total counting its entries", async () => {
+      // Four Workflows from a plugin that says nothing of who made them: one in effect, then three, the first two 2 s apart.
+      const old = await api.createMachine("Old roastery");
+      const raw = await RawConnection.welcomed(server.url, helloWith(old.token));
+      const sent: [string, Record_][] = [
+        [at(11), { targetDoseWeight: 17 }],
+        [at(12), { targetDoseWeight: 17, grinderSetting: "2.2" }],
+        [new Date(Date.parse(at(12)) + 2_000).toISOString(), { targetDoseWeight: 17.5, grinderSetting: "2.2" }],
+        [new Date(Date.parse(at(12)) + 20_000).toISOString(), { targetDoseWeight: 18, grinderSetting: "2.2" }],
+      ];
+      try {
+        for (const [observedAt, context] of sent) await raw.deliver({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow(context) });
+      } finally {
+        await raw.close();
+      }
+      expect((await api.get<{ total: number }>(`/machines/${old.machine.id}/workflow-events`)).total).toBe(4);
+      const trail = async (args: Record_ = {}) =>
+        (await assistant.call<Activity>("get_machine_activity", { machineId: old.machine.id, kinds: ["workflowChanges"], ...args })).workflowChanges!;
+      const all = await trail();
+      expect(instants(all)).toEqual(
+        instants({
+          total: 3,
+          offset: 0,
+          more: false,
+          entries: [
+            { kind: "changed", observedAt: sent[3]![0], cause: "unknown", pluginWrite: null, loadedRecipe: null, changes: [{ field: "dose", before: 17.5, after: 18 }] },
+            {
+              kind: "changed",
+              observedAt: sent[1]![0],
+              lastObservedAt: sent[2]![0],
+              cause: "unknown",
+              pluginWrite: null,
+              loadedRecipe: null,
+              changes: [
+                { field: "grindSetting", before: (derivedWorkflow({}).context as Record_).grinderSetting, after: "2.2" },
+                { field: "dose", before: 17, after: 17.5 },
+              ],
+            },
+            { kind: "inEffect", observedAt: sent[0]![0], cause: "unknown", pluginWrite: null, loadedRecipe: null, workflow: all.entries[2]?.workflow },
+          ],
+        }),
+      );
+      expect(all.entries[2]!.workflow).toMatchObject({ dose: 17, grindSetting: (derivedWorkflow({}).context as Record_).grinderSetting });
+      // A page at a time, as the whole trail grouped.
+      for (const offset of [0, 1, 2]) {
+        expect(await trail({ limit: 1, offset })).toEqual({ entries: [all.entries[offset]], total: 3, offset, more: offset < 2 });
+      }
+      expect(await trail({ limit: 1, offset: 3 })).toEqual({ entries: [], total: 3, offset: 3, more: false });
+    });
+
     it("gives each Loaded Recipe loaded at any time in a range, as the REST API lists them, a Recipe unloaded as another loads in neither range that meets at that moment", async () => {
       type Entry = Record_ & { id: string; recipe: { id: string }; loadedAt: string; unloadedAt: string | null };
       const history = async () => (await api.get<{ entries: Entry[] }>(`/machines/${bar.machine.id}/loaded-recipes`)).entries;
@@ -517,6 +619,110 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(instants(await recipes({ limit: 1 }))).toEqual(instants({ entries: [withoutId(brazil!)], total: 2, offset: 0, more: true }));
       expect(instants(await recipes({ limit: 1, offset: 1 }))).toEqual(instants({ entries: [withoutId(earlier!)], total: 2, offset: 1, more: false }));
       expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], total: 2, offset: 2, more: false });
+    });
+  });
+
+  describe("a Machine's dial-in trail", () => {
+    // Right and Left at Belmont, each with DYE2, Right's tablet the recording's, which brings the Brazil's recipe (dose
+    // 19 g, grind 3, steamed by flow), given a steam time of 25 s, and Left with the Brazil's loaded. On Right:
+    // Streamline's strip loads it, which leaves its steam time to the plugin's load write; a barista dials the grind to
+    // 2.8 in two steps 2 s apart; a barista on Left changes its dose to 19.5 g, which DYE2 saves into the Recipe and the
+    // server writes into Right's Workflow; and a profile tapped on Streamline unloads it. Right's plugin's clock moves a
+    // minute on before each step, as if they were a minute apart, so no step's changes are within 5 s of another's.
+    let right: CreatedMachine;
+    let left: CreatedMachine;
+    let brazil: string;
+    /** When the trail's range starts: before Right's load. */
+    let from: string;
+
+    const recipeId = (tablet: SimulatedTablet, id: string) =>
+      dye2GlobalIdOf((Array.isArray(dye2List(tablet, "recipes")) ? (dye2List(tablet, "recipes") as Record_[]) : []).find((entry) => entry.id === id));
+    const loadedOn = async ({ machine }: CreatedMachine) => ((await api.get<{ machine: RestMachine }>(`/machines/${machine.id}`)).machine.loadedRecipe?.recipe.id as string | undefined) ?? null;
+    const loads = (machine: CreatedMachine, id: string | null) => expect.poll(() => loadedOn(machine), { timeout: 15_000 }).toBe(id);
+    const contextOf = (tablet: SimulatedTablet) => (tablet.workflow().context ?? {}) as Record_;
+    const trail = async (args: Record_ = {}) =>
+      (await assistant.call<Activity>("get_machine_activity", { machineId: right.machine.id, kinds: ["workflowChanges"], from, ...args })).workflowChanges!;
+    const fields = (entry: TrailEntry) => Object.fromEntries(entry.changes!.map(({ field, before, after }) => [field, [before, after]]));
+
+    it("loads the Brazil's Recipe on Right from Streamline's strip, dials its grind, has it edited on Left and unloads it by a profile switch", async () => {
+      const belmont = await api.createLocation("Belmont", CHICAGO);
+      right = await api.createMachine("Belmont Right", belmont.id);
+      left = await api.createMachine("Belmont Left", belmont.id);
+      const rightTablet = tablets.syncing(right, server, { api: recordedDye2MainTablet("40711", "Trail"), dye2: new SimulatedDye2() });
+      await api.waitForOnline(right);
+      await expect.poll(() => recipeId(rightTablet, BRAZIL), { timeout: 15_000 }).not.toBeNull();
+      brazil = recipeId(rightTablet, BRAZIL)!;
+      const leftTablet = tablets.syncing(left, server, { api: dye2NeverUsed("40712"), dye2: new SimulatedDye2() });
+      await api.waitForOnline(left);
+      await expect.poll(() => recipeId(leftTablet, BRAZIL), { timeout: 15_000 }).toBe(brazil);
+      await selectRecipeInDye2(leftTablet, BRAZIL);
+      await loads(left, brazil);
+      expect((await api.call("PATCH", `/recipes/${brazil}`, { content: { steamDuration: 25 } })).status).toBe(200);
+      const steamTime = (tablet: SimulatedTablet) =>
+        ((dye2List(tablet, "recipes") as Record_[]).find((entry) => entry.id === BRAZIL)?.dashboardVariables as Record_ | undefined)?.steamTimeS;
+      await expect.poll(() => steamTime(rightTablet), { timeout: 15_000 }).toBe(25);
+      const streamline = await startStreamline(rightTablet);
+      const quiet = () => quiesced(api, { tablets: { rightTablet, leftTablet }, machines: { right, left }, streamlines: { streamline } });
+      await quiet();
+      from = new Date().toISOString();
+
+      expect((await streamline.applyRecipe(2)).workflow?.status).toBe(200);
+      await loads(right, brazil);
+      await quiet();
+      rightTablet.setPluginClockOffset(60_000);
+      const dialled = Date.now();
+      await rightTablet.changeSettings({ context: { grinderSetting: "2.9" } });
+      // Once its delivery is done, the next 2 s on by the plugin's clock, so the two are stored apart and merge.
+      await quiet();
+      rightTablet.setPluginClockOffset(62_000 - (Date.now() - dialled));
+      await rightTablet.changeSettings({ context: { grinderSetting: "2.8" } });
+      await quiet();
+      rightTablet.setPluginClockOffset(120_000);
+      await leftTablet.changeSettings({ context: { targetDoseWeight: 19.5 } });
+      await expect.poll(() => contextOf(rightTablet).targetDoseWeight, { timeout: 15_000 }).toBe(19.5);
+      await quiet();
+      rightTablet.setPluginClockOffset(180_000);
+      expect((await streamline.tapProfile(ADAPTIVE))?.status).toBe(200);
+      await loads(right, null);
+      await quiet();
+    });
+
+    it("gives the load and the unload as one entry each, the grind changes as old to new, and the edit on Left as the Recipe updated", async () => {
+      const { entries, total } = await trail();
+      const { name } = (await api.get<{ recipe: { content: { name: string } } }>(`/recipes/${brazil}`)).recipe.content;
+      const recipe = { id: brazil, name };
+      expect(entries.map(({ kind, cause, pluginWrite, loadedRecipe }) => [kind, cause, pluginWrite, loadedRecipe])).toEqual([
+        ["unloaded", "other", null, recipe],
+        ["recipeUpdated", "plugin", "loadedRecipe", recipe],
+        ["changed", "other", null, recipe],
+        ["loaded", "other", null, recipe],
+        ["inEffect", expect.any(String), null, null],
+      ]);
+      expect(total).toBe(5);
+      const [unloaded, updated, dialled, loaded, inEffect] = entries as [TrailEntry, TrailEntry, TrailEntry, TrailEntry, TrailEntry];
+      // Each load and unload at the moment the server recorded it.
+      const [history] = (await api.get<{ entries: { loadedAt: string; unloadedAt: string | null }[] }>(`/machines/${right.machine.id}/loaded-recipes`)).entries;
+      expect(instants([loaded.observedAt, unloaded.observedAt])).toEqual(instants([history!.loadedAt, history!.unloadedAt]));
+      // The strip's change and the plugin's load write 2 s or so later, one entry; it names the Brazil's.
+      // Six stored changes after the one in effect: the strip's and the plugin's load write, the two grind steps, the
+      // server's write of Left's edit and the profile switch.
+      const raw = (await api.get<{ events: { observedAt: string; cause: string; pluginWrite: string | null }[] }>(`/machines/${right.machine.id}/workflow-events`)).events;
+      const after = raw.filter((event) => Date.parse(event.observedAt) > Date.parse(inEffect.observedAt)).reverse();
+      expect(after.map(({ cause, pluginWrite }) => (pluginWrite ? `${cause}:${pluginWrite}` : cause))).toEqual(["other", "plugin:load", "other", "other", "plugin:loadedRecipe", "other"]);
+      // The strip's change and the plugin's load write of the steam time just after it, one entry; it names the Brazil's.
+      expect(instants([loaded.lastObservedAt])).toEqual(instants([after[1]!.observedAt]));
+      expect(fields(loaded)).toMatchObject({ recipe: [null, name], recipeId: [null, brazil], "steam.duration": [50, 25] });
+      // The barista's two grind steps, as one change from the Recipe's grind to the last.
+      expect(fields(dialled)).toEqual({ grindSetting: ["3", "2.8"] });
+      expect(instants([dialled.observedAt, dialled.lastObservedAt])).toEqual(instants([after[2]!.observedAt, after[3]!.observedAt]));
+      expect(fields(updated)).toEqual({ dose: [19, 19.5] });
+      // The profile tapped, which clears the recipe, and what Streamline sent for that profile.
+      expect(fields(unloaded)).toMatchObject({ profileId: [expect.any(String), ADAPTIVE], recipe: [name, null], recipeId: [brazil, null] });
+      expect(inEffect.workflow).toMatchObject({ recipeId: null });
+      for (const entry of entries) expectZoned(CHICAGO, entry.observedAt, ...(entry.lastObservedAt ? [entry.lastObservedAt] : []));
+      // Recipe sync's writes alone, and the barista's.
+      expect((await trail({ cause: "plugin" })).entries.map((entry) => entry.kind)).toEqual(["recipeUpdated", "inEffect"]);
+      expect((await trail({ cause: "other" })).total).toBe(4);
     });
   });
 

@@ -7,8 +7,10 @@ import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { profileOfSql } from "../shots/links.js";
 import type { Reporter } from "../sync/identity.js";
-import { type LoadedRecipeView, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
+import { type LoadedRecipeView, everyLoadedRecipeDuring, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
 import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
 import { type WorkflowLinks, type WorkflowSummary, workflowLinksSql, workflowSummary } from "./workflow-summary.js";
 
@@ -30,9 +32,14 @@ export interface ActivityPage<T> {
   total: number;
 }
 
-/** A Machine's activity over a time range, a page of each kind asked for. */
+/** Which of a Machine's activity to give: its Workflow changes of one cause alone (`TrailEntry.cause`), or all of them. */
+export interface ActivityFilters {
+  cause?: ChangeCause;
+}
+
+/** A Machine's activity over a time range, a page of each kind asked for, its Workflow changes as a dial-in trail (dial-in-trail.ts). */
 export interface ActivityView {
-  workflowChanges?: ActivityPage<LinkedWorkflowEventView>;
+  workflowChanges?: ActivityPage<TrailEntry>;
   loadedRecipes?: ActivityPage<LoadedRecipeView>;
   machineStates?: ActivityPage<MachineStateEventView>;
 }
@@ -199,16 +206,17 @@ export class MachineEventsService {
 
   /**
    * What the Machine was doing over a time range, a page of each kind asked
-   * for, each latest first, by the tablet's clock: the Workflows and Machine
-   * States in effect at any time in it, those observed in it and the one in
-   * effect as it began, the latest observed then or before; and the Loaded
-   * Recipes loaded at any time in it.
+   * for, each latest first, by the tablet's clock: its Workflow changes as a
+   * dial-in trail (`workflowTrail`); the Machine States in effect at any time
+   * in it, those observed in it and the one in effect as it began, the
+   * latest observed then or before; and the Loaded Recipes loaded at any time
+   * in it.
    */
-  async activity(machineId: string, range: TimeRange, page: Page, kinds: readonly ActivityKind[]): Promise<ActivityView> {
+  async activity(machineId: string, range: TimeRange, page: Page, kinds: readonly ActivityKind[], filters: ActivityFilters = {}): Promise<ActivityView> {
     await this.requireMachine(machineId);
     const bounds = boundsOf(range);
     const [workflowChanges, loadedRecipes, machineStates] = await Promise.all([
-      kinds.includes("workflowChanges") ? this.workflowEventsDuring(machineId, bounds, page) : undefined,
+      kinds.includes("workflowChanges") ? this.workflowTrail(machineId, range, bounds, page, filters.cause) : undefined,
       kinds.includes("loadedRecipes") ? loadedRecipesDuring(this.prisma, machineId, bounds, page) : undefined,
       kinds.includes("machineStates") ? this.machineStateEventsDuring(machineId, bounds, page) : undefined,
     ]);
@@ -216,23 +224,70 @@ export class MachineEventsService {
   }
 
   /**
-   * The Workflows in effect over the range (`inEffectDuring`), a page of
-   * them, each with the Library items it names (`workflowLinksSql`), read for
-   * the page's alone.
+   * The Machine's Workflow changes over the range as a dial-in trail
+   * (`dialInTrail`), latest first, a page of it: made from the Workflows in
+   * effect at any time in it, the one in effect as it began and those
+   * observed in it, each summarised (`workflowSummary`) from the parts of it
+   * a summary reads, and from the loads and unloads of its Loaded Recipes in
+   * it, grouped whole before the page is taken, so its total counts the
+   * trail's entries, of the cause asked for, the first always given. Each
+   * Profile is found once, however many changes name it, and each Workflow
+   * read once: 25,000 changes, a year of a busy Machine's, take under a
+   * second, and a day's a few ms.
    */
-  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<LinkedWorkflowEventView>> {
-    const table = Prisma.sql`workflow_events`;
-    const [rows, total] = await Promise.all([
-      this.prisma.$queryRaw<LinkedRow[]>`
-        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("paged")}
-        FROM (
-          SELECT ${VIEWED_COLUMNS} FROM ${inEffectDuring(table, VIEWED_COLUMNS, machineId, bounds, page)}
-          ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}
-        ) AS paged
-        ORDER BY observed_at DESC, id DESC`,
-      countInEffect(this.prisma, table, machineId, bounds),
+  private async workflowTrail(machineId: string, range: TimeRange, bounds: Bounds, page: Page, cause: ChangeCause | undefined): Promise<ActivityPage<TrailEntry>> {
+    // Each Workflow's parts read in one pass of it (jsonb_to_record), rather than one for each part.
+    const during = (where: Prisma.Sql) => Prisma.sql`
+      SELECT e.id, e.observed_at, e.cause, e.plugin_write, e.library_batch_id, e.library_grinder_id, e.library_basket_id, e.recipe_id, parts.profile,
+        jsonb_build_object(
+          'profile', jsonb_build_object('title', parts.profile -> 'title', 'steps', jsonb_build_array(parts.profile #> '{steps,0}')),
+          'context', parts.context, 'steamSettings', parts."steamSettings", 'hotWaterData', parts."hotWaterData", 'rinseData', parts."rinseData"
+        ) AS summarised
+      FROM workflow_events AS e
+      CROSS JOIN LATERAL jsonb_to_record(e.workflow) AS parts(profile jsonb, context jsonb, "steamSettings" jsonb, "hotWaterData" jsonb, "rinseData" jsonb)
+      WHERE e.machine_id = ${machineId}::uuid AND ${where} AND e.observed_at < ${bounds.to}::timestamptz`;
+    const [rows, loads] = await Promise.all([
+      this.prisma.$queryRaw<TrailRow[]>`
+        WITH during AS NOT MATERIALIZED (
+          (${during(Prisma.sql`e.observed_at <= ${bounds.from}::timestamptz`)} ORDER BY e.observed_at DESC, e.id DESC LIMIT 1)
+          UNION ALL
+          (${during(Prisma.sql`e.observed_at > ${bounds.from}::timestamptz`)})
+        ),
+        profiles AS (
+          SELECT named.profile, ${profileOfSql(Prisma.sql`named.profile`)} AS "profileId"
+          FROM (SELECT DISTINCT profile FROM during WHERE profile IS NOT NULL) AS named
+        )
+        SELECT during.id, during.observed_at AS "observedAt", during.cause, during.plugin_write AS "pluginWrite", during.summarised AS workflow,
+          profiles."profileId", during.library_batch_id::text AS "beanBatchId", during.library_grinder_id::text AS "grinderId",
+          during.library_basket_id::text AS "basketId", during.recipe_id::text AS "recipeId", recipes.content ->> 'name' AS "recipeName"
+        FROM during
+        LEFT JOIN profiles ON profiles.profile = during.profile
+        LEFT JOIN recipes ON recipes.id = during.recipe_id`,
+      everyLoadedRecipeDuring(this.prisma, machineId, bounds),
     ]);
-    return { entries: rows.map(viewLinkedWorkflowEvent), total };
+    // In time order, then by stored id, sorted here rather than by PostgreSQL, which would spill a long range's to disk.
+    rows.sort((a, b) => a.observedAt.getTime() - b.observedAt.getTime() || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const [baseline, ...changes] = rows.map((row): TrailChange => {
+      const { id, observedAt, workflow, profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } = row;
+      const { cause, pluginWrite } = causeOf(row);
+      return { id, observedAt, cause, pluginWrite, summary: workflowSummary(workflow as Record<string, unknown>, { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName }) };
+    });
+    if (!baseline) return { entries: [], total: 0 };
+    // The trail begins as the range does, or with the first Workflow in it where none was in effect then.
+    const start = Math.max(range.from?.getTime() ?? -Infinity, baseline.observedAt.getTime());
+    const end = range.to?.getTime() ?? Infinity;
+    const recipeOf = (entry: LoadedRecipeView): TrailRecipe => ({ id: entry.recipe.id, name: entry.recipe.name });
+    const within = (at: string | null) => at !== null && Date.parse(at) > start && Date.parse(at) < end;
+    // Oldest first, each entry's load before its unload, as dialInTrail keeps the order of those at one moment and one id.
+    const recipeEvents = loads.flatMap((entry): RecipeEvent[] => [
+      ...(within(entry.loadedAt) ? [{ kind: "loaded" as const, id: BigInt(entry.id), at: new Date(entry.loadedAt), recipe: recipeOf(entry) }] : []),
+      ...(within(entry.unloadedAt) ? [{ kind: "unloaded" as const, id: BigInt(entry.id), at: new Date(entry.unloadedAt!), recipe: recipeOf(entry) }] : []),
+    ]);
+    const inEffect = loads.find((entry) => Date.parse(entry.loadedAt) <= start && (entry.unloadedAt === null || Date.parse(entry.unloadedAt) > start));
+    const trail = dialInTrail({ baseline, changes, recipeEvents, loadedAtStart: inEffect ? recipeOf(inEffect) : null })
+      .reverse()
+      .filter((entry) => cause === undefined || entry.kind === "inEffect" || entry.cause === cause);
+    return { entries: trail.slice(page.offset, page.offset + page.limit), total: trail.length };
   }
 
   private async machineStateEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<MachineStateEventView>> {
@@ -303,24 +358,28 @@ function heldBy(credit: Credit): Prisma.Sql {
 type ViewedWorkflowEvent = Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow" | "cause" | "pluginWrite">;
 
 function viewWorkflowEvent(event: ViewedWorkflowEvent): WorkflowEventView {
-  const plugin = event.cause === "plugin";
   return {
     id: event.id.toString(),
     observedAt: event.observedAt.toISOString(),
     receivedAt: event.receivedAt.toISOString(),
-    cause: plugin ? "plugin" : event.cause === "other" ? "other" : "unknown",
-    pluginWrite: plugin ? pluginWriteOf(event.pluginWrite) : null,
+    ...causeOf(event),
     workflow: event.workflow as Prisma.JsonObject,
   };
 }
+
+/** Who made a Workflow change, as stored, as the REST API gives it: a cause this release doesn't know, as a later release beside it may store, as unknown. */
+function causeOf(event: Pick<WorkflowEvent, "cause" | "pluginWrite">): Pick<WorkflowEventView, "cause" | "pluginWrite"> {
+  const plugin = event.cause === "plugin";
+  return { cause: plugin ? "plugin" : event.cause === "other" ? "other" : "unknown", pluginWrite: plugin ? pluginWriteOf(event.pluginWrite) : null };
+}
+
+/** A Workflow event as the dial-in trail reads it (`workflowTrail`): the parts of its Workflow a summary reads, and the Library items it names. */
+type TrailRow = Pick<WorkflowEvent, "id" | "observedAt" | "workflow" | "cause" | "pluginWrite"> & WorkflowLinks;
 
 /** A `plugin` change's write as stored, or null for one this release doesn't know, as a later release beside it may store. */
 function pluginWriteOf(write: string | null): PluginWorkflowWrite | null {
   return (PLUGIN_WORKFLOW_WRITES as readonly (string | null)[]).includes(write) ? (write as PluginWorkflowWrite) : null;
 }
-
-/** The columns of `workflow_events` a Workflow event's view, with the Library items it names, is read from. */
-const VIEWED_COLUMNS = Prisma.sql`id, observed_at, received_at, workflow, cause, plugin_write, ${WORKFLOW_LINK_COLUMNS}`;
 
 /** A Workflow event as read with the Library items it names (`workflowLinksSql`). */
 type LinkedRow = ViewedWorkflowEvent & WorkflowLinks;

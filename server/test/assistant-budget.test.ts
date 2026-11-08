@@ -504,17 +504,18 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(summarised.result.tabletSettings.appSettings.value).toEqual(appSettings);
     });
 
-    it("gives a Machine's activity whose Workflows' text runs long with that text cut", async () => {
+    it("gives a Machine's activity whose Workflows' text runs long with that text cut, in the Workflow in effect and in what changed", async () => {
       for (const minute of [1, 2]) {
         await raw.deliver({
           type: "workflow",
           id: randomUUID(),
           observedAt: `2026-11-04T06:0${minute}:00.000Z`,
           // Each a change, by its dose.
-          workflow: derivedWorkflow({ targetDoseWeight: 18 + minute, coffeeName: hostile(20_000), coffeeRoaster: hostile(5_000), baristaName: hostile(5_000) }),
+          workflow: derivedWorkflow({ targetDoseWeight: 18 + minute, coffeeName: hostile(20_000), coffeeRoaster: hostile(20_000), baristaName: hostile(5_000) }),
         });
       }
-      const { result } = await assistant.callWithinBudget<{ cut: string; workflowChanges: Page & { entries: { workflow: Fields }[] } }>("get_machine_activity", {
+      type Entry = { workflow?: Fields; changes?: { field: string; before: unknown; after: unknown }[] };
+      const { result } = await assistant.callWithinBudget<{ cut: string; workflowChanges: Page & { entries: Entry[] } }>("get_machine_activity", {
         machineId: haunted.machine.id,
         from: "2026-11-04",
         to: "2026-11-04",
@@ -522,7 +523,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       });
       expect(result.cut).toContain("fewer at a time");
       expect(result.workflowChanges.total).toBe(3);
-      expect(result.workflowChanges.entries.every((entry) => cut(entry.workflow.bean) && cut(entry.workflow.barista))).toBe(true);
+      // The Workflow in effect, the one above with its long name, whole, that name cut; then its title back to the
+      // fixture's and a roaster as long, cut; then the dose alone.
+      const [second, first, inEffect] = result.workflowChanges.entries as [Entry, Entry, Entry];
+      expect(cut(inEffect.workflow!.bean)).toBe(true);
+      const changed = Object.fromEntries(first.changes!.map((change) => [change.field, change]));
+      expect(Object.keys(changed).sort()).toEqual(["dose", "profile", "roaster"]);
+      expect([cut(changed.roaster!.before), cut(changed.roaster!.after)]).toEqual([false, true]);
+      expect(second.changes).toEqual([{ field: "dose", before: 19, after: 20 }]);
     });
 
     it("lists Settings Edits whose Decaid message runs long with it cut, each value they set whole, a page at a time", async () => {
