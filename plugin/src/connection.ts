@@ -221,6 +221,7 @@ export class SyncConnection {
       {
         hold: () => this.machineEvents.hold(),
         release: () => this.machineEvents.release(),
+        wrote: (write) => this.machineEvents.wrote(write),
         dye2Absent: (absent) => this.machineEvents.dye2Absent(absent),
       },
       library,

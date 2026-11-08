@@ -3,6 +3,7 @@ import { isDeepStrictEqual } from "node:util";
 import { LIBRARY_LISTS, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, type MachineView } from "./support/admin-api.js";
+import { workflowCauses } from "./support/loaded-tablets.js";
 import { NO_DYE2_LISTS, RawConnection, SimulatedTablet, derivedDe1Pro, derivedProfile, helloWith, settingsFor, workflowFixture } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -219,6 +220,7 @@ describe("Joining a Location", () => {
     const labWorkflow = labTablet.workflow();
     expect(hotWater(labTablet)).not.toEqual(hotWater(belmontTablet));
     expect(context(labTablet)).toMatchObject({ grinderModel: "DF64 v2", grinderBurrs: "SSP MP", coffeeName: "Ethiopia Generic 100g Sample" });
+    const causes = (await workflowCauses(api, labMachine)).length;
 
     expect((await move(labMachine, belmont)).status).toBe(201);
     await expect.poll(() => offered(labTablet)).toEqual(belmontOffers);
@@ -229,6 +231,8 @@ describe("Joining a Location", () => {
     expect(userProfiles(labTablet, false)).toEqual(labOffers.profiles);
     // Belmont offers neither its grinder nor its batch, which are cleared; its profile, dose, yield, grinder setting and barista stay.
     await expect.poll(() => GRINDER_AND_BATCH.filter((field) => field in context(labTablet))).toEqual([]);
+    // The clear is the plugin's change (#434).
+    await expect.poll(async () => (await workflowCauses(api, labMachine)).slice(causes)).toEqual(["plugin:clear"]);
     const { context: before, ...rest } = labWorkflow;
     const kept = Object.fromEntries(Object.entries(before as Record_).filter(([field]) => !GRINDER_AND_BATCH.includes(field)));
     expect(context(labTablet)).toEqual(kept);

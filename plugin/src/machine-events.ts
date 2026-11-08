@@ -1,4 +1,4 @@
-import { MACHINE_SETTING_PARTS, type MachineStateDelivery, type WorkflowDelivery, dye2RecipeIdOf, sameValue } from "@decent-sync/protocol";
+import { MACHINE_SETTING_PARTS, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery, dye2RecipeIdOf, sameValue } from "@decent-sync/protocol";
 
 /**
  * Holds back the changes of the tablet's Workflow the plugin sends while it
@@ -9,6 +9,12 @@ import { MACHINE_SETTING_PARTS, type MachineStateDelivery, type WorkflowDelivery
 export interface WorkflowChanges {
   hold(): void;
   release(): void;
+  /**
+   * Told of each of the plugin's writes into the Workflow that Decaid took,
+   * while held: the change `release` sends is the plugin's, by the first of
+   * them (`WorkflowDelivery.cause`).
+   */
+  wrote(write: PluginWorkflowWrite): void;
   /**
    * Whether DYE2 is not there (`WorkflowDelivery.dye2Absent`), which every
    * Workflow delivery queued from then on carries: the latest Workflow is
@@ -58,6 +64,13 @@ export class MachineEvents implements WorkflowChanges {
   private heldReport = false;
   /** A change reported while held, which `release` sends. */
   private heldChange = false;
+  /**
+   * The first of the plugin's writes into the Workflow that Decaid took
+   * while held, whose change `release` sends as the plugin's: Decaid
+   * reports a write's change before it answers it, so that change is held
+   * already, with any change another writer made meanwhile.
+   */
+  private heldWrite: PluginWorkflowWrite | undefined;
   /**
    * When Decaid reported the Workflow first naming the recipe it names now
    * (`dye2RecipeIdOf`), where that was while held: `release` sends it as the
@@ -115,22 +128,31 @@ export class MachineEvents implements WorkflowChanges {
     this.holds++;
   }
 
+  wrote(write: PluginWorkflowWrite): void {
+    if (this.holds > 0) this.heldWrite ??= write;
+  }
+
   /**
    * Once no write is under way, sends the latest Workflow, observed when
    * Decaid reported it, or now for a resend alone, if it changed while held:
    * that holds the plugin's own writes, and any change a barista made
    * meanwhile. Where the recipe it names changed while held, it says when
-   * Decaid first reported it naming that one (`recipeNamedAt`).
+   * Decaid first reported it naming that one (`recipeNamedAt`), and where
+   * Decaid took a write of the plugin's meanwhile, that it is the plugin's
+   * change (`cause`).
    */
   release(): void {
     this.holds = Math.max(0, this.holds - 1);
     if (this.holds > 0) return;
+    // A resend alone, with no change reported while held, is no write's change, whatever was written.
+    const write = this.heldReport ? this.heldWrite : undefined;
+    this.heldWrite = undefined;
     if (this.heldChange && this.workflow) {
       this.heldChange = false;
       const resend = this.heldResend && !this.heldReport;
       // A change held back keeps the time it was reported, so a Shot pulled after it is not taken for one before it, and when
       // it first named its recipe, so a Shot pulled with that recipe meanwhile is pulled with it.
-      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt);
+      const id = this.queueWorkflow(this.workflow, resend ? now() : this.reportedAt, this.heldNamedAt, write);
       if (resend) this.resent = id;
       this.heldResend = false;
       this.heldReport = false;
@@ -196,8 +218,8 @@ export class MachineEvents implements WorkflowChanges {
     } else this.resent = this.queueWorkflow(this.workflow);
   }
 
-  /** Queues the Workflow as observed now, returning its delivery's id. */
-  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now(), recipeNamedAt?: string): string {
+  /** Queues the Workflow as observed now, the plugin's change where one of its writes made it, returning its delivery's id. */
+  private queueWorkflow(workflow: Record<string, unknown>, observedAt = now(), recipeNamedAt?: string, write?: PluginWorkflowWrite): string {
     const delivery: WorkflowDelivery = {
       type: "workflow",
       id: this.outbox.nextId(),
@@ -205,6 +227,7 @@ export class MachineEvents implements WorkflowChanges {
       workflow,
       ...(this.absent ? { dye2Absent: true } : {}),
       ...(recipeNamedAt !== undefined ? { recipeNamedAt } : {}),
+      ...(write !== undefined ? { cause: "plugin", pluginWrite: write } : { cause: "other" }),
     };
     this.outbox.enqueue(delivery);
     return delivery.id;

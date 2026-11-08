@@ -5,7 +5,7 @@ protocol version 1 with two deliveries, defined and validated in `protocol/`:
 
 | Direction | Message | Fields |
 |---|---|---|
-| Plugin to server | `workflow` | `id` (delivery id), `observedAt`, `workflow` (opaque, as Decaid's `workflowUpdated` event gave it), from #189 `dye2Absent`, while DYE2 is not there to keep the recipe the Workflow names (The Loaded Recipe, below), and from #235 `recipeNamedAt`, when a change held back first named its recipe (Held back, below) |
+| Plugin to server | `workflow` | `id` (delivery id), `observedAt`, `workflow` (opaque, as Decaid's `workflowUpdated` event gave it), from #189 `dye2Absent`, while DYE2 is not there to keep the recipe the Workflow names (The Loaded Recipe, below), from #235 `recipeNamedAt`, when a change held back first named its recipe (Held back, below), and from #434 `cause`, `plugin` with `pluginWrite` or `other`, who made the change (Who made a change, below) |
 | Plugin to server | `machineState` | `id`, `observedAt`, `state` and `substate` (Decaid's names, such as `espresso` and `preinfusion`) |
 
 Both are acknowledged with `ack` once stored, or set aside because storing
@@ -43,6 +43,40 @@ the plugin's one outbox (`plugin/src/outbox.ts`), which Shots share:
   collections, so it is taken in at the new Location: its grinder, batch
   and Basket are cleared if the Location does not offer them (`LIBRARY.md`,
   Joining a Location).
+
+### Who made a change
+
+Decaid's `workflowUpdated` says nothing of who changed the Workflow
+(`AI_RUNTIME_NOTES.md`). From
+[#434](https://github.com/loganfuller/decent-sync/issues/434) each Workflow
+delivery says what the plugin knows (`cause`, `WORKFLOW_CAUSES` in
+`protocol/`):
+
+- **`plugin`**, with `pluginWrite` (`PLUGIN_WORKFLOW_WRITES`): a change
+  released at the end of one of the plugin's own writes into the Workflow,
+  named by the first of them Decaid took while it was held back (Held back,
+  below). `load` is the load of the Recipe the Workflow came to name,
+  `loadedRecipe` a write of the Loaded Recipe's parts the server sent,
+  `clear` the server's unload of the Recipe, the clear of the recipe before a
+  post of DYE2's recipes replaces its record, or the clear of the grinder,
+  batch and Basket a Location does not offer, and `steamOn` the Loaded
+  Recipe's steam temperature and time as steam is turned back on.
+  `LoadedRecipes.ownWrite` names each, and tells `MachineEvents.wrote` once
+  Decaid answers it with a Workflow.
+- **`other`**: every other delivery. That is a barista's change on
+  Streamline, Streamline's own writes and DYE2's, which the plugin can't tell
+  apart, the Workflow Decaid sends as the plugin loads, a welcome's resend,
+  and a change held back during a save into the Loaded Recipe, or a write
+  Decaid refused, with no write of the plugin's taken meanwhile.
+
+A change another writer makes while a write of the plugin's is held back is
+released with it, so a `plugin` change may carry another writer's too. Steam
+turned back on in Streamline is one: the plugin holds Streamline's change
+while it writes the Recipe's steam temperature and time, and the one change
+released is `plugin` `steamOn`. Telling a barista from Streamline or DYE2
+would need Decaid to say who wrote a change. The previous release's plugin
+sends no `cause`, which the server stores as unknown, and the previous
+release's server ignores it, so it raises no wire revision.
 
 `observedAt` is when the plugin observed the event, from its own clock in UTC
 (`new Date().toISOString()`), because the outbox may deliver it minutes later.
@@ -190,6 +224,20 @@ whoever has its hardware, so a tablet moved onto another Machine's hardware
 adds only what changes that Machine's own. Creating a machine entry for a
 Pending Machine's hardware, binding it at `hello` or entering it by hand hands
 its events over with its Shots and Steam Records (`transferPendingRecords`).
+
+Each Workflow event keeps who made it, as its delivery said (`cause`, and
+`plugin_write`), null for unknown, as for one stored before #434 or from a
+plugin that says nothing. It also keeps the tablet that reported it
+(`tablet_id`) and the Library's Bean Batch, Grinder, Basket and Recipe its
+Workflow names by that tablet's ids (`context.beanBatchId`,
+`context.grinderId`, `context.extras.basketId` and DYE2_RECIPE_FIELD),
+resolved through the tablet's map as the event is stored, under the tablet's
+row lock (`server/src/machine-events/workflow-links.ts`). An id the map does
+not hold yet is linked once it does, wherever a map saves a record, as for
+Shots (`SHOTS.md`), found through a partial index of the events not linked
+yet for each kind. A link is never undone, and a hard delete of the item
+clears it. Its Profile is read from its profile as a Shot's is, and not
+stored. Events stored before #434 have no tablet and no links.
 
 A Workflow from a connection that is not mismatched, for its token's
 Machine, is also taken in at its Location in the same transaction
@@ -435,8 +483,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   loads the Recipe from, so a later report meanwhile, as of the plugin's
   own write, does not leave a Shot pulled with the recipe taken for one
   pulled before it was loaded; the Workflow's other parts, as its edits of
-  the Recipe, keep the time of the latest report. Changes of the machine's
-  state are not held. A
+  the Recipe, keep the time of the latest report. Where Decaid took one of
+  the plugin's writes meanwhile, the delivery is the plugin's, by that write
+  (Who made a change, above). Changes of the machine's state are not held. A
   welcome's resend of the Workflow asked for while held is the Workflow
   released, which the next welcome replaces unless it was ever sent, but
   where a change was held too: replacing that would lose the change. A held
@@ -750,8 +799,10 @@ that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines` and `GET /api/machines/:id` include `machineState:
   { state, substate, observedAt } | null`, the latest stored.
 - `GET /api/machines/:id/workflow` returns `{ workflow }`, the latest Workflow
-  event `{ id, observedAt, receivedAt, workflow }` or null; `workflow` is
-  Decaid's, as sent.
+  event `{ id, observedAt, receivedAt, cause, pluginWrite, workflow }` or
+  null; `workflow` is Decaid's, as sent, and `cause` is `plugin`, `other` or
+  `unknown`, with `pluginWrite` the plugin's write for `plugin` and null
+  otherwise (Who made a change, above).
 - `GET /api/machines` and `GET /api/machines/:id` include `loadedRecipe:
   { id, recipe: { id, name, slot, locationId, archived }, loadedAt,
   unloadedAt } | null`, the Machine's Loaded Recipe now, `unloadedAt` null.
@@ -761,7 +812,8 @@ that takes their hardware over. Staff read them as Admins do.
   1–100.
 - `GET /api/machines/:id/workflow-events?limit=20&offset=0` and
   `GET /api/machines/:id/machine-state-events?limit=20&offset=0` return
-  `{ events, total, limit, offset }`, latest first. A state event is
+  `{ events, total, limit, offset }`, latest first. A Workflow event is as
+  `/workflow` gives one, and a state event
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
 
 The Machines list shows each Machine's state and last Shot; the Machine page
@@ -777,7 +829,7 @@ Recipe each has loaded.
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
 `server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
-`plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back,
+`plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back and who each change is from, with each cause through the built plugin in `server/test/loaded-recipes.test.ts`, `loaded-recipe-following.test.ts`, `steam-back-on.test.ts`, `joining.test.ts` and `joining-recipes.test.ts`, and the tablet and Library items an event keeps in `server/test/machine-events.test.ts`,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and
 `e2e/workflow-and-state.spec.ts` and `e2e/loaded-recipes.spec.ts` the

@@ -1,5 +1,6 @@
 import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
 import type { PrismaService } from "../prisma.service.js";
 import { linkShots } from "../shots/links.js";
@@ -300,6 +301,8 @@ async function saveRecord(
     ON CONFLICT (tablet_id, batch_id) DO UPDATE SET
       local_id = EXCLUDED.local_id, record = EXCLUDED.record, record_updated_at = EXCLUDED.record_updated_at, ${keepSeenSql("tablet_bean_batches")},
       ${keepContentSeenSql("tablet_bean_batches")}`;
-  // The Shots that name the record by this id are linked to the item, if they were not yet (shots/links.ts).
+  // The Shots and Workflow changes that name the record by this id are linked to the item, if they were not yet
+  // (shots/links.ts, machine-events/workflow-links.ts).
   await linkShots(tx, "beanBatch", tabletId, batchId, localId);
+  await linkWorkflowChanges(tx, "beanBatch", tabletId, batchId, localId);
 }

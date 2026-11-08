@@ -1,7 +1,7 @@
 import { GLOBAL_ID_KEY, dye2GlobalIdOf, profileAtBrewTemperature } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet, workflowCauses } from "./support/loaded-tablets.js";
 import {
   DYE2_NAMESPACE,
   SimulatedDye2,
@@ -218,12 +218,17 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     const { machines, dye2, a, c, d, one, quiet } = await lab("Recorded", 48001, { d: true });
     const grinds = await editsOf(one, "grindSetting");
     const received = a.received.length;
+    // Once the writes the loads set off are done, who made each Workflow change from now on (#434).
+    await quiet();
+    const before = { a: (await workflowCauses(api, machines.a)).length, c: (await workflowCauses(api, machines.c)).length };
     await a.changeSettings({ context: { grinderSetting: "3.1" } });
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(3.1);
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("3.1");
     expect(dye2.a.recorded.at(-1)).toMatchObject({ id: ETHIOPIA, patch: { grind: 3.1 } });
     // Once A's report of the Workflow holding the grind has been taken in.
     await quiet();
+    // A barista's change on A is another's, and the server's write of the Recipe's edit into C's Workflow the plugin's.
+    expect([(await workflowCauses(api, machines.a)).slice(before.a), (await workflowCauses(api, machines.c)).slice(before.c)]).toEqual([["other"], ["plugin:loadedRecipe"]]);
     // The Workflow's change on A, which reached the server after DYE2's save, is no second edit.
     expect(await editsOf(one, "grindSetting")).toBe(grinds + 1);
 

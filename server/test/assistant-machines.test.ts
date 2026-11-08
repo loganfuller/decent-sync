@@ -46,7 +46,7 @@ interface Page<T> {
 }
 
 interface Activity {
-  workflowChanges?: Page<{ observedAt: string; receivedAt: string; workflow: Record_ }>;
+  workflowChanges?: Page<{ observedAt: string; receivedAt: string; cause: string; pluginWrite: string | null; workflow: Record_ }>;
   loadedRecipes?: Page<{ recipe: Record_; loadedAt: string; unloadedAt: string | null }>;
   machineStates?: Page<{ state: string; substate: string; observedAt: string; receivedAt: string }>;
 }
@@ -286,11 +286,12 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       ["idle", "idle", at(11)],
       ["sleeping", "noState", at(23)],
     ] as const;
+    /** Each Workflow change's dose and time, and who its delivery says made it, the first saying nothing, as before #434. */
     const DOSES = [
-      [17, BEFORE_THE_LAB],
-      [18, at(6, 30)],
-      [18.5, at(8)],
-      [19, at(10)],
+      [17, BEFORE_THE_LAB, {}],
+      [18, at(6, 30), { cause: "other" }],
+      [18.5, at(8), { cause: "plugin", pluginWrite: "load" }],
+      [19, at(10), { cause: "plugin", pluginWrite: "loadedRecipe" }],
     ] as const;
 
     beforeAll(async () => {
@@ -301,7 +302,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       try {
         const deliveries = [
           ...STATES.map(([state, substate, observedAt]) => ({ type: "machineState", id: randomUUID(), observedAt, state, substate })),
-          ...DOSES.map(([dose, observedAt]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow({ targetDoseWeight: dose }) })),
+          ...DOSES.map(([dose, observedAt, cause]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow({ targetDoseWeight: dose }), ...cause })),
         ].sort((a, b) => a.observedAt.localeCompare(b.observedAt));
         for (const delivery of deliveries) await raw.deliver(delivery);
       } finally {
@@ -318,7 +319,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     it("gives every Workflow change and Machine State, latest first, as the REST API lists them, with the offset of where it was then, each Workflow as the management interface shows it", async () => {
       const all = await activity({});
       const path = `/machines/${roaster.machine.id}`;
-      const workflows = (await api.get<{ events: { observedAt: string; receivedAt: string; workflow: Record_ }[] }>(`${path}/workflow-events`)).events;
+      const workflows = (await api.get<{ events: { observedAt: string; receivedAt: string; cause: string; pluginWrite: string | null; workflow: Record_ }[] }>(`${path}/workflow-events`))
+        .events;
       const transitions = (await api.get<{ events: { state: string; substate: string; observedAt: string; receivedAt: string }[] }>(`${path}/machine-state-events`)).events;
       expect(instants(all.machineStates)).toEqual(
         instants({ entries: transitions.map(({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt, receivedAt })), total: 5, offset: 0, more: false }),
@@ -327,6 +329,14 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         instants(workflows.map(({ observedAt, receivedAt }) => ({ observedAt, receivedAt }))),
       );
       expect(all.workflowChanges).toMatchObject({ total: 4, offset: 0, more: false });
+      // Who made each, as REST gives it.
+      const causes = [
+        ["plugin", "loadedRecipe"],
+        ["plugin", "load"],
+        ["other", null],
+        ["unknown", null],
+      ];
+      expect([all.workflowChanges!.entries, workflows].map((list) => list.map(({ cause, pluginWrite }) => [cause, pluginWrite]))).toEqual([causes, causes]);
       expect(all.loadedRecipes).toEqual({ entries: [], total: 0, offset: 0, more: false });
       expect(states(all)).toEqual(["sleeping", "idle", "espresso", "idle", "sleeping"]);
       expect(doses(all)).toEqual([19, 18.5, 18, 17]);

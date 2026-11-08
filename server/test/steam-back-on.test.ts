@@ -1,7 +1,7 @@
 import { RECIPE_SETTINGS, type RecipeSetting, dye2GlobalIdOf, workflowValueAt } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
-import { recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { recipeNamedInWorkflow, syncingTablet, workflowCauses } from "./support/loaded-tablets.js";
 import { SimulatedDye2, dye2List, dye2NeverUsed, openDye2Dashboard, openDye2RecipeEditor, recordedDye2MainTablet } from "./support/simulated-dye2.js";
 import { quiesced } from "./support/quiet.js";
 import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
@@ -171,6 +171,7 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     expect([streamline.remembered("last-steam-temp"), streamline.remembered("last-steam-duration")]).toEqual([160, 0]);
     const edits = { temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") };
     const watch = watchSteam(dye2, { a, c });
+    const causes = (await workflowCauses(api, machines.c)).length;
 
     // Turned back on in Streamline, at the 160 °C and the shortest time it takes from the 0 it kept: C takes the Recipe's
     // 155 °C and 45 s instead.
@@ -178,6 +179,9 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     await expect.poll(() => [setting(c, "steamTemperature"), setting(c, "steamDuration")], { timeout: 15_000 }).toEqual([155, 45]);
     // Once C's report of the heater on, the plugin's write, its save and Streamline's reply are done.
     await quiet({ streamline });
+    // One change, the plugin's (#434): Streamline's turning steam back on is held back while the plugin writes the Recipe's
+    // steam temperature and time, and released with that write.
+    expect((await workflowCauses(api, machines.c)).slice(causes)).toEqual(["plugin:steamOn"]);
     expect([watch.taken.c, watch.times.c]).toEqual([
       [160, 155],
       [1, 45],

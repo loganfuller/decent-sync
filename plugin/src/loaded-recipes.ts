@@ -6,6 +6,7 @@ import {
   dye2Fingerprint,
   dye2RecipeIdOf,
   dye2Records,
+  type PluginWorkflowWrite,
   sameValue,
   steamOff,
   workflowValueAt,
@@ -68,11 +69,12 @@ export interface LoadedRecipeWrites {
    * Decaid reports meanwhile held back until it is done, and taken as its
    * echo rather than saved into the Loaded Recipe. `work` tells `answered`
    * of each Workflow Decaid answers it with, and the body of the `PUT
-   * /workflow` it answered. A change made around the write that it did not
-   * make, as a barista's, which Decaid's answer may hold already, is decided
-   * on once the write is done.
+   * /workflow` it answered, which makes the change released the plugin's,
+   * by the name of the write (`WorkflowChanges.wrote`). A change made around
+   * the write that it did not make, as a barista's, which Decaid's answer may
+   * hold already, is decided on once the write is done.
    */
-  ownWrite<T>(work: (answered: Answered) => Promise<T>): Promise<T>;
+  ownWrite<T>(write: PluginWorkflowWrite, work: (answered: Answered) => Promise<T>): Promise<T>;
   /**
    * Before a post of DYE2's recipes from `before` to `after`: where the
    * Workflow names a record the post removes, or gives to another Recipe's
@@ -229,7 +231,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     if (this.writing === 0) this.decide(this.latest, false);
   }
 
-  async ownWrite<T>(work: (answered: Answered) => Promise<T>): Promise<T> {
+  async ownWrite<T>(write: PluginWorkflowWrite, work: (answered: Answered) => Promise<T>): Promise<T> {
     if (this.writing === 0) this.duringWrite = { reported: false, answered: undefined, before: this.latest, written: new Set() };
     this.writing++;
     this.changes.hold();
@@ -237,6 +239,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       return await work((workflow, body) => {
         this.duringWrite.answered = workflow;
         for (const path of fieldPaths(body)) this.duringWrite.written.add(path);
+        this.changes.wrote(write);
       });
     } finally {
       this.writing--;
@@ -269,7 +272,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
   async beforePost(before: readonly Record<string, unknown>[], after: readonly Record<string, unknown>[]): Promise<void> {
     const vacated = new Set(vacatedIds(before, after));
     if (vacated.size === 0) return;
-    await this.ownWrite(async (answered) => {
+    await this.ownWrite("clear", async (answered) => {
       const workflow = await workflowNow();
       const named = dye2RecipeIdOf(workflow);
       if (named === null || !vacated.has(named)) return;
@@ -463,7 +466,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
     const write = record === undefined ? null : steamBackOnWrite(workflow, record, pending.turnedOn);
     if (write !== null && this.shot.running()) return false;
     if (write !== null) {
-      await this.ownWrite(async (answered) => {
+      await this.ownWrite("steamOn", async (answered) => {
         const answer = await request("PUT", "/workflow", write);
         const updated = answer.ok ? parsed(answer.text) : undefined;
         if (!isObject(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
@@ -559,7 +562,7 @@ export class LoadedRecipes implements LoadedRecipeWrites {
       if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
       return;
     }
-    await this.ownWrite(async (answered) => {
+    await this.ownWrite("load", async (answered) => {
       const workflow = await workflowNow();
       const recordId = dye2RecipeIdOf(workflow);
       const recipe = recordId === null ? undefined : this.records?.get(recordId);
