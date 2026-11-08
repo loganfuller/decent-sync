@@ -122,8 +122,8 @@ and Recipes, Archives and restores Library items, changes what a Location
 offers, puts Recipes in Recipe Slots and copies them to other Locations, uses
 or dismisses Conflicts' values, and makes Settings Edits, each change shown as
 made through it. It also moves Machines between Locations, and an Admin's
-turns a Machine's sharing on or off, and creates and edits Locations. Each
-person sees and disconnects their Connected Apps.
+assistant turns a Machine's sharing on or off, and creates and edits
+Locations. Each person sees and disconnects their Connected Apps.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
