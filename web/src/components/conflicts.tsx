@@ -127,7 +127,7 @@ export function attributePairs(value: unknown): { key: string; value: string }[]
   return pairs.every((pair) => pair !== undefined) ? pairs : undefined;
 }
 
-/** Where an edit came from: a Machine's tablet, or an account in the management interface. */
+/** Where an edit came from: a Machine's tablet, or an account, here or through a Connected App, such as an assistant. */
 function SourceText({ source }: { source: EditSource | null }) {
   const { state } = useAuth();
   if (source === null) return <span className="text-muted-foreground">Not known</span>;
@@ -139,8 +139,9 @@ function SourceText({ source }: { source: EditSource | null }) {
     );
   }
   if (source.account) {
-    if (state.status === "signed-in" && state.account.id === source.account.id) return <>You, here</>;
-    return <>{source.account.name ?? "An account"}, here</>;
+    const who = state.status === "signed-in" && state.account.id === source.account.id ? "You" : (source.account.name ?? "An account");
+    // The previous release answers without connectedApp, as it may during a deploy (ADR-0025).
+    return source.connectedApp ? <>{who}, through {source.connectedApp.name}</> : <>{who}, here</>;
   }
   return <span className="text-muted-foreground">{source.tabletId ? "A Machine since removed" : "Not known"}</span>;
 }

@@ -11,13 +11,27 @@ const CLEANUP_BATCH = 1_000;
 /**
  * What expires, by PostgreSQL's clock: requests to connect that were never
  * answered, codes never exchanged, access tokens, and Connected Apps that
- * lapsed, with their tokens. A disconnected Connected App is kept, refused.
+ * lapsed, with their tokens. A disconnected Connected App is kept, refused,
+ * until it lapses. A lapsed one that the Library's history or a Conflict
+ * names is kept, refused, without its refresh tokens, so they go on showing
+ * the change as made through it.
  */
 const EXPIRED: { what: string; table: string; condition: string }[] = [
   { what: "expired requests to connect", table: "authorization_requests", condition: "expires_at <= now()" },
   { what: "expired authorization codes", table: "authorization_codes", condition: "expires_at <= now()" },
   { what: "expired access tokens", table: "access_tokens", condition: "expires_at <= now()" },
-  { what: "lapsed Connected Apps", table: "connected_apps", condition: `last_used_at <= now() - make_interval(days => ${LAPSE_DAYS})` },
+  {
+    what: "lapsed Connected Apps' refresh tokens",
+    table: "refresh_tokens",
+    condition: `connected_app_id IN (SELECT id FROM connected_apps WHERE last_used_at <= now() - make_interval(days => ${LAPSE_DAYS}))`,
+  },
+  {
+    what: "lapsed Connected Apps",
+    table: "connected_apps",
+    condition: `last_used_at <= now() - make_interval(days => ${LAPSE_DAYS})
+      AND NOT EXISTS (SELECT 1 FROM item_versions WHERE item_versions.connected_app_id = connected_apps.id)
+      AND NOT EXISTS (SELECT 1 FROM conflicts WHERE conflicts.connected_app_id = connected_apps.id)`,
+  },
 ];
 
 /**

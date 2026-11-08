@@ -23,7 +23,9 @@ import { SharingService } from "./sharing.service.js";
  * The Library's REST API, and each Machine's capture-only switch. Tablets' reports are taken into the Library as
  * they are stored (`CollectionsService`), and it is written to tablets by
  * the sync gateway's writers (`TabletWriter`). Its reading services are
- * exported for the MCP endpoint's tools (`server/src/mcp/library.tools.ts`).
+ * exported for the MCP endpoint's tools (`server/src/mcp/library.tools.ts`),
+ * and its editing services for those changing it
+ * (`server/src/mcp/library-changes.tools.ts`).
  */
 @Module({
   controllers: [
@@ -50,6 +52,6 @@ import { SharingService } from "./sharing.service.js";
     RecipeEditsService,
     SharingService,
   ],
-  exports: [BeansService, BeanBatchesService, GrindersService, ProfilesService, EquipmentService, RecipesService, HistoryService],
+  exports: [BeansService, BeanBatchesService, GrindersService, ProfilesService, EquipmentService, RecipesService, HistoryService, LibraryEditsService, RecipeEditsService],
 })
 export class LibraryModule {}

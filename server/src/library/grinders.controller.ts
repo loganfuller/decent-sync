@@ -5,6 +5,7 @@ import type { SignedIn } from "../accounts/sessions.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readGrinderLocation, readNewContent } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "./grinders.service.js";
@@ -34,7 +35,7 @@ export class GrindersController {
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ grinder: GrinderView }> {
     const locationId = readGrinderLocation(body);
-    const id = await this.edits.createGrinder(locationId, readNewContent("grinder", body), session.account.id, session.scope);
+    const id = await this.edits.createGrinder(locationId, readNewContent("grinder", body), managementEditor(session.account.id), session.scope);
     return { grinder: await this.grinders.get(id) };
   }
 
@@ -49,7 +50,7 @@ export class GrindersController {
   @Patch(":id")
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ grinder: GrinderView }> {
     const grinderId = readGrinderId(id);
-    await this.edits.editGrinder(grinderId, readContentEdit("grinder", body), session.account.id, session.scope);
+    await this.edits.editGrinder(grinderId, readContentEdit("grinder", body), managementEditor(session.account.id), session.scope);
     return { grinder: await this.grinders.get(grinderId) };
   }
 
@@ -58,7 +59,7 @@ export class GrindersController {
   @Put(":id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ grinder: GrinderView }> {
     const grinderId = readGrinderId(id);
-    await this.edits.archiveGrinder(grinderId, readArchived(body), session.account.id);
+    await this.edits.archiveGrinder(grinderId, readArchived(body), managementEditor(session.account.id));
     return { grinder: await this.grinders.get(grinderId) };
   }
 

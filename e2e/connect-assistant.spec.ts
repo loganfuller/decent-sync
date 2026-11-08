@@ -1,6 +1,7 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
 import { ASSISTANT_ENV, type TestApp, authorizationUrl, pkce, serveTestApp } from "../server/test/support/test-app.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { rows } from "./support/locators.js";
 import { admin, signInAsAdmin } from "./support/seed.js";
 
 // The consent page of the authorization server (#406, ADR-0027): an app's
@@ -10,7 +11,8 @@ import { admin, signInAsAdmin } from "./support/seed.js";
 // "Read" or "Read and change", only "Read" for a Viewer; allowing or denying
 // sends the browser back to the app; and it fits a phone, where assistants'
 // apps open it. The app is a loopback test app named "Claude", as any page
-// could name itself.
+// could name itself. A change made through it is shown in its item's history
+// as made through it (#411).
 const server = useFreshServer({ env: ASSISTANT_ENV });
 
 let app: TestApp;
@@ -37,6 +39,11 @@ async function inNewBrowser(browser: Browser, use: (page: Page) => Promise<void>
 
 /** Exchanges the code the app's redirect last received, as the app does, and returns the scopes its tokens carry. */
 async function grantedScopes(page: Page, verifier: string): Promise<string> {
+  return (await exchange(page, verifier)).scope;
+}
+
+/** Exchanges the code the app's redirect last received, as the app does, for its tokens. */
+async function exchange(page: Page, verifier: string): Promise<{ scope: string; access_token: string }> {
   const code = app.callbacks.at(-1)!.get("code")!;
   const response = await page.request.post("/api/oauth/token", {
     form: {
@@ -49,7 +56,22 @@ async function grantedScopes(page: Page, verifier: string): Promise<string> {
     },
   });
   expect(response.status()).toBe(200);
-  return ((await response.json()) as { scope: string }).scope;
+  return (await response.json()) as { scope: string; access_token: string };
+}
+
+/** Calls a tool as the app does, with its access token, and returns its structured result. */
+async function callTool(page: Page, accessToken: string, name: string, args: Record<string, unknown>): Promise<Record<string, unknown>> {
+  const response = await page.request.post("/api/mcp", {
+    headers: { Authorization: `Bearer ${accessToken}`, Accept: "application/json, text/event-stream", "MCP-Protocol-Version": "2025-11-25" },
+    data: { jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } },
+  });
+  expect(response.status()).toBe(200);
+  // As JSON, or as a server-sent event carrying it.
+  const text = await response.text();
+  const json = text.trimStart().startsWith("{") ? text : text.split("\n").find((line) => line.startsWith("data: "))!.slice("data: ".length);
+  const { result } = JSON.parse(json) as { result: { isError?: boolean; structuredContent: Record<string, unknown> } };
+  expect(result.isError).toBeFalsy();
+  return result.structuredContent;
 }
 
 test("someone signed out signs in first and comes back to see the app's host above its name, and allows it to read and change", async ({ page, browser }) => {
@@ -92,6 +114,28 @@ test("allowing it only to read, as chosen first", async ({ page }) => {
   await page.getByRole("button", { name: "Allow" }).click();
   await expect(page).toHaveURL(atRedirect());
   expect(await grantedScopes(page, verifier)).toBe("read");
+});
+
+test("a change made through it is shown in the item's history as yours, through it, by the name it gives itself", async ({ page }) => {
+  const { verifier, challenge } = pkce();
+  await page.goto(authorizationUrl(server.url(), app, challenge));
+  await page.getByRole("radiogroup", { name: "What it may do" }).getByRole("radio", { name: "Read and change" }).click();
+  await page.getByRole("button", { name: "Allow" }).click();
+  await expect(page).toHaveURL(atRedirect());
+  const { access_token } = await exchange(page, verifier);
+  const { bean } = (await callTool(page, access_token, "create_bean", { roaster: "Roux", name: "Assistant Guji" })) as { bean: { id: string } };
+  await callTool(page, access_token, "edit_bean", { id: bean.id, notes: "Peach, asked for on a phone" });
+  // One more, made here.
+  expect((await page.request.patch(`/api/beans/${bean.id}`, { data: { content: { producer: "Hambela" } } })).status()).toBe(200);
+
+  await page.goto(`/library/beans/${bean.id}`);
+  const history = rows(page.getByRole("table", { name: "History" }));
+  await expect(history).toHaveCount(3);
+  await expect(history.nth(0)).toContainText("You, here");
+  await expect(history.nth(1)).toContainText("You, through Claude");
+  await expect(history.nth(1)).toContainText("NotesPeach, asked for on a phone");
+  await expect(history.nth(2)).toContainText("You, through Claude");
+  await expect(history.nth(2)).toContainText("NameAssistant Guji");
 });
 
 test("denying it sends the app access_denied, and the request can't be answered again", async ({ page }) => {

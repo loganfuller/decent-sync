@@ -6,6 +6,7 @@ import { readLocationId } from "../locations/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewRecipe, readRecipeCopy, readSlot } from "./item-input.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
 import { type RecipeView, RecipesService, readRecipeId } from "./recipes.service.js";
@@ -39,7 +40,7 @@ export class RecipesController {
   @Post("recipes")
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const { locationId, slot, content } = readNewRecipe(body);
-    return { recipe: await this.recipes.get(await this.edits.create(locationId, content, slot, session.account.id, session.scope)) };
+    return { recipe: await this.recipes.get(await this.edits.create(locationId, content, slot, managementEditor(session.account.id), session.scope)) };
   }
 
   @AllowStaff()
@@ -53,7 +54,7 @@ export class RecipesController {
   @Patch("recipes/:id")
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
-    await this.edits.edit(recipeId, readContentEdit("recipe", body), session.account.id, session.scope);
+    await this.edits.edit(recipeId, readContentEdit("recipe", body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
   }
 
@@ -62,7 +63,7 @@ export class RecipesController {
   @Put("recipes/:id/slot")
   async place(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
-    await this.edits.place(recipeId, readSlot(body), session.account.id, session.scope);
+    await this.edits.place(recipeId, readSlot(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
   }
 
@@ -76,7 +77,7 @@ export class RecipesController {
   @AllowStaff()
   @Post("recipes/:id/copies")
   async copy(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
-    const copied = await this.edits.copy(readRecipeId(id), readRecipeCopy(body), session.account.id, session.scope);
+    const copied = await this.edits.copy(readRecipeId(id), readRecipeCopy(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(copied) };
   }
 
@@ -85,7 +86,7 @@ export class RecipesController {
   @Put("recipes/:id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
-    await this.edits.archive(recipeId, readArchived(body), session.account.id, session.scope);
+    await this.edits.archive(recipeId, readArchived(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
   }
 

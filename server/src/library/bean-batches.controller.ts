@@ -6,6 +6,7 @@ import { readLocationId } from "../locations/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewBatch, readPlacement } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "./bean-batches.service.js";
@@ -37,7 +38,7 @@ export class BeanBatchesController {
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const { beanId, content, locations } = readNewBatch(body);
-    const id = await this.edits.createBatch(beanId, content, locations, session.account.id, session.scope);
+    const id = await this.edits.createBatch(beanId, content, locations, managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(id) };
   }
 
@@ -52,7 +53,7 @@ export class BeanBatchesController {
   @Patch(":id")
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
-    await this.edits.editBatch(batchId, readContentEdit("beanBatch", body), session.account.id);
+    await this.edits.editBatch(batchId, readContentEdit("beanBatch", body), managementEditor(session.account.id));
     return { batch: await this.batches.get(batchId) };
   }
 
@@ -61,7 +62,7 @@ export class BeanBatchesController {
   @Put(":id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
-    await this.edits.archiveBatch(batchId, readArchived(body), session.account.id);
+    await this.edits.archiveBatch(batchId, readArchived(body), managementEditor(session.account.id));
     return { batch: await this.batches.get(batchId) };
   }
 
@@ -75,7 +76,7 @@ export class BeanBatchesController {
     @CurrentSession() session: SignedIn,
   ): Promise<{ batch: BeanBatchView }> {
     const batchId = readBeanBatchId(id);
-    await this.edits.placeBatch(batchId, readLocationId(locationId).toLowerCase(), readPlacement(body), session.account.id, session.scope);
+    await this.edits.placeBatch(batchId, readLocationId(locationId).toLowerCase(), readPlacement(body), managementEditor(session.account.id), session.scope);
     return { batch: await this.batches.get(batchId) };
   }
 

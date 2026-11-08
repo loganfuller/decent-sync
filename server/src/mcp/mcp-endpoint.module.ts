@@ -14,6 +14,7 @@ import { SettingsEditsModule } from "../settings-edits/settings-edits.module.js"
 import { ShotsModule } from "../shots/shots.module.js";
 import { SteamRecordsModule } from "../steam-records/steam-records.module.js";
 import { INSTRUCTIONS } from "./instructions.js";
+import { LibraryChangesTools } from "./library-changes.tools.js";
 import { LibraryTools } from "./library.tools.js";
 import { McpListenStreams } from "./listen-streams.js";
 import { LocationsTools } from "./locations.tools.js";
@@ -68,7 +69,7 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools, LibraryTools, MachinesTools, RecordsTools],
+      providers: [McpListenStreams, LocationsTools, LibraryTools, LibraryChangesTools, MachinesTools, RecordsTools],
       exports: [McpListenStreams],
     };
   }

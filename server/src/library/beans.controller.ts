@@ -5,6 +5,7 @@ import type { SignedIn } from "../accounts/sessions.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
 import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewContent } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
 import { type BeanSummary, type BeanView, BeansService, readBeanId } from "./beans.service.js";
@@ -33,7 +34,7 @@ export class BeansController {
   @AllowStaff()
   @Post()
   async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
-    const id = await this.edits.createBean(readNewContent("bean", body), session.account.id);
+    const id = await this.edits.createBean(readNewContent("bean", body), managementEditor(session.account.id));
     return { bean: await this.beans.get(id) };
   }
 
@@ -48,7 +49,7 @@ export class BeansController {
   @Patch(":id")
   async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
     const beanId = readBeanId(id);
-    await this.edits.editBean(beanId, readContentEdit("bean", body), session.account.id);
+    await this.edits.editBean(beanId, readContentEdit("bean", body), managementEditor(session.account.id));
     return { bean: await this.beans.get(beanId) };
   }
 
@@ -57,7 +58,7 @@ export class BeansController {
   @Put(":id/archived")
   async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ bean: BeanView }> {
     const beanId = readBeanId(id);
-    await this.edits.archiveBean(beanId, readArchived(body), session.account.id);
+    await this.edits.archiveBean(beanId, readArchived(body), managementEditor(session.account.id));
     return { bean: await this.beans.get(beanId) };
   }
 

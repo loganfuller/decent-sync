@@ -387,9 +387,9 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     const adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
     const samId = (await sam.api.get<{ account: { id: string } }>("/session")).account.id;
     // The latest first: the yield changed by Harbor's Staff member, the dose by the Admin, and the Recipe made in slot 1, each named to an Admin.
-    const byAdmin = { machine: null, tabletId: null, account: { id: adminId, name: "Ada Admin" } };
+    const byAdmin = { machine: null, tabletId: null, account: { id: adminId, name: "Ada Admin" }, connectedApp: null };
     expect(read.history.entries.map(({ fields, source, editedAt }) => ({ fields, source, editedAt }))).toEqual([
-      { fields: { yield: 42 }, source: { machine: null, tabletId: null, account: { id: samId, name: "sam-409@example.com" } }, editedAt: expect.stringMatching(HARBOR_TIME) },
+      { fields: { yield: 42 }, source: { machine: null, tabletId: null, account: { id: samId, name: "sam-409@example.com" }, connectedApp: null }, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: { dose: 18.5 }, source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: { slot: 1 }, source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },
       { fields: expect.objectContaining({ name: "Harbor Espresso", dose: 18 }), source: byAdmin, editedAt: expect.stringMatching(HARBOR_TIME) },

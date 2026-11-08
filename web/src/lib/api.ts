@@ -784,6 +784,8 @@ export interface EditSource {
   tabletId: string | null;
   /** The account that made it here, named only to Admins: other accounts' names are personal information Staff do not see. */
   account: { id: string; name: string | null } | null;
+  /** The Connected App, such as an assistant, the account made it through: its name and its client id's host. Null for the management interface. */
+  connectedApp: { id: string; name: string; host: string } | null;
 }
 
 /** One accepted edit of a Library item. */

@@ -26,7 +26,7 @@ import { callerOf } from "./token-verifier.js";
 const id = z.string();
 
 /** Each Library kind by its glossary name, so a kind added to the Library is added to these tools, whose switches then fail to compile until they read it. */
-const KIND_NAMES: Readonly<Record<LibraryKind, string>> = {
+export const KIND_NAMES: Readonly<Record<LibraryKind, string>> = {
   bean: "a Bean",
   beanBatch: "a Bean Batch",
   profile: "a Profile",
@@ -35,7 +35,7 @@ const KIND_NAMES: Readonly<Record<LibraryKind, string>> = {
   tool: "a Tool",
   recipe: "a Recipe",
 };
-const kind = z
+export const kind = z
   .enum(Object.keys(KIND_NAMES) as [LibraryKind, ...LibraryKind[]])
   .describe(`The kind of Library item: ${Object.entries(KIND_NAMES).map(([key, name]) => `${key} (${name})`).join(", ")}.`);
 
@@ -44,7 +44,7 @@ const content = (what: string) => z.record(z.string(), z.unknown()).describe(wha
 const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sent them and as edited since, those Decent Sync doesn't know included.";
 
 /** Each time's offset, which every tool's description states. */
-const TIMES =
+export const TIMES =
   "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to. Others, such as a Bean's content edits, are in UTC.";
 
 const time = (what: string) => z.string().describe(what);
@@ -148,9 +148,13 @@ const source = z
     account: z
       .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
       .nullable()
-      .describe("The account that made it in the management interface."),
+      .describe("The account that made it, in the management interface or through a Connected App."),
+    connectedApp: z
+      .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host its client id is published at, which no app chooses.") })
+      .nullable()
+      .describe("The Connected App, such as an assistant, the account made it through; null for the management interface."),
   })
-  .describe("Where it came from: a Machine's tablet, or an account.");
+  .describe("Where it came from: a Machine's tablet, or an account, in the management interface or through a Connected App.");
 
 const version = z.object({
   id,
@@ -226,16 +230,21 @@ const getInput = z.object({
 
 const listed = <T extends z.ZodType>(entry: T, what: string) => z.object({ entries: z.array(entry), ...pageOutput }).optional().describe(what);
 
-const getOutput = z.object({
-  bean: beanSummary.extend({ content: content(RECORD_FIELDS), batches: z.array(batchSummary).describe("Its Bean Batches, the latest roasted first.") }).optional(),
-  beanBatch: batchSummary
-    .extend({
-      content: content(`${RECORD_FIELDS} Its remaining weight and whether it is Archived are each Location's, so left out.`),
-      finished: z
-        .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams."), finishedAt: time("When it was finished there.") }))
-        .describe("The Locations it was at and has been finished at since, by name."),
-    })
-    .optional(),
+/** A Bean as get_library_item reads it, and as the tools changing one return it. */
+export const beanItem = beanSummary.extend({ content: content(RECORD_FIELDS), batches: z.array(batchSummary).describe("Its Bean Batches, the latest roasted first.") });
+
+/** A Bean Batch as get_library_item reads it, and as the tools changing one return it. */
+export const beanBatchItem = batchSummary.extend({
+  content: content(`${RECORD_FIELDS} Its remaining weight and whether it is Archived are each Location's, so left out.`),
+  finished: z
+    .array(z.object({ location, remainingWeight: z.number().nullable().describe("Last entered there, in grams."), finishedAt: time("When it was finished there.") }))
+    .describe("The Locations it was at and has been finished at since, by name."),
+});
+
+/** One Library item, under its kind's key, as get_library_item reads it and the tools changing one return it. */
+export const itemOutput = z.object({
+  bean: beanItem.optional(),
+  beanBatch: beanBatchItem.optional(),
   profile: profileSummary
     .extend({
       content: content(`${RECORD_FIELDS} Its visibility is each Location's, so left out.`),
@@ -247,6 +256,9 @@ const getOutput = z.object({
   basket: equipmentSummary.extend({ locations: decidedAt }).optional(),
   tool: equipmentSummary.extend({ locations: decidedAt }).optional(),
   recipe: recipe.optional(),
+});
+
+const getOutput = itemOutput.extend({
   history: listed(version, "Only when asked for: its versions, each an edit accepted, the latest taken in first. limit and offset page it."),
   conflicts: listed(conflict, "Only when asked for: its open Conflicts, the latest first. limit and offset page them."),
 });
@@ -256,6 +268,7 @@ const conflictsOutput = z.object({ conflicts: z.array(conflict), ...pageOutput }
 type FindInput = z.infer<typeof findInput>;
 type FindOutput = z.infer<typeof findOutput>;
 type GetOutput = z.infer<typeof getOutput>;
+export type ItemOutput = z.infer<typeof itemOutput>;
 
 /**
  * The Library, read through an assistant: each kind's items as the REST API
@@ -383,6 +396,11 @@ export class LibraryTools {
     };
   }
 
+  /** One item as get_library_item reads it, without its history or Conflicts: 404's message, as the REST API's, for none. */
+  async read(kind: LibraryKind, itemId: string): Promise<ItemOutput> {
+    return (await this.item(kind, itemId)).item;
+  }
+
   /** A Location a list is filtered by, by its id in lower case, as the REST API reads one; refused as no Location if there is none. */
   private async locationOf(locationId: string | undefined): Promise<string | undefined> {
     if (locationId === undefined) return undefined;
@@ -397,7 +415,7 @@ export class LibraryTools {
   }
 
   /** One item as the REST API returns it, with how history and Conflicts name it and the Location it belongs to, if one. */
-  private async item(kind: LibraryKind, itemId: string): Promise<{ item: GetOutput; ref: { kind: LibraryKind; id: string }; itemLocation: LocationView | null }> {
+  private async item(kind: LibraryKind, itemId: string): Promise<{ item: ItemOutput; ref: { kind: LibraryKind; id: string }; itemLocation: LocationView | null }> {
     switch (kind) {
       case "bean": {
         const bean = await this.beans.get(readBeanId(itemId));
@@ -586,8 +604,13 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
   };
 }
 
-function sourceOf({ machine, tabletId, account }: SourceView): z.infer<typeof source> {
-  return { machine: machine && { id: machine.id, name: machine.name }, tabletId, account: account && { id: account.id, name: account.name } };
+function sourceOf({ machine, tabletId, account, connectedApp }: SourceView): z.infer<typeof source> {
+  return {
+    machine: machine && { id: machine.id, name: machine.name },
+    tabletId,
+    account: account && { id: account.id, name: account.name },
+    connectedApp: connectedApp && { id: connectedApp.id, name: connectedApp.name, host: connectedApp.host },
+  };
 }
 
 /** A version, its times with the offset of the Location whose state it changed, or else of the one its item belongs to. */

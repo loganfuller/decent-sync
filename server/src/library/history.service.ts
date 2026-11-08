@@ -11,9 +11,9 @@ import { isObject } from "./listed.js";
 
 /**
  * Where a version or a Conflict came from: a Machine's tablet, or an account
- * in the management interface. An account is named to Admins; to Staff by
- * its id only, as other accounts' names are personal information that Staff
- * do not see.
+ * in the management interface or through a Connected App (ADR-0026). An
+ * account is named to Admins; to Staff by its id only, as other accounts'
+ * names are personal information that Staff do not see.
  */
 export interface SourceView {
   /** The Machine whose tablet made it, if one did and it still exists. */
@@ -22,6 +22,12 @@ export interface SourceView {
   tabletId: string | null;
   /** The account that made it here; its name null but to Admins. */
   account: { id: string; name: string | null } | null;
+  /**
+   * The Connected App the account made it through, by the name its app gave
+   * and the host of its client id as it was approved; null for the
+   * management interface.
+   */
+  connectedApp: { id: string; name: string; host: string } | null;
 }
 
 /** One accepted edit of a Library item, as the REST API returns it. */
@@ -102,7 +108,8 @@ export interface CurrentValueView {
   versionId: string | null;
 }
 
-const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, location: true } as const;
+const connectedApp = { select: { id: true, name: true, clientHost: true } } as const;
+const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp, location: true } as const;
 
 /** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
 @Injectable()
@@ -165,7 +172,7 @@ export class HistoryService {
       (
         await this.prisma.itemVersion.findMany({
           where: { id: { in: versionIds } },
-          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } } },
+          select: { id: true, editedAt: true, tabletId: true, accountId: true, machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp },
         })
       ).map((version) => [version.id, version]),
     );
@@ -260,11 +267,18 @@ function grouped<T, K>(values: readonly T[], key: (value: T) => K): Map<K, T[]> 
 }
 
 function viewSource(
-  row: { machine: { id: string; name: string } | null; tabletId: string | null; accountId: string | null; account: { name: string } | null },
+  row: {
+    machine: { id: string; name: string } | null;
+    tabletId: string | null;
+    accountId: string | null;
+    account: { name: string } | null;
+    connectedApp: { id: string; name: string; clientHost: string } | null;
+  },
   scope: Scope,
 ): SourceView {
-  if (row.accountId === null) return { machine: row.machine, tabletId: row.tabletId, account: null };
+  const connectedApp = row.connectedApp && { id: row.connectedApp.id, name: row.connectedApp.name, host: row.connectedApp.clientHost };
+  if (row.accountId === null) return { machine: row.machine, tabletId: row.tabletId, account: null, connectedApp };
   // Other accounts' names are personal information that Staff do not see.
   const name = scope.kind === "everything" ? (row.account?.name ?? null) : null;
-  return { machine: row.machine, tabletId: row.tabletId, account: { id: row.accountId, name } };
+  return { machine: row.machine, tabletId: row.tabletId, account: { id: row.accountId, name }, connectedApp };
 }

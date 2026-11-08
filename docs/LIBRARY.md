@@ -470,6 +470,18 @@ and commits with a `NOTIFY` on `library_changes`, so every tablet that holds
 the item, or whose Location offers it now, is written it (Writing to
 tablets, below).
 
+An assistant makes the same changes through the MCP endpoint (ADR-0026),
+so far creating and editing Beans and Bean Batches, Archiving and restoring
+any item, and showing and hiding Profiles, Baskets and Tools and adding and
+finishing batches at Locations (`server/src/mcp/library-changes.tools.ts`,
+#411). Each calls the service its REST route calls, so it is timed, merged,
+written to tablets, limited for Staff and refused exactly as that route's,
+with the same message. It is a version from the account through its
+Connected App (`Editor` in `history.ts`), as is a Conflict keeping a value
+of it that a later edit replaced. A lapsed Connected App that a version or
+Conflict names is kept, still refused, so history goes on naming it
+(`server/src/connected-apps/cleanup.ts`).
+
 - **Content.** A Bean's, a batch's or a Grinder's fields are Decaid's, each of
   the type Decaid takes, so no tablet refuses a write of them
   (`item-input.ts`): an empty value clears a field, but a Bean's roaster and
@@ -2203,11 +2215,15 @@ Every endpoint requires the account session; Staff read them as Admins do.
   each `{ id, fields, location, source, editedAt, receivedAt }`: the fields
   it set, with their values, of the item's content, or of its state at
   `location` (`atLocation`, `remainingWeight`, `shown`), null for its
-  content; where it came from, `source`, `{ machine, tabletId, account }`,
-  the Machine `{ id, name }` whose tablet made it, if one did and it still
-  exists, that tablet's id, and the account `{ id, name }` that made it in
-  the management interface, its name null to Staff, as other accounts' names
-  are personal information Staff do not see; when it was made, a tablet's by its
+  content; where it came from, `source`, `{ machine, tabletId, account,
+  connectedApp }`, the Machine `{ id, name }` whose tablet made it, if one
+  did and it still exists, that tablet's id, the account `{ id, name }` that
+  made it in the management interface or through an assistant, its name null
+  to Staff, as other accounts' names are personal information Staff do not
+  see, and the Connected App `{ id, name, host }` it made it through (#411,
+  ADR-0026), by the name its app gave and its client id's host as it was
+  approved, null for the management interface, as for every edit the
+  previous release takes in; when it was made, a tablet's by its
   record's `updatedAt` in UTC, a delete on a tablet when the server learned
   of it; and when the server took it in, by PostgreSQL's clock. The first is
   the item joining the Library. 404 if the Library does not have the item.
@@ -2349,7 +2365,8 @@ interface. A new kind, as milestone 3's Baskets, Tools and Recipes were, needs:
    if any (`location-state.ts`); its REST API, with each new route named in
    `server/test/access.test.ts`; its reads through an assistant, in
    `server/src/mcp/library.tools.ts`, whose kinds `KIND_NAMES` lists, and
-   whose switches over kinds then fail to compile until they read it; and,
+   its changes, in `server/src/mcp/library-changes.tools.ts`, both of whose
+   switches over kinds then fail to compile until they read it; and,
    if a Shot names it, its columns on a
    Shot (`shotLink`) and how a Shot's metadata names it
    (`server/src/shots/links.ts`).

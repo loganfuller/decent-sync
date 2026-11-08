@@ -189,6 +189,10 @@ model ConnectedApp {
   authorizationCodes AuthorizationCode[]
   accessTokens       AccessToken[]
   refreshTokens      RefreshToken[]
+  /// The Library's versions and Conflicts it made, which keep it once it
+  /// lapses (cleanup.ts).
+  itemVersions       ItemVersion[]
+  conflicts          Conflict[]
 
   @@index([accountId])
   @@index([lastUsedAt])
@@ -1684,9 +1688,15 @@ model ItemVersion {
   machine              Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
   tabletId             String?       @map("tablet_id") @db.Uuid
   tablet               Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
-  /// The account that made it in the management interface, if one did.
+  /// The account that made it in the management interface or through an
+  /// assistant, if one did.
   accountId            String?       @map("account_id") @db.Uuid
   account              Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// The Connected App the account made it through, if one (ADR-0026); null
+  /// for one made in the management interface, and for every edit the
+  /// previous release takes in (ADR-0025).
+  connectedAppId       String?       @map("connected_app_id") @db.Uuid
+  connectedApp         ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// When it was made: a tablet's by its record's `updatedAt` in UTC, a
   /// delete, which Decaid does not time, by PostgreSQL's clock (ADR-0020).
   editedAt             DateTime      @map("edited_at") @db.Timestamptz(3)
@@ -1707,6 +1717,7 @@ model ItemVersion {
   @@index([machineId])
   @@index([tabletId])
   @@index([accountId])
+  @@index([connectedAppId])
   @@map("item_versions")
 }
 
@@ -1726,29 +1737,32 @@ enum ConflictState {
 /// came from, and when it was made. Like `ItemVersion`, it names its item by
 /// kind and id, and a field of a Location's state names that Location.
 model Conflict {
-  id         String        @id @default(uuid(7)) @db.Uuid
+  id             String        @id @default(uuid(7)) @db.Uuid
   /// The item's kind and id (`VersionedItem`).
-  kind       String
-  itemId     String        @map("item_id")
-  item       VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
-  locationId String?       @map("location_id") @db.Uuid
-  location   Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
-  field      String
+  kind           String
+  itemId         String        @map("item_id")
+  item           VersionedItem @relation(fields: [kind, itemId], references: [kind, itemId], onDelete: Cascade)
+  locationId     String?       @map("location_id") @db.Uuid
+  location       Location?     @relation(fields: [locationId], references: [id], onDelete: Cascade)
+  field          String
   /// The losing value; null where the edit cleared the field.
-  value      Json?         @db.JsonB
-  machineId  String?       @map("machine_id") @db.Uuid
-  machine    Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
-  tabletId   String?       @map("tablet_id") @db.Uuid
-  tablet     Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
-  accountId  String?       @map("account_id") @db.Uuid
-  account    Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  value          Json?         @db.JsonB
+  machineId      String?       @map("machine_id") @db.Uuid
+  machine        Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId       String?       @map("tablet_id") @db.Uuid
+  tablet         Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  accountId      String?       @map("account_id") @db.Uuid
+  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// The Connected App the losing edit came through, as `ItemVersion.connectedAppId`.
+  connectedAppId String?       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// When the losing edit was made, timed as `ItemVersion.editedAt` is.
-  editedAt   DateTime      @map("edited_at") @db.Timestamptz(3)
+  editedAt       DateTime      @map("edited_at") @db.Timestamptz(3)
   /// When it became a Conflict, by PostgreSQL's clock.
-  createdAt  DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
+  createdAt      DateTime      @default(dbgenerated("transaction_timestamp()")) @map("created_at") @db.Timestamptz(3)
   /// The order it became a Conflict, which `createdAt` cannot tell apart within one transaction.
-  seq        BigInt        @default(autoincrement())
-  state      ConflictState @default(OPEN)
+  seq            BigInt        @default(autoincrement())
+  state          ConflictState @default(OPEN)
 
   @@index([state, createdAt])
   @@index([kind, itemId])
@@ -1756,6 +1770,7 @@ model Conflict {
   @@index([machineId])
   @@index([tabletId])
   @@index([accountId])
+  @@index([connectedAppId])
   @@map("conflicts")
 }
 
