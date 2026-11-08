@@ -41,11 +41,13 @@ everything they record to your server.
 
 ## Who it's for
 
+Each server has one owner: a household, or a business with all of its sites.
+
 - **A home with two machines.** One bean shelf, shared. A bag entered on
   either tablet appears on both, with one remaining weight, and every shot
   from both machines is in one history.
 - **A cafe.** Several DE1s work like the groups of one commercial machine: the
-  same Recipes on the same five buttons, one stock count for each batch, and a
+  same Recipes on the same five buttons, one remaining weight for each batch, and a
   dial-in change on one group reaching every group with that Recipe loaded.
 - **A roastery with cafes.** Develop Profiles and Recipes in the lab, then roll
   them out: show a Profile at a cafe, or copy a Recipe there. Trace every shot
@@ -62,13 +64,16 @@ everything they record to your server.
 - **Each Location chooses what it offers.** A batch is at the Locations it was
   added to, with its own remaining weight at each. Profiles, Baskets and Tools
   are shown or hidden per Location. Grinders belong to their Location.
-- **Recipes that follow the dial-in.** The Machines at a Location share DYE2
-  recipes, baskets and tools, and five Recipe Slots. A change made on a
+- **Recipes that follow the dial-in.** The Machines at a Location share its
+  DYE2 recipes and five Recipe Slots, and use the Baskets and Tools it shows.
+  A change made on a
   Machine is saved into the Recipe it has loaded. An edit to a Recipe, from a
   tablet or the web, reaches every Machine with it loaded. Each Recipe holds
   its steam, hot water and flush settings too.
-- **No edit lost to a clash.** Edits merge field by field, and the latest edit
-  wins. Every item keeps its history. An edit that lost to one made without
+- **No edit lost to a clash.** Edits merge field by field, and the edit made
+  last wins, timed by when it was made, not when it reached the server, so a
+  tablet that was offline can't overwrite a newer edit. Every item keeps its
+  history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
 - **Safe deletes.** Deleting on a tablet only takes an item away at that
   Location. Sync never deletes anything from a tablet unless an Admin deletes
@@ -126,7 +131,8 @@ everything they record to your server.
 
 ### Ask about your coffee
 
-Connect Claude, ChatGPT or another MCP app, and ask in plain words:
+Arrives in the release after 1.6.4. Connect Claude, ChatGPT or another MCP
+app, and ask in plain words:
 
 - "How many shots did the cafe pull yesterday, and with which beans?"
 - "Have shots of the new Kenya batch been running faster than last week's?"
@@ -145,8 +151,8 @@ change and Settings Edit it makes is recorded as made through it. See
 - **Machines don't depend on it.** If the network or server goes down, the
   machines keep working on their own, and the plugin catches up when the
   server is back.
-- **No downtime.** Run two or more server instances, and upgrades take
-  nothing offline.
+- **No downtime.** Run two or more server instances behind a proxy that routes
+  by their health check, and upgrades take nothing offline.
 - **Free and open source**, under the MIT license.
 
 ## How it works
@@ -196,9 +202,11 @@ fixed address on your network, such as with a DHCP reservation in your router.
 
 2. Open `PUBLIC_URL` in a browser and create the first Admin account. Do this
    straight away: until you do, anyone who can reach the server can.
-3. Under **Machines**, add each machine. Copy the server URL and token it
-   shows. The token is shown only once.
-4. [Install the plugin](#installing-the-plugin) on each machine's tablet, and
+3. Under **Locations**, add one for each site. A Machine shares the Library
+   and Recipes only while it is at a Location.
+4. Under **Machines**, add each machine at its Location. Copy the server URL
+   and token it shows. The token is shown only once.
+5. [Install the plugin](#installing-the-plugin) on each machine's tablet, and
    enter the server URL and token.
 
 To invite other people, go to **Accounts**.
@@ -209,8 +217,9 @@ Use it only on a network you trust.
 the internet, fly.io, and upgrading.
 
 > [!IMPORTANT]
-> Tablets install each new plugin release within 12 hours, and a plugin two
-> releases ahead of its server may not work with it. Upgrade the server soon
+> Tablets install each new plugin release within 12 hours, unless it asks for
+> a new permission, and a plugin two releases ahead of its server may not work
+> with it. Upgrade the server soon
 > after each release: `docker compose pull && docker compose up -d`.
 
 ## Installing the plugin
@@ -234,7 +243,8 @@ approvals, the plugin's settings, and what it does on the tablet.
 
 ## Connecting an assistant
 
-Each person can connect their own AI assistant. Add the server's MCP endpoint:
+Assistants arrive in the release after 1.6.4. Each person can connect their
+own AI assistant. Add the server's MCP endpoint:
 your `PUBLIC_URL` followed by `/api/mcp`, such as
 `https://sync.example.com/api/mcp`.
 

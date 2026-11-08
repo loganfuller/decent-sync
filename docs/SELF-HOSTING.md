@@ -32,11 +32,9 @@ docker compose up -d
 
 The management interface is then at `PUBLIC_URL`. Open it yourself before
 you share the address, and create the first Admin account (see
-[Accounts](#accounts)).
-
-Open it at `PUBLIC_URL`, the server's IP address, or `localhost`. To guard
-against cross-site attacks, the server refuses sign-in and every other change
-from a page loaded under any other name.
+[Accounts](#accounts)). Use `PUBLIC_URL`, the server's IP address or
+`localhost`: to guard against cross-site attacks, the server refuses sign-in
+and every other change from a page loaded under any other name.
 
 ### Settings
 
@@ -111,6 +109,9 @@ days.
 **Accounts** is also where an Admin changes someone's role, deactivates an
 account, or resets a forgotten password. A reset issues a one-time link that
 expires after a day.
+
+After 5 failed sign-ins for an email within 15 minutes, the server refuses
+that email until the 15 minutes are up, even with the right password.
 
 ## On a local network
 

@@ -42,8 +42,10 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 ## Connecting to the server
 
-1. In the management interface, an Admin adds the Machine under **Machines**.
-   This shows the server URL and the Machine's token once, with copy buttons.
+1. In the management interface, an Admin adds the Machine under **Machines**,
+   at its Location. A Machine with no Location only captures (see
+   [Capture-only Machines](#capture-only-machines)). This shows the server URL
+   and the Machine's token once, with copy buttons.
 2. Enter both in the plugin's settings on the tablet.
 
 The plugin connects to `ws://<server host>/sync`, or `wss://` for an
