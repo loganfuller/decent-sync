@@ -7,7 +7,7 @@ import { number, object, recordedText } from "../shots/extraction.js";
 import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
-import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf } from "./budget.js";
+import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
 import { curveSchema, curvesOf, shadedSchema } from "./curves.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
@@ -54,6 +54,8 @@ const shotSummary = z.object({
 });
 
 const shotDetails = shotSummary.extend({
+  grinderModel: z.string().nullable().describe("Its Grinder's model, as the Shot recorded it, linked to the Library or not."),
+  basketName: z.string().nullable().describe("Its Basket's name, as the Shot recorded it, linked to the Library or not."),
   grinderSetting: z.string().nullable().describe("Its Grinder's setting, as its Workflow recorded it."),
   grinderBurrs: z.string().nullable().describe("The burrs its Grinder had fitted."),
   tds: z.number().nullable().describe("Total dissolved solids, in %."),
@@ -231,6 +233,8 @@ export class RecordsTools {
     budget: findShotsBudget,
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
+    // A name a row cut matches no Shot, as the filters match whole names.
+    refuseCutText(input);
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
@@ -249,7 +253,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} Its curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks: pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it turned out, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} Its curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks: pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
     inputSchema: z.object({ id: id.describe("The Shot's id."), curves: curvesInput }),
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
@@ -262,6 +266,8 @@ export class RecordsTools {
     const timeZone = shot.location?.timeZone;
     return {
       ...shotSummaryOf(shot),
+      grinderModel: shot.grinderModel,
+      basketName: shot.basketName,
       grinderSetting: shot.grinderSetting,
       grinderBurrs: shot.grinderBurrs,
       tds: shot.tds,
@@ -327,14 +333,15 @@ export class RecordsTools {
 
 /**
  * A Shot as find_shots lists it, from the REST API's list: each Library item
- * it names by the Library's id and name, or else by the name it recorded,
- * the names people type and its notes shortened as given, and its credit's
- * inference only where inferred.
+ * it names by the Library's id and names where it is linked to it, or else
+ * by the names it recorded, the names people type and its notes shortened
+ * as given, and its credit's inference only where inferred.
  */
 function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) => string | null): z.infer<typeof shotRow> {
-  const named = (library: string | null | undefined, recorded: string | null) => shorten(recordedText(library) ?? recordedText(recorded), ROW_NAME);
-  const item = (libraryId: string | undefined, names: Record<string, string | null>) =>
-    libraryId === undefined && Object.values(names).every((value) => value === null) ? null : present({ id: libraryId ?? null, ...names });
+  const item = (libraryId: string | undefined, names: Record<string, string | null>) => {
+    const shown = Object.fromEntries(Object.entries(names).map(([key, name]) => [key, shorten(recordedText(name), ROW_NAME)]));
+    return libraryId === undefined && Object.values(shown).every((name) => name === null) ? null : present({ id: libraryId ?? null, ...shown });
+  };
   const batch = shot.beanBatch;
   const hundredths = (value: number | null) => value === null ? null : Math.round(value * 100) / 100;
   return present({
@@ -345,11 +352,11 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     location: shot.location && { id: shot.location.id, name: shot.location.name },
     ...(shot.locationInferred && { locationInferred: true as const }),
     recipe: shot.recipe && present({ id: shot.recipe.id, name: shorten(shot.recipe.name, ROW_NAME) }),
-    profile: item(shot.profile?.id, { title: named(shot.profile?.title, shot.profileTitle) }),
-    beanBatch: item(batch?.id, { roaster: named(batch?.bean.roaster, shot.coffeeRoaster), name: named(batch?.bean.name, shot.coffeeName), roastDate: dayOf(batch?.roastDate ?? null) }),
-    grinder: item(shot.grinder?.id, { model: named(shot.grinder?.model, shot.grinderModel) }),
+    profile: item(shot.profile?.id, { title: shot.profile ? shot.profile.title : shot.profileTitle }),
+    beanBatch: item(batch?.id, batch ? { roaster: batch.bean.roaster, name: batch.bean.name, roastDate: dayOf(batch.roastDate) } : { roaster: shot.coffeeRoaster, name: shot.coffeeName }),
+    grinder: item(shot.grinder?.id, { model: shot.grinder ? shot.grinder.model : shot.grinderModel }),
     grinderSetting: shot.grinderSetting,
-    basket: item(shot.basket?.id, { name: named(shot.basket?.name, shot.basketName) }),
+    basket: item(shot.basket?.id, { name: shot.basket ? shot.basket.name : shot.basketName }),
     targetDose: hundredths(shot.targetDose),
     actualDose: hundredths(shot.actualDose),
     targetYield: hundredths(shot.targetYield),

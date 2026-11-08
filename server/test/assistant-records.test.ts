@@ -144,11 +144,14 @@ function shotRow(shot: RestShot): Fields {
     location: shot.location && { id: shot.location.id, name: shot.location.name },
     ...(shot.locationInferred && { locationInferred: true }),
     recipe: shot.recipe && present(shot.recipe),
-    profile: item(shot.profile?.id, { title: shot.profile?.title ?? recorded(shot.profileTitle) }),
-    beanBatch: item(batch?.id, { roaster: batch?.bean.roaster ?? recorded(shot.coffeeRoaster), name: batch?.bean.name ?? recorded(shot.coffeeName), roastDate: batch?.roastDate?.slice(0, 10) ?? null }),
-    grinder: item(shot.grinder?.id, { model: shot.grinder?.model ?? shot.grinderModel }),
+    profile: item(shot.profile?.id, { title: recorded(shot.profile ? shot.profile.title : shot.profileTitle) }),
+    beanBatch: item(
+      batch?.id,
+      batch ? { roaster: recorded(batch.bean.roaster), name: recorded(batch.bean.name), roastDate: batch.roastDate?.slice(0, 10) ?? null } : { roaster: recorded(shot.coffeeRoaster), name: recorded(shot.coffeeName) },
+    ),
+    grinder: item(shot.grinder?.id, { model: recorded(shot.grinder ? shot.grinder.model : shot.grinderModel) }),
     grinderSetting: shot.grinderSetting,
-    basket: item(shot.basket?.id, { name: shot.basket?.name ?? shot.basketName }),
+    basket: item(shot.basket?.id, { name: recorded(shot.basket ? shot.basket.name : shot.basketName) }),
     targetDose: hundredths(shot.targetDose),
     actualDose: hundredths(shot.actualDose),
     targetYield: hundredths(shot.targetYield),
@@ -563,7 +566,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // A name of 63 characters is given whole, as its cut, with its mark, would be no shorter.
     expect(row.profile.title).toBe("Londonium, a little longer at the start, for the lighter roasts");
     expect(row.beanBatch.name).toBe("Ethiopia Generic 100g Sample");
-    expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster } });
+    expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster }, grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless" });
+    // A cut name matches no Shot, so a filter holding one is refused, as a change is.
+    expect(await toolError("find_shots", { barista: row.barista as string })).toContain("…[cut]");
     // A page whose names and notes are short says nothing of a cut.
     expect(await assistant.call<Fields>("find_shots", { from: "2026-04-01", to: "2026-04-01" })).not.toHaveProperty("cut");
   });
@@ -584,8 +589,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, ...summary } = read;
+    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
+    expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
     sameTimes([pulledAt], [rest.pulledAt]);
     expect(pulledAt).toMatch(/-0[56]:00$/);
     expect({ grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason }).toEqual({

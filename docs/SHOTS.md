@@ -340,7 +340,7 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   compactly: each Library item by the Library's id and name, or a null id
   and the name the Shot recorded, each field with no value left out, the
   names people type cut beyond about 60 characters and notes beyond about
-  200, which `get_shot` reads whole.
+  200, which `get_shot` reads whole, with `grinderModel` and `basketName`.
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
