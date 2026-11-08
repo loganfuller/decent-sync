@@ -10,6 +10,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type LoadedRecipeView, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
 import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
+import { type WorkflowLinks, type WorkflowSummary, workflowLinksSql, workflowSummary } from "./workflow-summary.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
@@ -31,7 +32,7 @@ export interface ActivityPage<T> {
 
 /** A Machine's activity over a time range, a page of each kind asked for. */
 export interface ActivityView {
-  workflowChanges?: ActivityPage<WorkflowEventView>;
+  workflowChanges?: ActivityPage<LinkedWorkflowEventView>;
   loadedRecipes?: ActivityPage<LoadedRecipeView>;
   machineStates?: ActivityPage<MachineStateEventView>;
 }
@@ -56,6 +57,17 @@ export interface WorkflowEventView {
   pluginWrite: PluginWorkflowWrite | null;
   /** Decaid's Workflow, as sent. */
   workflow: Prisma.JsonObject;
+}
+
+/** A Workflow recorded for a Machine, with the Library items it names (workflow-summary.ts). */
+export interface LinkedWorkflowEventView extends WorkflowEventView {
+  links: WorkflowLinks;
+}
+
+/** A Workflow recorded for a Machine, summarised, as the REST API's summary route returns it. */
+export interface WorkflowSummaryView extends Omit<WorkflowEventView, "workflow"> {
+  /** Its summary, with the Library's ids of what it names (workflow-summary.ts). */
+  workflow: WorkflowSummary;
 }
 
 /** A machine state transition recorded for a Machine, as the REST API returns it. */
@@ -150,6 +162,15 @@ export class MachineEventsService {
     return latest ? viewWorkflowEvent(latest) : null;
   }
 
+  /** The Machine's current Workflow, as `currentWorkflow` gives it, with the Library items it names (`workflowLinksSql`). */
+  async currentLinkedWorkflow(machineId: string): Promise<LinkedWorkflowEventView | null> {
+    await this.requireMachine(machineId);
+    const [latest] = await this.prisma.$queryRaw<LinkedRow[]>`
+      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("latest")}
+      FROM workflow_events AS latest WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 1`;
+    return latest ? viewLinkedWorkflowEvent(latest) : null;
+  }
+
   /** The Machine's Loaded Recipes, latest first: its current one, if it has one, then those it had before. */
   async loadedRecipes(machineId: string, page: Page): Promise<{ entries: LoadedRecipeView[]; total: number } & Page> {
     await this.requireMachine(machineId);
@@ -194,16 +215,24 @@ export class MachineEventsService {
     return { workflowChanges, loadedRecipes, machineStates };
   }
 
-  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<WorkflowEventView>> {
+  /**
+   * The Workflows in effect over the range (`inEffectDuring`), a page of
+   * them, each with the Library items it names (`workflowLinksSql`), read for
+   * the page's alone.
+   */
+  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<LinkedWorkflowEventView>> {
     const table = Prisma.sql`workflow_events`;
     const [rows, total] = await Promise.all([
-      this.prisma.$queryRaw<ViewedWorkflowEvent[]>`
-        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite"
-        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow, cause, plugin_write`, machineId, bounds, page)}
-        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+      this.prisma.$queryRaw<LinkedRow[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, cause, plugin_write AS "pluginWrite", ${workflowLinksSql("paged")}
+        FROM (
+          SELECT ${VIEWED_COLUMNS} FROM ${inEffectDuring(table, VIEWED_COLUMNS, machineId, bounds, page)}
+          ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}
+        ) AS paged
+        ORDER BY observed_at DESC, id DESC`,
       countInEffect(this.prisma, table, machineId, bounds),
     ]);
-    return { entries: rows.map(viewWorkflowEvent), total };
+    return { entries: rows.map(viewLinkedWorkflowEvent), total };
   }
 
   private async machineStateEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<MachineStateEventView>> {
@@ -288,6 +317,21 @@ function viewWorkflowEvent(event: ViewedWorkflowEvent): WorkflowEventView {
 /** A `plugin` change's write as stored, or null for one this release doesn't know, as a later release beside it may store. */
 function pluginWriteOf(write: string | null): PluginWorkflowWrite | null {
   return (PLUGIN_WORKFLOW_WRITES as readonly (string | null)[]).includes(write) ? (write as PluginWorkflowWrite) : null;
+}
+
+/** The columns of `workflow_events` a Workflow event's view, with the Library items it names, is read from. */
+const VIEWED_COLUMNS = Prisma.sql`id, observed_at, received_at, workflow, cause, plugin_write, ${WORKFLOW_LINK_COLUMNS}`;
+
+/** A Workflow event as read with the Library items it names (`workflowLinksSql`). */
+type LinkedRow = ViewedWorkflowEvent & WorkflowLinks;
+
+function viewLinkedWorkflowEvent({ profileId, beanBatchId, grinderId, basketId, recipeId, recipeName, ...event }: LinkedRow): LinkedWorkflowEventView {
+  return { ...viewWorkflowEvent(event), links: { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } };
+}
+
+/** A Workflow event summarised, as the REST API's summary route returns it. */
+export function summarised({ workflow, links, ...event }: LinkedWorkflowEventView): WorkflowSummaryView {
+  return { ...event, workflow: workflowSummary(workflow, links) };
 }
 
 function viewMachineStateEvent(event: Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">): MachineStateEventView {

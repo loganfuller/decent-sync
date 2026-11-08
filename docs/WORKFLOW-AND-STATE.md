@@ -803,6 +803,17 @@ that takes their hardware over. Staff read them as Admins do.
   null; `workflow` is Decaid's, as sent, and `cause` is `plugin`, `other` or
   `unknown`, with `pluginWrite` the plugin's write for `plugin` and null
   otherwise (Who made a change, above).
+- `GET /api/machines/:id/workflow-summary` returns the same event with
+  `workflow` summarised as `get_machine` gives it
+  (`server/src/machine-events/workflow-summary.ts`): the parts the Workflow
+  card shows, its Basket, and the Recipe its context names
+  (`context.extras.dye.recipeId`), by the Library's name, with the Library's
+  ids of the Profile, Bean Batch, Grinder, Basket and Recipe it names
+  (`profileId`, `beanBatchId`, `grinderId`, `basketId`, `recipeId`). The
+  Profile is found from the profile, as a Shot's is; the rest are the links
+  the event keeps (Server, above), each null for an item never resolved, with
+  the name the Workflow recorded kept, and for an event stored before #434.
+  `get_machine_activity` gives each Workflow change the same summary.
 - `GET /api/machines` and `GET /api/machines/:id` include `loadedRecipe:
   { id, recipe: { id, name, slot, locationId, archived }, loadedAt,
   unloadedAt } | null`, the Machine's Loaded Recipe now, `unloadedAt` null.

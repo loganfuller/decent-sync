@@ -10,6 +10,7 @@ import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
 import { type ActivityKind, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
+import { workflowSummary } from "../machine-events/workflow-summary.js";
 import { readMachineId } from "../machines/input.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -18,7 +19,7 @@ import { BudgetedTool } from "./budget.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
-import { workflowSummary, workflowSummaryOutput } from "./workflow-summary.js";
+import { WORKFLOW_SUMMARY, workflowSummaryOutput } from "./workflow-summary.js";
 
 const time = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.");
 const tabletTime = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none, by the tablet's clock.");
@@ -118,9 +119,15 @@ const workflowCause = {
 const machineOutput = z.object({
   machine: machineDetail,
   workflow: z
-    .object({ observedAt: tabletTime, receivedAt: time, ...workflowCause, workflow: z.record(z.string(), z.unknown()).describe("Decaid's Workflow, as sent.") })
+    .object({
+      observedAt: tabletTime,
+      receivedAt: time,
+      ...workflowCause,
+      workflow: workflowSummaryOutput,
+      raw: z.record(z.string(), z.unknown()).optional().describe("With raw, Decaid's Workflow, as sent."),
+    })
     .nullable()
-    .describe("Its Workflow: what it is set up to do next, as its tablet last reported it; null before any."),
+    .describe("Its Workflow: what it is set up to do next, as its tablet last reported it, summarised as get_machine_activity gives a change of it; null before any."),
   machineSettings: z
     .object({
       machineSettings: settingsCollection,
@@ -234,6 +241,7 @@ const machineInput = z.object({
     .datetime({ offset: true, error: "Enter at as a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00" })
     .optional()
     .describe("A moment, with its offset, such as 2026-11-06T14:30:00-05:00, to give its Machine Settings and Tablet Settings as last received at or before; none for as now."),
+  raw: z.boolean().default(false).describe("Whether to give its Workflow whole too, as Decaid sent it, its Profile included, beside the summary."),
 });
 
 /** What get_machine gives with a time. */
@@ -322,20 +330,20 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine",
     title: "Get a Machine",
-    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, is Decaid's as its tablet last reported it, its Profile included, with who made its latest change. ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
+    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, with who made its latest change, is summarised; raw adds it whole, as Decaid sent it. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
     inputSchema: machineInput,
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "The management interface shows the Machine whole." },
+    budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "Its Workflow is far longer asked for whole with raw; the management interface shows the Machine whole." },
   })
-  async getMachine({ machineId, at }: z.infer<typeof machineInput>): Promise<z.infer<typeof machineOutput>> {
+  async getMachine({ machineId, at, raw }: z.infer<typeof machineInput>): Promise<z.infer<typeof machineOutput>> {
     const id = readMachineId(machineId);
     const machine = await this.machines.get(id);
     const asOf = at === undefined ? undefined : new Date(at);
     if (asOf && (asOf.getUTCFullYear() < 1 || asOf.getUTCFullYear() > 9999)) throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
     const [workflow, settings, status, tabletVersions] = await Promise.all([
-      this.events.currentWorkflow(id),
+      this.events.currentLinkedWorkflow(id),
       asOf ? this.history.asOf(id, SETTINGS, asOf).then((views) => SETTINGS.map((name) => views[name])) : Promise.all(SETTINGS.map((name) => this.collections.get(id, name))),
       sharingStatus(this.prisma, id),
       this.collections.tabletVersions(id),
@@ -349,7 +357,8 @@ export class MachinesTools {
         receivedAt: zone(workflow.receivedAt),
         cause: workflow.cause,
         pluginWrite: workflow.pluginWrite,
-        workflow: workflow.workflow,
+        workflow: workflowSummary(workflow.workflow, workflow.links),
+        ...(raw && { raw: workflow.workflow }),
       },
       machineSettings: { machineSettings: machineSettings!, advancedSettings: advancedSettings!, machineCalibration: machineCalibration!, sensorCalibration: sensorCalibration! },
       tabletSettings: { appSettings: appSettings!, presenceSettings: presenceSettings! },
@@ -366,7 +375,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives who made it, and the parts of the Workflow the management interface shows: dose and yield in grams, brewTemperature in °C (its Profile's first step's), and steam, hot water and flush settings in °C, seconds, ml/s and ml. ${WORKFLOW_CAUSE} A Machine State lasts until the next one reported.`,
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives who made it, and the Workflow summarised. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
@@ -392,7 +401,7 @@ export class MachinesTools {
         receivedAt: zone(event.receivedAt),
         cause: event.cause,
         pluginWrite: event.pluginWrite,
-        workflow: workflowSummary(event.workflow),
+        workflow: workflowSummary(event.workflow, event.links),
       })),
       loadedRecipes: paged(activity.loadedRecipes, (entry) => loaded(entry, zone)),
       machineStates: paged(activity.machineStates, ({ state, substate, observedAt, receivedAt }) => ({ state, substate, observedAt: zone(observedAt), receivedAt: zone(receivedAt) })),

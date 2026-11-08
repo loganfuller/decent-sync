@@ -2,7 +2,7 @@ import { Controller, Get, Param, Query } from "@nestjs/common";
 import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
-import { MachineEventsService, type WorkflowEventView } from "./machine-events.service.js";
+import { MachineEventsService, type WorkflowEventView, type WorkflowSummaryView, summarised } from "./machine-events.service.js";
 
 /** What a Machine is set up to do next and what it has been doing, as its tablet reported them. Staff read them too. */
 @AllowStaff()
@@ -14,6 +14,18 @@ export class MachineEventsController {
   @Get(":id/workflow")
   async workflow(@Param("id") id: string): Promise<{ workflow: WorkflowEventView | null }> {
     return { workflow: await this.events.currentWorkflow(readMachineId(id)) };
+  }
+
+  /**
+   * The Machine's current Workflow summarised, as an assistant reads it: the
+   * parts the management interface shows, and its Basket and Recipe, with the
+   * Library's ids of what it names (workflow-summary.ts); or null until its
+   * tablet reports one.
+   */
+  @Get(":id/workflow-summary")
+  async workflowSummary(@Param("id") id: string): Promise<{ workflow: WorkflowSummaryView | null }> {
+    const current = await this.events.currentLinkedWorkflow(readMachineId(id));
+    return { workflow: current && summarised(current) };
   }
 
   /** Every Workflow recorded for the Machine, latest first. */

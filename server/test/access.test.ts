@@ -104,6 +104,7 @@ const STAFF = [
   "GET /api/machines/:id",
   "POST /api/machines/:id/location-history",
   "GET /api/machines/:id/workflow",
+  "GET /api/machines/:id/workflow-summary",
   "GET /api/machines/:id/workflow-events",
   "GET /api/machines/:id/machine-state-events",
   "GET /api/machines/:id/loaded-recipes",

@@ -198,7 +198,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect(byName("Lab spare")).toMatchObject({ captureOnly: ["sharingOff"] });
   });
 
-  it("gives one Machine as the REST API does: its Workflow, Machine Settings, Tablet Settings, Location History, sharing status and tablet versions", async () => {
+  it("gives one Machine as the REST API does: its Workflow summarised, Machine Settings, Tablet Settings, Location History, sharing status and tablet versions", async () => {
     const before = await restMachine(bar);
     const result = await assistant.call<Record_ & { machine: Record_ }>("get_machine", { machineId: bar.machine.id });
     const path = `/machines/${bar.machine.id}`;
@@ -208,7 +208,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       const { collection } = await api.get<{ collection: Record_ | null }>(`${path}/collections/${name}`);
       return collection && { available: collection.available, reportedAt: collection.reportedAt, receivedAt: collection.receivedAt, value: collection.value, utcOffsetMinutes: collection.utcOffsetMinutes };
     };
-    const { workflow } = await api.get<{ workflow: Record_ }>(`${path}/workflow`);
+    const { workflow } = await api.get<{ workflow: Record_ }>(`${path}/workflow-summary`);
     const { status } = await api.get<{ status: Record_ & { refused: Record_[] } }>(`${path}/sharing-status`);
     expect(instants(unseen(result))).toEqual(instants({
       machine: {
@@ -254,6 +254,34 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expectZoned(CHICAGO, moved.machine.locationHistory[0]!.effectiveFrom);
     expectZoned("America/New_York", moved.machine.locationHistory[1]!.effectiveFrom);
     expect(moved.workflow).toBeNull();
+    expect(await api.get(`/machines/${van.machine.id}/workflow-summary`)).toEqual({ workflow: null });
+  });
+
+  it("gives its Workflow summarised with the Library's ids of the Profile, Bean Batch, Grinder, Basket and Recipe it names, which get_library_item finds, and whole only with raw", async () => {
+    const path = `/machines/${bar.machine.id}`;
+    const current = (await assistant.call<{ workflow: { workflow: Record_ } }>("get_machine", { machineId: bar.machine.id })).workflow;
+    expect(current).not.toHaveProperty("raw");
+    const summary = current.workflow;
+    expect(summary.recipeId).toBe(ethiopia);
+    const ids = { profile: summary.profileId, beanBatch: summary.beanBatchId, grinder: summary.grinderId, basket: summary.basketId, recipe: summary.recipeId };
+    for (const [kind, id] of Object.entries(ids)) {
+      expect(id, kind).toEqual(expect.any(String));
+      expect((await assistant.call<Record<string, { id: string }>>("get_library_item", { kind, id }))[kind]!.id, kind).toBe(id);
+    }
+    // The Recipe by the Library's name, which the Workflow doesn't record; the rest by the names the Workflow recorded.
+    expect(summary.recipe).toBe((await assistant.call<{ recipe: { name: string } }>("get_library_item", { kind: "recipe", id: ethiopia })).recipe.name);
+    const sent = (await api.get<{ workflow: { workflow: Record_ & { context: Record_ & { extras: Record_ }; profile: Record_ } } }>(`${path}/workflow`)).workflow.workflow;
+    expect(summary).toMatchObject({ profile: sent.profile.title, bean: sent.context.coffeeName, grinder: sent.context.grinderModel, basket: sent.context.extras.basketName });
+
+    // With raw, Decaid's Workflow too, as sent, as the REST API's route for it gives it, whose shape is as it was.
+    const whole = (await assistant.call<{ workflow: { workflow: Record_; raw: Record_ } }>("get_machine", { machineId: bar.machine.id, raw: true })).workflow;
+    expect(whole.workflow).toEqual(summary);
+    expect(whole.raw).toEqual(sent);
+    expect(Object.keys((await api.get<{ workflow: Record_ }>(`${path}/workflow`)).workflow).sort()).toEqual(["cause", "id", "observedAt", "pluginWrite", "receivedAt", "workflow"]);
+
+    // Its activity gives the same summary of it, by the Library items the change keeps linked.
+    const changes = (await assistant.call<Activity>("get_machine_activity", { machineId: bar.machine.id, kinds: ["workflowChanges"], limit: 1 })).workflowChanges!;
+    expect(changes.entries[0]!.workflow).toEqual(summary);
   });
 
   it("refuses a Machine that doesn't exist, as the REST API does", async () => {
@@ -293,6 +321,11 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       [18.5, at(8), { cause: "plugin", pluginWrite: "load" }],
       [19, at(10), { cause: "plugin", pluginWrite: "loadedRecipe" }],
     ] as const;
+    /** The fixture's Workflow with the changes given to its context, naming recipe 7 as DYE2 named one saved before v0.1.25: by a number. */
+    const namingRecipe7 = (context: Record_): Record_ => {
+      const workflow = derivedWorkflow(context) as Record_ & { context: Record_ & { extras: Record_ } };
+      return { ...workflow, context: { ...workflow.context, extras: { ...workflow.context.extras, dye: { recipeId: 7 } } } };
+    };
 
     beforeAll(async () => {
       // Its records sent as raw frames at those times, from a tablet at no Location then, which took no part in the
@@ -302,7 +335,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       try {
         const deliveries = [
           ...STATES.map(([state, substate, observedAt]) => ({ type: "machineState", id: randomUUID(), observedAt, state, substate })),
-          ...DOSES.map(([dose, observedAt, cause]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow({ targetDoseWeight: dose }), ...cause })),
+          ...DOSES.map(([dose, observedAt, cause]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: namingRecipe7({ targetDoseWeight: dose }), ...cause })),
         ].sort((a, b) => a.observedAt.localeCompare(b.observedAt));
         for (const delivery of deliveries) await raw.deliver(delivery);
       } finally {
@@ -345,25 +378,53 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(all.workflowChanges!.entries.map((entry) => entry.observedAt)).toEqual([local(10), local(8), local(6, 30), BEFORE_THE_LAB]);
       expectZoned(CHICAGO, ...all.machineStates!.entries.map((entry) => entry.receivedAt));
 
-      // As sent, Decaid's numbers and names; as summarized, those the Workflow card shows, to two decimal places.
+      // As sent, Decaid's numbers and names; as summarized, those the Workflow card shows, to two decimal places, with
+      // none of the Library's ids: it has no such Profile, and the records its tablet named never joined it.
       const sent = workflows[0]!.workflow as { profile: Record_ & { steps: Record_[] }; context: Record_; steamSettings: Record_; hotWaterData: Record_; rinseData: Record_ };
       expect(all.workflowChanges!.entries[0]!.workflow).toEqual({
         profile: sent.profile.title,
+        profileId: null,
         brewTemperature: sent.profile.steps[0]!.temperature,
         dose: 19,
         yield: sent.context.targetYield,
         bean: sent.context.coffeeName,
         roaster: sent.context.coffeeRoaster,
+        beanBatchId: null,
         grinder: sent.context.grinderModel,
         burrs: null,
         grindSetting: sent.context.grinderSetting,
+        grinderId: null,
         basket: (sent.context.extras as Record_).basketName,
+        basketId: null,
+        recipe: null,
+        recipeId: null,
         barista: sent.context.baristaName,
         steam: { temperature: sent.steamSettings.targetTemperature, duration: sent.steamSettings.duration, flow: 2.5 },
         hotWater: { temperature: sent.hotWaterData.targetTemperature, volume: sent.hotWaterData.volume },
         flush: { temperature: sent.rinseData.targetTemperature, duration: sent.rinseData.duration },
       });
       expect(sent.steamSettings.flow).not.toBe(2.5);
+    });
+
+    it("gives a current Workflow naming records its tablet's map doesn't hold with null ids and the names it recorded, as the REST API does", async () => {
+      // Its tablet was at no Location as it reported them, so none joined the Library, the recipe it names by a number,
+      // as DYE2 named one saved before v0.1.25, included.
+      const { workflow } = await assistant.call<{ workflow: { observedAt: string; receivedAt: string; workflow: Record_ } }>("get_machine", { machineId: roaster.machine.id });
+      const sent = namingRecipe7({}) as { context: Record_ & { extras: Record_ & { dye: Record_ } } };
+      expect(sent.context.extras.dye.recipeId).toBe(7);
+      expect(workflow.workflow).toMatchObject({
+        dose: 19,
+        bean: sent.context.coffeeName,
+        beanBatchId: null,
+        grinder: sent.context.grinderModel,
+        grinderId: null,
+        basket: sent.context.extras.basketName,
+        basketId: null,
+        recipe: null,
+        recipeId: null,
+      });
+      const rest = await api.get<{ workflow: Record_ & { id: string } }>(`/machines/${roaster.machine.id}/workflow-summary`);
+      expect(instants(workflow)).toEqual(instants(withoutId(rest.workflow)));
     });
 
     it("gives what was in effect at any time in a range given with offsets: what was observed in it, and what was in effect as it began", async () => {
