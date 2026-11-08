@@ -89,11 +89,16 @@ const MACHINE_SETTINGS: ReadonlySet<CollectionName> = new Set(["machineSettings"
 const MACHINE_SETTINGS_MS = 60_000;
 
 /**
- * Collections read only on full reads (`sendAll`): the sensor calibration,
- * three requests the machine answers one at a time on the link the scale also
- * uses, which change only through a deliberate calibration.
+ * Collections read only on full reads (`sendAll`) and once a day: the
+ * sensor calibration, three requests the machine answers one at a time on
+ * the link the scale also uses, which change only through a deliberate
+ * calibration. The daily read has a change made on the Tablet reach the
+ * Machine's Settings History within a day, rather than at its next
+ * reconnect (#432).
  */
-const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
+const DAILY: ReadonlySet<CollectionName> = new Set(["sensorCalibration"]);
+/** How often the sensor calibration is read while connected, besides on full reads. */
+const DAILY_MS = 24 * 60 * 60_000;
 
 /**
  * The collections Decaid reads from the machine itself on each request, the
@@ -102,7 +107,7 @@ const FULL_READS_ONLY: ReadonlySet<CollectionName> = new Set(["sensorCalibration
  * unanswered has Decaid v0.9.1 drop it, which during a Shot costs the Shot
  * (#403).
  */
-const FROM_MACHINE: ReadonlySet<CollectionName> = new Set([...MACHINE_SETTINGS, ...FULL_READS_ONLY]);
+const FROM_MACHINE: ReadonlySet<CollectionName> = new Set([...MACHINE_SETTINGS, ...DAILY]);
 
 /**
  * The tablet's library, settings, presence settings, paired devices, plugins and Skins, through the outbox.
@@ -111,7 +116,8 @@ const FROM_MACHINE: ReadonlySet<CollectionName> = new Set([...MACHINE_SETTINGS, 
  * (change-detection.ts), but for the machine's own settings
  * (`MACHINE_SETTINGS`), read every 60 s, or every poll interval if longer,
  * and whenever a Workflow change wrote them (`readMachineSettings`), and the
- * sensor calibration (`FULL_READS_ONLY`), read only on full reads.
+ * sensor calibration (`DAILY`), read on full reads and once a day, a day
+ * from the end of its latest such read.
  * On every welcome it reads every one again and sends it whatever it is,
  * which also covers whatever changed while the plugin was disconnected, and
  * counts as a read of the machine's settings for their interval. Reads run
@@ -153,7 +159,8 @@ export class CollectionCapture {
    * The reads from the machine (`FROM_MACHINE`) asked for and not yet begun,
    * each with whether it is to be sent whatever it holds, as a full read's:
    * of the machine's own settings on their interval or after the Workflow
-   * wrote them (`readMachineSettings`), and of all of them in a full read.
+   * wrote them (`readMachineSettings`), of the sensor calibration once a
+   * day, and of all of them in a full read.
    * They wait here while the machine runs something.
    */
   private readonly fromMachineWanted = new Map<CollectionName, boolean>();
@@ -161,6 +168,7 @@ export class CollectionCapture {
   private stopped = false;
   private pollTimer?: number;
   private machineSettingsTimer?: number;
+  private dailyTimer?: number;
   /** How often the machine's own settings are read while connected. */
   private readonly machineSettingsMs: number;
 
@@ -186,12 +194,14 @@ export class CollectionCapture {
   start(): void {
     this.schedulePoll();
     this.scheduleMachineSettings();
+    this.scheduleDaily();
   }
 
   stop(): void {
     this.stopped = true;
     if (this.pollTimer !== undefined) clearTimeout(this.pollTimer);
     if (this.machineSettingsTimer !== undefined) clearTimeout(this.machineSettingsTimer);
+    if (this.dailyTimer !== undefined) clearTimeout(this.dailyTimer);
   }
 
   /** Every collection, read again and sent in full, as on every welcome and whenever the server asks. */
@@ -258,6 +268,23 @@ export class CollectionCapture {
     }, this.machineSettingsMs);
   }
 
+  /**
+   * Reads the sensor calibration once a day has passed since the end of its
+   * latest full or daily read, and sends it if it changed, once the machine
+   * runs nothing. While disconnected, it waits for the next welcome, which
+   * reads everything.
+   */
+  private scheduleDaily(): void {
+    if (this.dailyTimer !== undefined) clearTimeout(this.dailyTimer);
+    this.dailyTimer = setTimeout(() => {
+      this.dailyTimer = undefined;
+      if (this.stopped) return;
+      if (!this.outbox.connected) return this.scheduleDaily();
+      this.wantFromMachine(DAILY, false);
+      void this.run();
+    }, DAILY_MS);
+  }
+
   private read(kind: "changes" | "full"): void {
     if (this.stopped) return;
     if (kind === "full" || this.wanted === undefined) this.wanted = kind;
@@ -322,27 +349,33 @@ export class CollectionCapture {
     if (always === undefined || this.stopped || !this.machine.runningNothing()) return;
     this.fromMachineWanted.delete(source.name);
     const interval = MACHINE_SETTINGS.has(source.name);
+    const daily = DAILY.has(source.name);
     // Their interval waits meanwhile, and runs from the end of their latest read, so a slow read of one shortens neither's.
     if (interval && this.machineSettingsTimer !== undefined) {
       clearTimeout(this.machineSettingsTimer);
       this.machineSettingsTimer = undefined;
     }
+    if (daily && this.dailyTimer !== undefined) {
+      clearTimeout(this.dailyTimer);
+      this.dailyTimer = undefined;
+    }
     await this.capture(source, always);
     if (interval && !this.stopped) this.scheduleMachineSettings();
+    if (daily && !this.stopped) this.scheduleDaily();
   }
 
   /**
    * Queues a report of a settings collection a Settings Edit read, within
    * `SettingsAccess.run`: if it changed since the last one queued, or, when
-   * `always`, whatever it holds, as an edit's read-back is. The edit's answer
-   * follows it, so it is kept where it is: a later report of the collection
-   * is queued after it rather than superseding it, which would put the answer
-   * ahead of the read-back it reports. A read of the machine's own settings
-   * counts for their interval.
+   * `always`, whatever it holds, as an edit's read-back is, which names the
+   * edit (`readBackOf`). The edit's answer follows it, so it is kept where it
+   * is: a later report of the collection is queued after it rather than
+   * superseding it, which would put the answer ahead of the read-back it
+   * reports. A read of the machine's own settings counts for their interval.
    */
-  reportSettings(name: CollectionName, reading: Reading, always: boolean): void {
+  reportSettings(name: CollectionName, reading: Reading, always: boolean, readBackOf?: string): void {
     if (this.stopped) return;
-    this.queueReading(name, reading, always);
+    this.queueReading(name, reading, always, readBackOf);
     this.queued.delete(name);
     if (MACHINE_SETTINGS.has(name)) this.scheduleMachineSettings();
   }
@@ -377,10 +410,11 @@ export class CollectionCapture {
    * Queues a collection read if it is to be sent: if it changed since the
    * last one queued, or whatever it holds when `full`. A value of one of the
    * UTC_OFFSET_COLLECTIONS goes with the tablet's UTC offset now, which is
-   * compared with it, so a daylight saving change is sent too. Says whether
-   * a value was queued.
+   * compared with it, so a daylight saving change is sent too. A value an
+   * edit read back names the edit (`settingsEditId`). Says whether a value
+   * was queued.
    */
-  private queueReading(name: CollectionName, reading: Reading, full: boolean): boolean {
+  private queueReading(name: CollectionName, reading: Reading, full: boolean, readBackOf?: string): boolean {
     // Its reads are each an object by target (`readSensorCalibration`).
     if (name === "sensorCalibration" && reading.kind !== "notModified") this.sensorCalibration = reading.kind === "value" ? (reading.value as Record<string, unknown>) : undefined;
     const utcOffsetMinutes = reading.kind === "value" && hasUtcOffset(name) ? utcOffset() : undefined;
@@ -394,7 +428,16 @@ export class CollectionCapture {
     const id = this.outbox.nextId();
     const delivery: CollectionDelivery =
       reading.kind === "value"
-        ? { type: "collection", id, name, available: true, value: reading.value, ...this.placedInTime(name, reading.value), ...(utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes }) }
+        ? {
+            type: "collection",
+            id,
+            name,
+            available: true,
+            value: reading.value,
+            ...this.placedInTime(name, reading.value),
+            ...(utcOffsetMinutes === undefined ? {} : { utcOffsetMinutes }),
+            ...(readBackOf === undefined ? {} : { settingsEditId: readBackOf }),
+          }
         : { type: "collection", id, name, available: false };
     // The newer delivery makes older ones still queued unnecessary, unless they were sent before a
     // reconnect, except that a value stays ahead of a report that the collection became unavailable:

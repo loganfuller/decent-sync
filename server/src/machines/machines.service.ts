@@ -681,6 +681,17 @@ export async function lockHardware(tx: Prisma.TransactionClient, hardware: Hardw
 }
 
 /**
+ * Takes the hardware's lock, as `lockHardware` does, if no other transaction
+ * holds it, without waiting; says whether it did. For background work that
+ * skips hardware in use and comes back to it.
+ */
+export async function tryLockHardware(tx: Prisma.TransactionClient, hardware: Hardware): Promise<boolean> {
+  const [{ held }] = await tx.$queryRaw<[{ held: boolean }]>`
+    SELECT pg_try_advisory_xact_lock(${HARDWARE_LOCK}::int, hashtext(${hardware.model}::text || '/' || ${hardware.serial}::text)) AS held`;
+  return held;
+}
+
+/**
  * Locks the Machine's row until the transaction ends, so whatever decides
  * its identity or tokens, changes its Location History, or credits a record
  * to it by that history, runs one at a time. Returns false if there is none.

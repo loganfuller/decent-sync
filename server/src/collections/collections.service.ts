@@ -1,5 +1,14 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { COLLECTION_NAMES, type CollectionDelivery, type CollectionName, hasUtcOffset, isCollectionName, isLibraryList, listKind } from "@decent-sync/protocol";
+import {
+  COLLECTION_NAMES,
+  type CollectionDelivery,
+  type CollectionName,
+  hasUtcOffset,
+  isCollectionName,
+  isLibraryList,
+  isSettingsHistoryCollection,
+  listKind,
+} from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { INTAKE_TRANSACTION } from "../library/intake.js";
 import { KINDS } from "../library/kinds.js";
@@ -9,6 +18,7 @@ import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type PairedDevicesView, pairedDevicesView } from "./paired-devices.js";
+import { recordSettingsHistory } from "./settings-history.js";
 import { type TabletVersionsView, tabletVersionsView } from "./tablet-versions.js";
 
 /** A collection's latest report, without its value, as the REST API lists it. */
@@ -71,6 +81,10 @@ type Row = { name: string; available: boolean; reportedAt: Date; receivedAt: Dat
  * The tablet's UTC offset sent beside `appSettings` and `presenceSettings`
  * (UTC_OFFSET_COLLECTIONS) is kept with their value, which its times
  * without an offset are read in, as an unavailable report keeps the value.
+ *
+ * A value of a collection other than the Library's lists is also kept in
+ * its holder's Settings History where it differs from the one before it
+ * (settings-history.ts), in the same transaction.
  */
 @Injectable()
 export class CollectionsService {
@@ -96,6 +110,16 @@ export class CollectionsService {
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
       if (!credit) return undefined;
+      // Before the latest value is replaced, which a history with none yet takes its baseline from.
+      if (message.available && isSettingsHistoryCollection(message.name)) {
+        await recordSettingsHistory(tx, credit, {
+          name: message.name,
+          value: message.value,
+          utcOffsetMinutes,
+          tabletId: reporter.tabletId,
+          settingsEditId: message.settingsEditId,
+        });
+      }
       const holder = credit.machineId !== null ? Prisma.sql`machine_id` : Prisma.sql`pending_machine_id`;
       await tx.$executeRaw`
         INSERT INTO reported_collections (${holder}, name, available, reported_at, value, received_at, items, utc_offset_minutes)

@@ -114,6 +114,8 @@ describe("Library, settings and paired devices", () => {
   const MACHINE_SETTINGS_ROUTES = ["/machine/settings", "/machine/settings/advanced", "/machine/calibration"];
   /** Where the sensor calibration is read, each route once. */
   const SENSOR_CALIBRATION_ROUTES = ["/machine/calibration/flow", "/machine/calibration/pressure", "/machine/calibration/temperature"];
+  /** How often the plugin reads the sensor calibration besides on full reads. */
+  const DAY_MS = 24 * 60 * 60_000;
   /** The sensor calibration Decaid answers from `served`, by target, as the plugin reports it. */
   const sensorCalibrationIn = (served: DecaidApi) =>
     Object.fromEntries(["flow", "pressure", "temperature"].map((target) => [target, served[`/machine/calibration/${target}`]]));
@@ -877,6 +879,47 @@ describe("Library, settings and paired devices", () => {
         await expect.poll(() => sent().length).toBe(3);
         expect(sent()[2]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
         expect(reads()).toEqual([3, 3, 3]);
+      } finally {
+        await standIn.stop();
+      }
+    });
+
+    it("is read once a day while connected, and sent only if it changed, waiting while the machine runs something", async () => {
+      const standIn = await StandInServer.start();
+      try {
+        const served = derivedDe1Pro({ serial: "32003" });
+        const tablet = tablets.load({
+          // Polling hourly, twenty thousand times faster, so a day is 4.3 s.
+          settings: { ...settingsFor({ token: "stand-in token 32003", serverUrl: standIn.url }), PollSeconds: 3600 },
+          api: served,
+          timeScale: 20_000,
+        });
+        const sent = () => standIn.received.filter((message) => message.type === "collection" && message.name === "sensorCalibration");
+        const reads = () => SENSOR_CALIBRATION_ROUTES.map((route) => readTimes(tablet, route));
+        await expect.poll(() => sent().length).toBe(1);
+        const welcomed = reads().map((times) => times.at(-1)!);
+
+        // Derived: its temperature sensor recalibrated on the Tablet. A day after the welcome's read, it is read and sent.
+        const recalibrated = { ...served, ...sensorCalibration({ temperature: -0.5 }) };
+        tablet.serve(recalibrated);
+        await expect.poll(() => sent().length, { timeout: 30_000 }).toBe(2);
+        expect(sent()[1]).toMatchObject({ available: true, value: sensorCalibrationIn(recalibrated) });
+        expect(reads().map((times) => times.length)).toEqual([2, 2, 2]);
+        for (const [index, times] of reads().entries()) expect(times[1]! - welcomed[index]!).toBeGreaterThanOrEqual(DAY_MS);
+
+        // A day later it is read again, unchanged, and not sent.
+        await expect.poll(() => reads()[0]!.length, { timeout: 30_000 }).toBe(3);
+        await polls(tablet, 1);
+        expect(sent()).toHaveLength(2);
+
+        // While the machine steams through the next day's read, it waits, and is read once the machine is idle.
+        tablet.reportState("steam", "steaming");
+        const busySince = tablet.readClock();
+        await expect.poll(() => tablet.readClock() - busySince, { timeout: 30_000 }).toBeGreaterThan(1.5 * DAY_MS);
+        expect(reads()[0]).toHaveLength(3);
+        tablet.reportState("idle", "ready");
+        await expect.poll(() => reads()[0]!.length).toBe(4);
+        expect(sent()).toHaveLength(2);
       } finally {
         await standIn.stop();
       }

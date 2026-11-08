@@ -16,6 +16,7 @@ export * from "./chunking.js";
 export * from "./machine-states.js";
 export * from "./record-samples.js";
 export * from "./settings-fields.js";
+export * from "./settings-history.js";
 export * from "./steam-phases.js";
 
 /**
@@ -755,6 +756,16 @@ export interface CollectionDelivery {
    * MAX_UTC_OFFSET_MINUTES of 0.
    */
   utcOffsetMinutes?: number;
+  /**
+   * The Settings Edit whose read-back this is: the read of the collection
+   * the plugin makes after an edit's write, whether Decaid took it or not,
+   * and queues before the edit's answer (`settingsEdited`). The server
+   * labels the changes of the fields that edit set with it in the Machine's
+   * Settings History, and every other change as made outside Decent Sync.
+   * Absent on every other report. A field a server may ignore for good, as
+   * the previous release's does, labelling the change as made outside.
+   */
+  settingsEditId?: string;
 }
 
 /**
@@ -2060,6 +2071,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
           if (object.available !== true) fields.absent("utcOffsetMinutes");
           else fields.integer("utcOffsetMinutes", { within: MAX_UTC_OFFSET_MINUTES });
         }
+        if (object.settingsEditId !== undefined) fields.uuid("settingsEditId");
       });
     case "written":
       return check<ItemWritten>(object, "written", (fields) => {
