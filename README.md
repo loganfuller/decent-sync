@@ -129,8 +129,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 ### Ask about your coffee
 
-Arrives in the release after 1.6.4. Connect Claude, ChatGPT or another MCP
-app, and ask in plain words:
+Connect Claude, ChatGPT or another MCP app, and ask in plain words:
 
 - "How many shots did the cafe pull yesterday, and with which beans?"
 - "Have shots of the new Kenya batch been running faster than last week's?"
@@ -241,8 +240,7 @@ approvals, the plugin's settings, and what it does on the tablet.
 
 ## Connecting an assistant
 
-Assistants arrive in the release after 1.6.4. Each person can connect their
-own AI assistant. Add the server's MCP endpoint:
+Each person can connect their own AI assistant. Add the server's MCP endpoint:
 your `PUBLIC_URL` followed by `/api/mcp`, such as
 `https://sync.example.com/api/mcp`.
 
