@@ -1,9 +1,10 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
-import { PLUGIN_WORKFLOW_WRITES, SETTINGS_HISTORY_COLLECTIONS } from "@decent-sync/protocol";
+import { type CollectionName, PLUGIN_WORKFLOW_WRITES, SETTINGS_HISTORY_COLLECTIONS } from "@decent-sync/protocol";
 import * as z from "zod";
 import type { CollectionView } from "../collections/collections.service.js";
 import { CollectionsService } from "../collections/collections.service.js";
+import type { PairedDevicesView } from "../collections/paired-devices.js";
 import { SettingsHistoryService } from "../collections/settings-history.service.js";
 import { READ } from "../connected-apps/oauth.js";
 import type { LocationView } from "../locations/locations.service.js";
@@ -287,6 +288,59 @@ const historyInput = z.object({
   ...page,
 });
 
+/** The collections get_machine_reports gives: what a Machine's tablet reports beside its settings and its Library's lists. */
+const REPORTS = ["scaleInfo", "sensors", "pairedDevices", "plugins", "skins"] as const satisfies readonly CollectionName[];
+
+const reportsInput = z.object({
+  machineId,
+  collections: z
+    .array(z.enum(REPORTS, { error: (issue) => `No such collection as ${JSON.stringify(issue.input)}: name scaleInfo, sensors, pairedDevices, plugins or skins` }))
+    .min(1)
+    .optional()
+    .describe("Which collections to give; all five if none."),
+});
+
+const report = z
+  .object({
+    available: z.boolean().describe("Whether the latest report had a value: false while, say, no scale is connected."),
+    reportedAt: time.describe("When the latest report, available or not, was received."),
+    receivedAt: time.nullable().describe("When its value was received; null if no report has had one."),
+    value: z.unknown().describe("The latest value reported, as Decaid sent it, its fields as Decaid names them, kept while later reports are unavailable; null if none has had one."),
+  })
+  .nullable();
+
+const pairedDevice = z.object({
+  id: z.string().describe("Decaid's id for it, such as a Bluetooth address."),
+  type: z.string().nullable().describe("Decaid's kind of device: machine, scale, sensor or grinder."),
+  model: z.string().nullable().describe("As Decaid names it, which names its model, such as Bookoo Mini Scale."),
+  vendor: z.string().nullable().describe("A sensor's vendor, from its manifest."),
+  state: z.string().nullable().describe("Its connection state when last reported, such as connected or disconnected."),
+  firmware: z.string().nullable().describe("For the connected scale, its firmware, if it reports it."),
+  batteryLevel: z.number().nullable().describe("For the connected scale, its battery level as a percentage, if it reports it."),
+});
+
+const pairedDevices = z.object({
+  reportedAt: time.nullable().describe("When its tablet last reported them, whether or not it could read them then; null if it never has."),
+  available: z.boolean().nullable().describe("Whether it could read them then. If not, the devices given are those it read before, with their state then."),
+  receivedAt: time.nullable().describe("When the devices given were read; null if it has never read them."),
+  scale: pairedDevice.nullable().describe("The Scale that weighs Shots: the one Decaid has connected as its primary scale, or else the scale it prefers."),
+  auxiliaryScale: pairedDevice.nullable().describe("An Auxiliary Scale Decaid has connected, such as for weighing ground coffee."),
+  sensors: z.array(pairedDevice),
+  others: z.array(pairedDevice).describe("Every other paired device, such as the machine itself or another scale Decaid remembers."),
+});
+
+const reportsOutput = z.object({
+  scaleInfo: report.optional(),
+  sensors: report.optional(),
+  pairedDevices: pairedDevices.optional().describe("Its paired devices, as the management interface's Paired devices card shows them."),
+  plugins: report.optional(),
+  skins: report.optional(),
+});
+
+/** What each collection get_machine_reports gives is, and how its report reads (docs/COLLECTIONS.md). */
+const REPORTS_NOTE =
+  `scaleInfo is the connected scale's own report, such as its firmwareVersion and batteryLevel, which only some scales give, unavailable while none is connected; sensors, the sensors Decaid lists as connected, each by its id with its manifest (info): its name, vendor, data and commands; plugins, Decaid's plugin list, each plugin's manifest, such as its id, name and version, with loaded, autoLoad, source, how it was installed, such as {"kind":"github_branch","branch":"dist"}, or null for a bundled one, and pendingUpdate; skins, Decaid's Skins as {skins, default, server}: those installed, each with its id, name, version and path, the default Skin, and the WebUI server's status, whose path is the Skin it serves. Each of these four is as Decaid sent it, by Decaid's names: available false when the latest read had nothing, the value read before kept; reportedAt when the latest report was received, receivedAt when its value was; null for one never reported. pairedDevices are the devices paired with its tablet, leaving out those only discovered nearby, as the management interface's Paired devices card shows them: the Scale that weighs Shots, the one Decaid has connected as primary or else the one it prefers; an Auxiliary Scale; its sensors; and others, such as the machine itself; each with its model as Decaid names it, its connection state when last reported and a sensor's vendor, the connected scale with the firmware and battery level scaleInfo gives, if any; reportedAt, available and receivedAt as for the others, null if never reported. Each is the latest reported: list_settings_history gives each change of them, and get_machine the DYE2 and Streamline among them.`;
+
 const historyOutput = z.object({
   ...pageOutput,
   changes: z.array(
@@ -321,9 +375,10 @@ const historyOutput = z.object({
 /**
  * Machines, read through an assistant as the REST API reads them, calling
  * the same services (ADR-0026): which are online and what each is doing, how
- * one is set up, what happened on it over a time range, and its Settings
- * Edits. Every account reads every Machine, as through the REST API; who made
- * a Settings Edit is named as the REST API names it to the account.
+ * one is set up, what its tablet reports, what happened on it over a time
+ * range, and its Settings Edits. Every account reads every Machine, as
+ * through the REST API; who made a Settings Edit is named as the REST API
+ * names it to the account.
  */
 @Injectable()
 export class MachinesTools {
@@ -392,6 +447,28 @@ export class MachinesTools {
       },
       tabletVersions,
     };
+  }
+
+  @BudgetedTool({
+    name: "get_machine_reports",
+    title: "Get what a Machine's tablet reports",
+    description: `What one Machine's tablet last reported besides its settings and its Library: its scale, sensors, paired devices, plugins and Skins, each collection asked for, all five if none. ${REPORTS_NOTE} Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.`,
+    inputSchema: reportsInput,
+    outputSchema: reportsOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: { rest: "Asked for one collection at a time, it has more of each; the management interface shows them whole." },
+  })
+  async getMachineReports({ machineId, collections }: z.infer<typeof reportsInput>): Promise<z.infer<typeof reportsOutput>> {
+    const machine = await this.machines.get(readMachineId(machineId));
+    const zone = zoneOf(machine);
+    const asked = REPORTS.filter((name) => collections === undefined || collections.includes(name));
+    const reports = await Promise.all(
+      asked.map(async (name) =>
+        name === "pairedDevices" ? pairedDevicesOf(await this.collections.pairedDevices(machine.id), zone) : reportOf(await this.collections.get(machine.id, name), zone),
+      ),
+    );
+    return Object.fromEntries(asked.map((name, n) => [name, reports[n]]));
   }
 
   @BudgetedTool({
@@ -604,6 +681,16 @@ function collection(view: CollectionView | null, zone: Zone): z.infer<typeof set
   return (
     view && { available: view.available, reportedAt: zone(view.reportedAt), receivedAt: zoneMaybe(zone, view.receivedAt), value: view.value, utcOffsetMinutes: view.utcOffsetMinutes }
   );
+}
+
+/** A collection get_machine_reports gives as the REST API does, its times with the offset of the Location the Machine was at then; null if never reported. */
+function reportOf(view: CollectionView | null, zone: Zone): z.infer<typeof report> {
+  return view && { available: view.available, reportedAt: zone(view.reportedAt), receivedAt: zoneMaybe(zone, view.receivedAt), value: view.value };
+}
+
+/** A Machine's paired devices as the REST API and the Machine page give them, their times with the offset of the Location the Machine was at then. */
+function pairedDevicesOf({ reportedAt, available, receivedAt, scale, auxiliaryScale, sensors, others }: PairedDevicesView, zone: Zone): z.infer<typeof pairedDevices> {
+  return { reportedAt: zoneMaybe(zone, reportedAt), available, receivedAt: zoneMaybe(zone, receivedAt), scale, auxiliaryScale, sensors, others };
 }
 
 function changeOf({ change, kind, item, localId }: ChangeView) {

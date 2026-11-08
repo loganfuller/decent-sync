@@ -5,7 +5,17 @@ import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from 
 import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type TestApp, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
-import { RawConnection, type SimulatedTablet, de1ProOnDecaid091, derivedProfile, derivedWorkflow, helloWith, manyProfiles } from "./support/simulated-tablet.js";
+import {
+  RawConnection,
+  type SimulatedTablet,
+  de1ProOnDecaid091,
+  derivedProfile,
+  derivedWorkflow,
+  helloWith,
+  manyProfiles,
+  pluginsAndSkinsAt,
+  simulatedDevices,
+} from "./support/simulated-tablet.js";
 import { derivedSteam, liveSteamFixture, milkProbeSteamFixture } from "./support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -47,6 +57,11 @@ function pagingFirst(text: string, list: string): void {
 }
 
 const cut = (value: unknown) => typeof value === "string" && value.endsWith(CUT_MARK);
+
+/** A plugin's entry in Decaid's plugin list, shaped as DYE2's (fixtures/decaid/dye2-v0.1.26/plugins.json), about 1.8 KB. */
+function pluginListing(): Fields {
+  return (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/dye2-v0.1.26/plugins.json", import.meta.url), "utf8")) as { listed: Fields[] }).listed[0]!;
+}
 
 /** The serial the bar's tablet reports, which the Shots it pulls record (de1ProOnDecaid091). */
 const BAR_SERIAL = "10001";
@@ -328,7 +343,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     it("lists a Machine's Settings History a page at a time, 54 updates of a plugin list as large as a cafe's, and gives its settings as last received by a time", async () => {
       // Eight plugins shaped as DYE2's listing (fixtures/decaid/dye2-v0.1.26/plugins.json), about 16 KB as Belmont's
       // tablets list theirs, one updated each minute from 06:00 on 5 November, 55 lists in all, as copied in PostgreSQL.
-      const listing = (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/dye2-v0.1.26/plugins.json", import.meta.url), "utf8")) as { listed: Fields[] }).listed[0]!;
+      const listing = pluginListing();
       const versions = Array.from({ length: 8 }, () => "1.0.0");
       const lists = Array.from({ length: 55 }, (_, n) => {
         versions[n % 8] = `1.${n}.0`;
@@ -352,6 +367,24 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const { result } = await assistant.callWithinBudget<Fields>("get_machine", { machineId: bar.machine.id, at: new Date().toISOString() });
       expect(result).not.toHaveProperty("cut");
       expect((result.machineSettings as Fields).machineSettings).not.toBeNull();
+    });
+
+    it("gives all five collections of what a Machine's tablet reports besides its settings, its plugin list as large as a cafe's", async () => {
+      // Eight plugins shaped as DYE2's listing, about 16 KB as Belmont's tablets list theirs; the Skins Decaid's Linux
+      // release lists with both of Streamline's builds installed besides its bundled ones; Decaid's simulated devices and
+      // sensors, and, derived, their scale reporting its firmware and battery level.
+      const plugins = Array.from({ length: 8 }, (_, n) => ({ ...pluginListing(), id: `plugin-${n}.reaplugin` }));
+      expect(JSON.stringify(plugins).length).toBeGreaterThan(14_000);
+      const answers = pluginsAndSkinsAt("streamlineMain");
+      const skins = { skins: answers["/webui/skins"]!.body, default: answers["/webui/skins/default"]!.body, server: answers["/webui/server/status"]!.body };
+      const simulated = simulatedDevices();
+      const reported = { scaleInfo: { firmwareVersion: "1.2.0", batteryLevel: 80 }, sensors: simulated["/sensors"], pairedDevices: simulated["/devices"], plugins, skins };
+      for (const [name, value] of Object.entries(reported)) await raw.deliver({ type: "collection", id: randomUUID(), name, available: true, value });
+      const { result } = await assistant.callWithinBudget<Record<string, { value: unknown }>>("get_machine_reports", { machineId: roastery.machine.id });
+      expect(result).not.toHaveProperty("cut");
+      expect(Object.keys(result)).toEqual(Object.keys(reported));
+      for (const name of ["scaleInfo", "sensors", "plugins", "skins"] as const) expect(result[name]!.value, name).toEqual(reported[name]);
+      expect(result.pairedDevices).toMatchObject({ scale: { firmware: "1.2.0", batteryLevel: 80 } });
     });
 
     describe("the Library", () => {
@@ -642,6 +675,16 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(plugin.result.changes[0]!.fields[0]!.field).toBe(id);
       const asOf = await assistant.callWithinBudget<{ tabletSettings: { appSettings: { value: unknown } } }>("get_machine", { machineId: haunted.machine.id, at: "2026-11-01T06:30:00Z" });
       expect(asOf.result.tabletSettings.appSettings.value).toEqual(values[30]);
+    });
+
+    it("gives what a Machine's tablet reports with its plugins' descriptions far longer than any written cut and marked, each plugin's id, name and version whole", async () => {
+      const plugins: Fields[] = Array.from({ length: 8 }, (_, n) => ({ ...pluginListing(), id: `haunted-${n}.reaplugin`, version: `1.${n}.0`, description: hostile(8_000) }));
+      await raw.deliver({ type: "collection", id: randomUUID(), name: "plugins", available: true, value: plugins });
+      const { result } = await assistant.callWithinBudget<{ cut: string; plugins: { value: Fields[] } }>("get_machine_reports", { machineId: haunted.machine.id });
+      expect(result.cut).toContain("Asked for one collection at a time");
+      const listed = result.plugins.value;
+      expect(listed.map(({ id, name, version }) => [id, name, version])).toEqual(plugins.map(({ id, name, version }) => [id, name, version]));
+      expect(listed.every(({ description }) => cut(description))).toBe(true);
     });
 
     it("finds Steam Records whose Barista runs long a page at a time, and reads one with its curves whole", async () => {
