@@ -9,6 +9,7 @@ import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { type LoadedRecipeView, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type WorkflowLinks, type WorkflowSummary, workflowLinksSql, workflowSummary } from "./workflow-summary.js";
 
 /** A page of a history, as `readPage` reads it from a request. */
 type Page = { limit: number; offset: number };
@@ -30,7 +31,7 @@ export interface ActivityPage<T> {
 
 /** A Machine's activity over a time range, a page of each kind asked for. */
 export interface ActivityView {
-  workflowChanges?: ActivityPage<WorkflowEventView>;
+  workflowChanges?: ActivityPage<LinkedWorkflowEventView>;
   loadedRecipes?: ActivityPage<LoadedRecipeView>;
   machineStates?: ActivityPage<MachineStateEventView>;
 }
@@ -44,6 +45,20 @@ export interface WorkflowEventView {
   receivedAt: string;
   /** Decaid's Workflow, as sent. */
   workflow: Prisma.JsonObject;
+}
+
+/** A Workflow recorded for a Machine, with the Library items it names (workflow-summary.ts). */
+export interface LinkedWorkflowEventView extends WorkflowEventView {
+  links: WorkflowLinks;
+}
+
+/** A Workflow recorded for a Machine, summarised, as the REST API's summary route returns it. */
+export interface WorkflowSummaryView {
+  id: string;
+  observedAt: string;
+  receivedAt: string;
+  /** Its summary, with the Library's ids of what it names (workflow-summary.ts). */
+  workflow: WorkflowSummary;
 }
 
 /** A machine state transition recorded for a Machine, as the REST API returns it. */
@@ -129,6 +144,22 @@ export class MachineEventsService {
     return latest ? viewWorkflowEvent(latest) : null;
   }
 
+  /**
+   * The Machine's current Workflow, as `currentWorkflow` gives it, with the
+   * Library items it names, resolved through the map of the tablet its
+   * latest connection came from (`machine_tablets`' `last_hello`): the tablet
+   * that reported it, as the plugin reports the Workflow as each connection
+   * begins and as it changes, and a Workflow is stored only as it changes.
+   */
+  async currentLinkedWorkflow(machineId: string): Promise<LinkedWorkflowEventView | null> {
+    await this.requireMachine(machineId);
+    const tablet = Prisma.sql`(SELECT tablet_id FROM machine_tablets WHERE machine_id = ${machineId}::uuid ORDER BY last_hello DESC LIMIT 1)`;
+    const [latest] = await this.prisma.$queryRaw<LinkedRow[]>`
+      SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`latest.workflow`, tablet)}
+      FROM (SELECT id, observed_at, received_at, workflow FROM workflow_events WHERE machine_id = ${machineId}::uuid ORDER BY id DESC LIMIT 1) AS latest`;
+    return latest ? viewLinkedWorkflowEvent(latest) : null;
+  }
+
   /** The Machine's Loaded Recipes, latest first: its current one, if it has one, then those it had before. */
   async loadedRecipes(machineId: string, page: Page): Promise<{ entries: LoadedRecipeView[]; total: number } & Page> {
     await this.requireMachine(machineId);
@@ -173,16 +204,22 @@ export class MachineEventsService {
     return { workflowChanges, loadedRecipes, machineStates };
   }
 
-  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<WorkflowEventView>> {
+  /**
+   * The Workflows in effect over the range (`inEffectDuring`), each with the
+   * Library items it names: its Profile, read from its profile; the rest only
+   * through the map of the tablet that reported it, which no change records
+   * yet, so null.
+   */
+  private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<LinkedWorkflowEventView>> {
     const table = Prisma.sql`workflow_events`;
     const [rows, total] = await Promise.all([
-      this.prisma.$queryRaw<Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow">[]>`
-        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow
+      this.prisma.$queryRaw<LinkedRow[]>`
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`during.workflow`, Prisma.sql`NULL::uuid`)}
         FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
         ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
       countInEffect(this.prisma, table, machineId, bounds),
     ]);
-    return { entries: rows.map(viewWorkflowEvent), total };
+    return { entries: rows.map(viewLinkedWorkflowEvent), total };
   }
 
   private async machineStateEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<MachineStateEventView>> {
@@ -256,6 +293,18 @@ function viewWorkflowEvent(event: Pick<WorkflowEvent, "id" | "observedAt" | "rec
     receivedAt: event.receivedAt.toISOString(),
     workflow: event.workflow as Prisma.JsonObject,
   };
+}
+
+/** A Workflow event as read with the Library items it names (`workflowLinksSql`). */
+type LinkedRow = Pick<WorkflowEvent, "id" | "observedAt" | "receivedAt" | "workflow"> & WorkflowLinks;
+
+function viewLinkedWorkflowEvent({ profileId, beanBatchId, grinderId, basketId, recipeId, recipeName, ...event }: LinkedRow): LinkedWorkflowEventView {
+  return { ...viewWorkflowEvent(event), links: { profileId, beanBatchId, grinderId, basketId, recipeId, recipeName } };
+}
+
+/** A Workflow event summarised, as the REST API's summary route returns it. */
+export function summarised({ id, observedAt, receivedAt, workflow, links }: LinkedWorkflowEventView): WorkflowSummaryView {
+  return { id, observedAt, receivedAt, workflow: workflowSummary(workflow, links) };
 }
 
 function viewMachineStateEvent(event: Pick<MachineStateEvent, "id" | "observedAt" | "receivedAt" | "state" | "substate">): MachineStateEventView {

@@ -752,6 +752,19 @@ that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines/:id/workflow` returns `{ workflow }`, the latest Workflow
   event `{ id, observedAt, receivedAt, workflow }` or null; `workflow` is
   Decaid's, as sent.
+- `GET /api/machines/:id/workflow-summary` returns the same event with
+  `workflow` summarised as `get_machine` gives it
+  (`server/src/machine-events/workflow-summary.ts`): the parts the Workflow
+  card shows, its Basket, and the Recipe its context names
+  (`context.extras.dye.recipeId`), by the Library's name, with the Library's
+  ids of the Profile, Bean Batch, Grinder, Basket and Recipe it names
+  (`profileId`, `beanBatchId`, `grinderId`, `basketId`, `recipeId`). The
+  Profile is found from the profile, as a Shot's is; the rest through the map
+  of the tablet the Machine's latest connection came from, which reported the
+  Workflow. An id that map doesn't hold is null, with the name the Workflow
+  recorded kept. `get_machine_activity` gives each Workflow change the same
+  summary, finding only its Profile, as which tablet reported a change isn't
+  recorded.
 - `GET /api/machines` and `GET /api/machines/:id` include `loadedRecipe:
   { id, recipe: { id, name, slot, locationId, archived }, loadedAt,
   unloadedAt } | null`, the Machine's Loaded Recipe now, `unloadedAt` null.

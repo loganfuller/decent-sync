@@ -216,11 +216,15 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       await assistant.callWithinBudget("list_machines");
     });
 
-    it("gives a Machine with its Workflow, Machine Settings and Tablet Settings as its tablet reported them", async () => {
+    it("gives a Machine with its Workflow, summarised and whole, Machine Settings and Tablet Settings as its tablet reported them", async () => {
       await expect.poll(async () => (await assistant.call<{ workflow: unknown; machineSettings: Record<string, unknown> }>("get_machine", { machineId: bar.machine.id })).machineSettings.machineSettings).not.toBeNull();
-      const { result } = await assistant.callWithinBudget<Fields>("get_machine", { machineId: bar.machine.id });
-      expect(result).not.toHaveProperty("cut");
-      expect(result.workflow).not.toBeNull();
+      const summarised = await assistant.callWithinBudget<{ workflow: Fields }>("get_machine", { machineId: bar.machine.id });
+      expect(summarised.result).not.toHaveProperty("cut");
+      expect(summarised.result.workflow).not.toHaveProperty("raw");
+      const whole = await assistant.callWithinBudget<{ workflow: Fields }>("get_machine", { machineId: bar.machine.id, raw: true });
+      expect(whole.result).not.toHaveProperty("cut");
+      expect(whole.result.workflow.raw).toEqual(tablet.workflow());
+      expect(whole.text.length - summarised.text.length).toBeGreaterThan(JSON.stringify(tablet.workflow()).length);
     });
 
     it("gives a Machine's activity a page at a time, 55 Workflow changes and Machine States of each", async () => {
@@ -475,7 +479,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.curves).toEqual(plain.curves);
     });
 
-    it("gives a Machine whose Workflow's text runs long with that text cut, its Profile's steps and its settings whole", async () => {
+    it("gives a Machine whose Workflow's text runs long with that text cut, summarised and whole, its Profile's steps and its settings whole", async () => {
       const workflow = derivedWorkflow({ coffeeName: hostile(20_000), baristaName: hostile(5_000) });
       const profile: Fields = { ...(workflow.profile as Fields), notes: hostile(60_000), title: hostile(5_000) };
       await raw.deliver({ type: "workflow", id: randomUUID(), observedAt: "2026-11-04T06:00:00.000Z", workflow: { ...workflow, profile, description: hostile(10_000) } });
@@ -483,12 +487,18 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const appSettings = { ...(de1ProOnDecaid091()["/settings"] as Fields), webUiPath: hostile(15_000) };
       await raw.deliver({ type: "collection", id: randomUUID(), name: "appSettings", available: true, value: appSettings, utcOffsetMinutes: -360 });
       await expect.poll(async () => (await assistant.call<{ tabletSettings: { appSettings: unknown } }>("get_machine", { machineId: haunted.machine.id })).tabletSettings.appSettings).toBeTruthy();
-      const { result } = await assistant.callWithinBudget<{ cut: string; workflow: { workflow: Fields }; tabletSettings: { appSettings: { value: unknown } } }>("get_machine", { machineId: haunted.machine.id });
-      expect(result.cut).toContain("management interface");
-      const read = result.workflow.workflow;
+      type Read = { cut: string; workflow: { workflow: Fields; raw: Fields }; tabletSettings: { appSettings: { value: unknown } } };
+      const { result } = await assistant.callWithinBudget<Read>("get_machine", { machineId: haunted.machine.id, raw: true });
+      expect(result.cut).toContain("without raw");
+      const read = result.workflow.raw;
       expect([(read.profile as Fields).notes, (read.profile as Fields).title, (read.context as Fields).coffeeName, read.description].every(cut)).toBe(true);
       expect((read.profile as Fields).steps).toEqual(profile.steps);
       expect(result.tabletSettings.appSettings.value).toEqual(appSettings);
+      // Its summary alone holds the same long names, the longest cut too.
+      const summarised = await assistant.callWithinBudget<Read>("get_machine", { machineId: haunted.machine.id });
+      expect(summarised.result.cut).toBeDefined();
+      expect(cut(summarised.result.workflow.workflow.bean)).toBe(true);
+      expect(summarised.result.tabletSettings.appSettings.value).toEqual(appSettings);
     });
 
     it("gives a Machine's activity whose Workflows' text runs long with that text cut", async () => {
