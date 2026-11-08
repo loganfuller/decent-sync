@@ -320,6 +320,11 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       [18.5, at(8)],
       [19, at(10)],
     ] as const;
+    /** The fixture's Workflow with the changes given to its context, naming recipe 7 as DYE2 named one saved before v0.1.25: by a number. */
+    const namingRecipe7 = (context: Record_): Record_ => {
+      const workflow = derivedWorkflow(context) as Record_ & { context: Record_ & { extras: Record_ } };
+      return { ...workflow, context: { ...workflow.context, extras: { ...workflow.context.extras, dye: { recipeId: 7 } } } };
+    };
 
     beforeAll(async () => {
       // Its records sent as raw frames at those times, from a tablet at no Location then, which took no part in the
@@ -329,7 +334,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       try {
         const deliveries = [
           ...STATES.map(([state, substate, observedAt]) => ({ type: "machineState", id: randomUUID(), observedAt, state, substate })),
-          ...DOSES.map(([dose, observedAt]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: derivedWorkflow({ targetDoseWeight: dose }) })),
+          ...DOSES.map(([dose, observedAt]) => ({ type: "workflow", id: randomUUID(), observedAt, workflow: namingRecipe7({ targetDoseWeight: dose }) })),
         ].sort((a, b) => a.observedAt.localeCompare(b.observedAt));
         for (const delivery of deliveries) await raw.deliver(delivery);
       } finally {
@@ -392,9 +397,11 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     });
 
     it("gives a current Workflow naming records its tablet's map doesn't hold with null ids and the names it recorded, as the REST API does", async () => {
-      // Its tablet was at no Location as it reported them, so none joined the Library.
+      // Its tablet was at no Location as it reported them, so none joined the Library, the recipe it names by a number,
+      // as DYE2 named one saved before v0.1.25, included.
       const { workflow } = await assistant.call<{ workflow: { observedAt: string; receivedAt: string; workflow: Record_ } }>("get_machine", { machineId: roaster.machine.id });
-      const sent = derivedWorkflow({}) as { context: Record_ & { extras: Record_ } };
+      const sent = namingRecipe7({}) as { context: Record_ & { extras: Record_ & { dye: Record_ } } };
+      expect(sent.context.extras.dye.recipeId).toBe(7);
       expect(workflow.workflow).toMatchObject({
         dose: 19,
         bean: sent.context.coffeeName,

@@ -760,9 +760,10 @@ that takes their hardware over. Staff read them as Admins do.
   ids of the Profile, Bean Batch, Grinder, Basket and Recipe it names
   (`profileId`, `beanBatchId`, `grinderId`, `basketId`, `recipeId`). The
   Profile is found from the profile, as a Shot's is; the rest through the map
-  of the tablet the Machine's latest connection came from, which reported the
-  Workflow. An id that map doesn't hold is null, with the name the Workflow
-  recorded kept. `get_machine_activity` gives each Workflow change the same
+  of the tablet the Machine's latest connection came from, which reports the
+  Workflow as its connection begins, standing in for the tablet that reported
+  it until each change records its own (#434). An id that map doesn't hold is
+  null, with the name the Workflow recorded kept. `get_machine_activity` gives each Workflow change the same
   summary, finding only its Profile, as which tablet reported a change isn't
   recorded.
 - `GET /api/machines` and `GET /api/machines/:id` include `loadedRecipe:

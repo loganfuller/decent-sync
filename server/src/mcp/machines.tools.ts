@@ -321,7 +321,7 @@ export class MachinesTools {
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "Its Workflow is far shorter without raw; the management interface shows the Machine whole." },
+    budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "Its Workflow is far longer asked for whole with raw; the management interface shows the Machine whole." },
   })
   async getMachine({ machineId, at, raw }: z.infer<typeof machineInput>): Promise<z.infer<typeof machineOutput>> {
     const id = readMachineId(machineId);

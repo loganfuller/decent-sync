@@ -147,9 +147,11 @@ export class MachineEventsService {
   /**
    * The Machine's current Workflow, as `currentWorkflow` gives it, with the
    * Library items it names, resolved through the map of the tablet its
-   * latest connection came from (`machine_tablets`' `last_hello`): the tablet
-   * that reported it, as the plugin reports the Workflow as each connection
-   * begins and as it changes, and a Workflow is stored only as it changes.
+   * latest connection came from (`machine_tablets`' `last_hello`), which
+   * reports the Workflow as its connection begins: the tablet that reported
+   * it, but for a moment as a tablet connects or takes over, or while its
+   * plugin holds the Workflow back during a write of its own, until its
+   * report is stored.
    */
   async currentLinkedWorkflow(machineId: string): Promise<LinkedWorkflowEventView | null> {
     await this.requireMachine(machineId);
@@ -205,18 +207,22 @@ export class MachineEventsService {
   }
 
   /**
-   * The Workflows in effect over the range (`inEffectDuring`), each with the
-   * Library items it names: its Profile, read from its profile; the rest only
-   * through the map of the tablet that reported it, which no change records
-   * yet, so null.
+   * The Workflows in effect over the range (`inEffectDuring`), a page of
+   * them, each with the Library items it names, resolved for the page alone:
+   * its Profile, read from its profile; the rest only through the map of the
+   * tablet that reported it, which no change records yet, so null.
    */
   private async workflowEventsDuring(machineId: string, bounds: Bounds, page: Page): Promise<ActivityPage<LinkedWorkflowEventView>> {
     const table = Prisma.sql`workflow_events`;
     const [rows, total] = await Promise.all([
       this.prisma.$queryRaw<LinkedRow[]>`
-        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`during.workflow`, Prisma.sql`NULL::uuid`)}
-        FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
-        ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}`,
+        SELECT id, observed_at AS "observedAt", received_at AS "receivedAt", workflow, ${workflowLinksSql(Prisma.sql`paged.workflow`, Prisma.sql`NULL::uuid`)}
+        FROM (
+          SELECT id, observed_at, received_at, workflow
+          FROM ${inEffectDuring(table, Prisma.sql`id, observed_at, received_at, workflow`, machineId, bounds, page)}
+          ORDER BY observed_at DESC, id DESC LIMIT ${page.limit} OFFSET ${page.offset}
+        ) AS paged
+        ORDER BY observed_at DESC, id DESC`,
       countInEffect(this.prisma, table, machineId, bounds),
     ]);
     return { entries: rows.map(viewLinkedWorkflowEvent), total };

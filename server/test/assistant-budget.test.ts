@@ -489,7 +489,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       await expect.poll(async () => (await assistant.call<{ tabletSettings: { appSettings: unknown } }>("get_machine", { machineId: haunted.machine.id })).tabletSettings.appSettings).toBeTruthy();
       type Read = { cut: string; workflow: { workflow: Fields; raw: Fields }; tabletSettings: { appSettings: { value: unknown } } };
       const { result } = await assistant.callWithinBudget<Read>("get_machine", { machineId: haunted.machine.id, raw: true });
-      expect(result.cut).toContain("without raw");
+      expect(result.cut).toContain("management interface");
       const read = result.workflow.raw;
       expect([(read.profile as Fields).notes, (read.profile as Fields).title, (read.context as Fields).coffeeName, read.description].every(cut)).toBe(true);
       expect((read.profile as Fields).steps).toEqual(profile.steps);
