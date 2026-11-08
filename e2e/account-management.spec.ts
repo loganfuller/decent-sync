@@ -1,6 +1,7 @@
 import { expect, type Browser, type Page, test } from "@playwright/test";
 import { recordAlerts } from "./support/alerts.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { signOut } from "./support/locators.js";
 import { nextRefusedPoll } from "./support/polling.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
@@ -216,7 +217,7 @@ test("a request the server answers only after the session ended goes to sign-in,
   // Then Sam signs out in another tab, and only after that does the server get the list, which it refuses.
   const otherTab = await samsPage.context().newPage();
   await otherTab.goto("/");
-  await otherTab.getByRole("button", { name: "Sign out" }).click();
+  await signOut(otherTab, sam.name);
   await expect(otherTab).toHaveURL(/\/sign-in$/);
   const refused = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/locations" && response.status() === 401);
   list.release();
@@ -276,7 +277,7 @@ test("a session read answered before signing out does not sign the person back i
   await read.held;
   await samsPage.getByRole("link", { name: "Decent Sync" }).click();
   await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
-  await samsPage.getByRole("button", { name: "Sign out" }).click();
+  await signOut(samsPage, sam.name);
   await expect(samsPage).toHaveURL(/\/sign-in$/);
 
   const answered = samsPage.waitForResponse((response) => new URL(response.url()).pathname === "/api/session");

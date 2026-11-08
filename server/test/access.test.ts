@@ -35,8 +35,8 @@ const BEARER = ["ALL /api/mcp"];
 /**
  * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations,
  * resolving Conflicts about items they can edit, creating, editing, Archiving and restoring Beans, Bean Batches,
- * Grinders, Baskets and Tools, but never hard-deleting any, and creating, editing, slotting, Archiving and restoring
- * Recipes at their Locations, but never hard-deleting them.
+ * Grinders, Baskets and Tools, but never hard-deleting any, creating, editing, slotting, Archiving and restoring
+ * Recipes at their Locations, but never hard-deleting them, and seeing and disconnecting their own Connected Apps.
  */
 const STAFF = [
   "GET /api/session",
@@ -129,17 +129,20 @@ const STAFF = [
   "GET /api/oauth/requests/:id",
   "POST /api/oauth/requests/:id/approve",
   "POST /api/oauth/requests/:id/deny",
+  "GET /api/connected-apps",
+  "POST /api/connected-apps/:id/disconnect",
 ];
 
 /**
- * Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, signing out, and
- * answering an app's request to connect, which acts as the Viewer, reading only.
+ * Routes a Viewer may use, who sees what Staff see and changes nothing: Staff's that read, signing out, answering an
+ * app's request to connect, which acts as the Viewer, reading only, and disconnecting their own Connected Apps.
  */
 const VIEWER = [
   ...STAFF.filter((name) => name.startsWith("GET ")),
   "DELETE /api/session",
   "POST /api/oauth/requests/:id/approve",
   "POST /api/oauth/requests/:id/deny",
+  "POST /api/connected-apps/:id/disconnect",
 ];
 
 interface Route {

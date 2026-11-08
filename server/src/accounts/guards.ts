@@ -40,8 +40,10 @@ export const AllowStaff = () => SetMetadata(STAFF, true);
 
 /**
  * Lets a Viewer use a route marked `@AllowStaff()` that changes something.
- * Only signing out is so marked: it ends the Viewer's own session, and a
- * Viewer changes nothing else.
+ * Only routes acting on the Viewer's own access are so marked: signing out,
+ * answering an app's request to connect, which acts as the Viewer, reading
+ * only, and disconnecting their own Connected Apps. A Viewer changes nothing
+ * else.
  */
 export const AllowViewer = () => SetMetadata(VIEWER, true);
 
@@ -110,7 +112,7 @@ export class SameOriginGuard implements CanActivate {
  * Requires a signed-in account on every route not marked `@Public()`, and an
  * Admin on every one not marked `@AllowStaff()` either. A Viewer, who
  * changes nothing, uses only those marked `@AllowStaff()` that read, and
- * signing out (`@AllowViewer()`).
+ * those acting on their own access (`@AllowViewer()`).
  *
  * It lets an MCP tool call through: the MCP endpoint's route is public to
  * it, and the endpoint authenticates each request by its Connected App's

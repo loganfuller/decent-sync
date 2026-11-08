@@ -3,13 +3,15 @@ import { derivedShot, shotFixture, withShots } from "../server/test/support/shot
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../server/test/support/steam-fixtures.js";
 import { useFreshServer } from "./support/fresh-server.js";
+import { openAccountMenu } from "./support/locators.js";
 import { admin, createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
 // The management interface on a phone as wide as an iPhone 15, as an Admin
 // and as Staff: no page is wider than the screen, the navigation, the
-// account's name and Sign out are in a menu, and the Theme button stays in the
-// top bar beside it. On a wider screen the top bar is the one row it was. A
+// account's name, Connected Apps and Sign out are in a menu, and the Theme
+// button stays in the top bar beside it. On a wider screen the top bar is the
+// one row it was, with Connected Apps and Sign out in the account menu. A
 // simulated tablet running the built plugin backfills a Shot and a Steam
 // Record, so each list has a table to fit; its serial is made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -91,11 +93,11 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
       await expect(page.getByRole("table", { name: "Machines" })).toBeVisible();
       const bar = page.getByRole("banner");
       await expect(bar.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText([...MAIN_LINKS, "Accounts"]);
-      await expect(bar.getByText(admin.name)).toBeVisible();
-      await expect(bar.getByRole("button", { name: "Sign out" })).toBeVisible();
       await expect(bar.getByRole("button", { name: "Theme" })).toBeVisible();
       await expect(bar.getByRole("button", { name: "Menu" })).toBeHidden();
       await expectFits(page, width);
+      const accountMenu = await openAccountMenu(page, admin.name);
+      await expect(accountMenu.getByRole("menuitem")).toHaveText(["Connected Apps", "Sign out"]);
     } finally {
       await context.close();
     }
@@ -136,7 +138,7 @@ async function visitEachPage(page: Page, account: { name: string; links: string[
   await expect(page.getByRole("heading", { name: "Sign in to Decent Sync" })).toBeVisible();
 }
 
-/** Opens the menu, which holds the account's links, its name and Sign out. */
+/** Opens the menu, which holds the main navigation, the account's name, Connected Apps and Sign out. */
 async function openMenu(page: Page, account: { name: string; links: string[] }) {
   await page.getByRole("banner").getByRole("button", { name: "Menu" }).click();
   const menu = page.getByRole("dialog", { name: "Decent Sync" });
@@ -144,6 +146,7 @@ async function openMenu(page: Page, account: { name: string; links: string[] }) 
   // Focus starts at the first link, not Sign out, which Enter would press.
   await expect(menu.getByRole("link", { name: "Shots" })).toBeFocused();
   await expect(menu.getByText(`Signed in as ${account.name}`)).toBeVisible();
+  await expect(menu.getByRole("navigation", { name: "Account" }).getByRole("link")).toHaveText(["Connected Apps"]);
   await expect(menu.getByRole("button", { name: "Sign out" })).toBeVisible();
   return menu;
 }

@@ -1,10 +1,22 @@
 import type { Locator, Page } from "@playwright/test";
 
-// Locators for parts the management interface's pages share.
+// Locators for parts the management interface's pages share, and the
+// account menu's sign-out.
 
 /** The value a description list in `scope` gives for `term`: the `dd` after the `dt` reading exactly that. */
 export function field(scope: Page | Locator, term: string): Locator {
   return scope.locator("dt", { hasText: new RegExp(`^${term}$`) }).locator("xpath=following-sibling::dd[1]");
+}
+
+/** Opens the account menu in the top bar, on a screen wide enough for it to show the account's name, and returns it. */
+export async function openAccountMenu(page: Page, accountName: string): Promise<Locator> {
+  await page.getByRole("banner").getByRole("button", { name: accountName, exact: true }).click();
+  return page.getByRole("menu");
+}
+
+/** Signs out through the account menu in the top bar. */
+export async function signOut(page: Page, accountName: string): Promise<void> {
+  await (await openAccountMenu(page, accountName)).getByRole("menuitem", { name: "Sign out" }).click();
 }
 
 /** The table's rows, leaving out its header row. */
