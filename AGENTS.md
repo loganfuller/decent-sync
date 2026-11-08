@@ -66,3 +66,4 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 - Pull request descriptions, and screenshots of management interface changes embedded in them: `docs/agents/pull-requests.md`.
 - Triage label meanings: `docs/agents/triage-labels.md`.
 - Glossary use and ADR conflicts: `docs/agents/domain.md`.
+- What people read to run and use Decent Sync, kept current with what a change does for them: `README.md`, `docs/SELF-HOSTING.md` (deploying, configuration, upgrading), `docs/PLUGIN.md` (the tablet plugin) and `docs/DEVELOPMENT.md` (commands, tests, releasing).

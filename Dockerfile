@@ -1,7 +1,7 @@
 # The Decent Sync server image: the server plus the built management interface.
 # It needs only PostgreSQL 14 or newer, reached through DATABASE_URL, and applies
 # pending migrations on startup. docker-compose.yml runs it with PostgreSQL;
-# the README covers configuration.
+# docs/SELF-HOSTING.md covers configuration.
 
 ARG NODE_VERSION=26
 
