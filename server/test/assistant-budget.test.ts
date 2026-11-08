@@ -678,7 +678,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(asOf.result.tabletSettings.appSettings.value).toEqual(values[30]);
     });
 
-    it("gives what a Machine's tablet reports with its plugins' descriptions far longer than any written cut and marked, each plugin's id, name and version whole", async () => {
+    it("gives what a Machine's tablet reports with its plugins' descriptions far longer than any written cut and marked, saying so, and the rest of each plugin as sent", async () => {
       const plugins: Fields[] = Array.from({ length: 8 }, (_, n) => ({ ...pluginListing(), id: `haunted-${n}.reaplugin`, version: `1.${n}.0`, description: hostile(8_000) }));
       await raw.deliver({ type: "collection", id: randomUUID(), name: "plugins", available: true, value: plugins });
       const { result } = await assistant.callWithinBudget<{ cut: string; plugins: { value: Fields[] } }>("get_machine_reports", { machineId: haunted.machine.id });

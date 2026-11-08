@@ -457,7 +457,7 @@ export class MachinesTools {
     outputSchema: reportsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { rest: "Asked for one collection at a time, it has more of each; the management interface shows them whole." },
+    budget: { rest: "Asked for one collection at a time, it has more of each." },
   })
   async getMachineReports({ machineId, collections }: z.infer<typeof reportsInput>): Promise<z.infer<typeof reportsOutput>> {
     const machine = await this.machines.get(readMachineId(machineId));
@@ -683,7 +683,7 @@ function collection(view: CollectionView | null, zone: Zone): z.infer<typeof set
   );
 }
 
-/** A collection get_machine_reports gives as the REST API does, its times with the offset of the Location the Machine was at then; null if never reported. */
+/** A collection get_machine_reports gives, with the REST API's available, reportedAt, receivedAt and value, its times with the offset of the Location the Machine was at then; null if never reported. */
 function reportOf(view: CollectionView | null, zone: Zone): z.infer<typeof report> {
   return view && { available: view.available, reportedAt: zone(view.reportedAt), receivedAt: zoneMaybe(zone, view.receivedAt), value: view.value };
 }
