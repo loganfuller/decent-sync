@@ -50,7 +50,9 @@ const cutNote = z
 /**
  * A tool, as `@Tool` declares one, whose response the shared guard keeps
  * within the budget (`withinBudget`), declaring `RESULT_SIZE_META` and the
- * response's `cut` note in its output schema.
+ * response's `cut` note in its output schema. It wraps the method, so any
+ * other method decorator, such as `@UseGuards`, goes above it, to apply to
+ * the method it leaves.
  */
 export function BudgetedTool({ budget = {}, ...options }: BudgetedToolOptions): MethodDecorator {
   return (target, key, descriptor) => {
@@ -84,7 +86,7 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
   // As the client receives it: a Date as its text, and what is undefined left out.
   const sent = JSON.parse(JSON.stringify(response)) as Record<string, unknown>;
   const whole = (budget.whole ?? []).map((path) => path.split("/").slice(1));
-  const note = `Text ending in ${CUT_MARK} was cut to fit this response. ${budget.rest ?? "The management interface shows it whole."}`;
+  const note = `Text ending in ${CUT_MARK} was cut to keep this response small. ${budget.rest ?? "The management interface shows it whole."}`;
   const fitted = (at: number, entries: number) => {
     const shape = new Shape(whole, at, entries);
     const value = shape.of(sent, []) as Record<string, unknown>;

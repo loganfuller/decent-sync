@@ -27,7 +27,7 @@ const MACHINE_TIMES =
 
 /** What list_machines gives of each Machine, which get_machine gives too. */
 const LISTED =
-  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, when it was last heard from; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleep; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
+  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, when it was last heard from; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
 
 /** What a date given for a bound of a Machine's activity means. */
 const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
@@ -40,7 +40,7 @@ const location = z.object({
 
 const machineState = z
   .object({ state: z.string(), substate: z.string(), observedAt: tabletTime })
-  .describe("A Machine State as Decaid names it, such as espresso and pouring, or sleep, and when the plugin observed it.");
+  .describe("A Machine State as Decaid names it, such as espresso and pouring, or sleeping, and when the plugin observed it.");
 
 const loadedRecipe = z
   .object({
