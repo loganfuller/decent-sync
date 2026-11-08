@@ -232,8 +232,9 @@ export class MachineEventsService {
    * it, grouped whole before the page is taken, so its total counts the
    * trail's entries, of the cause asked for, the first always given. Each
    * Profile is found once, however many changes name it, and each Workflow
-   * read once: 25,000 changes, a year of a busy Machine's, take under a
-   * second, and a day's a few ms.
+   * read once, so a long range is read whole quickly enough: 25,000 changes,
+   * a year of a busy Machine's, took about 0.6 s on 2026-11-08, and a day's
+   * a few ms.
    */
   private async workflowTrail(machineId: string, range: TimeRange, bounds: Bounds, page: Page, cause: ChangeCause | undefined): Promise<ActivityPage<TrailEntry>> {
     // Each Workflow's parts read in one pass of it (jsonb_to_record), rather than one for each part.

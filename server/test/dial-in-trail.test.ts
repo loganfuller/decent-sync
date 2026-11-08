@@ -214,6 +214,11 @@ describe("dialInTrail", () => {
     const made: TrailChange[] = [{ id: 1n, observedAt: at(0), ...OTHER, summary: { ...SUMMARY, recipeId: BRAZIL.id } }];
     const trail = dialInTrail({ baseline: { ...baseline(), id: 0n }, changes: made, recipeEvents: loads(["loaded", 0, BRAZIL, 9]), loadedAtStart: null });
     expect(shown(trail)).toEqual([{ kind: "loaded", observedAt: iso(0), lastObservedAt: null, cause: "other", loadedRecipe: "Brazil", changes: { recipeId: [null, BRAZIL.id] } }]);
+    // A load timed as a change held back first named it, delivered 3 s later: the change's time is its last.
+    const held = changes([3, plugin("steamOn"), { recipeId: BRAZIL.id }]);
+    expect(shown(dialInTrail({ baseline: baseline(), changes: held, recipeEvents: loads(["loaded", 0, BRAZIL]), loadedAtStart: null }))).toEqual([
+      { kind: "loaded", observedAt: iso(0), lastObservedAt: iso(3), cause: "plugin:steamOn", loadedRecipe: "Brazil", changes: { recipeId: [null, BRAZIL.id] } },
+    ]);
     // A load as the Machine joins its Location, with its Workflow unchanged, so no change stored.
     const joined = dialInTrail({ baseline: baseline(), changes: [], recipeEvents: loads(["loaded", 0, BRAZIL]), loadedAtStart: null });
     expect(shown(joined)).toEqual([{ kind: "loaded", observedAt: iso(0), lastObservedAt: null, cause: "unknown", loadedRecipe: "Brazil", changes: {} }]);

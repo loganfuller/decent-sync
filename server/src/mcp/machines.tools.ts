@@ -110,7 +110,7 @@ const WORKFLOW_CAUSE =
 
 /** What get_machine_activity's dial-in trail is, and how it folds and merges Workflow changes (dial-in-trail.ts). */
 const DIAL_IN_TRAIL =
-  "The dial-in trail is one list of its Recipes loaded and unloaded and what changed between them, by kind: inEffect, its last (oldest) entry, the Workflow in effect as the range began, whole (workflow); loaded, a Recipe loaded, with replaced, one unloaded as it loaded; unloaded; recipeUpdated, Decent Sync writing in an edit of the Loaded Recipe made elsewhere, whose own history says who made it; changed, any other. Each gives who made its first change, and loadedRecipe, the Recipe loaded, unloaded or updated, else the one loaded then; each but inEffect gives changes, each field of the summary that changed, before and after, a part's as steam.duration. A load or unload folds in the first change within 5 s after it, which made it, and in those 5 s Decent Sync's load writes, or for an unload changes of that one's cause. Other changes of one cause within 5 s of each other merge, a group spanning at most 30 s and never a load or unload, lastObservedAt its last; unknown ones by time alone. An entry left with no field changed is dropped. total counts the entries; cause keeps those of one cause, and inEffect.";
+  "The dial-in trail is one list of its Recipes loaded and unloaded and what changed between them, by kind: inEffect, its last (oldest) entry, the Workflow in effect as the range began, whole (workflow); loaded, a Recipe loaded, with replaced, one unloaded as it loaded; unloaded; recipeUpdated, Decent Sync writing in an edit of the Loaded Recipe made elsewhere, whose own history says who made it; changed, any other. Each gives who made its first change, and loadedRecipe, the Recipe loaded, unloaded or updated, else the one loaded then; each but inEffect gives changes, each field of the summary that changed, before and after, a part's as steam.duration. A load or unload folds in the first change within 5 s after it, which made it, and in those 5 s Decent Sync's load writes, or for an unload changes of that one's cause; one with no change within 5 s, as when the Machine joins a Location, is of cause unknown. Other changes of one cause within 5 s of each other merge, a group spanning at most 30 s and never a load or unload; unknown ones by time alone. lastObservedAt is the last change an entry took after it began. An entry left with no field changed is dropped. total counts the entries; cause keeps those of one cause, and inEffect, each before then as the changes left out left it.";
 
 /** Who made a Workflow change, as get_machine and get_machine_activity give it (WORKFLOW_CAUSE). */
 const workflowCause = {
@@ -187,7 +187,7 @@ const trailRecipe = z.object({ id: z.string(), name: z.string().nullable() });
 const trailEntry = z.object({
   kind: z.enum(["inEffect", "loaded", "unloaded", "recipeUpdated", "changed"]),
   observedAt: tabletTime.describe("When it began: the load's or unload's time, or its first change's."),
-  lastObservedAt: tabletTime.optional().describe("When changes merged into it, the last one's time."),
+  lastObservedAt: tabletTime.optional().describe("When it took a change after it began, the last one's time."),
   ...workflowCause,
   loadedRecipe: trailRecipe.nullable().describe("The Recipe loaded, unloaded or updated; for any other, its Loaded Recipe then, null for none."),
   replaced: trailRecipe.optional().describe("For loaded, the Recipe unloaded as it loaded."),

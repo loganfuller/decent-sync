@@ -85,7 +85,7 @@ export interface TrailEntry {
   kind: TrailKind;
   /** When it began: a load's or unload's time, or its first change's. */
   observedAt: string;
-  /** When more than one change merged into it, the last one's time; otherwise null. */
+  /** When it took a change after the moment it began, the last one's time; otherwise null. */
   lastObservedAt: string | null;
   /** Who made its first change; `unknown` for a load or unload no change came within 5 s of. */
   cause: ChangeCause;
@@ -216,7 +216,7 @@ class Group {
     return {
       kind: this.kind,
       observedAt: new Date(this.at).toISOString(),
-      lastObservedAt: this.count > 1 && this.last !== this.at ? new Date(this.last).toISOString() : null,
+      lastObservedAt: this.last !== this.at ? new Date(this.last).toISOString() : null,
       cause: this.cause,
       pluginWrite: this.pluginWrite,
       loadedRecipe: this.loadedRecipe,

@@ -720,6 +720,15 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(fields(unloaded)).toMatchObject({ profileId: [expect.any(String), ADAPTIVE], recipe: [name, null], recipeId: [brazil, null] });
       expect(inEffect.workflow).toMatchObject({ recipeId: null });
       for (const entry of entries) expectZoned(CHICAGO, entry.observedAt, ...(entry.lastObservedAt ? [entry.lastObservedAt] : []));
+      // From between the load and the grind steps: the Brazil's loaded as the range began, then the rest as before.
+      const later = await trail({ from: new Date(Date.parse(loaded.lastObservedAt!) + 30_000).toISOString() });
+      expect(later.entries.map(({ kind, loadedRecipe }) => [kind, loadedRecipe])).toEqual([
+        ["unloaded", recipe],
+        ["recipeUpdated", recipe],
+        ["changed", recipe],
+        ["inEffect", recipe],
+      ]);
+      expect(later.entries.slice(0, 3)).toEqual(entries.slice(0, 3));
       // Recipe sync's writes alone, and the barista's.
       expect((await trail({ cause: "plugin" })).entries.map((entry) => entry.kind)).toEqual(["recipeUpdated", "inEffect"]);
       expect((await trail({ cause: "other" })).total).toBe(4);
