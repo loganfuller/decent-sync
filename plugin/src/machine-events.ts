@@ -144,7 +144,8 @@ export class MachineEvents implements WorkflowChanges {
   release(): void {
     this.holds = Math.max(0, this.holds - 1);
     if (this.holds > 0) return;
-    const write = this.heldWrite;
+    // A resend alone, with no change reported while held, is no write's change, whatever was written.
+    const write = this.heldReport ? this.heldWrite : undefined;
     this.heldWrite = undefined;
     if (this.heldChange && this.workflow) {
       this.heldChange = false;

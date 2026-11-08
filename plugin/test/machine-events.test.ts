@@ -191,12 +191,18 @@ describe("Who changed the Workflow", () => {
     machineEvents.hold();
     machineEvents.welcome();
     machineEvents.release();
+    // Held back with a write Decaid took that changed nothing, it is still the resend alone.
+    machineEvents.hold();
+    machineEvents.welcome();
+    machineEvents.wrote("load");
+    machineEvents.release();
     machineEvents.hold();
     machineEvents.welcome();
     machineEvents.workflowUpdated(dosed(19));
     machineEvents.wrote("clear");
     machineEvents.release();
     expect(causes(deliveries)).toEqual([
+      [18, "other"],
       [18, "other"],
       [18, "other"],
       [18, "other"],
