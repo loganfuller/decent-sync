@@ -359,7 +359,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} ${WORKFLOW_SUMMARY} Of a Workflow change, only profileId is found here: the rest of its ids are null, as which tablet reported it isn't recorded, and get_machine gives the current Workflow's. A Machine State lasts until the next one reported.`,
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} ${WORKFLOW_SUMMARY} Of a Workflow change, only profileId is found here: the rest of its ids, and recipe, are null whatever it named, as which tablet reported it isn't recorded; get_machine gives the current Workflow's. A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },

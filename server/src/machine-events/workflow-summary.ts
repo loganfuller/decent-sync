@@ -28,11 +28,15 @@ export interface WorkflowLinks {
   grinderId: string | null;
   basketId: string | null;
   recipeId: string | null;
-  /** The Library's name of the Recipe, which the Workflow doesn't record; null where `recipeId` is. */
+  /** The Library's name of the Recipe, which the Workflow doesn't record; null where `recipeId` is, or the Recipe has no name. */
   recipeName: string | null;
 }
 
-/** The parts of a Workflow the management interface shows, and its Basket and Recipe, with the Library's ids of what it names. */
+/**
+ * The parts of a Workflow the management interface shows, and its Basket and
+ * Recipe, with the Library's ids of what it names. The MCP endpoint gives it by
+ * its own schema (mcp/workflow-summary.ts), which a field added here joins.
+ */
 export interface WorkflowSummary {
   profile: string | null;
   profileId: string | null;

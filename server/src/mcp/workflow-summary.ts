@@ -3,7 +3,8 @@ import * as z from "zod";
 // A Workflow as an assistant reads it, in get_machine and among a Machine's
 // activity: its summary (machine-events/workflow-summary.ts), whose meanings
 // each tool's description gives too (`WORKFLOW_SUMMARY`), as most clients
-// show a model no output schema (ADR-0028).
+// show a model no output schema (ADR-0028). A field added to the summary's
+// interface there is added here too, or the MCP output leaves it out.
 
 const amount = (unit: string) => z.number().nullable().describe(unit);
 
@@ -30,7 +31,7 @@ export const workflowSummaryOutput = z
     grinderId: libraryId("grinder", "Grinder"),
     basket: z.string().nullable().describe("The Basket's name, as the Workflow names it."),
     basketId: libraryId("basket", "Basket"),
-    recipe: z.string().nullable().describe("The name of the Recipe the Workflow names, as the Library names it; null where recipeId is."),
+    recipe: z.string().nullable().describe("The name of the Recipe the Workflow names, as the Library names it; null where recipeId is, or the Recipe has no name."),
     recipeId: libraryId("recipe", "Recipe"),
     barista: z.string().nullable(),
     steam: z.object({ temperature: amount("°C"), duration: amount("s"), flow: amount("ml/s") }).nullable(),
