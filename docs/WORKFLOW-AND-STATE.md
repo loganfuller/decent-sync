@@ -864,9 +864,10 @@ with its Workflow unchanged, is of cause `unknown`.
 Other changes of one cause, the plugin's write included, one within 5 s of
 the one before it, merge, a group spanning at most 30 s, and never across a
 load or unload; those stored before #434, of cause `unknown`, merge by time
-alone, and a load whose first change is one takes the others in its 5 s,
-its load write among them. At one moment a load or unload comes before a change, then each by
-stored id. An entry left with no field changed is dropped, but for a load or
+alone. A load whose first change is `unknown` takes the other `unknown`
+changes in its 5 s, its load write among them, as well as the plugin's load
+writes, as when the previous release stored the first during a deploy. At
+one moment a load or unload comes before a change, then each by stored id. An entry left with no field changed is dropped, but for a load or
 unload, which is a change in itself. The trail is grouped whole before a page
 of it is taken, so pages and `total` stay as they are, and `cause` keeps the
 entries of one cause and the first, each `before` then as the changes left

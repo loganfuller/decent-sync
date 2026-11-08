@@ -30,8 +30,8 @@ import type { WorkflowSummary } from "./workflow-summary.js";
 //   whose own history says who changed it;
 // - changes stored before Decent Sync recorded who made them (`unknown`)
 //   merge by the 5 s window alone, as of one cause, and a load whose first
-//   change is one takes the others in its 5 s, as its load write was stored
-//   so too;
+//   change is `unknown` takes the other `unknown` changes in its 5 s, as its
+//   load write may be stored so too, as well as the plugin's load writes;
 // - an entry left with no field changed is dropped, but for a load or unload,
 //   which is a change in itself.
 //
@@ -152,9 +152,11 @@ export function dialInTrail({ baseline, changes, recipeEvents, loadedAtStart }: 
     const taken = change!;
     const key = causeKey(taken);
     let group: Group;
-    if (recipeGroup && at - recipeGroup.at <= MERGE_WITHIN_MS && (recipeGroup.count === 0 || key === recipeGroup.folds)) {
+    // A load takes the plugin's load writes after its first change, and after an unknown one, as stored before #434 or by
+    // the previous release beside this one, the other unknown changes too, as its load write may be.
+    const folds = (into: Group) => key === into.folds || (into.kind === "loaded" && key === "plugin:load");
+    if (recipeGroup && at - recipeGroup.at <= MERGE_WITHIN_MS && (recipeGroup.count === 0 || folds(recipeGroup))) {
       group = recipeGroup;
-      // A load takes the plugin's load writes after its first change, stored as unknown before #434, as that change was.
       if (group.count === 0) group.folds = group.kind === "loaded" && key !== "unknown" ? "plugin:load" : key;
     } else if (burst && key === burst.folds && at - burst.last <= MERGE_WITHIN_MS && at - burst.at <= LONGEST_GROUP_MS) {
       group = burst;
