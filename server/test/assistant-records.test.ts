@@ -28,14 +28,17 @@ interface RestShot {
   machineInferred: boolean;
   location: LocationView | null;
   locationInferred: boolean;
-  recipe: unknown;
-  profile: unknown;
+  recipe: { id: string; name: string | null } | null;
+  profile: { id: string; title: string | null } | null;
   profileTitle: string | null;
   coffeeRoaster: string | null;
   coffeeName: string | null;
-  beanBatch: unknown;
-  grinder: unknown;
-  basket: unknown;
+  beanBatch: { id: string; bean: { id: string; roaster: string | null; name: string | null }; roastDate: string | null } | null;
+  grinder: { id: string; model: string | null } | null;
+  grinderModel: string | null;
+  grinderSetting: string | null;
+  basket: { id: string; name: string | null } | null;
+  basketName: string | null;
   grinderBurrs: string | null;
   targetDose: number | null;
   actualDose: number | null;
@@ -46,6 +49,10 @@ interface RestShot {
   barista: string | null;
   peakPressure: number | null;
   peakFlow: number | null;
+  stopReason: string | null;
+  tds: number | null;
+  extractionYield: number | null;
+  notes: string | null;
   record?: Fields;
   previousShot?: { id: string; pulledAt: string } | null;
 }
@@ -116,6 +123,49 @@ function shotSummary(shot: RestShot): Fields {
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
   };
+}
+
+/**
+ * What find_shots gives of a Shot, from the fields the REST API lists, but for its time, which `sameTimes` compares:
+ * each Library item by the Library's id and name, or else by a null id and the name the Shot recorded, and its
+ * credit's inference only where inferred, its amounts to two decimal places and its roast date as a day, each field
+ * with no value left out, but an item's id. These tests' names and notes are short enough to be given whole.
+ */
+function shotRow(shot: RestShot): Fields {
+  const recorded = (text: string | null) => (text?.trim() ? text : null);
+  const hundredths = (value: number | null) => (value === null ? null : Math.round(value * 100) / 100);
+  const present = (fields: Fields) => Object.fromEntries(Object.entries(fields).filter(([key, value]) => value !== null || key === "id"));
+  const item = (id: string | undefined, names: Fields) => (id === undefined && Object.values(names).every((name) => name === null) ? null : present({ id: id ?? null, ...names }));
+  const batch = shot.beanBatch;
+  return present({
+    id: shot.id,
+    machine: shot.machine,
+    ...(shot.machineInferred && { machineInferred: true }),
+    location: shot.location && { id: shot.location.id, name: shot.location.name },
+    ...(shot.locationInferred && { locationInferred: true }),
+    recipe: shot.recipe && present(shot.recipe),
+    profile: item(shot.profile?.id, { title: recorded(shot.profile ? shot.profile.title : shot.profileTitle) }),
+    beanBatch: item(
+      batch?.id,
+      batch ? { roaster: recorded(batch.bean.roaster), name: recorded(batch.bean.name), roastDate: batch.roastDate?.slice(0, 10) ?? null } : { roaster: recorded(shot.coffeeRoaster), name: recorded(shot.coffeeName) },
+    ),
+    grinder: item(shot.grinder?.id, { model: recorded(shot.grinder ? shot.grinder.model : shot.grinderModel) }),
+    grinderSetting: shot.grinderSetting,
+    basket: item(shot.basket?.id, { name: recorded(shot.basket ? shot.basket.name : shot.basketName) }),
+    targetDose: hundredths(shot.targetDose),
+    actualDose: hundredths(shot.actualDose),
+    targetYield: hundredths(shot.targetYield),
+    actualYield: hundredths(shot.actualYield),
+    duration: hundredths(shot.duration),
+    peakPressure: hundredths(shot.peakPressure),
+    peakFlow: hundredths(shot.peakFlow),
+    stopReason: shot.stopReason,
+    enjoyment: shot.enjoyment,
+    barista: recorded(shot.barista),
+    tds: hundredths(shot.tds),
+    extractionYield: hundredths(shot.extractionYield),
+    notes: shot.notes,
+  });
 }
 
 function steamSummary(steamRecord: RestSteamRecord): Fields {
@@ -275,7 +325,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
   async function findShotsAsRest(input: Fields, query: Record<string, string>, by = assistant, at = api): Promise<string[]> {
     const found = await by.call<{ shots: ToolShot[] } & Page>("find_shots", input);
     const rest = await restShots(query, at);
-    expect(found.shots.map(({ pulledAt: _, ...summary }) => summary)).toEqual(rest.shots.map(shotSummary));
+    expect(found.shots.map(({ pulledAt: _, ...row }) => row)).toEqual(rest.shots.map(shotRow));
     sameTimes(found.shots.map((shot) => shot.pulledAt), rest.shots.map((shot) => shot.pulledAt));
     expect(found.total).toBe(rest.total);
     return found.shots.map((shot) => shot.id);
@@ -348,7 +398,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
   it("gives a record whose Location is unknown its time in UTC, and reads a date as a UTC day for it, as the REST API does", async () => {
     const { shots } = await assistant.call<{ shots: ToolShot[] }>("find_shots", { machineId: roaming.machine.id });
-    expect(shots).toEqual([expect.objectContaining({ id: "roaming-late", pulledAt: "2026-03-06T01:00:00.000Z", location: null, locationInferred: false })]);
+    expect(shots).toEqual([expect.objectContaining({ id: "roaming-late", pulledAt: "2026-03-06T01:00:00.000Z" })]);
+    expect(shots[0]).not.toHaveProperty("location");
+    expect(shots[0]).not.toHaveProperty("locationInferred");
     for (const day of ["2026-03-06", "2026-03-05"]) {
       const query = { machineId: roaming.machine.id, from: day, to: day };
       expect(await findShotsAsRest(query, query)).toEqual(day === "2026-03-06" ? ["roaming-late"] : []);
@@ -438,6 +490,89 @@ describe("reading Shots and Steam Records through an assistant", () => {
       grinder: { id: grinder.id, model: "Assistant EK43" },
       profile: { id: profileId, title: "Assistant bloom" },
     });
+    // Listed, each item it is linked to is named as the Library names it, not as the Shot recorded it, and the Basket
+    // DYE2 recorded, which isn't in the Library, as the Shot recorded it.
+    const { shots } = await assistant.call<{ shots: Fields[] }>("find_shots", { beanBatchId: batch.id });
+    expect(shots).toEqual([
+      expect.objectContaining({
+        beanBatch: { id: batch.id, roaster: "Roux", name: "Assistant Guji", roastDate: "2026-10-01" },
+        grinder: { id: grinder.id, model: "Assistant EK43" },
+        profile: { id: profileId, title: "Assistant bloom" },
+        basket: { id: null, name: "Decent 18g Ridgeless" },
+      }),
+    ]);
+    // Its Workflow named no Recipe.
+    expect(shots[0]).not.toHaveProperty("recipe");
+  });
+
+  it("lists each Shot compactly, with how it went, from the fields the REST API lists, naming nothing twice and leaving out what has no value", async () => {
+    // Derived: a Shot the Machine ended after a few seconds, with no yield, as one on a Machine at Roux did on
+    // 2026-11-08; one with a refractometer's readings and notes; and one that recorded no hardware, so it is credited
+    // to Uptown 1, whose tablet reported it, and its Location by inference.
+    const aborted = shotAt("assistant-aborted", "2026-04-01T13:00:00Z", hardware.uptown1, "Ann");
+    const { actualYield: _, ...unweighed } = aborted.annotations as Fields;
+    const measured = shotAt("assistant-measured", "2026-04-01T13:05:00Z", hardware.uptown1, "Ben");
+    const inferred = shotAt("assistant-inferred", "2026-04-01T13:10:00Z", hardware.uptown1, "Cat");
+    const { machine: _machine, ...unidentified } = inferred.workflow as Fields;
+    await deliverShots(uptown1, hardware.uptown1, [
+      { ...aborted, stopReason: "machineEnded", annotations: unweighed, measurements: (aborted.measurements as unknown[]).slice(0, 25) },
+      { ...measured, annotations: { ...(measured.annotations as Fields), drinkTds: 9.4, drinkEy: 20.1, espressoNotes: "Sweet, a little sharp at the end" } },
+      { ...inferred, workflow: unidentified },
+    ]);
+    const april = { from: "2026-04-01", to: "2026-04-01" };
+    expect(await findShotsAsRest(april, april)).toEqual(["assistant-inferred", "assistant-measured", "assistant-aborted"]);
+    const { shots } = await assistant.call<{ shots: Fields[] }>("find_shots", april);
+    const [inferredRow, measuredRow, abortedRow] = shots as [Fields, Fields, Fields];
+    expect(abortedRow).toMatchObject({ stopReason: "machineEnded", grinderSetting: "8" });
+    // Unweighed, untasted and unmeasured, it gives no yield, notes or readings.
+    for (const none of ["actualYield", "notes", "tds", "extractionYield", "enjoyment", "recipe"]) expect(abortedRow, none).not.toHaveProperty(none);
+    expect(measuredRow).toMatchObject({
+      machine: { id: uptown1.machine.id, name: "Uptown 1" },
+      location: { id: uptown.id, name: "Uptown" },
+      // Linked to none of the Library's items, each is named as the Shot recorded it, with a null id, and no roast date.
+      beanBatch: { id: null, roaster: "Roux Bakehouse", name: "Ethiopia Generic 100g Sample" },
+      grinder: { id: null, model: "DF64 v2" },
+      basket: { id: null, name: "Decent 18g Ridgeless" },
+      stopReason: "targetWeight",
+      barista: "Ben",
+      tds: 9.4,
+      extractionYield: 20.1,
+      notes: "Sweet, a little sharp at the end",
+    });
+    // Its time carries its Location's offset, so the Location gives no time zone; credit by inference is given only
+    // where inferred; it was pulled with no Recipe loaded and rated with no enjoyment, so neither is given.
+    expect(Object.keys(measuredRow)).toEqual([
+      "id", "pulledAt", "machine", "location", "profile", "beanBatch", "grinder", "grinderSetting", "basket", "targetDose", "actualDose",
+      "targetYield", "actualYield", "duration", "peakPressure", "peakFlow", "stopReason", "barista", "tds", "extractionYield", "notes",
+    ]);
+    expect(Object.keys(measuredRow.beanBatch as Fields)).toEqual(["id", "roaster", "name"]);
+    expect(inferredRow).toMatchObject({ machine: { id: uptown1.machine.id }, machineInferred: true, location: { id: uptown.id }, locationInferred: true });
+  });
+
+  it("lists names over 60 characters and notes over 200 cut and marked, saying so first, and reads them whole one Shot at a time", async () => {
+    const barista = "Annabelle from the morning shift, training on the second grinder this week";
+    const notes = "Sweet and syrupy up front with stone fruit, then a little sharp at the end. ".repeat(4).trim();
+    const roaster = "Roux Bakehouse and Coffee Roasters of the Upper East Side Neighbourhood";
+    const shot = shotAt("assistant-long", "2026-04-02T13:00:00Z", hardware.uptown1, barista, { roaster, profile: "Londonium, a little longer at the start, for the lighter roasts" });
+    await deliverShots(uptown1, hardware.uptown1, [{ ...shot, annotations: { ...(shot.annotations as Fields), espressoNotes: notes } }]);
+    const day = { from: "2026-04-02", to: "2026-04-02" };
+    const found = await assistant.call<{ cut?: string; shots: Fields[] }>("find_shots", day);
+    expect(Object.keys(found)[0]).toBe("cut");
+    expect(found.cut).toContain("get_shot");
+    const [row] = found.shots as [Fields & { beanBatch: Fields; profile: Fields }];
+    expect(row.barista).toBe(`${barista.slice(0, 60)}…[cut]`);
+    expect(row.beanBatch.roaster).toBe(`${roaster.slice(0, 60)}…[cut]`);
+    expect(row.notes).toBe(`${notes.slice(0, 200)}…[cut]`);
+    // A name of 63 characters is given whole, as its cut, with its mark, would be no shorter.
+    expect(row.profile.title).toBe("Londonium, a little longer at the start, for the lighter roasts");
+    expect(row.beanBatch.name).toBe("Ethiopia Generic 100g Sample");
+    expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster }, grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless" });
+    // A cut name matches no Shot, so a filter holding one is refused, as a change is.
+    expect(await toolError("find_shots", { barista: row.barista as string })).toBe(
+      "A value holds …[cut], so it is text a response cut short: get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
+    );
+    // A page whose names and notes are short says nothing of a cut.
+    expect(await assistant.call<Fields>("find_shots", { from: "2026-04-01", to: "2026-04-01" })).not.toHaveProperty("cut");
   });
 
   it("reads a Shot as the REST API does, and its curves only when asked, each cut to at most 100 points, its peak kept, and its Preheat marked as the management interface shows it", async () => {
@@ -456,8 +591,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, ...summary } = read;
+    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
+    expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
     sameTimes([pulledAt], [rest.pulledAt]);
     expect(pulledAt).toMatch(/-0[56]:00$/);
     expect({ grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason }).toEqual({

@@ -6,7 +6,7 @@ import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { CURVES_REVISION, extractCurves, extractShot, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
+import { CURVES_REVISION, extractCurves, extractShot, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
@@ -134,7 +134,8 @@ export class ShotsService {
         const rows = ids.length === 0
           ? []
           : await withLinks(tx, await tx.shot.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: listOmitted, include: creditView }));
-        const byId = new Map(rows.map((row) => [row.id, row]));
+        const details = await recordedDetailsOf(tx, rows.map((row) => row.id));
+        const byId = new Map(rows.map((row) => [row.id, { ...row, ...details.get(row.id)! }]));
         return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -219,7 +220,7 @@ export class ShotsService {
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
-    return { ...shownShot(shot!), previousShot: await this.previous(shot!) };
+    return { ...shownShot(shot!), ...recordedDetails(found.record), previousShot: await this.previous(shot!) };
   }
 
   async measurements(id: string) {
@@ -344,6 +345,18 @@ async function withLinks<
     profile: profileOf.get(shot.id) ?? null,
     recipe: recipeOf.get(shot.id) ?? null,
   }));
+}
+
+/**
+ * What each Shot recorded beyond its columns (`recordedDetails`), by its id,
+ * read from only the parts of its record that hold it.
+ */
+async function recordedDetailsOf(db: Prisma.TransactionClient, ids: string[]): Promise<Map<string, ReturnType<typeof recordedDetails>>> {
+  if (ids.length === 0) return new Map();
+  const parts = await db.$queryRaw<{ id: string; stopReason: unknown; context: unknown; annotations: unknown }[]>`
+    SELECT id, record -> 'stopReason' AS "stopReason", record #> '{workflow,context}' AS context, record -> 'annotations' AS annotations
+    FROM shots WHERE id = ANY(${ids}::text[])`;
+  return new Map(parts.map(({ id, stopReason, context, annotations }) => [id, recordedDetails({ stopReason, annotations, workflow: { context } })]));
 }
 
 /** The distinct values listed Shots have of an expression on `shots` aliased `s`, empty text as null, sorted ignoring case. */
