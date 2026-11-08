@@ -175,10 +175,11 @@ function fieldLabel(collection: string, { field, before, after }: SettingsHistor
     const time = [after, before].map((value) => (isObject(value) ? value.time : undefined)).find((value) => typeof value === "string");
     return time ? `Wake schedule at ${time}` : "Wake schedule";
   }
+  // A value of another shape than Decaid's is one field, keyed "".
+  if (field === "") return "Value";
   if (isEditableSettingsCollection(collection)) return labelOf(collection, field);
   const named = [after, before].map(nameOf).find((name) => name !== undefined);
-  // A value of another shape than Decaid's is one field, keyed "".
-  return named ?? OTHER_LABELS[`${collection}/${field}`] ?? (field || "Value");
+  return named ?? OTHER_LABELS[`${collection}/${field}`] ?? field;
 }
 
 /** The name an entry of the plugins, paired devices or sensors reports for itself. */

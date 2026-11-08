@@ -225,7 +225,7 @@ const machineInput = z.object({
 
 /** What get_machine gives with a time. */
 const AS_OF =
-  "With at, its Machine Settings and Tablet Settings are each as last received at or before then, by its Settings History, available true and reportedAt its receivedAt, when that value was received; null for one none was received of by then, or none kept: a Settings History begins with the value held as it was first kept, at when that value was last reported, so earlier times give null though the Machine had settings. A change is received about 30 to 60 s after it was made, later while the Machine was busy, and within a day for the sensor calibration, and what a Settings History compares none of, such as the tablet's battery, may have changed since without being kept. Everything else, its Workflow included, is as now: get_machine_activity gives its Workflow then.";
+  "With at, its Machine Settings and Tablet Settings are each as last received at or before then, by its Settings History, available true and reportedAt its receivedAt, when that value was received; null for one none was received of by then, or none kept: a Settings History begins with the value held as it was first kept, dated when that value was last reported, so earlier times give null though the Machine had settings. A change is received about 30 to 60 s after it was made, later while the Machine was busy, and within a day for the sensor calibration, and what a Settings History compares none of, such as the tablet's battery, may have changed since without being kept. Everything else, its Workflow included, is as now: get_machine_activity gives its Workflow then.";
 
 /** The collections a Settings History keeps, for the descriptions of the tools that read one. */
 const HISTORY_COLLECTIONS =
