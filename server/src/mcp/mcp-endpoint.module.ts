@@ -17,7 +17,9 @@ import { INSTRUCTIONS } from "./instructions.js";
 import { LibraryChangesTools } from "./library-changes.tools.js";
 import { LibraryTools } from "./library.tools.js";
 import { McpListenStreams } from "./listen-streams.js";
+import { LocationChangesTools } from "./location-changes.tools.js";
 import { LocationsTools } from "./locations.tools.js";
+import { MachineChangesTools } from "./machine-changes.tools.js";
 import { MachinesTools } from "./machines.tools.js";
 import { RecipeChangesTools } from "./recipe-changes.tools.js";
 import { RecordsTools } from "./records.tools.js";
@@ -70,7 +72,17 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools, LibraryTools, LibraryChangesTools, RecipeChangesTools, MachinesTools, RecordsTools],
+      providers: [
+        McpListenStreams,
+        LocationsTools,
+        LocationChangesTools,
+        LibraryTools,
+        LibraryChangesTools,
+        RecipeChangesTools,
+        MachinesTools,
+        MachineChangesTools,
+        RecordsTools,
+      ],
       exports: [McpListenStreams],
     };
   }

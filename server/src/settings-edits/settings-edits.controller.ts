@@ -20,7 +20,8 @@ export class SettingsEditsController {
   /** Makes an edit, answered with its outcome pending, or refuses it at once with nothing kept. */
   @Post(":id/settings-edits")
   async make(@Param("id") id: string, @Body() body: unknown, @CurrentSession() signedIn: SignedIn): Promise<{ settingsEdit: SettingsEditView }> {
-    return { settingsEdit: await this.edits.make(readMachineId(id), readSettingsEdit(body), signedIn) };
+    const maker = { accountId: signedIn.account.id, role: signedIn.account.role, scope: signedIn.scope, connectedAppId: null };
+    return { settingsEdit: await this.edits.make(readMachineId(id), readSettingsEdit(body), maker) };
   }
 
   /** The Machine's edits, newest first, a page at a time: who made each, its fields' values before and after, and what came of it. */

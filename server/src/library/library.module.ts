@@ -52,6 +52,18 @@ import { SharingService } from "./sharing.service.js";
     RecipeEditsService,
     SharingService,
   ],
-  exports: [BeansService, BeanBatchesService, GrindersService, ProfilesService, EquipmentService, RecipesService, HistoryService, LibraryEditsService, RecipeEditsService, ConflictsService],
+  exports: [
+    BeansService,
+    BeanBatchesService,
+    GrindersService,
+    ProfilesService,
+    EquipmentService,
+    RecipesService,
+    HistoryService,
+    LibraryEditsService,
+    RecipeEditsService,
+    ConflictsService,
+    SharingService,
+  ],
 })
 export class LibraryModule {}

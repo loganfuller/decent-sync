@@ -119,10 +119,11 @@ reads Locations, Machines with their activity, settings and Settings Edits,
 Shots and Steam Records, and the Library with each item's history and
 Conflicts. It creates and edits Beans, Bean Batches, Grinders, Baskets, Tools
 and Recipes, Archives and restores Library items, changes what a Location
-offers, puts Recipes in Recipe Slots and copies them to other Locations, and
-uses or dismisses Conflicts' values, each change shown as made through it.
-Each person sees and disconnects their Connected Apps. Changing Machines,
-their settings and Locations comes next.
+offers, puts Recipes in Recipe Slots and copies them to other Locations, uses
+or dismisses Conflicts' values, and makes Settings Edits, each change shown as
+made through it. It also moves Machines between Locations, and an Admin's
+assistant turns a Machine's sharing on or off, and creates and edits
+Locations. Each person sees and disconnects their Connected Apps.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
@@ -309,12 +310,10 @@ a Viewer's app only reads. Each approval makes a Connected App, which acts as
 that account, within what the account may do. An app unused for 30 days stops
 working until it connects again. Apps that register only by Dynamic Client
 Registration, such as Cursor, can't connect. Apps usually ask the person
-before a change, unless set to allow it without asking. Each change is
-recorded as theirs, through the app, and shown as "<account>, through <app>"
-in the item's history and its Conflicts. While Milestone 6 is under way,
-assistants change only the Library and its Conflicts: the tools that change
-Machines, their settings and Locations come with its later tickets (see
-[Status](#status)).
+before a change, unless set to allow it without asking. Each change of the
+Library, and each Settings Edit, is recorded as theirs, through the app, and
+shown as "<account>, through <app>" in the item's history and its Conflicts,
+and on the Machine's Settings Edits.
 
 Each person sees their Connected Apps on the Connected Apps page, in the
 account menu under their name, and disconnects one there, which stops it at

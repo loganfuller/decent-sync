@@ -7,6 +7,6 @@ import { TimeZones } from "./time-zones.js";
 @Module({
   controllers: [LocationsController, TimeZonesController],
   providers: [LocationsService, TimeZones],
-  exports: [LocationsService],
+  exports: [LocationsService, TimeZones],
 })
 export class LocationsModule {}

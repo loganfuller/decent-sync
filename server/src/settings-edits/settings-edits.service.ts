@@ -13,7 +13,6 @@ import {
   validateSettingsEdit,
 } from "@decent-sync/protocol";
 import { type Scope, includesLocation } from "../accounts/scope.js";
-import type { SignedIn } from "../accounts/sessions.service.js";
 import { CONFIG } from "../config.module.js";
 import type { Config } from "../config.js";
 import { AccountRole, Prisma, SettingsEditOutcome, SettingsEditRefusal, WakeScheduleAction as StoredScheduleAction } from "../generated/prisma/client.js";
@@ -31,6 +30,18 @@ export type SettingsEditRefusalView =
   | { reason: "expired" }
   /** Decaid's status, null where it did not answer or was not asked, and its message; and the fields it changed before refusing. */
   | { reason: "decaid"; status: number | null; message: string | null; changed: string[] };
+
+/**
+ * Who makes a Settings Edit: an account, as its role and Scope stand, in the
+ * management interface or through a Connected App acting as it (ADR-0026).
+ */
+export interface SettingsEditMaker {
+  accountId: string;
+  role: AccountRole;
+  scope: Scope;
+  /** The Connected App it is made through; null for the management interface. */
+  connectedAppId: string | null;
+}
 
 /** A Settings Edit as the REST API returns it. */
 export interface SettingsEditView {
@@ -52,6 +63,12 @@ export interface SettingsEditView {
   expected: Record<string, unknown>;
   /** Who made it: named to Admins, and to Staff by its id only, as other accounts' names are personal information they do not see. */
   account: { id: string; name: string | null } | null;
+  /**
+   * The Connected App the account made it through, by the name its app gave
+   * and the host of its client id as it was approved; null for the
+   * management interface.
+   */
+  connectedApp: { id: string; name: string; host: string } | null;
   /** By PostgreSQL's clock: when it was made, sent to the plugin and answered; null until it was. */
   madeAt: string;
   sentAt: string | null;
@@ -96,12 +113,16 @@ const REFUSAL_VIEWS = {
 
 type Page = { limit: number; offset: number };
 
-const withAccount = { account: { select: { name: true } } } as const satisfies Prisma.SettingsEditInclude;
+const withAccount = {
+  account: { select: { name: true } },
+  connectedApp: { select: { id: true, name: true, clientHost: true } },
+} as const satisfies Prisma.SettingsEditInclude;
 type StoredEdit = Prisma.SettingsEditGetPayload<{ include: typeof withAccount }>;
 
 /**
  * Settings Edits (ADR-0023): each a one-off write of a Machine's settings
- * made in the management interface, kept as a row in PostgreSQL. One is
+ * made in the management interface, or through a Connected App (ADR-0026),
+ * which it then names, kept as a row in PostgreSQL. One is
  * made only while the Machine is online, judged under its row lock as it is
  * inserted, for the connection holding it then, and announced to every
  * instance (`settings_edits`). The instance whose connection that is claims
@@ -138,8 +159,8 @@ export class SettingsEditsService {
    * connection's tablet reports another machine's hardware, which nothing is
    * written to (ADR-0004).
    */
-  async make(machineId: string, edit: NewSettingsEdit, signedIn: SignedIn): Promise<SettingsEditView> {
-    const role: SettingsRole = signedIn.account.role === AccountRole.ADMIN ? "admin" : "staff";
+  async make(machineId: string, edit: NewSettingsEdit, maker: SettingsEditMaker): Promise<SettingsEditView> {
+    const role: SettingsRole = maker.role === AccountRole.ADMIN ? "admin" : "staff";
     const refusals = validateSettingsEdit(edit, role);
     const invalid = refusals.filter((refusal) => refusal.reason !== "notAllowed");
     if (invalid.length > 0) throw new BadRequestException(invalid.map((refusal) => settingsRefusalText(edit.collection, refusal)));
@@ -149,7 +170,7 @@ export class SettingsEditsService {
     const id = await this.prisma.$transaction(async (tx) => {
       if (!(await lockMachine(tx, machineId))) throw machineNotFound();
       const latest = await tx.locationAssignment.findFirst({ where: { machineId }, orderBy: { effectiveFrom: "desc" }, select: { locationId: true } });
-      if (!includesLocation(signedIn.scope, latest?.locationId ?? null)) {
+      if (!includesLocation(maker.scope, latest?.locationId ?? null)) {
         throw new ForbiddenException("You can change the settings only of a Machine at a Location you work at");
       }
       // Online as the Machine's status judges it, by PostgreSQL's clock: held by a connection heard from recently.
@@ -167,7 +188,8 @@ export class SettingsEditsService {
           machineId,
           sessionId: holder.sessionId,
           tabletId: holder.tabletId,
-          accountId: signedIn.account.id,
+          accountId: maker.accountId,
+          connectedAppId: maker.connectedAppId,
           collection: edit.collection,
           scheduleAction: edit.schedule ? SCHEDULE_ACTIONS[edit.schedule.action] : null,
           scheduleId: edit.schedule && edit.schedule.action !== "add" ? edit.schedule.id : null,
@@ -179,7 +201,7 @@ export class SettingsEditsService {
       await notify(tx, "settings_edits", machineId);
       return made.id;
     });
-    return this.get(machineId, id, signedIn.scope);
+    return this.get(machineId, id, maker.scope);
   }
 
   /**
@@ -357,6 +379,7 @@ function view(edit: StoredEdit, scope: Scope, notConfirmed: boolean): SettingsEd
     expected,
     // Other accounts' names are personal information that Staff do not see.
     account: edit.accountId === null ? null : { id: edit.accountId, name: scope.kind === "everything" ? (edit.account?.name ?? null) : null },
+    connectedApp: edit.connectedApp && { id: edit.connectedApp.id, name: edit.connectedApp.name, host: edit.connectedApp.clientHost },
     madeAt: edit.madeAt.toISOString(),
     sentAt: edit.sentAt?.toISOString() ?? null,
     answeredAt: edit.answeredAt?.toISOString() ?? null,
