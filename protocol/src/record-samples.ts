@@ -200,6 +200,52 @@ export function profileStep(frame: unknown, steps: unknown[]): Step | null {
   return { frame, name: typeof name === "string" && name.trim() !== "" ? name.trim() : `Step ${frame + 1}` };
 }
 
+/** A step a Shot ran, from its first sample's seconds to the next step's first sample's, or to the Shot's last sample. */
+export interface StepSpan extends Step {
+  from: number;
+  until: number;
+}
+
+/**
+ * The steps of its Profile a Shot's samples (`shotSamples`) show it ran, in
+ * order: each run of samples after its Preheat at one frame, from its first
+ * sample to the first sample of the next, and the last to the Shot's last
+ * sample. A sample that reports no frame neither starts nor ends one. A step
+ * that ends between two samples, or lasts none, is not among them: the next
+ * step the samples show starts where they show it. None for a Shot stopped
+ * in its Preheat.
+ */
+export function stepSpans(samples: readonly Sample<string>[]): StepSpan[] {
+  const spans: StepSpan[] = [];
+  for (const { step, seconds } of samples) {
+    if (!step) continue;
+    const current = spans[spans.length - 1];
+    if (current?.frame === step.frame) continue;
+    if (current) current.until = seconds;
+    spans.push({ ...step, from: seconds, until: seconds });
+  }
+  const last = spans[spans.length - 1];
+  if (last) last.until = samples[samples.length - 1]!.seconds;
+  return spans;
+}
+
+/**
+ * The scale's last weight a Shot's samples (`shotSamples`) recorded after
+ * its Preheat, in grams, and its seconds; null where none did. Decaid records
+ * no sample after a Shot's stop, so it is the weight just before the stop. In
+ * Preheat it records 0 for the scale until it tares it as the profile starts
+ * (`ShotSequencer._processSnapshot` in decaid), or, in full gateway mode,
+ * where it never tares, the untared reading, so no reading there is the
+ * Shot's weight.
+ */
+export function lastRecordedWeight(samples: readonly Sample<ShotCurve>[]): { weight: number; seconds: number } | null {
+  for (let n = samples.length - 1; n >= 0; n--) {
+    const { values, seconds, shade } = samples[n]!;
+    if (shade === null && values.weight !== null) return { weight: values.weight, seconds };
+  }
+  return null;
+}
+
 /** A stretch of a record in one shaded phase, from its first sample to the sample after its last. */
 export interface ShadedSpan {
   name: string;

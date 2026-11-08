@@ -1,19 +1,19 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { type ShotDelivery, type ShotIndex, isRecordId } from "@decent-sync/protocol";
+import { type ShotDelivery, type ShotIndex, isRecordId, shotSamples } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { viewLocation } from "../locations/locations.service.js";
 import { creditHardware, creditReporter } from "../machines/credit.js";
 import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
-import { CURVES_REVISION, extractCurves, extractShot, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
+import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
 
-/** Metadata and curves are deliberately separate queries, including on detail reads. */
+/** Metadata and curves are deliberately separate queries: lists never read curves, and a detail read reads them once, in a query of their own. */
 @Injectable()
 export class ShotsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -216,11 +216,27 @@ export class ShotsService {
     return previous ?? null;
   }
 
+  /** A Shot as `GET /api/shots/:id` shows it (`read`). */
   async get(id: string) {
+    return (await this.read(id)).shot;
+  }
+
+  /**
+   * A Shot as `GET /api/shots/:id` shows it, with what its record and its
+   * samples show beyond its columns (`recordedDetails`, `measuredDetails`),
+   * and those samples (`shotSamples`), from one read of its measurements,
+   * which get_shot also draws its curves from.
+   */
+  async read(id: string) {
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
-    return { ...shownShot(shot!), ...recordedDetails(found.record), previousShot: await this.previous(shot!) };
+    const [measurements, previousShot] = await Promise.all([
+      this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } }),
+      this.previous(shot!),
+    ]);
+    const samples = shotSamples(measurements?.data ?? null, object(object(found.record).workflow).profile);
+    return { shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), previousShot }, samples };
   }
 
   async measurements(id: string) {

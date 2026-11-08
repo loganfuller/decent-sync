@@ -22,7 +22,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Field as FormField, FieldLabel } from "@/components/ui/field";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Shot } from "@/lib/api";
-import { SHOT_CURVES, type Sample, type ShotCurve, shotSamples } from "@/lib/curves";
+import { SHOT_CURVES, type Sample, type ShotCurve, lastRecordedWeight, shotSamples } from "@/lib/curves";
 
 interface ShotData {
   shot: Shot;
@@ -201,7 +201,7 @@ function ShotDetails({ id }: { id: string }) {
         </Card>
 
         <div className="grid content-start gap-4">
-          <RecordCard title="Annotations" description="How it turned out, as recorded on the tablet." fields={annotationFields(shot.record)} />
+          <RecordCard title="Annotations" description={ANNOTATIONS_TIP} fields={annotationFields(shot.record, lastRecordedWeight(samples))} />
           <RecordCard
             title="Machine at the time"
             description="The machine's identity as the Shot recorded it."
@@ -267,12 +267,19 @@ function ShotDetails({ id }: { id: string }) {
   );
 }
 
-/** Decaid's annotations: the weighed dose and yield, refractometer readings, enjoyment and notes. */
-function annotationFields(shot: Record<string, unknown>): [string, string][] {
+const ANNOTATIONS_TIP =
+  "How it turned out, as recorded on the tablet. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet.";
+
+/**
+ * Decaid's annotations: the weighed dose and yield, with the scale's last weight its samples recorded beside the yield,
+ * refractometer readings, enjoyment and notes.
+ */
+function annotationFields(shot: Record<string, unknown>, lastWeight: { weight: number; seconds: number } | null): [string, string][] {
   const annotations = record(shot.annotations);
   return present([
     ["Dose weighed", amount(annotations?.actualDoseWeight, "g")],
     ["Yield weighed", amount(annotations?.actualYield, "g")],
+    ["Last weight recorded", lastWeight ? `${amount(lastWeight.weight, "g")} at ${secondsText(lastWeight.seconds)}` : undefined],
     ["TDS", amount(annotations?.drinkTds, "%")],
     ["Extraction yield", amount(annotations?.drinkEy, "%")],
     ["Enjoyment", text(annotations?.enjoyment)],

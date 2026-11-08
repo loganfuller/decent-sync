@@ -1,4 +1,4 @@
-import { MAX_HARDWARE_LENGTH, dye2RecipeIdOf, realHardware, type Hardware } from "@decent-sync/protocol";
+import { MAX_HARDWARE_LENGTH, type Sample, type ShotCurve, dye2RecipeIdOf, lastRecordedWeight, realHardware, stepSpans, type Hardware } from "@decent-sync/protocol";
 
 /** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
 export function extractShot(record: unknown) {
@@ -46,6 +46,19 @@ export function recordedDetails(record: unknown) {
     tds: number(annotations.drinkTds),
     extractionYield: number(annotations.drinkEy),
   };
+}
+
+/**
+ * What a Shot's samples (`shotSamples`) show beyond its curves: the steps of
+ * its Profile it ran (`stepSpans`), the one it ended in, null when it stopped
+ * in its Preheat or its samples name no step, and the scale's last weight
+ * after its Preheat, null without one (`lastRecordedWeight`), each timed on
+ * its curves' axis.
+ */
+export function measuredDetails(samples: readonly Sample<ShotCurve>[]) {
+  const steps = stepSpans(samples);
+  const last = steps.at(-1);
+  return { steps, lastStep: last ? { frame: last.frame, name: last.name } : null, lastRecordedWeight: lastRecordedWeight(samples) };
 }
 
 /** Text Decaid recorded, or a number as its text, as the management interface shows it; null for none or blank. */

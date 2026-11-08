@@ -378,7 +378,21 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
-  Machine, or held by the same Pending Machine, in list order.
+  Machine, or held by the same Pending Machine, in list order. It also gives
+  what its measurements show (`measuredDetails`), read in one query of their
+  own and timed as the Shot page's curves, in seconds from the first sample
+  after its Preheat: `steps`, the steps of its Profile it ran, in order
+  (`stepSpans`), each `{ frame, name, from, until }` from its first sample to
+  the next step's first, the last to the Shot's last sample, a step that
+  ended between two samples left out; `lastStep` (`{ frame, name }`), the
+  one it ended in, null when it stopped in its Preheat or its samples
+  name no step; and `lastRecordedWeight` (`{ weight, seconds }`), the
+  scale's last weight sample after its Preheat, null without one: in
+  Preheat Decaid records 0 for the scale until it tares it as the profile
+  starts, or, in full gateway mode, the untared reading. Decaid records no sample after the stop, so that
+  is the weight just before it, while `actualYield` is what Decaid weighed
+  once the flow settled. The MCP endpoint's `get_shot` gives them too, to
+  hundredths, from the same read of the measurements as its curves.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
 - `GET /api/machines/:id/set-aside-deliveries?limit=20&offset=0` returns
@@ -411,7 +425,8 @@ a dashed vertical line at each change of its Profile's step after Preheat
 the tooltip and the measurements table,
 the previous Shot it is compared with aligned at 0 s too,
 everything its record holds, the Basket's and Tools' names DYE2 stored
-and its Grinder's burrs, after the Grinder, among it, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
+and its Grinder's burrs, after the Grinder, among it, the scale's last
+weight recorded beside the yield weighed, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
 and Profile it is linked to, each linking to its page, and a comparison
 with its previous Shot. Each Bean's, Bean Batch's, Grinder's, Profile's,
 Recipe's and Basket's page lists its Shots, ten at a time

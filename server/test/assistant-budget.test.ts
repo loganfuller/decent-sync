@@ -204,12 +204,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
     });
 
-    it("reads a Shot with its curves", async () => {
+    it("reads a Shot with its steps, last recorded weight and curves", async () => {
       const fixture = preheatShotFixture();
       await deliverShots(raw, [shotAt("preheat", 90, "43101", { annotations: { espressoNotes: "Sweet, a little sharp at the end; try a finer grind." } }, fixture)]);
       const { result } = await assistant.callWithinBudget<Fields>("get_shot", { id: "preheat", curves: true });
       expect(result).not.toHaveProperty("cut");
       expect(Object.keys(result.curves as Fields)).toEqual(["shaded", "pressure", "flow", "weight", "temperature"]);
+      expect(result.steps).toHaveLength(5);
+      expect(result.lastRecordedWeight).toMatchObject({ weight: 32.4 });
     });
 
     it("finds Steam Records a page at a time, and reads one with its curves", async () => {
@@ -502,14 +504,30 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: haunted.machine.id }));
     });
 
-    it("reads a Shot with its notes cut and marked, and its curves whole", async () => {
+    it("reads a Shot with its notes cut and marked, and its steps, last recorded weight and curves whole", async () => {
       const { result } = await assistant.callWithinBudget<Fields & { cut: string }>("get_shot", { id: "haunted-00", curves: true });
       expect(result.cut).toContain("without curves");
       expect(cut(result.notes)).toBe(true);
-      // Its curves are those of a Shot with the same measurements and none of its text.
+      // Its steps, last weight and curves are those of a Shot with the same measurements and none of its text.
       await deliverShots(raw, [shotAt("plain", 300, "43102")]);
       const plain = await assistant.call<Fields>("get_shot", { id: "plain", curves: true });
       expect(result.curves).toEqual(plain.curves);
+      expect(result.steps).toEqual(plain.steps);
+      expect(result.lastRecordedWeight).toEqual(plain.lastRecordedWeight);
+      expect(result.steps).not.toEqual([]);
+    });
+
+    it("reads a Shot whose Profile's step names run long with its steps whole, as a Profile's steps are", async () => {
+      // Derived: the real Shot with a Preheat, its Profile's step names far longer than any typed, and its notes too.
+      const fixture = preheatShotFixture();
+      const profile = (fixture.workflow as { profile: { steps: Fields[] } }).profile;
+      const steps = profile.steps.map((step, n) => ({ ...step, name: `${n} ${hostile(3_000)}` }));
+      await deliverShots(raw, [shotAt("haunted-steps", 400, "43102", { profile: { steps }, annotations: { espressoNotes: hostile(60_000) } }, fixture)]);
+      const { result } = await assistant.callWithinBudget<Fields & { steps: { frame: number; name: string }[] }>("get_shot", { id: "haunted-steps", curves: true });
+      expect(cut(result.notes)).toBe(true);
+      // The five it ran, Prefill, Compressing, Dripping, Pressurize and Extraction, each named whole, as trimmed.
+      expect(result.steps.map((step) => step.frame)).toEqual([0, 2, 3, 4, 6]);
+      expect(result.steps.map((step) => step.name)).toEqual([0, 2, 3, 4, 6].map((n) => steps[n]!.name.trim()));
     });
 
     it("gives a Machine whose Workflow's text runs long with that text cut, summarised and whole, its Profile's steps and its settings whole", async () => {

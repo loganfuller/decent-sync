@@ -150,8 +150,14 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Grind setting")).toHaveText("7.5");
   await expect(field(page.getByRole("region", { name: "Workflow" }), "Burrs")).toHaveText("SSP MP");
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
+  // The scale's last reading in its curves, before the stop, beside the yield Decaid weighed once the flow settled.
+  await expect(field(page.getByRole("region", { name: "Annotations" }), "Last weight recorded")).toHaveText("32.5 g at 23.5 s");
   await expectTip(curves, "Curves", CURVES_TIP);
-  await expectTip(page.getByRole("region", { name: "Annotations" }), "Annotations", "How it turned out, as recorded on the tablet.");
+  await expectTip(
+    page.getByRole("region", { name: "Annotations" }),
+    "Annotations",
+    "How it turned out, as recorded on the tablet. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet.",
+  );
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
   for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
