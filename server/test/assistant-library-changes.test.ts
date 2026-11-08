@@ -23,9 +23,6 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 type Record_ = Record<string, unknown>;
 
-/** The changing tools of Machines and Locations, which assistant-machine-changes.test.ts covers. */
-const MACHINE_AND_LOCATION_TOOLS = ["move_machine", "set_machine_sharing", "edit_machine_settings", "create_location", "edit_location"];
-
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 /** An ISO 8601 time with its offset. */
@@ -386,10 +383,10 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(asStaff.at(-1)!.source).toEqual({ ...throughApp, account: { id: throughApp.account!.id, name: null } });
   });
 
-  it("refuses every changing tool, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
+  it("refuses each of these tools, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
     const batches = async () => (await api.get<{ batches: unknown[] }>("/bean-batches")).batches.length;
     const before = { batches: await batches(), bean: await restItem("bean", made.bean), batch: await restItem("beanBatch", made.batch) };
-    /** Each changing tool, with arguments it would take from an account allowed to change. */
+    /** Each tool of this ticket, with arguments it would take from an account allowed to change. assistants.test.ts refuses every changing tool, whatever its arguments. */
     const calls = (name: string): [string, Record_][] => [
       ["create_bean", { roaster: "Roux", name }],
       ["edit_bean", { id: made.bean, notes: `${name} notes` }],
@@ -398,10 +395,6 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       ["set_archived", { kind: "bean", id: made.bean, archived: true }],
       ["set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, offered: false }],
     ];
-    // Each of the Library's changing tools; assistant-machine-changes.test.ts refuses the Machines' and Locations'.
-    const { tools } = await reader.client.listTools();
-    const libraryTools = tools.filter((tool) => tool.annotations?.readOnlyHint === false && !MACHINE_AND_LOCATION_TOOLS.includes(tool.name));
-    expect(libraryTools.map((tool) => tool.name).sort()).toEqual(calls("").map(([name]) => name).sort());
     const refuse = async (accessToken: string, who: string) => {
       for (const [name, args] of calls(who)) {
         const refused = await Assistant.rawCall(server.url, accessToken, "tools/call", { name, arguments: args });

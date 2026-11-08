@@ -21,6 +21,7 @@ import { LocationChangesTools } from "./location-changes.tools.js";
 import { LocationsTools } from "./locations.tools.js";
 import { MachineChangesTools } from "./machine-changes.tools.js";
 import { MachinesTools } from "./machines.tools.js";
+import { RecipeChangesTools } from "./recipe-changes.tools.js";
 import { RecordsTools } from "./records.tools.js";
 import { AccessTokenVerifier } from "./token-verifier.js";
 
@@ -71,7 +72,17 @@ export class McpEndpointModule implements NestModule {
           },
         }),
       ],
-      providers: [McpListenStreams, LocationsTools, LocationChangesTools, LibraryTools, LibraryChangesTools, MachinesTools, MachineChangesTools, RecordsTools],
+      providers: [
+        McpListenStreams,
+        LocationsTools,
+        LocationChangesTools,
+        LibraryTools,
+        LibraryChangesTools,
+        RecipeChangesTools,
+        MachinesTools,
+        MachineChangesTools,
+        RecordsTools,
+      ],
       exports: [McpListenStreams],
     };
   }

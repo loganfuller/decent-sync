@@ -58,7 +58,7 @@ export interface NumberRange {
 }
 
 /** The sizes DYE2's baskets page offers. */
-const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
+export const BASKET_SIZES: readonly string[] = ["single", "double", "triple", "bottomless", "other"];
 
 /** What the management interface may set of a kind's content, as its description says (`editable` in kinds.ts). */
 function editable(kind: LibraryKind): EditableContent {
@@ -173,9 +173,14 @@ function readInRange(range: NumberRange, value: unknown): { value: number } | st
     if (range.offAtZero && value === 0) return { value };
     if (value >= range.min && (range.max === undefined || value <= range.max)) return { value };
   }
+  return `must be ${rangeText(range)}`;
+}
+
+/** What a range takes, in words, such as "a whole number from 135 to 170" or "0 (off) or a number from 30 to 80". */
+export function rangeText(range: NumberRange): string {
   const number = range.whole ? "a whole number" : "a number";
   const span = range.max === undefined ? `${number} of ${range.min} or more` : `${number} from ${range.min} to ${range.max}`;
-  return `must be ${range.offAtZero ? `0 (off) or ${span}` : span}`;
+  return range.offAtZero ? `0 (off) or ${span}` : span;
 }
 
 /**

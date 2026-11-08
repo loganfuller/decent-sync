@@ -149,17 +149,28 @@ describe("connecting an assistant", () => {
         "list_settings_edits",
       ];
       const changing = [
+        "copy_recipe",
+        "create_basket",
         "create_bean",
         "create_bean_batch",
+        "create_grinder",
         "create_location",
+        "create_recipe",
+        "create_tool",
+        "edit_basket",
         "edit_bean",
         "edit_bean_batch",
+        "edit_grinder",
         "edit_location",
         "edit_machine_settings",
+        "edit_recipe",
+        "edit_tool",
         "move_machine",
+        "resolve_conflict",
         "set_archived",
         "set_location_offering",
         "set_machine_sharing",
+        "set_recipe_slot",
       ];
       expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
       // Archiving retires an item everywhere, and a Settings Edit writes a Machine's settings, which an app may ask about
@@ -173,6 +184,24 @@ describe("connecting an assistant", () => {
       expect(locations.find((location) => location.name === "Uptown")!.machines.map((machine) => machine.name)).toEqual(["Uptown Left", "Uptown Right"]);
     } finally {
       await assistant.close();
+    }
+  });
+
+  it("refuses every changing tool, whatever its arguments, from a Connected App granted only read, with 403 insufficient_scope naming read and change", async () => {
+    const reader = await Assistant.connect(server.url, app, adminCookie, { allowed: ["read"] });
+    try {
+      const changing = (await reader.client.listTools()).tools.filter((tool) => tool.annotations?.readOnlyHint !== true);
+      expect(changing.length).toBeGreaterThan(0);
+      // The scope is checked before a tool reads its arguments, so none are needed: each ticket's Seam 1 calls its own with arguments it takes.
+      for (const { name } of changing) {
+        const refused = await Assistant.rawCall(server.url, reader.tokens.access_token, "tools/call", { name, arguments: {} });
+        expect(refused.status, name).toBe(403);
+        const challenge = refused.headers.get("www-authenticate") ?? "";
+        expect(challenge, name).toContain('error="insufficient_scope"');
+        expect(challenge, name).toContain('scope="read change"');
+      }
+    } finally {
+      await reader.close();
     }
   });
 
