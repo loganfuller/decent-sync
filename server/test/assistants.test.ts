@@ -178,6 +178,9 @@ describe("connecting an assistant", () => {
       const destructive = ["set_archived", "edit_machine_settings"];
       for (const tool of tools) {
         expect(tool.annotations, tool.name).toMatchObject(changing.includes(tool.name) ? { readOnlyHint: false, destructiveHint: destructive.includes(tool.name) } : { readOnlyHint: true });
+        // Every tool keeps its response within the budget (ADR-0028), and lets Claude Code keep a slight overrun inline.
+        expect(tool._meta, tool.name).toEqual({ "anthropic/maxResultSizeChars": 100_000 });
+        expect(tool.outputSchema?.properties, tool.name).toHaveProperty("cut");
       }
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));

@@ -89,6 +89,9 @@ class TestAppProvider implements OAuthClientProvider {
   }
 }
 
+/** The most characters of one compact JSON copy of a tool's response (ADR-0028), as stated there, not read from the server. */
+export const RESPONSE_BUDGET = 45_000;
+
 /** Which protocol revisions the app's client speaks: the 2025 ones (`initialize`), or 2026-07-28. */
 export type Era = "legacy" | "modern";
 
@@ -137,6 +140,23 @@ export class Assistant {
     const result = await this.client.callTool({ name, arguments: args });
     expect(result.isError, JSON.stringify(result.content)).toBeFalsy();
     return result.structuredContent as T;
+  }
+
+  /**
+   * A tool's result as a client receives it, which must succeed and keep
+   * within the response budget (ADR-0028): its JSON text block, the one
+   * compact copy the budget counts, at most RESPONSE_BUDGET characters, and
+   * its structured content, the same JSON.
+   */
+  async callWithinBudget<T>(name: string, args: Record<string, unknown> = {}): Promise<{ result: T; text: string }> {
+    const result = await this.client.callTool({ name, arguments: args });
+    expect(result.isError, JSON.stringify(result.content).slice(0, 2_000)).toBeFalsy();
+    const blocks = result.content as { type: string; text: string }[];
+    expect(blocks.map((block) => block.type)).toEqual(["text"]);
+    const text = blocks[0]!.text;
+    expect(text.length, `${name}'s response`).toBeLessThanOrEqual(RESPONSE_BUDGET);
+    expect(JSON.parse(text)).toEqual(result.structuredContent);
+    return { result: result.structuredContent as T, text };
   }
 
   close(): Promise<void> {

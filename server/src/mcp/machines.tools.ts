@@ -1,5 +1,5 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import type { CollectionView } from "../collections/collections.service.js";
 import { CollectionsService } from "../collections/collections.service.js";
@@ -12,13 +12,22 @@ import { readMachineId } from "../machines/input.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
-import { page, pageOf, pageOutput } from "./paging.js";
+import { BudgetedTool } from "./budget.js";
+import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 import { workflowSummary, workflowSummaryOutput } from "./workflow-summary.js";
 
 const time = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.");
 const tabletTime = z.string().describe("ISO 8601, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none, by the tablet's clock.");
+
+/** How a Machine's times read, for the descriptions of the tools that read Machines. */
+const MACHINE_TIMES =
+  "Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, by its Location History, or UTC's while it was at none; a Machine State's and a Loaded Recipe's times, and its Workflow's observedAt, are by its tablet's clock.";
+
+/** What list_machines gives of each Machine, which get_machine gives too. */
+const LISTED =
+  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, when it was last heard from; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleep; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
 
 /** What a date given for a bound of a Machine's activity means. */
 const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
@@ -143,7 +152,7 @@ const activityInput = z.object({
   ...page,
 });
 
-const activityPage = <T extends z.ZodType>(entry: T, what: string) => z.object({ entries: z.array(entry), ...pageOutput }).optional().describe(what);
+const activityPage = <T extends z.ZodType>(entry: T, what: string) => z.object({ ...pageOutput, entries: z.array(entry) }).optional().describe(what);
 
 const activityOutput = z.object({
   workflowChanges: activityPage(
@@ -195,7 +204,14 @@ export const settingsEditOutput = z.object({
   readBack: z.record(z.string(), z.unknown()).nullable().describe("Its fields as read back after the write, or as held when refused as changed since."),
 });
 
-const settingsEditsOutput = z.object({ settingsEdits: z.array(settingsEditOutput), ...pageOutput });
+/** What a Settings Edit's parts mean, for the descriptions of the tools that give one. */
+const SETTINGS_EDIT_NOTE =
+  "Each changes one collection: machineSettings, advancedSettings, machineCalibration or sensorCalibration (Machine Settings), or appSettings or presenceSettings (Tablet Settings). fields are the values it sets, by Decaid's names, expected each field's value as last reported when it was made, and readBack its fields as read back after the write. outcome: applied; adjusted, stored otherwise by the Machine, as adjusted lists; refused, as refusal says why (machineBusy, the Machine was busy; changedSince, its settings changed since; expired, it waited too long; decaid, Decaid refused it); notConfirmed, no answer came in time; null while awaited. late: its outcome came from an answer after it was marked not confirmed.";
+
+/** The parts of a Settings Edit that are settings, which are never cut. */
+export const SETTINGS_EDIT_WHOLE = ["/fields", "/expected", "/readBack", "/adjusted", "/refusal/current"] as const;
+
+const settingsEditsOutput = z.object({ ...pageOutput, settingsEdits: z.array(settingsEditOutput) });
 
 /**
  * Machines, read through an assistant as the REST API reads them, calling
@@ -214,27 +230,28 @@ export class MachinesTools {
     private readonly prisma: PrismaService,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "list_machines",
     title: "List Machines",
-    description: "Lists every Machine, by name: where it is, whether it is online, its last Machine State, its Loaded Recipe, and whether it is capture-only.",
+    description: `Lists every Machine, by name, with its model, such as DE1PRO or Bengle: ${LISTED} ${MACHINE_TIMES}`,
     outputSchema: machinesOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "get_machine reads one Machine with more of it." },
   })
   async listMachines(): Promise<z.infer<typeof machinesOutput>> {
     return { machines: (await this.machines.list()).map((machine) => listed(machine, zoneOf(machine))) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "get_machine",
     title: "Get a Machine",
-    description:
-      "One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives.",
+    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, is Decaid's as its tablet last reported it, its Profile included. Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
     inputSchema: z.object({ machineId }),
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "The management interface shows the Machine whole." },
   })
   async getMachine({ machineId }: { machineId: string }): Promise<z.infer<typeof machineOutput>> {
     const id = readMachineId(machineId);
@@ -262,15 +279,15 @@ export class MachinesTools {
     };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description:
-      "What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list.",
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} Each Workflow change gives the parts of the Workflow the management interface shows: dose and yield in grams, brewTemperature in °C (its Profile's first step's), and steam, hot water and flush settings in °C, seconds, ml/s and ml. A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for fewer at a time, or one kind of activity alone, it has more of each." },
   })
   async getMachineActivity(input: z.infer<typeof activityInput>): Promise<z.infer<typeof activityOutput>> {
     const machine = await this.machines.get(readMachineId(input.machineId));
@@ -284,7 +301,7 @@ export class MachinesTools {
     const activity = await this.events.activity(machine.id, range, { limit, offset }, input.kinds ?? ACTIVITY_KINDS);
     const zone = zoneOf(machine);
     const paged = <T, R>(list: ActivityPage<T> | undefined, view: (entry: T) => R) =>
-      list && { entries: list.entries.map(view), ...pageOf(list.total, offset, list.entries.length) };
+      list && { ...pageOf(list.total, offset, list.entries.length), entries: list.entries.map(view) };
     return {
       workflowChanges: paged(activity.workflowChanges, (event) => ({ observedAt: zone(event.observedAt), receivedAt: zone(event.receivedAt), workflow: workflowSummary(event.workflow) })),
       loadedRecipes: paged(activity.loadedRecipes, (entry) => loaded(entry, zone)),
@@ -292,21 +309,22 @@ export class MachinesTools {
     };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "list_settings_edits",
     title: "List a Machine's Settings Edits",
-    description: "One Machine's Settings Edits, newest first: who made each and when, its fields' values before and after, and what came of it.",
+    description: `One Machine's Settings Edits, newest first: who made each and when, its fields' values before and after, and what came of it. ${SETTINGS_EDIT_NOTE} ${PAGED} ${MACHINE_TIMES}`,
     inputSchema: settingsEditsInput,
     outputSchema: settingsEditsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { whole: SETTINGS_EDIT_WHOLE.map((part) => `/settingsEdits/*${part}`), rest: "Asked for fewer at a time, it has more of each." },
   })
   async listSettingsEdits(input: z.infer<typeof settingsEditsInput>, context: McpContext): Promise<z.infer<typeof settingsEditsOutput>> {
     const { limit, offset } = input;
     const machine = await this.machines.get(readMachineId(input.machineId));
     const { settingsEdits, total } = await this.settingsEdits.list(machine.id, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
-    return { settingsEdits: settingsEdits.map((edit) => settingsEditOf(edit, zone)), ...pageOf(total, offset, settingsEdits.length) };
+    return { ...pageOf(total, offset, settingsEdits.length), settingsEdits: settingsEdits.map((edit) => settingsEditOf(edit, zone)) };
   }
 }
 

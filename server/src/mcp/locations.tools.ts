@@ -1,9 +1,9 @@
 import { Injectable } from "@nestjs/common";
-import { Tool } from "@nestjs/mcp";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { LocationsService } from "../locations/locations.service.js";
 import { MachinesService } from "../machines/machines.service.js";
+import { BudgetedTool } from "./budget.js";
 
 const locationsOutput = z.object({
   locations: z.array(
@@ -29,10 +29,10 @@ export class LocationsTools {
     private readonly machines: MachinesService,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "list_locations",
     title: "List Locations",
-    description: "Lists every Location, by name, with its time zone and the Machines at it now.",
+    description: "Lists every Location, by name, with its IANA time zone, in which a day at the Location is counted, and the Machines at it now.",
     outputSchema: locationsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],

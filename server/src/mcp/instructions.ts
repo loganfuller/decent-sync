@@ -1,7 +1,11 @@
+import { CUT_MARK } from "./budget.js";
+
 // The MCP server's instructions to the model: a short primer from
 // GLOSSARY.md, so an assistant uses the words the management interface uses
-// and means what a person means by them (ADR-0026). Keep it in step with the
-// glossary.
+// and means what a person means by them (ADR-0026), with the units its
+// results share and how a response kept within its budget reads (ADR-0028).
+// Keep it in step with the glossary. Each tool's description carries its own
+// results' units and meanings too, as not every client shows these.
 
 export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espresso machines at one or more sites. Use its words, as the person's management interface does:
 
@@ -21,4 +25,6 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Shot: one extraction recorded on a Machine. Its Preheat, the Machine heating its water before the profile starts, is shown with it but not counted in its duration or peaks.
 - Steam Record: one recorded use of a Machine's steam wand. Its duration counts only the steaming, not the steam starting up, its pauses, puffs or purge.
 
-A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.`;
+A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.
+
+Weights are in grams, volumes in ml, flow in ml/s, pressure in bar, temperatures in °C and durations in seconds, unless a tool says otherwise. Each response is kept small enough to read whole: a page may hold fewer than its limit, its more saying whether more follow, and text ending in ${CUT_MARK} was cut, the response's cut note saying how to have more of it.`;

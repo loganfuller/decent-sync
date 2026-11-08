@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import {
   EDITABLE_SETTINGS_COLLECTIONS,
@@ -16,7 +16,8 @@ import { LocationHistoryService } from "../machines/location-history.service.js"
 import { MachinesService } from "../machines/machines.service.js";
 import { readSettingsEdit } from "../settings-edits/input.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
-import { detailed, machineDetail, machineId, settingsEditOf, settingsEditOutput, zoneOf } from "./machines.tools.js";
+import { BudgetedTool } from "./budget.js";
+import { SETTINGS_EDIT_WHOLE, detailed, machineDetail, machineId, settingsEditOf, settingsEditOutput, zoneOf } from "./machines.tools.js";
 import { callerOf, requireAdmin } from "./token-verifier.js";
 
 // Machines changed through an assistant (#413, ADR-0026): moved to another
@@ -121,7 +122,7 @@ export class MachineChangesTools {
     private readonly settingsEdits: SettingsEditsService,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "move_machine",
     title: "Move a Machine",
     description:
@@ -138,7 +139,7 @@ export class MachineChangesTools {
     return { machine: detailed(machine) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "set_machine_sharing",
     title: "Turn a Machine's sharing on or off",
     description:
@@ -155,7 +156,7 @@ export class MachineChangesTools {
     return { machine: detailed(await this.machines.get(id)) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_machine_settings",
     title: "Change a Machine's settings",
     description: `Makes a Settings Edit: changes some of a Machine's Machine Settings or its tablet's Tablet Settings, from the values get_machine gives. It is sent to the tablet at once, only while the Machine is online, and never kept for later; the tablet answers within a minute, refusing it while the Machine is busy, such as pulling a Shot. This returns it as made, usually before that answer: read what came of it with list_settings_edits, newest first. Staff change only a Machine at a Location they work at, and only the settings not marked for Admins. The settings, by collection: ${SETTINGS_GUIDE}`,
@@ -163,6 +164,7 @@ export class MachineChangesTools {
     outputSchema: z.object({ settingsEdit: settingsEditOutput }),
     annotations: { ...CHANGES, destructiveHint: true },
     scopes: [READ, CHANGE],
+    budget: { whole: SETTINGS_EDIT_WHOLE.map((part) => `/settingsEdit${part}`) },
   })
   async editMachineSettings(input: z.infer<typeof settingsEditInput>, context: McpContext): Promise<{ settingsEdit: z.infer<typeof settingsEditOutput> }> {
     const { machineId: given, ...body } = input;

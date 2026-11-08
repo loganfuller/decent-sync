@@ -1,6 +1,6 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { LibraryKind } from "@decent-sync/protocol";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readBeanBatchId } from "../library/bean-batches.service.js";
@@ -27,6 +27,7 @@ import { readProfileId } from "../library/profiles.service.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { readLocationId } from "../locations/input.js";
+import { BudgetedTool } from "./budget.js";
 import { type ConflictOutput, type ItemOutput, LibraryTools, TIMES, beanBatchItem, beanItem, conflict, itemOutput, kind } from "./library.tools.js";
 import { callerOf } from "./token-verifier.js";
 
@@ -286,7 +287,7 @@ export class LibraryChangesTools {
     private readonly library: LibraryTools,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "create_bean",
     title: "Create a Bean",
     description: `Creates a Bean: a coffee as a roaster sells it, by its roaster and name, which no other Bean may share, Archived or not. It is offered nowhere until one of its Bean Batches is added at a Location (create_bean_batch). ${STAFF_SHARED} ${TIMES}`,
@@ -300,7 +301,7 @@ export class LibraryChangesTools {
     return this.library.read("bean", beanId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_bean",
     title: "Edit a Bean",
     description: `Edits a Bean's details, given only the fields to change: everywhere it is offered, its tablets are written the change. A field given null is cleared, but its roaster, name and decaf, which can't be. ${STAFF_SHARED} ${TIMES}`,
@@ -315,7 +316,7 @@ export class LibraryChangesTools {
     return this.library.read("bean", beanId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "create_bean_batch",
     title: "Create a Bean Batch",
     description: `Creates a Bean Batch, one roast of a Bean, added at each of the Locations given, whose tablets are then written it. Staff add one only at the Locations they work at. ${TIMES}`,
@@ -331,7 +332,7 @@ export class LibraryChangesTools {
     return this.library.read("beanBatch", batchId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_bean_batch",
     title: "Edit a Bean Batch",
     description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or its remaining weight there, which set_location_offering changes. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
@@ -346,7 +347,7 @@ export class LibraryChangesTools {
     return this.library.read("beanBatch", batchId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "create_grinder",
     title: "Create a Grinder",
     description: `Creates a Grinder belonging to a Location, which never changes, and written to that Location's tablets. Staff create one only at the Locations they work at. ${TIMES}`,
@@ -361,7 +362,7 @@ export class LibraryChangesTools {
     return this.library.read("grinder", grinderId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_grinder",
     title: "Edit a Grinder",
     description: `Edits a Grinder's details, given only the fields to change, and its Location's tablets are written the change. A field given null is cleared, but its model, which can't be. Staff edit one only at the Locations they work at. ${TIMES}`,
@@ -377,7 +378,7 @@ export class LibraryChangesTools {
     return this.library.read("grinder", grinderId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "create_basket",
     title: "Create a Basket",
     description: `Creates a Basket, a model of filter basket, shown at one Location, whose tablets are then written it; set_location_offering shows it at others. Refused if the Library has a Basket of its name, Archived or not, ignoring case: find_library_items finds it, to show or restore instead. Staff create one only at the Locations they work at. ${TIMES}`,
@@ -390,7 +391,7 @@ export class LibraryChangesTools {
     return this.createEquipment("basket", input, context);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_basket",
     title: "Edit a Basket",
     description: `Edits a Basket's details, given only the fields to change: everywhere it is shown, its tablets are written the change. A field given null is cleared, but its name, which can't be. ${STAFF_SHARED} ${TIMES}`,
@@ -403,7 +404,7 @@ export class LibraryChangesTools {
     return this.editEquipment("basket", input, context);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "create_tool",
     title: "Create a Tool",
     description: `Creates a Tool, equipment other than a Grinder or Basket, such as a tamper, WDT tool or puck screen, shown at one Location, whose tablets are then written it; set_location_offering shows it at others. Refused if the Library has a Tool of its name, Archived or not, ignoring case: find_library_items finds it, to show or restore instead. Staff create one only at the Locations they work at. ${TIMES}`,
@@ -416,7 +417,7 @@ export class LibraryChangesTools {
     return this.createEquipment("tool", input, context);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_tool",
     title: "Edit a Tool",
     description: `Edits a Tool's details, given only the fields to change: everywhere it is shown, its tablets are written the change. A field given null is cleared, but its name, which can't be. ${STAFF_SHARED} ${TIMES}`,
@@ -429,7 +430,7 @@ export class LibraryChangesTools {
     return this.editEquipment("tool", input, context);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "set_archived",
     title: "Archive or restore a Library item",
     description: `Archives a Library item of any kind, retiring it everywhere: it is offered nowhere and leaves every tablet's lists, but is kept, so past Shots still name it, and nothing is deleted. Or restores one, offered again where it was. An Archived Bean takes its Bean Batches with it. Staff Archive and restore any item but a Recipe, which only at the Locations they work at. ${TIMES}`,
@@ -464,7 +465,7 @@ export class LibraryChangesTools {
     return this.library.read(itemKind, itemId);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "set_location_offering",
     title: "Change what a Location offers",
     description: `Shows or hides a Profile, Basket or Tool at a Location, or adds a Bean Batch there or finishes it there, and sets a batch's remaining weight there; the Location's tablets are written the change. Hiding a Basket or Tool removes it from the Location's tablets. Staff change only what the Locations they work at offer. ${TIMES}`,
@@ -493,7 +494,7 @@ export class LibraryChangesTools {
     return this.library.read(itemKind, input.id);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "resolve_conflict",
     title: "Use or dismiss a Conflict's value",
     description: `Uses an open Conflict's value, which becomes the field's latest edit, written to every tablet that holds the item, or dismisses it, changing nothing else; either closes it. Its value is used only over the value now that the person was shown (seen), and is refused if the field has changed since. Staff resolve one about what a Location offers, or about a Grinder or Recipe, only at the Locations they work at: list_conflicts says whether this account may (resolvable). ${TIMES}`,

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import type { LibraryKind } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
@@ -13,7 +13,8 @@ import { type RecipeView, RecipesService, readRecipeId } from "../library/recipe
 import { locationNotFound, readLocationId } from "../locations/input.js";
 import { type LocationView, LocationsService, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
-import { page, pageOf, pageOutput } from "./paging.js";
+import { BudgetedTool } from "./budget.js";
+import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 
@@ -46,6 +47,10 @@ const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sen
 /** Each time's offset, which every tool's description states. */
 export const TIMES =
   "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to. Others, such as a Bean's content edits, are in UTC.";
+
+/** What the Library's items hold, for the descriptions of the tools that read or change them. */
+export const ITEMS =
+  "An item's content is its record's fields, as the tablet that created it sent them and as edited since, Decaid's names for a Bean's, Bean Batch's, Grinder's and Profile's, and DYE2's for a Basket's and Tool's. A Recipe's content is in the Library's terms: dose and yield in grams, brewTemperature in °C, grindSetting as typed, and any steam, hot water and flush settings in °C, seconds, ml/s and ml. A Bean Batch's remainingWeight is in grams, last entered at each Location. A Profile marked bundled is one of Decaid's own, which every tablet has. A Bean's likelyDuplicates are other Beans with the same roaster and name, ignoring case, never merged.";
 
 const time = (what: string) => z.string().describe(what);
 const joinedAt = time("When it joined the Library.");
@@ -211,6 +216,7 @@ const findInput = z.object({
 });
 
 const findOutput = z.object({
+  ...pageOutput,
   beans: z.array(beanSummary).optional(),
   beanBatches: z.array(batchSummary).optional(),
   profiles: z.array(profileSummary).optional(),
@@ -218,7 +224,6 @@ const findOutput = z.object({
   baskets: z.array(equipmentSummary).optional(),
   tools: z.array(equipmentSummary).optional(),
   recipes: z.array(recipe).optional(),
-  ...pageOutput,
 });
 
 const getInput = z.object({
@@ -229,7 +234,7 @@ const getInput = z.object({
   ...page,
 });
 
-const listed = <T extends z.ZodType>(entry: T, what: string) => z.object({ entries: z.array(entry), ...pageOutput }).optional().describe(what);
+const listed = <T extends z.ZodType>(entry: T, what: string) => z.object({ ...pageOutput, entries: z.array(entry) }).optional().describe(what);
 
 /** A Bean as get_library_item reads it, and as the tools changing one return it. */
 export const beanItem = beanSummary.extend({ content: content(RECORD_FIELDS), batches: z.array(batchSummary).describe("Its Bean Batches, the latest roasted first.") });
@@ -264,7 +269,7 @@ const getOutput = itemOutput.extend({
   conflicts: listed(conflict, "Only when asked for: its open Conflicts, the latest first. limit and offset page them."),
 });
 
-const conflictsOutput = z.object({ conflicts: z.array(conflict), ...pageOutput });
+const conflictsOutput = z.object({ ...pageOutput, conflicts: z.array(conflict) });
 
 type FindInput = z.infer<typeof findInput>;
 type FindOutput = z.infer<typeof findOutput>;
@@ -293,26 +298,27 @@ export class LibraryTools {
     private readonly prisma: PrismaService,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "find_library_items",
     title: "Find Library items",
-    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot. ${TIMES}`,
+    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot. ${ITEMS} ${PAGED} ${TIMES}`,
     inputSchema: findInput,
     outputSchema: findOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "get_library_item reads one item with more of it." },
   })
   async findLibraryItems(input: FindInput): Promise<FindOutput> {
     const at = await this.locationOf(input.locationId);
     const paged = <T, R>(items: readonly T[], filtered: (item: T) => Filtered, view: (item: T) => R) => {
       const found = chosen(items, input, at, filtered);
       const shown = found.slice(input.offset, input.offset + input.limit);
-      return { entries: shown.map(view), ...pageOf(found.length, input.offset, shown.length) };
+      return { ...pageOf(found.length, input.offset, shown.length), entries: shown.map(view) };
     };
     switch (input.kind) {
       case "bean": {
         const { entries, ...rest } = paged(await this.beans.list(), (bean) => ({ archived: bean.archived, names: [bean.roaster, bean.name], at: bean.offeredAt }), beanOf);
-        return { beans: entries, ...rest };
+        return { ...rest, beans: entries };
       }
       case "beanBatch": {
         // A batch keeps the Locations it is at while it or its Bean is Archived, but no Location offers it then (LIBRARY.md).
@@ -326,39 +332,40 @@ export class LibraryTools {
           }),
           batchOf,
         );
-        return { beanBatches: entries, ...rest };
+        return { ...rest, beanBatches: entries };
       }
       case "profile": {
         const { entries, ...rest } = paged(await this.profiles.list(), (profile) => ({ archived: profile.archived, names: [profile.title], at: shownLocations(profile) }), profileOf);
-        return { profiles: entries, ...rest };
+        return { ...rest, profiles: entries };
       }
       case "grinder": {
         const { entries, ...rest } = paged(await this.grinders.list(), (grinder) => ({ archived: grinder.archived, names: [grinder.model], at: grinder.location ? [grinder.location] : [] }), grinderOf);
-        return { grinders: entries, ...rest };
+        return { ...rest, grinders: entries };
       }
       case "basket":
       case "tool": {
         const { entries, ...rest } = paged(await this.equipment.list(input.kind), (item) => ({ archived: item.archived, names: [item.name], at: shownLocations(item) }), equipmentOf);
-        return input.kind === "basket" ? { baskets: entries, ...rest } : { tools: entries, ...rest };
+        return input.kind === "basket" ? { ...rest, baskets: entries } : { ...rest, tools: entries };
       }
       case "recipe": {
         // A Recipe belongs to one Location: those of each, as the REST API lists a Location's.
         const locationIds = at === undefined ? (await this.locations.list()).map((location) => location.id) : [at];
         const recipes = (await Promise.all(locationIds.map((locationId) => this.recipes.atLocation(locationId)))).flat();
         const { entries, ...rest } = paged(recipes, (item) => ({ archived: item.archived, names: [item.name], at: item.location ? [item.location] : [] }), recipeOf);
-        return { recipes: entries, ...rest };
+        return { ...rest, recipes: entries };
       }
     }
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "get_library_item",
     title: "Get a Library item",
-    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history and open Conflicts, such as what changed on a Recipe today and who changed it. ${TIMES}`,
+    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history and open Conflicts, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; each Conflict, the losing value of a field and the field's value now. limit and offset page its history and its Conflicts. ${PAGED} ${TIMES}`,
     inputSchema: getInput,
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for without its history and Conflicts, or fewer of them at a time, it has more of its text." },
   })
   async getLibraryItem(input: z.infer<typeof getInput>, context: McpContext): Promise<GetOutput> {
     const { item, ref, itemLocation } = await this.item(input.kind, input.id);
@@ -370,7 +377,7 @@ export class LibraryTools {
     const paged = <T, R>(list: readonly T[] | undefined, view: (entry: T) => R) => {
       if (list === undefined) return undefined;
       const entries = list.slice(input.offset, input.offset + input.limit);
-      return { entries: entries.map(view), ...pageOf(list.length, input.offset, entries.length) };
+      return { ...pageOf(list.length, input.offset, entries.length), entries: entries.map(view) };
     };
     return {
       ...item,
@@ -379,22 +386,23 @@ export class LibraryTools {
     };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "list_conflicts",
     title: "List Conflicts",
-    description: `Lists the Library's open Conflicts, the latest first, a page at a time: for each, its item and field, the losing value and the value now, where and when each came from, and whether this account may use or dismiss it. ${TIMES}`,
+    description: `Lists the Library's open Conflicts, the latest first, a page at a time: for each, its item and field, the losing value and the value now, where and when each came from, and whether this account may use or dismiss it. A field is of the item's content, by Decaid's names, or of a Location's state of it: atLocation, remainingWeight in grams, or shown. ${PAGED} ${TIMES}`,
     inputSchema: z.object({ ...page }),
     outputSchema: conflictsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for fewer at a time, it has more of each." },
   })
   async listConflicts({ limit, offset }: { limit: number; offset: number }, context: McpContext): Promise<z.infer<typeof conflictsOutput>> {
     const open = await this.history.openConflicts(callerOf(context).scope);
     const shown = open.slice(offset, offset + limit);
     const itemLocations = await this.itemLocations(shown);
     return {
-      conflicts: shown.map((entry) => conflictOf(entry, itemLocations.get(`${entry.item.kind}:${entry.item.id}`) ?? null)),
       ...pageOf(open.length, offset, shown.length),
+      conflicts: shown.map((entry) => conflictOf(entry, itemLocations.get(`${entry.item.kind}:${entry.item.id}`) ?? null)),
     };
   }
 
