@@ -2,7 +2,7 @@
 # PostgreSQL. The server applies migrations on startup and serves the
 # management interface on port 3000. Set PUBLIC_URL to the address people and
 # tablets use to reach it, in the environment or a .env file next to this one;
-# see the README's Self-hosting section for the other variables.
+# see docs/SELF-HOSTING.md for the other variables.
 #
 # Development: `npm run db:up` starts only PostgreSQL, published on
 # 127.0.0.1:5432 for a server run from source. CI uses the same major version.

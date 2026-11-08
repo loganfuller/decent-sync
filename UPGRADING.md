@@ -7,11 +7,11 @@ order, and the new server runs beside the old one as it upgrades, so nothing
 here stops the server or recreates the database
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md)).
 Earlier releases' notes may still ask that. A server that skipped a release
-takes each release in turn (the README's Upgrading section).
+takes each release in turn (docs/SELF-HOSTING.md, Upgrading).
 
 Each release's notes on GitHub start with its section here. Notes for the next
-release wait under Unreleased until it is tagged (see the README's Releasing
-section).
+release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
+Releasing).
 
 ## Unreleased
 
@@ -269,7 +269,7 @@ one before it. Pages opened from 1.3.1 don't reload into the new release by
 themselves, as later pages do at their next navigation: reload them once after
 upgrading.
 
-On fly.io, set `fly.toml` up as the README's fly.io section now shows: a
+On fly.io, set `fly.toml` up as docs/SELF-HOSTING.md's fly.io section now shows: a
 blue-green deploy, a `wait_timeout`, a 10 s check interval and a
 `kill_timeout` of 150 s. Deploy this release, then run `fly scale count 2`.
 That deploy takes nothing offline, though 1.3.1 doesn't drain as it stops, so

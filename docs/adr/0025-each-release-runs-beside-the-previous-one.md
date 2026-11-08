@@ -39,11 +39,11 @@ Both directions matter for the plugin. Decaid checks for plugin releases every 1
   - It loses no data its notes don't name.
   - The pull requests that make the break carry the `breaking-release` label. From the merge of the first until the release is tagged, the two checks skip with a notice. Only the owner applies the label; GitHub can't enforce that, so it is a rule agents keep.
 - **Deploying.**
-  - **By hand, in order.** Deploys stay by hand. Each release is deployed before the next is tagged, as a plugin more than one release ahead of its server falls outside the window (the README's Releasing section). A self-hoster keeps their server within one release of the newest.
+  - **By hand, in order.** Deploys stay by hand. Each release is deployed before the next is tagged, as a plugin more than one release ahead of its server falls outside the window (`docs/DEVELOPMENT.md`, Releasing). A self-hoster keeps their server within one release of the newest.
   - **Before raising the wire revision,** the owner sees on each Machine's page that it runs the previous release's plugin. A tablet that doesn't is updated or approved first, at the tablet or through Decaid's API from its network (`POST /api/v1/plugins/update`, and `POST /api/v1/plugins/decent-sync.reaplugin/update/approve` for an update that adds a permission).
   - **A server that skipped a release** can't be upgraded side by side. It is stopped first, or taken up one release at a time, each run until its background work is done.
 - **fly.io.**
-  - **Two instances.** The deployment the README describes runs two instances in one region, on fly.io VMs that fly.io normally places on separate hosts, though it doesn't promise to.
+  - **Two instances.** The fly.io deployment in `docs/SELF-HOSTING.md` runs two instances in one region, on fly.io VMs that fly.io normally places on separate hosts, though it doesn't promise to.
   - **The switch.** A blue-green deploy starts a new VM beside each old one and waits for their health checks, failing the deploy and leaving the old ones serving if they don't pass. Then it sends new traffic to both releases for some 10 to 20 seconds, cordons the old VMs, stops them with their signal and destroys them. Their tablets reconnect within about a second.
   - **The routing check** reports only whether the instance is up and not stopping. Whether the database is reachable is in its body, so a database failover doesn't keep traffic away once the database is back.
   - **Staging and single instances.** Roux's staging keeps one VM, which a blue-green deploy pairs with a new one only for the switch. One instance, as in the Docker Compose example, still restarts to upgrade, for a few seconds.
