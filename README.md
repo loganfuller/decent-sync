@@ -247,7 +247,7 @@ your `PUBLIC_URL` followed by `/api/mcp`, such as
 | App | How |
 |---|---|
 | Claude, on the web, desktop or phone | Add it as a custom connector |
-| ChatGPT | Add it as a connector |
+| ChatGPT | Add it as a custom MCP server, with Client Identifier Metadata Document (CIMD) as its registration method and the client ID and secret left blank |
 | Claude Code | `claude mcp add --transport http decent-sync https://sync.example.com/api/mcp` |
 | VS Code | Add it as an HTTP MCP server |
 
