@@ -322,6 +322,16 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     // Nothing of these changed.
     expect((await restItem("bean", made.bean)).name).toBe("Assistant Kenya");
     expect((await api.get<{ beans: unknown[] }>("/beans")).beans).toHaveLength(2);
+
+    // Null for none in a new item, as the REST API takes it.
+    const { beanBatch } = await assistant.call<{ beanBatch: { content: Record_; locations: { location: LocationView; remainingWeight: number | null }[] } }>("create_bean_batch", {
+      beanId: made.bean,
+      roastDate: "2026-11-05",
+      notes: null,
+      locations: [{ locationId: harbor.id, remainingWeight: null }],
+    });
+    expect(beanBatch.content).not.toHaveProperty("notes");
+    expect(beanBatch.locations).toEqual([expect.objectContaining({ location: expect.objectContaining({ id: harbor.id }), remainingWeight: null })]);
   });
 
   it("lets Staff change what the REST API lets them, the Library's shared content anywhere but what Locations offer only at their own, refused as it refuses them", async () => {
@@ -361,36 +371,47 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
     expect(asStaff.at(-1)!.source).toEqual({ ...throughApp, account: { id: throughApp.account!.id, name: null } });
   });
 
-  it("refuses a change from a Connected App that may only read, and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
-    const create = (accessToken: string, name: string) => Assistant.rawCall(server.url, accessToken, "tools/call", { name: "create_bean", arguments: { roaster: "Roux", name } });
-    const refused = await create(reader.tokens.access_token, "Read-only Bean");
-    expect(refused.status).toBe(403);
-    expect(refused.headers.get("www-authenticate")).toMatch(/^Bearer /);
-    expect(refused.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
-    expect(refused.headers.get("www-authenticate")).toContain('scope="read change"');
-    for (const [name, args] of [
-      ["edit_bean", { id: made.bean, notes: "Read-only notes" }],
+  it("refuses every changing tool, from a Connected App that may only read and from a Viewer's, with 403 insufficient_scope naming read and change, changing nothing", async () => {
+    const batches = async () => (await api.get<{ batches: unknown[] }>("/bean-batches")).batches.length;
+    const before = { batches: await batches(), bean: await restItem("bean", made.bean), batch: await restItem("beanBatch", made.batch) };
+    /** Each changing tool, with arguments it would take from an account allowed to change. */
+    const calls = (name: string): [string, Record_][] => [
+      ["create_bean", { roaster: "Roux", name }],
+      ["edit_bean", { id: made.bean, notes: `${name} notes` }],
+      ["create_bean_batch", { beanId: made.bean, locations: [{ locationId: uptown.id }] }],
+      ["edit_bean_batch", { id: made.batch, notes: `${name} notes` }],
       ["set_archived", { kind: "bean", id: made.bean, archived: true }],
       ["set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, offered: false }],
-    ] as const) {
-      expect((await Assistant.rawCall(server.url, reader.tokens.access_token, "tools/call", { name, arguments: args })).status, name).toBe(403);
-    }
+    ];
+    const { tools } = await reader.client.listTools();
+    expect(tools.filter((tool) => tool.annotations?.readOnlyHint === false).map((tool) => tool.name).sort()).toEqual(calls("").map(([name]) => name).sort());
+    const refuse = async (accessToken: string, who: string) => {
+      for (const [name, args] of calls(who)) {
+        const refused = await Assistant.rawCall(server.url, accessToken, "tools/call", { name, arguments: args });
+        expect(refused.status, `${who} ${name}`).toBe(403);
+        const challenge = refused.headers.get("www-authenticate") ?? "";
+        expect(challenge, `${who} ${name}`).toMatch(/^Bearer /);
+        expect(challenge, `${who} ${name}`).toContain('error="insufficient_scope"');
+        expect(challenge, `${who} ${name}`).toContain('scope="read change"');
+      }
+    };
+    await refuse(reader.tokens.access_token, "Read-only");
     // It still reads.
     expect((await reader.call<{ bean: Record_ }>("get_library_item", { kind: "bean", id: made.bean })).bean.archived).toBe(false);
 
-    // A Staff member's Connected App, allowed to change, changes nothing from the call after they become a Viewer.
+    // A Staff member's Connected App, allowed to change, changes nothing from the call after their account becomes a Viewer.
     const vic = await person("vic-411@example.com", "staff", [uptown]);
     await vic.assistant.call("create_bean", { roaster: "Roux", name: "Before Viewer" });
     await api.send("PUT", `/accounts/${vic.id}/access`, { role: "viewer" });
-    const asViewer = await create(vic.assistant.tokens.access_token, "As Viewer");
-    expect(asViewer.status).toBe(403);
-    expect(asViewer.headers.get("www-authenticate")).toContain('error="insufficient_scope"');
+    await refuse(vic.assistant.tokens.access_token, "As Viewer");
 
     const names = (await api.get<{ beans: { name: string }[] }>("/beans")).beans.map((bean) => bean.name);
     expect(names).toContain("Before Viewer");
-    expect(names).not.toContain("Read-only Bean");
+    expect(names).not.toContain("Read-only");
     expect(names).not.toContain("As Viewer");
-    expect((await restItem("bean", made.bean)).content).not.toMatchObject({ notes: "Read-only notes" });
+    expect(await batches()).toBe(before.batches);
+    expect(await restItem("bean", made.bean)).toEqual(before.bean);
+    expect(await restItem("beanBatch", made.batch)).toEqual(before.batch);
   });
 
   it("keeps a change through the assistant that a tablet's later edit, made without seeing it, replaced, as a Conflict through the Connected App", async () => {

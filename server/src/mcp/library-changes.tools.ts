@@ -95,9 +95,9 @@ function fieldSchema(type: FieldType): z.ZodType {
 
 /**
  * A kind's content fields as a tool's input takes them, each by Decaid's
- * name, as the REST API takes them: for a new item, each optional but its
- * names (a Bean's roaster and name); for an edit, each optional, and null, or
- * empty text, clearing one that may be cleared.
+ * name, as the REST API takes them: each optional, but a new item's names (a
+ * Bean's roaster and name), and null for one that may be cleared, for none
+ * in a new item and clearing it in an edit, as the REST API reads null.
  */
 function contentFields(kind: "bean" | "beanBatch", edit: boolean): z.ZodRawShape {
   const fields = KINDS[kind].editable!.fields;
@@ -106,7 +106,7 @@ function contentFields(kind: "bean" | "beanBatch", edit: boolean): z.ZodRawShape
       const notes = [FIELD_NOTES[kind][field], type === "date" ? "A day, such as 2026-10-01." : undefined].filter((note) => note !== undefined);
       let schema = fieldSchema(type);
       // Decaid refuses to clear a name or a flag (`readValue` in item-input.ts).
-      if (edit && type !== "name" && type !== "flag") schema = schema.nullable();
+      if (type !== "name" && type !== "flag") schema = schema.nullable();
       if (edit || type !== "name") schema = schema.optional();
       return [field, notes.length === 0 ? schema : schema.describe(notes.join(" "))];
     }),
@@ -118,7 +118,7 @@ const beanEditInput = z.strictObject({ id: id.describe("The Bean's id, as find_l
 
 const placeAt = z.strictObject({
   locationId: id.describe("The Location's id, as list_locations gives it."),
-  remainingWeight: z.number().min(0).optional().describe("Its remaining weight there, in grams."),
+  remainingWeight: z.number().min(0).nullable().optional().describe("Its remaining weight there, in grams; null or left out for none."),
 });
 const newBatchInput = z.strictObject({
   beanId: id.describe("The id of the Bean it is a roast of, as find_library_items gives it. The Bean may not be Archived."),
@@ -181,7 +181,7 @@ export class LibraryChangesTools {
   @Tool({
     name: "edit_bean",
     title: "Edit a Bean",
-    description: `Edits a Bean's details, given only the fields to change: everywhere it is offered, its tablets are written the change. A field given null or empty text is cleared, but its roaster, name and decaf. ${STAFF_SHARED} ${TIMES}`,
+    description: `Edits a Bean's details, given only the fields to change: everywhere it is offered, its tablets are written the change. A field given null is cleared, but its roaster, name and decaf, which can't be. ${STAFF_SHARED} ${TIMES}`,
     inputSchema: beanEditInput,
     outputSchema: z.object({ bean: beanItem }),
     annotations: { ...CHANGES, idempotentHint: true },
@@ -212,7 +212,7 @@ export class LibraryChangesTools {
   @Tool({
     name: "edit_bean_batch",
     title: "Edit a Bean Batch",
-    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or its remaining weight there, which set_location_offering changes. A field given null or empty text is cleared, but frozen. ${STAFF_SHARED} ${TIMES}`,
+    description: `Edits a Bean Batch's details, given only the fields to change, everywhere it is: not where it is or its remaining weight there, which set_location_offering changes. A field given null is cleared, but frozen, which can't be. ${STAFF_SHARED} ${TIMES}`,
     inputSchema: batchEditInput,
     outputSchema: z.object({ beanBatch: beanBatchItem }),
     annotations: { ...CHANGES, idempotentHint: true },
