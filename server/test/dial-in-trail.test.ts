@@ -188,7 +188,9 @@ describe("dialInTrail", () => {
     ]);
     // During a deploy, the strip's change stored by the previous release, as unknown, and the plugin's load write by this one.
     const deploying = changes([20, UNKNOWN, { recipeId: BRAZIL.id }], [22, plugin("load"), { steam: { temperature: 150, duration: 25, flow: 1.5 } }]);
-    expect(shown(dialInTrail({ baseline: baseline(), changes: deploying, recipeEvents: loads(["loaded", 20, BRAZIL]), loadedAtStart: null })).map((entry) => entry.lastObservedAt)).toEqual([iso(22)]);
+    expect(shown(dialInTrail({ baseline: baseline(), changes: deploying, recipeEvents: loads(["loaded", 20, BRAZIL]), loadedAtStart: null }))).toEqual([
+      { kind: "loaded", observedAt: iso(20), lastObservedAt: iso(22), cause: "unknown", loadedRecipe: "Brazil", changes: { recipeId: [null, BRAZIL.id], "steam.duration": [30, 25] } },
+    ]);
   });
 
   it("gives the plugin's write of an edit of the Loaded Recipe made elsewhere as that Recipe updated", () => {

@@ -860,20 +860,21 @@ Every entry but the first gives each field of the summary that changed,
 before its first change and after its last, a part's as `steam.duration`,
 and `lastObservedAt`, the last change it took after it began. A load or
 unload no change came within 5 s of, as when its Machine joins a Location
-with its Workflow unchanged, is of cause `unknown`.
-Other changes of one cause, the plugin's write included, one within 5 s of
-the one before it, merge, a group spanning at most 30 s, and never across a
-load or unload; those stored before #434, of cause `unknown`, merge by time
-alone. A load whose first change is `unknown` takes the other `unknown`
-changes in its 5 s, its load write among them, as well as the plugin's load
-writes, as when the previous release stored the first during a deploy. At
-one moment a load or unload comes before a change, then each by stored id. An entry left with no field changed is dropped, but for a load or
-unload, which is a change in itself. The trail is grouped whole before a page
-of it is taken, so pages and `total` stay as they are, and `cause` keeps the
-entries of one cause and the first, each `before` then as the changes left
-out left it. Each Profile is found once (`profileOfSql`), and each Workflow
-read in two passes, one for its Profile and one for its summary, each taking
-its parts at once (`jsonb_to_record`).
+with its Workflow unchanged, is of cause `unknown`. Other changes of one
+cause, the plugin's write included, one within 5 s of the one before it,
+merge, a group spanning at most 30 s, and never across a load or unload;
+those stored before #434, of cause `unknown`, merge by time alone. A load
+whose first change is `unknown` takes the other `unknown` changes in its
+5 s, its load write among them, as well as the plugin's load writes, as when
+the previous release stored the first during a deploy. At one moment a load
+or unload comes before a change, then each by stored id. An entry left with
+no field changed is dropped, except a load or unload, which is a change in
+itself. The trail is grouped whole before a page of it is taken, so pages
+and `total` stay as they are, and `cause` keeps the entries of one cause and
+the first, each `before` then as the changes left out left it. Each Profile
+is found once (`profileOfSql`), and each Workflow read in two passes, one
+for its Profile and one for its summary, each taking its parts at once
+(`jsonb_to_record`).
 
 The Machines list shows each Machine's state and last Shot; the Machine page
 also shows its current Workflow, its fields as a Shot's page shows them, the
