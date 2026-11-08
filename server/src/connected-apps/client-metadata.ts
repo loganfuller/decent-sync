@@ -200,7 +200,7 @@ export function redirectAllowed(redirectUri: string): boolean {
  * authorization server's metadata names too (ChatGPT's prefers
  * `private_key_jwt` and offers `none` beside it); otherwise its
  * `token_endpoint_auth_method`, or `none` when it names neither. A list that
- * is `null`, as some serializers write a field left unset, counts as none.
+ * is `null`, as some serializers write a field left unset, counts as absent.
  * This server supports only `none`, a public client's PKCE exchange
  * (ADR-0027).
  */
