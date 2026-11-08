@@ -5,7 +5,7 @@ import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type TestApp, serveTestApp }
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import { RawConnection, type SimulatedTablet, de1ProOnDecaid091, derivedProfile, derivedWorkflow, helloWith, manyProfiles } from "./support/simulated-tablet.js";
-import { derivedSteam, liveSteamFixture } from "./support/steam-fixtures.js";
+import { derivedSteam, liveSteamFixture, milkProbeSteamFixture } from "./support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for #431 (ADR-0028): every read tool, called as a client calls it,
@@ -461,6 +461,89 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.tabletSettings.appSettings.value).toEqual(appSettings);
     });
 
+    it("gives a Machine's activity whose Workflows' text runs long with that text cut", async () => {
+      for (const minute of [1, 2]) {
+        await raw.deliver({
+          type: "workflow",
+          id: randomUUID(),
+          observedAt: `2026-11-04T06:0${minute}:00.000Z`,
+          // Each a change, by its dose.
+          workflow: derivedWorkflow({ targetDoseWeight: 18 + minute, coffeeName: hostile(20_000), coffeeRoaster: hostile(5_000), baristaName: hostile(5_000) }),
+        });
+      }
+      const { result } = await assistant.callWithinBudget<{ cut: string; workflowChanges: Page & { entries: { workflow: Fields }[] } }>("get_machine_activity", {
+        machineId: haunted.machine.id,
+        from: "2026-11-04",
+        to: "2026-11-04",
+        limit: 50,
+      });
+      expect(result.cut).toContain("fewer at a time");
+      expect(result.workflowChanges.total).toBe(3);
+      expect(result.workflowChanges.entries.every((entry) => cut(entry.workflow.bean) && cut(entry.workflow.barista))).toBe(true);
+    });
+
+    it("lists Settings Edits whose Decaid message runs long with it cut, each value they set whole, a page at a time", async () => {
+      // Refused by Decaid with a long answer, each setting a long value, as copied in PostgreSQL.
+      const value = hostile(2_000);
+      const database = await server.connectDatabase();
+      try {
+        await database.query(
+          `INSERT INTO settings_edits (id, machine_id, session_id, tablet_id, collection, fields, expected, made_at, sent_at, answered_at, outcome, refusal, decaid_status, decaid_message)
+           SELECT gen_random_uuid(), $1, gen_random_uuid(), gen_random_uuid(), 'appSettings', jsonb_build_object('webUiPath', $2::text), jsonb_build_object('webUiPath', 'streamline.js'),
+             transaction_timestamp() - n * interval '1 minute', transaction_timestamp() - n * interval '1 minute', transaction_timestamp() - n * interval '1 minute',
+             'REFUSED', 'DECAID', 400, $3
+           FROM generate_series(1, 30) AS n`,
+          [haunted.machine.id, value, hostile(5_000)],
+        );
+      } finally {
+        await database.end();
+      }
+      const { ids, lengths } = await everyPage("list_settings_edits", "settingsEdits", { machineId: haunted.machine.id });
+      expect(ids).toHaveLength(30);
+      expect(lengths[0]).toBeLessThan(30);
+      const { result } = await assistant.callWithinBudget<{ cut: string; settingsEdits: { fields: Fields; refusal: { message: unknown } }[] }>("list_settings_edits", { machineId: haunted.machine.id, limit: 50 });
+      expect(result.cut).toBeDefined();
+      for (const edit of result.settingsEdits) {
+        expect(edit.fields).toEqual({ webUiPath: value });
+        expect(cut(edit.refusal.message)).toBe(true);
+      }
+    });
+
+    it("finds Steam Records whose Barista runs long a page at a time, and reads one with its curves whole", async () => {
+      const fixture = milkProbeSteamFixture();
+      const workflow = fixture.workflow as Record<string, Fields>;
+      const steam = (steamId: string) => derivedSteam(steamId, { workflow: { ...workflow, context: { ...workflow.context, baristaName: hostile(5_000) } } }, fixture);
+      await Promise.all(
+        Array.from({ length: 50 }, (_, n) => {
+          const steamId = `haunted-steam-${String(n).padStart(2, "0")}`;
+          return raw.deliver({ type: "steam", id: randomUUID(), steamId, steamedAt: new Date(Date.UTC(2026, 10, 4, 7, n)).toISOString(), steam: steam(steamId) });
+        }),
+      );
+      const { ids, lengths } = await everyPage("find_steam_records", "steamRecords", { machineId: haunted.machine.id });
+      expect(ids).toEqual(await restIds("/steam-records", "steamRecords", { machineId: haunted.machine.id }));
+      expect(lengths[0]).toBe(50);
+      const { result } = await assistant.callWithinBudget<{ cut: string; steamRecords: Fields[] }>("find_steam_records", { machineId: haunted.machine.id, limit: 50 });
+      expect(result.cut).toContain("get_steam_record");
+      expect(result.steamRecords.every((record) => cut(record.barista))).toBe(true);
+      const read = await assistant.callWithinBudget<Fields>("get_steam_record", { id: "haunted-steam-00", curves: true });
+      await raw.deliver({ type: "steam", id: randomUUID(), steamId: "plain-steam", steamedAt: "2026-11-04T09:00:00.000Z", steam: derivedSteam("plain-steam", {}, fixture) });
+      expect(read.result.curves).toEqual((await assistant.call<Fields>("get_steam_record", { id: "plain-steam", curves: true })).curves);
+    });
+
+    it("lists Locations and Machines whose names are as long as they may be, and heavy with what JSON escapes", async () => {
+      // A name has at most 100 characters (locations/input.ts, machines/input.ts).
+      const longest = (prefix: string) => {
+        const piece = Array.from(`${prefix} "quoted" \\ \u{1F600} `);
+        let name = "";
+        for (let n = 0; (name + piece[n % piece.length]!).length <= 100; n++) name += piece[n % piece.length]!;
+        return name.trim();
+      };
+      const place = await api.createLocation(longest("Location"), "Europe/Lisbon");
+      await api.createMachine(longest("Machine"), place.id);
+      await assistant.callWithinBudget("list_locations");
+      await assistant.callWithinBudget("list_machines");
+    });
+
     it("lists Conflicts whose values run long with each value cut, and reads their Bean with them", async () => {
       const bean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: hostile(2_000), name: hostile(2_000), notes: hostile(30_000) } }, 201)).bean.id;
       const database = await server.connectDatabase();
@@ -486,6 +569,26 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       });
       expect([read.result.bean.content.notes, read.result.bean.roaster].every(cut)).toBe(true);
       expect(read.result.conflicts.entries.length).toBeGreaterThan(0);
+
+      // An assistant that edits the notes it read cut, adding to them, is refused, and the notes are kept whole.
+      const changer = await Assistant.connect(server.url, app, await signIn(server.url, admin));
+      try {
+        const refused = await changer.client.callTool({ name: "edit_bean", arguments: { id: bean, notes: `${read.result.bean.content.notes as string} Nutty.` } });
+        expect(refused.isError).toBe(true);
+        expect((refused.content as { text: string }[])[0]!.text).toContain(`A value holds ${CUT_MARK}`);
+      } finally {
+        await changer.close();
+      }
+      expect((await api.get<{ bean: { content: Fields } }>(`/beans/${bean}`)).bean.content.notes).toBe(hostile(30_000));
+    });
+
+    it("finds Beans whose names run long a page at a time, each name cut and marked", async () => {
+      for (let n = 0; n < 20; n++) await api.send("POST", "/beans", { content: { roaster: hostile(2_000), name: `${hostile(2_000)} ${n}` } }, 201);
+      const { ids } = await everyPage("find_library_items", "beans", { kind: "bean", name: "Quote backslash emoji" });
+      expect(ids.length).toBeGreaterThanOrEqual(21);
+      const { result } = await assistant.callWithinBudget<{ cut: string; beans: Fields[] }>("find_library_items", { kind: "bean", name: "Quote backslash emoji", limit: 50 });
+      expect(result.cut).toContain("get_library_item");
+      expect(result.beans.every((found) => cut(found.roaster) && cut(found.name))).toBe(true);
     });
 
     it("reads a Profile whose notes run long with them cut, its steps whole, and returns one too large to fit even so as it is, and logs it", async () => {

@@ -1,4 +1,4 @@
-import { Logger } from "@nestjs/common";
+import { BadRequestException, Logger } from "@nestjs/common";
 import { Tool, type ToolOptions } from "@nestjs/mcp";
 import * as z from "zod";
 
@@ -50,14 +50,17 @@ const cutNote = z
 /**
  * A tool, as `@Tool` declares one, whose response the shared guard keeps
  * within the budget (`withinBudget`), declaring `RESULT_SIZE_META` and the
- * response's `cut` note in its output schema. It wraps the method, so any
+ * response's `cut` note in its output schema. A tool that changes something
+ * refuses text a response cut (`refuseCutText`). It wraps the method, so any
  * other method decorator, such as `@UseGuards`, goes above it, to apply to
  * the method it leaves.
  */
 export function BudgetedTool({ budget = {}, ...options }: BudgetedToolOptions): MethodDecorator {
+  const changes = options.annotations?.readOnlyHint !== true;
   return (target, key, descriptor) => {
     const method = descriptor.value as (...args: unknown[]) => unknown;
     const guarded = async function (this: unknown, ...args: unknown[]) {
+      if (changes) refuseCutText(args[0]);
       return withinBudget(await method.apply(this, args), budget, options.name);
     };
     (descriptor as PropertyDescriptor).value = guarded;
@@ -86,7 +89,7 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
   // As the client receives it: a Date as its text, and what is undefined left out.
   const sent = JSON.parse(JSON.stringify(response)) as Record<string, unknown>;
   const whole = (budget.whole ?? []).map((path) => path.split("/").slice(1));
-  const note = `Text ending in ${CUT_MARK} was cut to keep this response small. ${budget.rest ?? "The management interface shows it whole."}`;
+  const note = `Text ending in ${CUT_MARK} was cut to keep this response small; never send it back in a change, which is refused. ${budget.rest ?? "The management interface shows it whole."}`;
   const fitted = (at: number, entries: number) => {
     const shape = new Shape(whole, at, entries);
     const value = shape.of(sent, []) as Record<string, unknown>;
@@ -108,6 +111,20 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
   const length = size(value);
   if (length > MAX_RESPONSE_CHARS) logger.warn(`${tool}'s response is ${length} characters, over ${MAX_RESPONSE_CHARS} even with its free text cut and its pages at one entry each`);
   return value as T;
+}
+
+/**
+ * Refuses a change whose input holds text a response cut, `CUT_MARK` in it
+ * anywhere: an assistant that edits a field it read cut, such as a Bean's
+ * notes read with its history, would otherwise save the cut text over the
+ * whole.
+ */
+export function refuseCutText(input: unknown): void {
+  const holds = (value: unknown): boolean =>
+    typeof value === "string" ? value.includes(CUT_MARK) : typeof value === "object" && value !== null && Object.values(value).some(holds);
+  if (holds(input)) {
+    throw new BadRequestException(`A value holds ${CUT_MARK}, so it is text a response cut short: read it whole first, such as without history or curves, and send the whole of it`);
+  }
 }
 
 function size(value: unknown): number {

@@ -25,7 +25,7 @@ describe("withinBudget", () => {
     expect(size(fitted)).toBeLessThanOrEqual(MAX_RESPONSE_CHARS);
     expect(size(fitted)).toBeGreaterThan(MAX_RESPONSE_CHARS - 10);
     expect(Object.keys(fitted)[0]).toBe("cut");
-    expect(fitted.cut).toBe(`Text ending in ${CUT_MARK} was cut to keep this response small. Ask without curves.`);
+    expect(fitted.cut).toBe(`Text ending in ${CUT_MARK} was cut to keep this response small; never send it back in a change, which is refused. Ask without curves.`);
     expect(fitted.notes).toMatch(/^n+…\[cut\]$/);
     expect({ ...fitted, cut: undefined, notes: undefined }).toEqual({ ...response, cut: undefined, notes: undefined });
   });
