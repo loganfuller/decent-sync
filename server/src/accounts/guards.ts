@@ -49,6 +49,9 @@ export const AllowViewer = () => SetMetadata(VIEWER, true);
 
 type SignedInRequest = Request & { signedIn?: SignedIn };
 
+/** How a route or tool for Admins only refuses anyone else. */
+export const ADMINS_ONLY = "Only an Admin can do this";
+
 /** The context of an MCP tool call, around which `@nestjs/mcp` runs the global guards again (`MCP_CONTEXT_TYPE`). */
 const MCP_CALL = "mcp";
 
@@ -138,7 +141,7 @@ export class SessionGuard implements CanActivate {
     if (!signedIn) throw new UnauthorizedException("Sign in to continue");
     const { role } = signedIn.account;
     if (role !== AccountRole.ADMIN && !this.reflector.getAllAndOverride<boolean>(STAFF, targets)) {
-      throw new ForbiddenException("Only an Admin can do this");
+      throw new ForbiddenException(ADMINS_ONLY);
     }
     if (role === AccountRole.VIEWER && !SAFE_METHODS.has(request.method) && !this.reflector.getAllAndOverride<boolean>(VIEWER, targets)) {
       throw new ForbiddenException("A Viewer can't change anything");

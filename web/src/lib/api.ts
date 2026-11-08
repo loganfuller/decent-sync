@@ -373,6 +373,12 @@ export interface SettingsEdit {
   expected: Record<string, unknown>;
   /** Who made it: named to Admins, and to Staff by its id only. */
   account: { id: string; name: string | null } | null;
+  /**
+   * The Connected App, such as an assistant, it was made through; null for
+   * one made here. Absent from the previous release's answer during a deploy
+   * (ADR-0025).
+   */
+  connectedApp?: { id: string; name: string; host: string } | null;
   madeAt: string;
   sentAt: string | null;
   answeredAt: string | null;

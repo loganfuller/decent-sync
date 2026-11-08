@@ -10,6 +10,6 @@ import { PendingMachinesService } from "./pending-machines.service.js";
 @Module({
   controllers: [MachinesController, PendingMachinesController],
   providers: [MachinesService, PendingMachinesService, LocationHistoryService, LiveConnections, DeliveryIdCleanup],
-  exports: [MachinesService, LiveConnections],
+  exports: [MachinesService, LocationHistoryService, LiveConnections],
 })
 export class MachinesModule {}

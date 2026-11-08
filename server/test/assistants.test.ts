@@ -148,11 +148,25 @@ describe("connecting an assistant", () => {
         "list_machines",
         "list_settings_edits",
       ];
-      const changing = ["create_bean", "create_bean_batch", "edit_bean", "edit_bean_batch", "set_archived", "set_location_offering"];
+      const changing = [
+        "create_bean",
+        "create_bean_batch",
+        "create_location",
+        "edit_bean",
+        "edit_bean_batch",
+        "edit_location",
+        "edit_machine_settings",
+        "move_machine",
+        "set_archived",
+        "set_location_offering",
+        "set_machine_sharing",
+      ];
       expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
-      // Archiving retires an item everywhere, which an app may ask about more carefully; nothing else changing is destructive.
+      // Archiving retires an item everywhere, and a Settings Edit writes a Machine's settings, which an app may ask about
+      // more carefully; nothing else changing is destructive.
+      const destructive = ["set_archived", "edit_machine_settings"];
       for (const tool of tools) {
-        expect(tool.annotations, tool.name).toMatchObject(changing.includes(tool.name) ? { readOnlyHint: false, destructiveHint: tool.name === "set_archived" } : { readOnlyHint: true });
+        expect(tool.annotations, tool.name).toMatchObject(changing.includes(tool.name) ? { readOnlyHint: false, destructiveHint: destructive.includes(tool.name) } : { readOnlyHint: true });
       }
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));
@@ -448,7 +462,7 @@ describe("connecting an assistant", () => {
       }
     });
 
-    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps but those the Library's history names, as an instance starts, keeping the rest", async () => {
+    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps but those the Library's history or a Settings Edit names, as an instance starts, keeping the rest", async () => {
       const hash = (secret: string) => createHash("sha256").update(secret).digest();
       const kept = await approvedCode(adminCookie);
       const keptTokens = await exchange(server.url, kept.code, kept.verifier);
@@ -468,6 +482,10 @@ describe("connecting an assistant", () => {
       const losing = await person("lo@example.com", "staff", [uptown]);
       const lost = await approvedCode(losing.cookie);
       await exchange(server.url, lost.code, lost.verifier);
+      // And one that only a Settings Edit names.
+      const editing = await person("se@example.com", "staff", [uptown]);
+      const edited = await approvedCode(editing.cookie);
+      await exchange(server.url, edited.code, edited.verifier);
       const database = await server.connectDatabase();
       try {
         await database.query(
@@ -475,11 +493,19 @@ describe("connecting an assistant", () => {
            SELECT gen_random_uuid(), 'bean', $1, 'notes', '"Lost notes"', account_id, id, now() FROM connected_apps WHERE account_id = $2`,
           [bean.id, losing.id],
         );
+        await database.query(
+          `INSERT INTO settings_edits (id, machine_id, session_id, tablet_id, account_id, connected_app_id, collection, fields, expected)
+           SELECT gen_random_uuid(), (SELECT id FROM machines ORDER BY name LIMIT 1), gen_random_uuid(), gen_random_uuid(), account_id, id, 'machineSettings', '{"fan": 40}', '{"fan": 50}'
+           FROM connected_apps WHERE account_id = $1`,
+          [editing.id],
+        );
         // Aged by PostgreSQL's clock, as waiting would not fit in a test.
         await database.query("UPDATE authorization_requests SET expires_at = now() - interval '1 second' WHERE id = $1", [unanswered]);
         await database.query("UPDATE authorization_codes SET expires_at = now() - interval '1 second' WHERE code_hash = $1", [hash(unexchanged.code)]);
         await database.query("UPDATE access_tokens SET expires_at = now() - interval '1 second' WHERE token_hash = $1", [hash(expiringTokens.body.access_token as string)]);
-        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [[lapsing.id, changing.id, losing.id]]);
+        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [
+          [lapsing.id, changing.id, losing.id, editing.id],
+        ]);
 
         const starting = await startTestServer({ env: ASSISTANT_ENV, sharing: server, publicUrl: server.url });
         try {
@@ -496,9 +522,9 @@ describe("connecting an assistant", () => {
           const kept = await database.query<{ apps: number; refreshTokens: number }>(
             `SELECT (SELECT count(*)::int FROM connected_apps WHERE account_id = ANY($1)) AS apps,
                (SELECT count(*)::int FROM refresh_tokens JOIN connected_apps ON connected_apps.id = refresh_tokens.connected_app_id WHERE account_id = ANY($1)) AS "refreshTokens"`,
-            [[changing.id, losing.id]],
+            [[changing.id, losing.id, editing.id]],
           );
-          expect(kept.rows[0]).toEqual({ apps: 2, refreshTokens: 0 });
+          expect(kept.rows[0]).toEqual({ apps: 3, refreshTokens: 0 });
         } finally {
           await starting.stop();
         }

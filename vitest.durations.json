@@ -23,6 +23,7 @@
   "server/test/advanced-settings-edits.test.ts": 5,
   "server/test/assistant-library-changes.test.ts": 14,
   "server/test/assistant-library.test.ts": 15,
+  "server/test/assistant-machine-changes.test.ts": 12,
   "server/test/assistant-machines.test.ts": 11,
   "server/test/assistant-records.test.ts": 14,
   "server/test/assistants.test.ts": 11,

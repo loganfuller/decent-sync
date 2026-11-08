@@ -118,9 +118,11 @@ and ChatGPT, through the server's MCP endpoint (see
 reads Locations, Machines with their activity, settings and Settings Edits,
 Shots and Steam Records, and the Library with each item's history and
 Conflicts. It creates and edits Beans and Bean Batches, Archives and restores
-Library items, and changes what a Location offers, each change shown as made
-through it. Each person sees and disconnects their Connected Apps. Changing
-the rest comes next.
+Library items, changes what a Location offers and makes Settings Edits, each
+shown as made through it, and moves Machines between Locations. An Admin's
+also turns a Machine's sharing on or off, and creates and edits Locations.
+Each person sees and disconnects their Connected Apps. Changing the rest of
+the Library comes next.
 
 Releases publish the server image and the plugin ZIP. v1.0.0 starts the
 database afresh; nothing from earlier releases carries over.
@@ -309,10 +311,11 @@ working until it connects again. Apps that register only by Dynamic Client
 Registration, such as Cursor, can't connect. Apps usually ask the person
 before a change, unless set to allow it without asking. Each change is
 recorded as theirs, through the app, and shown as "<account>, through <app>"
-in the item's history and its Conflicts. While Milestone 6 is under way,
-assistants change only Beans and Bean Batches, whether items are Archived, and
-what a Location offers: the tools that change the rest come with its later
-tickets (see [Status](#status)).
+in the item's history and its Conflicts, and on a Machine's Settings Edits.
+While Milestone 6 is under way, assistants change only Beans and Bean Batches,
+whether items are Archived, what a Location offers, Machines and Locations:
+the tools that change the rest of the Library come with its later tickets
+(see [Status](#status)).
 
 Each person sees their Connected Apps on the Connected Apps page, in the
 account menu under their name, and disconnects one there, which stops it at

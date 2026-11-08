@@ -189,10 +189,11 @@ model ConnectedApp {
   authorizationCodes AuthorizationCode[]
   accessTokens       AccessToken[]
   refreshTokens      RefreshToken[]
-  /// The Library's versions and Conflicts it made, which keep it once it
-  /// lapses (cleanup.ts).
+  /// The Library's versions and Conflicts, and the Settings Edits, it made,
+  /// which keep it once it lapses (cleanup.ts).
   itemVersions       ItemVersion[]
   conflicts          Conflict[]
+  settingsEdits      SettingsEdit[]
 
   @@index([accountId])
   @@index([lastUsedAt])
@@ -937,6 +938,11 @@ model SettingsEdit {
   /// Who made it.
   accountId     String?              @map("account_id") @db.Uuid
   account       Account?             @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  /// The Connected App the account made it through, if one (ADR-0026); null
+  /// for one made in the management interface, and for every edit the
+  /// previous release makes (ADR-0025).
+  connectedAppId String?             @map("connected_app_id") @db.Uuid
+  connectedApp  ConnectedApp?        @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
   /// One of EDITABLE_SETTINGS_COLLECTIONS.
   collection    String
   /// For `presenceSettings`, the wake schedule it adds, changes or deletes, if
@@ -971,6 +977,7 @@ model SettingsEdit {
   @@index([machineId, madeAt])
   /// Finds the edits a connection has yet to send.
   @@index([sessionId])
+  @@index([connectedAppId])
   @@map("settings_edits")
 }
 

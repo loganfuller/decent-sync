@@ -43,8 +43,8 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
       <CardHeader>
         <CardTitleWithInfo title="Settings Edits">
           <p>
-            Each change of the Machine's settings made here, newest first, with what came of it. Changes made on the Tablet are not
-            listed: the Settings card shows what the Machine holds.
+            Each change of the Machine's settings made here or through a Connected App, such as an assistant, newest first, with what
+            came of it. Changes made on the Tablet are not listed: the Settings card shows what the Machine holds.
           </p>
         </CardTitleWithInfo>
         {data?.page.total === 0 && <CardDescription>None of its settings have been changed here.</CardDescription>}
@@ -72,7 +72,7 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
                   <TableRow key={edit.id}>
                     <TableCell>{formatTime(edit.madeAt)}</TableCell>
                     <TableCell>
-                      <MadeBy account={edit.account} />
+                      <MadeBy account={edit.account} connectedApp={edit.connectedApp ?? null} />
                     </TableCell>
                     <TableCell className="whitespace-normal">{SETTINGS[edit.collection as keyof typeof SETTINGS] ?? edit.collection}</TableCell>
                     <TableCell className="min-w-48 whitespace-normal">
@@ -107,12 +107,16 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
   );
 }
 
-/** Who made an edit: "You" for one's own; named to Admins; otherwise as the Library's history shows Staff another account. */
-function MadeBy({ account }: { account: SettingsEdit["account"] }) {
+/**
+ * Who made an edit: "You" for one's own; named to Admins; otherwise as the
+ * Library's history shows Staff another account; and the Connected App, such
+ * as an assistant, it was made through, by the name the app gave itself.
+ */
+function MadeBy({ account, connectedApp }: { account: SettingsEdit["account"]; connectedApp: SettingsEdit["connectedApp"] }) {
   const { state } = useAuth();
   if (account === null) return <span className="text-muted-foreground">An account since removed</span>;
-  if (state.status === "signed-in" && state.account.id === account.id) return <>You</>;
-  return <>{account.name ?? "An account"}</>;
+  const who = state.status === "signed-in" && state.account.id === account.id ? "You" : (account.name ?? "An account");
+  return connectedApp ? <>{who}, through {connectedApp.name}</> : <>{who}</>;
 }
 
 /**

@@ -1,7 +1,9 @@
-import { Injectable } from "@nestjs/common";
+import { ForbiddenException, Injectable } from "@nestjs/common";
 import type { McpContext, McpTokenVerifier } from "@nestjs/mcp";
 import type { AuthInfo } from "@modelcontextprotocol/server";
+import { ADMINS_ONLY } from "../accounts/guards.js";
 import { type ConnectedAppAccess, ConnectedAppTokens } from "../connected-apps/access.js";
+import { AccountRole } from "../generated/prisma/client.js";
 
 /** What a verified MCP request's `authInfo.extra` holds: who it acts as. */
 export interface McpCaller {
@@ -40,4 +42,12 @@ export function callerOf(context: McpContext): ConnectedAppAccess {
   // The module verifies every request's token before any tool is called.
   if (!caller) throw new Error("A tool was called without a verified access token");
   return caller.access;
+}
+
+/**
+ * Refuses a tool call for Admins only made as anyone else, with the REST
+ * API's message, as `SessionGuard` refuses a route not marked for Staff.
+ */
+export function requireAdmin(context: McpContext): void {
+  if (callerOf(context).role !== AccountRole.ADMIN) throw new ForbiddenException(ADMINS_ONLY);
 }

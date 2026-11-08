@@ -23,6 +23,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 type Record_ = Record<string, unknown>;
 
+/** The changing tools of Machines and Locations, which assistant-machine-changes.test.ts covers. */
+const MACHINE_AND_LOCATION_TOOLS = ["move_machine", "set_machine_sharing", "edit_machine_settings", "create_location", "edit_location"];
+
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
 /** An ISO 8601 time with its offset. */
@@ -395,8 +398,10 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       ["set_archived", { kind: "bean", id: made.bean, archived: true }],
       ["set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, offered: false }],
     ];
+    // Each of the Library's changing tools; assistant-machine-changes.test.ts refuses the Machines' and Locations'.
     const { tools } = await reader.client.listTools();
-    expect(tools.filter((tool) => tool.annotations?.readOnlyHint === false).map((tool) => tool.name).sort()).toEqual(calls("").map(([name]) => name).sort());
+    const libraryTools = tools.filter((tool) => tool.annotations?.readOnlyHint === false && !MACHINE_AND_LOCATION_TOOLS.includes(tool.name));
+    expect(libraryTools.map((tool) => tool.name).sort()).toEqual(calls("").map(([name]) => name).sort());
     const refuse = async (accessToken: string, who: string) => {
       for (const [name, args] of calls(who)) {
         const refused = await Assistant.rawCall(server.url, accessToken, "tools/call", { name, arguments: args });

@@ -11,7 +11,7 @@ import { type ActivityKind, type ActivityPage, MachineEventsService } from "../m
 import { readMachineId } from "../machines/input.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
-import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
+import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { page, pageOf, pageOutput } from "./paging.js";
 import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
@@ -78,18 +78,21 @@ const settingsCollection = z
 const changedItem = z.object({ kind: z.string(), id: z.string(), name: z.string().nullable() }).nullable();
 const changeFields = { change: z.enum(["write", "delete", "remove", "leaveOut"]), kind: z.string(), item: changedItem, localId: z.string().nullable() };
 
+/** A Machine as get_machine gives it, apart from its Workflow, settings, sharing status and its tablet's versions. */
+export const machineDetail = listedMachine.extend({
+  serial: z.string().nullable(),
+  firmware: z.string().nullable().describe("The firmware its latest connection reported."),
+  pluginVersion: z.string().nullable().describe("The Decent Sync plugin's version on its tablet, as its latest connection reported it."),
+  decaidVersion: z.string().nullable(),
+  locationHistory: z
+    .array(z.object({ location, effectiveFrom: z.string().describe("When it arrived there, ISO 8601 with the offset of that Location's time zone then. It stayed until the next entry's time.") }))
+    .describe("Where it has been, oldest first."),
+  sharing: z.boolean().describe("Whether it shares the Library at its Location: on unless an Admin turned it off."),
+  lastShot: z.object({ id: z.string(), pulledAt: tabletTime.nullable() }).nullable(),
+});
+
 const machineOutput = z.object({
-  machine: listedMachine.extend({
-    serial: z.string().nullable(),
-    firmware: z.string().nullable().describe("The firmware its latest connection reported."),
-    pluginVersion: z.string().nullable().describe("The Decent Sync plugin's version on its tablet, as its latest connection reported it."),
-    decaidVersion: z.string().nullable(),
-    locationHistory: z
-      .array(z.object({ location, effectiveFrom: z.string().describe("When it arrived there, ISO 8601 with the offset of that Location's time zone then. It stayed until the next entry's time.") }))
-      .describe("Where it has been, oldest first."),
-    sharing: z.boolean().describe("Whether it shares the Library at its Location: on unless an Admin turned it off."),
-    lastShot: z.object({ id: z.string(), pulledAt: tabletTime.nullable() }).nullable(),
-  }),
+  machine: machineDetail,
   workflow: z
     .object({ observedAt: tabletTime, receivedAt: time, workflow: z.record(z.string(), z.unknown()).describe("Decaid's Workflow, as sent.") })
     .nullable()
@@ -128,7 +131,7 @@ const machineOutput = z.object({
   }),
 });
 
-const machineId = z.string().describe("The Machine's id, as list_machines gives it.");
+export const machineId = z.string().describe("The Machine's id, as list_machines gives it.");
 
 const ACTIVITY_KINDS = ["workflowChanges", "loadedRecipes", "machineStates"] as const satisfies readonly ActivityKind[];
 
@@ -156,41 +159,43 @@ const activityOutput = z.object({
 
 const settingsEditsInput = z.object({ machineId, ...page });
 
-const settingsEditsOutput = z.object({
-  settingsEdits: z.array(
-    z.object({
-      id: z.string(),
-      collection: z.string().describe("The settings it changes: machineSettings, advancedSettings, machineCalibration or sensorCalibration (Machine Settings), or appSettings or presenceSettings (Tablet Settings)."),
-      schedule: z.object({ action: z.enum(["add", "change", "delete"]), id: z.string().nullable() }).nullable().describe("The wake schedule it adds, changes or deletes, if it does."),
-      fields: z.record(z.string(), z.unknown()).describe("Each field it sets, as Decaid names it, with its new value."),
-      expected: z.record(z.string(), z.unknown()).describe("Each field's value as last reported when it was made."),
-      account: z
-        .object({ id: z.string(), name: z.string().nullable().describe("Shown to Admins only.") })
-        .nullable()
-        .describe("Who made it; null once the account is gone."),
-      madeAt: time,
-      sentAt: time.nullable(),
-      answeredAt: time.nullable(),
-      outcome: z
-        .enum(["applied", "adjusted", "refused", "notConfirmed"])
-        .nullable()
-        .describe("What came of it: applied; adjusted, stored otherwise by the Machine; refused; or notConfirmed, no answer came in time. Null while awaited."),
-      late: z.boolean().describe("Whether its outcome came from an answer after it was marked not confirmed."),
-      adjusted: z.array(z.object({ field: z.string(), holds: z.unknown().optional() })).describe("For adjusted: each field the Machine stored otherwise, with what it holds."),
-      refusal: z
-        .discriminatedUnion("reason", [
-          z.object({ reason: z.literal("machineBusy"), state: z.string().nullable() }),
-          z.object({ reason: z.literal("changedSince"), current: z.record(z.string(), z.unknown()).nullable() }),
-          z.object({ reason: z.literal("expired") }),
-          z.object({ reason: z.literal("decaid"), status: z.number().int().nullable(), message: z.string().nullable(), changed: z.array(z.string()) }),
-        ])
-        .nullable()
-        .describe("Why it was refused: the Machine was busy, its settings changed since, it waited too long, or Decaid refused it."),
-      readBack: z.record(z.string(), z.unknown()).nullable().describe("Its fields as read back after the write, or as held when refused as changed since."),
-    }),
-  ),
-  ...pageOutput,
+/** A Settings Edit, as list_settings_edits gives it. */
+export const settingsEditOutput = z.object({
+  id: z.string(),
+  collection: z.string().describe("The settings it changes: machineSettings, advancedSettings, machineCalibration or sensorCalibration (Machine Settings), or appSettings or presenceSettings (Tablet Settings)."),
+  schedule: z.object({ action: z.enum(["add", "change", "delete"]), id: z.string().nullable() }).nullable().describe("The wake schedule it adds, changes or deletes, if it does."),
+  fields: z.record(z.string(), z.unknown()).describe("Each field it sets, as Decaid names it, with its new value."),
+  expected: z.record(z.string(), z.unknown()).describe("Each field's value as last reported when it was made."),
+  account: z
+    .object({ id: z.string(), name: z.string().nullable().describe("Shown to Admins only.") })
+    .nullable()
+    .describe("Who made it; null once the account is gone."),
+  connectedApp: z
+    .object({ id: z.string(), name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host of its client id, which the app can't choose.") })
+    .nullable()
+    .describe("The Connected App, such as an assistant, the account made it through; null for the management interface."),
+  madeAt: time,
+  sentAt: time.nullable(),
+  answeredAt: time.nullable(),
+  outcome: z
+    .enum(["applied", "adjusted", "refused", "notConfirmed"])
+    .nullable()
+    .describe("What came of it: applied; adjusted, stored otherwise by the Machine; refused; or notConfirmed, no answer came in time. Null while awaited."),
+  late: z.boolean().describe("Whether its outcome came from an answer after it was marked not confirmed."),
+  adjusted: z.array(z.object({ field: z.string(), holds: z.unknown().optional() })).describe("For adjusted: each field the Machine stored otherwise, with what it holds."),
+  refusal: z
+    .discriminatedUnion("reason", [
+      z.object({ reason: z.literal("machineBusy"), state: z.string().nullable() }),
+      z.object({ reason: z.literal("changedSince"), current: z.record(z.string(), z.unknown()).nullable() }),
+      z.object({ reason: z.literal("expired") }),
+      z.object({ reason: z.literal("decaid"), status: z.number().int().nullable(), message: z.string().nullable(), changed: z.array(z.string()) }),
+    ])
+    .nullable()
+    .describe("Why it was refused: the Machine was busy, its settings changed since, it waited too long, or Decaid refused it."),
+  readBack: z.record(z.string(), z.unknown()).nullable().describe("Its fields as read back after the write, or as held when refused as changed since."),
 });
+
+const settingsEditsOutput = z.object({ settingsEdits: z.array(settingsEditOutput), ...pageOutput });
 
 /**
  * Machines, read through an assistant as the REST API reads them, calling
@@ -243,16 +248,7 @@ export class MachinesTools {
     const zone = zoneOf(machine);
     const [machineSettings, advancedSettings, machineCalibration, sensorCalibration, appSettings, presenceSettings] = settings.map((view) => collection(view, zone));
     return {
-      machine: {
-        ...listed(machine, zone),
-        serial: machine.serial,
-        firmware: machine.reported?.firmware ?? null,
-        pluginVersion: machine.pluginVersion,
-        decaidVersion: machine.decaidVersion,
-        locationHistory: machine.locationHistory.map((entry) => ({ location: locationOf(entry.location), effectiveFrom: zone(entry.effectiveFrom) })),
-        sharing: machine.sharing,
-        lastShot: machine.lastShot && { id: machine.lastShot.id, pulledAt: zoneMaybe(zone, machine.lastShot.pulledAt) },
-      },
+      machine: detailed(machine),
       workflow: workflow && { observedAt: zone(workflow.observedAt), receivedAt: zone(workflow.receivedAt), workflow: workflow.workflow },
       machineSettings: { machineSettings: machineSettings!, advancedSettings: advancedSettings!, machineCalibration: machineCalibration!, sensorCalibration: sensorCalibration! },
       tabletSettings: { appSettings: appSettings!, presenceSettings: presenceSettings! },
@@ -310,40 +306,59 @@ export class MachinesTools {
     const machine = await this.machines.get(readMachineId(input.machineId));
     const { settingsEdits, total } = await this.settingsEdits.list(machine.id, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
-    return {
-      settingsEdits: settingsEdits.map(({ id, collection, schedule, fields, expected, account, madeAt, sentAt, answeredAt, outcome, late, adjusted, refusal, readBack }) => ({
-        id,
-        collection,
-        schedule,
-        fields,
-        expected,
-        account,
-        madeAt: zone(madeAt),
-        sentAt: zoneMaybe(zone, sentAt),
-        answeredAt: zoneMaybe(zone, answeredAt),
-        outcome,
-        late,
-        adjusted,
-        refusal,
-        readBack,
-      })),
-      ...pageOf(total, offset, settingsEdits.length),
-    };
+    return { settingsEdits: settingsEdits.map((edit) => settingsEditOf(edit, zone)), ...pageOf(total, offset, settingsEdits.length) };
   }
+}
+
+/** A Machine as get_machine gives it, apart from its Workflow, settings, sharing status and its tablet's versions. */
+export function detailed(machine: MachineView): z.infer<typeof machineDetail> {
+  const zone = zoneOf(machine);
+  return {
+    ...listed(machine, zone),
+    serial: machine.serial,
+    firmware: machine.reported?.firmware ?? null,
+    pluginVersion: machine.pluginVersion,
+    decaidVersion: machine.decaidVersion,
+    locationHistory: machine.locationHistory.map((entry) => ({ location: locationOf(entry.location), effectiveFrom: zone(entry.effectiveFrom) })),
+    sharing: machine.sharing,
+    lastShot: machine.lastShot && { id: machine.lastShot.id, pulledAt: zoneMaybe(zone, machine.lastShot.pulledAt) },
+  };
+}
+
+/** A Settings Edit as list_settings_edits gives it, its times with the offset of the Location its Machine was at then. */
+export function settingsEditOf(edit: SettingsEditView, zone: Zone): z.infer<typeof settingsEditOutput> {
+  const { id, collection, schedule, fields, expected, account, connectedApp, madeAt, sentAt, answeredAt, outcome, late, adjusted, refusal, readBack } = edit;
+  return {
+    id,
+    collection,
+    schedule,
+    fields,
+    expected,
+    account,
+    connectedApp,
+    madeAt: zone(madeAt),
+    sentAt: zoneMaybe(zone, sentAt),
+    answeredAt: zoneMaybe(zone, answeredAt),
+    outcome,
+    late,
+    adjusted,
+    refusal,
+    readBack,
+  };
 }
 
 /** The collections holding a Machine's Machine Settings, then its tablet's Tablet Settings. */
 const SETTINGS = ["machineSettings", "advancedSettings", "machineCalibration", "sensorCalibration", "appSettings", "presenceSettings"] as const;
 
 /** A time the REST API gives, given again with the offset of the Location the Machine was at then. */
-type Zone = (at: string) => string;
+export type Zone = (at: string) => string;
 
 /**
  * A Machine's times, each given with the offset of the time zone of the
  * Location it was at then, by its Location History, as a Shot's are with its
  * Location's (`zonedTime`), and UTC's while it was at none.
  */
-function zoneOf(machine: MachineView): Zone {
+export function zoneOf(machine: MachineView): Zone {
   return (at) => zonedTime(new Date(at), locationAt(machine, Date.parse(at))?.timeZone);
 }
 

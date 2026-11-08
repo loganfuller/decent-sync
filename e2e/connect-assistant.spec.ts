@@ -1,8 +1,10 @@
 import { type Browser, expect, type Page, test } from "@playwright/test";
+import { syncingTablet } from "../server/test/support/loaded-tablets.js";
+import { derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
 import { ASSISTANT_ENV, type TestApp, authorizationUrl, pkce, serveTestApp } from "../server/test/support/test-app.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { rows } from "./support/locators.js";
-import { admin, signInAsAdmin } from "./support/seed.js";
+import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // The consent page of the authorization server (#406, ADR-0027): an app's
 // browser comes to it from the authorization endpoint, signing in first if
@@ -12,7 +14,8 @@ import { admin, signInAsAdmin } from "./support/seed.js";
 // sends the browser back to the app; and it fits a phone, where assistants'
 // apps open it. The app is a loopback test app named "Claude", as any page
 // could name itself. A change made through it is shown in its item's history
-// as made through it (#411).
+// as made through it (#411), and a Settings Edit made through it on its
+// Machine's Settings Edits card (#413).
 const server = useFreshServer({ env: ASSISTANT_ENV });
 
 let app: TestApp;
@@ -136,6 +139,38 @@ test("a change made through it is shown in the item's history as yours, through 
   await expect(history.nth(1)).toContainText("NotesPeach, asked for on a phone");
   await expect(history.nth(2)).toContainText("You, through Claude");
   await expect(history.nth(2)).toContainText("NameAssistant Guji");
+});
+
+test("a Settings Edit made through it is shown on the Machine's Settings Edits card as yours, through it", async ({ page }) => {
+  const { verifier, challenge } = pkce();
+  await page.goto(authorizationUrl(server.url(), app, challenge));
+  await page.getByRole("radiogroup", { name: "What it may do" }).getByRole("radio", { name: "Read and change" }).click();
+  await page.getByRole("button", { name: "Allow" }).click();
+  await expect(page).toHaveURL(atRedirect());
+  const { access_token } = await exchange(page, verifier);
+
+  const pier = await createLocation(page, "Pier");
+  const { machine, token } = await createMachine(page, "Pier bar", pier.id);
+  const tablet = syncingTablet({ token }, { url: server.url() }, { api: { ...derivedDe1Pro({ serial: "41302" }), "/beans": [], "/bean-batches": [], "/grinders": [] } });
+  await tablet.waitForLog(/^Connected to /);
+  // Its settings as reported, which the edit is made over.
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${machine.id}/collections/machineSettings`)).json()) as { collection: unknown }).collection).not.toBeNull();
+  const { settingsEdit } = (await callTool(page, access_token, "edit_machine_settings", {
+    machineId: machine.id,
+    collection: "machineSettings",
+    fields: { fan: 45 },
+    expected: { fan: 50 },
+  })) as { settingsEdit: { connectedApp: { name: string } } };
+  expect(settingsEdit.connectedApp.name).toBe("Claude");
+  // One more, made here.
+  const response = await page.request.post(`/api/machines/${machine.id}/settings-edits`, { data: { collection: "machineSettings", fields: { steamPurgeMode: 1 }, expected: { steamPurgeMode: 0 } } });
+  expect(response.status()).toBe(201);
+
+  await page.goto(`/machines/${machine.id}`);
+  const edits = rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" }));
+  await expect(edits.locator("td:nth-child(2)")).toHaveText(["You", "You, through Claude"]);
+  await expect(edits.nth(1).locator("td:nth-child(4)")).toHaveText("Fan threshold: 50 °C to 45 °C");
+  await expect(edits.locator("td:nth-child(5)")).toHaveText(["Applied", "Applied"]);
 });
 
 test("denying it sends the app access_denied, and the request can't be answered again", async ({ page }) => {

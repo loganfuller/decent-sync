@@ -165,7 +165,8 @@ read-only under Decaid's name, after the others.
 ## Settings Edits
 
 A Settings Edit (ADR-0023) is one write of a settings collection's fields,
-made in the management interface and carried out at once by the plugin on
+made in the management interface, or through an assistant (ADR-0026), and
+carried out at once by the plugin on
 the Tablet whose connection holds the Machine. Nothing holds what a setting
 should be afterwards: the setting is whatever the Tablet next reports, and a
 change made on the Tablet later stands. Ticket
@@ -213,7 +214,19 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   settingsEdits, total, limit, offset }`, each judged not confirmed as one
   read alone is. All three are marked for Staff. An edit's account is named
   to Admins, and to Staff by its id only, as the Library's history names
-  accounts, their own included.
+  accounts, their own included. Its `connectedApp`, `{ id, name, host }`,
+  names the Connected App it was made through, by the name the app gave and
+  its client id's host, and is null for one made in the management interface
+  (`settings_edits.connected_app_id`, which the previous release leaves
+  null, ADR-0025).
+- **Made through an assistant** (#413, ADR-0026). `edit_machine_settings`
+  takes what the REST API takes, with the Machine's id, reads it with the
+  same reader (`readSettingsEdit`), and makes the edit as the account,
+  through its Connected App, so it is refused as the REST API refuses it,
+  with its message. Its description lists each collection's settings from
+  `SETTINGS_FIELDS`, so it stays in step with them. It answers with the edit
+  as `list_settings_edits` gives it, its outcome usually still to come, which
+  the assistant reads there.
 - **Kept and sent** (`server/src/settings-edits/`, ADR-0016). An edit is a row
   of `settings_edits`, inserted with the Machine's row locked, which also
   judges it online, naming the connection (`connected_session_id`) and tablet
@@ -397,7 +410,8 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
 - **The Settings Edits card** (`web/src/components/settings-edit-log.tsx`)
   lists the Machine's edits, newest first, 20 a page: when each was made, who
   made it ("You" for the account's own, the account's name to Admins, and
-  otherwise "An account", as the Library's history shows Staff), its section,
+  otherwise "An account", as the Library's history shows Staff, followed by
+  ", through <app>" for one made through a Connected App), its section,
   each field's value in the report it was made over and the value asked for,
   and its outcome, a late answer marked so. A wake schedule's edit names its
   action first, as asked, such as "Change the wake schedule at 06:30", then

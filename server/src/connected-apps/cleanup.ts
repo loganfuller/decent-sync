@@ -12,9 +12,9 @@ const CLEANUP_BATCH = 1_000;
  * What expires, by PostgreSQL's clock: requests to connect that were never
  * answered, codes never exchanged, access tokens, and Connected Apps that
  * lapsed, with their tokens. A disconnected Connected App is kept, refused,
- * until it lapses. A lapsed one that the Library's history or a Conflict
- * names is kept, refused, without its refresh tokens, so they go on showing
- * the change as made through it.
+ * until it lapses. A lapsed one that the Library's history, a Conflict or a
+ * Settings Edit names is kept, refused, without its refresh tokens, so they
+ * go on showing the change as made through it.
  */
 const EXPIRED: { what: string; table: string; condition: string }[] = [
   { what: "expired requests to connect", table: "authorization_requests", condition: "expires_at <= now()" },
@@ -30,7 +30,8 @@ const EXPIRED: { what: string; table: string; condition: string }[] = [
     table: "connected_apps",
     condition: `last_used_at <= now() - make_interval(days => ${LAPSE_DAYS})
       AND NOT EXISTS (SELECT 1 FROM item_versions WHERE item_versions.connected_app_id = connected_apps.id)
-      AND NOT EXISTS (SELECT 1 FROM conflicts WHERE conflicts.connected_app_id = connected_apps.id)`,
+      AND NOT EXISTS (SELECT 1 FROM conflicts WHERE conflicts.connected_app_id = connected_apps.id)
+      AND NOT EXISTS (SELECT 1 FROM settings_edits WHERE settings_edits.connected_app_id = connected_apps.id)`,
   },
 ];
 
