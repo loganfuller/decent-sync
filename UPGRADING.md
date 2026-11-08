@@ -15,6 +15,8 @@ Releasing).
 
 ## Unreleased
 
+## 1.7.0
+
 ### Assistants connect through `/api/mcp`, on by default
 
 People can now connect AI assistants, such as Claude and ChatGPT, to the

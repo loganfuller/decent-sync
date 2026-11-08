@@ -275,8 +275,7 @@ for how to turn assistants off.
 
 ## Status
 
-Milestones 1 to 5 are released. Milestone 6 is built and will ship in the
-release after 1.6.4. See [all releases](https://github.com/loganfuller/decent-sync/releases).
+Milestones 1 to 6 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
 
 | Milestone | What it adds | Spec | Released |
 |---|---|---|---|
@@ -285,7 +284,7 @@ release after 1.6.4. See [all releases](https://github.com/loganfuller/decent-sy
 | 3. [Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3) | DYE2 Recipes, Baskets and Tools, Recipe Slots, and each Machine's Loaded Recipe. | [#134](https://github.com/loganfuller/decent-sync/issues/134) | v1.0.0 |
 | 4. [Machine management](https://github.com/loganfuller/decent-sync/milestone/4) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) | [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) |
 | 5. [Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) | [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) |
-| 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | Next release |
+| 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0) |
 | 7. Analytics | Views across Machines and Locations, and grouping by Barista. | | Planned |
 | 8. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |
 

@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it and released in v1.0.0, Milestone 5 in v1.4.0, and Milestone 4 in v1.5.0: its Settings Edits from v1.2.0, and its Live View from v1.5.0. Milestone 6 is built, for the release after 1.6.4.
+Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it and released in v1.0.0, Milestone 5 in v1.4.0, Milestone 4 in v1.5.0 (its Settings Edits from v1.2.0, and its Live View from v1.5.0), and Milestone 6 in v1.7.0.
 
 ## Before implementation
 
