@@ -233,9 +233,10 @@ export function stepSpans(samples: readonly Sample<string>[]): StepSpan[] {
  * The scale's last weight a Shot's samples (`shotSamples`) recorded after
  * its Preheat, in grams, and its seconds; null where none did. Decaid records
  * no sample after a Shot's stop, so it is the weight just before the stop. In
- * Preheat it records 0 for the scale, which it tares only as the profile
- * starts (`ShotSequencer._processSnapshot` in decaid), so no reading there is
- * a weight.
+ * Preheat it records 0 for the scale until it tares it as the profile starts
+ * (`ShotSequencer._processSnapshot` in decaid), or, in full gateway mode,
+ * where it never tares, the untared reading, so no reading there is the
+ * Shot's weight.
  */
 export function lastRecordedWeight(samples: readonly Sample<ShotCurve>[]): { weight: number; seconds: number } | null {
   for (let n = samples.length - 1; n >= 0; n--) {

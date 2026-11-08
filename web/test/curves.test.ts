@@ -199,6 +199,8 @@ describe("lastRecordedWeight", () => {
     expect(lastRecordedWeight(shotSamples(scaled.map((sample) => ({ ...sample, scale: null }))))).toBeNull();
     expect(scaled.slice(0, 43).every((sample) => sample.scale?.weight === 0)).toBe(true);
     expect(lastRecordedWeight(shotSamples(measurements.slice(0, 43)))).toBeNull();
+    // Stopped at its first sample after Preheat, which still weighs 0, it has that 0, at 0 s.
+    expect(lastRecordedWeight(shotSamples(measurements.slice(0, 44)))).toEqual({ weight: 0, seconds: 0 });
     expect(lastRecordedWeight([])).toBeNull();
   });
 });
