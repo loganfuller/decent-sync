@@ -305,9 +305,10 @@ and approve it, choosing whether it may only read or may also change things;
 a Viewer's app only reads. Each approval makes a Connected App, which acts as
 that account, within what the account may do. An app unused for 30 days stops
 working until it connects again. Apps that register only by Dynamic Client
-Registration, such as Cursor, can't connect. The app asks the person before
-each change, which is recorded as theirs, through the app, and shown as
-"<account>, through <app>" in the item's history and its Conflicts. While
+Registration, such as Cursor, can't connect. Apps usually ask the person
+before a change, unless set to allow it without asking. Each change is
+recorded as theirs, through the app, and shown as "<account>, through <app>"
+in the item's history and its Conflicts. While
 Milestone 6 is under way, assistants change only Beans and Bean Batches,
 whether items are Archived, and what a Location offers: the tools that change
 the rest come with its later tickets (see [Status](#status)).

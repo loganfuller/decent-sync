@@ -459,18 +459,27 @@ describe("connecting an assistant", () => {
       const lapsing = await person("cl@example.com", "staff", [uptown]);
       const lapsed = await approvedCode(lapsing.cookie);
       const lapsedTokens = await exchange(server.url, lapsed.code, lapsed.verifier);
-      // A lapsed Connected App that changed the Library is kept, so its history still names it, but refused.
+      // A lapsed Connected App that changed the Library is kept, so its history still names it, but refused, its refresh
+      // token gone; and one that only a Conflict names, as an edit of its that lost to a later one leaves.
       const changing = await person("ch@example.com", "staff", [uptown]);
       const changer = await Assistant.connect(server.url, app, changing.cookie);
       const { bean } = await changer.call<{ bean: { id: string } }>("create_bean", { roaster: "Roux", name: "Kept through a lapsed app" });
       await changer.close();
+      const losing = await person("lo@example.com", "staff", [uptown]);
+      const lost = await approvedCode(losing.cookie);
+      await exchange(server.url, lost.code, lost.verifier);
       const database = await server.connectDatabase();
       try {
+        await database.query(
+          `INSERT INTO conflicts (id, kind, item_id, field, value, account_id, connected_app_id, edited_at)
+           SELECT gen_random_uuid(), 'bean', $1, 'notes', '"Lost notes"', account_id, id, now() FROM connected_apps WHERE account_id = $2`,
+          [bean.id, losing.id],
+        );
         // Aged by PostgreSQL's clock, as waiting would not fit in a test.
         await database.query("UPDATE authorization_requests SET expires_at = now() - interval '1 second' WHERE id = $1", [unanswered]);
         await database.query("UPDATE authorization_codes SET expires_at = now() - interval '1 second' WHERE code_hash = $1", [hash(unexchanged.code)]);
         await database.query("UPDATE access_tokens SET expires_at = now() - interval '1 second' WHERE token_hash = $1", [hash(expiringTokens.body.access_token as string)]);
-        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [[lapsing.id, changing.id]]);
+        await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [[lapsing.id, changing.id, losing.id]]);
 
         const starting = await startTestServer({ env: ASSISTANT_ENV, sharing: server, publicUrl: server.url });
         try {
@@ -484,8 +493,12 @@ describe("connecting an assistant", () => {
             [unanswered, hash(unexchanged.code), [hash(expiringTokens.body.access_token as string), hash(lapsedTokens.body.access_token as string)], lapsing.id],
           );
           expect(rows[0]).toEqual({ requests: 0, codes: 0, tokens: 0, apps: 0 });
-          const kept = await database.query<{ count: number }>("SELECT count(*)::int AS count FROM connected_apps WHERE account_id = $1", [changing.id]);
-          expect(kept.rows[0]!.count).toBe(1);
+          const kept = await database.query<{ apps: number; refreshTokens: number }>(
+            `SELECT (SELECT count(*)::int FROM connected_apps WHERE account_id = ANY($1)) AS apps,
+               (SELECT count(*)::int FROM refresh_tokens JOIN connected_apps ON connected_apps.id = refresh_tokens.connected_app_id WHERE account_id = ANY($1)) AS "refreshTokens"`,
+            [[changing.id, losing.id]],
+          );
+          expect(kept.rows[0]).toEqual({ apps: 2, refreshTokens: 0 });
         } finally {
           await starting.stop();
         }

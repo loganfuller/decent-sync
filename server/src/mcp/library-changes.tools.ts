@@ -37,7 +37,7 @@ const FIELD_NOTES: Readonly<Record<"bean" | "beanBatch", Readonly<Record<string,
     roaster: "Who roasted it, such as a company or brand.",
     name: "Its name, as its roaster sells it, such as a single origin or a blend.",
     species: "Such as Arabica, Robusta or Liberica.",
-    decaf: "Whether it is decaffeinated; false if not given.",
+    decaf: "Whether it is decaffeinated; false for a new one if not given.",
     decafProcess: "How it was decaffeinated, such as Swiss Water or CO2.",
     country: "Its country of origin.",
     region: "Its region, state or province.",
@@ -51,7 +51,7 @@ const FIELD_NOTES: Readonly<Record<"bean" | "beanBatch", Readonly<Record<string,
     roastDate: "The day it was roasted.",
     roastLevel: "Such as Light, Medium or Dark.",
     harvestDate: "Its harvest season or year, as text.",
-    qualityScore: "Its SCA cupping score, 0 to 100.",
+    qualityScore: "Its SCA cupping score, out of 100.",
     price: "The price paid for it, in its currency.",
     currency: "Its ISO 4217 code, such as USD or EUR.",
     weight: "The bag's weight, in grams.",
@@ -60,34 +60,33 @@ const FIELD_NOTES: Readonly<Record<"bean" | "beanBatch", Readonly<Record<string,
     bestBeforeDate: "Its best before day.",
     freezeDate: "The day it was frozen.",
     unfreezeDate: "The day it was thawed.",
-    frozen: "Whether it is frozen now; false if not given.",
+    frozen: "Whether it is frozen now; false for a new one if not given.",
     notes: "Notes about this roast.",
   },
 };
 
-const DAY = /^\d{4}-\d\d-\d\d$/;
-
 /**
- * A field's schema, as the REST API reads its type (`item-input.ts`), which
- * reads the value again, so the tool refuses what the REST API would, with
- * the same message. Only the types a Bean's and a Bean Batch's fields have:
- * a kind whose fields have another is refused here as the server starts.
+ * A field's schema, by the JSON type the REST API reads it as
+ * (`item-input.ts`), with what its value must be in words. The REST API's
+ * reader judges the value itself, so a value it refuses is refused with its
+ * message. Only the types a Bean's and a Bean Batch's fields have: a kind
+ * whose fields have another is refused here as the server starts.
  */
-function fieldSchema(type: FieldType): z.ZodType {
+function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
   switch (type) {
     case "name":
     case "text":
-      return z.string();
+      return { schema: z.string() };
     case "flag":
-      return z.boolean();
+      return { schema: z.boolean() };
     case "number":
-      return z.number().min(0);
+      return { schema: z.number(), note: "0 or more." };
     case "date":
-      return z.string().regex(DAY);
+      return { schema: z.string(), note: "A day, such as 2026-10-01." };
     case "texts":
-      return z.array(z.string());
+      return { schema: z.array(z.string()) };
     case "wholeNumbers":
-      return z.array(z.number().int());
+      return { schema: z.array(z.number()), note: "Whole numbers." };
     default:
       throw new Error(`No tool schema for a field of type ${JSON.stringify(type)}`);
   }
@@ -103,8 +102,9 @@ function contentFields(kind: "bean" | "beanBatch", edit: boolean): z.ZodRawShape
   const fields = KINDS[kind].editable!.fields;
   return Object.fromEntries(
     Object.entries(fields).map(([field, type]) => {
-      const notes = [FIELD_NOTES[kind][field], type === "date" ? "A day, such as 2026-10-01." : undefined].filter((note) => note !== undefined);
-      let schema = fieldSchema(type);
+      const read = fieldSchema(type);
+      const notes = [FIELD_NOTES[kind][field], read.note].filter((note) => note !== undefined);
+      let schema = read.schema;
       // Decaid refuses to clear a name or a flag (`readValue` in item-input.ts).
       if (type !== "name" && type !== "flag") schema = schema.nullable();
       if (edit || type !== "name") schema = schema.optional();
@@ -118,7 +118,7 @@ const beanEditInput = z.strictObject({ id: id.describe("The Bean's id, as find_l
 
 const placeAt = z.strictObject({
   locationId: id.describe("The Location's id, as list_locations gives it."),
-  remainingWeight: z.number().min(0).nullable().optional().describe("Its remaining weight there, in grams; null or left out for none."),
+  remainingWeight: z.number().nullable().optional().describe("Its remaining weight there, in grams, 0 or more; null or left out for none."),
 });
 const newBatchInput = z.strictObject({
   beanId: id.describe("The id of the Bean it is a roast of, as find_library_items gives it. The Bean may not be Archived."),
@@ -145,7 +145,11 @@ const offeringInput = z.strictObject({
     .boolean()
     .optional()
     .describe("true to show a Profile, Basket or Tool at the Location, or add a Bean Batch there; false to hide it there, or finish the batch there. Required but for a Bean Batch's remaining weight alone."),
-  remainingWeight: z.number().min(0).nullable().optional().describe("A Bean Batch's remaining weight at the Location, in grams, null to clear it: only where it is, or is being added."),
+  remainingWeight: z
+    .number()
+    .nullable()
+    .optional()
+    .describe("A Bean Batch's remaining weight at the Location, in grams, 0 or more, null to clear it: only where it is, or is being added."),
 });
 
 const CHANGES = { readOnlyHint: false, destructiveHint: false, openWorldHint: false } as const;

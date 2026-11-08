@@ -307,6 +307,18 @@ describe("Changing the Library through an assistant", { timeout: 120_000 }, () =
       await restRefusal(api, "PATCH", `/bean-batches/${made.batch}`, { content: { roastDate: "2026-02-30" } }, 400),
     );
     expect(await toolError(assistant, "create_bean", { roaster: " ", name: "Blank roaster" })).toBe(await restRefusal(api, "POST", "/beans", { content: { roaster: " ", name: "Blank roaster" } }, 400));
+    for (const content of [{ weight: -1 }, { buyDate: "2026/11/01" }, { qualityScore: -0.5, notes: "Below none" }]) {
+      expect(await toolError(assistant, "edit_bean_batch", { id: made.batch, ...content }), JSON.stringify(content)).toBe(
+        await restRefusal(api, "PATCH", `/bean-batches/${made.batch}`, { content }, 400),
+      );
+    }
+    expect(await toolError(assistant, "edit_bean", { id: made.bean, altitude: [1800.5] })).toBe(await restRefusal(api, "PATCH", `/beans/${made.bean}`, { content: { altitude: [1800.5] } }, 400));
+    expect(await toolError(assistant, "set_location_offering", { kind: "beanBatch", id: made.batch, locationId: uptown.id, remainingWeight: -5 })).toBe(
+      await restRefusal(api, "PUT", `/bean-batches/${made.batch}/locations/${uptown.id}`, { remainingWeight: -5 }, 400),
+    );
+    expect(await toolError(assistant, "create_bean_batch", { beanId: made.bean, locations: [{ locationId: harbor.id, remainingWeight: -5 }] })).toBe(
+      await restRefusal(api, "POST", "/bean-batches", { beanId: made.bean, locations: [{ locationId: harbor.id, remainingWeight: -5 }] }, 400),
+    );
 
     // What the tools' own inputs take.
     expect(await toolError(assistant, "edit_bean", { id: made.bean })).toBe("Give at least one field to change");
