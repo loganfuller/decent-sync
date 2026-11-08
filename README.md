@@ -71,9 +71,7 @@ Each server has one owner: a household, or a business with all of its sites.
   tablet or the web, reaches every Machine with it loaded. Each Recipe holds
   its steam, hot water and flush settings too.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
-  last wins, timed by when it was made, not when it reached the server, so a
-  tablet that was offline can't overwrite a newer edit. Every item keeps its
-  history. An edit that lost to one made without
+  most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
 - **Safe deletes.** Deleting on a tablet only takes an item away at that
   Location. Sync never deletes anything from a tablet unless an Admin deletes
