@@ -76,7 +76,7 @@ const shotDetails = shotSummary.extend({
     .describe("Only when asked for. Seconds from the start of its profile, after its Preheat."),
 });
 
-/** The most characters a name typed by people keeps in a find_shots row, and its notes, each cut beyond them ending in CUT_MARK. */
+/** About the most characters a name typed by people keeps in a find_shots row, and its notes, each cut beyond them ending in CUT_MARK (`cut`). */
 const ROW_NAME = 60;
 const ROW_NOTES = MIN_CUT;
 
@@ -113,7 +113,7 @@ const shotRow = z.object({
   barista: nullableName,
   tds: z.number().nullable().describe("Total dissolved solids, in %."),
   extractionYield: z.number().nullable().describe("In %."),
-  notes: z.string().nullable().describe(`As typed on the tablet, cut beyond ${ROW_NOTES} characters.`),
+  notes: z.string().nullable().describe(`As typed on the tablet, cut beyond about ${ROW_NOTES} characters.`),
 });
 
 const steamSummary = z.object({
@@ -190,7 +190,7 @@ const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
 /** What a find_shots row's fields mean, for its description. */
-const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over ${ROW_NAME} characters and notes over ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 const findSteamRecordsInput = z.object({
   locationId: id.optional().describe("Steam Records at this Location."),
@@ -220,7 +220,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot or find_library_items gives, such as a Bean's. ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot or find_library_items gives, such as a Bean's. A linked item's name is the Library's, which may differ from what the Shot recorded and the beanRoaster, beanName and profileTitle filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
