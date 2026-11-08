@@ -190,7 +190,7 @@ const CURVES_NOTE =
 
 /** A text filter of find_shots, matching each word anywhere, ignoring case (`ShotFilters.match`). */
 const words = (which: string) =>
-  z.string().max(500).optional().describe(`${which} each of these words in it, ignoring case. An empty one finds Shots that recorded none.`);
+  z.string().max(500).optional().describe(`${which} each of these words in it, ignoring case. An empty one, or one of spaces alone, finds Shots that recorded none.`);
 
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),

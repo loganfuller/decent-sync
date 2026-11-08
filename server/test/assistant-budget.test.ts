@@ -577,10 +577,16 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         ),
       );
       const lists = Object.keys(SHOT_VALUES);
+      // With the realistic Shots' 55 of each list above, 50 of each run past the budget even with the long names cut,
+      // so every list ends sooner, saying more follow.
       const { result, text } = await assistant.callWithinBudget<{ cut: string } & Record<string, Page & { entries: unknown[] }>>("list_shot_values", { limit: 50 });
       expect(Object.keys(result)[0]).toBe("cut");
       expect(result.cut).toContain("one list alone");
       eachPagingFirst(text, lists);
+      for (const list of lists) {
+        expect(result[list]!.entries.length, list).toBeLessThan(50);
+        expect(result[list]!.more, list).toBe(true);
+      }
       // Sorted first, from "0 Quote", each cut.
       const long = (value: unknown) => typeof value === "string" && value.includes("Quote");
       const beans = result.beans!.entries as { roaster: unknown; name: unknown }[];
