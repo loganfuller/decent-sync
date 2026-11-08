@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type TestApp, serveTestApp } from "./support/assistants.js";
@@ -299,6 +300,35 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(ids).toHaveLength(56);
     });
 
+    it("lists a Machine's Settings History a page at a time, 54 updates of a plugin list as large as a cafe's, and gives its settings as last received by a time", async () => {
+      // Eight plugins shaped as DYE2's listing (fixtures/decaid/dye2-v0.1.26/plugins.json), about 16 KB as Belmont's
+      // tablets list theirs, one updated each minute from 06:00 on 5 November, 55 lists in all, as copied in PostgreSQL.
+      const listing = (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/dye2-v0.1.26/plugins.json", import.meta.url), "utf8")) as { listed: Fields[] }).listed[0]!;
+      const versions = Array.from({ length: 8 }, () => "1.0.0");
+      const lists = Array.from({ length: 55 }, (_, n) => {
+        versions[n % 8] = `1.${n}.0`;
+        return versions.map((version, plugin) => ({ ...listing, id: `plugin-${plugin}.reaplugin`, version }));
+      });
+      expect(JSON.stringify(lists[0]).length).toBeGreaterThan(14_000);
+      const database = await server.connectDatabase();
+      try {
+        await database.query(
+          `INSERT INTO settings_history (machine_id, name, value, received_at)
+           SELECT $1, 'plugins', value, '2026-11-05T06:00:00Z'::timestamptz + (n - 1) * interval '1 minute'
+           FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS listed(value, n)`,
+          [roastery.machine.id, JSON.stringify(lists)],
+        );
+      } finally {
+        await database.end();
+      }
+      const { ids, lengths } = await everyPage("list_settings_history", "changes", { machineId: roastery.machine.id });
+      expect(ids).toHaveLength(54);
+      expect(lengths[0]).toBeLessThan(50);
+      const { result } = await assistant.callWithinBudget<Fields>("get_machine", { machineId: bar.machine.id, at: new Date().toISOString() });
+      expect(result).not.toHaveProperty("cut");
+      expect((result.machineSettings as Fields).machineSettings).not.toBeNull();
+    });
+
     describe("the Library", () => {
       /** Each kind's ids, by its find_library_items list. */
       const made: Record<string, string[]> = {};
@@ -507,6 +537,42 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(edit.fields).toEqual({ webUiPath: value });
         expect(cut(edit.refusal.message)).toBe(true);
       }
+    });
+
+    it("lists Settings History changes whose values run long a page at a time, each value and field whole, and gives settings as last received with theirs whole", async () => {
+      // A Tablet Setting set to a long value, a different one each minute, and a plugin whose id runs long, as copied in PostgreSQL before the
+      // Tablet Settings this Machine's tablet reported.
+      const values = Array.from({ length: 31 }, (_, n) => ({ webUiPath: `${n} ${hostile(2_000)}` }));
+      const id = hostile(1_000);
+      const database = await server.connectDatabase();
+      try {
+        await database.query(
+          `INSERT INTO settings_history (machine_id, name, value, received_at)
+           SELECT $1, 'appSettings', value, '2026-11-01T06:00:00Z'::timestamptz + (n - 1) * interval '1 minute'
+           FROM jsonb_array_elements($2::jsonb) WITH ORDINALITY AS listed(value, n)`,
+          [haunted.machine.id, JSON.stringify(values)],
+        );
+        await database.query(
+          `INSERT INTO settings_history (machine_id, name, value, received_at) VALUES ($1, 'plugins', '[]', '2026-11-01T06:00:00Z'), ($1, 'plugins', $2::jsonb, '2026-11-01T06:01:00Z')`,
+          [haunted.machine.id, JSON.stringify([{ id, version: "1.0.0" }])],
+        );
+      } finally {
+        await database.end();
+      }
+      const { ids, lengths } = await everyPage("list_settings_history", "changes", { machineId: haunted.machine.id, collections: ["appSettings"] });
+      // The 30 copied, and the change to the Tablet Settings its tablet reported.
+      expect(ids).toHaveLength(31);
+      expect(lengths[0]).toBeLessThan(31);
+      type Changes = { changes: { fields: { field: string; before: unknown; after: unknown }[] }[] };
+      const { result } = await assistant.callWithinBudget<Changes>("list_settings_history", { machineId: haunted.machine.id, collections: ["appSettings"], from: "2026-11-01", to: "2026-11-01", limit: 50 });
+      // Newest first, the latest copied first.
+      expect(result.changes.map(({ fields }) => fields)).toEqual(
+        result.changes.map((_, n) => [{ field: "webUiPath", change: "changed", before: values[29 - n]!.webUiPath, after: values[30 - n]!.webUiPath, backAt: null }]),
+      );
+      const plugin = await assistant.callWithinBudget<Changes>("list_settings_history", { machineId: haunted.machine.id, collections: ["plugins"] });
+      expect(plugin.result.changes[0]!.fields[0]!.field).toBe(id);
+      const asOf = await assistant.callWithinBudget<{ tabletSettings: { appSettings: { value: unknown } } }>("get_machine", { machineId: haunted.machine.id, at: "2026-11-01T06:30:00Z" });
+      expect(asOf.result.tabletSettings.appSettings.value).toEqual(values[30]);
     });
 
     it("finds Steam Records whose Barista runs long a page at a time, and reads one with its curves whole", async () => {

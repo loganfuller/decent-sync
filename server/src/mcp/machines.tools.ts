@@ -1,8 +1,10 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
+import { SETTINGS_HISTORY_COLLECTIONS } from "@decent-sync/protocol";
 import * as z from "zod";
 import type { CollectionView } from "../collections/collections.service.js";
 import { CollectionsService } from "../collections/collections.service.js";
+import { SettingsHistoryService } from "../collections/settings-history.service.js";
 import { READ } from "../connected-apps/oauth.js";
 import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
@@ -76,9 +78,9 @@ const machinesOutput = z.object({ machines: z.array(listedMachine) });
 
 const settingsCollection = z
   .object({
-    available: z.boolean().describe("Whether the latest report had a value."),
-    reportedAt: time,
-    receivedAt: time.nullable().describe("When the value was received; null if no report has had one."),
+    available: z.boolean().describe("Whether the latest report had a value; with at, true."),
+    reportedAt: time.describe("When the latest report was received; with at, its value's receivedAt."),
+    receivedAt: time.nullable().describe("When the value was received; null if no report has had one. With at, when the value last received by then was."),
     value: z.unknown().describe("As Decaid sent it, its fields as Decaid names them; kept while later reports are unavailable."),
     utcOffsetMinutes: z.number().int().nullable().describe("For a value whose times have no offset, the tablet's UTC offset in minutes as it was read; else null."),
   })
@@ -213,6 +215,66 @@ export const SETTINGS_EDIT_WHOLE = ["/fields", "/expected", "/readBack", "/adjus
 
 const settingsEditsOutput = z.object({ ...pageOutput, settingsEdits: z.array(settingsEditOutput) });
 
+const machineInput = z.object({
+  machineId,
+  at: z.iso
+    .datetime({ offset: true, error: "Enter at as a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00" })
+    .optional()
+    .describe("A moment, with its offset, such as 2026-11-06T14:30:00-05:00, to give its Machine Settings and Tablet Settings as last received at or before; none for as now."),
+});
+
+/** What get_machine gives with a time. */
+const AS_OF =
+  "With at, its Machine Settings and Tablet Settings are each as last received at or before then, by its Settings History, available true and reportedAt its receivedAt, when that value was received; null for one none was received of by then, or none kept: a Settings History begins with the value held as it was first kept, dated when that value was last reported, so earlier times give null though the Machine had settings. A change is received about 30 to 60 s after it was made, later while the Machine was busy, and within a day for the sensor calibration, and what a Settings History compares none of, such as the tablet's battery, may have changed since without being kept. Everything else, its Workflow included, is as now: get_machine_activity gives its Workflow then.";
+
+/** The collections a Settings History keeps, for the descriptions of the tools that read one. */
+const HISTORY_COLLECTIONS =
+  "collection: machineSettings, advancedSettings, machineCalibration (its flow calibration) and sensorCalibration are its Machine Settings; appSettings, and presenceSettings, when it sleeps and wakes, its tablet's Tablet Settings; plugins and skins, Decaid's plugins and Skins; pairedDevices, the devices paired with its tablet; scaleInfo, its scale's firmware; sensors, its sensors.";
+
+/** What a Settings History compares none of, which is never a change. */
+const LEFT_OUT =
+  "Never a change, as left out of what is compared: the Workflow's steam, hot water and flush settings and the tank temperature, whose changes get_machine_activity gives as Workflow changes, the USB charger, the tablet's battery, the wake schedules' keep-awake end, the scale's battery, and the update checks Decaid makes of plugins.";
+
+const historyInput = z.object({
+  machineId,
+  from: timeBound("The range's start, by when each change was received; none for since the first.", MACHINE_DAY),
+  to: timeBound("The range's end, not included, or through the end of a day given as a date; none for until now.", MACHINE_DAY),
+  collections: z.array(z.enum(SETTINGS_HISTORY_COLLECTIONS)).min(1).optional().describe("Which collections' changes to list; every one if none."),
+  includeBrief: z.boolean().default(false).describe("Whether to list brief changes too, each changed from outside Decent Sync and changed back within about 2 minutes."),
+  ...page,
+});
+
+const historyOutput = z.object({
+  ...pageOutput,
+  changes: z.array(
+    z.object({
+      id: z.string().describe("The id of the value that changed; a read-back holding changes of its Settings Edit and from outside it gives two changes of this id."),
+      receivedAt: time.describe("When the server received it."),
+      collection: z.enum(SETTINGS_HISTORY_COLLECTIONS),
+      settingsEdit: z
+        .object({
+          id: z.string(),
+          account: z.object({ id: z.string(), name: z.string().nullable().describe("Shown to Admins only.") }).nullable().describe("Who made it; null once the account is gone."),
+          connectedApp: z
+            .object({ id: z.string(), name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host of its client id, which the app can't choose.") })
+            .nullable()
+            .describe("The Connected App the account made it through; null for the management interface."),
+        })
+        .nullable()
+        .describe("The Settings Edit that made these changes; null for changes made outside Decent Sync, tied to no person."),
+      fields: z.array(
+        z.object({
+          field: z.string().describe("A field as Decaid names it; schedules/ and its id for a wake schedule; a target for the sensor calibration; an id for a plugin, paired device or sensor."),
+          change: z.enum(["added", "changed", "removed"]),
+          before: z.unknown().describe("As compared; null where absent."),
+          after: z.unknown().describe("As compared; null where absent."),
+          backAt: time.nullable().describe("For a brief change, when it changed back to before; null for any other."),
+        }),
+      ),
+    }),
+  ),
+});
+
 /**
  * Machines, read through an assistant as the REST API reads them, calling
  * the same services (ADR-0026): which are online and what each is doing, how
@@ -226,6 +288,7 @@ export class MachinesTools {
     private readonly machines: MachinesService,
     private readonly events: MachineEventsService,
     private readonly collections: CollectionsService,
+    private readonly history: SettingsHistoryService,
     private readonly settingsEdits: SettingsEditsService,
     private readonly prisma: PrismaService,
   ) {}
@@ -246,19 +309,21 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine",
     title: "Get a Machine",
-    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, is Decaid's as its tablet last reported it, its Profile included. Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
-    inputSchema: z.object({ machineId }),
+    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, is Decaid's as its tablet last reported it, its Profile included. Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
+    inputSchema: machineInput,
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
     budget: { whole: ["/machineSettings", "/tabletSettings"], rest: "The management interface shows the Machine whole." },
   })
-  async getMachine({ machineId }: { machineId: string }): Promise<z.infer<typeof machineOutput>> {
+  async getMachine({ machineId, at }: z.infer<typeof machineInput>): Promise<z.infer<typeof machineOutput>> {
     const id = readMachineId(machineId);
     const machine = await this.machines.get(id);
+    const asOf = at === undefined ? undefined : new Date(at);
+    if (asOf && (asOf.getUTCFullYear() < 1 || asOf.getUTCFullYear() > 9999)) throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
     const [workflow, settings, status, tabletVersions] = await Promise.all([
       this.events.currentWorkflow(id),
-      Promise.all(SETTINGS.map((name) => this.collections.get(id, name))),
+      asOf ? this.history.asOf(id, SETTINGS, asOf).then((views) => SETTINGS.map((name) => views[name])) : Promise.all(SETTINGS.map((name) => this.collections.get(id, name))),
       sharingStatus(this.prisma, id),
       this.collections.tabletVersions(id),
     ]);
@@ -325,6 +390,42 @@ export class MachinesTools {
     const { settingsEdits, total } = await this.settingsEdits.list(machine.id, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
     return { ...pageOf(total, offset, settingsEdits.length), settingsEdits: settingsEdits.map((edit) => settingsEditOf(edit, zone)) };
+  }
+
+  @BudgetedTool({
+    name: "list_settings_history",
+    title: "List a Machine's Settings History",
+    description: `One Machine's Settings History, newest first: each change of what its tablet reported for its Machine Settings, Tablet Settings, plugins, Skins, paired devices, scale and sensors, whatever made it. ${HISTORY_COLLECTIONS} Each change gives each field changed, before and after, as compared: by Decaid's field names and in its units, as get_machine gives them; a wake schedule as schedules/ and its id, added, changed or removed, with its time, daysOfWeek, enabled and keepAwakeFor in minutes; the sensor calibration by target (flow, pressure, temperature), its measured value; a plugin, paired device or sensor by its id, a paired device without how it is connected now. ${LEFT_OUT} settingsEdit is the Settings Edit that made the change, by its id in list_settings_edits, with who made it, named to Admins only; null for a change made outside Decent Sync, on the tablet, by another app or by the machine itself, which is tied to no person. A read-back of an edit that also holds changes made outside it gives two changes of one id. receivedAt is when the server received the change: about 30 to 60 s after it was made, later while the Machine was busy, and within a day for the sensor calibration. The first value of each collection, where its history begins, is no change: get_machine with at gives it for the Machine Settings and Tablet Settings. Brief changes, a field changed from outside Decent Sync and changed back within about 2 minutes, such as the refill kit Decaid shows on automatic after the machine reconnects, or a scale left out of the paired devices while it connects, are left out unless includeBrief, and then are one change with backAt, when it changed back. ${PAGED} Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.`,
+    inputSchema: historyInput,
+    outputSchema: historyOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: {
+      whole: ["field", "before", "after"].map((part) => `/changes/*/fields/*/${part}`),
+      rest: "Asked for fewer at a time, or for one collection, it has more of each.",
+    },
+  })
+  async listSettingsHistory(input: z.infer<typeof historyInput>, context: McpContext): Promise<z.infer<typeof historyOutput>> {
+    const { limit, offset } = input;
+    const machine = await this.machines.get(readMachineId(input.machineId));
+    const range = { from: boundOf(input.from, machine, false), to: boundOf(input.to, machine, true) };
+    if ([range.from, range.to].some((end) => end && (end.getUTCFullYear() < 1 || end.getUTCFullYear() > 9999))) {
+      throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
+    }
+    if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
+    const filters = { collections: input.collections, from: range.from ?? undefined, to: range.to ?? undefined, includeBrief: input.includeBrief };
+    const { changes, total } = await this.history.changes(machine.id, filters, { limit, offset }, callerOf(context).scope);
+    const zone = zoneOf(machine);
+    return {
+      ...pageOf(total, offset, changes.length),
+      changes: changes.map(({ id, receivedAt, collection, settingsEdit, fields }) => ({
+        id,
+        receivedAt: zone(receivedAt),
+        collection,
+        settingsEdit,
+        fields: fields.map((field) => ({ ...field, backAt: zoneMaybe(zone, field.backAt) })),
+      })),
+    };
   }
 }
 

@@ -12,9 +12,10 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // tablet, which carries out Settings Edits as Decaid v0.9.1 takes them
 // (decaid-settings.ts), and through raw frames, for an edit's read-back
 // holding a change made outside it, against real servers sharing one
-// PostgreSQL database. Nothing reads the history through the REST API yet
-// (#433), so it is read from the database. Values are made up, shaped as
-// Decaid reports them (COLLECTIONS.md); serials are made up.
+// PostgreSQL database. The history is read from the database here, as
+// recorded; settings-history-reads.test.ts reads it through the REST API.
+// Values are made up, shaped as Decaid reports them (COLLECTIONS.md); serials
+// are made up.
 
 interface Row {
   name: string;

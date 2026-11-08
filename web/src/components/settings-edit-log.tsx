@@ -44,7 +44,7 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
         <CardTitleWithInfo title="Settings Edits">
           <p>
             Each change of the Machine's settings made here or through a Connected App, such as an assistant, newest first, with what
-            came of it. Changes made on the Tablet are not listed: the Settings card shows what the Machine holds.
+            came of it. Changes made on the Tablet are not listed here: the Settings History lists every change the Tablet reported.
           </p>
         </CardTitleWithInfo>
         {data?.page.total === 0 && <CardDescription>None of its settings have been changed here.</CardDescription>}
@@ -112,7 +112,7 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
  * Library's history shows Staff another account; and the Connected App, such
  * as an assistant, it was made through, by the name the app gave itself.
  */
-function MadeBy({ account, connectedApp }: { account: SettingsEdit["account"]; connectedApp: SettingsEdit["connectedApp"] }) {
+export function MadeBy({ account, connectedApp }: { account: SettingsEdit["account"]; connectedApp: SettingsEdit["connectedApp"] }) {
   const { state } = useAuth();
   if (account === null) return <span className="text-muted-foreground">An account since removed</span>;
   const who = state.status === "signed-in" && state.account.id === account.id ? "You" : (account.name ?? "An account");

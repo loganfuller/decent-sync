@@ -725,8 +725,9 @@ differs from the one before it, whatever changed it, as a row of
 Pending Machine, the collection is credited to, the tablet whose connection
 reported it, the value as sent, with the UTC offset sent beside it, when the
 server received it (PostgreSQL's clock: for a report, the same time as the
-latest value's `received_at`), and its source. Nothing reads it through the REST API or the
-MCP endpoint yet; ticket #433 shows it.
+latest value's `received_at`), and its source. Ticket
+[#433](https://github.com/loganfuller/decent-sync/issues/433) reads it
+(Reading the Settings History, below).
 
 - **What counts as a change.** Values are compared field by field, through a
   projection that leaves out what something other than these settings sets,
@@ -808,12 +809,50 @@ MCP endpoint yet; ticket #433 shows it.
   device connections and update checks. What remains is mostly a remembered
   scale the plugin leaves out of the paired devices while Decaid lists it
   `discovered`, for the few seconds between switching it on and connecting
-  (Plugin, above), caught by a poll and put back by the next, which #433
-  folds as a brief change; on a Machine whose kept refill kit is not
+  (Plugin, above), caught by a poll and put back by the next, which is
+  folded as a brief change (below); on a Machine whose kept refill kit is not
   automatic, the refill kit Decaid shows on automatic after each reconnect
   of the machine and the value it keeps (ADR-0023); a plugin or Skin
   updated; and a deliberate change. A Bengle's sensors list its milk probe
   only while it is connected, so each of its drops adds two rows.
+
+### Reading the Settings History
+
+`SettingsHistoryService` (`server/src/collections/settings-history.service.ts`)
+reads a Machine's history two ways, for the REST API and the MCP endpoint
+alike (ADR-0026):
+
+- **Its changes,** newest first, worked out by `settingsHistoryChanges`
+  (`protocol/src/settings-history.ts`) from each collection's values in the
+  history's order, as written (Pending Machines, above): each value's fields
+  changed from the value before it, as `settingsHistoryFields` keys and
+  projects them, each `added`, `changed` or `removed`, with its value before
+  and after as compared (null where absent). A wake schedule is `schedules/<id>`, the
+  sensor calibration a target's `measuredValue`, and a plugin, paired device
+  or sensor an entry by its id. A collection's first value, its baseline, is
+  no change, and nor is a value with no field changed, as compared, from the
+  one before it. A read-back's changes of the fields its Settings Edit set
+  are one change, naming the edit and who made it, as a Settings Edit names
+  them (an Admin sees the account's name, Staff and Viewers its id); the
+  fields changed outside it are another, of the same id, naming none.
+- **Brief changes.** A field changed from outside Decent Sync and changed
+  back to its value before, by its next change, also from outside, within
+  `BRIEF_CHANGE_MS` (2 minutes), is a brief change: one change, its
+  `backAt` saying when it changed back, and the change back left out. That
+  covers the refill kit Decaid shows on automatic as the machine reconnects
+  (ADR-0023) and a remembered scale left out while it connects. A change made
+  or undone through a Settings Edit is never brief. Brief changes are left
+  out unless asked for, a field at a time, so a change holding only brief
+  ones is left out too. Each collection's whole history is read to work them
+  out, and only then are those received in the range kept, so a brief change
+  is folded wherever a range or page ends.
+- **As of a time:** of each collection's values received at or before it,
+  the last written, whole as sent, with when it was received; none before
+  its first. A baseline taken from a stored value has that value's
+  `received_at`, when it was last reported, not first, so a time before it
+  gives none though the Machine held a value then. As the history keeps
+  only reports with a value and their changes, what it compares none of,
+  such as the Tablet's battery, may have changed since without being kept.
 
 ## REST API
 
@@ -826,7 +865,20 @@ Machine that takes their hardware over. Staff read them as Admins do.
   its value, in `COLLECTION_NAMES` order.
 - `GET /api/machines/:id/collections/:name` returns `{ collection }`, the same
   with its `value`, or null until the Machine's tablet reports it. An unknown
-  name answers 404.
+  name answers 404. With `at`, a moment with its offset, a collection the
+  Settings History keeps is given as last received at or before then, its
+  `available` true and its `reportedAt` and `receivedAt` that value's, or
+  null if none was received by then; a Library list answers 400.
+- `GET /api/machines/:id/settings-history` returns `{ changes, total, limit,
+  offset }`, the Machine's Settings History's changes newest first (Reading
+  the Settings History, above), each `{ id, receivedAt, collection,
+  settingsEdit, fields }`: `settingsEdit` is `{ id, account, connectedApp }`,
+  or null for a change made outside Decent Sync, and each field `{ field,
+  change, before, after, backAt }`. It takes `collection`, once or more, each
+  a collection the history keeps; `from`, included, and `to`, not, moments
+  with their offsets, by when each change was received; `includeBrief`,
+  `true` or `false` (the default); and `limit` (1 to 100, 20 if not given)
+  and `offset`. Viewers read it too.
 - `GET /api/machines/:id/tablet-versions` returns `{ tabletVersions: { dye2,
   streamline } }` (Plugins and Skins, above), each with a `status`:
   `notReported` until its collection is reported, `notInstalled`, and for
@@ -861,17 +913,21 @@ The Machine page shows the DYE2 and Streamline in its Versions card, which
 keeps the last reported while the Machine is offline, the paired devices, the
 Machine Settings and Tablet Settings by their field definitions (Settings
 fields, above), the steam, hot water and flush settings of the current
-Workflow, and how many of each library collection its tablet reported, loaded
-every 30 s rather than every 5 s as the Machine's status is.
+Workflow, its Settings History, a row per field changed, with brief changes
+shown on asking, and how many of each library collection its tablet reported,
+loaded every 30 s rather than every 5 s as the Machine's status is.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/settings-history.test.ts` the Settings History, with
-`protocol/test/settings-history.test.ts` its projection,
+`protocol/test/settings-history.test.ts` its projection and its changes,
+`server/test/settings-history-reads.test.ts` its REST reads,
+`server/test/assistant-machines.test.ts` and `assistant-budget.test.ts`
+`list_settings_history` and `get_machine` with a time,
 `server/test/machine-settings-while-busy.test.ts` the reads from the machine
 waiting while it runs something, with `plugin/test/machine-activity.test.ts`
-when it runs nothing, and `e2e/library-settings-devices.spec.ts` the
-management interface.
+when it runs nothing, and `e2e/library-settings-devices.spec.ts` and
+`e2e/settings-history.spec.ts` the management interface.
 
 Known limits: a collection read from a connection whose `hello` reported no
 machine belongs to the token's Machine, as everything on that connection does.

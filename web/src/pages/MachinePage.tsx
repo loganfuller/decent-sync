@@ -24,6 +24,7 @@ import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/compon
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
 import { SettingsEditsCard } from "@/components/settings-edit-log";
+import { SettingsHistoryCard } from "@/components/settings-history";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -324,6 +325,7 @@ function MachineDetails({ id }: { id: string }) {
               <PairedDevicesCard devices={data.pairedDevices} />
               <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={answered} />
               <SettingsEditsCard machineId={machine.id} answered={editsAnswered} />
+              <SettingsHistoryCard machineId={machine.id} answered={editsAnswered} />
               <LibraryCard collections={data.collections} />
             </>
           )}
