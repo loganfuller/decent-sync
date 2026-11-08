@@ -266,6 +266,11 @@ and create and edit Locations. Nothing an assistant does grants access or
 deletes anything for good. Each Library change and Settings Edit it makes is
 recorded as "*account*, through *app*".
 
+Each answer is kept small enough for Claude and ChatGPT to read whole: a long
+list comes a page at a time, and very long text, such as a Shot's notes, may be
+cut, saying so and how to read more of it. Codex, Gemini CLI and VS Code take
+less, and may cut the larger answers or save them to a file.
+
 To see or disconnect your apps, open **Connected Apps** in the account menu.
 
 Claude and ChatGPT connect from their own clouds, so for them the server must

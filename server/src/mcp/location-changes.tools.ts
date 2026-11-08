@@ -1,10 +1,11 @@
 import { Injectable } from "@nestjs/common";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readLocationEdit, readLocationId, readNewLocation } from "../locations/input.js";
 import { LocationsService, viewLocation } from "../locations/locations.service.js";
 import { TimeZones } from "../locations/time-zones.js";
+import { BudgetedTool } from "./budget.js";
 import { requireAdmin } from "./token-verifier.js";
 
 // Locations created and edited through an assistant (#413, ADR-0026), by
@@ -36,7 +37,7 @@ export class LocationChangesTools {
     private readonly timeZones: TimeZones,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "create_location",
     title: "Create a Location",
     description: "Creates a Location: a physical site, such as a cafe, with its own time zone. It has no Machines until one is moved to it (move_machine). Admins only.",
@@ -50,7 +51,7 @@ export class LocationChangesTools {
     return { location: viewLocation(await this.locations.create(await readNewLocation(input, this.timeZones))) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_location",
     title: "Edit a Location",
     description: "Renames a Location, changes its time zone, or both, given only what changes. Admins only.",

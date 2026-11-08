@@ -1,5 +1,4 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { Tool } from "@nestjs/mcp";
 import { SHOT_CURVES, STEAM_CURVES, shotSamples, steamSamples, steamStopAt } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
@@ -8,8 +7,9 @@ import { number, object, string } from "../shots/extraction.js";
 import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
+import { BudgetedTool } from "./budget.js";
 import { curveSchema, curvesOf, shadedSchema } from "./curves.js";
-import { page, pageOf, pageOutput } from "./paging.js";
+import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
 // Shots and Steam Records, found and read through an assistant as the REST
@@ -113,6 +113,22 @@ const steamDetails = steamSummary.extend({
 const curvesInput = z.boolean().default(false).describe("Whether to include its curves, each cut to about 100 points.");
 const timeZoneNote = "Times are ISO 8601, with the offset of the record's Location's time zone, or UTC's when its Location is unknown.";
 
+/** What a Shot's numbers mean, for the descriptions of the tools that read Shots. */
+const SHOT_UNITS =
+  "Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet. A Shot's bean is as it recorded it, and beanBatch, grinder, basket, profile and recipe the Library's it is linked to. machineInferred: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred: its Location comes from that Machine's Location History.";
+
+/** What each stop reason Decaid records means. */
+const STOP_REASONS =
+  "stopReason is what Decaid recorded stopping it: targetWeight, Decaid stopping it as the scale's projected weight reached the target yield; targetVolume, Decaid stopping it at the target water volume, without a scale; machineEnded, the Machine ending it itself, as its profile finishes or it is stopped on the Machine; appStop, the Stop button in Decaid's own app; apiStop, a stop through Decaid's API, as a skin's such as Streamline's; error, the Machine going into an error state. Another value is Decaid's name for what stopped it.";
+
+/** What a Steam Record's numbers mean. */
+const STEAM_UNITS =
+  "duration is in seconds, counting only the steaming, not the steam starting up, its pauses, puffs or purge. Milk temperatures are in °C, peakMilkTemperature leaving out a reading carried over from the Steam Record before.";
+
+/** What a record's curves mean. */
+const CURVES_NOTE =
+  "Each curve gives its unit, its readings as [seconds, value] points cut to at most 100 keeping its shape and peaks, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none.";
+
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),
   machineId: id.optional().describe("Shots credited to this Machine."),
@@ -130,7 +146,7 @@ const findShotsInput = z.object({
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
   ...page,
 });
-const findShotsOutput = z.object({ shots: z.array(shotSummary), ...pageOutput });
+const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotSummary) });
 
 const findSteamRecordsInput = z.object({
   locationId: id.optional().describe("Steam Records at this Location."),
@@ -139,7 +155,7 @@ const findSteamRecordsInput = z.object({
   to: timeBound("Steam Records up to this time, through the end of a day given as a date."),
   ...page,
 });
-const findSteamRecordsOutput = z.object({ steamRecords: z.array(steamSummary), ...pageOutput });
+const findSteamRecordsOutput = z.object({ ...pageOutput, steamRecords: z.array(steamSummary) });
 
 type ListedShot = Awaited<ReturnType<ShotsService["list"]>>["shots"][number];
 type ShownShot = Awaited<ReturnType<ShotsService["get"]>>;
@@ -157,31 +173,33 @@ export class RecordsTools {
     private readonly steamRecords: SteamRecordsService,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time. ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time. ${SHOT_UNITS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "get_shot reads one Shot with more of it." },
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput>> {
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
     const found = await this.shots.list(limit, offset, filters);
-    return { shots: found.shots.map(shotSummaryOf), ...pageOf(found.total, offset, found.shots.length) };
+    return { ...pageOf(found.total, offset, found.shots.length), shots: found.shots.map(shotSummaryOf) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, and its curves when asked for, with its Preheat marked. ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it turned out, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} Its curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks: pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
     inputSchema: z.object({ id: id.describe("The Shot's id."), curves: curvesInput }),
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for without curves, it has more of its text." },
   })
   async getShot({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof shotDetails>> {
     const shot = await this.shots.get(id);
@@ -204,14 +222,15 @@ export class RecordsTools {
     };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "find_steam_records",
     title: "Find Steam Records",
-    description: `Finds Steam Records, newest first, a page at a time, by Location, Machine and time. ${timeZoneNote}`,
+    description: `Finds Steam Records, newest first, a page at a time, by Location, Machine and time. ${STEAM_UNITS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findSteamRecordsInput,
     outputSchema: findSteamRecordsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "get_steam_record reads one Steam Record with more of it." },
   })
   async findSteamRecords(input: z.infer<typeof findSteamRecordsInput>): Promise<z.infer<typeof findSteamRecordsOutput>> {
     const { from, to, limit, offset, ...named } = input;
@@ -220,17 +239,18 @@ export class RecordsTools {
     const filters = { ...readRecordFilters({ ...named, ...times.query }, problems), ...times.filters };
     if (problems.length > 0) throw new BadRequestException(problems);
     const found = await this.steamRecords.list(limit, offset, filters);
-    return { steamRecords: found.steamRecords.map(steamSummaryOf), ...pageOf(found.total, offset, found.steamRecords.length) };
+    return { ...pageOf(found.total, offset, found.steamRecords.length), steamRecords: found.steamRecords.map(steamSummaryOf) };
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "get_steam_record",
     title: "Get a Steam Record",
-    description: `Reads a Steam Record: its milk temperatures, steam settings, and its curves when asked for, with the steam starting up, its pauses, puffs and purge marked. ${timeZoneNote}`,
+    description: `Reads a Steam Record: its milk temperatures, steam settings, and its curves when asked for, with the steam starting up, its pauses, puffs and purge marked. ${STEAM_UNITS} steamSettings are what its Workflow set as it started: steamTemperature in °C, duration in seconds, how long it steams before stopping by itself, flow in ml/s, and stopAtMilkTemperature in °C, the milk temperature it stops at, null when off. Its curves are timed in seconds from when it started steaming; shaded marks the time that isn't steaming, left out of its duration: Preparing, before 0 s, the steam starting up; Paused, the flow falling after a stop; Puffing, small puffs that keep the wand clear; Purge, clearing the wand after the last stop. milkTemperature is its probe's, in °C, its target the temperature its Workflow stops at; steamTemperature is the steam heater's, in °C; pressure is the steam's, in bar, and flow in ml/s. ${CURVES_NOTE} ${timeZoneNote}`,
     inputSchema: z.object({ id: id.describe("The Steam Record's id."), curves: curvesInput }),
     outputSchema: steamDetails,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for without curves, it has more of its text." },
   })
   async getSteamRecord({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof steamDetails>> {
     const steamRecord = await this.steamRecords.get(id);

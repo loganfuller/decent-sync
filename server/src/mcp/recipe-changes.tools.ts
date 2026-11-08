@@ -1,12 +1,13 @@
 import { RECIPE_SLOTS } from "@decent-sync/protocol";
 import { Injectable } from "@nestjs/common";
-import { type McpContext, Tool } from "@nestjs/mcp";
+import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
 import { readContentEdit, readNewRecipe, readRecipeCopy, readSlot } from "../library/item-input.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { changed, contentFields, editorOf } from "./library-changes.tools.js";
+import { BudgetedTool } from "./budget.js";
 import { type ItemOutput, LibraryTools, TIMES, itemOutput } from "./library.tools.js";
 import { callerOf } from "./token-verifier.js";
 
@@ -68,7 +69,7 @@ export class RecipeChangesTools {
     private readonly library: LibraryTools,
   ) {}
 
-  @Tool({
+  @BudgetedTool({
     name: "create_recipe",
     title: "Create a Recipe",
     description: `Creates a Recipe, a named, saved dial-in for a coffee, belonging to a Location, which never changes, and written to that Location's tablets, in the Recipe Slot chosen or none: any Machine there can load it. It holds the fields given; a steam, hot water or flush setting it holds none of is the Machine's own, which loading it leaves alone. ${USES} Staff create one only at the Locations they work at. ${TIMES}`,
@@ -83,7 +84,7 @@ export class RecipeChangesTools {
     return this.library.read("recipe", recipe);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "edit_recipe",
     title: "Edit a Recipe",
     description: `Edits a Recipe, given only the fields to change: its Location's tablets are written the change, and every Machine that has it loaded follows it in its Workflow, as an edit in the management interface does. A field given null is cleared: a steam, hot water or flush setting cleared is the Machine's own again. ${USES} DYE2's ratio is kept only while the yield is the dose times it. Staff edit one only at the Locations they work at. ${TIMES}`,
@@ -99,7 +100,7 @@ export class RecipeChangesTools {
     return this.library.read("recipe", recipe);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "set_recipe_slot",
     title: "Put a Recipe in a Recipe Slot",
     description: `Puts a Recipe in a Recipe Slot at its Location, swapping it with the Recipe there, which takes its old slot or none, or takes it out of its slot, keeping it at the Location, where any Machine can still load it. A Recipe is in at most one slot, and keeps its identity, history and any Machine that has it loaded when moved. An Archived Recipe is in no slot: restore it first (set_archived). Staff move Recipes only at the Locations they work at. ${TIMES}`,
@@ -114,7 +115,7 @@ export class RecipeChangesTools {
     return this.library.read("recipe", recipe);
   }
 
-  @Tool({
+  @BudgetedTool({
     name: "copy_recipe",
     title: "Copy a Recipe to a Location",
     description: `Copies a Recipe to another Location as a new Recipe there, whose history names the Recipe it was copied from, which is not changed. The copy holds the Recipe's fields as they stand, its steam, hot water and flush settings included, but its Grinder, chosen from that Location's, the grind setting kept as a starting point, and its Bean Batch where another, or none, is chosen. ${USES} Staff copy one, from any Location, only to the Locations they work at. ${TIMES}`,
