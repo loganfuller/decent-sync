@@ -314,6 +314,8 @@ describe("connecting an assistant", () => {
       };
       expect(await authorizing({})).toMatch(/^\/connect\//);
       expect(await authorizing({ token_endpoint_auth_methods_supported: ["none"] })).toMatch(/^\/connect\//);
+      // A null list, as some serializers write a field left unset, is no list.
+      expect(await authorizing({ token_endpoint_auth_method: "none", token_endpoint_auth_methods_supported: null })).toMatch(/^\/connect\//);
       // The list decides, whatever the app prefers.
       const refused = (methods: string) => `The app authenticates with ${methods}, which this server doesn't support`;
       expect(await authorizing({ token_endpoint_auth_method: "none", token_endpoint_auth_methods_supported: ["private_key_jwt"] })).toBe(refused("private_key_jwt"));

@@ -199,12 +199,14 @@ export function redirectAllowed(redirectUri: string): boolean {
  * `token_endpoint_auth_method` prefers, since an app uses one that its
  * authorization server's metadata names too (ChatGPT's prefers
  * `private_key_jwt` and offers `none` beside it); otherwise its
- * `token_endpoint_auth_method`, or `none` when it names neither. This server
- * supports only `none`, a public client's PKCE exchange (ADR-0027).
+ * `token_endpoint_auth_method`, or `none` when it names neither. A list that
+ * is `null`, as some serializers write a field left unset, counts as none.
+ * This server supports only `none`, a public client's PKCE exchange
+ * (ADR-0027).
  */
 function authMethods(fields: Record<string, unknown>): unknown[] {
   const supported = fields.token_endpoint_auth_methods_supported;
-  if (supported === undefined) {
+  if (supported === undefined || supported === null) {
     const method = fields.token_endpoint_auth_method;
     return [method === undefined ? "none" : method];
   }
