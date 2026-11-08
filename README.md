@@ -111,12 +111,12 @@ and server a release apart work together, whichever is upgraded first (see
 [Upgrading](#upgrading)).
 
 [Milestone 6](https://github.com/loganfuller/decent-sync/issues/405) ([GitHub
-milestone](https://github.com/loganfuller/decent-sync/milestone/6)) is under
-way, and not yet in a release. People connect AI assistants, such as Claude
-and ChatGPT, through the server's MCP endpoint (see
-[Connecting an assistant](#connecting-an-assistant)). So far an assistant
-reads Locations, Machines with their activity, settings and Settings Edits,
-Shots and Steam Records, and the Library with each item's history and
+milestone](https://github.com/loganfuller/decent-sync/milestone/6)) is built,
+for the release after 1.6.4. People connect AI assistants, such as Claude and
+ChatGPT, through the server's MCP endpoint (see
+[Connecting an assistant](#connecting-an-assistant)). An assistant reads
+Locations, Machines with their activity, settings and Settings Edits, Shots
+and Steam Records, and the Library with each item's history and
 Conflicts. It creates and edits Beans, Bean Batches, Grinders, Baskets, Tools
 and Recipes, Archives and restores Library items, changes what a Location
 offers, puts Recipes in Recipe Slots and copies them to other Locations, uses
