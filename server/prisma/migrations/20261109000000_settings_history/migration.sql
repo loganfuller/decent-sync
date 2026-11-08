@@ -24,9 +24,9 @@ CREATE TABLE "settings_history" (
 
 ALTER TABLE "settings_history" ALTER COLUMN "value" SET COMPRESSION lz4;
 
-CREATE INDEX "settings_history_machine_id_name_received_at_idx" ON "settings_history"("machine_id", "name", "received_at");
+CREATE INDEX "settings_history_machine_id_name_id_idx" ON "settings_history"("machine_id", "name", "id");
 
-CREATE INDEX "settings_history_pending_machine_id_name_received_at_idx" ON "settings_history"("pending_machine_id", "name", "received_at");
+CREATE INDEX "settings_history_pending_machine_id_name_id_idx" ON "settings_history"("pending_machine_id", "name", "id");
 
 ALTER TABLE "settings_history" ADD CONSTRAINT "settings_history_machine_id_fkey" FOREIGN KEY ("machine_id") REFERENCES "machines"("id") ON DELETE CASCADE ON UPDATE CASCADE;
 

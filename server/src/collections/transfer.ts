@@ -6,8 +6,9 @@ import type { Hardware } from "../sync/identity.js";
  * dismissed Pending Machine, and their Settings History. Where both have
  * one, the later report says whether it is available now, and the later
  * value received is kept; their histories are kept together, in the order
- * their values were received. The Machine's row lock must be held, or the
- * Machine created in this transaction, as transferPendingRecords requires.
+ * their rows were written, which a report is compared in. The Machine's row
+ * lock must be held, or the Machine created in this transaction, as
+ * transferPendingRecords requires.
  */
 export async function transferPendingCollections(
   tx: Prisma.TransactionClient,
@@ -33,6 +34,6 @@ export async function transferPendingCollections(
     WHERE pending.id = held.pending_machine_id AND pending.model = ${hardware.model} AND pending.serial = ${hardware.serial}
       AND EXISTS (SELECT 1 FROM reported_collections AS mine WHERE mine.machine_id = ${machineId}::uuid AND mine.name = held.name)`;
   await tx.reportedCollection.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
-  // The Settings History moves whole, each value keeping when it was received, so a collection both reported is one history of both.
+  // The Settings History moves whole, each row keeping its id and when its value was received, so a collection both reported is one history of both.
   await tx.settingsHistoryEntry.updateMany({ where: { pendingMachine: hardware }, data: { machineId, pendingMachineId: null } });
 }

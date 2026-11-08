@@ -740,7 +740,9 @@ MCP endpoint yet; ticket #433 shows it.
   inventory carries no battery level); `scaleInfo.batteryLevel`; and each
   plugin's `source.lastChecked` and `source.lastError`, which Decaid's update
   checks write, the error set by a check that fails, as while the Tablet is
-  offline, and cleared by the next. The wake schedules are compared one by one, by their ids, each as
+  offline, and cleared by the next, and its `pendingUpdate.detectedAt`,
+  written again by each check while an update waits for its new permissions
+  to be approved. The wake schedules are compared one by one, by their ids, each as
   a wake schedule's Settings Edit names its fields; the sensor calibration by
   target, its `measuredValue`; the plugins, paired devices and sensors entry
   by entry, by their ids, in any order. A field absent counts as null, and an
@@ -769,13 +771,19 @@ MCP endpoint yet; ticket #433 shows it.
   edit, or one of another Machine or collection, was made outside Decent
   Sync, and is tied to no person.
 - **Recorded once.** A report is compared with the latest row of its
-  collection, the last written, in the transaction storing it, before the latest value is
-  replaced, under the locks of its credit, so two instances never record one
-  change twice, and a delivery handled before records nothing.
+  collection, the last written, in the transaction storing it, before the
+  latest value is replaced, under the locks of its credit, so two instances
+  never record one change twice, and a delivery handled before records
+  nothing.
 - **Pending Machines.** A Pending Machine's history moves, whole, to the
   Machine that takes over its hardware, with its collections
-  (`transferPendingCollections`). Each row keeps when it was received, so
-  where both reported a collection, its history holds both, interleaved.
+  (`transferPendingCollections`). Each row keeps its id and when its value was
+  received, so where both reported a collection, its history holds both,
+  interleaved. A history's order is the order its rows were written, by id,
+  which a report is compared in. It is the order their values were received
+  but for a baseline taken from a stored value, which keeps that value's
+  time: a Pending Machine's baseline taken after the Machine's own rows
+  sorts after them, though received before, until the next report.
 - **Limits.** Times are when the server received a report. A change on the
   Tablet reaches it within about 30 to 60 s: at the next poll, or the machine
   settings' next read, later while the Machine runs something (Plugin,
@@ -787,7 +795,9 @@ MCP endpoint yet; ticket #433 shows it.
   and a Machine it gives a Pending Machine's hardware to doesn't take the
   Pending Machine's history, which goes with it.
   A previous release's plugin names no edit, so its edits' read-backs are
-  labelled as from outside.
+  labelled as from outside, and so is an edit's change where the read-back
+  itself failed, as an unavailable report names none, and the next poll
+  reports the change.
 - **Volume.** Estimated for #432 from Roux's Belmont on 2026-11-07, two
   DE1XXLs, at one to three rows per Machine on a usual day, each under 1 KB
   but the plugin list's 16 KB: the projection leaves out what changes
@@ -800,7 +810,8 @@ MCP endpoint yet; ticket #433 shows it.
   folds as a brief change; on a Machine whose kept refill kit is not
   automatic, the refill kit Decaid shows on automatic after each reconnect
   of the machine and the value it keeps (ADR-0023); a plugin or Skin
-  updated; and a deliberate change.
+  updated; and a deliberate change. A Bengle's sensors list its milk probe
+  only while it is connected, so each of its drops adds two rows.
 
 ## REST API
 

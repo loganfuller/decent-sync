@@ -88,6 +88,12 @@ describe("changedSettingsHistoryFields", () => {
     // A check that failed while the Tablet was offline, then the next.
     const failed = [plugins[0], { ...plugins[1], source: { ...source, lastError: "Couldn't reach GitHub" } }];
     expect(changedSettingsHistoryFields("plugins", plugins, failed)).toEqual([]);
+    // An update waiting for its new permissions, found again by each check, is a change once.
+    const pendingUpdate = { version: "1.8.0", releaseTag: "v1.8.0", newPermissions: ["network"], detectedAt: "2026-11-08T07:10:46.408380" };
+    const waiting = [plugins[0], { ...plugins[1], pendingUpdate }];
+    expect(changedSettingsHistoryFields("plugins", plugins, waiting)).toEqual(["decent-sync.reaplugin"]);
+    const foundAgain = [plugins[0], { ...plugins[1], pendingUpdate: { ...pendingUpdate, detectedAt: "2026-11-08T19:10:46.408380" } }];
+    expect(changedSettingsHistoryFields("plugins", waiting, foundAgain)).toEqual([]);
     expect(changedSettingsHistoryFields("plugins", plugins, checked)).toEqual([]);
     expect(changedSettingsHistoryFields("plugins", plugins, [plugins[1], plugins[0]])).toEqual([]);
     const updated = [plugins[0], { ...plugins[1], version: "1.8.0", source: { ...source, releaseTag: "v1.8.0" } }];

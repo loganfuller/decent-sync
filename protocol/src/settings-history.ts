@@ -71,6 +71,13 @@ const DEVICE_CONNECTION_FIELDS = ["state", "available", "connectionRole"];
  */
 const PLUGIN_CHECK_FIELDS = ["lastChecked", "lastError"];
 
+/**
+ * A plugin's `pendingUpdate` field that each update check writes again
+ * while an update waits for its new permissions to be approved:
+ * `detectedAt` (`PluginSourceService` in Decaid v0.9.1).
+ */
+const PENDING_UPDATE_CHECK_FIELDS = ["detectedAt"];
+
 /** How a wake schedule's field is keyed among a projection's fields: `schedules/<id>`, by the id Decaid gave it. */
 export const SCHEDULE_KEY_PREFIX = "schedules/";
 
@@ -88,7 +95,7 @@ export const SCHEDULE_KEY_PREFIX = "schedules/";
  *   value a Settings Edit of it sets.
  * - The plugins, paired devices and sensors are a field per entry, keyed by
  *   its id; each paired device without its connection, and each plugin's
- *   `source` without what its update checks write.
+ *   `source` and `pendingUpdate` without what its update checks write.
  * - Any other value that is no object is one field, keyed "".
  */
 export function settingsHistoryFields(name: SettingsHistoryCollection, value: unknown): Record<string, unknown> {
@@ -107,7 +114,11 @@ export function settingsHistoryFields(name: SettingsHistoryCollection, value: un
     case "sensorCalibration":
       return Object.fromEntries(Object.entries(topLevelFields(name, value)).map(([target, read]) => [target, isObject(read) ? (read.measuredValue ?? null) : read]));
     case "plugins":
-      return byId(value, (plugin) => (isObject(plugin.source) ? { ...plugin, source: without(plugin.source, PLUGIN_CHECK_FIELDS) } : plugin));
+      return byId(value, (plugin) => ({
+        ...plugin,
+        ...(isObject(plugin.source) ? { source: without(plugin.source, PLUGIN_CHECK_FIELDS) } : {}),
+        ...(isObject(plugin.pendingUpdate) ? { pendingUpdate: without(plugin.pendingUpdate, PENDING_UPDATE_CHECK_FIELDS) } : {}),
+      }));
     case "pairedDevices":
       return byId(value, (device) => without(device, DEVICE_CONNECTION_FIELDS));
     case "sensors":

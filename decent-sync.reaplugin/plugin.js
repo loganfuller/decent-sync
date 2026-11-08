@@ -4524,7 +4524,8 @@ var __decentSync = (() => {
       }
       const id = schedule.action === "add" ? written2?.ok ? addedId(written2.text) : void 0 : schedule.id;
       const after = await readObject(route).catch(() => void 0);
-      this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, edit.id);
+      const gone = schedule.action !== "add" && written2?.status === 404;
+      this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? void 0 : edit.id);
       const held = after?.ok && id !== void 0 ? scheduleIn(after.value, id) : void 0;
       const readBack = after?.ok && id !== void 0 ? held ? scheduleValues(held) : {} : void 0;
       if (schedule.action !== "add" && written2?.status === 404) return changedSince(edit, readBack);

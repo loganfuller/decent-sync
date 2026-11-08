@@ -271,7 +271,9 @@ export class SettingsEdits {
     }
     const id = schedule.action === "add" ? (written?.ok ? addedId(written.text) : undefined) : schedule.id;
     const after = await readObject(route).catch(() => undefined);
-    this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, edit.id);
+    // A schedule Decaid answers 404 for went since: its read-back shows what another change did, and names no edit.
+    const gone = schedule.action !== "add" && written?.status === 404;
+    this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? undefined : edit.id);
     const held = after?.ok && id !== undefined ? scheduleIn(after.value, id) : undefined;
     const readBack = after?.ok && id !== undefined ? (held ? scheduleValues(held) : {}) : undefined;
     if (schedule.action !== "add" && written?.status === 404) return changedSince(edit, readBack);

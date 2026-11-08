@@ -69,7 +69,7 @@ describe("Settings History", () => {
     await server?.stop();
   });
 
-  /** The history held for a Machine, or a Pending Machine, oldest first, read from the database. */
+  /** The history held for a Machine, or a Pending Machine, in the order it was written, which a report is compared in, read from the database. */
   async function history(holder: { machineId: string } | { pendingMachineId: string }, name?: string): Promise<Row[]> {
     const database = await server.connectDatabase();
     try {
@@ -77,7 +77,7 @@ describe("Settings History", () => {
       const { rows } = await database.query<Row>(
         `SELECT name, value, tablet_id AS "tabletId", to_json(received_at) #>> '{}' AS "receivedAt",
            settings_edit_id AS "settingsEditId", edited_fields AS "editedFields"
-         FROM settings_history WHERE ${column} = $1 AND ($2::text IS NULL OR name = $2) ORDER BY received_at, id`,
+         FROM settings_history WHERE ${column} = $1 AND ($2::text IS NULL OR name = $2) ORDER BY id`,
         [id, name ?? null],
       );
       return rows.map((row) => ({ ...row, receivedAt: new Date(row.receivedAt).toISOString() }));

@@ -887,8 +887,9 @@ model SettingsHistoryEntry {
   /// Decent Sync.
   editedFields     String[]        @default([]) @map("edited_fields")
 
-  @@index([machineId, name, receivedAt])
-  @@index([pendingMachineId, name, receivedAt])
+  /// Finds each collection's latest row, by id, the order rows are written in.
+  @@index([machineId, name, id])
+  @@index([pendingMachineId, name, id])
   @@map("settings_history")
 }
 
