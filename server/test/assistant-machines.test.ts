@@ -168,7 +168,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
   it("lists the Machine tools, each only reading", async () => {
     const { tools } = await assistant.client.listTools();
-    for (const name of ["list_machines", "get_machine", "get_machine_activity", "list_settings_edits"]) {
+    for (const name of ["list_machines", "get_machine", "get_machine_activity", "list_settings_edits", "list_settings_history"]) {
       expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({ readOnlyHint: true });
     }
   });
@@ -262,6 +262,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         ["get_machine", { machineId }],
         ["get_machine_activity", { machineId }],
         ["list_settings_edits", { machineId }],
+        ["list_settings_history", { machineId }],
       ] as const) {
         const result = await assistant.client.callTool({ name, arguments: args });
         expect(result, name).toMatchObject({ isError: true, content: [{ type: "text", text: "No such Machine" }] });
@@ -499,5 +500,76 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect([page.settingsEdits.map((edit) => edit.id), page.total, page.offset, page.more]).toEqual([[settingsEdits[0]!.id], 2, 0, true]);
     const last = await assistant.call<EditsPage>("list_settings_edits", { machineId: bar.machine.id, limit: 1, offset: 1 });
     expect([last.settingsEdits.map((edit) => edit.id), last.total, last.offset, last.more]).toEqual([[settingsEdits[1]!.id], 2, 1, false]);
+  });
+
+  it("lists a Machine's Settings History as the REST API does, newest first, naming who made an edit's change only to Admins, and gives its settings as last received by a time", async () => {
+    const path = `/machines/${bar.machine.id}`;
+    type Change = Record_ & { receivedAt: string; settingsEdit: { id: string; account: { name: string | null } } | null; fields: Record_[] };
+    type HistoryPage = { changes: Change[]; total: number; offset: number; more: boolean };
+    const rest = async (as: AdminApi, query = "") => {
+      const { changes, total, offset } = await as.get<{ changes: Change[]; total: number; offset: number }>(`${path}/settings-history${query}`);
+      return { total, offset, more: offset + changes.length < total, changes };
+    };
+    for (const [who, as, through] of [
+      ["an Admin", api, assistant],
+      ["Staff", sam.api, sam.assistant],
+      ["a Viewer", vic.api, vic.assistant],
+    ] as const) {
+      const listed = await through.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id });
+      expect(instants(listed), who).toEqual(instants(await rest(as)));
+      const briefToo = await through.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings", "appSettings"], includeBrief: true, limit: 1 });
+      expect(instants(briefToo), who).toEqual(instants(await rest(as, "?collection=machineSettings&collection=appSettings&includeBrief=true&limit=1")));
+    }
+    // The fan threshold the Admin's edit applied, and no change for Sam's, which was refused.
+    const { changes } = await assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings"] });
+    const { settingsEdits } = await api.get<{ settingsEdits: { id: string; fields: Record_ }[] }>(`${path}/settings-edits`);
+    const applied = settingsEdits.find((edit) => edit.fields.fan === 40)!;
+    expect(changes).toEqual([
+      {
+        id: expect.any(String),
+        receivedAt: expect.any(String),
+        collection: "machineSettings",
+        settingsEdit: { id: applied.id, account: { id: expect.any(String), name: "Ada Admin" }, connectedApp: null },
+        fields: [{ field: "fan", change: "changed", before: 55, after: 40, backAt: null }],
+      },
+    ]);
+    expectZoned(CHICAGO, changes[0]!.receivedAt);
+    const seenBySam = await sam.assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings"] });
+    expect(seenBySam.changes[0]!.settingsEdit!.account.name).toBeNull();
+    // A range of when they were received, each bound a moment with its offset.
+    const at = changes[0]!.receivedAt;
+    const ranged = (from: string, to: string) => assistant.call<HistoryPage>("list_settings_history", { machineId: bar.machine.id, collections: ["machineSettings"], from, to });
+    expect((await ranged(at, new Date(Date.parse(at) + 1).toISOString())).total).toBe(1);
+    expect((await ranged(new Date(Date.parse(at) - 60_000).toISOString(), at)).total).toBe(0);
+
+    // Its settings as last received just before the edit's change, as the REST API gives them then, and none before its first report.
+    const before = new Date(Date.parse(at) - 1).toISOString();
+    const asOf = await assistant.call<Record_ & { machineSettings: Record_; tabletSettings: Record_ }>("get_machine", { machineId: bar.machine.id, at: before });
+    const collection = async (name: string, when: string) => {
+      const { collection } = await api.get<{ collection: Record_ | null }>(`${path}/collections/${name}?${new URLSearchParams({ at: when })}`);
+      return collection && { available: collection.available, reportedAt: collection.reportedAt, receivedAt: collection.receivedAt, value: collection.value, utcOffsetMinutes: collection.utcOffsetMinutes };
+    };
+    expect(instants({ machineSettings: asOf.machineSettings, tabletSettings: asOf.tabletSettings })).toEqual(
+      instants({
+        machineSettings: {
+          machineSettings: await collection("machineSettings", before),
+          advancedSettings: await collection("advancedSettings", before),
+          machineCalibration: await collection("machineCalibration", before),
+          sensorCalibration: await collection("sensorCalibration", before),
+        },
+        tabletSettings: { appSettings: await collection("appSettings", before), presenceSettings: await collection("presenceSettings", before) },
+      }),
+    );
+    expect(asOf.machineSettings).toMatchObject({ machineSettings: { available: true, value: { fan: 55 } } });
+    expect(await assistant.call<Record_>("get_machine", { machineId: bar.machine.id, at })).toMatchObject({ machineSettings: { machineSettings: { receivedAt: at, value: { fan: 40 } } } });
+    const long = await assistant.call<{ machineSettings: Record_; tabletSettings: Record_; machine: Record_ }>("get_machine", { machineId: bar.machine.id, at: "2020-01-01T00:00:00-06:00" });
+    expect([long.machineSettings, long.tabletSettings]).toEqual([
+      { machineSettings: null, advancedSettings: null, machineCalibration: null, sensorCalibration: null },
+      { appSettings: null, presenceSettings: null },
+    ]);
+    // The rest is as now.
+    expect(unseen(long.machine)).toEqual(unseen((await assistant.call<{ machine: Record_ }>("get_machine", { machineId: bar.machine.id })).machine));
+    const refused = await assistant.client.callTool({ name: "get_machine", arguments: { machineId: bar.machine.id, at: "2026-11-08T09:00:00" } });
+    expect(refused).toMatchObject({ isError: true });
   });
 });

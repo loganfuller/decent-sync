@@ -115,6 +115,9 @@ Each server has one owner: a household, or a business with all of its sites.
 - **Remote settings.** While a Machine's tablet is connected, edit the
   Machine's settings, wake schedules included, and the tablet's Decaid
   settings. Each Settings Edit is listed with who made it and what came of it.
+- **Settings History.** Each Machine's page lists every change of its settings,
+  plugins, Skins, paired devices and sensors, whatever made it, naming who made
+  a Settings Edit's.
 - **The whole picture.** Each Machine's page shows what it is set up to pull
   next, its scale, sensors and calibration, and the plugin release it runs.
 - **On your phone.** The management interface fits a phone's screen, in light
@@ -256,7 +259,7 @@ or to read and change. It then acts as you, within what your account may do. A
 Viewer's app can only read.
 
 An assistant can read Locations, Machines with their activity and settings,
-Settings Edits, Shots, Steam Records, and the Library with each item's history
+then or now, Settings Edits, each Machine's Settings History, Shots, Steam Records, and the Library with each item's history
 and Conflicts. It can create and edit Beans, Bean Batches, Grinders, Baskets,
 Tools and Recipes, Archive and restore Library items, change what a Location
 offers, put Recipes in Recipe Slots and copy them to other Locations, use or

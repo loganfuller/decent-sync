@@ -593,6 +593,9 @@ var __decentSync = (() => {
     return typeof value === "object" && value !== null && !Array.isArray(value) ? value : {};
   }
 
+  // ../protocol/src/settings-history.ts
+  var BRIEF_CHANGE_MS = 2 * 6e4;
+
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
   var WIRE_REVISION = 2;

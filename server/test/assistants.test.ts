@@ -147,6 +147,7 @@ describe("connecting an assistant", () => {
         "list_locations",
         "list_machines",
         "list_settings_edits",
+        "list_settings_history",
       ];
       const changing = [
         "copy_recipe",
@@ -181,6 +182,8 @@ describe("connecting an assistant", () => {
         // Every tool keeps its response within the budget (ADR-0028), and lets Claude Code keep a slight overrun inline.
         expect(tool._meta, tool.name).toEqual({ "anthropic/maxResultSizeChars": 100_000 });
         expect(tool.outputSchema?.properties, tool.name).toHaveProperty("cut");
+        // Claude Code cuts a tool's description at 4,096 characters.
+        expect(tool.description!.length, tool.name).toBeLessThanOrEqual(4096);
       }
       const { locations } = await assistant.call<{ locations: ListedLocation[] }>("list_locations");
       expect(locations).toEqual(await restLocations(api));

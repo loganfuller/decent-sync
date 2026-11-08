@@ -405,6 +405,36 @@ export interface SettingsEditPage {
   offset: number;
 }
 
+/** One field's change in a Machine's Settings History, as compared: a wake schedule's fields, a sensor calibration's measured value, a paired device without how it is connected. */
+export interface SettingsHistoryField {
+  /** A field's name, as Decaid names it; `schedules/<id>` for a wake schedule; a target of the sensor calibration; a plugin's, paired device's or sensor's id. */
+  field: string;
+  change: "added" | "changed" | "removed";
+  /** Null where absent. */
+  before: unknown;
+  after: unknown;
+  /** For a brief change, made outside Decent Sync and changed back within about 2 minutes, when it changed back; null for any other. */
+  backAt: string | null;
+}
+
+/** A change of one of a Machine's collections, as its Settings History keeps it. */
+export interface SettingsHistoryChange {
+  /** The value's id; a read-back holding an edit's changes and others gives two changes of one id. */
+  id: string;
+  receivedAt: string;
+  collection: string;
+  /** The Settings Edit that made it, and who made it, named to Admins only; null for a change made outside Decent Sync. */
+  settingsEdit: { id: string; account: { id: string; name: string | null } | null; connectedApp: { id: string; name: string; host: string } | null } | null;
+  fields: SettingsHistoryField[];
+}
+
+export interface SettingsHistoryPage {
+  changes: SettingsHistoryChange[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 /** A device paired with a Machine's tablet. */
 export interface PairedDevice {
   /** Decaid's id for it, such as a Bluetooth address. */

@@ -108,6 +108,7 @@
   "server/test/settings-edit-log.test.ts": 7,
   "server/test/settings-edit-outcome.test.ts": 0,
   "server/test/settings-edits.test.ts": 15,
+  "server/test/settings-history-reads.test.ts": 9,
   "server/test/settings-history.test.ts": 12,
   "server/test/sharing-status.test.ts": 12,
   "server/test/shot-curves-refresh.test.ts": 6,

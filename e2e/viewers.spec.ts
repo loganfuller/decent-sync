@@ -91,7 +91,12 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
    */
   const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
-    { path: `/machines/${machineId}`, loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(), staffHave: "button Edit General" },
+    {
+      path: `/machines/${machineId}`,
+      loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(),
+      staffHave: "button Edit General",
+      filters: [/^checkbox Show brief changes$/],
+    },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
     { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New batch" },

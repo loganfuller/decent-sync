@@ -79,7 +79,7 @@ function readLocationChoice(value: unknown, problems: string[]): string | undefi
 }
 
 /** A time with its offset, such as 2026-10-04T15:00:00Z, so it names one instant whatever the server's time zone. */
-function readTime(value: unknown, problems: string[]): Date | undefined {
+export function readTime(value: unknown, problems: string[]): Date | undefined {
   const match = typeof value === "string" ? ISO_INSTANT.exec(value) : null;
   if (match && namesRealTime(match)) {
     const time = new Date(value as string);
