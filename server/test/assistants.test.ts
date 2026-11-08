@@ -319,6 +319,7 @@ describe("connecting an assistant", () => {
       expect(await authorizing({ token_endpoint_auth_method: "none", token_endpoint_auth_methods_supported: ["private_key_jwt"] })).toBe(refused("private_key_jwt"));
       expect(await authorizing({ token_endpoint_auth_methods_supported: ["private_key_jwt", "client_secret_basic"] })).toBe(refused("private_key_jwt or client_secret_basic"));
       expect(await authorizing({ token_endpoint_auth_method: "private_key_jwt" })).toBe(refused("private_key_jwt"));
+      expect(await authorizing({ token_endpoint_auth_methods_supported: [{ toString: null }] })).toBe(refused('{"toString":null}'));
       for (const supported of ["none", []]) {
         expect(await authorizing({ token_endpoint_auth_methods_supported: supported })).toBe("The app's Client ID Metadata Document lists no token_endpoint_auth_methods_supported");
       }

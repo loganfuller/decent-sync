@@ -155,7 +155,9 @@ export class ClientMetadataDocuments {
     }
     const methods = authMethods(fields);
     if (!methods.includes("none")) {
-      throw new ClientRefused(`The app authenticates with ${methods.map(String).join(" or ")}, which this server doesn't support`);
+      // JSON for what isn't a string, which String() can throw on, such as {"toString": null}.
+      const named = methods.map((method) => (typeof method === "string" ? method : JSON.stringify(method)));
+      throw new ClientRefused(`The app authenticates with ${named.join(" or ")}, which this server doesn't support`);
     }
     const name = typeof fields.client_name === "string" ? fields.client_name.trim().slice(0, MAX_NAME_LENGTH) : "";
     return {
