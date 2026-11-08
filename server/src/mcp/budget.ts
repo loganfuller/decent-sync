@@ -124,17 +124,16 @@ export function cutNoteOf(budget: Budget): string {
 }
 
 /**
- * Refuses a change whose input holds text a response cut, `CUT_MARK` in it
- * anywhere: an assistant that edits a field it read cut, such as a Bean's
- * notes read with its history, would otherwise save the cut text over the
- * whole.
+ * Refuses an input holding text a response cut, `CUT_MARK` in it anywhere,
+ * saying how to have the whole of it: a change's, as an assistant that edits
+ * a field it read cut, such as a Bean's notes read with its history, would
+ * otherwise save the cut text over the whole, and a filter's that matches
+ * whole text, which a cut name would match nothing by, as find_shots's.
  */
-export function refuseCutText(input: unknown): void {
+export function refuseCutText(input: unknown, whole = "read it whole first, such as without history or curves, and send the whole of it"): void {
   const holds = (value: unknown): boolean =>
     typeof value === "string" ? value.includes(CUT_MARK) : typeof value === "object" && value !== null && Object.values(value).some(holds);
-  if (holds(input)) {
-    throw new BadRequestException(`A value holds ${CUT_MARK}, so it is text a response cut short: read it whole first, such as without history or curves, and send the whole of it`);
-  }
+  if (holds(input)) throw new BadRequestException(`A value holds ${CUT_MARK}, so it is text a response cut short: ${whole}`);
 }
 
 function size(value: unknown): number {

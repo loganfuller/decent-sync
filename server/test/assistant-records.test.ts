@@ -568,7 +568,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(row.beanBatch.name).toBe("Ethiopia Generic 100g Sample");
     expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster }, grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless" });
     // A cut name matches no Shot, so a filter holding one is refused, as a change is.
-    expect(await toolError("find_shots", { barista: row.barista as string })).toContain("…[cut]");
+    expect(await toolError("find_shots", { barista: row.barista as string })).toBe(
+      "A value holds …[cut], so it is text a response cut short: get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
+    );
     // A page whose names and notes are short says nothing of a cut.
     expect(await assistant.call<Fields>("find_shots", { from: "2026-04-01", to: "2026-04-01" })).not.toHaveProperty("cut");
   });

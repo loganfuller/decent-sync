@@ -234,7 +234,7 @@ export class RecordsTools {
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
     // A name a row cut matches no Shot, as the filters match whole names.
-    refuseCutText(input);
+    refuseCutText(input, "get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
