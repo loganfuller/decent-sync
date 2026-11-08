@@ -1,6 +1,6 @@
 # Agent Instructions
 
-Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it and released in v1.0.0, Milestone 5 in v1.4.0, and Milestone 4 in v1.5.0: its Settings Edits from v1.2.0, and its Live View from v1.5.0.
+Decent Sync is one repository containing the plugin, server and management interface. Milestones 1 to 3 are built in it and released in v1.0.0, Milestone 5 in v1.4.0, and Milestone 4 in v1.5.0: its Settings Edits from v1.2.0, and its Live View from v1.5.0. Milestone 6 is built, for the release after 1.6.4.
 
 ## Before implementation
 
@@ -12,7 +12,7 @@ Decent Sync is one repository containing the plugin, server and management inter
 
 - Use the TypeScript, NestJS, Prisma, PostgreSQL, React/Vite and shadcn/ui stack in ADR-0011 and the plain npm workspace layout in ADR-0012.
 - Define wire messages and runtime validators once in `protocol/`, shared by `plugin/` and `server/`. Update both ends together in this repo.
-- Make what a change adds or changes for people to read or do, in the management interface or the REST API, available through the MCP endpoint in the same change (ADR-0026): a new tool, or a change to one, which follows ADR-0025 as a REST route does. What grants access or destroys history stays out of it. Until Milestone 6's tickets have given the endpoint tools for that area, add the tool to [Milestone 6's spec](https://github.com/loganfuller/decent-sync/issues/405) instead.
+- Make what a change adds or changes for people to read or do, in the management interface or the REST API, available through the MCP endpoint in the same change (ADR-0026): a new tool, or a change to one, which follows ADR-0025 as a REST route does. What grants access or destroys history stays out of it.
 - Support only the versions ADR-0017 names: Decaid v0.9.1 and later, DYE2 v0.1.35 and later, Streamline v0.2.23 and later, and the current release of the plugin and server with the previous one beside it (ADR-0025), with nothing for de1app. Write no code for older Decaid, DYE2 or Streamline versions, or for releases before the previous one. The server enforces the Decaid and protocol minimums at `hello`.
 - Follow the model of the apps Decent Sync works with rather than building a parallel one. Where Decaid, Streamline or DYE2 already has a concept or protocol, such as the recipe DYE2 and Streamline name in the Workflow (`context.extras.dye.recipeId`) and DYE2's `record` call that saves a change into it (ADR-0022), take it as the source of truth and make the calls those apps make. Where it falls short, ask upstream. A workaround in the meantime needs an ADR that records it as interim and names the upstream ask it waits on, as ADR-0005 and ADR-0022 do; otherwise accept the gap until it is fixed.
 - Keep every change working beside the latest release (ADR-0025), which runs beside it during an upgrade:
