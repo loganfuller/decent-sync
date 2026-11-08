@@ -4528,7 +4528,7 @@ var __decentSync = (() => {
       this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? void 0 : edit.id);
       const held = after?.ok && id !== void 0 ? scheduleIn(after.value, id) : void 0;
       const readBack = after?.ok && id !== void 0 ? held ? scheduleValues(held) : {} : void 0;
-      if (schedule.action !== "add" && written2?.status === 404) return changedSince(edit, readBack);
+      if (gone) return changedSince(edit, readBack);
       const answer = answered(edit, written2, failure, readBack);
       return answer.outcome === "written" && id !== void 0 && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
     }

@@ -780,10 +780,12 @@ MCP endpoint yet; ticket #433 shows it.
   (`transferPendingCollections`). Each row keeps its id and when its value was
   received, so where both reported a collection, its history holds both,
   interleaved. A history's order is the order its rows were written, by id,
-  which a report is compared in. It is the order their values were received
-  but for a baseline taken from a stored value, which keeps that value's
-  time: a Pending Machine's baseline taken after the Machine's own rows
-  sorts after them, though received before, until the next report.
+  which a report is compared in. That is about the order their values were
+  received, but for a report that waited for its Machine's lock behind a
+  later one, which by its received time comes before it, and a baseline
+  taken from a stored value, which keeps that value's time: a Pending
+  Machine's baseline taken after the Machine's own rows sorts after them,
+  though received before, until the next report.
 - **Limits.** Times are when the server received a report. A change on the
   Tablet reaches it within about 30 to 60 s: at the next poll, or the machine
   settings' next read, later while the Machine runs something (Plugin,

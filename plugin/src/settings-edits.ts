@@ -276,7 +276,7 @@ export class SettingsEdits {
     this.reports.reportSettings("presenceSettings", after?.ok ? { kind: "value", value: after.value, etag: null } : { kind: "unavailable" }, true, gone ? undefined : edit.id);
     const held = after?.ok && id !== undefined ? scheduleIn(after.value, id) : undefined;
     const readBack = after?.ok && id !== undefined ? (held ? scheduleValues(held) : {}) : undefined;
-    if (schedule.action !== "add" && written?.status === 404) return changedSince(edit, readBack);
+    if (gone) return changedSince(edit, readBack);
     const answer = answered(edit, written, failure, readBack);
     return answer.outcome === "written" && id !== undefined && schedule.action === "add" ? { ...answer, scheduleId: id } : answer;
   }
