@@ -829,7 +829,7 @@ Recipe each has loaded.
 built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/loaded-recipes.test.ts` the Loaded Recipe,
 `server/test/loaded-recipe-following.test.ts` Machines following it both ways, `server/test/shot-holds.test.ts` the writes held during a Shot, with `plugin/test/shot-gate.test.ts` when one runs, `server/test/recipe-settings.test.ts` its steam, hot water and flush settings and steam on and off, `server/test/steam-back-on.test.ts` steam turned back on, `server/test/loaded-recipe-intake.test.ts` its pure module,
-`plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back and who each change is from, with each cause through the built plugin in `server/test/loaded-recipes.test.ts`, `loaded-recipe-following.test.ts`, `steam-back-on.test.ts` and `joining.test.ts`, and the tablet and Library items an event keeps in `server/test/machine-events.test.ts`,
+`plugin/test/loaded-recipe-rules.test.ts` the plugin's, `plugin/test/dye2-fingerprint.test.ts` its copy of DYE2's profile fingerprint, and `plugin/test/machine-events.test.ts` what is held back and who each change is from, with each cause through the built plugin in `server/test/loaded-recipes.test.ts`, `loaded-recipe-following.test.ts`, `steam-back-on.test.ts`, `joining.test.ts` and `joining-recipes.test.ts`, and the tablet and Library items an event keeps in `server/test/machine-events.test.ts`,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and
 `e2e/workflow-and-state.spec.ts` and `e2e/loaded-recipes.spec.ts` the

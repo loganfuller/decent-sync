@@ -1,7 +1,7 @@
 import { dye2GlobalIdOf, recipeSlotOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet } from "./support/loaded-tablets.js";
+import { recipeIdInWorkflow, recipeNamedInWorkflow, syncingTablet, workflowCauses } from "./support/loaded-tablets.js";
 import { quiesced } from "./support/quiet.js";
 import { startStreamline } from "./support/simulated-streamline.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, dye2NeverUsed, dye2PagesKeys, openDye2Dashboard, recordedDye2MainTablet } from "./support/simulated-dye2.js";
@@ -209,6 +209,9 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     expect((await (await openDye2Dashboard(tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
     await expect.poll(() => named(tablet), { timeout: 15_000 }).toBe(labBrazil);
     await loads(machine, labBrazil);
+    await quiet({ tablet, uptownTablet }, { machine, uptownMachine });
+    const causes = (await workflowCauses(api, machine)).length;
+    const received = tablet.received.length;
 
     await move(machine, uptown);
     // Every record keeps its id, each now Uptown's Recipe's: the Workflow's `recipeId` is cleared, and Uptown's Brazil is
@@ -218,6 +221,10 @@ describe("Joining a Location with Recipes, Baskets and Tools", { timeout: 120_00
     await loads(machine, null);
     // Once the move's writes, the tablet's reports of them and anything they set off are done.
     await quiet({ tablet, uptownTablet }, { machine, uptownMachine });
+    // Each change is the plugin's clear (#434): the server's of its grinder, batch and Basket, and its own of the recipe before
+    // it posts the record to another Recipe, as the server sends no unload.
+    expect(new Set((await workflowCauses(api, machine)).slice(causes))).toEqual(new Set(["plugin:clear"]));
+    expect(tablet.received.slice(received).filter((frame) => (frame as { kind?: string }).kind === "loadedRecipe")).toEqual([]);
     expect(await loadedRecipe(machine)).toBeNull();
     expect(await loadedHistory(machine)).not.toContain(uptownBrazil);
     expect((await recipesAt(lab)).map((held) => held.id)).toContain(labBrazil);
