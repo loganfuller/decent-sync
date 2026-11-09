@@ -16,7 +16,7 @@ const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 test.use({ timezoneId: "Asia/Tokyo" });
 
 const CURVES_TIP =
-  "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group temperature, measured at the group head, the sensor closest to the coffee." +
+  "Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Flow is the pump's, and weight flow the rate coffee lands in the cup, as the scale measured it. Temperature is the group temperature, measured at the group head, the sensor closest to the coffee." +
   "Grey vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step." +
   "Preheat, shaded before 0 s, is the Machine heating its water before the profile starts. Its targets are the heater test's, not the profile's, and it doesn't count toward the duration or the peaks.";
 
@@ -139,8 +139,8 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
 
   await expect(page.getByRole("heading", { name: "Shot pulled Feb 10, 2026, 6:30 AM MST", level: 1 })).toBeVisible();
   const curves = page.getByRole("region", { name: "Curves" });
-  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
-    const chart = curves.getByRole("figure", { name });
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    const chart = curves.getByRole("figure", { name, exact: true });
     await expect(chart.locator(".recharts-line")).not.toHaveCount(0);
     await expect(chart).toContainText("This Shot");
   }
@@ -160,8 +160,8 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   );
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
-  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
-    await expect(curves.getByRole("figure", { name })).toContainText("Previous Shot");
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Previous Shot");
   }
   const comparison = curves.getByRole("table", { name: "Comparison with the previous Shot" });
   await expect(comparison.getByRole("row", { name: /^Pulled/ }).getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST"]);
@@ -269,8 +269,8 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   // From the first sample after Preheat, not the 33.2 s since the recording started.
   await expect(field(page, "Duration")).toHaveText("25.8 s");
   const curves = page.getByRole("region", { name: "Curves" });
-  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
-    const chart = curves.getByRole("figure", { name });
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    const chart = curves.getByRole("figure", { name, exact: true });
     await expect(chart.locator(".recharts-reference-area")).toHaveCount(1);
     await expect(chart.getByText("Preheat", { exact: true })).toBeVisible();
     // A line at each of the four frame changes its samples show, at 5.0, 6.0, 12.1 and 17.5 s: none at 0 s or in Preheat.
@@ -290,8 +290,8 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   const pressure = curves.getByRole("figure", { name: "Pressure" });
   await expect(pressure).toContainText("Previous Shot");
   // The previous Shot's own step change, at 21.4 s, is not marked.
-  for (const name of ["Pressure", "Flow", "Weight", "Temperature"]) {
-    await expect(curves.getByRole("figure", { name }).locator(".recharts-reference-line")).toHaveCount(4);
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name, exact: true }).locator(".recharts-reference-line")).toHaveCount(4);
   }
   const plot = pressure.locator('[data-slot="chart"]');
   const tooltip = pressure.locator(".recharts-tooltip-wrapper");

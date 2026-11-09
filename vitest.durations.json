@@ -87,6 +87,7 @@
   "server/test/machine-settings-while-busy.test.ts": 8,
   "server/test/management-interface.test.ts": 3,
   "server/test/mcp-budget.test.ts": 4,
+  "server/test/mcp-curves.test.ts": 4,
   "server/test/merge.test.ts": 0,
   "server/test/migration-format.test.ts": 0,
   "server/test/migrations.test.ts": 50,

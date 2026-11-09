@@ -21,6 +21,7 @@ export const SHOT_CURVES = {
   pressure: { label: "Pressure", unit: "bar" },
   flow: { label: "Flow", unit: "ml/s" },
   weight: { label: "Weight", unit: "g" },
+  weightFlow: { label: "Weight flow", unit: "g/s" },
   temperature: { label: "Temperature", unit: "°C", fit: true },
 } as const satisfies Record<string, CurveInfo>;
 
@@ -70,8 +71,10 @@ const QUARTER_HOUR_MS = 900_000;
 
 /**
  * A Shot's samples: the machine's pressure, flow and group temperature, the
- * scale's weight, and the targets it reported. The group temperature, in °C,
- * is measured at the group head, the closest to the coffee, and its target is
+ * scale's weight and its weight flow, the rate coffee lands in the cup in
+ * g/s, which Decaid records with each weight, and the targets the machine
+ * reported, none of them the scale's. The group temperature, in °C, is
+ * measured at the group head, the closest to the coffee, and its target is
  * the profile's temperature, as Streamline draws them. The mix temperature is
  * left out: where the profile measures at the coffee, its target is the
  * firmware's control output, which swings around. Its Preheat is its leading
@@ -90,6 +93,7 @@ export function shotSamples(measurements: unknown, profile?: unknown): Sample<Sh
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
       weight: number(scale?.weight),
+      weightFlow: number(scale?.weightFlow),
       temperature: number(machine?.groupTemperature),
     },
     // A target of zero is a frame that sets none, as a pressure frame's flow target.
@@ -97,6 +101,7 @@ export function shotSamples(measurements: unknown, profile?: unknown): Sample<Sh
       pressure: positive(machine?.targetPressure),
       flow: positive(machine?.targetFlow),
       weight: null,
+      weightFlow: null,
       temperature: positive(machine?.targetGroupTemperature),
     },
   }));
