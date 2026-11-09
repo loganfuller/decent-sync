@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useAuth } from "@/auth";
-import { CardTitleWithInfo } from "@/components/info-tip";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { SETTINGS } from "@/components/machine-collections";
 import { formatTime } from "@/components/machines";
 import { labelOf, outcomeText, scheduleSubject, shownValue } from "@/components/settings-edits";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { type SettingsEdit, type SettingsEditPage, api } from "@/lib/api";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
@@ -17,10 +17,27 @@ const PAGE_SIZE = 20;
 /**
  * The Machine's Settings Edits (ADR-0023), newest first, a page at a time:
  * when each was made, who made it, its section, each field's value before
- * and after, and what came of it. Loaded again whenever `answered` changes,
- * as an edit made on the page is answered.
+ * and after, and what came of it. Shown closed until opened, as most who read
+ * the page do not need them.
  */
 export function SettingsEditsCard({ machineId, answered }: { machineId: string; answered: number }) {
+  return (
+    <CollapsibleCard
+      title="Settings Edits"
+      info={
+        <p>
+          Each change of the Machine's settings made here or through a Connected App, such as an assistant, newest first, with what came
+          of it. Changes made on the Tablet are not listed here: the Settings History lists every change the Tablet reported.
+        </p>
+      }
+    >
+      <SettingsEditsLog machineId={machineId} answered={answered} />
+    </CollapsibleCard>
+  );
+}
+
+/** The Settings Edits, while their card is open. Loaded again whenever `answered` changes, as an edit made on the page is answered. */
+function SettingsEditsLog({ machineId, answered }: { machineId: string; answered: number }) {
   const [offset, setOffset] = useState(0);
   // Each page loaded remembers where it starts: the last one is still shown while another loads.
   const load = useCallback(async () => {
@@ -39,71 +56,60 @@ export function SettingsEditsCard({ machineId, answered }: { machineId: string; 
   const first = data ? data.offset + 1 : 0;
   const last = data ? data.offset + data.page.settingsEdits.length : 0;
   return (
-    <Card role="region" aria-label="Settings Edits">
-      <CardHeader>
-        <CardTitleWithInfo title="Settings Edits">
-          <p>
-            Each change of the Machine's settings made here or through a Connected App, such as an assistant, newest first, with what
-            came of it. Changes made on the Tablet are not listed here: the Settings History lists every change the Tablet reported.
-          </p>
-        </CardTitleWithInfo>
-        {data?.page.total === 0 && <CardDescription>None of its settings have been changed here.</CardDescription>}
-      </CardHeader>
-      {(error || (data && data.page.total > 0)) && (
-        <CardContent className="grid gap-3">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>Could not read the Settings Edits: {error}</AlertDescription>
-            </Alert>
-          )}
-          {data && data.page.settingsEdits.length > 0 && (
-            <Table aria-label="Settings Edits">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Made</TableHead>
-                  <TableHead>By</TableHead>
-                  <TableHead>Section</TableHead>
-                  <TableHead>Change</TableHead>
-                  <TableHead>Outcome</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.page.settingsEdits.map((edit) => (
-                  <TableRow key={edit.id}>
-                    <TableCell>{formatTime(edit.madeAt)}</TableCell>
-                    <TableCell>
-                      <MadeBy account={edit.account} connectedApp={edit.connectedApp ?? null} />
-                    </TableCell>
-                    <TableCell className="whitespace-normal">{SETTINGS[edit.collection as keyof typeof SETTINGS] ?? edit.collection}</TableCell>
-                    <TableCell className="min-w-48 whitespace-normal">
-                      <Change edit={edit} />
-                    </TableCell>
-                    <TableCell className="min-w-48 whitespace-normal">
-                      <Outcome edit={edit} />
-                    </TableCell>
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          )}
-          {data && data.page.total > PAGE_SIZE && (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground" aria-live="polite">
-                Edits {first}–{last} of {data.page.total}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
-                  Newer
-                </Button>
-                <Button variant="outline" size="sm" disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
-                  Older
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
+    <CardContent className="grid gap-3">
+      {!data && !error && <p className="text-sm text-muted-foreground">Loading</p>}
+      {data?.page.total === 0 && <p className="text-sm text-muted-foreground">None of its settings have been changed here.</p>}
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>Could not read the Settings Edits: {error}</AlertDescription>
+        </Alert>
       )}
-    </Card>
+      {data && data.page.settingsEdits.length > 0 && (
+        <Table aria-label="Settings Edits">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Made</TableHead>
+              <TableHead>By</TableHead>
+              <TableHead>Section</TableHead>
+              <TableHead>Change</TableHead>
+              <TableHead>Outcome</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.page.settingsEdits.map((edit) => (
+              <TableRow key={edit.id}>
+                <TableCell>{formatTime(edit.madeAt)}</TableCell>
+                <TableCell>
+                  <MadeBy account={edit.account} connectedApp={edit.connectedApp ?? null} />
+                </TableCell>
+                <TableCell className="whitespace-normal">{SETTINGS[edit.collection as keyof typeof SETTINGS] ?? edit.collection}</TableCell>
+                <TableCell className="min-w-48 whitespace-normal">
+                  <Change edit={edit} />
+                </TableCell>
+                <TableCell className="min-w-48 whitespace-normal">
+                  <Outcome edit={edit} />
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      )}
+      {data && data.page.total > PAGE_SIZE && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            Edits {first}–{last} of {data.page.total}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
+              Newer
+            </Button>
+            <Button variant="outline" size="sm" disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
+              Older
+            </Button>
+          </div>
+        </div>
+      )}
+    </CardContent>
   );
 }
 

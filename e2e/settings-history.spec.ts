@@ -3,7 +3,7 @@ import { expect, type Locator, test } from "@playwright/test";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
-import { rows } from "./support/locators.js";
+import { openCard, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // A Machine's Settings History on its page (#433). A raw connection reports
@@ -62,7 +62,7 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
   }
 
   await page.goto(`/machines/${id}`);
-  const history = page.getByRole("region", { name: "Settings History" });
+  const history = await openCard(page, "Settings History");
   await expectTip(history, "Settings History", /^Each change of what the Machine's Tablet reported.+tied to no person\.A change is received about 30 to 60 seconds after/);
   await expect(history.getByRole("columnheader")).toHaveText(["Received", "Section", "Field", "Change", "Made by"]);
   await expectRows(history, [
