@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
 import { Logger } from "@nestjs/common";
-import { CUT_MARK, MAX_RESPONSE_CHARS, MIN_CUT, withinBudget } from "../src/mcp/budget.js";
+import { CUT_MARK, MAX_RESPONSE_CHARS, MIN_CUT, rounded, withinBudget } from "../src/mcp/budget.js";
 
 // The shared guard that keeps an MCP tool's response within its budget
-// (ADR-0028), through the pure function every tool's response passes: what
-// it cuts, in what order, and what it leaves whole. The Seam 1 budget tests
-// (assistant-budget.test.ts) run it through every read tool.
+// (ADR-0028), through the pure functions every tool's response passes: what
+// it rounds, what it cuts, in what order, and what it leaves whole. The Seam
+// 1 budget tests (assistant-budget.test.ts) run it through every read tool.
 
 type Fields = Record<string, unknown>;
 
@@ -151,5 +151,38 @@ describe("withinBudget", () => {
     } finally {
       warn.mockRestore();
     }
+  });
+});
+
+describe("rounded", () => {
+  it("rounds every number that isn't whole to hundredths, wherever it is, leaving whole numbers, text and nulls as they are", () => {
+    const response = {
+      peakPressure: 3.533203125,
+      steps: [{ frame: 2, from: 12.344999, until: -0.004 }],
+      content: { steamFlow: 2.5000000000000004, dose: 18, grindSetting: "2.125", notes: null, toolIds: ["t"] },
+      curves: { pressure: { unit: "bar", values: [[0.125, 8.996]] } },
+      more: false,
+    };
+    expect(JSON.stringify(rounded(response, {}))).toBe(
+      JSON.stringify({
+        peakPressure: 3.53,
+        steps: [{ frame: 2, from: 12.34, until: 0 }],
+        content: { steamFlow: 2.5, dose: 18, grindSetting: "2.125", notes: null, toolIds: ["t"] },
+        curves: { pressure: { unit: "bar", values: [[0.13, 9]] } },
+        more: false,
+      }),
+    );
+  });
+
+  it("gives the numbers of a part the tool names whole as they are, as a Settings Edit's expected must send them back", () => {
+    const settings = { flowMultiplier: 1.0030000000000001, weightFlowMultiplier: 0.87, schedules: [{ keepAwakeFor: 7.5 }] };
+    const response = { machineSettings: { value: settings, utcOffsetMinutes: -300 }, settingsEdits: [{ fields: settings, expected: settings, late: false }], dose: 18.004 };
+    const shaped = rounded(response, { whole: ["/machineSettings", "/settingsEdits/*/fields"] });
+    expect(shaped).toEqual({ machineSettings: response.machineSettings, settingsEdits: [{ fields: settings, expected: { flowMultiplier: 1, weightFlowMultiplier: 0.87, schedules: [{ keepAwakeFor: 7.5 }] }, late: false }], dose: 18 });
+  });
+
+  it("serializes a Date as it is, as the MCP module does", () => {
+    const at = new Date("2026-11-08T10:29:36.123Z");
+    expect(JSON.stringify(rounded({ at, weight: 1.005 }, {}))).toBe(JSON.stringify({ at, weight: 1 }));
   });
 });

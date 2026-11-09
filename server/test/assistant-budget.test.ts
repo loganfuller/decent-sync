@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type TestApp, serveTestApp } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import {
@@ -295,8 +295,9 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(summarised.result.workflow).not.toHaveProperty("raw");
       const whole = await assistant.callWithinBudget<{ workflow: Fields }>("get_machine", { machineId: bar.machine.id, raw: true });
       expect(whole.result).not.toHaveProperty("cut");
-      expect(whole.result.workflow.raw).toEqual(tablet.workflow());
-      expect(whole.text.length - summarised.text.length).toBeGreaterThan(JSON.stringify(tablet.workflow()).length);
+      // As Decaid sent it, but for its numbers, to hundredths, as Decaid's steam flow of 2.500000000000001 is 2.5.
+      expect(whole.result.workflow.raw).toEqual(asTools(tablet.workflow()));
+      expect(whole.text.length - summarised.text.length).toBeGreaterThan(JSON.stringify(asTools(tablet.workflow())).length);
     });
 
     it("gives a Machine's activity a page at a time, 55 Workflow changes and Machine States of each", async () => {

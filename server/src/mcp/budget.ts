@@ -5,9 +5,10 @@ import * as z from "zod";
 // Every MCP tool's response kept within a size budget that Claude and
 // ChatGPT take inline (ADR-0028), by one guard every tool's response passes
 // through: `BudgetedTool`, which every tool is declared with in place of
-// `@Tool`, measures a response as the MCP module serializes it, and, over the
-// cap, cuts its free text, longest first, then ends each of its pages sooner,
-// but never cuts its structured data.
+// `@Tool`, rounds its numbers to hundredths (`rounded`), measures it as the
+// MCP module serializes it, and, over the cap, cuts its free text, longest
+// first, then ends each of its pages sooner, but never cuts its structured
+// data.
 
 /** The most characters of one compact JSON copy of a response, as `@nestjs/mcp` serializes it (`JSON.stringify`). */
 export const MAX_RESPONSE_CHARS = 45_000;
@@ -24,11 +25,13 @@ export const CUT_MARK = "…[cut]";
 /** A tool's own guide to its response's budget. */
 export interface Budget {
   /**
-   * Parts of its response that are structured data, never cut, each a path
-   * from the response's root, such as `/machineSettings`, in which `*`
-   * stands for any key or index. Beside these, ids (`id`, and keys ending in
-   * `Id` or `Ids`) and a Profile's `steps` are never cut, wherever they are.
-   * Every other string is free text.
+   * Parts of its response that are structured data, given as they are: never
+   * cut, nor their numbers rounded, as a Machine's settings, which
+   * edit_machine_settings' expected must give exactly. Each is a path from
+   * the response's root, such as `/machineSettings`, in which `*` stands for
+   * any key or index. Beside these, ids (`id`, and keys ending in `Id` or
+   * `Ids`) and a Profile's `steps` are never cut, wherever they are. Every
+   * other string is free text.
    */
   whole?: readonly string[];
   /** How to have more of what was cut, ending the response's `cut` note. */
@@ -48,12 +51,12 @@ const cutNote = z
   .describe(`Only when text was cut to fit: which, each ending in ${CUT_MARK}, and how to have more of it.`);
 
 /**
- * A tool, as `@Tool` declares one, whose response the shared guard keeps
- * within the budget (`withinBudget`), declaring `RESULT_SIZE_META` and the
- * response's `cut` note in its output schema. A tool that changes something
- * refuses text a response cut (`refuseCutText`). It wraps the method, so any
- * other method decorator, such as `@UseGuards`, goes above it, to apply to
- * the method it leaves.
+ * A tool, as `@Tool` declares one, whose response the shared guard rounds
+ * (`rounded`) and keeps within the budget (`withinBudget`), declaring
+ * `RESULT_SIZE_META` and the response's `cut` note in its output schema. A
+ * tool that changes something refuses text a response cut
+ * (`refuseCutText`). It wraps the method, so any other method decorator,
+ * such as `@UseGuards`, goes above it, to apply to the method it leaves.
  */
 export function BudgetedTool({ budget = {}, ...options }: BudgetedToolOptions): MethodDecorator {
   const changes = options.annotations?.readOnlyHint !== true;
@@ -61,7 +64,7 @@ export function BudgetedTool({ budget = {}, ...options }: BudgetedToolOptions): 
     const method = descriptor.value as (...args: unknown[]) => unknown;
     const guarded = async function (this: unknown, ...args: unknown[]) {
       if (changes) refuseCutText(args[0]);
-      return withinBudget(await method.apply(this, args), budget, options.name);
+      return withinBudget(rounded(await method.apply(this, args), budget), budget, options.name);
     };
     (descriptor as PropertyDescriptor).value = guarded;
     return Tool({
@@ -150,6 +153,40 @@ export function mostWithinBudget(low: number, high: number, respond: (n: number)
   return largest(low, high, (n) => size(respond(n)) <= MAX_RESPONSE_CHARS);
 }
 
+/**
+ * A response with each number that isn't whole rounded to hundredths, as the
+ * management interface shows a record's and a Workflow's, so float noise,
+ * such as a steam flow of 2.5000000000000004, or a pressure of 3.533203125,
+ * reads as 2.5 and 3.53; but those in its whole parts (`Budget.whole`), as it
+ * gives them.
+ */
+export function rounded<T>(response: T, budget: Budget): T {
+  const whole = (budget.whole ?? []).map((path) => path.split("/").slice(1));
+  const round = (value: unknown, path: readonly string[]): unknown => {
+    if (typeof value === "number") return Number.isFinite(value) && !Number.isInteger(value) ? hundredths(value) : value;
+    if (typeof value !== "object" || value === null) return value;
+    if (Array.isArray(value)) return value.map((entry, n) => entryOf(String(n), entry, path));
+    // A Date, or another class's instance, as the MCP module serializes it.
+    if (Object.getPrototypeOf(value) !== Object.prototype && Object.getPrototypeOf(value) !== null) return value;
+    return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, entryOf(key, entry, path)]));
+  };
+  const entryOf = (key: string, value: unknown, path: readonly string[]) => {
+    const at = [...path, key];
+    return whole.some((part) => onPath(part, at)) ? value : round(value, at);
+  };
+  return round(response, []) as T;
+}
+
+/** A number to hundredths, as `rounded` gives each, and as the curves round their readings and seconds before a window compares them. */
+export function hundredths(value: number): number {
+  return Math.round(value * 100) / 100;
+}
+
+/** Whether `at` is the part a path names, `*` in it standing for any key or index. */
+function onPath(part: readonly string[], at: readonly string[]): boolean {
+  return part.length === at.length && part.every((segment, n) => segment === "*" || segment === at[n]);
+}
+
 function size(value: unknown): number {
   return JSON.stringify(value).length;
 }
@@ -202,7 +239,7 @@ class Shape {
   private entry(key: string, value: unknown, path: readonly string[]): unknown {
     const at = [...path, key];
     if (key === "id" || /Ids?$/.test(key) || key === "steps") return value;
-    if (this.whole.some((part) => part.length === at.length && part.every((segment, n) => segment === "*" || segment === at[n]))) return value;
+    if (this.whole.some((part) => onPath(part, at))) return value;
     return this.of(value, at);
   }
 }

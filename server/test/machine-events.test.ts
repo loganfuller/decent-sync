@@ -264,6 +264,25 @@ describe("Workflow changes and machine state transitions", () => {
     expect(times).toEqual([...times].sort((a, b) => b - a));
   });
 
+  it("gives a Machine's latest delivery as when it was last seen, though it came after its last heartbeat, on any instance", async () => {
+    const machine = await api.createMachine("Seen by its deliveries");
+    const raw = await connect(machine, server.url, undefined, SILENT);
+    const welcomed = (await api.machineNamed("Seen by its deliveries"))!;
+    expect(welcomed.online).toBe(true);
+    // Later than its hello by more than the millisecond PostgreSQL keeps the times to.
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    await raw.deliver(stateDelivery("idle", "idle", new Date().toISOString()));
+    const [state] = (await stateEvents(machine)).events;
+    for (const at of [api, api.at(other.url)]) {
+      const seen = (await at.machineNamed("Seen by its deliveries"))!;
+      // The delivery's own time, by the database's clock, as the event's receivedAt is in the same transaction.
+      expect(seen.lastSeenAt).toBe(state!.receivedAt);
+      expect(Date.parse(seen.lastSeenAt!)).toBeGreaterThan(Date.parse(welcomed.lastSeenAt!));
+      expect(seen.online).toBe(true);
+    }
+    await raw.terminate();
+  });
+
   it("keeps the time the plugin observed an event it delivered late, after a reconnect", async () => {
     const machine = await api.createMachine("Late delivery");
     let stalled = false;

@@ -1,6 +1,6 @@
 import { type CurveInfo, type Sample, shadedSpans } from "@decent-sync/protocol";
 import * as z from "zod";
-import { mostWithinBudget } from "./budget.js";
+import { hundredths, mostWithinBudget } from "./budget.js";
 
 // A Shot's or Steam Record's curves as an assistant reads them (#408): all
 // of them or those asked for (#440), each series thinned to about 100 points
@@ -213,9 +213,4 @@ function largestTriangles(read: readonly Point[], count: number): number[] {
   }
   chosen.push(n - 1);
   return chosen;
-}
-
-/** A value rounded to hundredths, as the curves' readings and seconds are. */
-export function hundredths(value: number): number {
-  return Math.round(value * 100) / 100;
 }

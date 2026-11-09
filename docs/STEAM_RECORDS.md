@@ -241,8 +241,12 @@ Viewers read every Steam Record an Admin does.
   tie-breaker, and `total` counts the whole filtered list, read in one
   snapshot with the page. Rows carry the analytics, with the steaming time
   as `duration`, the Machine or Pending Machine credit and the Location (`locationId` and
-  `location: { id, name, timeZone }`, null when unknown), without the record
-  or its measurements, and no inferred marker.
+  `location: { id, name, timeZone }`, null when unknown), and `steamSettings:
+  { steamTemperature, duration, flow, stopAtMilkTemperature }`, what its
+  Workflow's `steamSettings` set as it started (°C, seconds, ml/s, and the
+  milk temperature it stops at, null when off, as 0 or below is), each null
+  where Decaid sent none (#442), without the record or its measurements, and
+  no inferred marker.
 - Filters, each given at most once and combined with AND, are the ones Shots
   lists have by Machine, Location and date (`server/src/record-filters.ts`;
   `SHOTS.md` describes them): `machineId`, `pendingMachineId`, `locationId`
@@ -250,8 +254,8 @@ Viewers read every Steam Record an Admin does.
   date or date and time read on each Steam Record's own Location's wall
   clock, or UTC for one with no Location. A malformed id is a 404, and an
   unreadable date or a repeated parameter a 400.
-- `GET /api/steam-records/:id` returns `{ steamRecord }`, including the
-  Decaid record without measurements in `steamRecord.record`.
+- `GET /api/steam-records/:id` returns `{ steamRecord }`, the same fields
+  and the Decaid record without measurements in `steamRecord.record`.
 - `GET /api/steam-records/:id/measurements` returns `{ measurements }` as
   Decaid sent them.
 

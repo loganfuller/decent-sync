@@ -281,6 +281,8 @@ describe("Steam Record capture", () => {
       peakMilkTemperature: 60.46000000000001,
       finalMilkTemperature: 60.46000000000001,
       barista: "Fixture Barista",
+      // Its Workflow's, as the Steam Record page shows them.
+      steamSettings: { steamTemperature: 150, duration: 60, flow: 1.5, stopAtMilkTemperature: 60 },
       record: withoutMeasurements(record),
     });
     expect(await measurements(String(record.id))).toEqual(record.measurements);

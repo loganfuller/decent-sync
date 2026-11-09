@@ -32,7 +32,7 @@ const MACHINE_TIMES =
 
 /** What list_machines gives of each Machine, which get_machine gives too. */
 const LISTED =
-  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, when it was last heard from; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
+  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, its plugin's latest heartbeat or report; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
 
 /** What a date given for a bound of a Machine's activity means. */
 const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
@@ -71,7 +71,9 @@ const listedMachine = z.object({
   model: z.string().nullable().describe("Such as DE1PRO or Bengle; null until its tablet reports it."),
   location: location.nullable().describe("Where it is now; null if nowhere known."),
   online: z.boolean().describe("Whether its tablet's plugin is connected now."),
-  lastSeenAt: time.nullable().describe("When its plugin was last heard from; null if never."),
+  lastSeenAt: time
+    .nullable()
+    .describe("When its plugin was last heard from, by the server's clock: the later of its latest heartbeat and the latest Workflow, Machine State or collection report the server received from it; null if never. online goes by the heartbeats alone."),
   machineState: machineState.nullable().describe("What it is doing: its last Machine State, null before any."),
   loadedRecipe: loadedRecipe.nullable(),
   captureOnly,

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
-import { derivedSteam } from "./support/steam-fixtures.js";
+import { derivedSteam, milkProbeSteamFixture } from "./support/steam-fixtures.js";
 import { RawConnection, helloWith } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
@@ -20,6 +20,7 @@ interface SteamRecordView {
   locationId: string | null;
   location: LocationView | null;
   steamedAt: string;
+  steamSettings: { steamTemperature: number | null; duration: number | null; flow: number | null; stopAtMilkTemperature: number | null };
 }
 
 describe("Steam Records lists", () => {
@@ -106,12 +107,17 @@ describe("Steam Records lists", () => {
    * Sends Steam Records, by id with the UTC time each was recorded at, through a connection with the
    * Machine's token reporting the hardware given, and waits for each to be stored.
    */
-  async function deliver(machine: CreatedMachine, reported: { model: string; serial: string }, steamedAt: Record<string, string>) {
+  async function deliver(
+    machine: CreatedMachine,
+    reported: { model: string; serial: string },
+    steamedAt: Record<string, string>,
+    changes: Record<string, Record<string, unknown>> = {},
+  ) {
     const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: reported }));
     raws.push(raw);
     await Promise.all(
       Object.entries(steamedAt).map(([steamId, at]) =>
-        raw.deliver({ type: "steam", id: randomUUID(), steamId, steamedAt: new Date(at).toISOString(), steam: derivedSteam(steamId) }),
+        raw.deliver({ type: "steam", id: randomUUID(), steamId, steamedAt: new Date(at).toISOString(), steam: derivedSteam(steamId, changes[steamId]) }),
       ),
     );
   }
@@ -220,5 +226,27 @@ describe("Steam Records lists", () => {
     // 15:00 UTC is 10:00 in New York.
     expect(await ids({ locationId: harbor.id, from: "2026-02-11T10:00", to: "2026-02-12T10:00" })).toEqual(["pending-earlier"]);
     expect((await list()).total).toBe(23);
+  });
+
+  it("gives each listed Steam Record the steam settings its Workflow set, as reading it alone does, as Decaid sent them", async () => {
+    const workflow = milkProbeSteamFixture().workflow as Record<string, Record<string, unknown>>;
+    const { steamSettings, ...rest } = workflow;
+    const settings = await api.createMachine("Settings");
+    await deliver(settings, { model: "DE1Pro", serial: "10035" }, { "settings-as-recorded": "2026-04-01T12:00:00Z", "settings-stop-off": "2026-04-01T12:10:00Z", "settings-none": "2026-04-01T12:20:00Z" }, {
+      // Off, as Decaid sends a stop at milk temperature of 0, with the float noise Decaid may send for a flow.
+      "settings-stop-off": { workflow: { ...workflow, steamSettings: { ...steamSettings, flow: 2.5000000000000004, stopAtTemperature: 0 } } },
+      "settings-none": { workflow: rest },
+    });
+    const listed = await list({ machineId: settings.machine.id });
+    expect(listed.steamRecords.map((steam) => [steam.id, steam.steamSettings])).toEqual([
+      ["settings-none", { steamTemperature: null, duration: null, flow: null, stopAtMilkTemperature: null }],
+      ["settings-stop-off", { steamTemperature: steamSettings!.targetTemperature, duration: steamSettings!.duration, flow: 2.5000000000000004, stopAtMilkTemperature: null }],
+      ["settings-as-recorded", { steamTemperature: steamSettings!.targetTemperature, duration: steamSettings!.duration, flow: steamSettings!.flow, stopAtMilkTemperature: steamSettings!.stopAtTemperature }],
+    ]);
+    expect(steamSettings).toMatchObject({ targetTemperature: expect.any(Number), duration: expect.any(Number), flow: expect.any(Number), stopAtTemperature: expect.any(Number) });
+    for (const steam of listed.steamRecords) {
+      const { steamRecord } = await api.get<{ steamRecord: SteamRecordView }>(`/steam-records/${steam.id}`);
+      expect(steamRecord.steamSettings).toEqual(steam.steamSettings);
+    }
   });
 });

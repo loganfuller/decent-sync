@@ -403,6 +403,36 @@ describe("the Library through an assistant", { timeout: 120_000 }, () => {
     expect(Object.keys(await assistant.call<Record_>("get_library_item", { kind: "recipe", id: made.espresso }))).toEqual(["recipe"]);
   });
 
+  it("lists only the edits of a history that set a field when given one, as the REST API's history filtered by it does, the item joining the Library among them", async () => {
+    const { versions } = (await restItem("recipe", made.espresso, "/history")) as { versions: Record_[] };
+    const filtered = async (field: string) => (await api.get<{ versions: Record_[] }>(`/recipes/${made.espresso}/history?${new URLSearchParams({ field })}`)).versions;
+    const dose = await filtered("dose");
+    expect(dose).toEqual(versions.filter((version) => "dose" in (version.fields as Record_)));
+    expect(dose.map((version) => (version.fields as Record_).dose)).toEqual([18.5, 18]);
+    expect(await filtered("noSuchField")).toEqual([]);
+    // A field alone asks for the history, paged as the whole history is.
+    const read = await assistant.call<Record_ & { history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, historyField: "dose" });
+    expect(comparable(read.history.entries)).toEqual(comparable(dose));
+    expect(read.history).toMatchObject({ total: 2, offset: 0, more: false });
+    expect(read).not.toHaveProperty("conflicts");
+    const paged = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind: "recipe", id: made.espresso, history: true, historyField: "yield", limit: 1 });
+    expect(comparable(paged.history.entries)).toEqual(comparable((await filtered("yield")).slice(0, 1)));
+    expect(paged.history).toMatchObject({ total: 2, offset: 0, more: true });
+    // A Location's state of an item is filtered by its fields too: the Bean Batch's remaining weight at Harbor.
+    const weights = (await api.get<{ versions: Record_[] }>(`/bean-batches/${made.batch}/history?field=remainingWeight`)).versions;
+    expect(weights.length).toBeGreaterThan(0);
+    expect(weights.every((version) => "remainingWeight" in (version.fields as Record_) && (version.location as LocationView).name === "Harbor")).toBe(true);
+    const { history } = await assistant.call<{ history: Paged<Record_> }>("get_library_item", { kind: "beanBatch", id: made.batch, historyField: "remainingWeight" });
+    expect(comparable(history.entries)).toEqual(comparable(weights));
+
+    for (const query of ["field=", "field=dose&field=yield", `field=${"f".repeat(201)}`]) {
+      const response = await api.call("GET", `/recipes/${made.espresso}/history?${query}`);
+      expect(response.status, query).toBe(400);
+      expect(((await response.json()) as { message: string[] }).message, query).toEqual([query.includes("&") ? "Give field once" : "Enter field as a field's name, of 1 to 200 characters"]);
+    }
+    expect(await toolError("get_library_item", { kind: "recipe", id: made.espresso, historyField: "" })).toContain("historyField");
+  });
+
   it("reads a Bean Batch's and a Profile's history as the REST API gives it, each edit of a Location's state on that Location's clock and of their content in UTC", async () => {
     const adaptive = (await restList("profile")).find((profile) => profile.title === "Adaptive v3")!.id as string;
     for (const [kind, id] of [["beanBatch", made.batch], ["profile", adaptive]] as const) {

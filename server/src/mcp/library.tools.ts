@@ -7,7 +7,7 @@ import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBean
 import { type BeanSummary, type BeanView, BeansService, readBeanId } from "../library/beans.service.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "../library/equipment.service.js";
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
-import { type ConflictView, HistoryService, type SourceView, type VersionView } from "../library/history.service.js";
+import { type ConflictView, HistoryService, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
 import { type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
 import { locationNotFound, readLocationId } from "../locations/input.js";
@@ -230,6 +230,12 @@ const getInput = z.object({
   kind,
   id: id.describe("Its id, as find_library_items gives it."),
   history: z.boolean().default(false).describe("Whether to include its history: each edit accepted, the latest taken in first, with the fields it set, who or which Machine made it, and when."),
+  historyField: z
+    .string()
+    .min(1)
+    .max(MAX_HISTORY_FIELD)
+    .optional()
+    .describe("Only the edits of its history that set this field, to a value or cleared: of its content, by its name there, such as a Recipe's grindSetting, or of a Location's state of it (atLocation, remainingWeight, shown). Given alone, it asks for its history."),
   conflicts: z.boolean().default(false).describe("Whether to include its open Conflicts, the latest first."),
   ...page,
 });
@@ -360,7 +366,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "get_library_item",
     title: "Get a Library item",
-    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history and open Conflicts, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; each Conflict, the losing value of a field and the field's value now. limit and offset page its history and its Conflicts. ${PAGED} ${TIMES}`,
+    description: `Reads one Library item as the management interface shows it, by its kind and id, and when asked for, its history and open Conflicts, such as what changed on a Recipe today and who changed it. ${ITEMS} Each version of its history gives the fields an edit set, its first the item joining the Library; each Conflict, the losing value of a field and the field's value now. historyField gives only the edits that set one field, such as a Recipe's grindSetting, its first among them. limit and offset page its history and its Conflicts. ${PAGED} ${TIMES}`,
     inputSchema: getInput,
     outputSchema: getOutput,
     annotations: { readOnlyHint: true },
@@ -371,7 +377,8 @@ export class LibraryTools {
     const { item, ref, itemLocation } = await this.item(input.kind, input.id);
     const { scope } = callerOf(context);
     const [versions, conflicts] = await Promise.all([
-      input.history ? this.history.versions(ref, scope) : undefined,
+      // A field alone asks for its history.
+      input.history || input.historyField !== undefined ? this.history.versions(ref, scope, input.historyField) : undefined,
       input.conflicts ? this.history.openConflicts(scope, ref) : undefined,
     ]);
     const paged = <T, R>(list: readonly T[] | undefined, view: (entry: T) => R) => {

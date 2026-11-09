@@ -1,11 +1,11 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
 import { readLocationId } from "../locations/input.js";
 import { PrismaService } from "../prisma.service.js";
 import { hardDelete } from "./hard-deletes.js";
-import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
 import { readArchived, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
@@ -72,8 +72,8 @@ export class ProfilesController {
   /** Its versions, the latest taken in first (ADR-0020). */
   @AllowStaff()
   @Get(":id/history")
-  async versions(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.history.versions({ kind: "profile", id: readProfileId(id) }, scope) };
+  async versions(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
+    return { versions: await this.history.versions({ kind: "profile", id: readProfileId(id) }, scope, readHistoryField(query)) };
   }
 
   /** Its open Conflicts, the latest first (ADR-0020). */

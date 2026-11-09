@@ -27,4 +27,4 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 
 A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.
 
-Weights are in grams, volumes in ml, flow in ml/s, pressure in bar, temperatures in °C and durations in seconds, unless a tool says otherwise. Each response is kept small enough to read whole: a page may hold fewer than its limit, its more saying whether more follow, and text ending in ${CUT_MARK} was cut, the response's cut note saying how to have more of it. Never send cut text back in a change: read it whole first.`;
+Weights are in grams, volumes in ml, flow in ml/s, pressure in bar, temperatures in °C and durations in seconds, unless a tool says otherwise. Numbers are to two decimal places, but Machine Settings and Tablet Settings, as Decaid sent them. Each response is kept small enough to read whole: a page may hold fewer than its limit, its more saying whether more follow, and text ending in ${CUT_MARK} was cut, the response's cut note saying how to have more of it. Never send cut text back in a change: read it whole first.`;

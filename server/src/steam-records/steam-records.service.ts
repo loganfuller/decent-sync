@@ -5,8 +5,9 @@ import { creditReporter } from "../machines/credit.js";
 import { creditSteamRecordLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import { type RecordFilters, recordFilterSql } from "../record-filters.js";
+import { object } from "../shots/extraction.js";
 import type { Reporter } from "../sync/identity.js";
-import { STEAM_CURVES_REVISION, extractSteamRecord } from "./extraction.js";
+import { STEAM_CURVES_REVISION, type SteamSettingsView, extractSteamRecord, steamSettingsOf } from "./extraction.js";
 
 /**
  * Steam Records, stored once by their Decaid ids. Decaid offers no way to
@@ -85,11 +86,22 @@ export class SteamRecordsService {
             ORDER BY r.steamed_at DESC, r.id ASC LIMIT ${limit} OFFSET ${offset}`,
           tx.$queryRaw<{ total: number }[]>`SELECT count(*)::int AS total FROM steam_records r ${listedJoins} WHERE ${where}`,
         ]);
-        const rows = ids.length === 0
-          ? []
-          : await tx.steamRecord.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: { record: true, curvesRevision: true }, include: creditView });
-        const byId = new Map(rows.map((row) => [row.id, shownSteamRecord(row)]));
-        return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
+        const pageIds = ids.map((row) => row.id);
+        const [rows, settings] = pageIds.length === 0
+          ? [[], []]
+          : await Promise.all([
+            tx.steamRecord.findMany({ where: { id: { in: pageIds } }, omit: { record: true, curvesRevision: true }, include: creditView }),
+            // The page's steam settings alone, as the list leaves out each record.
+            tx.$queryRaw<{ id: string; steamSettings: unknown }[]>`
+              SELECT id, record #> '{workflow,steamSettings}' AS "steamSettings" FROM steam_records WHERE id = ANY(${pageIds}::text[])`,
+          ]);
+        const byId = new Map(rows.map((row) => [row.id, row]));
+        const settingsOf = new Map(settings.map((row) => [row.id, row.steamSettings]));
+        const page = pageIds.flatMap((id) => {
+          const row = byId.get(id);
+          return row ? [shownSteamRecord(row, settingsOf.get(id))] : [];
+        });
+        return { page, total: count!.total };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -99,7 +111,7 @@ export class SteamRecordsService {
   async get(id: string) {
     const steamRecord = await this.prisma.steamRecord.findFirst({ where: { id, ...visible }, omit: { curvesRevision: true }, include: creditView });
     if (!steamRecord) throw steamRecordNotFound();
-    return shownSteamRecord(steamRecord);
+    return shownSteamRecord(steamRecord, object(object(steamRecord.record).workflow).steamSettings);
   }
 
   async measurements(id: string) {
@@ -121,13 +133,14 @@ const creditView = {
 } as const;
 
 /**
- * A Steam Record as it is shown: its duration is how long it steamed. One
- * not computed again since an earlier curves revision has no steaming time
- * stored, and shows the whole recording until it is.
+ * A Steam Record as it is shown: its duration is how long it steamed, with
+ * the steam settings its Workflow set, `steamSettings` as Decaid sent them.
+ * One not computed again since an earlier curves revision has no steaming
+ * time stored, and shows the whole recording until it is.
  */
-function shownSteamRecord<T extends { duration: number | null; steaming: number | null }>(steamRecord: T): Omit<T, "steaming"> {
+function shownSteamRecord<T extends { duration: number | null; steaming: number | null }>(steamRecord: T, steamSettings: unknown): Omit<T, "steaming"> & { steamSettings: SteamSettingsView } {
   const { steaming, ...shown } = steamRecord;
-  return { ...shown, duration: steaming ?? steamRecord.duration };
+  return { ...shown, duration: steaming ?? steamRecord.duration, steamSettings: steamSettingsOf(steamSettings) };
 }
 
 function steamRecordNotFound() { return new NotFoundException("Steam Record not found"); }

@@ -1,9 +1,10 @@
-import { Injectable, NotFoundException } from "@nestjs/common";
+import { BadRequestException, Injectable, NotFoundException } from "@nestjs/common";
 import { type LibraryKind, isLibraryKind } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
 import type { ConflictState, Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { queryValue } from "../record-filters.js";
 import { mayResolve } from "./conflict-access.js";
 import { type ItemRef, itemKey } from "./history.js";
 import { KINDS, type LocationStateDescription, type StateValue, type VersionedItem } from "./kinds.js";
@@ -111,14 +112,35 @@ export interface CurrentValueView {
 const connectedApp = { select: { id: true, name: true, clientHost: true } } as const;
 const withSource = { machine: { select: { id: true, name: true } }, account: { select: { name: true } }, connectedApp, location: true } as const;
 
+/** The longest field name an item's history is filtered by. */
+export const MAX_HISTORY_FIELD = 200;
+
+/**
+ * The field a history route's query names, `field`, to list only the
+ * versions that set it, if it names one: refused given more than once, empty
+ * or longer than MAX_HISTORY_FIELD.
+ */
+export function readHistoryField(query: Record<string, unknown>): string | undefined {
+  const problems: string[] = [];
+  const field = queryValue(query, "field", problems);
+  if (field !== undefined && (field === "" || field.length > MAX_HISTORY_FIELD)) problems.push(`Enter field as a field's name, of 1 to ${MAX_HISTORY_FIELD} characters`);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return field;
+}
+
 /** Each Library item's history and its Conflicts (ADR-0020), which Staff read as Admins do. */
 @Injectable()
 export class HistoryService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The item's versions, the latest taken in first; 404 if the Library does not have it. */
-  async versions(item: ItemRef, scope: Scope): Promise<VersionView[]> {
-    const [versions, exists] = await Promise.all([
+  /**
+   * The item's versions, the latest taken in first, or, given a field, those
+   * that set it, to a value or cleared, of its content or of its state at a
+   * Location, the first, the item joining the Library, among them for each
+   * field its content had then; 404 if the Library does not have it.
+   */
+  async versions(item: ItemRef, scope: Scope, field?: string): Promise<VersionView[]> {
+    const [all, exists] = await Promise.all([
       this.prisma.itemVersion.findMany({
         where: itemKey(item),
         include: { ...withSource, copiedFromLocation: true },
@@ -127,6 +149,7 @@ export class HistoryService {
       this.exists(item),
     ]);
     if (!exists) throw new NotFoundException(`No such ${KINDS[item.kind].name}`);
+    const versions = field === undefined ? all : all.filter((version) => isObject(version.fields) && Object.hasOwn(version.fields, field));
     // The items copies were copied from, read as the item's kind reads them, so a copy names its original as it is named now.
     const copiedFromIds = [...new Set(versions.flatMap((version) => (version.copiedFromId === null ? [] : [version.copiedFromId])))];
     const originals = copiedFromIds.length === 0 ? new Map<string, VersionedItem>() : await KINDS[item.kind].read(this.prisma, copiedFromIds);
