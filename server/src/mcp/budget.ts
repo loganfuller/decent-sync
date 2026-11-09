@@ -136,6 +136,17 @@ export function refuseCutText(input: unknown, whole = "read it whole first, such
   if (holds(input)) throw new BadRequestException(`A value holds ${CUT_MARK}, so it is text a response cut short: ${whole}`);
 }
 
+/**
+ * The largest whole number from `low` to `high` at which the response a tool
+ * makes with it (`respond`) is within `MAX_RESPONSE_CHARS`, as the guard
+ * measures it, given that it is at every number below one at which it is;
+ * `low` if none is. For structured data the guard never shortens, which a
+ * tool gives as much of as fits, as get_shot's curves within a window.
+ */
+export function mostWithinBudget(low: number, high: number, respond: (n: number) => unknown): number {
+  return largest(low, high, (n) => size(respond(n)) <= MAX_RESPONSE_CHARS);
+}
+
 function size(value: unknown): number {
   return JSON.stringify(value).length;
 }

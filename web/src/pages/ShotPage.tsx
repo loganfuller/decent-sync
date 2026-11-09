@@ -222,8 +222,9 @@ function ShotDetails({ id }: { id: string }) {
         <CardHeader>
           <CardTitleWithInfo title="Curves">
             <p>
-              Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Temperature is the group
-              temperature, measured at the group head, the sensor closest to the coffee.
+              Seconds from the start of the Shot's profile. Dashed lines are the targets the Machine reported. Flow is the pump's, and weight
+              flow the rate coffee lands in the cup, as the scale measured it. Temperature is the group temperature, measured at the group
+              head, the sensor closest to the coffee.
             </p>
             <p>
               Grey vertical lines mark where the profile moved from one step to another. The measurements table names each sample's step.

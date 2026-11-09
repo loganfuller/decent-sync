@@ -204,14 +204,30 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
     });
 
-    it("reads a Shot with its steps, last recorded weight and curves", async () => {
+    it("reads a Shot with its steps, last recorded weight and curves, all of them, a list, or within its widest window", async () => {
       const fixture = preheatShotFixture();
-      await deliverShots(raw, [shotAt("preheat", 90, "43101", { annotations: { espressoNotes: "Sweet, a little sharp at the end; try a finer grind." } }, fixture)]);
-      const { result } = await assistant.callWithinBudget<Fields>("get_shot", { id: "preheat", curves: true });
+      const notes = { annotations: { espressoNotes: "Sweet, a little sharp at the end; try a finer grind." } };
+      // Derived: the real Shot, and the same with its 168 samples repeated five times, in order and with their recorded
+      // times, as a long tea shot's are.
+      const long = { ...fixture, measurements: Array.from({ length: 5 }, () => fixture.measurements as unknown[]).flat() };
+      await deliverShots(raw, [shotAt("preheat", 90, "43101", notes, fixture), shotAt("preheat-long", 91, "43101", notes, long)]);
+      const { result } = await assistant.callWithinBudget<Fields & { curves: Fields }>("get_shot", { id: "preheat", curves: true });
       expect(result).not.toHaveProperty("cut");
-      expect(Object.keys(result.curves as Fields)).toEqual(["shaded", "pressure", "flow", "weight", "temperature"]);
+      expect(Object.keys(result.curves)).toEqual(["shaded", "thinnedTo", "pressure", "flow", "weight", "weightFlow", "temperature"]);
       expect(result.steps).toHaveLength(5);
       expect(result.lastRecordedWeight).toMatchObject({ weight: 32.4 });
+      const listed = await assistant.callWithinBudget<{ curves: Fields }>("get_shot", { id: "preheat", curves: ["weight", "weightFlow"] });
+      expect(Object.keys(listed.result.curves)).toEqual(["shaded", "thinnedTo", "weight", "weightFlow"]);
+      // Its widest window, the whole Shot: every reading of the Shot, and as many of the long one's as fit.
+      const whole = await assistant.callWithinBudget<{ curves: { thinnedTo: number | null; pressure: { values: unknown[] } } }>("get_shot", { id: "preheat", curves: true, window: {} });
+      expect(whole.result.curves.thinnedTo).toBeNull();
+      expect(whole.result.curves.pressure.values).toHaveLength(168);
+      for (const window of [{}, { from: -1_000_000, until: 1_000_000 }]) {
+        const widest = await assistant.callWithinBudget<Fields & { curves: { thinnedTo: number } }>("get_shot", { id: "preheat-long", curves: true, window });
+        expect(widest.result).not.toHaveProperty("cut");
+        expect(widest.result.curves.thinnedTo).toBeGreaterThan(100);
+        expect(widest.result.curves.thinnedTo).toBeLessThan(840);
+      }
     });
 
     it("finds Steam Records a page at a time, and reads one with its curves", async () => {
@@ -528,6 +544,12 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       // The five it ran, Prefill, Compressing, Dripping, Pressurize and Extraction, each named whole, as trimmed.
       expect(result.steps.map((step) => step.frame)).toEqual([0, 2, 3, 4, 6]);
       expect(result.steps.map((step) => step.name)).toEqual([0, 2, 3, 4, 6].map((n) => steps[n]!.name.trim()));
+      // Within its widest window, too long to fit even with its text cut, its curves are thinned as by default, and its text cut.
+      const widest = await assistant.callWithinBudget<Fields & { curves: { thinnedTo: number } }>("get_shot", { id: "haunted-steps", curves: true, window: {} });
+      expect(cut(widest.result.notes)).toBe(true);
+      expect(widest.result.curves).toEqual(result.curves);
+      expect(widest.result.curves.thinnedTo).toBe(100);
+      expect(widest.result.steps).toEqual(result.steps);
     });
 
     it("gives a Machine whose Workflow's text runs long with that text cut, summarised and whole, its Profile's steps and its settings whole", async () => {

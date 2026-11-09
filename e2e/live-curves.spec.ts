@@ -53,7 +53,7 @@ function first(frames: LiveFixtureFrame[], state: string, substate: string, flow
 
 /** The times a chart's axis is marked at, as it shows them, such as "10 s". */
 function ticks(curves: Locator, chart: string): Locator {
-  return curves.getByRole("figure", { name: chart }).locator(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value");
+  return curves.getByRole("figure", { name: chart, exact: true }).locator(".recharts-xAxis-tick-labels .recharts-cartesian-axis-tick-value");
 }
 
 /** A Shot the Machine's tablet stores, pulled at a UTC time, recording the Machine's hardware so it is credited to it. */
@@ -77,8 +77,8 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   await replay.to(first(frames, "espresso", "pouring"));
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(curves.getByRole("heading", { name: "Shot curves", exact: true })).toBeVisible();
-  for (const chart of ["Pressure", "Flow", "Weight", "Temperature"]) {
-    await expect(curves.getByRole("figure", { name: chart }).locator(".recharts-line")).not.toHaveCount(0);
+  for (const chart of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name: chart, exact: true }).locator(".recharts-line")).not.toHaveCount(0);
     // Preheat before 0 s, then preinfusion, read as the samples' recorded times.
     await expect(ticks(curves, chart)).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
   }
@@ -205,7 +205,7 @@ test("steaming's Machine States are named from a real steaming, its curves drawn
   await expect(curves.getByRole("heading", { name: "Steaming curves", exact: true })).toBeVisible();
   await expect(curves.getByText("Partial", { exact: true })).toHaveCount(0);
   for (const chart of ["Steam temperature", "Pressure", "Flow"]) {
-    const figure = curves.getByRole("figure", { name: chart });
+    const figure = curves.getByRole("figure", { name: chart, exact: true });
     await expect(figure.locator(".recharts-line")).not.toHaveCount(0);
     // Preparing before 0 s, then the pause and the purge, with a line where they meet, as its Steam Record's page shades them.
     await expect(figure.locator(".recharts-reference-area")).toHaveCount(3);
@@ -214,7 +214,7 @@ test("steaming's Machine States are named from a real steaming, its curves drawn
   }
   // No milk probe on a DE1, so no milk temperature (#265), as a tile or a curve, and no scale's weight.
   await expect(card.getByRole("group", { name: "Milk temperature" })).toHaveCount(0);
-  for (const chart of ["Milk temperature", "Weight"]) await expect(curves.getByRole("figure", { name: chart })).toHaveCount(0);
+  for (const chart of ["Milk temperature", "Weight"]) await expect(curves.getByRole("figure", { name: chart, exact: true })).toHaveCount(0);
   await expectTip(curves, "the curves", /^Drawn as the Machine steams, as its Steam Record's page draws them/);
   await expect(curves.getByText("Waiting for its Steam Record")).toBeVisible();
   // Read again once steaming has ended, the one before still the newest: it isn't linked.
@@ -254,7 +254,7 @@ test("Two Tap Stop's puffs and a flush are named from real ones, and the last cu
   }
   await steamingReplay.to();
   await expect(curves.getByRole("heading", { name: "Steaming curves", exact: true })).toBeVisible();
-  await expect(curves.getByRole("figure", { name: "Flow" }).getByText("Puffing", { exact: true })).toBeVisible();
+  await expect(curves.getByRole("figure", { name: "Flow", exact: true }).getByText("Puffing", { exact: true })).toBeVisible();
   const steamingTicks = await ticks(curves, "Flow").allTextContents();
 
   // A flush, then idle: neither is a shot or steaming, so the steaming's curves stay.
@@ -374,7 +374,7 @@ test("a Bengle's milk temperature shows while its probe reports, as a tile and i
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(curves.getByRole("heading", { name: "Steaming curves", exact: true })).toBeVisible();
   for (const chart of ["Milk temperature", "Steam temperature", "Pressure", "Flow"]) {
-    await expect(curves.getByRole("figure", { name: chart }).locator(".recharts-line")).not.toHaveCount(0);
+    await expect(curves.getByRole("figure", { name: chart, exact: true }).locator(".recharts-line")).not.toHaveCount(0);
   }
   await expect(curves.getByRole("figure", { name: "Milk temperature" })).not.toContainText("Not recorded.");
 });

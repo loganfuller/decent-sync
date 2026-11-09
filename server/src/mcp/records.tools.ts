@@ -8,7 +8,7 @@ import { readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
-import { curveSchema, curvesOf, hundredths, shadedSchema } from "./curves.js";
+import { askedCurves, curveSchema, curvesInput, hundredths, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
@@ -79,13 +79,15 @@ const shotDetails = shotSummary.extend({
   curves: z
     .object({
       shaded: shadedSchema("Its Preheat, the Machine heating its water before the profile starts, as the management interface shades it: before 0 s, with the heater test's targets, left out of its duration and peaks."),
+      thinnedTo: thinnedToSchema,
       pressure: curveSchema("Pressure."),
-      flow: curveSchema("Flow."),
+      flow: curveSchema("The pump's flow."),
       weight: curveSchema("The scale's weight."),
+      weightFlow: curveSchema("The scale's weight flow, the rate coffee lands in the cup."),
       temperature: curveSchema("The group temperature, measured at the group head, the closest to the coffee."),
     })
     .optional()
-    .describe("Only when asked for. Seconds from the start of its profile, after its Preheat."),
+    .describe("Only when asked for, all or those listed. Seconds from the start of its profile, after its Preheat."),
 });
 
 /** About the most characters a name typed by people keeps in a find_shots row, and its notes, each cut beyond them ending in CUT_MARK (`cut`). */
@@ -156,16 +158,26 @@ const steamDetails = steamSummary.extend({
       shaded: shadedSchema(
         "The time that isn't steaming, as the management interface shades it, left out of its duration: Preparing, before 0 s, the steam starting up; Paused, the flow falling after a stop; Puffing, small puffs that keep the wand clear after a stop on time or Two Tap Stop's first tap; Purge, clearing the wand after the last stop.",
       ),
+      thinnedTo: thinnedToSchema,
       milkTemperature: curveSchema("The milk temperature its probe reported; its target is the temperature its Workflow stops at."),
       steamTemperature: curveSchema("The steam heater's temperature."),
       pressure: curveSchema("The steam's pressure."),
       flow: curveSchema("The steam's flow."),
     })
     .optional()
-    .describe("Only when asked for. Seconds from when it started steaming."),
+    .describe("Only when asked for, all or those listed. Seconds from when it started steaming."),
 });
 
-const curvesInput = z.boolean().default(false).describe("Whether to include its curves, each cut to about 100 points.");
+const shotCurves = curvesInput(SHOT_CURVES);
+const curveWindow = z
+  .object({
+    from: z.number().optional().describe("In seconds on its curves' axis; from its first sample when left out."),
+    until: z.number().optional().describe("In seconds on its curves' axis; until its last sample when left out."),
+  })
+  .optional()
+  .describe("Only the curves' readings in this stretch of their axis: every one if the response fits, otherwise each series thinned to as many as fit (thinnedTo). With curves left out, it gives all of them.");
+const getShotInput = z.object({ id: id.describe("The Shot's id."), curves: shotCurves, window: curveWindow });
+const steamCurves = curvesInput(STEAM_CURVES);
 const timeZoneNote = "Times are ISO 8601, with the offset of the record's Location's time zone, or UTC's when its Location is unknown.";
 
 /** What a Shot's numbers mean, for the descriptions of the tools that read Shots. */
@@ -186,7 +198,7 @@ const STEAM_UNITS =
 
 /** What a record's curves mean. */
 const CURVES_NOTE =
-  "Each curve gives its unit, its readings as [seconds, value] points cut to at most 100 keeping its shape and peaks, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none.";
+  "curves is true for all of them, or a list of those to give. Each gives its unit, its readings as [seconds, value] points, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none. A series of more than 100 readings is thinned to 100, keeping its shape and peaks; thinnedTo gives the most points one was thinned to, null where every reading is given.";
 
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),
@@ -267,18 +279,19 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, weight in grams as the scale weighed it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} ${timeZoneNote}`,
-    inputSchema: z.object({ id: id.describe("The Shot's id."), curves: curvesInput }),
+    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each defaulting to the first or last sample, gives only the readings in it: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves left out, it gives all of them. Ask for a few seconds, such as those around the stop, to see every reading there. ${timeZoneNote}`,
+    inputSchema: getShotInput,
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
     scopes: [READ],
     budget: { rest: "Asked for without curves, it has more of its text." },
   })
-  async getShot({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof shotDetails>> {
+  async getShot({ id, curves, window }: z.infer<typeof getShotInput>): Promise<z.infer<typeof shotDetails>> {
+    if (window?.from !== undefined && window.until !== undefined && window.until < window.from) throw new BadRequestException("Choose a window's until at or after its from");
     // One read of its measurements, for its steps, last weight and curves.
     const { shot, samples } = await this.shots.read(id);
     const timeZone = shot.location?.timeZone;
-    return {
+    const details = {
       ...shotSummaryOf(shot),
       grinderModel: shot.grinderModel,
       basketName: shot.basketName,
@@ -291,8 +304,10 @@ export class RecordsTools {
       lastStep: shot.lastStep,
       steps: shot.steps.map(({ from, until, ...step }) => ({ ...step, from: hundredths(from), until: hundredths(until) })),
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
-      ...(curves && { curves: curvesOf(samples, SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }) }),
     };
+    // A window alone asks for every curve within it.
+    const asked = askedCurves(SHOT_CURVES, window && curves === false ? true : curves);
+    return asked ? withCurves(details, samples, asked, { pressure: shot.peakPressure, flow: shot.peakFlow }, window) : details;
   }
 
   @BudgetedTool({
@@ -319,16 +334,16 @@ export class RecordsTools {
     name: "get_steam_record",
     title: "Get a Steam Record",
     description: `Reads a Steam Record: its milk temperatures, steam settings, and its curves when asked for, with the steam starting up, its pauses, puffs and purge marked. ${STEAM_UNITS} steamSettings are what its Workflow set as it started: steamTemperature in °C, duration in seconds, how long it steams before stopping by itself, flow in ml/s, and stopAtMilkTemperature in °C, the milk temperature it stops at, null when off. Its curves are timed in seconds from when it started steaming; shaded marks the time that isn't steaming, left out of its duration: Preparing, before 0 s, the steam starting up; Paused, the flow falling after a stop; Puffing, small puffs that keep the wand clear; Purge, clearing the wand after the last stop. milkTemperature is its probe's, in °C, its target the temperature its Workflow stops at; steamTemperature is the steam heater's, in °C; pressure is the steam's, in bar, and flow in ml/s. ${CURVES_NOTE} ${timeZoneNote}`,
-    inputSchema: z.object({ id: id.describe("The Steam Record's id."), curves: curvesInput }),
+    inputSchema: z.object({ id: id.describe("The Steam Record's id."), curves: steamCurves }),
     outputSchema: steamDetails,
     annotations: { readOnlyHint: true },
     scopes: [READ],
     budget: { rest: "Asked for without curves, it has more of its text." },
   })
-  async getSteamRecord({ id, curves }: { id: string; curves: boolean }): Promise<z.infer<typeof steamDetails>> {
+  async getSteamRecord({ id, curves }: { id: string; curves: z.infer<typeof steamCurves> }): Promise<z.infer<typeof steamDetails>> {
     const steamRecord = await this.steamRecords.get(id);
     const settings = object(object(object(steamRecord.record).workflow).steamSettings);
-    return {
+    const details = {
       ...steamSummaryOf(steamRecord),
       steamSettings: {
         steamTemperature: number(settings.targetTemperature),
@@ -336,12 +351,11 @@ export class RecordsTools {
         flow: number(settings.flow),
         stopAtMilkTemperature: steamStopAt(steamRecord.record),
       },
-      ...(curves && {
-        curves: curvesOf(steamSamples(await this.steamRecords.measurements(id), steamStopAt(steamRecord.record)), STEAM_CURVES, {
-          milkTemperature: steamRecord.peakMilkTemperature,
-        }),
-      }),
     };
+    const asked = askedCurves(STEAM_CURVES, curves);
+    if (!asked) return details;
+    const samples = steamSamples(await this.steamRecords.measurements(id), steamStopAt(steamRecord.record));
+    return withCurves(details, samples, asked, { milkTemperature: steamRecord.peakMilkTemperature });
   }
 }
 

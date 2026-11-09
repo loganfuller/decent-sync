@@ -50,6 +50,18 @@ describe("shotSamples", () => {
     expect(new Set(samples.slice(43).map((sample) => sample.targets.temperature))).toEqual(new Set([88, 83]));
   });
 
+  it("reads the scale's weight flow, the rate coffee lands in the cup, beside its weight, with no target", () => {
+    const samples = shotSamples(measurements);
+    const scales = measurements as { scale?: { weight: number; weightFlow: number } }[];
+    expect(samples.map((sample) => [sample.values.weight, sample.values.weightFlow])).toEqual(scales.map(({ scale }) => [scale!.weight, scale!.weightFlow]));
+    expect(samples.every((sample) => sample.targets.weightFlow === null)).toBe(true);
+    // Decaid records 0 for the scale in Preheat, until it tares it; the coffee then lands at up to about 3.4 g/s.
+    expect(samples.slice(0, 43).every((sample) => sample.values.weightFlow === 0)).toBe(true);
+    expect(Math.max(...samples.map((sample) => sample.values.weightFlow!))).toBeCloseTo(3.35, 2);
+    // Without a scale, there is none.
+    expect(shotSamples(measurements.map((sample) => ({ ...sample, scale: null })))[100]!.values.weightFlow).toBeNull();
+  });
+
   it("starts at 0 s, with no Preheat, when the first sample is not preparingForShot", () => {
     // Derived: the real Shot without its Preheat's samples.
     const samples = shotSamples(measurements.slice(43));

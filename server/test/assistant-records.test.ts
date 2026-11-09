@@ -647,6 +647,51 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // The peaks the Shot shows, which leave out its Preheat, are kept too.
     expect(Math.max(...curves.pressure!.values.filter(([seconds]) => seconds >= 0).map(([, value]) => value))).toBe(hundredths(rest.peakPressure!));
     expect(Math.max(...curves.flow!.values.filter(([seconds]) => seconds >= 0).map(([, value]) => value))).toBe(hundredths(rest.peakFlow!));
+    // Its weight flow, from the scale, with no target: 0 in its Preheat, before Decaid tares the scale.
+    expect(curves.weightFlow!.targets).toEqual([]);
+    expect(curves.weightFlow!.values.filter(([seconds]) => seconds < 0).every(([, value]) => value === 0)).toBe(true);
+  });
+
+  it("gives only the curves listed, and a Shot's within a window at every reading there, a window alone asking for every curve, as get_steam_record gives a list", async () => {
+    const fixture = preheatShotFixture();
+    const workflow = fixture.workflow as Record<string, Fields>;
+    const recorded = { ...workflow, machine: { ...workflow.machine, model: hardware.uptown1.model, serialNumber: hardware.uptown1.serial } };
+    await deliverShots(uptown1, hardware.uptown1, [{ ...fixture, id: "assistant-window", workflow: recorded }]);
+    const { measurements } = await api.get<{ measurements: unknown }>("/shots/assistant-window/measurements");
+    const samples = shotSamples(measurements, workflow.profile);
+    type Read = { curves: Record<string, Curve> & { shaded: Shaded[]; thinnedTo: number | null } };
+
+    const all = await assistant.call<Read>("get_shot", { id: "assistant-window", curves: true });
+    expect(Object.keys(all.curves)).toEqual(["shaded", "thinnedTo", "pressure", "flow", "weight", "weightFlow", "temperature"]);
+    // 168 samples, so its series are thinned to the 100 points of the default.
+    expect(all.curves.thinnedTo).toBe(100);
+    // Listed in any order, those given are the same, in their usual order.
+    const listed = await assistant.call<Read>("get_shot", { id: "assistant-window", curves: ["weightFlow", "weight"] });
+    expect(listed.curves).toEqual({ shaded: all.curves.shaded, thinnedTo: 100, weight: all.curves.weight, weightFlow: all.curves.weightFlow });
+
+    // The last 3 s before its stop, where its last weight is: every reading there.
+    const end = hundredths(samples.at(-1)!.seconds);
+    const window = { from: hundredths(end - 3), until: end };
+    const near = await assistant.call<Read>("get_shot", { id: "assistant-window", curves: ["weight", "weightFlow"], window });
+    expect(Object.keys(near.curves)).toEqual(["shaded", "thinnedTo", "weight", "weightFlow"]);
+    expect(near.curves.thinnedTo).toBeNull();
+    const shown = samples.filter((sample) => hundredths(sample.seconds) >= window.from && hundredths(sample.seconds) <= window.until);
+    expect(shown.length).toBeGreaterThan(10);
+    for (const name of ["weight", "weightFlow"] as const) {
+      expect(near.curves[name]!.values).toEqual(shown.map((sample) => [hundredths(sample.seconds), hundredths(sample.values[name]!)]));
+    }
+    // A window alone asks for every curve within it; one ending before it starts is refused.
+    const alone = await assistant.call<Read>("get_shot", { id: "assistant-window", window });
+    expect(Object.keys(alone.curves)).toEqual(Object.keys(all.curves));
+    expect(alone.curves.weight).toEqual(near.curves.weight);
+    expect(await toolError("get_shot", { id: "assistant-window", window: { from: 5, until: 1 } })).toBe("Choose a window's until at or after its from");
+    // An empty list or a curve it doesn't have is refused as an invalid input.
+    for (const curves of [[], ["mixTemperature"]]) expect(await toolError("get_shot", { id: "assistant-window", curves })).toMatch(/curves/);
+
+    await deliverSteams(uptown1, hardware.uptown1, { "steam-listed": "2026-02-12T13:00:00Z" }, milkProbeSteamFixture());
+    const steam = await assistant.call<Read>("get_steam_record", { id: "steam-listed", curves: true });
+    const milk = await assistant.call<Read>("get_steam_record", { id: "steam-listed", curves: ["milkTemperature"] });
+    expect(milk.curves).toEqual({ shaded: steam.curves.shaded, thinnedTo: steam.curves.thinnedTo, milkTemperature: steam.curves.milkTemperature });
   });
 
   it("gives the steps of its Profile a Shot ran, the one it ended in and its last recorded weight, without curves, as the REST API does, timed as its curves", async () => {
