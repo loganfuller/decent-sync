@@ -684,7 +684,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const { result } = await assistant.callWithinBudget<{ cut: string; plugins: { value: Fields[] } }>("get_machine_reports", { machineId: haunted.machine.id });
       expect(result.cut).toContain("Asked for one collection at a time");
       const listed = result.plugins.value;
-      expect(listed.map(({ id, name, version }) => [id, name, version])).toEqual(plugins.map(({ id, name, version }) => [id, name, version]));
+      expect(listed.map(({ description: _, ...rest }) => rest)).toEqual(plugins.map(({ description: _, ...rest }) => rest));
       expect(listed.every(({ description }) => cut(description))).toBe(true);
     });
 
