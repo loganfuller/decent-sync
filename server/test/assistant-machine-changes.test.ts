@@ -217,6 +217,30 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     expect((await tablet.callApi("GET", "/machine/settings")).body).toMatchObject({ fan: 40 });
   });
 
+  it("gives a Settings Edit's values and their Settings History as the tablet holds them, not to hundredths as other numbers are, so its expected is the value get_machine gave", async () => {
+    const read = await assistant.call<{ machineSettings: { sensorCalibration: { value: Record<string, { measuredValue: number }> } } }>("get_machine", { machineId });
+    const measured = read.machineSettings.sensorCalibration.value.pressure!.measuredValue;
+    // The simulated machine's pressure calibration, 1 + 3/128 in Q16.16, which hundredths would give as 1.02.
+    expect(measured).toBe(1.0234375);
+    const { settingsEdit } = await assistant.call<{ settingsEdit: SettingsEdit & Record_ }>("edit_machine_settings", {
+      machineId,
+      collection: "sensorCalibration",
+      fields: { pressure: 1.02 },
+      expected: { pressure: measured },
+    });
+    expect(settingsEdit).toMatchObject({ fields: { pressure: 1.02 }, expected: { pressure: 1.0234375 } });
+    const applied = await answered(settingsEdit.id);
+    expect(applied).toMatchObject({ outcome: expect.stringMatching(/^(applied|adjusted)$/), expected: { pressure: 1.0234375 } });
+    const { machineId: _, ...rest } = (await api.get<{ settingsEdit: Record_ }>(`${editsPath()}/${settingsEdit.id}`)).settingsEdit;
+    expect(instants(applied)).toEqual(instants(rest));
+
+    type Change = { settingsEdit: { id: string } | null; fields: { field: string; before: unknown; after: unknown }[] };
+    const { changes } = await assistant.call<{ changes: Change[] }>("list_settings_history", { machineId, collections: ["sensorCalibration"] });
+    const { changes: restChanges } = await api.get<{ changes: Change[] }>(`/machines/${machineId}/settings-history?collection=sensorCalibration`);
+    expect(instants(changes)).toEqual(instants(restChanges));
+    expect(changes.find((change) => change.settingsEdit?.id === settingsEdit.id)!.fields).toContainEqual(expect.objectContaining({ field: "pressure", before: 1.0234375 }));
+  });
+
   it("refuses at once, with the REST API's message and nothing kept, an edit the REST API refuses", async () => {
     const before = (await api.get<{ total: number }>(editsPath())).total;
     for (const [args, status] of [
