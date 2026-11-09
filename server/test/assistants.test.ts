@@ -149,6 +149,7 @@ describe("connecting an assistant", () => {
         "list_machines",
         "list_settings_edits",
         "list_settings_history",
+        "list_shot_values",
       ];
       const changing = [
         "copy_recipe",

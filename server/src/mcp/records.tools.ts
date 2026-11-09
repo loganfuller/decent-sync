@@ -4,7 +4,7 @@ import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
 import { number, object, recordedText } from "../shots/extraction.js";
-import { readShotFilters } from "../shots/filters.js";
+import { MAX_WORDS, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
@@ -188,6 +188,14 @@ const STEAM_UNITS =
 const CURVES_NOTE =
   "Each curve gives its unit, its readings as [seconds, value] points cut to at most 100 keeping its shape and peaks, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none.";
 
+/** A text filter of find_shots, matching as its match says (`ShotFilters.match`). */
+const textFilter = (which: string) =>
+  z
+    .string()
+    .max(500)
+    .optional()
+    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one finds Shots that recorded none, and so does one of spaces alone when matching words.`);
+
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),
   machineId: id.optional().describe("Shots credited to this Machine."),
@@ -197,10 +205,14 @@ const findShotsInput = z.object({
   grinderId: id.optional().describe("Shots that used this Library Grinder."),
   basketId: id.optional().describe("Shots that used this Library Basket."),
   recipeId: id.optional().describe("Shots pulled with this Recipe loaded."),
-  barista: z.string().optional().describe("Shots by this Barista, named exactly as each Shot records it. An empty one finds Shots that recorded none."),
-  beanRoaster: z.string().max(500).optional().describe("Shots whose Bean's roaster is this, exactly as each Shot records it, linked to the Library or not. An empty one finds Shots that recorded none."),
-  beanName: z.string().max(500).optional().describe("Shots whose Bean's name is this, exactly as each Shot records it, linked to the Library or not. An empty one finds Shots that recorded none."),
-  profileTitle: z.string().optional().describe("Shots whose profile's title is this, exactly as each Shot records it. An empty one finds Shots that recorded none."),
+  barista: textFilter("Shots whose Barista, as each Shot records it,"),
+  beanRoaster: textFilter("Shots whose Bean's roaster, as each Shot records it, linked to the Library or not,"),
+  beanName: textFilter("Shots whose Bean's name, as each Shot records it, linked to the Library or not,"),
+  profileTitle: textFilter("Shots whose profile's title, as each Shot records it,"),
+  match: z
+    .enum(["words", "exact"])
+    .default("words")
+    .describe("How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone."),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
   ...page,
@@ -210,6 +222,39 @@ const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with mor
 
 /** What a find_shots row's fields mean, for its description. */
 const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+
+/** The lists list_shot_values gives, as `GET /api/shots/filters` gives them. */
+const SHOT_VALUE_KINDS = ["beans", "baristas", "profileTitles", "beanBatches", "grinders", "recipes", "baskets"] as const;
+
+const shotValuesInput = z.object({
+  kinds: z.array(z.enum(SHOT_VALUE_KINDS)).min(1).optional().describe("Which lists to give; all of them if none."),
+  ...page,
+  offset: page.offset.describe("How many of each list to skip: the previous page's offset plus its length."),
+});
+
+const valuesPage = <T extends z.ZodType>(entry: T, what: string) => z.object({ ...pageOutput, entries: z.array(entry) }).optional().describe(what);
+const atLocation = z.object({ id, name: z.string() }).nullable().describe("The Location it belongs to.");
+const recordedNone = "null, last, for Shots that recorded none";
+const linkedNone = "null, last, for Shots linked to none";
+
+const shotValuesOutput = z.object({
+  beans: valuesPage(
+    z.object({ roaster: z.string().nullable(), name: z.string().nullable() }),
+    "The Beans Shots recorded, by roaster and name, linked to the Library or not; one whose roaster and name are both null stands for Shots that recorded neither.",
+  ),
+  baristas: valuesPage(z.string().nullable(), `The Baristas Shots recorded; ${recordedNone}.`),
+  profileTitles: valuesPage(z.string().nullable(), `The profile titles Shots recorded; ${recordedNone}.`),
+  beanBatches: valuesPage(
+    z.object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable() }).nullable(),
+    `The Library's Bean Batches Shots are linked to, by their Bean's roaster and name and their roast date, as the Bean Batches list orders them; ${linkedNone}.`,
+  ),
+  grinders: valuesPage(z.object({ id, model: z.string().nullable(), location: atLocation }).nullable(), `The Library's Grinders Shots are linked to, by model, then Location; ${linkedNone}.`),
+  recipes: valuesPage(
+    z.object({ id, name: z.string().nullable(), location: atLocation }).nullable(),
+    `The Recipes Shots were pulled with loaded, by name, then Location; ${linkedNone}.`,
+  ),
+  baskets: valuesPage(z.object({ id, name: z.string().nullable() }).nullable(), `The Library's Baskets Shots are linked to, by name; ${linkedNone}.`),
+});
 
 const findSteamRecordsInput = z.object({
   locationId: id.optional().describe("Steam Records at this Location."),
@@ -239,7 +284,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot or find_library_items gives, such as a Bean's. A linked item's name is the Library's, which may differ from what the Shot recorded and the beanRoaster, beanName and profileTitle filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
@@ -247,8 +292,8 @@ export class RecordsTools {
     budget: findShotsBudget,
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
-    // A name a row cut matches no Shot, as the filters match whole names.
-    refuseCutText(input, "get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
+    // A name a row cut is no name a Shot recorded.
+    refuseCutText(input, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
@@ -292,6 +337,37 @@ export class RecordsTools {
       steps: shot.steps.map(({ from, until, ...step }) => ({ ...step, from: hundredths(from), until: hundredths(until) })),
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
       ...(curves && { curves: curvesOf(samples, SHOT_CURVES, { pressure: shot.peakPressure, flow: shot.peakFlow }) }),
+    };
+  }
+
+  @BudgetedTool({
+    name: "list_shot_values",
+    title: "List what Shots recorded",
+    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
+    inputSchema: shotValuesInput,
+    outputSchema: shotValuesOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: { rest: "Asked for fewer at a time, or one list alone, it has more of each." },
+  })
+  async listShotValues(input: z.infer<typeof shotValuesInput>): Promise<z.infer<typeof shotValuesOutput>> {
+    const { limit, offset } = input;
+    const kinds = new Set(input.kinds ?? SHOT_VALUE_KINDS);
+    const options = await this.shots.filterOptions();
+    const paged = <T, R>(kind: (typeof SHOT_VALUE_KINDS)[number], list: T[], view: (entry: T) => R) => {
+      if (!kinds.has(kind)) return undefined;
+      const entries = list.slice(offset, offset + limit);
+      return { ...pageOf(list.length, offset, entries.length), entries: entries.map(view) };
+    };
+    const located = (location: { id: string; name: string } | null) => location && { id: location.id, name: location.name };
+    return {
+      beans: paged("beans", options.beans, (bean) => ({ roaster: bean.coffeeRoaster, name: bean.coffeeName })),
+      baristas: paged("baristas", options.baristas, (barista) => barista),
+      profileTitles: paged("profileTitles", options.profiles, (title) => title),
+      beanBatches: paged("beanBatches", options.beanBatches, (batch) => batch && { id: batch.id, bean: batch.bean, roastDate: dayOf(batch.roastDate) }),
+      grinders: paged("grinders", options.grinders, (grinder) => grinder && { id: grinder.id, model: grinder.model, location: located(grinder.location) }),
+      recipes: paged("recipes", options.recipes, (recipe) => recipe && { id: recipe.id, name: recipe.name, location: located(recipe.location) }),
+      baskets: paged("baskets", options.baskets, (basket) => basket),
     };
   }
 

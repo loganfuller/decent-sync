@@ -127,8 +127,8 @@ export function cutNoteOf(budget: Budget): string {
  * Refuses an input holding text a response cut, `CUT_MARK` in it anywhere,
  * saying how to have the whole of it: a change's, as an assistant that edits
  * a field it read cut, such as a Bean's notes read with its history, would
- * otherwise save the cut text over the whole, and a filter's that matches
- * whole text, which a cut name would match nothing by, as find_shots's.
+ * otherwise save the cut text over the whole, and a filter's, such as
+ * find_shots's, as no Shot recorded a cut name.
  */
 export function refuseCutText(input: unknown, whole = "read it whole first, such as without history or curves, and send the whole of it"): void {
   const holds = (value: unknown): boolean =>

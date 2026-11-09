@@ -332,10 +332,10 @@ describe("reading Shots and Steam Records through an assistant", () => {
     return api.get(`/steam-records?${new URLSearchParams(query)}`);
   }
 
-  /** find_shots, checked against the REST API's list for the same filters and page, returning the ids it found. */
+  /** find_shots, checked against the REST API's list for the same filters and page, matching words as find_shots does, returning the ids it found. */
   async function findShotsAsRest(input: Fields, query: Record<string, string>, by = assistant, at = api): Promise<string[]> {
     const found = await by.call<{ shots: ToolShot[] } & Page>("find_shots", input);
-    const rest = await restShots(query, at);
+    const rest = await restShots({ match: "words", ...query }, at);
     expect(found.shots.map(({ pulledAt: _, ...row }) => row)).toEqual(rest.shots.map(shotRow));
     sameTimes(found.shots.map((shot) => shot.pulledAt), rest.shots.map((shot) => shot.pulledAt));
     expect(found.total).toBe(rest.total);
@@ -578,10 +578,11 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(row.profile.title).toBe("Londonium, a little longer at the start, for the lighter roasts");
     expect(row.beanBatch.name).toBe("Ethiopia Generic 100g Sample");
     expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster }, grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless" });
-    // A cut name matches no Shot, so a filter holding one is refused, as a change is.
+    // A cut name is no name a Shot recorded, so a filter holding one is refused, as a change is; a few of its words find it.
     expect(await toolError("find_shots", { barista: row.barista as string })).toBe(
-      "A value holds …[cut], so it is text a response cut short: get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
+      "A value holds …[cut], so it is text a response cut short: matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
     );
+    expect((await assistant.call<{ shots: Fields[] }>("find_shots", { ...day, barista: "annabelle morning" })).shots.map((shot) => shot.id)).toEqual(["assistant-long"]);
     // A page whose names and notes are short says nothing of a cut.
     expect(await assistant.call<Fields>("find_shots", { from: "2026-04-01", to: "2026-04-01" })).not.toHaveProperty("cut");
   });
@@ -761,12 +762,99 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(Math.max(...probe.curves.milkTemperature.values.map(([, value]) => value))).toBeGreaterThanOrEqual(hundredths(probe.peakMilkTemperature));
   });
 
+  it("finds Shots by each word of the Bean, profile and Barista each recorded, anywhere and ignoring case, as find_library_items matches names, or by one value exactly", async () => {
+    // Derived: one recording a Bean by a name an assistant spells its own way, its decaf, and one recording no Bean or Barista.
+    const gao = shotAt("assistant-gao", "2026-05-01T13:00:00Z", hardware.roaming, "Dee", { bean: "China Gao's Honey", profile: "Gao's Bloom" });
+    const decaf = shotAt("assistant-gao-decaf", "2026-05-01T12:55:00Z", hardware.roaming, "Ann", { bean: "China Gao's Honey Decaf" });
+    const blank = shotAt("assistant-blank", "2026-05-01T13:05:00Z", hardware.roaming, "Dee");
+    const { coffeeName: _, coffeeRoaster: _roaster, baristaName: _barista, ...unnamed } = (blank.workflow as { context: Fields }).context;
+    await deliverShots(roaming, hardware.roaming, [gao, decaf, { ...blank, workflow: { ...(blank.workflow as Fields), context: unnamed } }]);
+    const day = { from: "2026-05-01", to: "2026-05-01" };
+    for (const beanName of ["china gao's honey", "gao honey", "GAO", "honey china"]) {
+      expect(await findShotsAsRest({ ...day, beanName }, { ...day, coffeeName: beanName }), beanName).toEqual(["assistant-gao", "assistant-gao-decaf"]);
+    }
+    expect(await findShotsAsRest({ ...day, beanName: "gao kenya" }, { ...day, coffeeName: "gao kenya" })).toEqual([]);
+    expect(await findShotsAsRest({ ...day, beanRoaster: "BAKEHOUSE", profileTitle: "bloom", barista: "dee" }, { ...day, coffeeRoaster: "BAKEHOUSE", profileTitle: "bloom", barista: "dee" })).toEqual([
+      "assistant-gao",
+    ]);
+    // An empty one, or one of spaces alone, finds the Shots that recorded none.
+    for (const none of ["", "  "]) {
+      expect(await findShotsAsRest({ ...day, beanName: none, beanRoaster: none, barista: none }, { ...day, coffeeName: none, coffeeRoaster: none, barista: none })).toEqual(["assistant-blank"]);
+    }
+    // Exactly, one value as list_shot_values gives it alone, not its decaf, case included.
+    const exact = { ...day, match: "exact" };
+    expect(await findShotsAsRest({ ...exact, beanName: "China Gao's Honey" }, { ...exact, coffeeName: "China Gao's Honey" })).toEqual(["assistant-gao"]);
+    expect(await findShotsAsRest({ ...exact, beanName: "china gao's honey" }, { ...exact, coffeeName: "china gao's honey" })).toEqual([]);
+    expect((await assistant.call<{ beans: { entries: Fields[] } }>("list_shot_values", { kinds: ["beans"], limit: 50 })).beans.entries).toEqual(
+      expect.arrayContaining([{ roaster: "Roux Bakehouse", name: "China Gao's Honey" }, { roaster: "Roux Bakehouse", name: "China Gao's Honey Decaf" }]),
+    );
+    // At most 20 words each, and no NUL, which no Shot recorded.
+    expect(await toolError("find_shots", { beanName: Array.from({ length: 21 }, (_, n) => `w${n}`).join(" ") })).toBe("Use at most 20 words in each text filter");
+    expect(await toolError("find_shots", { barista: "Dee\u0000" })).toBe("Use text filters without NUL characters");
+    expect(await toolError("find_shots", { match: "loose" })).toContain("match");
+  });
+
+  it("lists what Shots recorded and the Library items they are linked to, as the REST API does, a page of each list at a time", async () => {
+    type Named = { id: string; name: string | null; location?: (LocationView & { timeZone?: string }) | null };
+    type Batch = { id: string; bean: Fields; roastDate: string | null };
+    interface Options {
+      beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
+      baristas: (string | null)[];
+      profiles: (string | null)[];
+      beanBatches: (Batch | null)[];
+      grinders: ((Omit<Named, "name"> & { model: string | null }) | null)[];
+      recipes: (Named | null)[];
+      baskets: (Named | null)[];
+    }
+    type Values = Record<string, Page & { entries: unknown[] }>;
+    const rest = await api.get<Options>("/shots/filters");
+    const located = (location: LocationView | null | undefined) => location && { id: location.id, name: location.name };
+    const expected: Record<string, unknown[]> = {
+      beans: rest.beans.map((bean) => ({ roaster: bean.coffeeRoaster, name: bean.coffeeName })),
+      baristas: rest.baristas,
+      profileTitles: rest.profiles,
+      // A roast date as a day, as find_shots gives it.
+      beanBatches: rest.beanBatches.map((batch) => batch && { ...batch, roastDate: batch.roastDate && batch.roastDate.slice(0, 10) }),
+      grinders: rest.grinders.map((grinder) => grinder && { ...grinder, location: located(grinder.location) }),
+      recipes: rest.recipes.map((recipe) => recipe && { ...recipe, location: located(recipe.location) }),
+      baskets: rest.baskets,
+    };
+    const all = await assistant.call<Values>("list_shot_values", { limit: 50 });
+    expect(Object.keys(all)).toEqual(Object.keys(expected));
+    for (const [kind, entries] of Object.entries(expected)) expect(all[kind], kind).toEqual({ total: entries.length, offset: 0, more: false, entries });
+    // These tests' Shots recorded Beans, Baristas and titles, one recorded none, and one is linked to a Bean Batch
+    // and a Grinder of the Library's, at their Location; none to a Recipe or Basket.
+    expect(expected.beans).toContainEqual({ roaster: null, name: null });
+    expect(expected.baristas).toEqual(expect.arrayContaining(["Ann", "Cat", null]));
+    expect(expected.beanBatches).toEqual([{ id: expect.any(String), bean: { id: expect.any(String), roaster: "Roux", name: "Assistant Guji" }, roastDate: "2026-10-01" }, null]);
+    expect(expected.grinders).toEqual([{ id: expect.any(String), model: "Assistant EK43", location: { id: expect.any(String), name: "Linked lab" } }, null]);
+    expect([expected.recipes, expected.baskets]).toEqual([[null], [null]]);
+
+    // Each list paged alone, two at a time, as the next page's offset is the last's plus its length.
+    for (const [kind, entries] of Object.entries(expected)) {
+      const paged: unknown[] = [];
+      for (let offset = 0; ; offset += 2) {
+        const page = await assistant.call<Values>("list_shot_values", { kinds: [kind], limit: 2, offset });
+        expect(Object.keys(page)).toEqual([kind]);
+        expect(page[kind]).toMatchObject({ total: entries.length, offset, more: offset + 2 < entries.length });
+        paged.push(...page[kind]!.entries);
+        if (!page[kind]!.more) break;
+      }
+      expect(paged, kind).toEqual(entries);
+    }
+    // 20 of each by default.
+    expect((await assistant.call<Values>("list_shot_values", {})).beans!.entries).toEqual(expected.beans!.slice(0, 20));
+    expect(await toolError("list_shot_values", { kinds: ["machines"] })).toContain("kinds");
+    expect(await toolError("list_shot_values", { kinds: [] })).toContain("kinds");
+  });
+
   it("answers a Viewer's read-only Connected App as it answers an Admin's", async () => {
     const { link } = await api.invite("viewer-408@example.com", "viewer", []);
     const cookie = await acceptInvite(server.url, link, { name: "Viewer", password: "a password for apps" });
     const viewer = await Assistant.connect(server.url, app, cookie, { allowed: ["read"] });
     try {
       expect(await findShotsAsRest({ locationId: harbor.id }, { locationId: harbor.id }, viewer, AdminApi.signedInAs(server.url, cookie))).toEqual(["harbor-next", "harbor-noon", "harbor-early"]);
+      expect(await viewer.call<Fields>("list_shot_values", {})).toEqual(await assistant.call<Fields>("list_shot_values", {}));
       expect(await viewer.call<Fields>("get_steam_record", { id: "steam-harbor-early" })).toMatchObject({ id: "steam-harbor-early", location: harbor });
     } finally {
       await viewer.close();

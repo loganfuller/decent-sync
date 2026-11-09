@@ -58,6 +58,16 @@ function pagingFirst(text: string, list: string): void {
 
 const cut = (value: unknown) => typeof value === "string" && value.endsWith(CUT_MARK);
 
+/** list_shot_values' lists, and the REST API's names for them in `GET /api/shots/filters`. */
+const SHOT_VALUES = { beans: "beans", baristas: "baristas", profileTitles: "profiles", beanBatches: "beanBatches", grinders: "grinders", recipes: "recipes", baskets: "baskets" } as const;
+
+/** That each list of a response holding several gives its `total`, `offset` and `more` before its entries, as pagingFirst checks a page. */
+function eachPagingFirst(text: string, lists: readonly string[]): void {
+  const found = [...text.matchAll(new RegExp(`"(${lists.join("|")})":\\{(.*?)"entries"`, "g"))];
+  expect(found.map((list) => list[1])).toEqual(lists);
+  for (const list of found) expect(list[2], list[1]).toMatch(/^"total":\d+,"offset":\d+,"more":(true|false),$/);
+}
+
 /** A plugin's entry in Decaid's plugin list, shaped as DYE2's (fixtures/decaid/dye2-v0.1.26/plugins.json), about 1.8 KB. */
 function pluginListing(): Fields {
   return (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/dye2-v0.1.26/plugins.json", import.meta.url), "utf8")) as { listed: Fields[] }).listed[0]!;
@@ -162,6 +172,19 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       offset += entries.length;
       expect(result.more).toBe(offset < result.total);
       if (!result.more) return { ids, lengths };
+    }
+  }
+
+  /** Each page of one kind of list of a tool that gives several, such as a Machine's activity, as everyPage reads a list: how many entries in all, and each page's length. */
+  async function everyKind(tool: string, kind: string, args: Fields): Promise<{ count: number; lengths: number[] }> {
+    const lengths: number[] = [];
+    for (let offset = 0; ; ) {
+      const { result } = await assistant.callWithinBudget<Record<string, Page & { entries: unknown[] }>>(tool, { ...args, kinds: [kind], limit: 50, offset });
+      const page = result[kind]!;
+      lengths.push(page.entries.length);
+      offset += page.entries.length;
+      expect(page.more).toBe(offset < page.total);
+      if (!page.more) return { count: offset, lengths };
     }
   }
 
@@ -292,24 +315,11 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(list[2], list[1]).toMatch(/^"total":\d+,"offset":\d+,"more":(true|false),$/);
       }
       for (const kind of ["workflowChanges", "machineStates"] as const) {
-        const { count, lengths } = await everyKind(kind, range);
+        const { count, lengths } = await everyKind("get_machine_activity", kind, range);
         expect(count).toBe(result[kind]!.total);
         expect(lengths.every((length) => length > 0)).toBe(true);
       }
     });
-
-    /** Each page of one kind of a Machine's activity, as everyPage reads a list: how many entries in all, and each page's length. */
-    async function everyKind(kind: string, args: Fields): Promise<{ count: number; lengths: number[] }> {
-      const lengths: number[] = [];
-      for (let offset = 0; ; ) {
-        const { result } = await assistant.callWithinBudget<Record<string, Page & { entries: unknown[] }>>("get_machine_activity", { ...args, kinds: [kind], limit: 50, offset });
-        const page = result[kind]!;
-        lengths.push(page.entries.length);
-        offset += page.entries.length;
-        expect(page.more).toBe(offset < page.total);
-        if (!page.more) return { count: offset, lengths };
-      }
-    }
 
     it("lists a Machine's Settings Edits a page at a time", async () => {
       // Two made the usual way and answered by the bar's tablet, one applied and one refused as changed since, each
@@ -462,6 +472,62 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         }
       });
 
+      it("lists what 55 Shots recorded and the Library items they are linked to, 50 of each list a page, and every value on some page once", async () => {
+        // A Machine at the Lab with no tablet, whose Shots are the bar's first copied in PostgreSQL 55 times, a minute
+        // apart on 6 November, each recording a Bean, Barista and profile title of its own, linked to a Bean Batch,
+        // Grinder and Basket at Harbor of its own, and pulled with a Recipe of its own loaded.
+        const shelf = await machineAt("Lab copies", lab);
+        const at = (n: number) => String(n + 1).padStart(2, "0");
+        const each = <T>(value: (n: number) => T) => Array.from({ length: 55 }, (_, n) => value(n));
+        const roasters = ["Roux Bakehouse", "Monogram", "Pilot", "Sey", "Tim Wendelboe"];
+        const database = await server.connectDatabase();
+        try {
+          await database.query(
+            `INSERT INTO shots
+             SELECT (jsonb_populate_record(NULL::shots, to_jsonb(s) || jsonb_build_object(
+               'id', 'copied-' || lpad(n::text, 2, '0'), 'machine_id', $1::uuid, 'tablet_id', NULL, 'pulled_at', '2026-11-06T06:00:00Z'::timestamptz + n * interval '1 minute',
+               'coffee_roaster', ($2::text[])[n], 'coffee_name', ($3::text[])[n], 'barista', ($4::text[])[n], 'profile_title', ($5::text[])[n],
+               'library_batch_id', ($6::uuid[])[n], 'library_grinder_id', ($7::uuid[])[n], 'library_basket_id', ($8::uuid[])[n], 'recipe_id', ($9::uuid[])[n]))).*
+             FROM shots AS s, generate_series(1, 55) AS n WHERE s.id = 'morning-00'`,
+            [
+              shelf.machine.id,
+              each((n) => roasters[n % roasters.length]),
+              each((n) => `Ethiopia Guji Hambela lot ${at(n)}`),
+              each((n) => `Barista ${at(n)}`),
+              each((n) => `Blooming espresso ${at(n)}`),
+              made.beanBatches,
+              made.grinders,
+              made.baskets,
+              made.recipes,
+            ],
+          );
+          await database.query(
+            `INSERT INTO loaded_recipes (machine_id, recipe_id, loaded_at, unloaded_at)
+             SELECT machine_id, recipe_id, pulled_at - interval '20 seconds', pulled_at + interval '30 seconds' FROM shots WHERE machine_id = $1 ORDER BY pulled_at`,
+            [shelf.machine.id],
+          );
+        } finally {
+          await database.end();
+        }
+        const lists = Object.keys(SHOT_VALUES);
+        // About 33,000 characters, 9,500 of them the Bean Batches', so 50 of each fit, uncut.
+        const { result, text } = await assistant.callWithinBudget<Record<string, Page & { entries: unknown[] }>>("list_shot_values", { limit: 50 });
+        expect(result).not.toHaveProperty("cut");
+        eachPagingFirst(text, lists);
+        for (const list of lists) {
+          expect(result[list]!.total, list).toBeGreaterThanOrEqual(55);
+          expect(result[list]!.entries, list).toHaveLength(50);
+        }
+        // Each list alone, a page at a time, lists every value the REST API does; the Recipes and Baskets these Shots are
+        // linked to as it lists them, a Location by its id and name.
+        const rest = await api.get<Record<string, unknown[]>>("/shots/filters");
+        for (const [list, restList] of Object.entries(SHOT_VALUES)) expect((await everyKind("list_shot_values", list, {})).count, list).toBe(rest[restList]!.length);
+        type Named = { id: string; name: string | null; location?: LocationView | null } | null;
+        expect(result.recipes!.entries).toEqual((rest.recipes as Named[]).slice(0, 50).map((recipe) => recipe && { ...recipe, location: recipe.location && { id: recipe.location.id, name: recipe.location.name } }));
+        expect(result.baskets!.entries).toEqual(rest.baskets!.slice(0, 50));
+        expect(result.recipes!.entries).toContainEqual({ id: made.recipes![0]!, name: "Harbor espresso 00", location: { id: harbor.id, name: "Harbor" } });
+      });
+
       it("reads a Recipe with its history, a Profile, and a Bean with its batches", async () => {
         const { result } = await assistant.callWithinBudget<{ history: Page & { entries: unknown[] } }>("get_library_item", { kind: "recipe", id: recipe, history: true, conflicts: true, limit: 50 });
         expect(result.history.total).toBeGreaterThanOrEqual(56);
@@ -536,6 +602,42 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       }
       const { ids } = await everyPage("find_shots", "shots", { machineId: haunted.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: haunted.machine.id }));
+    });
+
+    it("lists what Shots recorded whose names run far longer than any typed, each cut and marked, a page of each list at a time", async () => {
+      // 20 more, each recording a long Bean, Barista and profile title of its own.
+      await deliverShots(
+        raw,
+        Array.from({ length: 20 }, (_, n) =>
+          shotAt(`haunted-values-${String(n).padStart(2, "0")}`, 500 + n, "43102", {
+            context: { baristaName: `${n} ${hostile(3_000)}`, coffeeRoaster: `${n} ${hostile(3_000)}`, coffeeName: `${n} ${hostile(3_000)}` },
+            profile: { title: `${n} ${hostile(3_000)}` },
+          }),
+        ),
+      );
+      const lists = Object.keys(SHOT_VALUES);
+      // With the realistic Shots' 55 of each list above, 50 of each run past the budget even with the long names cut,
+      // so every list ends sooner, saying more follow.
+      const { result, text } = await assistant.callWithinBudget<{ cut: string } & Record<string, Page & { entries: unknown[] }>>("list_shot_values", { limit: 50 });
+      expect(Object.keys(result)[0]).toBe("cut");
+      expect(result.cut).toContain("one list alone");
+      eachPagingFirst(text, lists);
+      for (const list of lists) {
+        expect(result[list]!.entries.length, list).toBeLessThan(50);
+        expect(result[list]!.more, list).toBe(true);
+      }
+      // Sorted first, from "0 Quote", each cut.
+      const long = (value: unknown) => typeof value === "string" && value.includes("Quote");
+      const beans = result.beans!.entries as { roaster: unknown; name: unknown }[];
+      const named = { beans: beans.map((bean) => bean.name), baristas: result.baristas!.entries, profileTitles: result.profileTitles!.entries };
+      for (const [list, names] of Object.entries(named)) {
+        expect(long(names[0]), list).toBe(true);
+        expect(names.filter(long).every(cut), list).toBe(true);
+      }
+      expect(beans.filter((bean) => long(bean.name)).every((bean) => cut(bean.roaster))).toBe(true);
+      // Each list alone, a page at a time, lists every value the REST API does.
+      const rest = await api.get<Record<string, unknown[]>>("/shots/filters");
+      for (const [list, restList] of Object.entries(SHOT_VALUES)) expect((await everyKind("list_shot_values", list, {})).count, list).toBe(rest[restList]!.length);
     });
 
     it("reads a Shot with its notes cut and marked, and its steps, last recorded weight and curves whole", async () => {
