@@ -1,4 +1,4 @@
-import { type SteamPhase, steamPhases, steamingSeconds } from "@decent-sync/protocol";
+import { type SteamPhase, steamPhases, steamStopAt, steamingSeconds } from "@decent-sync/protocol";
 import { date, elapsedMilliseconds, number, object, string } from "../shots/extraction.js";
 
 /**
@@ -7,6 +7,29 @@ import { date, elapsedMilliseconds, number, object, string } from "../shots/extr
  * are computed again (`CurvesRefresh`). Revision 1 adds the steaming time.
  */
 export const STEAM_CURVES_REVISION = 1;
+
+/** The steam settings a Steam Record's Workflow set as it started, as its page shows them. */
+export interface SteamSettingsView {
+  /** °C. */
+  steamTemperature: number | null;
+  /** How long it steams before stopping by itself, in seconds. */
+  duration: number | null;
+  /** ml/s. */
+  flow: number | null;
+  /** The milk temperature it stops at, in °C; null when off, as 0 or below is. */
+  stopAtMilkTemperature: number | null;
+}
+
+/** The steam settings of a Steam Record whose Workflow's are `steamSettings`, each null where Decaid sent none. */
+export function steamSettingsOf(steamSettings: unknown): SteamSettingsView {
+  const settings = object(steamSettings);
+  return {
+    steamTemperature: number(settings.targetTemperature),
+    duration: number(settings.duration),
+    flow: number(settings.flow),
+    stopAtMilkTemperature: steamStopAt({ workflow: { steamSettings } }),
+  };
+}
 
 /**
  * A Steam Record's analytics, a projection of optional fields from the whole

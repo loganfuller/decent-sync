@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SHOT_CURVES, STEAM_CURVES, globalIdOf, lastRecordedWeight, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt, stepSpans } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { derivedShot, preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import { RawConnection, derivedProfile, helloWith } from "./support/simulated-tablet.js";
@@ -71,6 +71,7 @@ interface RestSteamRecord {
   peakMilkTemperature: number | null;
   finalMilkTemperature: number | null;
   barista: string | null;
+  steamSettings: { steamTemperature: number | null; duration: number | null; flow: number | null; stopAtMilkTemperature: number | null };
   record?: Fields;
 }
 
@@ -102,10 +103,9 @@ interface Page {
   more: boolean;
 }
 
-/** What a tool's summary of a Shot holds, from the REST API's, but for its time, which `sameTimes` compares, its last recorded weight to hundredths. */
+/** What a tool's summary of a Shot holds, from the REST API's, but for its time, which `sameTimes` compares, its numbers to hundredths. */
 function shotSummary(shot: RestShot): Fields {
-  const weight = shot.lastRecordedWeight;
-  return {
+  return asTools({
     id: shot.id,
     machine: shot.machine,
     machineInferred: shot.machineInferred,
@@ -122,13 +122,13 @@ function shotSummary(shot: RestShot): Fields {
     actualDose: shot.actualDose,
     targetYield: shot.targetYield,
     actualYield: shot.actualYield,
-    lastRecordedWeight: weight && { weight: hundredths(weight.weight), seconds: hundredths(weight.seconds) },
+    lastRecordedWeight: shot.lastRecordedWeight,
     duration: shot.duration,
     enjoyment: shot.enjoyment,
     barista: shot.barista,
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
-  };
+  });
 }
 
 /** A Shot's steps as a tool gives them, from the REST API's, their seconds to hundredths. */
@@ -179,8 +179,9 @@ function shotRow(shot: RestShot): Fields {
   });
 }
 
+/** What a tool's summary of a Steam Record holds, from the REST API's, but for its time, which `sameTimes` compares, its numbers to hundredths. */
 function steamSummary(steamRecord: RestSteamRecord): Fields {
-  return {
+  return asTools({
     id: steamRecord.id,
     machine: steamRecord.machine,
     location: steamRecord.location,
@@ -188,7 +189,8 @@ function steamSummary(steamRecord: RestSteamRecord): Fields {
     peakMilkTemperature: steamRecord.peakMilkTemperature,
     finalMilkTemperature: steamRecord.finalMilkTemperature,
     barista: steamRecord.barista,
-  };
+    steamSettings: steamRecord.steamSettings,
+  });
 }
 
 const OFFSET = /(?:Z|[+-]\d\d:\d\d)$/;
@@ -201,6 +203,7 @@ function sameTimes(tool: (string | null)[], rest: (string | null)[]): void {
 
 /** A value as the tool rounds it, and JSON then sends it, -0 as 0. */
 const hundredths = (value: number) => Math.round(value * 100) / 100 || 0;
+
 const peak = (readings: number[]) => hundredths(Math.max(...readings));
 
 describe("reading Shots and Steam Records through an assistant", () => {
@@ -768,10 +771,11 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
       const read = await assistant.call<ToolSteamRecord>("get_steam_record", { id });
       expect(read).not.toHaveProperty("curves");
-      const { steamedAt, steamSettings, ...summary } = read;
+      const { steamedAt, ...summary } = read;
       expect(summary).toEqual(steamSummary(shown));
       sameTimes([steamedAt], [shown.steamedAt]);
-      expect(steamSettings).toEqual({
+      // The REST API's settings are its Workflow's, as the Steam Record page shows them.
+      expect(shown.steamSettings).toEqual({
         steamTemperature: settings.targetTemperature,
         duration: settings.duration,
         flow: settings.flow,

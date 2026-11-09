@@ -841,6 +841,8 @@ model MachineEventDelivery {
   @@id([machineId, deliveryId])
   /// Finds the ids old enough to delete without reading the whole table.
   @@index([receivedAt])
+  /// Finds a Machine's latest delivery, which its lastSeenAt reads.
+  @@index([machineId, receivedAt])
   @@map("machine_event_deliveries")
 }
 

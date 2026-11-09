@@ -1,14 +1,14 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { SHOT_CURVES, STEAM_CURVES, steamSamples, steamStopAt } from "@decent-sync/protocol";
+import { SHOT_CURVES, STEAM_CURVES, steamSamples } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
-import { number, object, recordedText } from "../shots/extraction.js";
+import { recordedText } from "../shots/extraction.js";
 import { MAX_WORDS, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
-import { askedCurves, curveSchema, curvesInput, hundredths, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
+import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
@@ -142,9 +142,6 @@ const steamSummary = z.object({
   peakMilkTemperature: celsius("The highest milk temperature, leaving out a reading carried over from the Steam Record before"),
   finalMilkTemperature: celsius("The last milk temperature"),
   barista: z.string().nullable(),
-});
-
-const steamDetails = steamSummary.extend({
   steamSettings: z
     .object({
       steamTemperature: celsius("Its target temperature"),
@@ -153,6 +150,9 @@ const steamDetails = steamSummary.extend({
       stopAtMilkTemperature: celsius("The milk temperature it stops at; null when off"),
     })
     .describe("What its Workflow set when it started."),
+});
+
+const steamDetails = steamSummary.extend({
   curves: z
     .object({
       shaded: shadedSchema(
@@ -194,9 +194,9 @@ const STOP_REASONS =
 const SHOT_STEPS =
   "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, Step N, from 1, where the Profile names none, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat or its samples name no step; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample after its Preheat, in grams, at its seconds, null without one. Decaid records no sample after the stop, so it is just before the stop, not at it. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus it is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell.";
 
-/** What a Steam Record's numbers mean. */
+/** What a Steam Record's numbers mean, its steam settings' included. */
 const STEAM_UNITS =
-  "duration is in seconds, counting only the steaming, not the steam starting up, its pauses, puffs or purge. Milk temperatures are in °C, peakMilkTemperature leaving out a reading carried over from the Steam Record before.";
+  "duration is in seconds, counting only the steaming, not the steam starting up, its pauses, puffs or purge. Milk temperatures are in °C, peakMilkTemperature leaving out a reading carried over from the Steam Record before. steamSettings are what its Workflow set as it started: steamTemperature in °C, duration in seconds, how long it steams before stopping by itself, flow in ml/s, and stopAtMilkTemperature in °C, the milk temperature it stops at, null when off.";
 
 /** What a record's curves mean. */
 const CURVES_NOTE =
@@ -349,7 +349,7 @@ export class RecordsTools {
       notes: shot.notes,
       stopReason: shot.stopReason,
       lastStep: shot.lastStep,
-      steps: shot.steps.map(({ from, until, ...step }) => ({ ...step, from: hundredths(from), until: hundredths(until) })),
+      steps: shot.steps,
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
     };
     // A window alone asks for every curve within it.
@@ -391,7 +391,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_steam_records",
     title: "Find Steam Records",
-    description: `Finds Steam Records, newest first, a page at a time, by Location, Machine and time. ${STEAM_UNITS} ${PAGED} ${timeZoneNote}`,
+    description: `Finds Steam Records, newest first, a page at a time, by Location, Machine and time, each with its milk temperatures and steam settings. ${STEAM_UNITS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findSteamRecordsInput,
     outputSchema: findSteamRecordsOutput,
     annotations: { readOnlyHint: true },
@@ -411,7 +411,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_steam_record",
     title: "Get a Steam Record",
-    description: `Reads a Steam Record: its milk temperatures, steam settings, and its curves when asked for, with the steam starting up, its pauses, puffs and purge marked. ${STEAM_UNITS} steamSettings are what its Workflow set as it started: steamTemperature in °C, duration in seconds, how long it steams before stopping by itself, flow in ml/s, and stopAtMilkTemperature in °C, the milk temperature it stops at, null when off. Its curves are timed in seconds from when it started steaming; shaded marks the time that isn't steaming, left out of its duration: Preparing, before 0 s, the steam starting up; Paused, the flow falling after a stop; Puffing, small puffs that keep the wand clear; Purge, clearing the wand after the last stop. milkTemperature is its probe's, in °C, its target the temperature its Workflow stops at; steamTemperature is the steam heater's, in °C; pressure is the steam's, in bar, and flow in ml/s. ${CURVES_NOTE} ${timeZoneNote}`,
+    description: `Reads a Steam Record: its milk temperatures, steam settings, and its curves when asked for, with the steam starting up, its pauses, puffs and purge marked. ${STEAM_UNITS} Its curves are timed in seconds from when it started steaming; shaded marks the time that isn't steaming, left out of its duration: Preparing, before 0 s, the steam starting up; Paused, the flow falling after a stop; Puffing, small puffs that keep the wand clear; Purge, clearing the wand after the last stop. milkTemperature is its probe's, in °C, its target the temperature its Workflow stops at; steamTemperature is the steam heater's, in °C; pressure is the steam's, in bar, and flow in ml/s. ${CURVES_NOTE} ${timeZoneNote}`,
     inputSchema: z.object({ id: id.describe("The Steam Record's id."), curves: steamCurves }),
     outputSchema: steamDetails,
     annotations: { readOnlyHint: true },
@@ -420,19 +420,10 @@ export class RecordsTools {
   })
   async getSteamRecord({ id, curves }: { id: string; curves: z.infer<typeof steamCurves> }): Promise<z.infer<typeof steamDetails>> {
     const steamRecord = await this.steamRecords.get(id);
-    const settings = object(object(object(steamRecord.record).workflow).steamSettings);
-    const details = {
-      ...steamSummaryOf(steamRecord),
-      steamSettings: {
-        steamTemperature: number(settings.targetTemperature),
-        duration: number(settings.duration),
-        flow: number(settings.flow),
-        stopAtMilkTemperature: steamStopAt(steamRecord.record),
-      },
-    };
+    const details = steamSummaryOf(steamRecord);
     const asked = askedCurves(STEAM_CURVES, curves);
     if (!asked) return details;
-    const samples = steamSamples(await this.steamRecords.measurements(id), steamStopAt(steamRecord.record));
+    const samples = steamSamples(await this.steamRecords.measurements(id), steamRecord.steamSettings.stopAtMilkTemperature);
     return withCurves(details, samples, asked, { milkTemperature: steamRecord.peakMilkTemperature });
   }
 }
@@ -449,7 +440,6 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     return libraryId === undefined && Object.values(shown).every((name) => name === null) ? null : present({ id: libraryId ?? null, ...shown });
   };
   const batch = shot.beanBatch;
-  const hundredths = (value: number | null) => value === null ? null : Math.round(value * 100) / 100;
   return present({
     id: shot.id,
     pulledAt: shot.pulledAt && zonedTime(shot.pulledAt, shot.location?.timeZone),
@@ -463,18 +453,18 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     grinder: item(shot.grinder?.id, { model: shot.grinder ? shot.grinder.model : shot.grinderModel }),
     grinderSetting: shot.grinderSetting,
     basket: item(shot.basket?.id, { name: shot.basket ? shot.basket.name : shot.basketName }),
-    targetDose: hundredths(shot.targetDose),
-    actualDose: hundredths(shot.actualDose),
-    targetYield: hundredths(shot.targetYield),
-    actualYield: hundredths(shot.actualYield),
-    duration: hundredths(shot.duration),
-    peakPressure: hundredths(shot.peakPressure),
-    peakFlow: hundredths(shot.peakFlow),
+    targetDose: shot.targetDose,
+    actualDose: shot.actualDose,
+    targetYield: shot.targetYield,
+    actualYield: shot.actualYield,
+    duration: shot.duration,
+    peakPressure: shot.peakPressure,
+    peakFlow: shot.peakFlow,
     stopReason: shot.stopReason,
     enjoyment: shot.enjoyment,
     barista: shorten(recordedText(shot.barista), ROW_NAME),
-    tds: hundredths(shot.tds),
-    extractionYield: hundredths(shot.extractionYield),
+    tds: shot.tds,
+    extractionYield: shot.extractionYield,
     notes: shorten(shot.notes, ROW_NOTES),
   }) as z.infer<typeof shotRow>;
 }
@@ -509,7 +499,7 @@ function shotSummaryOf(shot: ShownShot): z.infer<typeof shotSummary> {
     actualDose: shot.actualDose,
     targetYield: shot.targetYield,
     actualYield: shot.actualYield,
-    lastRecordedWeight: shot.lastRecordedWeight && { weight: hundredths(shot.lastRecordedWeight.weight), seconds: hundredths(shot.lastRecordedWeight.seconds) },
+    lastRecordedWeight: shot.lastRecordedWeight,
     duration: shot.duration,
     enjoyment: shot.enjoyment,
     barista: shot.barista,
@@ -529,5 +519,6 @@ function steamSummaryOf(steamRecord: ShownSteamRecord | Awaited<ReturnType<Steam
     peakMilkTemperature: steamRecord.peakMilkTemperature,
     finalMilkTemperature: steamRecord.finalMilkTemperature,
     barista: steamRecord.barista,
+    steamSettings: steamRecord.steamSettings,
   };
 }

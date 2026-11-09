@@ -803,6 +803,12 @@ that takes their hardware over. Staff read them as Admins do.
 
 - `GET /api/machines` and `GET /api/machines/:id` include `machineState:
   { state, substate, observedAt } | null`, the latest stored.
+- Their `lastSeenAt` is when the Machine's plugin was last heard from, by
+  PostgreSQL's clock: the later of its last hello, heartbeat or clean close
+  and the latest Workflow, machine state or collection delivery its token
+  made (`machine_event_deliveries`, read through its index by Machine), so
+  it is never older than the latest of those the server received (#442).
+  `online` goes by the heartbeats alone, as before.
 - `GET /api/machines/:id/workflow` returns `{ workflow }`, the latest Workflow
   event `{ id, observedAt, receivedAt, cause, pluginWrite, workflow }` or
   null; `workflow` is Decaid's, as sent, and `cause` is `plugin`, `other` or

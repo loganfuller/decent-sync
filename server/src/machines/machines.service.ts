@@ -65,7 +65,13 @@ export interface MachineView {
   takeover: TakeoverView | null;
   /** Whether a plugin is connected with the Machine's token right now, to any server instance. */
   online: boolean;
-  /** When a plugin connected with its token was last heard from, or null if never. */
+  /**
+   * When a plugin connected with its token was last heard from, by
+   * PostgreSQL's clock: the later of its last hello, heartbeat or clean
+   * close, and the latest Workflow, machine state or collection delivery its
+   * token made, as `machine_event_deliveries` records it; null if never.
+   * Whether it is online is judged by the former alone.
+   */
   lastSeenAt: string | null;
   lastShot: { id: string; pulledAt: string | null } | null;
   /** What it is doing: the latest machine state stored for it, or null before any. */
@@ -509,8 +515,8 @@ export class MachinesService {
       const hardware = machine.identification === MachineIdentification.MISMATCH ? reportedHardware(machine) : null;
       return hardware ? [hardware] : [];
     });
-    // Each Machine's last Shot and latest machine state are one index probe each, however long its history.
-    const [owners, pending, lastShots, states, tablets, takeovers, loaded] = await Promise.all([
+    // Each Machine's last Shot, latest machine state and latest delivery are one index probe each, however long its history.
+    const [owners, pending, lastShots, states, deliveries, tablets, takeovers, loaded] = await Promise.all([
       mismatched.length === 0 ? [] : this.prisma.machine.findMany({ where: { OR: mismatched }, select: { id: true, name: true, model: true, serial: true } }),
       mismatched.length === 0 ? [] : this.prisma.pendingMachine.findMany({ where: { OR: mismatched }, select: { id: true, model: true, serial: true } }),
       machines.length === 0 ? [] : this.prisma.$queryRaw<{ id: string; machineId: string; pulledAt: Date | null }[]>(Prisma.sql`
@@ -528,11 +534,19 @@ export class MachinesService {
           SELECT state, substate, observed_at FROM machine_state_events WHERE machine_id = listed.id
           ORDER BY id DESC LIMIT 1
         ) AS latest`),
+      machines.length === 0 ? [] : this.prisma.$queryRaw<{ machineId: string; receivedAt: Date }[]>(Prisma.sql`
+        SELECT listed.id AS "machineId", latest.received_at AS "receivedAt"
+        FROM unnest(${machines.map((machine) => machine.id)}::uuid[]) AS listed(id)
+        CROSS JOIN LATERAL (
+          SELECT received_at FROM machine_event_deliveries WHERE machine_id = listed.id
+          ORDER BY received_at DESC LIMIT 1
+        ) AS latest`),
       tabletsOf(this.prisma, machines.map((machine) => machine.id)),
       takeoversOf(this.prisma, machines.map((machine) => machine.id)),
       currentLoadedRecipes(this.prisma, machines.map((machine) => machine.id)),
     ]);
     const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
+    const deliveredAt = new Map(deliveries.map(({ machineId, receivedAt }) => [machineId, receivedAt]));
     const stateByMachine = new Map(
       states.map(({ machineId, state, substate, observedAt }) => [machineId, { state, substate, observedAt: observedAt.toISOString() }]),
     );
@@ -566,7 +580,7 @@ export class MachinesService {
             : null,
         takeover: takeovers.get(machine.id) ?? null,
         online: machine.connectedSessionId !== null && machine.lastSeenAt !== null && machine.lastSeenAt.getTime() >= heardSince,
-        lastSeenAt: machine.lastSeenAt?.toISOString() ?? null,
+        lastSeenAt: lastSeen(machine.lastSeenAt, deliveredAt.get(machine.id))?.toISOString() ?? null,
         lastShot: lastByMachine.get(machine.id) ?? null,
         machineState: stateByMachine.get(machine.id) ?? null,
         loadedRecipe: loaded.get(machine.id) ?? null,
@@ -581,6 +595,12 @@ export class MachinesService {
       };
     });
   }
+}
+
+/** The later of a Machine's last heartbeat, hello or clean close and its latest delivery, either of which may be missing. */
+function lastSeen(heard: Date | null, delivered: Date | undefined): Date | null {
+  if (delivered === undefined) return heard;
+  return heard === null || delivered > heard ? delivered : heard;
 }
 
 /** What decides whether a welcomed connection may stay. */

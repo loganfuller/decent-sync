@@ -92,6 +92,11 @@ class TestAppProvider implements OAuthClientProvider {
 /** The most characters of one compact JSON copy of a tool's response (ADR-0028), as stated there, not read from the server. */
 export const RESPONSE_BUDGET = 45_000;
 
+/** A value as the tools give it outside the parts they give whole: each number in it that isn't whole to hundredths, as JSON then sends it, -0 as 0. */
+export function asTools<T>(value: T): T {
+  return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "number" && !Number.isInteger(field) ? Math.round(field * 100) / 100 || 0 : field)) as T;
+}
+
 /** Which protocol revisions the app's client speaks: the 2025 ones (`initialize`), or 2026-07-28. */
 export type Era = "legacy" | "modern";
 

@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put } from "@nestjs/common";
+import { Body, Controller, Delete, Get, HttpCode, Param, Patch, Post, Put, Query } from "@nestjs/common";
 import { AllowStaff, CurrentScope, CurrentSession } from "../accounts/guards.js";
 import type { Scope } from "../accounts/scope.js";
 import type { SignedIn } from "../accounts/sessions.service.js";
@@ -7,7 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import type { EquipmentKind } from "./equipment.js";
 import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipmentId } from "./equipment.service.js";
 import { hardDelete } from "./hard-deletes.js";
-import { type ConflictView, HistoryService, type VersionView } from "./history.service.js";
+import { type ConflictView, HistoryService, type VersionView, readHistoryField } from "./history.service.js";
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewEquipment, readShown } from "./item-input.js";
 import { LibraryEditsService } from "./library-edits.service.js";
@@ -68,9 +68,9 @@ abstract class EquipmentController {
     return hardDelete(this.prisma, this.kind, readEquipmentId(this.kind, id));
   }
 
-  /** Its versions, the latest taken in first (ADR-0020). */
-  protected versions(id: string, scope: Scope): Promise<VersionView[]> {
-    return this.history.versions({ kind: this.kind, id: readEquipmentId(this.kind, id) }, scope);
+  /** Its versions, the latest taken in first, or those that set the field its query names (ADR-0020). */
+  protected versions(id: string, query: Record<string, unknown>, scope: Scope): Promise<VersionView[]> {
+    return this.history.versions({ kind: this.kind, id: readEquipmentId(this.kind, id) }, scope, readHistoryField(query));
   }
 
   /** Its open Conflicts, the latest first (ADR-0020). */
@@ -131,8 +131,8 @@ export class BasketsController extends EquipmentController {
 
   @AllowStaff()
   @Get(":id/history")
-  async versionsOf(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.versions(id, scope) };
+  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
+    return { versions: await this.versions(id, query, scope) };
   }
 
   @AllowStaff()
@@ -194,8 +194,8 @@ export class ToolsController extends EquipmentController {
 
   @AllowStaff()
   @Get(":id/history")
-  async versionsOf(@Param("id") id: string, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
-    return { versions: await this.versions(id, scope) };
+  async versionsOf(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<{ versions: VersionView[] }> {
+    return { versions: await this.versions(id, query, scope) };
   }
 
   @AllowStaff()

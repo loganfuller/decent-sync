@@ -284,6 +284,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       tabletSettings: { presenceSettings: { available: true } },
       tabletVersions: { dye2: { status: "installed" } },
     });
+    // Its settings as Decaid sent them, not to hundredths as its other numbers are, as an edit's expected must give them.
+    expect(result).toMatchObject({ machineSettings: { sensorCalibration: { value: { pressure: { measuredValue: 1.0234375 } } } } });
 
     // A Machine moved since: each place it has been, oldest first.
     const van = await api.createMachine("Moved van", lab.id);

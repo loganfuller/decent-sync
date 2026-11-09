@@ -32,7 +32,7 @@ const MACHINE_TIMES =
 
 /** What list_machines gives of each Machine, which get_machine gives too. */
 const LISTED =
-  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, when it was last heard from; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
+  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, its plugin's latest heartbeat or report; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 5, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
 
 /** What a date given for a bound of a Machine's activity means. */
 const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
@@ -71,7 +71,9 @@ const listedMachine = z.object({
   model: z.string().nullable().describe("Such as DE1PRO or Bengle; null until its tablet reports it."),
   location: location.nullable().describe("Where it is now; null if nowhere known."),
   online: z.boolean().describe("Whether its tablet's plugin is connected now."),
-  lastSeenAt: time.nullable().describe("When its plugin was last heard from; null if never."),
+  lastSeenAt: time
+    .nullable()
+    .describe("When its plugin was last heard from, by the server's clock: the later of its latest heartbeat and the latest Workflow, Machine State or collection report the server received from it; null if never. online goes by the heartbeats alone."),
   machineState: machineState.nullable().describe("What it is doing: its last Machine State, null before any."),
   loadedRecipe: loadedRecipe.nullable(),
   captureOnly,
@@ -130,7 +132,7 @@ const machineOutput = z.object({
       receivedAt: time,
       ...workflowCause,
       workflow: workflowSummaryOutput,
-      raw: z.record(z.string(), z.unknown()).optional().describe("With raw, Decaid's Workflow, as sent."),
+      raw: z.record(z.string(), z.unknown()).optional().describe("With raw, Decaid's Workflow, as sent, its numbers to hundredths."),
     })
     .nullable()
     .describe("Its Workflow: what it is set up to do next, as its tablet last reported it, summarised as get_machine_activity gives the one in effect as a range begins; null before any."),
@@ -264,7 +266,7 @@ const machineInput = z.object({
     .datetime({ offset: true, error: "Enter at as a time with its seconds and offset, such as 2026-11-06T14:30:00-05:00" })
     .optional()
     .describe("A moment, with its offset, such as 2026-11-06T14:30:00-05:00, to give its Machine Settings and Tablet Settings as last received at or before; none for as now."),
-  raw: z.boolean().default(false).describe("Whether to give its Workflow whole too, as Decaid sent it, its Profile included, beside the summary."),
+  raw: z.boolean().default(false).describe("Whether to give its Workflow whole too, as Decaid sent it, its Profile included and its numbers to hundredths, beside the summary."),
 });
 
 /** What get_machine gives with a time. */
@@ -305,7 +307,7 @@ const report = z
     available: z.boolean().describe("Whether the latest report had a value: false while, say, no scale is connected."),
     reportedAt: time.describe("When the latest report, available or not, was received."),
     receivedAt: time.nullable().describe("When its value was received; null if no report has had one."),
-    value: z.unknown().describe("The latest value reported, as Decaid sent it, its fields as Decaid names them, kept while later reports are unavailable; null if none has had one."),
+    value: z.unknown().describe("The latest value reported, as Decaid sent it, its fields as Decaid names them and its numbers to hundredths, kept while later reports are unavailable; null if none has had one."),
   })
   .nullable();
 
@@ -339,7 +341,7 @@ const reportsOutput = z.object({
 
 /** What each collection get_machine_reports gives is, and how its report reads (docs/COLLECTIONS.md). */
 const REPORTS_NOTE =
-  `scaleInfo is the connected scale's own report, such as its firmwareVersion and batteryLevel, which only some scales give, unavailable while none is connected; sensors, the sensors Decaid lists as connected, each by its id with its manifest (info): its name, vendor, data and commands; plugins, Decaid's plugin list, each plugin's manifest, such as its id, name and version, with loaded, autoLoad, source, how it was installed, such as {"kind":"github_branch","branch":"dist"}, or null for a bundled one, and pendingUpdate; skins, Decaid's Skins as {skins, default, server}: those installed, each with its id, name, version and path, the default Skin, null with none installed, and the WebUI server's status, whose path is the Skin it serves, null while it serves nothing. Each of these four is as Decaid sent it, by Decaid's names: available false when the latest read had nothing, the value read before kept; reportedAt when the latest report was received, receivedAt when its value was; null for one never reported. pairedDevices are the devices paired with its tablet, leaving out those only discovered nearby, as the management interface's Paired devices card shows them: the Scale that weighs Shots, the one Decaid has connected as primary or else the one it prefers; an Auxiliary Scale; its sensors; and others, such as the machine itself; each with its model as Decaid names it, its connection state when last reported and a sensor's vendor, the connected scale with the firmware and battery level scaleInfo gives, if any; reportedAt, available and receivedAt as for the others, null if never reported. Each is the latest reported: list_settings_history gives each change of them, and get_machine the DYE2 and Streamline among them.`;
+  `scaleInfo is the connected scale's own report, such as its firmwareVersion and batteryLevel, which only some scales give, unavailable while none is connected; sensors, the sensors Decaid lists as connected, each by its id with its manifest (info): its name, vendor, data and commands; plugins, Decaid's plugin list, each plugin's manifest, such as its id, name and version, with loaded, autoLoad, source, how it was installed, such as {"kind":"github_branch","branch":"dist"}, or null for a bundled one, and pendingUpdate; skins, Decaid's Skins as {skins, default, server}: those installed, each with its id, name, version and path, the default Skin, null with none installed, and the WebUI server's status, whose path is the Skin it serves, null while it serves nothing. Each of these four is as Decaid sent it, by Decaid's names, its numbers to hundredths: available false when the latest read had nothing, the value read before kept; reportedAt when the latest report was received, receivedAt when its value was; null for one never reported. pairedDevices are the devices paired with its tablet, leaving out those only discovered nearby, as the management interface's Paired devices card shows them: the Scale that weighs Shots, the one Decaid has connected as primary or else the one it prefers; an Auxiliary Scale; its sensors; and others, such as the machine itself; each with its model as Decaid names it, its connection state when last reported and a sensor's vendor, the connected scale with the firmware and battery level scaleInfo gives, if any; reportedAt, available and receivedAt as for the others, null if never reported. Each is the latest reported: list_settings_history gives each change of them, and get_machine the DYE2 and Streamline among them.`;
 
 const historyOutput = z.object({
   ...pageOutput,
@@ -407,7 +409,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine",
     title: "Get a Machine",
-    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, with who made its latest change, is summarised; raw adds it whole, as Decaid sent it. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
+    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, with who made its latest change, is summarised; raw adds it whole, to hundredths. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
     inputSchema: machineInput,
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
