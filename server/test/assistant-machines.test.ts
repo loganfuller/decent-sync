@@ -8,7 +8,7 @@ import { SimulatedDye2, dye2List, dye2NeverUsed, recordedDye2MainTablet, selectR
 import { startStreamline } from "./support/simulated-streamline.js";
 import { quiesced } from "./support/quiet.js";
 import { runAsSteps } from "./support/steps.js";
-import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith } from "./support/simulated-tablet.js";
+import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, simulatedDevices, simulatedDevicesSwitchedOff } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
 // Seam 1 for #407 (#405, ADR-0026): Machines read through an assistant, a
@@ -58,6 +58,32 @@ interface TrailEntry {
   replaced?: { id: string; name: string | null };
   workflow?: Record_;
   changes?: { field: string; before: unknown; after: unknown }[];
+}
+
+/** A collection get_machine_reports gives, as the REST API gives it. */
+interface Report {
+  available: boolean;
+  reportedAt: string;
+  receivedAt: string | null;
+  value: unknown;
+}
+
+interface PairedDevice {
+  id: string;
+  type: string | null;
+  model: string | null;
+  vendor: string | null;
+  state: string | null;
+  firmware: string | null;
+  batteryLevel: number | null;
+}
+
+interface Reports {
+  scaleInfo?: Report | null;
+  sensors?: Report | null;
+  pairedDevices?: { reportedAt: string | null; available: boolean | null; receivedAt: string | null; scale: PairedDevice | null; auxiliaryScale: PairedDevice | null; sensors: PairedDevice[]; others: PairedDevice[] };
+  plugins?: Report | null;
+  skins?: Report | null;
 }
 
 interface Activity {
@@ -186,7 +212,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
   it("lists the Machine tools, each only reading", async () => {
     const { tools } = await assistant.client.listTools();
-    for (const name of ["list_machines", "get_machine", "get_machine_activity", "list_settings_edits", "list_settings_history"]) {
+    for (const name of ["list_machines", "get_machine", "get_machine_reports", "get_machine_activity", "list_settings_edits", "list_settings_history"]) {
       expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({ readOnlyHint: true });
     }
   });
@@ -302,10 +328,109 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
     expect(changes.entries).toEqual([expect.objectContaining({ kind: "inEffect", workflow: summary })]);
   });
 
+  /** What get_machine_reports gives of a Machine, through the REST API: each collection as its route gives it, and its paired devices as that route does. */
+  async function restReports(machineId: string): Promise<Reports> {
+    const path = `/machines/${machineId}`;
+    const collection = async (name: string) => {
+      const { collection } = await api.get<{ collection: (Report & Record_) | null }>(`${path}/collections/${name}`);
+      return collection && { available: collection.available, reportedAt: collection.reportedAt, receivedAt: collection.receivedAt, value: collection.value };
+    };
+    return {
+      scaleInfo: await collection("scaleInfo"),
+      sensors: await collection("sensors"),
+      pairedDevices: (await api.get<{ pairedDevices: Reports["pairedDevices"] }>(`${path}/paired-devices`)).pairedDevices,
+      plugins: await collection("plugins"),
+      skins: await collection("skins"),
+    };
+  }
+
+  it("gives what its tablet reports besides its settings as the REST API does: its scale's own report, its sensors, plugins and Skins, and its paired devices as the Machine page shows them", async () => {
+    const reports = await assistant.call<Reports>("get_machine_reports", { machineId: bar.machine.id });
+    expect(instants(reports)).toEqual(instants(await restReports(bar.machine.id)));
+    // As its tablet's plugin read them: no scale connected, so no report of one ever read, the Bookoo it prefers
+    // disconnected, the DE1 connected, no sensors, the plugin and DYE2, and Streamline's build of main the default Skin.
+    expect(Object.keys(reports)).toEqual(["scaleInfo", "sensors", "pairedDevices", "plugins", "skins"]);
+    expect(reports.scaleInfo).toMatchObject({ available: false, receivedAt: null, value: null });
+    expect(reports.sensors).toMatchObject({ available: true, value: [] });
+    expect(reports.pairedDevices).toMatchObject({
+      available: true,
+      scale: { type: "scale", model: "Bookoo Mini Scale", state: "disconnected", firmware: null },
+      auxiliaryScale: null,
+      sensors: [],
+      others: [{ type: "machine", model: "DE1", state: "connected" }],
+    });
+    expect((reports.plugins!.value as { id: string }[]).map((plugin) => plugin.id)).toContain("dye2.reaplugin");
+    expect(reports.skins!.value).toMatchObject({ default: { id: "streamline.js-dist" }, server: { serving: true } });
+    expectZoned(CHICAGO, reports.scaleInfo!.reportedAt, reports.plugins!.reportedAt, reports.plugins!.receivedAt, reports.pairedDevices!.reportedAt, reports.pairedDevices!.receivedAt);
+
+    // Only those asked for, each once.
+    const some = await assistant.call<Reports>("get_machine_reports", { machineId: bar.machine.id, collections: ["skins", "plugins", "skins"] });
+    expect(Object.keys(some)).toEqual(["plugins", "skins"]);
+    expect(some.plugins!.value).toEqual(reports.plugins!.value);
+  });
+
+  it("gives a connected scale's firmware and battery level on the scale they describe, keeps a report's value while its scale is off, and gives none of what was never reported", async () => {
+    const machine = await api.createMachine("Lab scale bench", lab.id);
+    expect(await assistant.call<Reports>("get_machine_reports", { machineId: machine.machine.id })).toEqual({
+      scaleInfo: null,
+      sensors: null,
+      pairedDevices: { reportedAt: null, available: null, receivedAt: null, scale: null, auxiliaryScale: null, sensors: [], others: [] },
+      plugins: null,
+      skins: null,
+    });
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token, { machine: { model: "DE1Pro", serial: "40721" } }));
+    try {
+      const report = (name: string, value?: unknown) =>
+        raw.deliver(value === undefined ? { type: "collection", id: randomUUID(), name, available: false } : { type: "collection", id: randomUUID(), name, available: true, value });
+      // Decaid's simulated devices, as its plugin sends them, without the machine only discovered nearby; derived: their
+      // scale's report with the two fields scale_handler.dart writes for a scale that reports them, as a Skale2 does.
+      const simulated = simulatedDevices();
+      const nearby = (devices: unknown) => (devices as { state: string }[]).filter((device) => device.state !== "discovered");
+      await report("appSettings", simulated["/settings"]);
+      await report("pairedDevices", nearby(simulated["/devices"]));
+      await report("sensors", simulated["/sensors"]);
+      await report("scaleInfo", { firmwareVersion: "1.2.0", batteryLevel: 80 });
+      const on = await assistant.call<Reports>("get_machine_reports", { machineId: machine.machine.id, collections: ["scaleInfo", "pairedDevices"] });
+      expect(on.scaleInfo).toMatchObject({ available: true, value: { firmwareVersion: "1.2.0", batteryLevel: 80 } });
+      expect(on.pairedDevices!.scale).toEqual({ id: "MockScale", type: "scale", model: "Mock Scale", vendor: null, state: "connected", firmware: "1.2.0", batteryLevel: 80 });
+      expect(on.pairedDevices!.sensors.map(({ model, vendor }) => [model, vendor])).toEqual([
+        ["DebugPort", "DecentEspresso"],
+        ["SensorBasket", "DecentEspresso"],
+      ]);
+
+      // The scale switched off: Decaid lists it disconnected and can't read its report, which keeps the one read before.
+      await report("pairedDevices", nearby(simulatedDevicesSwitchedOff()["/devices"]));
+      await report("scaleInfo");
+      const off = await assistant.call<Reports>("get_machine_reports", { machineId: machine.machine.id });
+      expect(off.scaleInfo).toMatchObject({ available: false, receivedAt: on.scaleInfo!.receivedAt, value: { firmwareVersion: "1.2.0", batteryLevel: 80 } });
+      expect(Date.parse(off.scaleInfo!.reportedAt)).toBeGreaterThan(Date.parse(off.scaleInfo!.receivedAt!));
+      expect(off.pairedDevices!.scale).toEqual({ ...on.pairedDevices!.scale, state: "disconnected", firmware: null, batteryLevel: null });
+      expect(off).toMatchObject({ plugins: null, skins: null });
+      expect(instants(off)).toEqual(instants(await restReports(machine.machine.id)));
+    } finally {
+      await raw.terminate();
+    }
+  });
+
+  it("refuses a collection it doesn't give, naming those it does", async () => {
+    const refusal = (collections: unknown) => assistant.client.callTool({ name: "get_machine_reports", arguments: { machineId: bar.machine.id, collections } });
+    // Neither one no tablet reports, nor a settings collection, which get_machine gives.
+    for (const [collections, named] of [
+      [["battery"], "battery"],
+      [["plugins", "machineSettings"], "machineSettings"],
+    ] as const) {
+      const result = await refusal(collections);
+      expect(result.isError, named).toBe(true);
+      expect((result.content as { text: string }[])[0]!.text).toContain(`No such collection as "${named}": name scaleInfo, sensors, pairedDevices, plugins or skins`);
+    }
+    expect((await refusal([])).isError).toBe(true);
+  });
+
   it("refuses a Machine that doesn't exist, as the REST API does", async () => {
     for (const machineId of [randomUUID(), "not an id"]) {
       for (const [name, args] of [
         ["get_machine", { machineId }],
+        ["get_machine_reports", { machineId }],
         ["get_machine_activity", { machineId }],
         ["list_settings_edits", { machineId }],
         ["list_settings_history", { machineId }],
@@ -762,6 +887,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       for (const machineId of [bar.machine.id, van.id]) {
         const read = (through: Assistant) => through.call<Record_>("get_machine", { machineId });
         expect(unseen(await read(as.assistant)), who).toEqual(unseen(await read(assistant)));
+        const reports = (through: Assistant) => through.call<Reports>("get_machine_reports", { machineId });
+        expect(await reports(as.assistant), who).toEqual(await reports(assistant));
       }
       const activity = (through: Assistant) => through.call<Activity>("get_machine_activity", { machineId: roaster.machine.id });
       expect(await activity(as.assistant), who).toEqual(await activity(assistant));
