@@ -19,8 +19,9 @@ export interface ShotFilters extends RecordFilters {
   /**
    * How the text filters match: `exact`, the default, as the Shots page's
    * choices pass what Shots recorded; or `words`, as an assistant's
-   * find_shots does, each word anywhere, ignoring case, as find_library_items
-   * matches names, a filter of no words then matching Shots that recorded none.
+   * find_shots does unless asked for exact, each word anywhere, ignoring
+   * case, as find_library_items matches names, a filter of no words then
+   * matching Shots that recorded none.
    */
   match?: "exact" | "words";
   coffeeRoaster?: string;

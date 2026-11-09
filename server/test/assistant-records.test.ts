@@ -580,7 +580,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await assistant.call<Fields>("get_shot", { id: "assistant-long" })).toMatchObject({ barista, notes, profileTitle: "Londonium, a little longer at the start, for the lighter roasts", bean: { roaster }, grinderModel: "DF64 v2", basketName: "Decent 18g Ridgeless" });
     // A cut name is no name a Shot recorded, so a filter holding one is refused, as a change is; a few of its words find it.
     expect(await toolError("find_shots", { barista: row.barista as string })).toBe(
-      "A value holds …[cut], so it is text a response cut short: a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
+      "A value holds …[cut], so it is text a response cut short: matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id",
     );
     expect((await assistant.call<{ shots: Fields[] }>("find_shots", { ...day, barista: "annabelle morning" })).shots.map((shot) => shot.id)).toEqual(["assistant-long"]);
     // A page whose names and notes are short says nothing of a cut.

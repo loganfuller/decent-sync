@@ -194,7 +194,7 @@ const textFilter = (which: string) =>
     .string()
     .max(500)
     .optional()
-    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one, or matching words one of spaces alone, finds Shots that recorded none.`);
+    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one finds Shots that recorded none, and so does one of spaces alone when matching words.`);
 
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),
@@ -293,7 +293,7 @@ export class RecordsTools {
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
     // A name a row cut is no name a Shot recorded.
-    refuseCutText(input, "a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
+    refuseCutText(input, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
     const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
