@@ -50,8 +50,8 @@ export const thinnedToSchema = z
 
 /**
  * A record's `curves` input: true for every one of its curves, a list of
- * those to give, or false for none, unless its tool takes a window, which
- * asks for every curve.
+ * those to give, or false for none, unless a window is given, where its tool
+ * takes one (`window`), which asks for every curve.
  */
 export function curvesInput<C extends string>(curves: Record<C, CurveInfo>, { window = false } = {}) {
   const names = Object.keys(curves) as [C, ...C[]];

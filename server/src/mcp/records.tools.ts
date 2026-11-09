@@ -174,7 +174,7 @@ const curveWindow = z
     from: z.number().optional().describe("In seconds on its curves' axis; from its first sample when left out."),
     until: z.number().optional().describe("In seconds on its curves' axis; until its last sample when left out."),
   })
-  // Refusing another key, such as the to other tools' ranges take, rather than dropping it and running to the end.
+  // Refuses any other key, such as the `to` other tools' ranges end with, rather than dropping it and running to the Shot's end.
   .strict()
   .optional()
   .describe("Only the curves' readings in this stretch of their axis, its bounds included: every one if the response fits, otherwise each series thinned to as many as fit (thinnedTo). With curves false or left out, it gives all of them.");
