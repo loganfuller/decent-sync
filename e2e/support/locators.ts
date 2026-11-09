@@ -26,6 +26,8 @@ export async function signOut(page: Page, accountName: string): Promise<void> {
 export async function openCard(page: Page, name: string): Promise<Locator> {
   const card = page.getByRole("region", { name, exact: true });
   await card.getByRole("button", { name: `Show ${name}`, exact: true }).click();
+  // Open first, as what it holds shows with its Hide button, so it is not read as loaded before it shows.
+  await expect(card.getByRole("button", { name: `Hide ${name}`, exact: true })).toBeVisible();
   await expect(card.getByText("Loading", { exact: true })).toHaveCount(0);
   return card;
 }
