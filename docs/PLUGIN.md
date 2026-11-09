@@ -69,7 +69,8 @@ The machine's own settings are read every 60 seconds, or every poll interval
 if that is longer, and whenever a Workflow change writes them. These reads
 happen only while the machine is idle, asleep or out of water. A read that
 falls due during a Shot, steaming, hot water, a flush or cleaning waits until
-the machine is idle again.
+the machine is idle again. The sensors' calibration is read as the plugin
+connects and once a day, also only while the machine is idle.
 
 ## Updates
 
@@ -99,14 +100,16 @@ So a tablet can take a plugin update before or after its server is upgraded.
 - **Shots and Steam Records.** Each time the plugin loads, it sends the server
   an index of the tablet's records, and the server asks for any it lacks.
   Nothing needs keeping on the tablet.
-- **Workflow changes and machine state transitions.** The plugin keeps those
-  the server hasn't yet acknowledged in Decaid's plugin storage. So disabling
-  the plugin, changing its settings or restarting Decaid while the server is
-  unreachable loses none of them. The next load sends them first, unless the
+- **Workflow changes and machine state transitions.** Each Workflow change
+  says whether one of the plugin's own writes made it, such as loading a
+  Recipe. The plugin keeps those the server hasn't yet acknowledged in
+  Decaid's plugin storage. So disabling the plugin, changing its settings or
+  restarting Decaid while the server is unreachable loses none of them. The next load sends them first, unless the
   token was changed in the meantime. During a long outage, the plugin keeps
   the newest 2,000, up to 2 Mi characters, and drops the oldest.
-- **The library, settings, paired devices, scale and sensors**, as each poll
-  finds them.
+- **The library, settings, paired devices, scale, sensors, plugins and
+  Skins**, as each poll finds them. A setting a Settings Edit changed is sent
+  naming the edit, for the Machine's Settings History.
 
 ## What it writes to the tablet
 

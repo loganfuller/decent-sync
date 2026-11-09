@@ -105,7 +105,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/shot-dark.png">
-  <img src="docs/images/shot-light.png" alt="A Shot's pressure, flow, weight and temperature curves over the previous Shot on its Machine, with a table comparing their grind setting, dose, yield, duration and peak pressure">
+  <img src="docs/images/shot-light.png" alt="A Shot's pressure, flow, weight, weight flow and temperature curves over the previous Shot on its Machine, with a table comparing their grind setting, dose, yield, duration and peak pressure">
 </picture>
 
 ### Machines, from anywhere
@@ -137,6 +137,7 @@ Connect Claude, ChatGPT or another MCP app, and ask in plain words:
 - "How many shots did the cafe pull yesterday, and with which beans?"
 - "Have shots of the new Kenya batch been running faster than last week's?"
 - "What is each machine at the cafe doing right now?"
+- "How was the left machine dialed in this morning, and how did its shots run?"
 - "Add this week's roast of the house blend at the cafe."
 - "Put the new espresso recipe in slot 2."
 
@@ -258,16 +259,18 @@ The app sends you to the server to sign in and approve it, either to read only
 or to read and change. It then acts as you, within what your account may do. A
 Viewer's app can only read.
 
-An assistant can read Locations, Machines with their activity and settings,
-then or now, Settings Edits, each Machine's Settings History, Shots, Steam Records, and the Library with each item's history
-and Conflicts. It can create and edit Beans, Bean Batches, Grinders, Baskets,
-Tools and Recipes, Archive and restore Library items, change what a Location
-offers, put Recipes in Recipe Slots and copy them to other Locations, use or
-dismiss a Conflict's value, make Settings Edits, and move Machines between
-Locations. An Admin's assistant can also turn a Machine's sharing on or off,
-and create and edit Locations. Nothing an assistant does grants access or
-deletes anything for good. Each Library change and Settings Edit it makes is
-recorded as "*account*, through *app*".
+An assistant can read Locations, Machines with their settings, then or now,
+and their activity, each dial-in change included, each Machine's scale,
+sensors, paired devices, plugins and Skins, Settings Edits and Settings
+History, Shots with their curves and the profile steps they ran, Steam
+Records, and the Library with each item's history and Conflicts. It can create
+and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
+restore Library items, change what a Location offers, put Recipes in Recipe
+Slots and copy them to other Locations, use or dismiss a Conflict's value, make
+Settings Edits, and move Machines between Locations. An Admin's assistant can
+also turn a Machine's sharing on or off, and create and edit Locations. Nothing
+an assistant does grants access or deletes anything for good. Each Library
+change and Settings Edit it makes is recorded as "*account*, through *app*".
 
 Each answer is kept small enough for Claude and ChatGPT to read whole: a long
 list comes a page at a time, and very long text, such as a Shot's notes, may be
@@ -292,7 +295,7 @@ Milestones 1 to 6 are released. See [all releases](https://github.com/loganfulle
 | 3. [Recipes and equipment](https://github.com/loganfuller/decent-sync/milestone/3) | DYE2 Recipes, Baskets and Tools, Recipe Slots, and each Machine's Loaded Recipe. | [#134](https://github.com/loganfuller/decent-sync/issues/134) | v1.0.0 |
 | 4. [Machine management](https://github.com/loganfuller/decent-sync/milestone/4) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) | [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) |
 | 5. [Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) | [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) |
-| 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0) |
+| 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) |
 | 7. Analytics | Views across Machines and Locations, and grouping by Barista. | | Planned |
 | 8. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |
 

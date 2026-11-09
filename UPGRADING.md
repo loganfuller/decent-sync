@@ -15,6 +15,8 @@ Releasing).
 
 ## Unreleased
 
+## 1.8.0
+
 ### Settings History starts with this release
 
 The server now keeps each Machine's Settings History: every change its
