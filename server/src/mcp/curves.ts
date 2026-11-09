@@ -50,14 +50,15 @@ export const thinnedToSchema = z
 
 /**
  * A record's `curves` input: true for every one of its curves, a list of
- * those to give, or false for none.
+ * those to give, or false for none, unless a window is given, where its tool
+ * takes one (`window`), which asks for every curve.
  */
-export function curvesInput<C extends string>(curves: Record<C, CurveInfo>) {
+export function curvesInput<C extends string>(curves: Record<C, CurveInfo>, { window = false } = {}) {
   const names = Object.keys(curves) as [C, ...C[]];
   return z
     .union([z.boolean(), z.array(z.enum(names)).min(1)])
     .default(false)
-    .describe(`Its curves: true for all of them, or a list of those to give, of ${names.join(", ")}; none when false or left out, unless a window asks for them.`);
+    .describe(`Its curves: true for all of them, or a list of those to give, of ${names.join(", ")}; none when false or left out${window ? ", unless a window asks for them" : ""}.`);
 }
 
 /** The curves `curvesInput` asks for, in their usual order: all of them, those listed, or none. */

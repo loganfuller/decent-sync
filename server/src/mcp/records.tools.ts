@@ -168,12 +168,14 @@ const steamDetails = steamSummary.extend({
     .describe("Only when asked for, all or those listed. Seconds from when it started steaming."),
 });
 
-const shotCurves = curvesInput(SHOT_CURVES);
+const shotCurves = curvesInput(SHOT_CURVES, { window: true });
 const curveWindow = z
   .object({
     from: z.number().optional().describe("In seconds on its curves' axis; from its first sample when left out."),
     until: z.number().optional().describe("In seconds on its curves' axis; until its last sample when left out."),
   })
+  // Refuses any other key, such as the `to` other tools' ranges end with, rather than dropping it and running to the Shot's end.
+  .strict()
   .optional()
   .describe("Only the curves' readings in this stretch of their axis, its bounds included: every one if the response fits, otherwise each series thinned to as many as fit (thinnedTo). With curves false or left out, it gives all of them.");
 const getShotInput = z.object({ id: id.describe("The Shot's id."), curves: shotCurves, window: curveWindow });
