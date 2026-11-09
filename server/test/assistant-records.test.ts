@@ -686,6 +686,8 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(Object.keys(alone.curves)).toEqual(Object.keys(all.curves));
     expect(alone.curves.weight).toEqual(near.curves.weight);
     expect(await toolError("get_shot", { id: "assistant-window", window: { from: 5, until: 1 } })).toBe("Choose a window's until at or after its from");
+    // A bound named as other tools' ranges name theirs is refused, rather than dropped to run the window to the Shot's end.
+    expect(await toolError("get_shot", { id: "assistant-window", window: { from: 20, to: 25 } })).toContain('window: Unrecognized key: "to"');
     // An empty list or a curve it doesn't have is refused as an invalid input.
     for (const curves of [[], ["mixTemperature"]]) expect(await toolError("get_shot", { id: "assistant-window", curves })).toMatch(/curves/);
 
