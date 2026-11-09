@@ -915,7 +915,15 @@ Machine Settings and Tablet Settings by their field definitions (Settings
 fields, above), the steam, hot water and flush settings of the current
 Workflow, its Settings History, a row per field changed, with brief changes
 shown on asking, and how many of each library collection its tablet reported,
-loaded every 30 s rather than every 5 s as the Machine's status is.
+loaded every 30 s rather than every 5 s as the Machine's status is. Through
+the MCP endpoint, `get_machine` gives the Machine Settings, the Tablet
+Settings and the Versions card's rows, and `get_machine_reports` (ticket
+[#441](https://github.com/loganfuller/decent-sync/issues/441)) gives
+`scaleInfo`, `sensors`, `plugins` and `skins` with the `available`,
+`reportedAt`, `receivedAt` and `value` that
+`GET /api/machines/:id/collections/:name` gives, and the paired devices as
+`GET /api/machines/:id/paired-devices` and the Machine page do, each the latest
+reported.
 
 `server/test/collections.test.ts` covers this through Seam 1, with the built
 plugin and raw frames on two instances sharing PostgreSQL,
@@ -923,7 +931,7 @@ plugin and raw frames on two instances sharing PostgreSQL,
 `protocol/test/settings-history.test.ts` its projection and its changes,
 `server/test/settings-history-reads.test.ts` its REST reads,
 `server/test/assistant-machines.test.ts` and `assistant-budget.test.ts`
-`list_settings_history` and `get_machine` with a time,
+`list_settings_history`, `get_machine` with a time and `get_machine_reports`,
 `server/test/machine-settings-while-busy.test.ts` the reads from the machine
 waiting while it runs something, with `plugin/test/machine-activity.test.ts`
 when it runs nothing, and `e2e/library-settings-devices.spec.ts` and
