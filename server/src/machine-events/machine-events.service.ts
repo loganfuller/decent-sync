@@ -1,8 +1,9 @@
 import { Injectable } from "@nestjs/common";
 import { PLUGIN_WORKFLOW_WRITES, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
-import { INTAKE_TRANSACTION, lockTablet } from "../library/intake.js";
+import { INTAKE_TRANSACTION, lockTablet, sharingLocation } from "../library/intake.js";
 import { takeInWorkflow } from "../library/joining.js";
+import { lockLocation } from "../library/location-state.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import type { MachineStateView } from "../machines/machines.service.js";
@@ -106,7 +107,9 @@ export interface MachineStateEventView extends MachineStateView {
  * mismatched, for its token's Machine, is also taken in at its Location in
  * the same transaction
  * (`takeInWorkflow`), as its tablet joins it, and into the Machine's Loaded
- * Recipe (`takeInLoadedRecipe`, ADR-0022).
+ * Recipe (`takeInLoadedRecipe`, ADR-0022), under the Machine's row lock,
+ * the tablet's, then the Location's, all taken before the Workflow is
+ * stored, as its links to the Library hold the rows of the items it names.
  */
 @Injectable()
 export class MachineEventsService {
@@ -123,8 +126,14 @@ export class MachineEventsService {
     return this.prisma.$transaction(async (tx) => {
       const credit = await creditFirstDelivery(tx, reporter, message.id);
       if (!credit) return undefined;
+      // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
+      const takenIn = reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId;
       // The tablet's map, which its ids resolve through, changes only under this lock, which takeInWorkflow takes too.
       await lockTablet(tx, reporter.tabletId);
+      // Then the Location's lock, which taking it in may take, before the insert's links hold the Recipe's row for key
+      // share: a Recipe's slots and edits take that lock before its row, and a move of its slot waits for a key share (#452).
+      const locationId = takenIn ? await sharingLocation(tx, reporter.machineId) : null;
+      if (locationId !== null) await lockLocation(tx, locationId);
       await tx.$executeRaw`
         WITH reported AS (SELECT ${workflow}::jsonb AS workflow)
         INSERT INTO workflow_events (machine_id, pending_machine_id, observed_at, workflow, cause, plugin_write, tablet_id, ${WORKFLOW_LINK_COLUMNS})
@@ -136,8 +145,7 @@ export class MachineEventsService {
           SELECT 1 FROM (SELECT workflow FROM workflow_events WHERE ${heldBy(credit)} ORDER BY id DESC LIMIT 1) AS latest
           WHERE latest.workflow = reported.workflow
         )`;
-      // A mismatched connection's tablet is not its token's Machine's, so it takes no part in the Library (ADR-0004).
-      if (reporter.identity.kind !== "mismatch" && credit.machineId === reporter.machineId) {
+      if (takenIn) {
         const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
         return takeInWorkflow(tx, tablet, message.workflow, (entry, joining) =>
           takeInLoadedRecipe(tx, tablet, message.workflow, message.observedAt, entry, joining, { dye2Absent: message.dye2Absent, recipeNamedAt: message.recipeNamedAt }),
