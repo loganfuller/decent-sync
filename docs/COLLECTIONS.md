@@ -418,8 +418,10 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   action first, as asked, such as "Change the wake schedule at 06:30", then
   each field changed, or for an add each field it set, in the schedule's
   order. The section's status names it the same way while pending, and as
-  done, such as "Wake schedule at 06:30 changed", once applied. It loads
-  every 30 s, and again as an edit made on the page is answered. A time of
+  done, such as "Wake schedule at 06:30 changed", once applied. It is shown
+  closed, as is the Settings History card, since most who read the page need
+  neither, and loads nothing until opened. Open, it loads every 30 s, and
+  again as an edit made on the page is answered. A time of
   day there is the Tablet's own, written without its offset, as an edit
   does not keep the offset it was made in.
 

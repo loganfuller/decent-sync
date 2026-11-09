@@ -1,6 +1,6 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
-import { machineRow, rows } from "./support/locators.js";
+import { machineRow, openCard, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
@@ -85,17 +85,19 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
    * for this test's data has loaded, so a read of the page as it shows misses
    * none (#382); a control Staff working at Uptown have there, from the last
    * of those parts to load, which the Staff half, reading as `loaded` shows,
-   * misses if `loaded` comes too early; and its filters. The Locations table
-   * of a Profile, Basket or Tool shows before its rows, which wait for the
-   * list of Locations.
+   * misses if `loaded` comes too early; the cards it shows closed, which a
+   * Viewer's half reads open; and its filters. The Locations table of a
+   * Profile, Basket or Tool shows before its rows, which wait for the list of
+   * Locations.
    */
-  const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; filters?: RegExp[] }[] = [
+  const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; closed?: string[]; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
     {
       path: `/machines/${machineId}`,
       loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(),
       staffHave: "button Edit General",
-      filters: [/^checkbox Show brief changes$/],
+      closed: ["Settings Edits", "Settings History"],
+      filters: [/^checkbox Show brief changes$/, /^button Hide Settings (Edits|History)$/],
     },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
@@ -122,9 +124,10 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     }
   });
   await asNew(page, browser, "viewer", undefined, async (valsPage) => {
-    for (const { path, loaded, filters } of PAGES) {
+    for (const { path, loaded, closed, filters } of PAGES) {
       await valsPage.goto(path);
       await expect(loaded(valsPage)).toBeVisible();
+      for (const name of closed ?? []) await openCard(valsPage, name);
       expect(await changingControls(valsPage, filters), path).toEqual([]);
     }
 

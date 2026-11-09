@@ -1,7 +1,7 @@
 import { expect, type Browser, type Page, test } from "@playwright/test";
 import { SimulatedTablet, derivedDe1Pro, sensorCalibration, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field, rows } from "./support/locators.js";
+import { field, openCard, rows } from "./support/locators.js";
 import { DETAILS_POLL_MS } from "./support/polling.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
@@ -230,7 +230,7 @@ test("the Settings Edits card lists each edit newest first, naming accounts to a
     const refused = await makeEdit(patsPage, machine.id, { steamPurgeMode: 0 }, { steamPurgeMode: 1 });
     await expect.poll(async () => (await editOf(patsPage, machine.id, refused)).outcome).toBe("refused");
     await patsPage.goto(`/machines/${machine.id}`);
-    const card = patsPage.getByRole("region", { name: "Settings Edits" });
+    const card = await openCard(patsPage, "Settings Edits");
     const edits = rows(card.getByRole("table", { name: "Settings Edits" }));
     await expect(edits).toHaveCount(4);
     // Pat's own edit is theirs; the Admin's are by an account, unnamed, as the Library's history shows Staff.
@@ -248,17 +248,31 @@ test("the Settings Edits card lists each edit newest first, naming accounts to a
 
   // An Admin sees Pat's edit by Pat's name, and their own as theirs.
   await page.goto(`/machines/${machine.id}`);
-  const edits = rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" }));
+  const edits = rows((await openCard(page, "Settings Edits")).getByRole("table", { name: "Settings Edits" }));
   await expect(edits.locator("td:nth-child(2)")).toHaveText(["Staff", "You", "You", "You"]);
   await expect(edits.locator("td:nth-child(5)")).toHaveText([/^Not changed/, "Not confirmed", "Applied, answered late", "Applied"]);
 });
 
-test("the Settings Edits card says so while a Machine has none, and lists an edit made on the page once it is answered", async ({ page }) => {
+test("the Settings Edits card is shown closed, loading nothing until opened, then says so while a Machine has none, and lists an edit made on the page once it is answered", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Pier");
   await tabletOf(token, "22602");
   await reported(page, machine.id);
+  const loads: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (request.method() === "GET" && /\/settings-(edits|history)$/.test(pathname)) loads.push(pathname);
+  });
   await page.goto(`/machines/${machine.id}`);
-  const card = page.getByRole("region", { name: "Settings Edits" });
+  // Most who read the page need neither log: each is shown closed, loading nothing, until opened.
+  for (const name of ["Settings Edits", "Settings History"]) {
+    const closed = page.getByRole("region", { name, exact: true });
+    await expect(closed.getByRole("button", { name: `Show ${name}`, exact: true })).toHaveAttribute("aria-expanded", "false");
+    await expect(closed.getByRole("table")).toHaveCount(0);
+  }
+  expect(loads).toEqual([]);
+  const card = await openCard(page, "Settings Edits");
+  expect(loads).toContain(`/api/machines/${machine.id}/settings-edits`);
+  await expect(card.getByRole("button", { name: "Hide Settings Edits", exact: true })).toHaveAttribute("aria-expanded", "true");
   await expect(card.getByText("None of its settings have been changed here.")).toBeVisible();
 
   const general = page.getByRole("region", { name: "General", exact: true });
@@ -268,6 +282,10 @@ test("the Settings Edits card says so while a Machine has none, and lists an edi
   await expect(general.getByRole("status")).toContainText("Applied");
   // Listed without waiting for the card's next poll.
   await expect(rows(card.getByRole("table", { name: "Settings Edits" })).getByRole("cell")).toHaveText([/\S/, "You", "General", "Fan threshold: 50 °C to 45 °C", "Applied"]);
+
+  // And closed again on asking, what it held gone rather than hidden.
+  await card.getByRole("button", { name: "Hide Settings Edits", exact: true }).click();
+  await expect(card.locator('[data-slot="card-content"]')).toHaveCount(0);
 });
 
 test("an Admin changes a Machine's heater voltage and warmup flow, offered only the two voltages with the restart reminder, and its flow multiplier, which the Machine stores otherwise", async ({ page }) => {
@@ -335,7 +353,7 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await expect(calibration.getByRole("status")).toContainText("Stored otherwise");
   await expect(calibration.getByRole("status")).toContainText("The Machine holds another value than was asked for: Flow multiplier: 1.003.");
   await expect(calibration.getByRole("definition").first()).toHaveText("1.003");
-  await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
+  await expect(rows((await openCard(page, "Settings Edits")).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
     /\S/,
     "You",
     "Flow calibration",
@@ -415,7 +433,7 @@ test("an Admin sets a sensor's calibration from its own Edit button, past a warn
   await expect(form.getByLabel("Pressure sensor multiplier")).toHaveValue("1.29");
   await form.getByRole("button", { name: "Cancel" }).click();
 
-  await expect(rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
+  await expect(rows((await openCard(page, "Settings Edits")).getByRole("table", { name: "Settings Edits" })).nth(0).getByRole("cell")).toHaveText([
     /\S/,
     "You",
     "Sensor calibration",
@@ -586,7 +604,7 @@ test("Staff change presence, and add, change and delete a wake schedule in the T
     await expect(schedules).toHaveCount(0);
 
     // The log names each schedule's action, newest first, its times without an offset.
-    const edits = noorsPage.getByRole("table", { name: "Settings Edits" });
+    const edits = (await openCard(noorsPage, "Settings Edits")).getByRole("table", { name: "Settings Edits" });
     await expect(rows(edits)).toHaveCount(4);
     const logged = [
       ["Delete the wake schedule at 06:30"],

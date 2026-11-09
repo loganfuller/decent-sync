@@ -1,11 +1,11 @@
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { CardTitleWithInfo } from "@/components/info-tip";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { formatTime } from "@/components/machines";
 import { MadeBy } from "@/components/settings-edit-log";
 import { labelOf, shownValue } from "@/components/settings-edits";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -47,11 +47,39 @@ const OTHER_LABELS: Record<string, string> = {
  * The Machine's Settings History, newest first, a page at a time: when each
  * change was received, its section, each field's value before and after, and
  * the Settings Edit and who made it, or none for a change made outside
- * Decent Sync. Brief changes, changed back within about 2 minutes, are shown
- * only on asking. Loaded again whenever `answered` changes, as an edit made
- * on the page is answered.
+ * Decent Sync. Shown closed until opened, as most who read the page do not
+ * need it.
  */
 export function SettingsHistoryCard({ machineId, answered }: { machineId: string; answered: number }) {
+  return (
+    <CollapsibleCard
+      title="Settings History"
+      info={
+        <>
+          <p>
+            Each change of what the Machine's Tablet reported for its settings, plugins, Skins, paired devices, scale and sensors, newest
+            first, whatever made it. A change made here or through a Connected App names its Settings Edit's maker; one made on the Tablet,
+            by another app or by the Machine itself is tied to no person.
+          </p>
+          <p>
+            A change is received about 30 to 60 seconds after it is made, later while the Machine is busy, and a sensor calibration's within
+            a day. A brief change, made on the Tablet and changed back within about 2 minutes, such as the refill kit shown on automatic as
+            the Machine reconnects, is shown only on asking.
+          </p>
+        </>
+      }
+    >
+      <SettingsHistoryLog machineId={machineId} answered={answered} />
+    </CollapsibleCard>
+  );
+}
+
+/**
+ * The Settings History, while its card is open. Brief changes, changed back
+ * within about 2 minutes, are shown only on asking. Loaded again whenever
+ * `answered` changes, as an edit made on the page is answered.
+ */
+function SettingsHistoryLog({ machineId, answered }: { machineId: string; answered: number }) {
   const [offset, setOffset] = useState(0);
   const [includeBrief, setIncludeBrief] = useState(false);
   const briefId = useId();
@@ -71,88 +99,73 @@ export function SettingsHistoryCard({ machineId, answered }: { machineId: string
   const first = data ? data.offset + 1 : 0;
   const last = data ? data.offset + data.page.changes.length : 0;
   return (
-    <Card role="region" aria-label="Settings History">
-      <CardHeader>
-        <CardTitleWithInfo title="Settings History">
-          <p>
-            Each change of what the Machine's Tablet reported for its settings, plugins, Skins, paired devices, scale and sensors, newest
-            first, whatever made it. A change made here or through a Connected App names its Settings Edit's maker; one made on the Tablet,
-            by another app or by the Machine itself is tied to no person.
-          </p>
-          <p>
-            A change is received about 30 to 60 seconds after it is made, later while the Machine is busy, and a sensor calibration's within
-            a day. A brief change, made on the Tablet and changed back within about 2 minutes, such as the refill kit shown on automatic as
-            the Machine reconnects, is shown only on asking.
-          </p>
-        </CardTitleWithInfo>
-        {data?.page.total === 0 && (
-          <CardDescription>{includeBrief ? "No changes have been received yet." : "No changes have been received yet, but for any brief ones."}</CardDescription>
-        )}
-        <div className="flex items-center gap-2">
-          <Checkbox
-            id={briefId}
-            checked={includeBrief}
-            onCheckedChange={(checked) => {
-              setIncludeBrief(checked === true);
-              setOffset(0);
-            }}
-          />
-          <Label htmlFor={briefId}>Show brief changes</Label>
-        </div>
-      </CardHeader>
-      {(error || (data && data.page.total > 0)) && (
-        <CardContent className="grid gap-3">
-          {error && (
-            <Alert variant="destructive">
-              <AlertDescription>Could not read the Settings History: {error}</AlertDescription>
-            </Alert>
-          )}
-          {data && data.page.changes.length > 0 && (
-            <Table aria-label="Settings History">
-              <TableHeader>
-                <TableRow>
-                  <TableHead>Received</TableHead>
-                  <TableHead>Section</TableHead>
-                  <TableHead>Field</TableHead>
-                  <TableHead>Change</TableHead>
-                  <TableHead>Made by</TableHead>
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {data.page.changes.flatMap((change) =>
-                  change.fields.map((field) => (
-                    <TableRow key={`${change.id}-${change.settingsEdit?.id ?? "outside"}-${field.field}`}>
-                      <TableCell>{formatTime(change.receivedAt)}</TableCell>
-                      <TableCell className="whitespace-normal">{HISTORY_SECTIONS[change.collection as SettingsHistoryCollection] ?? change.collection}</TableCell>
-                      <TableCell className="whitespace-normal">{fieldLabel(change.collection, field)}</TableCell>
-                      <TableCell className="min-w-48 whitespace-normal">{changeText(change.collection, field)}</TableCell>
-                      <TableCell className="whitespace-normal">
-                        <Source change={change} />
-                      </TableCell>
-                    </TableRow>
-                  )),
-                )}
-              </TableBody>
-            </Table>
-          )}
-          {data && data.page.total > PAGE_SIZE && (
-            <div className="flex flex-wrap items-center justify-between gap-2">
-              <p className="text-sm text-muted-foreground" aria-live="polite">
-                Changes {first}–{last} of {data.page.total}
-              </p>
-              <div className="flex gap-2">
-                <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
-                  Newer
-                </Button>
-                <Button variant="outline" size="sm" disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
-                  Older
-                </Button>
-              </div>
-            </div>
-          )}
-        </CardContent>
+    <CardContent className="grid gap-3">
+      <div className="flex items-center gap-2">
+        <Checkbox
+          id={briefId}
+          checked={includeBrief}
+          onCheckedChange={(checked) => {
+            setIncludeBrief(checked === true);
+            setOffset(0);
+          }}
+        />
+        <Label htmlFor={briefId}>Show brief changes</Label>
+      </div>
+      {!data && !error && <p className="text-sm text-muted-foreground">Loading</p>}
+      {data?.page.total === 0 && (
+        <p className="text-sm text-muted-foreground">
+          {includeBrief ? "No changes have been received yet." : "No changes have been received yet, but for any brief ones."}
+        </p>
       )}
-    </Card>
+      {error && (
+        <Alert variant="destructive">
+          <AlertDescription>Could not read the Settings History: {error}</AlertDescription>
+        </Alert>
+      )}
+      {data && data.page.changes.length > 0 && (
+        <Table aria-label="Settings History">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Received</TableHead>
+              <TableHead>Section</TableHead>
+              <TableHead>Field</TableHead>
+              <TableHead>Change</TableHead>
+              <TableHead>Made by</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {data.page.changes.flatMap((change) =>
+              change.fields.map((field) => (
+                <TableRow key={`${change.id}-${change.settingsEdit?.id ?? "outside"}-${field.field}`}>
+                  <TableCell>{formatTime(change.receivedAt)}</TableCell>
+                  <TableCell className="whitespace-normal">{HISTORY_SECTIONS[change.collection as SettingsHistoryCollection] ?? change.collection}</TableCell>
+                  <TableCell className="whitespace-normal">{fieldLabel(change.collection, field)}</TableCell>
+                  <TableCell className="min-w-48 whitespace-normal">{changeText(change.collection, field)}</TableCell>
+                  <TableCell className="whitespace-normal">
+                    <Source change={change} />
+                  </TableCell>
+                </TableRow>
+              )),
+            )}
+          </TableBody>
+        </Table>
+      )}
+      {data && data.page.total > PAGE_SIZE && (
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <p className="text-sm text-muted-foreground" aria-live="polite">
+            Changes {first}–{last} of {data.page.total}
+          </p>
+          <div className="flex gap-2">
+            <Button variant="outline" size="sm" disabled={data.offset === 0} onClick={() => setOffset(Math.max(0, data.offset - PAGE_SIZE))}>
+              Newer
+            </Button>
+            <Button variant="outline" size="sm" disabled={last >= data.page.total} onClick={() => setOffset(data.offset + PAGE_SIZE)}>
+              Older
+            </Button>
+          </div>
+        </div>
+      )}
+    </CardContent>
   );
 }
 

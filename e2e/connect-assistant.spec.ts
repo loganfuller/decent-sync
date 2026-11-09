@@ -3,7 +3,7 @@ import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { derivedDe1Pro } from "../server/test/support/simulated-tablet.js";
 import { ASSISTANT_ENV, type TestApp, authorizationUrl, pkce, serveTestApp } from "../server/test/support/test-app.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { openCard, rows } from "./support/locators.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // The consent page of the authorization server (#406, ADR-0027): an app's
@@ -167,7 +167,7 @@ test("a Settings Edit made through it is shown on the Machine's Settings Edits c
   expect(response.status()).toBe(201);
 
   await page.goto(`/machines/${machine.id}`);
-  const edits = rows(page.getByRole("region", { name: "Settings Edits" }).getByRole("table", { name: "Settings Edits" }));
+  const edits = rows((await openCard(page, "Settings Edits")).getByRole("table", { name: "Settings Edits" }));
   await expect(edits.locator("td:nth-child(2)")).toHaveText(["You", "You, through Claude"]);
   await expect(edits.nth(1).locator("td:nth-child(4)")).toHaveText("Fan threshold: 50 °C to 45 °C");
   await expect(edits.locator("td:nth-child(5)")).toHaveText(["Applied", "Applied"]);
