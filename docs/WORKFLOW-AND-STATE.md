@@ -232,7 +232,12 @@ plugin that says nothing. It also keeps the tablet that reported it
 Workflow names by that tablet's ids (`context.beanBatchId`,
 `context.grinderId`, `context.extras.basketId` and DYE2_RECIPE_FIELD),
 resolved through the tablet's map as the event is stored, under the tablet's
-row lock (`server/src/machine-events/workflow-links.ts`). An id the map does
+row lock (`server/src/machine-events/workflow-links.ts`). An event taken in
+at a Location (below) is stored under that Location's lock too, taken after
+the tablet's and before the event is stored:
+its links hold the rows of the items they name for key share, and a move of
+a Recipe's slot, under that lock, waits for a key share on the Recipe's row
+(#452). An id the map does
 not hold yet is linked once it does, wherever a map saves a record, as for
 Shots (`SHOTS.md`), found through a partial index of the events not linked
 yet for each kind. A link is never undone, and a hard delete of the item
@@ -899,4 +904,5 @@ their bound, and
 management interface.
 `server/test/binding-deadlocks.test.ts` races deliveries, collections
 included, against a hello or an Admin binding the Machine's hardware, in
-both orders.
+both orders, and `server/test/workflow-recipe-deadlocks.test.ts` a Workflow
+delivery naming a Recipe against a move of its slot.
