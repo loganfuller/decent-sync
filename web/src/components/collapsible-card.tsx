@@ -20,7 +20,8 @@ export function CollapsibleCard({ title, info, children }: { title: string; info
           <CardTitleWithInfo title={title}>{info}</CardTitleWithInfo>
           <CardAction>
             <CollapsibleTrigger asChild>
-              <Button variant="outline" size="sm">
+              {/* As wide for "Hide" as for "Show", so it stays put as it is pressed. */}
+              <Button variant="outline" size="sm" className="min-w-18">
                 {open ? "Hide" : "Show"}
                 <span className="sr-only"> {title}</span>
                 <ChevronDownIcon data-icon="inline-end" className={open ? "rotate-180 transition-transform" : "transition-transform"} />

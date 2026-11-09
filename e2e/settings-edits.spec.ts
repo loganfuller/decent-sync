@@ -283,9 +283,9 @@ test("the Settings Edits card is shown closed, loading nothing until opened, the
   // Listed without waiting for the card's next poll.
   await expect(rows(card.getByRole("table", { name: "Settings Edits" })).getByRole("cell")).toHaveText([/\S/, "You", "General", "Fan threshold: 50 °C to 45 °C", "Applied"]);
 
-  // And closed again on asking.
+  // And closed again on asking, what it held gone rather than hidden, so it loads nothing more.
   await card.getByRole("button", { name: "Hide Settings Edits", exact: true }).click();
-  await expect(card.getByRole("table")).toHaveCount(0);
+  await expect(card.locator('[data-slot="card-content"]')).toHaveCount(0);
 });
 
 test("an Admin changes a Machine's heater voltage and warmup flow, offered only the two voltages with the restart reminder, and its flow multiplier, which the Machine stores otherwise", async ({ page }) => {
