@@ -57,7 +57,7 @@ export function curvesInput<C extends string>(curves: Record<C, CurveInfo>) {
   return z
     .union([z.boolean(), z.array(z.enum(names)).min(1)])
     .default(false)
-    .describe(`Its curves: true for all of them, or a list of those to give, of ${names.join(", ")}; none when false or left out.`);
+    .describe(`Its curves: true for all of them, or a list of those to give, of ${names.join(", ")}; none when false or left out, unless a window asks for them.`);
 }
 
 /** The curves `curvesInput` asks for, in their usual order: all of them, those listed, or none. */
