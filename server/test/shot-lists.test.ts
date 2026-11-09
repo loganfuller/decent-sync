@@ -237,6 +237,18 @@ describe("Shots lists", () => {
     for (const special of ["%", "_", "\\"]) expect(await words({ coffeeName: special }), special).toEqual([]);
     expect(await problem("match=loose")).toEqual({ status: 400, message: ["Enter match as exact or words"] });
     expect(await problem("match=words&match=exact")).toEqual({ status: 400, message: ["Give match once"] });
+    // At most 20 words each, as each is a search of every Shot's text; an exact filter is one comparison, however many.
+    const many = (count: number) => Array.from({ length: count }, (_, n) => `w${n}`).join(" ");
+    expect(await words({ coffeeName: many(20) })).toEqual([]);
+    expect(await ids({ coffeeName: many(21) })).toEqual([]);
+    expect(await problem(new URLSearchParams({ match: "words", coffeeName: many(21), barista: many(21) }).toString())).toEqual({
+      status: 400,
+      message: ["Use at most 20 words in each text filter"],
+    });
+    // No Shot recorded a NUL, which PostgreSQL's text can't hold.
+    for (const match of ["exact", "words"]) {
+      expect(await problem(new URLSearchParams({ match, coffeeName: "Ethiopia\u0000" }).toString()), match).toEqual({ status: 400, message: ["Use text filters without NUL characters"] });
+    }
   });
 
   it("reads times in each Shot's own Location's time zone, and UTC for Shots with none", async () => {

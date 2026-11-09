@@ -43,6 +43,8 @@ export interface ShotFilters extends RecordFilters {
 
 const TEXT_FILTERS = ["coffeeRoaster", "coffeeName", "barista", "profileTitle"] as const;
 const MAX_TEXT_LENGTH = 500;
+/** The most words a text filter matched by words holds: each is a search of every Shot's text, which hundreds would make take seconds. */
+export const MAX_WORDS = 20;
 
 /** Reads a Shots list's filters from its query; `readRecordFilters` reads those every record list has. */
 export function readShotFilters(query: Record<string, unknown>): ShotFilters {
@@ -55,6 +57,10 @@ export function readShotFilters(query: Record<string, unknown>): ShotFilters {
     const text = queryValue(query, name, problems);
     if (text === undefined) continue;
     if (text.length > MAX_TEXT_LENGTH) problems.push(`Use a ${name} of at most ${MAX_TEXT_LENGTH} characters`);
+    // Worded alike for every text filter, as an assistant's find_shots names two of them its own way. PostgreSQL's
+    // text holds no NUL, so no Shot recorded one, and a query holding one fails.
+    else if (text.includes("\0")) problems.push("Use text filters without NUL characters");
+    else if (filters.match === "words" && wordsOf(text).length > MAX_WORDS) problems.push(`Use at most ${MAX_WORDS} words in each text filter`);
     else filters[name] = text;
   }
   // A malformed id names nothing, as in a path.
@@ -70,7 +76,7 @@ export function readShotFilters(query: Record<string, unknown>): ShotFilters {
   if (beanId !== undefined) filters.beanId = readBeanId(beanId);
   const profileId = queryValue(query, "profileId", problems);
   if (profileId !== undefined) filters.profileId = readProfileId(profileId);
-  if (problems.length > 0) throw new BadRequestException(problems);
+  if (problems.length > 0) throw new BadRequestException([...new Set(problems)]);
   return filters;
 }
 
@@ -112,8 +118,13 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
 
 /** The condition a text filter makes on what Shots recorded in `field`, matching as `match` says (`ShotFilters.match`). */
 function textSql(field: Prisma.Sql, text: string, match: "exact" | "words"): Prisma.Sql {
-  const words = text.split(/\s+/).filter((word) => word !== "");
+  const words = wordsOf(text);
   if (text === "" || (match === "words" && words.length === 0)) return Prisma.sql`nullif(${field}, '') IS NULL`;
   if (match === "exact") return Prisma.sql`${field} = ${text}`;
   return Prisma.join(words.map((word) => Prisma.sql`strpos(lower(${field}), lower(${word})) > 0`), " AND ");
+}
+
+/** A text filter's words, as matching by words reads them: split at whitespace. */
+function wordsOf(text: string): string[] {
+  return text.split(/\s+/).filter((word) => word !== "");
 }

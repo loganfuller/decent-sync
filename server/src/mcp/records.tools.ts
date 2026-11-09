@@ -4,7 +4,7 @@ import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
 import { number, object, recordedText } from "../shots/extraction.js";
-import { readShotFilters } from "../shots/filters.js";
+import { MAX_WORDS, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
@@ -188,9 +188,13 @@ const STEAM_UNITS =
 const CURVES_NOTE =
   "Each curve gives its unit, its readings as [seconds, value] points cut to at most 100 keeping its shape and peaks, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none.";
 
-/** A text filter of find_shots, matching each word anywhere, ignoring case (`ShotFilters.match`). */
-const words = (which: string) =>
-  z.string().max(500).optional().describe(`${which} each of these words in it, ignoring case. An empty one, or one of spaces alone, finds Shots that recorded none.`);
+/** A text filter of find_shots, matching as its match says (`ShotFilters.match`). */
+const textFilter = (which: string) =>
+  z
+    .string()
+    .max(500)
+    .optional()
+    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one, or matching words one of spaces alone, finds Shots that recorded none.`);
 
 const findShotsInput = z.object({
   locationId: id.optional().describe("Shots pulled at this Location."),
@@ -201,10 +205,14 @@ const findShotsInput = z.object({
   grinderId: id.optional().describe("Shots that used this Library Grinder."),
   basketId: id.optional().describe("Shots that used this Library Basket."),
   recipeId: id.optional().describe("Shots pulled with this Recipe loaded."),
-  barista: words("Shots whose Barista, as each Shot records it, has"),
-  beanRoaster: words("Shots whose Bean's roaster, as each Shot records it, linked to the Library or not, has"),
-  beanName: words("Shots whose Bean's name, as each Shot records it, linked to the Library or not, has"),
-  profileTitle: words("Shots whose profile's title, as each Shot records it, has"),
+  barista: textFilter("Shots whose Barista, as each Shot records it,"),
+  beanRoaster: textFilter("Shots whose Bean's roaster, as each Shot records it, linked to the Library or not,"),
+  beanName: textFilter("Shots whose Bean's name, as each Shot records it, linked to the Library or not,"),
+  profileTitle: textFilter("Shots whose profile's title, as each Shot records it,"),
+  match: z
+    .enum(["words", "exact"])
+    .default("words")
+    .describe("How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone."),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
   ...page,
@@ -276,7 +284,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, and list_shot_values lists what Shots recorded. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
@@ -288,7 +296,7 @@ export class RecordsTools {
     refuseCutText(input, "a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
     const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
     const times = timeRange(from, to);
-    const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, match: "words", ...times.query }), ...times.filters };
+    const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
     const found = await this.shots.list(limit, offset, filters);
     const cuts = { any: false };
     const shorten = (text: string | null, at: number) => {
@@ -335,7 +343,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "list_shot_values",
     title: "List what Shots recorded",
-    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
+    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
     inputSchema: shotValuesInput,
     outputSchema: shotValuesOutput,
     annotations: { readOnlyHint: true },

@@ -353,9 +353,13 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     none.
   - `match`: `exact`, the default, or `words`, for those four to match each
     of their words anywhere in what the Shot recorded, in any order and
-    ignoring case, as the MCP endpoint's `find_library_items` matches names;
-    one of no words, only spaces, then matches Shots that recorded none, as
-    an empty one does. The MCP endpoint's `find_shots` matches words.
+    ignoring case as the database's collation folds it (`lower()`), as the
+    MCP endpoint's `find_library_items` matches names. Each then holds at
+    most 20 words, each a search of every Shot's text; one of no words, only
+    spaces, matches Shots that recorded none, as an empty one does. The MCP
+    endpoint's `find_shots` takes `match` too, matching words unless asked
+    for `exact`, which picks one value `list_shot_values` gives alone. A
+    text filter holding a NUL character, which no Shot recorded, is a 400.
   - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
     or Grinder (Links to the Library, above), whichever tablet's id for it
     they recorded, so a batch is compared across Machines and Locations;

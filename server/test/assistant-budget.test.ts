@@ -484,9 +484,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           expect(result[list]!.total, list).toBeGreaterThanOrEqual(55);
           expect(result[list]!.entries, list).toHaveLength(50);
         }
-        // Each list alone, a page at a time, lists every value the REST API does.
+        // Each list alone, a page at a time, lists every value the REST API does; the Recipes and Baskets these Shots are
+        // linked to as it lists them, a Location by its id and name.
         const rest = await api.get<Record<string, unknown[]>>("/shots/filters");
         for (const [list, restList] of Object.entries(SHOT_VALUES)) expect((await everyKind("list_shot_values", list, {})).count, list).toBe(rest[restList]!.length);
+        type Named = { id: string; name: string | null; location?: LocationView | null } | null;
+        expect(result.recipes!.entries).toEqual((rest.recipes as Named[]).slice(0, 50).map((recipe) => recipe && { ...recipe, location: recipe.location && { id: recipe.location.id, name: recipe.location.name } }));
+        expect(result.baskets!.entries).toEqual(rest.baskets!.slice(0, 50));
+        expect(result.recipes!.entries).toContainEqual({ id: made.recipes![0]!, name: "Harbor espresso 00", location: { id: harbor.id, name: "Harbor" } });
       });
 
       it("reads a Recipe with its history, a Profile, and a Bean with its batches", async () => {

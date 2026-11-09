@@ -335,7 +335,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
   /** find_shots, checked against the REST API's list for the same filters and page, matching words as find_shots does, returning the ids it found. */
   async function findShotsAsRest(input: Fields, query: Record<string, string>, by = assistant, at = api): Promise<string[]> {
     const found = await by.call<{ shots: ToolShot[] } & Page>("find_shots", input);
-    const rest = await restShots({ ...query, match: "words" }, at);
+    const rest = await restShots({ match: "words", ...query }, at);
     expect(found.shots.map(({ pulledAt: _, ...row }) => row)).toEqual(rest.shots.map(shotRow));
     sameTimes(found.shots.map((shot) => shot.pulledAt), rest.shots.map((shot) => shot.pulledAt));
     expect(found.total).toBe(rest.total);
@@ -762,15 +762,16 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(Math.max(...probe.curves.milkTemperature.values.map(([, value]) => value))).toBeGreaterThanOrEqual(hundredths(probe.peakMilkTemperature));
   });
 
-  it("finds Shots by each word of the Bean, profile and Barista each recorded, anywhere and ignoring case, as find_library_items matches names", async () => {
-    // Derived: one recording a Bean by a name an assistant spells its own way, and one recording no Bean or Barista.
+  it("finds Shots by each word of the Bean, profile and Barista each recorded, anywhere and ignoring case, as find_library_items matches names, or by one value exactly", async () => {
+    // Derived: one recording a Bean by a name an assistant spells its own way, its decaf, and one recording no Bean or Barista.
     const gao = shotAt("assistant-gao", "2026-05-01T13:00:00Z", hardware.roaming, "Dee", { bean: "China Gao's Honey", profile: "Gao's Bloom" });
+    const decaf = shotAt("assistant-gao-decaf", "2026-05-01T12:55:00Z", hardware.roaming, "Ann", { bean: "China Gao's Honey Decaf" });
     const blank = shotAt("assistant-blank", "2026-05-01T13:05:00Z", hardware.roaming, "Dee");
     const { coffeeName: _, coffeeRoaster: _roaster, baristaName: _barista, ...unnamed } = (blank.workflow as { context: Fields }).context;
-    await deliverShots(roaming, hardware.roaming, [gao, { ...blank, workflow: { ...(blank.workflow as Fields), context: unnamed } }]);
+    await deliverShots(roaming, hardware.roaming, [gao, decaf, { ...blank, workflow: { ...(blank.workflow as Fields), context: unnamed } }]);
     const day = { from: "2026-05-01", to: "2026-05-01" };
     for (const beanName of ["china gao's honey", "gao honey", "GAO", "honey china"]) {
-      expect(await findShotsAsRest({ ...day, beanName }, { ...day, coffeeName: beanName }), beanName).toEqual(["assistant-gao"]);
+      expect(await findShotsAsRest({ ...day, beanName }, { ...day, coffeeName: beanName }), beanName).toEqual(["assistant-gao", "assistant-gao-decaf"]);
     }
     expect(await findShotsAsRest({ ...day, beanName: "gao kenya" }, { ...day, coffeeName: "gao kenya" })).toEqual([]);
     expect(await findShotsAsRest({ ...day, beanRoaster: "BAKEHOUSE", profileTitle: "bloom", barista: "dee" }, { ...day, coffeeRoaster: "BAKEHOUSE", profileTitle: "bloom", barista: "dee" })).toEqual([
@@ -780,6 +781,17 @@ describe("reading Shots and Steam Records through an assistant", () => {
     for (const none of ["", "  "]) {
       expect(await findShotsAsRest({ ...day, beanName: none, beanRoaster: none, barista: none }, { ...day, coffeeName: none, coffeeRoaster: none, barista: none })).toEqual(["assistant-blank"]);
     }
+    // Exactly, one value as list_shot_values gives it alone, not its decaf, case included.
+    const exact = { ...day, match: "exact" };
+    expect(await findShotsAsRest({ ...exact, beanName: "China Gao's Honey" }, { ...exact, coffeeName: "China Gao's Honey" })).toEqual(["assistant-gao"]);
+    expect(await findShotsAsRest({ ...exact, beanName: "china gao's honey" }, { ...exact, coffeeName: "china gao's honey" })).toEqual([]);
+    expect((await assistant.call<{ beans: { entries: Fields[] } }>("list_shot_values", { kinds: ["beans"], limit: 50 })).beans.entries).toEqual(
+      expect.arrayContaining([{ roaster: "Roux Bakehouse", name: "China Gao's Honey" }, { roaster: "Roux Bakehouse", name: "China Gao's Honey Decaf" }]),
+    );
+    // At most 20 words each, and no NUL, which no Shot recorded.
+    expect(await toolError("find_shots", { beanName: Array.from({ length: 21 }, (_, n) => `w${n}`).join(" ") })).toBe("Use at most 20 words in each text filter");
+    expect(await toolError("find_shots", { barista: "Dee\u0000" })).toBe("Use text filters without NUL characters");
+    expect(await toolError("find_shots", { match: "loose" })).toContain("match");
   });
 
   it("lists what Shots recorded and the Library items they are linked to, as the REST API does, a page of each list at a time", async () => {
