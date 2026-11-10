@@ -680,6 +680,10 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     const applied = /^applyRecipe(\d)/.exec(name);
     if (applied) return pages.streamline!.applyRecipe(applied[1]!);
     if (name.startsWith("heaterOn") || name === "plusFromOff" || name === "plusWithHeaterOn") return pages.streamline!.setSteamHeater(true);
+    // The selector's Confirm, made as a tap of the profile's button: both send `profileSwitchDial`'s dial, and write the
+    // same where the profile is another than the Workflow's and holds no saved yield, as in every recorded switch. They
+    // differ otherwise, which nothing here replays: Confirm never leaves the dial alone for a recipe on that profile
+    // (`recipeHoldsDial`), and does not fold a saved yield into the profile's target weight.
     const switched = /^select(Classic|Adaptive)/.exec(name);
     if (switched) return pages.streamline!.tapProfile(profileId(switched[1] === "Classic" ? "Classic Italian espresso" : "Adaptive v3"));
     if (name === "dosePlus") return pages.streamline!.setDose(Number(contextOf(workflowWrites(step.exchanges)[0]).targetDoseWeight));
@@ -730,7 +734,7 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     });
   });
 
-  it("turns the heater back on from the steam tile's + while it shows Off, and writes nothing from it where a steam time of 0 shows Off with the heater on (tile.json)", async () => {
+  it("turns the heater back on from the steam tile's + while it shows Off, and changes nothing from it where a steam time of 0 shows Off with the heater on (tile.json)", async () => {
     await made(tile, last(heater), onMainPage);
   });
 
@@ -742,8 +746,12 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     await made(offEdit, offEdit.reseeded as SteamStep, async (name, step, replay) => (name === "reloaded" ? replay.pages.streamline!.reload() : onMainPage(name, step, replay)));
   });
 
+  /** The grinder each of DYE2's recipes names, which its `record` saves none of. */
+  const grindersOf = (recipes: unknown) => (Array.isArray(recipes) ? (recipes as Record_[]) : []).map((recipe) => [recipe.id, ((recipe.dashboardVariables ?? {}) as Record_).grinderModel ?? null]);
+
   /**
-   * Makes the file's steps again as `made` does, checking the dial each left in the Workflow too. With `carried`, the
+   * Makes the file's steps again as `made` does, checking the dial each left in the Workflow, and the grinder each of
+   * DYE2's recipes names, too. With `carried`, the
    * tablet first holds what Streamline saved for a profile in profile-switch.json, the recording's group before, as
    * Decaid's store kept it from one group to the next.
    */
@@ -759,6 +767,9 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
       await act(name, step, replay);
       await replay.settled();
       expect(dialOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's dial after`).toEqual(dialOf(afterRead(step, "/workflow")));
+      expect(grindersOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: the grinder each of DYE2's recipes names after`).toEqual(
+        grindersOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)),
+      );
     });
   }
 
@@ -799,13 +810,14 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
     expect((one.dashboardVariables as Record_).grinderModel).toBe("Fixture Grinder 64");
   });
 
-  it("opens DYE2's recipe editor from the Grind label where the Workflow names a recipe, its grinder picker where it names none, whose Confirm writes the grinder as the Grinders page's tap does, and Streamline's own grinder page with its DYE2 switch off (grind-label.json, 7871fa6)", async () => {
+  it("writes the grinder from DYE2's grinder picker's Confirm as the Grinders page's tap does, and nothing from the Grind label's taps, which the recording has open DYE2's recipe editor where the Workflow names a recipe, its grinder picker where it names none, and Streamline's own grinder page with its DYE2 switch off (grind-label.json, 7871fa6)", async () => {
     await madeWithDial(grindLabel, async (name, step, replay) => {
       if (name === "pickerConfirm") return tapGrinderInDye2(replay.proxy, grinderId("Fixture Grinder 83"));
       // The label's taps, and the way back from DYE2's editor, write nothing into the Workflow.
       if (name.startsWith("label") || name === "backWithoutSaving") return undefined;
       return onMainPage(name, step, replay);
     }, { carried: true });
+    // Where each tap of the label went is the recording's alone: the simulated Streamline has no Grind label.
     const navigated = (name: string) => ((grindLabel[name] as SteamStep).exchanges as unknown as Record_[]).find((exchange) => "navigated" in exchange)!.navigated as string[];
     expect(navigated("labelWithRecipe")[0]).toMatch(/^\/api\/v1\/plugins\/dye2\.reaplugin\/recipe-edit\?/);
     expect(navigated("labelWithNoRecipe")[0]).toMatch(/^\/api\/v1\/plugins\/dye2\.reaplugin\/grinder-picker\?return=/);

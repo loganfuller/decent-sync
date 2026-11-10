@@ -193,6 +193,38 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     expect([setting(a, "steamTemperature"), setting(a, "steamDuration"), recorded(c, "steamTemperature"), recorded(c, "steamDuration")]).toEqual([155, 45, 155, 45]);
   });
 
+  it("takes no steam time into a Recipe holding none as Streamline's heater switch turns C's steam off and back on, at the time it kept, the one C's Workflow held as the Recipe was applied", async () => {
+    const { machines, a, c, one, dye2, load, quiet } = await lab("No steam time", 49261, { loadC: false });
+    // The Recipe's steam time cleared before C loads it: C's record holds none, and the load leaves C's Workflow its own.
+    await patch(one, { steamDuration: null });
+    await expect.poll(() => recorded(c, "steamDuration") ?? null, { timeout: 15_000 }).toBeNull();
+    const streamline = await startStreamline(c);
+    await load(c, machines.c);
+    await quiet({ streamline });
+    const held = setting(c, "steamDuration") as number;
+    expect(held).toBeGreaterThanOrEqual(1);
+    expect(setting(c, "steamTemperature")).toBe(160);
+    const edits = await editsOf(one, "steamDuration");
+    const watch = watchSteam(dye2, { a, c });
+
+    // Off, which keeps the time C's Workflow held, not the machine's echo of 0 (from v0.2.24, decentespresso/streamline-js#191).
+    await streamline.setSteamHeater(false);
+    await quiet({ streamline });
+    expect([setting(c, "steamTemperature"), setting(c, "steamDuration"), streamline.remembered("last-steam-duration")]).toEqual([0, 0, held]);
+    await apart();
+
+    // Back on, at the Recipe's steam temperature, as Streamline's DYE2 switch is on, and the time kept. DYE2 saves a
+    // setting its record holds none of only once it moves off the one the Workflow held at the apply (`movedSinceArming`),
+    // so the Recipe takes no steam time, where v0.2.23's 1 s became the Recipe's.
+    await streamline.setSteamHeater(true);
+    await expect.poll(() => [setting(c, "steamTemperature"), setting(c, "steamDuration")], { timeout: 15_000 }).toEqual([160, held]);
+    // Once C's report of the heater on, DYE2's save of it and Streamline's reply are done.
+    await quiet({ streamline });
+    expect([watch.times.c, watch.savedTimes(), watch.saved(), watch.times.a]).toEqual([[0, held], [], [], []]);
+    expect([(await recipe(one)).content.steamDuration ?? null, recorded(c, "steamDuration") ?? null]).toEqual([null, null]);
+    expect(await editsOf(one, "steamDuration")).toBe(edits);
+  });
+
   it("has Streamline's Settings › Calibration › Steam switch turn C's steam back on at the Recipe's steam temperature and time, not the ones that page comes back with, even with another temperature picked in the same Save, which a later Save makes the Recipe's", async () => {
     const { a, c, one, dye2, quiet } = await lab("Calibration", 49211);
     let streamline = await startStreamline(c);

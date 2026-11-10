@@ -288,7 +288,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect(settingsOf(c)).toMatchObject({ steamTemperature: 150, steamDuration: 30 });
   });
 
-  it("takes a steam time of 0 set in Streamline on A as steam off, as v0.2.23 turns its heater off with it, which is no edit", async () => {
+  it("takes a steam time of 0 set in Streamline on A as steam off, as Streamline turns its heater off with it, which is no edit", async () => {
     const { a, c, one, quiet } = await lab("Zero", 49121);
     const edits = { temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") };
     const streamline = await startStreamline(a);
