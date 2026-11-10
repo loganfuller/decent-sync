@@ -11,6 +11,7 @@ import {
   openDye2RecipeEditor,
   recordedDye2MainTablet,
   selectRecipeInDye2,
+  tapGrinderInDye2,
 } from "./support/simulated-dye2.js";
 import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
@@ -42,7 +43,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // clears it from the Workflow; taking it out of its slot, or moving it to
 // another, keeps it loaded, and so does applying it again after its Profile
 // was edited (decentespresso/dye2#43). Through the built plugin in simulated
-// tablets running DYE2 v0.1.35 and Streamline v0.2.23 as recorded
+// tablets running DYE2 v0.1.36 and Streamline v0.2.24 as recorded
 // (fixtures/decaid/dye2-v0.1.26/ and later), Machine A, and D in the tests
 // that use it, on one server instance and C on another sharing one database,
 // with assertions through the REST API and what each simulated tablet holds.
@@ -553,6 +554,27 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     expect(context(a).grinderId).toBe(RECORDED_GRINDER_83);
+  });
+
+  it("takes a grinder tapped on DYE2's Grinders page on A, which writes it into the Workflow with no confirm from v0.1.36, as the Recipe's, writing it into C's, the grind setting kept and the Recipe loaded (#461)", async () => {
+    const { machines, dye2, a, c, one } = await lab("Tapped grinder", 48331);
+    const grind = (await recipe(one)).content.grindSetting;
+    const grinder = (await globalOf(a, "/grinders", RECORDED_GRINDER_83))!;
+    expect((await recipe(one)).content.grinderId).not.toBe(grinder);
+    // The tap writes the grinder's id and name, flagged as DYE2's, as its grinder picker's Confirm does
+    // (fixtures/decaid/streamline-v0.2.24/grinders-page.json, `tapOther`).
+    expect((await tapGrinderInDye2(a, RECORDED_GRINDER_83)).status).toBe(200);
+    expect(context(a)).toMatchObject({ grinderId: RECORDED_GRINDER_83, grinderModel: "Fixture Grinder 83" });
+    expect(((context(a).extras as Record_).dye as Record_)).toMatchObject({ grinderId: true, grinderModel: true, recipeId: ETHIOPIA });
+    // The Recipe's Grinder, which DYE2 saves none of, and C's Workflow's.
+    await expect.poll(async () => (await recipe(one)).content.grinderId, { timeout: 15_000 }).toBe(grinder);
+    await expect.poll(() => localId(c, "/grinders", grinder), { timeout: 15_000 }).toEqual(expect.any(String));
+    await expect.poll(async () => context(c).grinderId, { timeout: 15_000 }).toBe(await localId(c, "/grinders", grinder));
+    expect(dye2.a.selected()).toMatchObject({ kind: "recipe", id: ETHIOPIA });
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+    // The grind setting stays the Recipe's, on both.
+    expect((await recipe(one)).content.grindSetting).toBe(grind);
+    expect([context(a).grinderSetting, context(c).grinderSetting]).toEqual([String(grind), String(grind)]);
   });
 
   it("takes another batch of the Recipe's Bean picked on A as its batch, writing it into C's, and keeps a batch of another Bean and a grind cleared as A's own, the Recipe loaded", async () => {

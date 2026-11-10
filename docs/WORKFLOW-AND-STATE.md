@@ -274,7 +274,7 @@ keeps only the newest 2,000 events, up to 2 Mi characters (above).
 Ticket [#145](https://github.com/loganfuller/decent-sync/issues/145) keeps
 each Machine's Loaded Recipe (ADR-0022), and ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) makes it the
-recipe its Workflow names. DYE2 v0.1.35 and Streamline v0.2.23, the
+recipe its Workflow names. DYE2 v0.1.36 and Streamline v0.2.24, the
 supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -658,7 +658,9 @@ parts to the Recipe's content both ways.
   setting, RPM or feed rate the Recipe holds none of, but no Basket, which DYE2 v0.1.33
   saves once picked after the load, reaching the Recipe as the tablet's
   change of its record (ADR-0022, #389); a Grinder, one of the Location's
-  not Archived; and a Bean Batch of the Recipe's own Bean, or any
+  not Archived, as DYE2's grinder picker's Confirm writes one into the
+  Workflow, and from v0.1.36 a tap of its card on DYE2's Grinders page, with
+  no confirm (`fa1d93f`, #461); and a Bean Batch of the Recipe's own Bean, or any
   batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
   means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow

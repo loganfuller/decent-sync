@@ -226,7 +226,7 @@ the internet, fly.io, and upgrading.
 ## Installing the plugin
 
 The plugin needs Decaid v0.9.1 or newer. For a Machine to follow Recipes, its
-tablet also needs DYE2 v0.1.35 or newer, and Streamline v0.2.23 or newer if
+tablet also needs DYE2 v0.1.36 or newer, and Streamline v0.2.24 or newer if
 Streamline is its skin.
 
 1. On the tablet, open Decaid's **Settings**, then **Plugins**.

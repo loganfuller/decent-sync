@@ -24,7 +24,7 @@
               "id": "1",
               "name": "Fixture Steam Recipe",
               "title": "Fixture Steam Recipe",
-              "beanId": "5e9447e3-9087-4966-80d7-5c3603ce678a",
+              "beanId": "3bf9cf4d-aeeb-4af4-93a0-d7aa68d864a6",
               "barista": "",
               "drinker": "",
               "beanName": "Fixture Ethiopia",
@@ -32,9 +32,9 @@
               "subtitle": "Fixture Ethiopia",
               "workflow": {
                 "context": {
-                  "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                  "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                   "coffeeName": "Fixture Ethiopia",
-                  "beanBatchId": "bbffe7aa-2cd5-4118-903f-df110e294436",
+                  "beanBatchId": "debb040b-6004-41fa-95bf-0ac22690ef71",
                   "targetYield": 36,
                   "grinderModel": "Fixture Grinder 64",
                   "coffeeRoaster": "Fixture Roasters",
@@ -65,9 +65,9 @@
               "profileId": "profile:98fa00c191551b435845",
               "stripSlot": 1,
               "capturedAt": "2026-11-05T10:00:01.000Z",
-              "beanBatchId": "bbffe7aa-2cd5-4118-903f-df110e294436",
+              "beanBatchId": "debb040b-6004-41fa-95bf-0ac22690ef71",
               "beanRoaster": "Fixture Roasters",
-              "decentSyncId": "80a7dd8c-e9bc-4044-98a4-2399f1ee2772",
+              "decentSyncId": "e03a5e3c-585e-47d4-a91c-1b653254e5bf",
               "profileTitle": "Adaptive v3",
               "profileSnapshot": {
                 "$profile": "Adaptive v3/b0b4007f6f"
@@ -78,7 +78,7 @@
                 "drink": 36,
                 "grind": 2.5,
                 "flushS": 5,
-                "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                 "steamMode": "time",
                 "flushTempC": 88,
                 "hotWaterMl": 200,
@@ -108,7 +108,7 @@
               "subtitle": "",
               "workflow": {
                 "context": {
-                  "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                  "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                   "coffeeName": null,
                   "beanBatchId": null,
                   "targetYield": 38,
@@ -127,7 +127,7 @@
               "profileId": "profile:39e939592679fb194706",
               "stripSlot": 2,
               "capturedAt": "2026-11-05T10:00:02.000Z",
-              "decentSyncId": "09e6f8cd-89f2-46c3-bda2-cf9b6dfcdb6a",
+              "decentSyncId": "390503ac-5145-4cec-ab8e-675e2f61d9f9",
               "profileTitle": "Classic Italian espresso",
               "profileSnapshot": {
                 "$profile": "Classic Italian espresso/82d9749fc4"
@@ -137,7 +137,7 @@
                 "brewC": 93,
                 "drink": 38,
                 "grind": 3,
-                "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                 "steamMode": "time",
                 "steamTempC": 145,
                 "equipmentIds": [],
@@ -158,7 +158,7 @@
               "subtitle": "",
               "workflow": {
                 "context": {
-                  "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                  "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                   "coffeeName": null,
                   "beanBatchId": null,
                   "targetYield": 40,
@@ -174,7 +174,7 @@
               "profileId": "profile:39e939592679fb194706",
               "stripSlot": 3,
               "capturedAt": "2026-11-05T10:00:03.000Z",
-              "decentSyncId": "f74dc661-e5f3-4e26-9ef0-2a13f62a2a63",
+              "decentSyncId": "46dec965-c8b9-4462-8a94-996556834161",
               "profileTitle": "Classic Italian espresso",
               "profileSnapshot": {
                 "$profile": "Classic Italian espresso/82d9749fc4"
@@ -184,7 +184,7 @@
                 "brewC": 94,
                 "drink": 40,
                 "grind": 3.5,
-                "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+                "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
                 "equipmentIds": [],
                 "grinderModel": "Fixture Grinder 64",
                 "hotWaterMode": "vol",
@@ -228,7 +228,7 @@
         "request": {
           "method": "POST",
           "path": "/store/streamlineSettings/streamlineHelpLaunches",
-          "body": "14"
+          "body": "13"
         },
         "response": {
           "status": 200,
@@ -279,7 +279,7 @@
         "response": {
           "status": 200,
           "body": {
-            "id": "528eb55b-a031-4d18-913b-1813c1fc9cb4",
+            "id": "4f784360-bf52-4ede-bf54-32692a717c53",
             "name": "Workflow",
             "description": "Description",
             "profile": {
@@ -288,22 +288,17 @@
             "context": {
               "targetDoseWeight": 18,
               "targetYield": 36,
-              "grinderId": "4abf97a6-c12a-4bd9-b372-90170999aac5",
+              "grinderId": "450bb9d8-bd18-4ef0-a66e-f9b048bff844",
               "grinderModel": "Fixture Grinder 64",
               "grinderSetting": "2.5",
-              "beanBatchId": "bbffe7aa-2cd5-4118-903f-df110e294436",
+              "beanBatchId": "debb040b-6004-41fa-95bf-0ac22690ef71",
               "coffeeName": "Fixture Ethiopia",
               "coffeeRoaster": "Fixture Roasters",
               "extras": {
                 "dye": {
                   "selection": null,
                   "v": 1,
-                  "recipeId": "1",
-                  "beanBatchId": true,
-                  "coffeeName": true,
-                  "coffeeRoaster": true,
-                  "grinderId": true,
-                  "grinderModel": true
+                  "recipeId": "1"
                 }
               }
             },
@@ -355,16 +350,6 @@
         "response": {
           "status": 200,
           "body": 85
-        }
-      },
-      {
-        "request": {
-          "method": "GET",
-          "path": "/store/streamline-app/last-steam-duration"
-        },
-        "response": {
-          "status": 200,
-          "body": 0
         }
       },
       {
@@ -456,7 +441,7 @@
     ],
     "streamline": {
       "last-steam-temp": 150,
-      "last-steam-duration": 0,
+      "last-steam-duration": 45,
       "last-steam-flow": null
     },
     "tiles": {
@@ -603,7 +588,7 @@
     ],
     "streamline": {
       "last-steam-temp": 150,
-      "last-steam-duration": 0,
+      "last-steam-duration": 45,
       "last-steam-flow": null
     },
     "tiles": {
@@ -697,7 +682,7 @@
     ],
     "streamline": {
       "last-steam-temp": 150,
-      "last-steam-duration": 0,
+      "last-steam-duration": 45,
       "last-steam-flow": null
     },
     "tiles": {
@@ -758,7 +743,7 @@
   "restoreRecord": {
     "id": "userMachineSettings",
     "value": {
-      "ts": 1793938746344,
+      "ts": 1794273776982,
       "de1": {
         "fan": 45
       },
@@ -834,7 +819,7 @@
     ],
     "streamline": {
       "last-steam-temp": 150,
-      "last-steam-duration": 0,
+      "last-steam-duration": 45,
       "last-steam-flow": null
     },
     "tiles": {
@@ -908,7 +893,7 @@
         "request": {
           "method": "POST",
           "path": "/store/streamlineSettings/streamlineHelpLaunches",
-          "body": "15"
+          "body": "14"
         },
         "response": {
           "status": 200,
@@ -942,7 +927,7 @@
         },
         "response": {
           "status": 200,
-          "body": 0
+          "body": 45
         }
       },
       {
@@ -953,6 +938,16 @@
         "response": {
           "status": 200,
           "unchanged": true
+        }
+      },
+      {
+        "request": {
+          "method": "GET",
+          "path": "/store/streamline-app/profile-drafts"
+        },
+        "response": {
+          "status": 200,
+          "body": null
         }
       },
       {
@@ -973,16 +968,6 @@
               "wakeLock": true
             }
           }
-        }
-      },
-      {
-        "request": {
-          "method": "GET",
-          "path": "/store/streamline-app/profile-drafts"
-        },
-        "response": {
-          "status": 200,
-          "body": null
         }
       }
     ],
@@ -1024,7 +1009,7 @@
     ],
     "streamline": {
       "last-steam-temp": 150,
-      "last-steam-duration": 0,
+      "last-steam-duration": 45,
       "last-steam-flow": null
     },
     "tiles": {
@@ -1085,7 +1070,7 @@
   "restoreRecordAfter": {
     "id": "userMachineSettings",
     "value": {
-      "ts": 1793938755595,
+      "ts": 1794273786203,
       "de1": {
         "fan": 50
       },

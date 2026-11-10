@@ -4,7 +4,7 @@
 //
 // Each field is named as Decaid v0.9.0's API names it. Labels, units, ranges,
 // steps and choices follow Streamline's settings page
-// (streamline-js:src/settings/settings.js at v0.2.23) where it has them, and
+// (streamline-js:src/settings/settings.js at v0.2.24) where it has them, and
 // Decaid's own limits otherwise. A reported value outside a field's range is
 // shown as it is; only an edit must be in range.
 

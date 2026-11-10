@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.35 and Streamline v0.2.23 on a simulated tablet, built from
+// DYE2 v0.1.36 and Streamline v0.2.24 on a simulated tablet, built from
 // their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
@@ -25,7 +25,7 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // The recorded data (fixtures/decaid/dye2-v0.1.26/, whose README lists the
 // steps and says what they show) names the recording's beans, batches,
 // grinders, baskets and profiles by their ids: load the tablet with
-// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.35 does what
+// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.36 does what
 // that recording shows but where fixtures/decaid/dye2-v0.1.32/ records it
 // otherwise (`dye2V032Recording`, its README says which): a recipe naming
 // no Bean clears the Workflow's, a recipe hidden from Streamline's strip is
@@ -41,16 +41,19 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // steam off applied whole; the editor's steam time of 0 to 255 s and its
 // steam temperature of Off saved with a time of 0; the Auto Favourites page
 // saving a favourite, no recipe; and the dashboard's rail showing recipes
-// only. DYE2's equipment and baskets pages were recorded at 2cf631c
-// (fixtures/decaid/dye2-2cf631c/), and save as v0.1.35's do
+// only; and where fixtures/decaid/streamline-v0.2.24/ records v0.1.36: a tap
+// on a grinder's card on its Grinders page writes the grinder into the
+// Workflow, where it opened the grinder's form (`tapGrinderInDye2`). DYE2's
+// equipment and baskets pages were recorded at 2cf631c
+// (fixtures/decaid/dye2-2cf631c/), and save as v0.1.36's do
 // (`dye2PagesRecording`).
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
 // migrations and pushes, is `SimulatedDye2` below; its pages are
 // `openDye2Dashboard`, `selectRecipeInDye2`, `assignRecipeInDye2`,
-// `pickBasketInDye2`, `openDye2RecipeEditor`, `saveFavouriteInDye2` and
-// `pickFavouriteInDye2`. Streamline's DYE strip, tiles, wake and
+// `pickBasketInDye2`, `tapGrinderInDye2`, `openDye2RecipeEditor`,
+// `saveFavouriteInDye2` and `pickFavouriteInDye2`. Streamline's DYE strip, tiles, wake and
 // remembered values are simulated-streamline.ts.
 
 /** DYE2's namespace in Decaid's store. */
@@ -104,7 +107,7 @@ const fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.26");
 const v032Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.32");
 const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33");
 const v035Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.35");
-const streamlineV0223Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.23");
+const streamlineV0224Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.24");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
 
 /** The files of fixtures/decaid/dye2-v0.1.32/: what DYE2 v0.1.32 does otherwise than v0.1.26 (its README). */
@@ -116,8 +119,8 @@ export type Dye2V033File = "library" | "loading" | "plugins" | "applies" | "bask
 /** The files of fixtures/decaid/dye2-v0.1.35/: what DYE2 v0.1.35 does otherwise than v0.1.33 (its README). */
 export type Dye2V035File = "library" | "loading" | "plugins" | "feed-rate" | "grinders" | "favourites" | "steam" | "keys";
 
-/** The files of fixtures/decaid/streamline-v0.2.23/: what Streamline v0.2.23 writes around steam, with DYE2 v0.1.33 (its README). */
-export type StreamlineV0223File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "editor" | "steam-off-edit" | "settings-kept" | "keys";
+/** The files of fixtures/decaid/streamline-v0.2.24/: what Streamline v0.2.24 writes around steam, on a profile switch and from its Grind label, and DYE2 v0.1.36's Grinders page (its README). */
+export type StreamlineV0224File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "steam-off-edit" | "settings-kept" | "profile-switch" | "grind-label" | "grinders-page" | "keys";
 
 function readJson<T>(dir: string, file: string): T {
   return JSON.parse(fs.readFileSync(path.join(dir, `${file}.json`), "utf8")) as T;
@@ -152,9 +155,9 @@ export function dye2V035Recording<T = Record_>(file: Dye2V035File): T {
   return expandedRecording<T>(v035Fixtures, file);
 }
 
-/** A file of fixtures/decaid/streamline-v0.2.23/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
-export function streamlineV0223Recording<T = Record_>(file: StreamlineV0223File): T {
-  return expandedRecording<T>(streamlineV0223Fixtures, file);
+/** A file of fixtures/decaid/streamline-v0.2.24/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function streamlineV0224Recording<T = Record_>(file: StreamlineV0224File): T {
+  return expandedRecording<T>(streamlineV0224Fixtures, file);
 }
 
 /** A recording's file in that directory, its shorthands expanded (`dye2Recording`). */
@@ -1837,6 +1840,20 @@ export async function pickBasketInDye2(tablet: SimulatedTablet, basketId: string
   return tablet.callApi("PUT", "/workflow", { context: markDye({ extras: { basketId, basketName: basket.name || "Unnamed" } }) });
 }
 
+/**
+ * A tap on a grinder's card on DYE2's Grinders page (`renderGrinderCards` in grinders.ts, from v0.1.36, fa1d93f): it
+ * writes the grinder with that id into the Workflow at once, with no confirm, its id and name flagged (`markDye`), as
+ * its grinder picker's CONFIRM does, and stays on the page. Before v0.1.36 the tap opened the grinder's form, which a
+ * 500 ms hold now opens (`editGrinderInDye2`). Resolves with Decaid's answer
+ * (fixtures/decaid/streamline-v0.2.24/grinders-page.json).
+ */
+export async function tapGrinderInDye2(tablet: SimulatedTablet, grinderId: string): Promise<DecaidAnswer> {
+  const { status, body } = await tablet.callApi("GET", "/grinders");
+  const grinder = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === grinderId);
+  if (!grinder) throw new Error(`DYE2's grinders page lists no grinder ${grinderId}`);
+  return tablet.callApi("PUT", "/workflow", { context: markDye({ grinderId, grinderModel: grinder.model || grinder.name || "Unnamed" }) });
+}
+
 export class Dye2Dashboard {
   /** The body of the page's last `PUT /workflow`. */
   lastSent: Record_ | undefined;
@@ -2679,7 +2696,8 @@ function grinderBody(fields: Record<Dye2GrinderField, string>, isEdit: boolean, 
 /**
  * DYE2's grinders page (grinders.ts at v0.1.35): it lists the grinders, and
  * its form is opened on the one with that id, as the dashboard's long-press
- * of a grinder opens it (`grinders?edit=<id>`), or empty for a new one (null),
+ * of a grinder opens it (`grinders?edit=<id>`), and from v0.1.36 a 500 ms
+ * hold of its card on the page, or empty for a new one (null),
  * each field shown as the record holds it, the feed rate note from its
  * `extras` (`openModal`); `changes` are typed over the form, and SAVE sends
  * what `grinderBody` builds, through `PUT /grinders/{id}` or `POST /grinders`.
