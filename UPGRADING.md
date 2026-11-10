@@ -28,7 +28,8 @@ hours.
   was turned off at, where v0.2.23 turned it back on at 1 s. So a Recipe
   holding no steam time no longer takes 1 s, and 1.6.3's ask to give each
   Recipe a steam time before updating Tablets no longer applies. A Recipe
-  holding none still takes the time steam comes back with where it was
+  holding none still takes the time steam comes back with where that is not
+  the time the Machine held as the Recipe was applied, as where it was
   applied while steam was off; giving it a steam time avoids that.
 - A profile switch in Streamline v0.2.24 leaves the Workflow's dose and grind
   setting as they were, where Streamline has none saved for the profile. It
