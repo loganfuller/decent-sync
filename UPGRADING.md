@@ -15,6 +15,8 @@ Releasing).
 
 ## Unreleased
 
+## 1.8.2
+
 ### Streamline v0.2.24 and DYE2 v0.1.36 are the minimums
 
 This release follows Streamline v0.2.24 and DYE2 v0.1.36
