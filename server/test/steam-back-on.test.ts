@@ -199,10 +199,11 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     await patch(one, { steamDuration: null });
     await expect.poll(() => recorded(c, "steamDuration") ?? null, { timeout: 15_000 }).toBeNull();
     const streamline = await startStreamline(c);
-    await load(c, machines.c);
-    await quiet({ streamline });
     const held = setting(c, "steamDuration") as number;
     expect(held).toBeGreaterThanOrEqual(1);
+    await load(c, machines.c);
+    await quiet({ streamline });
+    expect(setting(c, "steamDuration")).toBe(held);
     expect(setting(c, "steamTemperature")).toBe(160);
     const edits = await editsOf(one, "steamDuration");
     const watch = watchSteam(dye2, { a, c });
