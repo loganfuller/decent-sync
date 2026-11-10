@@ -35,8 +35,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // of the Workflow while a Recipe is loaded (`record`), and reports the recipes
 // it saved at once, never into a recipe applied while the save waited its
 // turn; the server unloads one by having the plugin clear the field.
-// Through the built plugin in simulated tablets running DYE2 v0.1.35 and
-// Streamline v0.2.23 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
+// Through the built plugin in simulated tablets running DYE2 v0.1.36 and
+// Streamline v0.2.24 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
 // server instances sharing one database, with assertions through the REST
 // API and what each simulated tablet holds. Serials are made up, from 47001.
 

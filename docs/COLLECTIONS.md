@@ -121,7 +121,7 @@ a replacement Tablet or a reset of Decaid's data puts Decaid's default back
 page no longer puts back a fan threshold of 50 or a refill kit of
 Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.
 Labels, units, ranges, steps and choices follow Streamline's settings page at
-v0.2.23, and Decaid's own limits where it has none. A ±
+v0.2.24, and Decaid's own limits where it has none. A ±
 button's increment is no step: Streamline's move the flow multipliers of the
 Tablet Settings by 0.1 and 0.05, but its text boxes and Decaid take any value
 of 0 or more, so their step of 0.01 is chosen here (ticket

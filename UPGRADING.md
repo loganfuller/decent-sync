@@ -15,6 +15,33 @@ Releasing).
 
 ## Unreleased
 
+### Streamline v0.2.24 and DYE2 v0.1.36 are the minimums
+
+This release follows Streamline v0.2.24 and DYE2 v0.1.36
+([ADR-0017](docs/adr/0017-supported-versions.md)). It changes nothing the
+plugin or the server does, so update each tablet whose Streamline or DYE2 is
+pinned to an earlier release before or after deploying it. Tablets that
+aren't pinned run both already, as Decaid installs each release within 12
+hours.
+
+- Streamline v0.2.24's heater switch turns steam back on at the steam time it
+  was turned off at, where v0.2.23 turned it back on at 1 s. So once a tablet
+  runs v0.2.24, a Recipe holding no steam time no longer takes 1 s from it,
+  and 1.6.3's ask to give each Recipe a steam time before updating Tablets
+  no longer applies. A tablet left on v0.2.23 still turns steam back on at
+  1 s. A Recipe
+  holding none still takes the time steam comes back with where that is not
+  the time the Machine held as the Recipe was applied, as where it was
+  applied while steam was off; giving it a steam time avoids that.
+- A profile switch in Streamline v0.2.24 leaves the Workflow's dose and grind
+  setting as they were, where Streamline has none saved for the profile. It
+  unloads the Recipe as before.
+- On DYE2 v0.1.36's Grinders page, a tap on a grinder picks it for the
+  Machine at once, with no confirm, and a hold opens its editor, which the
+  tap opened before. With a Recipe loaded, the tap changes the Recipe's
+  Grinder on every Machine with it loaded, as any change of the Grinder on a
+  Machine does. Its grind setting stays as it was.
+
 ## 1.8.0
 
 ### Settings History starts with this release

@@ -3,7 +3,7 @@ import { assignRecipeInDye2 } from "./simulated-dye2.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as at
-// v0.2.23, the release Decent Sync supports (ADR-0017), as far as it touches
+// v0.2.24, the release Decent Sync supports (ADR-0017), as far as it touches
 // DYE2, the Workflow and the settings it remembers. The plugin is not
 // told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
@@ -37,6 +37,11 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 //   (`resyncMilkStopIfDrifted`): `reload()`. It loads again after each apply
 //   of a DYE2 item (`refreshAfterApply`).
 //
+// From v0.2.24 neither check takes a steam time below 1 s, the off state's 0,
+// which is no time to keep (`steamDurationResyncable` in
+// src/modules/steam-mode.js, streamline-js#191); one the Workflow lacks is
+// still filled from the one kept.
+//
 // Each push, and a barista's change made in Streamline (`set()`), goes
 // through Streamline's setter for the value, which keeps the value in the
 // store and marks it pending before it changes the Workflow, and clears the
@@ -55,7 +60,7 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // a barista while it is off turns it back on with that time, but one pushed
 // back while it is off is not sent (`setTargetSteamDuration`,
 // `steamDurationWrite`): `set("last-steam-duration")`. Two more ways turn
-// steam on, Auto Steam the same at v0.2.23 as at cec5664. Its settings page
+// steam on, Auto Steam the same at v0.2.24 as at cec5664. Its settings page
 // (src/settings/settings.js) reads the Workflow as it opens, stages each
 // steam change made on it, and writes them on Save, keeping the steam time
 // above 0, flow, temperature and milk stop in the store
@@ -65,11 +70,13 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // the ones kept as it first opened, each where above 0, else the Workflow's
 // where above 0, else
 // 150 °C and 30 s, never at the recipe's (`setSteamHeaterOn`,
-// `seedRememberedSteamValues`): `openSettings()`. Streamline adopts the
-// machine's echo of a steam time of 0 as the one it keeps, as it checks the
-// steam time on every echo whatever the heater (`resyncDriftedShotSettings`),
-// so its heater switch then brings steam back at 1 s, the 0 clamped
-// (fixtures/decaid/streamline-v0.2.23/heater.json).
+// `seedRememberedSteamValues`): `openSettings()`. The machine's echo of the
+// off state's steam time of 0 is not adopted (above), so the time kept as
+// steam was turned off stays, and the heater switch brings steam back at it
+// where the recipe holds none; and `steamOnPatch` takes a steam time below
+// 1 s, the recipe's, the one kept or the profile's, as none
+// (fixtures/decaid/streamline-v0.2.24/heater.json). Up to v0.2.23 it adopted
+// that 0, and brought steam back at 1 s, the 0 clamped.
 // Auto Steam, choosing a pitcher, writes the steam time and flow the Auto
 // Steam Calculator plugin works out, at the Workflow's steam temperature as
 // it was entered, or with the heater off then at the one kept
@@ -112,8 +119,11 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // yield as the profile's `target_weight` (`updateDoseValue` and
 // `targetWeightProfilePatch` in src/modules/brew-temp.js), and save the value
 // set for the active profile: `setYield()` and `setDose()`. Its wake, and a
-// tap of a profile's button, send the profile with its saved dose, yield,
-// grind and brew temperature, `recipeId` null, then its saved steam time and
+// tap of a profile's button, send the profile with its saved yield and brew
+// temperature, the dose and grind setting saved for it and neither where it
+// saved none, so the Workflow keeps its own (`profileSwitchDial` in
+// src/modules/profile-overrides.js, from v0.2.24, f8e8638), `recipeId` null,
+// then its saved steam time and
 // flow, but send nothing where DYE2's mirrored selection names a recipe and
 // the Workflow's profile is that profile (`recipeHoldsDial` in
 // src/modules/profileManager.js): `wake()` and `tapProfile()`. The active
@@ -130,9 +140,6 @@ export const PROFILE_OVERRIDES_NAMESPACE = "streamlineProfileOverrides";
 
 /** DYE2's namespace in Decaid's store, and the base of its endpoints. */
 const DYE2 = "dye2.reaplugin";
-
-/** The dose Streamline's wake sends for a profile with none saved, where no dose was set since it started (DEFAULT_DOSE_WEIGHT). */
-const DEFAULT_DOSE_WEIGHT = 18;
 
 /** What an item applied from Streamline's DYE strip sent: Decaid's answer to its `PUT /workflow`, then to its first `POST .../selection` to DYE2; `refused`, the error where `assertDeclaredFields` threw before the PUT. */
 export interface StreamlineApplied {
@@ -360,9 +367,6 @@ export class SimulatedStreamline {
   /** Each apply's number: only the newest arms, or retries (`applySeq`). */
   private applySeq = 0;
   private readonly selectionRetriesMs: readonly number[];
-  /** The last dose and grind set in Streamline, which its wake falls back on (`rememberTileDefaults`). */
-  private lastDose: number | undefined;
-  private lastGrind: string | undefined;
   /** What Streamline is still doing in reply to a frame or a load. */
   private readonly pending = new Set<Promise<unknown>>();
   private readonly stopListening: () => void;
@@ -412,7 +416,7 @@ export class SimulatedStreamline {
    * (`settingsCache.workflow`), and holds its staged changes until it is
    * left, but what its heater switch turns steam back on to for Streamline's
    * session, which a page loaded afresh, as a new `startStreamline`, starts
-   * without (streamline-v0.2.23/settings.json, `saveOn` and
+   * without (streamline-v0.2.24/settings.json, `saveOn` and
    * `saveOnFresh`). See `StreamlineSettings`.
    */
   async openSettings(): Promise<StreamlineSettings> {
@@ -507,6 +511,7 @@ export class SimulatedStreamline {
         for (const { field, key } of LOADED) {
           const value = settingOf(body as Record_, field);
           if (key === "last-milk-stop" && !(typeof value === "number" && value > 0)) continue;
+          if (key === "last-steam-duration" && !steamDurationResyncable(value)) continue;
           await this.resyncIfDrifted(key, value);
         }
       })(),
@@ -738,8 +743,9 @@ export class SimulatedStreamline {
    * that profile by its fingerprint), it sends nothing. Otherwise it would
    * send the profile with its saved yield as `target_weight` and its saved
    * brew temperature (`withSavedBrewTemp`), and in the context its saved
-   * dose, else the last dose set, else 18 g, its saved yield, else its target
-   * weight, its saved grind setting, else the last one set, and `recipeId`
+   * yield, else its target weight, its saved dose and grind setting, each
+   * left out where it saved none, so the Workflow keeps its own
+   * (`profileSwitchDial`), and `recipeId`
    * null, then its saved steam time and flow, so a wake onto a profile other
    * than the Loaded Recipe's unloads it (its writer, `profile.wake`, owns
    * `profile` from v0.2.19, 1324df8). Resolves with Decaid's answer, or
@@ -752,8 +758,8 @@ export class SimulatedStreamline {
   /**
    * A barista taps the button of the profile with that id
    * (`handleProfileClick`): as `wake` describes, sent by `profile.send`,
-   * which owns it, a grind setting neither saved nor set sent as null, the
-   * steam time and flow only where the dial was not left alone.
+   * which owns it, the steam time and flow only where the dial was not left
+   * alone.
    */
   tapProfile(profileId: string): Promise<DecaidAnswer | undefined> {
     return this.sendProfile(profileId, "profile.send");
@@ -986,6 +992,8 @@ export class SimulatedStreamline {
       const value = settingOf(workflow, field);
       if (typeof value !== "number" || value === this.lastSeen.get(field)) continue;
       this.lastSeen.set(field, value);
+      // The off state's steam time of 0 is no time to adopt (streamline-js#191).
+      if (key === "last-steam-duration" && !steamDurationResyncable(value)) continue;
       if (now - (this.lastResyncAt.get(field) ?? 0) < RESYNC_COOLDOWN_MS) continue;
       this.lastResyncAt.set(field, now);
       // A failed push keeps the cooldown; Streamline logs it.
@@ -1057,7 +1065,7 @@ export class SimulatedStreamline {
   }
 
   /**
-   * `steamHeaterFor` at v0.2.23: off at a target of 0 and a steam time of 0,
+   * `steamHeaterFor` at v0.2.24: off at a target of 0 and a steam time of 0,
    * keeping the temperature and time it was at where above 0; on only from
    * off, at the selected recipe's steam temperature and time while its DYE2
    * switch is on, else the ones kept, else the active profile's saved time,
@@ -1099,7 +1107,6 @@ export class SimulatedStreamline {
     if (Number.isFinite(targetYield) && targetYield > 0) payload.profile = { target_weight: targetYield };
     const answer = await this.send(payload, "tiles.doseYield");
     if (answer.status === 200) {
-      if (tile === "in") this.lastDose = grams;
       const active = await this.activeProfile(workflow);
       if (active) await this.saveForProfile(String(active.id), tile === "in" ? { targetDoseWeight: grams } : { targetYield: grams });
     }
@@ -1113,12 +1120,15 @@ export class SimulatedStreamline {
     const profile = record.profile as Record_;
     if (await this.recipeHoldsDial(profile)) return undefined;
     const meta = await this.savedFor(profileId, record);
-    const targetDoseWeight = meta.targetDoseWeight ?? this.lastDose ?? DEFAULT_DOSE_WEIGHT;
-    const grinderSetting = meta.grinderSetting ?? this.lastGrind ?? (writer === "profile.send" ? null : undefined);
+    // `profileSwitchDial`: the dose and grind setting saved for the profile, neither where it saved none, and its yield always.
+    const dial: Record_ = {};
+    if (meta.targetDoseWeight != null) dial.targetDoseWeight = meta.targetDoseWeight;
+    if (meta.grinderSetting != null) dial.grinderSetting = meta.grinderSetting;
     const parsedYield = parseFloat(String(meta.targetYield ?? profile.target_weight));
-    const targetYield = Number.isNaN(parsedYield) ? 0 : parsedYield;
+    const targetYield = Number.isFinite(parsedYield) ? parsedYield : 0;
+    dial.targetYield = targetYield;
     const sent = withSavedBrewTemp(targetYield > 0 ? { ...profile, target_weight: targetYield } : profile, meta);
-    const context: Record_ = { targetDoseWeight, targetYield, ...(grinderSetting === undefined ? {} : { grinderSetting }), ...recipeIdPatch(null) };
+    const context: Record_ = { ...dial, ...recipeIdPatch(null) };
     let answer: DecaidAnswer;
     try {
       answer = await this.send({ profile: sent, context }, writer);
@@ -1279,17 +1289,28 @@ function isSteamOff(targetTemperature: unknown): boolean {
   return !(typeof targetTemperature === "number" && targetTemperature >= STEAM_ENABLED_MIN_TEMP);
 }
 
+/** A steam time that is one, 1 s or more, else null: the off state's 0 is no time (`steamDuration` in steam-mode.js, from v0.2.24). */
+function steamDuration(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) && value >= MIN_STEAM_DURATION_S ? value : null;
+}
+
+/** `steamDurationResyncable` in steam-mode.js: whether a drift check may compare this steam time with the one kept, as it may one that is a time, or one the Workflow lacks, but not the off state's 0. */
+function steamDurationResyncable(duration: unknown): boolean {
+  return steamDuration(duration) !== null || !(typeof duration === "number" && Number.isFinite(duration));
+}
+
 /**
  * `steamOnPatch` in steam-mode.js: each of the temperature and time from the
  * recipe, else the value kept, else (the time) the profile's, else the
- * default, rounded and clamped to what leaves the heater on; a flow only
- * where the Workflow's is unusable.
+ * default, rounded and clamped to what leaves the heater on, a steam time
+ * below 1 s taken as none from v0.2.24; a flow only where the Workflow's is
+ * unusable.
  */
 function steamOnPatch({ recipe = {}, remembered = {}, profile = {}, currentFlow }: { recipe?: SteamValues; remembered?: SteamValues; profile?: SteamValues; currentFlow?: unknown }): Record<string, number> {
   const num = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
   const clamp = (value: number, lo: number, hi: number) => Math.min(hi, Math.max(lo, value));
   const temp = num(recipe.tempC) ?? num(remembered.temp) ?? 150;
-  const duration = num(recipe.durationS) ?? num(remembered.duration) ?? num(profile.duration) ?? DEFAULT_STEAM_DURATION_S;
+  const duration = steamDuration(recipe.durationS) ?? steamDuration(remembered.duration) ?? steamDuration(profile.duration) ?? DEFAULT_STEAM_DURATION_S;
   const patch: Record<string, number> = {
     targetTemperature: Math.round(clamp(temp, STEAM_ENABLED_MIN_TEMP, STEAM_ENABLED_MAX_TEMP)),
     duration: Math.round(clamp(duration, MIN_STEAM_DURATION_S, MAX_STEAM_DURATION_S)),

@@ -18,8 +18,8 @@ Recipes back to the tablet.
 | App | Minimum | Needed for |
 |---|---|---|
 | Decaid | v0.9.1 | Everything |
-| DYE2 | v0.1.35 | Following Recipes |
-| Streamline | v0.2.23 | Following Recipes, where Streamline is the skin |
+| DYE2 | v0.1.36 | Following Recipes |
+| Streamline | v0.2.24 | Following Recipes, where Streamline is the skin |
 
 The server refuses a tablet running an older Decaid, and the Machine's page
 says why ([ADR-0017](adr/0017-supported-versions.md)).
@@ -170,8 +170,8 @@ Recipes are shared through DYE2's storage. A Machine's Loaded Recipe is the
 recipe that DYE2 and Streamline name in its Workflow when a barista applies
 one. The plugin has DYE2 save each change made on the Machine into that
 recipe ([ADR-0022](adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
-That is why a Machine that follows Recipes needs DYE2 v0.1.35 or newer, and
-Streamline v0.2.23 or newer where Streamline is its skin.
+That is why a Machine that follows Recipes needs DYE2 v0.1.36 or newer, and
+Streamline v0.2.24 or newer where Streamline is its skin.
 
 ## Tablet identity and backups
 

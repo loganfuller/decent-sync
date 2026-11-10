@@ -24,9 +24,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // steam-back-on.test.ts covers the ways it turns steam on with others,
 // which take the Recipe's too (#374, #394). With no Recipe loaded, a change
 // of them stays on its Machine (#190). Through the
-// built plugin in simulated tablets running DYE2 v0.1.35 and Streamline
-// v0.2.23 as recorded (fixtures/decaid/dye2-v0.1.26/ and
-// fixtures/decaid/streamline-v0.2.23/), Machine A, and B in
+// built plugin in simulated tablets running DYE2 v0.1.36 and Streamline
+// v0.2.24 as recorded (fixtures/decaid/dye2-v0.1.26/ and
+// fixtures/decaid/streamline-v0.2.24/), Machine A, and B in
 // the tests that use it, on one server instance and C on another sharing
 // one database, with assertions through the REST API and what each
 // simulated tablet holds. Serials are made up, from 49001.
@@ -288,7 +288,7 @@ describe("A Recipe's steam, hot water and flush settings", { timeout: 120_000 },
     expect(settingsOf(c)).toMatchObject({ steamTemperature: 150, steamDuration: 30 });
   });
 
-  it("takes a steam time of 0 set in Streamline on A as steam off, as v0.2.23 turns its heater off with it, which is no edit", async () => {
+  it("takes a steam time of 0 set in Streamline on A as steam off, as Streamline turns its heater off with it, which is no edit", async () => {
     const { a, c, one, quiet } = await lab("Zero", 49121);
     const edits = { temperature: await editsOf(one, "steamTemperature"), duration: await editsOf(one, "steamDuration") };
     const streamline = await startStreamline(a);

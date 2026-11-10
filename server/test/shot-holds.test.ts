@@ -20,7 +20,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // so a load held as it stops is made after it starts again. Saves into the
 // Recipe are not held, but for those after steam turned back on during the
 // Shot, held with its write of the Recipe's steam temperature (#374).
-// Through the built plugin in simulated tablets running DYE2 v0.1.35 as
+// Through the built plugin in simulated tablets running DYE2 v0.1.36 as
 // recorded (fixtures/decaid/dye2-v0.1.26/ and later), A on one server
 // instance and C, which pulls the Shots, on another sharing one database.
 // Serials are made up, from 51001.

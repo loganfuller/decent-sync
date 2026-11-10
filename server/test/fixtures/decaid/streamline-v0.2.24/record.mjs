@@ -1,17 +1,18 @@
-// Records what Streamline v0.2.23 writes to Decaid v0.9.1 around steam, with
-// DYE2 v0.1.33, as README.md describes: drives Streamline's and DYE2's pages
-// in headless Chromium and sends requests from Node, as the plugin and Decent
-// Sync's server would, keeping each exchange with Decaid's answer, the pushes
-// heard on DYE2's `changed` socket and the Workflows Decaid sent plugins
-// (heard through ../dye2-v0.1.26/workflow-recorder/). Run it once, from the
+// Records what Streamline v0.2.24 and DYE2 v0.1.36 write to Decaid v0.9.1, as
+// README.md describes: drives Streamline's and DYE2's pages in headless
+// Chromium and sends requests from Node, as the plugin and Decent Sync's
+// server would, keeping each exchange with Decaid's answer, the pushes heard
+// on DYE2's `changed` socket and the Workflows Decaid sent plugins (heard
+// through ../dye2-v0.1.26/workflow-recorder/). Run it once, from the
 // repository root, against a Decaid whose data is new, still holding its
-// bundled DYE2, with Streamline v0.2.23's files served at SKIN:
+// bundled DYE2, with Streamline v0.2.24's files served at SKIN:
 //
-//   node server/test/fixtures/decaid/streamline-v0.2.23/record.mjs <output dir>
+//   node server/test/fixtures/decaid/streamline-v0.2.24/record.mjs <output dir>
 //
-// It installs the recorder and DYE2 v0.1.33 (the `dist` deploy of the tag, by
-// branch, as the owner's tablets have it), then seeds DYE2's keys as Decent
-// Sync's server leaves them. Its helpers are ../dye2-v0.1.33/record.mjs's.
+// It installs the recorder and DYE2 v0.1.36 (the `dist` deploy of the tag, by
+// branch), then seeds DYE2's keys as Decent Sync's server leaves them. Its
+// steam steps are those ../dye2-v0.1.33/record.mjs's helpers recorded of
+// Streamline v0.2.23 for #394, made again on v0.2.24.
 import fs from "node:fs";
 import path from "node:path";
 import { createHash, randomUUID } from "node:crypto";
@@ -34,8 +35,8 @@ const FAVOURITES = `${STORE}/autoFavourites`;
 const STREAMLINE_STORE = "/store/streamline-app";
 /** Streamline's remembered steam values (`STEAM_TEMP_LAST_VALUE_KEY` and its neighbours in streamline-js:src/modules/api.js). */
 const STEAM_KEYS = ["last-steam-temp", "last-steam-duration", "last-steam-flow"];
-/** DYE2's `dist` deploy of the v0.1.33 tag (`d0ceeb5`), as the owner's tablets are pinned to it. */
-const DYE2_DIST = "a98bc5f46eef334ec4b94c1f8ef4815201dda461";
+/** DYE2's `dist` deploy of the v0.1.36 tag (`c5ae831`). */
+const DYE2_DIST = "fbdde5a3b5829beaf6cddbb771dc8fb686203217";
 /** Time for DYE2 and Streamline to follow a Workflow change, and a margin. */
 const SETTLE_MS = 2500;
 /** The routes whose reads a page sends that may be kept. Every request but a read is kept, whatever its route. */
@@ -299,6 +300,7 @@ async function seedLibrary() {
   const ethiopia = (await api("POST", "/beans", { roaster: "Fixture Roasters", name: "Fixture Ethiopia", country: "Ethiopia", processing: "Washed" })).response.body;
   await api("POST", `/beans/${ethiopia.id}/batches`, { roastDate: "2026-10-01T00:00:00.000", weight: 1000 });
   await api("POST", "/grinders", { model: "Fixture Grinder 64", burrs: "Fixture 64mm flat", settingType: "numeric", settingSmallStep: 0.5, settingBigStep: 1, rpmSmallStep: 50, rpmBigStep: 100 });
+  await api("POST", "/grinders", { model: "Fixture Grinder 83", burrs: "Fixture 83mm flat", settingType: "numeric", settingSmallStep: 0.1, settingBigStep: 1, rpmSmallStep: 50, rpmBigStep: 100 });
 }
 
 /** DYE2's names of the settings a Recipe may hold, and where each sits in a Workflow (`RECIPE_SETTINGS` in protocol/src/index.ts). */
@@ -428,7 +430,7 @@ async function snapshot() {
 const streamlineReads = (route) => route === SELECTION || route === RECIPES || route === "/workflow" || route.startsWith(`${STREAMLINE_STORE}/`);
 
 /**
- * Streamline v0.2.23's main page in its own browser context, its DYE2 switch
+ * Streamline v0.2.24's main page in its own browser context, its DYE2 switch
  * (`streamline.dye2Enabled`) set as `dye2Enabled` says before it loads, on
  * its DYE strip: opened, a strip button tapped, the steam heater switched
  * through the page's own module, its steam tile read and its + tapped, and
@@ -525,6 +527,53 @@ async function streamlinePage(browser, name, { dye2Enabled }) {
     await page.locator("#save-settings-btn").click();
     return r.take(4000);
   };
+  /**
+   * A profile switched to from the profile selector: opened from the main
+   * page's Browse Profiles button, the profile titled `title` picked in its
+   * list, and Confirm, which returns to the main page.
+   */
+  self.selectProfile = async (title) => {
+    await page.locator("#profile-select-btn").click();
+    const item = page.locator("#profile-list [data-profile-key]").filter({ hasText: title }).first();
+    await item.waitFor({ timeout: 20_000 });
+    await item.click();
+    await page.waitForTimeout(500);
+    await page.locator("#confirm-profile-btn").click();
+    await page.locator("#steam-duration-value").waitFor({ timeout: 20_000 });
+    return r.take(3000);
+  };
+  /** Streamline's "load a profile when the machine wakes" setting, in the page's own storage, as its settings page leaves it. */
+  self.wakeProfile = (id) =>
+    page.evaluate((profileId) => {
+      localStorage.setItem("wakeProfileEnabled", profileId ? "true" : "false");
+      if (profileId) localStorage.setItem("wakeProfileId", profileId);
+      else localStorage.removeItem("wakeProfileId");
+    }, id);
+  /** The page's address, or the one given, without its origin. */
+  self.where = (href = page.url()) => {
+    const url = new URL(href);
+    return url.href.startsWith(SKIN) ? url.pathname + url.search : url.href.replace(DECAID, "");
+  };
+  /** Does `act`, and gives each address the page went to meanwhile, in order. */
+  self.navigating = async (act) => {
+    const navigated = [];
+    const heard = (frame) => {
+      if (frame === page.mainFrame()) navigated.push(self.where(frame.url()));
+    };
+    page.on("framenavigated", heard);
+    try {
+      await act();
+    } finally {
+      page.off("framenavigated", heard);
+    }
+    return navigated;
+  };
+  /** Back to Streamline's main page, loaded afresh. */
+  self.home = async () => {
+    await page.goto(`${SKIN}/`);
+    await page.locator("#steam-duration-value").waitFor({ timeout: 20_000 });
+    return r.take(6000);
+  };
   self.close = async () => {
     watching.delete(self);
     await r.context.close();
@@ -533,35 +582,44 @@ async function streamlinePage(browser, name, { dye2Enabled }) {
   return self;
 }
 
-/** DYE2's recipe editor on a recorded page, as ../dye2-v0.1.32/record.mjs drives it: a recipe opened, a stepper typed into, a mode chosen and Save. */
-function recipeEditor(r) {
+/** The cards of a DYE2 grinder grid (its Grinders page, its grinder picker): each grinder's name, and whether it is the highlighted one. */
+const grinderCards = (page) =>
+  page.locator("#dye-cards-grid .dye-card").evaluateAll((cards) =>
+    cards.filter((card) => !card.classList.contains("dye-card-add")).map((card) => ({ name: card.querySelector(".dye-card-name")?.textContent.trim() ?? card.textContent.trim(), selected: card.classList.contains("dye-card-selected") })),
+  );
+const grinderCard = (page, model) => page.locator("#dye-cards-grid .dye-card").filter({ hasText: model }).first();
+
+/** DYE2 v0.1.36's Grinders page on a recorded page of its own: opened, a grinder's card tapped, and one held. */
+function grindersPage(r) {
   const { page } = r;
-  const open = async (id) => {
-    await page.goto(DYE2(`recipe-edit?id=${encodeURIComponent(id)}`));
-    await page.waitForTimeout(2500);
-    return r.take();
+  const modalOpen = () => page.evaluate(() => document.getElementById("dye-modal-backdrop")?.classList.contains("open") ?? null);
+  return {
+    open: async () => {
+      await page.goto(DYE2("grinders"));
+      await page.locator("#dye-cards-grid .dye-card").first().waitFor({ timeout: 20_000 });
+      await page.waitForTimeout(1500);
+      return r.take();
+    },
+    cards: () => grinderCards(page),
+    modalOpen,
+    tap: async (model) => {
+      await grinderCard(page, model).click();
+      return r.take(1500);
+    },
+    /** A card held for 800 ms, past the page's 500 ms long press. */
+    hold: async (model) => {
+      await grinderCard(page, model).click({ delay: 800 });
+      return r.take(1500);
+    },
+    cancelModal: async () => {
+      await page.locator("#dye-modal-cancel").click();
+      return r.take(500);
+    },
   };
-  const shown = (prefix) => page.evaluate((p) => document.getElementById(`${p}-value`)?.textContent.trim() ?? null, prefix);
-  const mode = (cls, value) => page.locator(`.${cls}[data-mode="${value}"]`).click();
-  const stepper = async (prefix, value) => {
-    await page.locator(`#${prefix}-value`).click();
-    const input = page.locator(`#${prefix}-value input`);
-    await input.fill(String(value));
-    await input.press("Enter");
-  };
-  const save = async () => {
-    const button = page.locator("#re-save-btn");
-    await button.click();
-    await page.waitForTimeout(300);
-    if (/^REPLACE/.test((await button.textContent().catch(() => "")) ?? "")) await button.click();
-    await page.waitForURL(/dashboard/, { waitUntil: "commit" });
-    return r.take(2500);
-  };
-  return { open, shown, mode, stepper, save };
 }
 
-/** Reads kept on DYE2's editor: its selection, and its recipes. */
-const editorReads = (route) => route === SELECTION || route === RECIPES;
+/** Reads kept on DYE2's Grinders page and its grinder picker: its selection, its recipes and the Workflow, which the page reads for its highlight. */
+const grinderReads = (route) => route === SELECTION || route === RECIPES || route === "/workflow";
 
 // ---- The recordings.
 
@@ -574,7 +632,7 @@ async function applyAfresh(s, steps, number, prefix = "") {
   steps[`${prefix}applyRecipe${number}`] = await step(() => s.strip(NAMES[number]));
 }
 
-/** 1. v0.2.23's strip: recipes `1`, `2` and `3` applied from Streamline's DYE strip, its DYE2 switch on. */
+/** 1. The strip: recipes `1`, `2` and `3` applied from Streamline's DYE strip, its DYE2 switch on. */
 async function recordStrip(browser) {
   log("strip");
   const s = await streamlinePage(browser, "dye2On", { dye2Enabled: true });
@@ -634,7 +692,11 @@ async function recordHeater(browser) {
   return steps;
 }
 
-/** 6. The main page's steam tile while the heater is off, and its + from Off; recipe `1` applied, Streamline's DYE2 switch on. */
+/**
+ * 6. The main page's steam tile while the heater is off, and its + from Off;
+ * then a steam time of 0 written from the script while the heater is on, and
+ * its + again; recipe `1` applied, Streamline's DYE2 switch on.
+ */
 async function recordTile(browser) {
   log("tile");
   const steps = {};
@@ -644,6 +706,8 @@ async function recordTile(browser) {
   steps.loadWrite = await step(loadWriteOne);
   steps.heaterOff = await step(() => s.heater(false));
   steps.plusFromOff = await step(() => s.tap("steam-plus"));
+  steps.steamTimeZeroHeaterOn = await step(() => put({ steamSettings: { duration: 0 } }));
+  steps.plusWithHeaterOn = await step(() => s.tap("steam-plus"));
   await s.close();
   return steps;
 }
@@ -727,38 +791,6 @@ async function recordRecord(browser) {
 }
 
 /**
- * 8. A steam time of 0 saved in DYE2's recipe editor into recipe `1`, the
- * Workflow's recipe, while steam is on; Streamline's main page open
- * meanwhile, its DYE2 switch on, and its steam tile's + tapped after.
- */
-async function recordEditor(browser) {
-  log("editor");
-  const steps = {};
-  const s = await streamlinePage(browser, "dye2On", { dye2Enabled: true });
-  steps.reseeded = await step(reseed);
-  steps.started = await step(s.open);
-  await applyAfresh(s, steps, 1);
-  steps.loadWrite = await step(loadWriteOne);
-  const e = await recordedPage(browser, { keepRead: editorReads });
-  const editor = recipeEditor(e);
-  let form;
-  steps.steamTimeZeroSaved = await step(async () => {
-    const opened = await editor.open("1");
-    form = { steamBefore: await editor.shown("re-steam"), steamTempBefore: await editor.shown("re-steam-temp") };
-    await editor.mode("re-steam-mode", "time");
-    await editor.stepper("re-steam", 0);
-    form.steamTyped = await editor.shown("re-steam");
-    return [...opened, ...(await editor.save())];
-  });
-  steps.steamTimeZeroSaved.form = form;
-  await e.context.close();
-  steps.recordAfterSave = await step(record);
-  steps.plusWithHeaterOn = await step(() => s.tap("steam-plus"));
-  await s.close();
-  return steps;
-}
-
-/**
  * 9. A Recipe edited while its Machine's steam is off: recipe `1` applied and
  * loaded, steam switched off from Streamline; recipe `1`'s record rewritten
  * from the script as Decent Sync's server writes an edit of it; the Workflow
@@ -799,6 +831,128 @@ async function recordSteamOffEdit(browser) {
   steps.steamTimeBackToZero = await step(() => put({ steamSettings: { duration: 0 } }));
   steps.newPluginWrite = await step(() => put({ steamSettings: { flow: 1.0, stopAtTemperature: 65 } }));
   steps.reloaded = await step(s.open);
+  await s.close();
+  return steps;
+}
+
+const machineState = (state) => api("PUT", `/machine/state/${state}`);
+
+/**
+ * 11. A profile switch after a dial-in, Streamline's DYE2 switch on: recipe
+ * `1` applied and loaded; `Classic Italian espresso` confirmed in the profile
+ * selector; the dose tile's + tapped, which Streamline saves for that
+ * profile; `Adaptive v3` confirmed, which it holds no dose or grind setting
+ * for; `Classic Italian espresso` again; then, with it set as the profile to
+ * load when the machine wakes and recipe `1` applied again, the machine put
+ * to sleep and woken from the script.
+ */
+async function recordProfileSwitch(browser) {
+  log("profile switch");
+  const steps = {};
+  const s = await streamlinePage(browser, "dye2On", { dye2Enabled: true });
+  const classic = await profileTitled("Classic Italian espresso");
+  steps.reseeded = await step(reseed);
+  steps.started = await step(s.open);
+  await applyAfresh(s, steps, 1);
+  steps.loadWrite = await step(loadWriteOne);
+  steps.selectClassic = await step(() => s.selectProfile("Classic Italian espresso"));
+  steps.dosePlus = await step(() => s.tap("dose-in-plus"));
+  steps.selectAdaptive = await step(() => s.selectProfile("Adaptive v3"));
+  steps.selectClassicAgain = await step(() => s.selectProfile("Classic Italian espresso"));
+  steps.applyRecipe1Again = await step(() => s.strip(NAMES[1]));
+  await s.wakeProfile(classic.id);
+  steps.asleep = await step(async () => [await machineState("sleeping")], { settleMs: 5000 });
+  steps.woken = await step(async () => [await machineState("idle"), ...(await s.r.take(8000))]);
+  await s.wakeProfile(null);
+  await s.close();
+  return steps;
+}
+
+/**
+ * 12. The Grind tile's label tapped: with Streamline's DYE2 switch on and
+ * recipe `1` named in the Workflow; with no recipe named, after a profile
+ * switch, `Fixture Grinder 83` then picked in DYE2's grinder picker and
+ * Confirmed; and with Streamline's DYE2 switch off. Each of those steps holds
+ * `{"navigated": [...]}` among its exchanges, each address the page went to,
+ * in order, without its origin.
+ */
+async function recordGrindLabel(browser) {
+  log("grind label");
+  const steps = {};
+  let s = await streamlinePage(browser, "dye2On", { dye2Enabled: true });
+  const label = async () => {
+    const navigated = await s.navigating(async () => {
+      await s.page.locator("#grind-label").click();
+      await s.page.waitForTimeout(4000);
+    });
+    return [...(await s.r.take()), { navigated }];
+  };
+  steps.reseeded = await step(reseed);
+  steps.started = await step(s.open);
+  await applyAfresh(s, steps, 1);
+  steps.loadWrite = await step(loadWriteOne);
+  steps.labelWithRecipe = await step(label);
+  steps.backWithoutSaving = await step(s.home);
+  steps.selectClassic = await step(() => s.selectProfile("Classic Italian espresso"));
+  steps.labelWithNoRecipe = await step(async () => [...(await label()), { cards: await grinderCards(s.page) }]);
+  steps.pickerConfirm = await step(async () => {
+    const navigated = await s.navigating(async () => {
+      await grinderCard(s.page, "Fixture Grinder 83").click();
+      await s.page.waitForTimeout(500);
+      await s.page.locator("#dye-confirm-btn").click();
+      await s.page.waitForTimeout(6000);
+    });
+    return [...(await s.r.take()), { navigated }];
+  });
+  await s.close();
+
+  s = await streamlinePage(browser, "dye2Off", { dye2Enabled: false });
+  steps.startedDye2Off = await step(s.open);
+  steps.labelDye2Off = await step(async () => [
+    ...(await label()),
+    { settingsLocation: await s.page.evaluate(() => JSON.parse(localStorage.getItem("streamline.settings.location") ?? "null")), mainPageShown: (await s.tile()).mainPageShown },
+  ]);
+  await s.close();
+  return steps;
+}
+
+/**
+ * 13. DYE2 v0.1.36's Grinders page, on a page of its own while Streamline's
+ * main page stays open, its DYE2 switch on. With recipe `1` named in the
+ * Workflow: the page opened; `Fixture Grinder 83`'s card tapped; DYE2's
+ * `record` after; `Fixture Grinder 64`'s card held, and its editor closed;
+ * `Fixture Grinder 64`'s card tapped; `record` again. Then with no recipe
+ * named, after a profile switch in Streamline: the page opened afresh, and
+ * `Fixture Grinder 83`'s card tapped. The steps on DYE2's page hold
+ * `{"cards": [...]}`, each card's name and whether it is highlighted, and the
+ * hold `{"editorOpen": <whether the grinder's editor was open>}`.
+ */
+async function recordGrindersPage(browser) {
+  log("grinders page");
+  const steps = {};
+  const s = await streamlinePage(browser, "dye2On", { dye2Enabled: true });
+  steps.reseeded = await step(reseed);
+  steps.started = await step(s.open);
+  await applyAfresh(s, steps, 1);
+  steps.loadWrite = await step(loadWriteOne);
+  const g = await recordedPage(browser, { keepRead: grinderReads });
+  const grinders = grindersPage(g);
+  const shown = async (act) => [...(await act()), { cards: await grinders.cards() }];
+  steps.opened = await step(() => shown(grinders.open));
+  steps.tapOther = await step(() => shown(() => grinders.tap("Fixture Grinder 83")));
+  steps.recordAfterTap = await step(record);
+  steps.holdCard = await step(async () => {
+    const held = await grinders.hold("Fixture Grinder 64");
+    const editorOpen = await grinders.modalOpen();
+    return [...held, ...(await grinders.cancelModal()), { editorOpen }, { cards: await grinders.cards() }];
+  });
+  steps.tapBack = await step(() => shown(() => grinders.tap("Fixture Grinder 64")));
+  steps.recordAfterTapBack = await step(record);
+  steps.selectClassic = await step(() => s.selectProfile("Classic Italian espresso"));
+  steps.openedNoRecipe = await step(() => shown(grinders.open));
+  steps.tapOtherNoRecipe = await step(() => shown(() => grinders.tap("Fixture Grinder 83")));
+  steps.recordNoRecipe = await step(record);
+  await g.context.close();
   await s.close();
   return steps;
 }
@@ -882,12 +1036,12 @@ await wait(1000);
 recorder = listen("workflow-recorder.reaplugin", "workflow");
 if ((await recorder.opened) !== 101) throw new Error("The recorder's socket did not open");
 
-log("installing DYE2 v0.1.33's dist deploy");
+log("installing DYE2 v0.1.36's dist deploy");
 const bundledDye2 = await plugins();
 const install = await api("POST", "/plugins/install/github-branch", { repo: "decentespresso/dye2", branch: DYE2_DIST });
 await wait(4000);
 const listed = await plugins();
-if (!listed.some((plugin) => plugin.version === "0.1.33" && plugin.loaded)) throw new Error(`DYE2 v0.1.33 is not loaded: ${JSON.stringify(listed)}`);
+if (!listed.some((plugin) => plugin.version === "0.1.36" && plugin.loaded)) throw new Error(`DYE2 v0.1.36 is not loaded: ${JSON.stringify(listed)}`);
 await openChanged();
 
 await seedLibrary();
@@ -914,9 +1068,11 @@ try {
   write("tile.json", await recordTile(browser));
   write("settings.json", await recordSettingsToggle(browser));
   write("record.json", await recordRecord(browser));
-  write("editor.json", await recordEditor(browser));
   write("steam-off-edit.json", await recordSteamOffEdit(browser));
   write("settings-kept.json", await recordSettingsKept(browser));
+  write("profile-switch.json", await recordProfileSwitch(browser));
+  write("grind-label.json", await recordGrindLabel(browser));
+  write("grinders-page.json", await recordGrindersPage(browser));
   write("library.json", { ...library, recipes: await recipes() });
   write("keys.json", await keys());
 } finally {
