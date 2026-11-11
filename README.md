@@ -75,7 +75,12 @@ Each server has one owner: a household, or a business with all of its sites.
   Shots should go like. Its page shows the Shot's numbers, says where its
   Profile is another than the Recipe's, and keeps who chose it in its
   history. It stays until someone chooses another or clears it, the Shots
-  list marks it, and nothing changes on the tablets.
+  list marks it, and nothing changes on the tablets. The Recipe's other
+  Shots are read against it in three places: a Shot's page draws its curves
+  behind the Shot's own, the Overview gives its duration beside each
+  Machine's median, and a summary grouped by Recipe, through the REST API
+  or an assistant, gives its numbers beside the Recipe's. Nothing scores a
+  Shot against it.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -121,11 +126,13 @@ Each server has one owner: a household, or a business with all of its sites.
   online, its Machine State, its Loaded Recipe and its last Shot, and a row
   for each Recipe pulled today, yesterday or in the last 7 days, in Recipe
   Slot order. Each cell counts that Machine's Shots of that Recipe, with
-  their median duration, their median yield against target and the share
-  that stopped on weight, says how many were unfinished, and opens them in
-  the Shots list. Each Location's page shows its own block.
+  their median duration, beside its Recipe's Reference Shot's where it has
+  one, their median yield against target and the share that stopped on
+  weight, says how many were unfinished, and opens them in the Shots list.
+  Each Location's page shows its own block.
 - **Compared at a glance.** Open any Shot's curves beside the previous Shot on
-  its Machine. Steam Records show the milk's temperature.
+  its Machine, or beside its Recipe's Reference Shot. Steam Records show the
+  milk's temperature.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/shot-dark.png">

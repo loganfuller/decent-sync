@@ -102,6 +102,8 @@ export interface SummaryGroup {
   by: Record<string, unknown> & { beanBatch?: { roastDate: string | null } | null; barista?: string | null };
   counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: Record<string, Record<string, unknown>>;
+  /** Its Recipe's Reference Shot, with its own value of each number asked for. */
+  reference?: { id: string; numbers: Record<string, unknown> };
 }
 
 /**

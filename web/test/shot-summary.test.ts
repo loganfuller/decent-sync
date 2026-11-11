@@ -1,5 +1,20 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NUMBERS, MEDIAN_TEXT, baristaKey, countNotes, durationText, numbersParam, ratioText, settingText, shareText, shotsText, shownNumbers, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
+import {
+  DEFAULT_NUMBERS,
+  MEDIAN_TEXT,
+  baristaKey,
+  countNotes,
+  durationText,
+  numbersParam,
+  ratioText,
+  referenceDurationText,
+  settingText,
+  shareText,
+  shotsText,
+  shownNumbers,
+  signedText,
+  yieldAgainstTargetText,
+} from "../src/lib/shot-summary";
 
 // How a Shot Summary's numbers read on the Shots list (#466, #469), which of
 // them its address keeps, and who a Barista's name names, for the Barista
@@ -12,6 +27,14 @@ describe("a Shot Summary's numbers as text", () => {
     expect(durationText({ shots: 20, median: 26, p25: 25.62, p75: 26.649 })).toEqual({ median: "26.0 s", range: "25.6–26.6" });
     expect(durationText({ shots: 1, median: 23.549, p25: 23.549, p75: 23.549 })).toEqual({ median: "23.5 s", range: "23.5–23.5" });
     expect(durationText(NONE)).toBeUndefined();
+  });
+
+  it("puts the duration of a Recipe's Reference Shot beside a median, where the Recipe has one with a duration (#473)", () => {
+    expect(referenceDurationText("26.0 s", { id: "reference", numbers: { duration: 27.451 } })).toBe("26.0 s (reference 27.5 s)");
+    expect(referenceDurationText("26.0 s", { id: "reference", numbers: { duration: null } })).toBe("26.0 s");
+    // Read without its duration, as by a summary of other numbers.
+    expect(referenceDurationText("26.0 s", { id: "reference", numbers: {} })).toBe("26.0 s");
+    expect(referenceDurationText("26.0 s", undefined)).toBe("26.0 s");
   });
 
   it("reads a yield against target in grams, each with its sign, and its range with a word between", () => {

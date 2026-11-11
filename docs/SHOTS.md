@@ -474,7 +474,9 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
 - `GET /api/shots/summary` returns the Shot Summary of the Shots the list
   lists for the same filters, each filter as the list takes it (Shot
   Summaries, below): `{ groups, total, limit, offset }`, each group with
-  its `by`, `counts` and `numbers`. `groupBy` names what to group them by:
+  its `by`, `counts` and `numbers`, and, grouped by Recipe, its Recipe's
+  Reference Shot as `reference`, where it has one. `groupBy` names what to
+  group them by:
   none, one, or two separated by a comma, such as `groupBy=recipe,machine`;
   another name, a third or one given twice is a 400. `numbers` names the
   numbers each group gives, one or more separated by a comma, such as
@@ -547,7 +549,9 @@ the home page and the Location's page (`web/src/components/overview.tsx`),
 its numbers from this route alone, a cell opening as the list's filters
 (`e2e/overview.spec.ts`, `web/test/overview.test.ts`). Ticket [#469](https://github.com/loganfuller/decent-sync/issues/469)
 gives the other numbers, each when asked for, and counts Unfinished Shots
-apart. Buckets are a later ticket's.
+apart. Ticket [#473](https://github.com/loganfuller/decent-sync/issues/473)
+gives a group by Recipe its Recipe's Reference Shot. Buckets are a later
+ticket's.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -711,6 +715,32 @@ apart. Buckets are a later ticket's.
     and name are one. It is not called `steps`, which the MCP endpoint's
     budget keeps whole as a Profile's steps (ADR-0028), as its names are
     free text.
+- **A Recipe's Reference Shot** (#473, ADR-0029; `LIBRARY.md`). Grouped by
+  Recipe, alone or with a second grouping, a group whose Recipe has a
+  Reference Shot gives `reference`: `{ id, numbers }`, the Shot's id and its
+  own value of each number asked for, in their order, to read the group's
+  against. A Recipe with none gives no `reference`, nor one whose Reference
+  Shot the Shots list doesn't list, its Pending Machine dismissed, nor the
+  group of Shots with no Recipe, nor any group of a summary not grouped by
+  Recipe.
+  - It is the Recipe's, not the group's: with a second grouping each group
+    of the Recipe gives the same one, and the summary's filters need not
+    find it, so a day's Shots at one Location are read against a Shot
+    pulled at another a month before. It is given whatever kind of Shot it
+    is, a cleaning or an Unfinished Shot too. It sits on the group, so a
+    later ticket's buckets nest beside it, never holding it.
+  - A value is the Shot's own, worked out as each Shot's is for the group's
+    numbers (`NumberSql.own`), null where it has none or one too large to
+    count: `stoppedOnWeight` is true or false, null where it recorded no
+    stop reason, `lastStep` is `{ frame, name }`, and each other a number.
+  - It is read in the summary's one statement, for the groups on the page
+    alone, each by its id (`reference_shot_id`), so it is of the same
+    moment as the numbers beside it.
+  - Nothing is worked out of the two: no score, tolerance or judgement of
+    the Shots against it (#465, Out of Scope). The management interface
+    shows it in the Overview, a cell's median duration beside the Reference
+    Shot's ("24.7 s (reference 25.8 s)", `referenceDurationText`). The Shots
+    list's Summary card, never grouped, shows none.
 - **Worked out when read,** from the Shot's columns and its record, with
   nothing stored for it, so a Shot's edit, such as its rating, shows in the
   next summary. Differences and quotients are taken in decimal, as the
@@ -847,14 +877,20 @@ labelled before 0 s in every chart and marked in the measurements table,
 a dashed vertical line at each change of its Profile's step after Preheat
 (each sample's `profileFrame`, as Streamline marks them), the step named in
 the tooltip and the measurements table,
-the previous Shot it is compared with aligned at 0 s too,
+the Shot it is compared with aligned at 0 s too,
 everything its record holds, the Basket's and Tools' names DYE2 stored
 and its Grinder's burrs, after the Grinder, among it, the scale's last
 weight recorded beside the yield weighed, with its time to first drip and
 its flow at the stop as stored, each left out where the Shot has none,
 its credit, the Library's Recipe, Bean Batch, Grinder, Basket
 and Profile it is linked to, each linking to its page, and a comparison
-with its previous Shot. Each Bean's, Bean Batch's, Grinder's, Profile's,
+with the Shot chosen under Compare with: nothing, the previous Shot on its
+Machine, or its Recipe's Reference Shot (#473), one at a time, its curves
+drawn behind the Shot's own and the same table beside them. The Reference
+Shot is the one the Recipe's read gives (`GET /api/recipes/:id`), read
+with the Shot and again when the Recipes the Shot is the Reference Shot of
+change; it is not offered for a Shot pulled with no Recipe, a Recipe with
+none, or the Reference Shot itself (`e2e/reference-shots.spec.ts`). Each Bean's, Bean Batch's, Grinder's, Profile's,
 Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
