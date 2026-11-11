@@ -4,6 +4,13 @@ Open a pull request only when asked (`AGENTS.md`). Its description says what cha
 
 Branch protection on `main` requires CI's `ci` check, which passes once every other job has, and binds admins. On a pull request that changes only docs (anything under `docs/`, and Markdown other than `UPGRADING.md` and any in `decent-sync.reaplugin/`, which the plugin ZIP packs), every job but `changes` and `ci` skips, so its run passes within a minute. A cancelled run on an older commit was superseded by a newer push, not failed: read the newest run.
 
+A failure in a test the change doesn't touch, of behaviour it doesn't change, may be a flake. File it before re-running, so it is fixed rather than re-run until it passes:
+- Search the issues for the test's file (`gh issue list --state all --search "<file name>"`).
+- If no open issue covers the failure, file one titled `Flaky test in <file>: <what fails>` and labelled `bug` and `needs-triage`. Give the test, the run id and attempt, and the failing assertion as the log shows it. If only a closed issue covers it, add the run there in a comment instead, and leave reopening it to the owner.
+- Then re-run the failed jobs (`gh run rerun <id> --failed`), and say in the pull request that you did, naming the issue.
+
+A failed run on `main` is handled the same way, by whoever sees it.
+
 ## Screenshots
 
 A pull request that changes the management interface shows the change in screenshots, embedded in its description under a `## Screenshots` heading placed before the verification section. A line before each image says what it shows, and one line at the top says how the data was seeded.
