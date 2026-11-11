@@ -13,7 +13,7 @@ import { PrismaService } from "../prisma.service.js";
 import { queryValue } from "../record-filters.js";
 import { profileOfSql } from "../shots/links.js";
 import type { Reporter } from "../sync/identity.js";
-import { type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
+import { CHANGE_CAUSES, type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
 import { type LoadedRecipeView, everyLoadedRecipeDuring, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
 import { type MachineUse, type UseRequest, readMachineUse, useRange } from "./machine-use.js";
 import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
@@ -31,9 +31,6 @@ export interface TimeRange {
 /** The kinds of a Machine's activity. */
 export const ACTIVITY_KINDS = ["workflowChanges", "loadedRecipes", "machineStates"] as const;
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
-
-/** Who made a Workflow change, as its changes are kept to those of one cause. */
-const CAUSES: readonly ChangeCause[] = ["plugin", "other", "unknown"];
 
 /** A page of one kind of a Machine's activity, and how many there are in all. */
 export interface ActivityPage<T> {
@@ -69,7 +66,7 @@ export function readActivityRequest(query: Record<string, unknown>): ActivityReq
   const kinds = given.filter((kind): kind is ActivityKind => (ACTIVITY_KINDS as readonly unknown[]).includes(kind));
   if (kinds.length < given.length) problems.push(`Choose each kind from ${ACTIVITY_KINDS.join(", ")}`);
   const cause = queryValue(query, "cause", problems);
-  if (cause !== undefined && !(CAUSES as readonly string[]).includes(cause)) problems.push(`Choose cause as ${CAUSES.join(", ")}`);
+  if (cause !== undefined && !(CHANGE_CAUSES as readonly string[]).includes(cause)) problems.push(`Choose cause as ${CHANGE_CAUSES.join(", ")}`);
   if (problems.length > 0) throw new BadRequestException(problems);
   return { from, to, ...(kinds.length > 0 && { kinds }), cause: cause as ChangeCause | undefined };
 }

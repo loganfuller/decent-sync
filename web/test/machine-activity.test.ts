@@ -60,18 +60,27 @@ describe("a Machine's activity as its page shows it", () => {
     expect(timeZoneAt([], "2026-02-10T20:00:00Z")).toBe("UTC");
   });
 
-  it("shows a time of the day chosen as its time there alone, to the second, with its zone, and one of another day with its date, whatever the browser's time zone", () => {
+  it("shows a time of the day chosen as its time there alone, to the second, and one of another day with its date, whatever the browser's time zone", () => {
+    // In whatever locale this runs, as web/test/machine-use.test.ts reads a day: an hour may be 8 or 08, 10 PM or 22.
     for (const browser of ["UTC", "Australia/Sydney"]) {
       vi.stubEnv("TZ", browser);
-      // The 10th at the Lab: a Shot at 08:00:10, and the sleep it began in, from 22:00 the evening before.
-      expect(whenText("2026-02-10T15:00:10Z", "2026-02-10", history), browser).toBe("8:00:10 AM MST");
-      expect(whenText("2026-02-10T05:00:00Z", "2026-02-10", history), browser).toBe("Feb 9, 2026, 10:00:00 PM MST");
+      // The 10th at the Lab: a Shot at 08:00:10, and the sleep it began in, from 22:00 on the 9th.
+      const shot = whenText("2026-02-10T15:00:10Z", "2026-02-10", history);
+      expect(shot, browser).toMatch(/^0?8:00:10\b/);
+      expect(shot, browser).not.toMatch(/2026/);
+      const asleep = whenText("2026-02-10T05:00:00Z", "2026-02-10", history);
+      expect(asleep, browser).toMatch(/\b9\b.*2026.*\b(10|22):00:00\b/);
       // The 11th is the Harbor's: a flush there at 06:00, and its waking at the Lab, at 11:00 on the 10th there.
-      expect(whenText("2026-02-10T21:00:00Z", "2026-02-11", history), browser).toBe("6:00:00 AM GMT+9");
-      expect(whenText("2026-02-10T18:00:00Z", "2026-02-11", history), browser).toBe("Feb 10, 2026, 11:00:00 AM MST");
+      const flush = whenText("2026-02-10T21:00:00Z", "2026-02-11", history);
+      expect(flush, browser).toMatch(/^0?6:00:00\b/);
+      expect(flush, browser).not.toMatch(/2026/);
+      expect(whenText("2026-02-10T18:00:00Z", "2026-02-11", history), browser).toMatch(/\b10\b.*2026.*\b11:00:00\b/);
       // Before it was anywhere, UTC's.
-      expect(whenText("2024-12-30T12:00:00Z", "2024-12-30", history), browser).toBe("12:00:00 PM UTC");
+      expect(whenText("2024-12-30T12:00:00Z", "2024-12-30", history), browser).toMatch(/^12:00:00\b.*UTC$/);
     }
+    // At a Location whose time zone the browser doesn't know, UTC's too, as its day is.
+    const unknown = [{ effectiveFrom: "2025-01-01T00:00:00.000Z", location: { id: "mars", name: "Mars", timeZone: "Mars/Olympus_Mons" } }];
+    expect(whenText("2026-02-10T15:00:10Z", "2026-02-10", unknown)).toMatch(/^(3|15):00:10\b.*UTC$/);
   });
 
   it("says who made a change: Decent Sync, with which of its writes, the tablet for anyone else, or nobody recorded", () => {

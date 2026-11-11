@@ -13,20 +13,22 @@ export const ACTIVITY_KINDS = [
 
 export type ActivityKind = (typeof ACTIVITY_KINDS)[number]["kind"];
 
+/** A time zone as the card reads a clock in it: UTC for none, or for one this browser doesn't know. */
+function zoneOf(timeZone: string | undefined): string {
+  try {
+    return new Intl.DateTimeFormat("en-US", { timeZone: timeZone ?? "UTC" }).resolvedOptions().timeZone;
+  } catch {
+    return "UTC";
+  }
+}
+
 /**
  * The date, such as 2026-11-10, a moment has on the wall clock of a time
- * zone, UTC's for none or for one this browser doesn't know. Now, at the
- * Location a Machine is at, it is the day its activity is listed for until
- * another is chosen.
+ * zone (`zoneOf`). Now, at the Location a Machine is at, it is the day its
+ * activity is listed for until another is chosen.
  */
 export function dateIn(timeZone: string | undefined, at = Date.now()): string {
-  const parts = (zone: string) => new Intl.DateTimeFormat("en-US", { timeZone: zone, year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
-  let read: Intl.DateTimeFormatPart[];
-  try {
-    read = parts(timeZone ?? "UTC");
-  } catch {
-    read = parts("UTC");
-  }
+  const read = new Intl.DateTimeFormat("en-US", { timeZone: zoneOf(timeZone), year: "numeric", month: "2-digit", day: "2-digit" }).formatToParts(at);
   const part = (type: Intl.DateTimeFormatPartTypes) => read.find((found) => found.type === type)!.value;
   return `${part("year")}-${part("month")}-${part("day")}`;
 }
@@ -53,10 +55,11 @@ const TIMES = new Map<string, Intl.DateTimeFormat>();
  * Location the Machine was at then, to the second, with that zone's
  * abbreviation, such as "8:30:05 AM MST". One of another day there, as what
  * was in effect as the day began is, has its date too, such as
- * "Nov 9, 2026, 9:00:00 PM MST".
+ * "Nov 9, 2026, 9:00:00 PM MST". A zone this browser doesn't know reads as
+ * UTC (`zoneOf`).
  */
 export function whenText(at: string, day: string, history: readonly Pick<LocationHistoryEntry, "effectiveFrom" | "location">[]): string {
-  const timeZone = timeZoneAt(history, at);
+  const timeZone = zoneOf(timeZoneAt(history, at));
   const dated = dateIn(timeZone, Date.parse(at)) !== day;
   const key = `${timeZone} ${dated}`;
   let format = TIMES.get(key);

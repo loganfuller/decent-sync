@@ -47,7 +47,8 @@ export const MERGE_WITHIN_MS = 5_000;
 export const LONGEST_GROUP_MS = 30_000;
 
 /** Who made a Workflow change, as the REST API gives it (`WorkflowEventView.cause`). */
-export type ChangeCause = "plugin" | "other" | "unknown";
+export const CHANGE_CAUSES = ["plugin", "other", "unknown"] as const;
+export type ChangeCause = (typeof CHANGE_CAUSES)[number];
 
 /** A Workflow change, as the trail reads it: its stored id, time and cause, and its Workflow summarised. */
 export interface TrailChange {
