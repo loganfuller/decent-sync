@@ -129,6 +129,8 @@ test("someone signed in who opens an invite link signs out before accepting it",
   await page.getByLabel("Password").fill("admin password 1");
   await page.getByRole("button", { name: "Create account" }).click();
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  // As the new account, not the Admin who signed out.
+  await expect(page.getByRole("banner").getByRole("button", { name: "Alex Admin" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toBeVisible();
 });
 

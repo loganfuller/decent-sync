@@ -69,16 +69,19 @@ export interface OverviewColumn {
 /**
  * A block's columns: the Machines at the Location now, in the Machines
  * list's order, then any other whose Shots there the summary's groups hold,
- * in theirs, which is by name.
+ * by name, ignoring case, then by id, so they stay in their places whatever
+ * Recipes the groups come to hold.
  */
 export function overviewColumns(groups: readonly SummaryGroup[], machines: readonly Machine[], locationId: string): OverviewColumn[] {
-  const columns: OverviewColumn[] = machines.filter((machine) => machine.location?.id === locationId).map((machine) => ({ id: machine.id, name: machine.name, machine, here: true }));
+  const here: OverviewColumn[] = machines.filter((machine) => machine.location?.id === locationId).map((machine) => ({ id: machine.id, name: machine.name, machine, here: true }));
+  const others = new Map<string, OverviewColumn>();
   for (const { by } of groups) {
     // A Shot credited to a Location is a Machine's: a Pending Machine's is at none.
-    if (!by.machine || columns.some((column) => column.id === by.machine!.id)) continue;
-    columns.push({ ...by.machine, machine: machines.find((machine) => machine.id === by.machine!.id), here: false });
+    if (!by.machine || others.has(by.machine.id) || here.some((column) => column.id === by.machine!.id)) continue;
+    others.set(by.machine.id, { ...by.machine, machine: machines.find((machine) => machine.id === by.machine!.id), here: false });
   }
-  return columns;
+  const byName = (a: OverviewColumn, b: OverviewColumn) => a.name.toLowerCase().localeCompare(b.name.toLowerCase()) || a.id.localeCompare(b.id);
+  return [...here, ...[...others.values()].sort(byName)];
 }
 
 /** A row of a Location's block: a Recipe pulled there in the period, or the Shots pulled with none. */

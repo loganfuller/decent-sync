@@ -246,7 +246,8 @@ test("the period switches to yesterday and to the last 7 days, and stays in the 
 });
 
 test("a Machine moved away in the period keeps its column where it pulled Shots, and has one where it is now", async ({ page }) => {
-  const moved = await page.request.post(`/api/machines/${machines.right.id}/location-history`, { data: { locationId: harbor.id, effectiveFrom: new Date().toISOString() } });
+  // From now, by the server's clock: a time of this process's could be ahead of it, and refused as in the future.
+  const moved = await page.request.post(`/api/machines/${machines.right.id}/location-history`, { data: { locationId: harbor.id } });
   expect(moved.status()).toBe(201);
 
   await page.goto("/");
@@ -279,25 +280,37 @@ test("a Location's page shows its own block, with its own choice of period", asy
 });
 
 test("the Machines' status is read again every 5 seconds, and the numbers every 30", async ({ page }) => {
-  // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
   await page.goto("/");
   const depot = page.getByRole("region", { name: "Depot", exact: true });
   const depotTable = table(page, "Depot");
   await expect(depotTable.getByRole("columnheader").nth(1)).toHaveText(/^Depot 1Offline/);
   await expect(depot.getByText("No Shots were pulled here today.")).toBeVisible();
+  // From here the page's clock moves only as the test moves it, so nothing is read again until then.
+  await page.clock.pauseAt(Date.now() + 1_000);
 
-  // Its tablet connects, with a Shot pulled today: the status follows by itself.
+  // Its tablet connects, with a Shot pulled today.
   SimulatedTablet.load({
     settings: settingsFor({ serverUrl: server.url(), token: machines.depot1.token }),
     api: withShots(emptyLibrary(DEPOT_1), [shotOf("depot-none", at(0, 0, 45), DEPOT_1)]),
     timeScale: 50,
   });
-  await expect(depotTable.getByRole("columnheader").nth(1)).toHaveText(/^Depot 1Online/);
-  await expect.poll(async () => ((await (await page.request.get(`/api/shots?limit=1&machineId=${machines.depot1.id}`)).json()) as { total: number }).total).toBe(1);
+  await expect
+    .poll(async () => {
+      const { machine } = (await (await page.request.get(`/api/machines/${machines.depot1.id}`)).json()) as { machine: { online: boolean } };
+      const { total } = (await (await page.request.get(`/api/shots?limit=1&machineId=${machines.depot1.id}`)).json()) as { total: number };
+      return machine.online && total === 1;
+    })
+    .toBe(true);
+  await expect(depotTable.getByRole("columnheader").nth(1)).toHaveText(/^Depot 1Offline/);
 
-  // The numbers at their next reading.
-  await page.clock.fastForward(30_000);
+  // Five seconds on, the status is read again, and the numbers are not.
+  await page.clock.fastForward(5_000);
+  await expect(depotTable.getByRole("columnheader").nth(1)).toHaveText(/^Depot 1Online/);
+  await expect(depot.getByText("No Shots were pulled here today.")).toBeVisible();
+
+  // Thirty seconds after they were read, the numbers are too.
+  await page.clock.fastForward(25_000);
   await expect(cell(depotTable, "No Recipe loaded", 0)).toHaveText("1 Shot23.5 s · −0.1 g vs target · 100% on weight");
   await expect(depot.getByText("No Shots were pulled here today.")).toHaveCount(0);
 });

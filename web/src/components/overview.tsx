@@ -256,6 +256,7 @@ function OverviewNumbers({ location, machines, period }: { location: Location; m
           </Table>
         </div>
       )}
+      {!data && !error && <p className="text-sm text-muted-foreground">Loading</p>}
       {data && rows.length === 0 && <p className="text-sm text-muted-foreground">No Shots were pulled here {pulled}.</p>}
     </div>
   );

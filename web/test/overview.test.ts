@@ -69,15 +69,16 @@ describe("a Location's block", () => {
   const harborHouse = recipe("Harbor House", HARBOR, 1);
   const recipes = [decaf, house, guest, harborHouse];
 
-  it("has a column for each Machine there now, in the Machines list's order, then any other whose Shots the groups hold", () => {
-    const machines = [machine("left", LAB), machine("moved", HARBOR), machine("right", LAB), machine("spare", null)];
-    const groups = [group(house, "right"), group(house, "moved"), group(house, "gone"), group(null, "moved")];
+  it("has a column for each Machine there now, in the Machines list's order, then any other whose Shots the groups hold, by name", () => {
+    const machines = [machine("left", LAB), machine("Moved", HARBOR), machine("right", LAB), machine("spare", null)];
+    // The groups come by Recipe first, so the Machines since moved away come in no order of their own.
+    const groups = [group(decaf, "Moved"), group(house, "right"), group(house, "gone"), group(null, "Moved")];
     expect(overviewColumns(groups, machines, LAB.id)).toEqual([
       { id: "left", name: "left", machine: machines[0], here: true },
       { id: "right", name: "right", machine: machines[2], here: true },
-      { id: "moved", name: "moved", machine: machines[1], here: false },
       // One the Machines list doesn't hold is named as the summary names it.
       { id: "gone", name: "gone", machine: undefined, here: false },
+      { id: "Moved", name: "Moved", machine: machines[1], here: false },
     ]);
     // With no Shots, its Machines alone.
     expect(overviewColumns([], machines, LAB.id).map((column) => column.id)).toEqual(["left", "right"]);
