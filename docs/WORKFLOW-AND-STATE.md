@@ -835,7 +835,9 @@ that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines/:id/loaded-recipes?limit=20&offset=0` returns
   `{ entries, total, limit, offset }`, its Loaded Recipes, latest first, each
   as `loadedRecipe` is, with `unloadedAt` the time it was unloaded. Limit is
-  1–100.
+  1–100. The Machine page no longer reads it, as its Activity card lists
+  them by day through `activity`, below: it stays for the REST API's other
+  clients and for the previous release's page (ADR-0025).
 - `GET /api/machines/:id/workflow-events?limit=20&offset=0` and
   `GET /api/machines/:id/machine-state-events?limit=20&offset=0` return
   `{ events, total, limit, offset }`, latest first. A Workflow event is as

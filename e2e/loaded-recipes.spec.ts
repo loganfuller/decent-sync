@@ -30,7 +30,8 @@ test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machine's page and its Location's, in its slot or in none, until the profile changes", async ({ page }) => {
   // Uptown is where no day begins while this runs, as the Activity card lists today's Loaded Recipes.
-  const location = await createLocation(page, "Uptown", farFromMidnight().zone);
+  const { zone, zoneName } = farFromMidnight();
+  const location = await createLocation(page, "Uptown", zone);
   // The recording's tablet, with its library, Workflow and eight recipes, its beans' names starting with the scenario's.
   const bar1 = await tabletAt(page, "Bar 1", location, recordedDye2MainTablet("47501", "Uptown"));
   await tabletAt(page, "Bar 2", location, { ...derivedDe1Pro({ serial: "47502" }), "/beans": [], "/bean-batches": [], "/grinders": [], "/profiles": [], ...NO_DYE2_LISTS });
@@ -77,8 +78,8 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   history = await loadedToday(page);
   await expect(rows(history)).toHaveCount(2);
   await expect(rows(history).first()).not.toContainText("Still loaded");
-  // When it was unloaded, today, as a time at Uptown.
-  await expect(rows(history).first().getByRole("cell").nth(2)).toHaveText(/^\d+:\d\d:\d\d [AP]M /);
+  // When it was unloaded, today, as a time at Uptown, with Uptown's zone.
+  await expect(rows(history).first().getByRole("cell").nth(2)).toHaveText(new RegExp(`^\\d+:\\d\\d:\\d\\d [AP]M ${zoneName.replace("+", "\\+")}$`));
   await page.goto(`/locations/${location.id}`);
   await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("None");
 });

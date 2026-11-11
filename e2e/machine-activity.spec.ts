@@ -72,10 +72,19 @@ test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grin
   const lab = await createLocation(page, "Lab", ZONE);
   machineId = await adopt(page, "Lab 1", lab.id);
 
+  const loads: string[] = [];
+  page.on("request", (request) => {
+    const { pathname } = new URL(request.url());
+    if (request.method() === "GET" && pathname.endsWith("/activity")) loads.push(pathname);
+  });
   await page.goto(`/machines/${machineId}`);
-  // Closed until it is opened, with nothing of the day read.
-  await expect(page.getByRole("region", { name: "Activity" }).getByRole("tab")).toHaveCount(0);
+  // Shown closed, reading nothing of the day, until it is opened, as the page's Settings Edits and Settings History are.
+  const closed = page.getByRole("region", { name: "Activity" });
+  await expect(closed.getByRole("button", { name: "Show Activity", exact: true })).toHaveAttribute("aria-expanded", "false");
+  await expect(closed.getByRole("tab")).toHaveCount(0);
+  expect(loads).toEqual([]);
   const activity = await openCard(page, "Activity");
+  expect(loads).toContain(`/api/machines/${machineId}/activity`);
   await expect(activity.getByRole("tab", { name: "Dial-in trail" })).toHaveAttribute("aria-selected", "true");
   await expect(activity.getByRole("button", { name: "Day", exact: true })).toHaveText(dateText(0));
   await expectTip(activity, "Activity", /The day is that of the Location it was at then, and so is each time, by its tablet's clock\..*Changes within 5 seconds of each other from one source are one entry\./);
