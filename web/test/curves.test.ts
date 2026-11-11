@@ -2,8 +2,10 @@ import { flowAtStop, poured, timeToFirstDrip } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import tapInNormal from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record.json" with { type: "json" };
 import timedStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record-timed-stop.json" with { type: "json" };
+import espresso from "../../server/test/fixtures/decaid/de1pro-v0.8.7/shot-espresso.json" with { type: "json" };
 import preheatShot from "../../server/test/fixtures/decaid/de1pro-v0.9.0/shot-preheat.json" with { type: "json" };
 import {
+  type ChartPoint,
   chartPoints,
   firstSecond,
   lastRecordedWeight,
@@ -102,6 +104,98 @@ describe("chartPoints", () => {
     const zero = points.find((point) => point.seconds === 0)!;
     expect(zero.current).toBe(zero.previous);
     expect(zero.current).toBe(samples[43]!.values.flow);
+  });
+});
+
+// A Shot of four samples that the test tablet's Decaid v0.8.7 recorded: one in
+// Preheat, then its profile's first, and two more over 23 s later
+// (server/test/fixtures/decaid/de1pro-v0.8.7/shot-espresso.json).
+const four = espresso.measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> }[];
+
+/** The four samples in turn, at these milliseconds after noon UTC on 2 March 2026, each with this pressure target in bar, 0 being none. */
+function recorded(samples: { ms: number; targetPressure: number }[]) {
+  return samples.map(({ ms, targetPressure }, n) => {
+    // Decaid writes a sample's time without a zone.
+    const timestamp = new Date(Date.UTC(2026, 2, 2, 12) + ms).toISOString().replace("Z", "");
+    const sample = four[n % four.length]!;
+    return { ...sample, machine: { ...sample.machine, timestamp, targetPressure }, scale: { ...sample.scale, timestamp } };
+  });
+}
+
+/** The stretches of consecutive points at which a series has a value: a chart draws each as one line, or marks it where it is a lone reading. */
+function stretches(points: ChartPoint[], series: "current" | "target" | "previous"): ChartPoint[][] {
+  const found: ChartPoint[][] = [];
+  points.forEach((point, n) => {
+    if (point[series] === null) return;
+    if (n > 0 && points[n - 1]![series] !== null) found.at(-1)!.push(point);
+    else found.push([point]);
+  });
+  return found;
+}
+
+describe("chartPoints of a curve whose samples have no value", () => {
+  it("breaks the line where a step sets no target, and keeps a lone reading at its own sample's time", () => {
+    // Derived: the real Shot's samples with their pressure targets changed to 3, 3, none (0) and 9 bar, as a
+    // profile switching from pressure to flow control and back would record.
+    const samples = shotSamples(four.map((sample, n) => ({ ...sample, machine: { ...sample.machine, targetPressure: [3, 3, 0, 9][n] } })));
+    const points = chartPoints("pressure", samples, undefined, firstSecond(samples), lastSecond(samples));
+    const [held, lone, ...others] = stretches(points, "target");
+    expect(others).toEqual([]);
+    // 3 bar from the sample in Preheat to 0 s, read between them too.
+    expect(held!.at(0)!.seconds).toBe(samples[0]!.seconds);
+    expect(held!.at(-1)!.seconds).toBe(0);
+    expect(held!.length).toBeGreaterThan(2);
+    expect(held!.every((point) => point.target === 3)).toBe(true);
+    // Then none, until the last sample's own: kept at its time, which falls between the chart's tenths of a
+    // second, though with no value either side a line would not show it.
+    expect(lone).toEqual([expect.objectContaining({ seconds: lastSecond(samples), target: 9 })]);
+    expect(Number.isInteger(lastSecond(samples) * 10)).toBe(false);
+    // The pressure itself has a value throughout.
+    expect(stretches(points, "current")).toHaveLength(1);
+  });
+
+  it("keeps a gap shorter than the chart reads apart, on a record with too many samples to read each", () => {
+    // Derived: the real Shot's samples repeated a second apart for over eleven minutes, with a target of 3 bar,
+    // then none at one sample a fifth of a second on, then 9 bar.
+    const seconds = [...Array.from({ length: 301 }, (_, n) => n), 300.2, 300.4, ...Array.from({ length: 400 }, (_, n) => 301 + n)];
+    const samples = shotSamples(recorded(seconds.map((second) => ({ ms: second * 1000, targetPressure: second < 300.1 ? 3 : second < 300.3 ? 0 : 9 }))));
+    const points = chartPoints("pressure", samples, undefined, firstSecond(samples), lastSecond(samples));
+    expect(samples).toHaveLength(703);
+    // The chart reads this record more than a second apart.
+    expect(points.length).toBeLessThan(samples.length);
+    // Yet it reads the sample without a target and the samples either side of it, so the line still breaks there.
+    const none = samples.findIndex((sample) => sample.targets.pressure === null);
+    const at = points.findIndex((point) => point.seconds === samples[none]!.seconds);
+    expect(points.slice(at - 1, at + 2).map(({ seconds, target }) => ({ seconds, target }))).toEqual([
+      { seconds: samples[none - 1]!.seconds, target: 3 },
+      { seconds: samples[none]!.seconds, target: null },
+      { seconds: samples[none + 1]!.seconds, target: 9 },
+    ]);
+    expect(stretches(points, "target")).toHaveLength(2);
+  });
+
+  it("keeps a gap a millisecond after another sample, where the tablet's clock went back", () => {
+    // Derived: the real Shot's samples with the tablet's clock set back five seconds after the second, as Decaid
+    // would record across a correction, the first sample after it without a target. Its time is no later than
+    // the sample's before it, so it is read a millisecond after that one.
+    const samples = shotSamples(
+      recorded([
+        { ms: 0, targetPressure: 3 },
+        { ms: 1000, targetPressure: 3 },
+        { ms: -4000, targetPressure: 0 },
+        { ms: -3950, targetPressure: 9 },
+        { ms: -2900, targetPressure: 9 },
+      ]),
+    );
+    const points = chartPoints("pressure", samples, undefined, firstSecond(samples), lastSecond(samples));
+    expect(points.every((point, n) => n === 0 || point.seconds > points[n - 1]!.seconds)).toBe(true);
+    const at = points.findIndex((point) => point.seconds === samples[2]!.seconds);
+    expect(points.slice(at - 1, at + 2).map(({ seconds, target }) => ({ seconds, target }))).toEqual([
+      { seconds: 0, target: 3 },
+      { seconds: 0.001, target: null },
+      { seconds: samples[3]!.seconds, target: 9 },
+    ]);
+    expect(stretches(points, "target")).toHaveLength(2);
   });
 });
 
