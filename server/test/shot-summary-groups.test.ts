@@ -75,7 +75,7 @@ interface Numbers {
 
 interface Group {
   by: By;
-  counts: { shots: number; cleaningAndCalibration: number };
+  counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: Numbers;
 }
 
@@ -341,7 +341,7 @@ describe("Shot Summaries by group", () => {
         {
           by: machine(left),
           // All but its cleaning Shot.
-          counts: { shots: 4, cleaningAndCalibration: 1 },
+          counts: { shots: 4, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 },
           numbers: {
             // −6, −1.3, −0.1 and 2.4: the median halfway from −1.3 to −0.1, the 25th percentile three quarters of the way from −6
             // to −1.3, and the 75th a quarter of the way from −0.1 to 2.4.
@@ -354,7 +354,7 @@ describe("Shot Summaries by group", () => {
         },
         {
           by: machine(right),
-          counts: { shots: 3, cleaningAndCalibration: 0 },
+          counts: { shots: 3, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
           numbers: {
             // −1.3, −0.1 and 0.5, and two of 23.549 and 25.833; one recorded no stop reason.
             yieldAgainstTarget: number(3, -0.1, -0.7, 0.2),
@@ -362,8 +362,8 @@ describe("Shot Summaries by group", () => {
             stoppedOnWeight: { shots: 2, share: 1 },
           },
         },
-        { by: machine(harbor1), counts: { shots: 2, cleaningAndCalibration: 0 }, numbers: ESPRESSO_AND_PREHEAT },
-        { by: { machine: null, pendingMachine: pending }, counts: { shots: 1, cleaningAndCalibration: 0 }, numbers: ONE_ESPRESSO },
+        { by: machine(harbor1), counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ESPRESSO_AND_PREHEAT },
+        { by: { machine: null, pendingMachine: pending }, counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ONE_ESPRESSO },
       ],
       total: 4,
       limit: 20,
@@ -379,24 +379,24 @@ describe("Shot Summaries by group", () => {
     // Recipes by name, ignoring case: decaf, then the two named House, by their ids, and last the Shots pulled with
     // none; within each, its Machines.
     const labHouse: Group[] = [
-      { by: by(recipes.labHouse, left), counts: { shots: 2, cleaningAndCalibration: 0 }, numbers: ESPRESSO_AND_PREHEAT },
+      { by: by(recipes.labHouse, left), counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ESPRESSO_AND_PREHEAT },
       // −0.1 and 0.5, and 23.549 s twice.
       {
         by: by(recipes.labHouse, right),
-        counts: { shots: 2, cleaningAndCalibration: 0 },
+        counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
         numbers: { yieldAgainstTarget: number(2, 0.2, 0.05, 0.35), duration: number(2, 23.549), stoppedOnWeight: { shots: 2, share: 1 } },
       },
     ];
-    const harborHouse: Group[] = [{ by: by(recipes.harborHouse, harbor1), counts: { shots: 2, cleaningAndCalibration: 0 }, numbers: ESPRESSO_AND_PREHEAT }];
+    const harborHouse: Group[] = [{ by: by(recipes.harborHouse, harbor1), counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ESPRESSO_AND_PREHEAT }];
     const groups: Group[] = [
       // 2.4 g over, ended by its Machine.
-      { by: by(recipes.decaf, left), counts: { shots: 1, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: number(1, 2.4), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 0 } } },
+      { by: by(recipes.decaf, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, 2.4), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 0 } } },
       // It recorded no stop reason.
-      { by: by(recipes.decaf, right), counts: { shots: 1, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedOnWeight: { shots: 0, share: null } } },
+      { by: by(recipes.decaf, right), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedOnWeight: { shots: 0, share: null } } },
       ...(recipes.labHouse.id < recipes.harborHouse.id ? [...labHouse, ...harborHouse] : [...harborHouse, ...labHouse]),
       // The Shot pulled an hour after its Machine unloaded the Recipe it names, 6 g under, and the cleaning Shot.
-      { by: by(null, left), counts: { shots: 1, cleaningAndCalibration: 1 }, numbers: { yieldAgainstTarget: number(1, -6), duration: number(1, 4.095), stoppedOnWeight: { shots: 1, share: 1 } } },
-      { by: by(null, null), counts: { shots: 1, cleaningAndCalibration: 0 }, numbers: ONE_ESPRESSO },
+      { by: by(null, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -6), duration: number(1, 4.095), stoppedOnWeight: { shots: 1, share: 1 } } },
+      { by: by(null, null), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ONE_ESPRESSO },
     ];
     expect(await summary({ groupBy: "recipe,machine" })).toEqual({ groups, total: 7, limit: 20, offset: 0 });
     // The other way round, each Machine's Recipes: the same groups, in the Machines' order.
@@ -421,9 +421,9 @@ describe("Shot Summaries by group", () => {
 
   it("gives one group without a grouping, there even where the filters find no Shot", async () => {
     const all = await summary();
-    expect(all).toMatchObject({ groups: [{ by: {}, counts: { shots: 10, cleaningAndCalibration: 1 } }], total: 1, limit: 20, offset: 0 });
+    expect(all).toMatchObject({ groups: [{ by: {}, counts: { shots: 10, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 } }], total: 1, limit: 20, offset: 0 });
     expect(await summary({ offset: "1" })).toEqual({ groups: [], total: 1, limit: 20, offset: 1 });
-    expect(await summary({ barista: "Nobody" })).toMatchObject({ groups: [{ by: {}, counts: { shots: 0, cleaningAndCalibration: 0 } }], total: 1 });
+    expect(await summary({ barista: "Nobody" })).toMatchObject({ groups: [{ by: {}, counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 } }], total: 1 });
   });
 
   it("groups by each grouping, in its order, its group of Shots with none last, every group opening as the list's filter that finds its Shots", async () => {

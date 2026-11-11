@@ -602,22 +602,62 @@ export interface SummaryNumber {
   p75: number | null;
 }
 
+/** A rating of a Shot Summary: the median of the ratings given, and the part of the group's Shots rated, from 0 to 1. */
+export interface RatingNumber extends SummaryNumber {
+  rated: number | null;
+}
+
+/** A number of a Shot Summary with the lowest and highest of its Shots' values. */
+export interface RangedNumber extends SummaryNumber {
+  lowest: number | null;
+  highest: number | null;
+}
+
+/** The steps of their Profiles a summary's Shots ended in: how many ended in one, and the steps most of them did, each with how many. */
+export interface LastSteps {
+  shots: number;
+  mostCommon: { frame: number; name: string | null; shots: number }[];
+}
+
+/** Each number a Shot Summary can give: a group gives those asked for. */
+export interface SummaryNumbers {
+  /** Yield weighed less target yield, in grams. */
+  yieldAgainstTarget: SummaryNumber;
+  /** In seconds, without the Preheat, as the list shows it. */
+  duration: SummaryNumber;
+  /** Of the Shots that recorded a stop reason, how many there are, and the part Decaid stopped at the target weight, from 0 to 1. */
+  stoppedOnWeight: { shots: number; share: number | null };
+  /** Yield weighed over dose weighed. */
+  ratio: SummaryNumber;
+  /** In bar and ml/s, without the Preheat. */
+  peakPressure: SummaryNumber;
+  peakFlow: SummaryNumber;
+  /** Enjoyment as rated on the tablet, 0 to 10, where above 0. */
+  rating: RatingNumber;
+  /** Where the setting recorded is a decimal number. */
+  grindSetting: RangedNumber;
+  /** In %. */
+  tds: SummaryNumber;
+  extractionYield: SummaryNumber;
+  /** Seconds from the start of the profile to the scale's first reading of 1 g or more. */
+  timeToFirstDrip: SummaryNumber;
+  lastStep: LastSteps;
+}
+
 /** What a set of Shots have in common: a Shot Summary's group. */
 export interface SummaryGroup {
   counts: {
     /** The Shots its numbers cover. */
     shots: number;
-    /** The cleaning and calibration Shots left out of them. With `shots`, the list's total for the same filters. */
+    /** The Unfinished Shots left out of them, in which nothing poured. */
+    unfinished: number;
+    /** The cleaning and calibration Shots left out of them. With `shots` and `unfinished`, the list's total for the same filters. */
     cleaningAndCalibration: number;
+    /** Of `shots`, those whose first drip and last step the server is still working out. */
+    awaitingValues: number;
   };
-  numbers: {
-    /** Yield weighed less target yield, in grams. */
-    yieldAgainstTarget: SummaryNumber;
-    /** In seconds, without the Preheat, as the list shows it. */
-    duration: SummaryNumber;
-    /** Of the Shots that recorded a stop reason, how many there are, and the part Decaid stopped at the target weight, from 0 to 1. */
-    stoppedOnWeight: { shots: number; share: number | null };
-  };
+  /** The numbers asked for. */
+  numbers: Partial<SummaryNumbers>;
 }
 
 /** The Shot Summary of the Shots a list's filters find, as one group. */

@@ -57,6 +57,7 @@ export interface RecordList<Page extends ListPage> {
   filtered: boolean;
   /** Changes filters, and goes back to the first page. */
   filter(changes: Record<string, string | null>): void;
+  /** Clears every filter, and goes back to the first page; what else the address holds, as the numbers a summary shows, stays. */
   clear(): void;
   /** The address of the page starting at `at`. */
   pageHref(at: number): string;
@@ -120,7 +121,11 @@ export function useRecordList<Page extends ListPage>(path: string, filters: read
     offset,
     filtered: filters.some((name) => params.has(name)),
     filter,
-    clear: () => setParams(new URLSearchParams()),
+    clear: () => {
+      const next = new URLSearchParams(params);
+      for (const name of ["offset", ...filters]) next.delete(name);
+      setParams(next);
+    },
     pageHref,
     goTo: (at) => (event) => {
       event.preventDefault();

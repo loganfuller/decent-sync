@@ -4,10 +4,11 @@ import { queryValue } from "../record-filters.js";
 import { BLANK, baristaKeySql, baristaNamesSql } from "./filters.js";
 import { shotRecipeSql } from "./links.js";
 
-// A Shot Summary (#466, #468; #465, The numbers, Groupings): what the Shots
-// a list's filters find have in common, by group, worked out as it is read,
-// in one statement, from each Shot's columns and its record. Nothing is
-// stored for it, so a Shot edit shows in the next one.
+// A Shot Summary (#466, #468, #469; #465, Which Shots a summary counts, The
+// numbers, Groupings): what the Shots a list's filters find have in common,
+// by group, worked out as it is read, in one statement, from each Shot's
+// columns and its record. Nothing is stored for it, so a Shot edit shows in
+// the next one.
 
 /**
  * A number of a summary: the median of the Shots that had a value for it,
@@ -28,6 +29,78 @@ export interface SummaryShare {
   shots: number;
   share: number | null;
 }
+
+/** A rating: the median of the ratings given, and `rated`, the part of the group's Shots that were rated, from 0 to 1, null where it has none. */
+export interface RatingNumber extends SummaryNumber {
+  rated: number | null;
+}
+
+/** A number with the lowest and highest of the Shots' values too, each null where none had a value. */
+export interface RangedNumber extends SummaryNumber {
+  lowest: number | null;
+  highest: number | null;
+}
+
+/**
+ * The steps of their Profiles the Shots ended in: how many Shots ended in a
+ * step, and `mostCommon`, the `LAST_STEPS` steps most of them ended in, each
+ * by its frame and name with how many, most first, then by frame and name.
+ * It is not called `steps`, which the MCP endpoint's budget keeps whole as a
+ * Profile's (`Shape` in mcp/budget.ts): its names are free text.
+ */
+export interface LastSteps {
+  shots: number;
+  mostCommon: { frame: number; name: string | null; shots: number }[];
+}
+
+/** The most steps a group's `lastStep` names, so a group stays small whatever its Shots' Profiles. */
+export const LAST_STEPS = 10;
+
+/** Each number a summary can give (#465, The numbers), as a group gives it. */
+export interface SummaryNumbers {
+  /** Yield weighed less target yield, in grams; a Shot whose target is 0 or missing, or that weighed none, has no value. */
+  yieldAgainstTarget: SummaryNumber;
+  /** How long each Shot's profile ran, in seconds: the recording less its Preheat, as the Shots list shows it (`shownDuration`). */
+  duration: SummaryNumber;
+  /** Among the Shots that recorded a stop reason, those Decaid stopped at the target weight (`targetWeight`). */
+  stoppedOnWeight: SummaryShare;
+  /** Yield weighed over dose weighed; a Shot whose dose is 0 or missing, or that weighed no yield, has no value. */
+  ratio: SummaryNumber;
+  /** As the Shots keep them, leaving out the Preheat: in bar, and in ml/s. */
+  peakPressure: SummaryNumber;
+  peakFlow: SummaryNumber;
+  /** The Shot's enjoyment, on Decaid's scale of 0 to 10, where above 0: DYE2 writes 0 for no stars, so 0 is unrated. */
+  rating: RatingNumber;
+  /** The grind setting its Workflow recorded, where its whole text is a decimal number (`GRIND_SETTING`). */
+  grindSetting: RangedNumber;
+  /** Total dissolved solids and extraction yield, in %, where the tablet recorded a number. */
+  tds: SummaryNumber;
+  extractionYield: SummaryNumber;
+  /** Seconds from the start of its profile to the scale's first reading of 1 g or more, as the Shot keeps it (`timeToFirstDrip`). */
+  timeToFirstDrip: SummaryNumber;
+  /** The step of its Profile each Shot ended in, as the Shot keeps it. */
+  lastStep: LastSteps;
+}
+
+/** The numbers a summary can give, in the order a group gives them. */
+export const NUMBERS = [
+  "yieldAgainstTarget",
+  "duration",
+  "stoppedOnWeight",
+  "ratio",
+  "peakPressure",
+  "peakFlow",
+  "rating",
+  "grindSetting",
+  "tds",
+  "extractionYield",
+  "timeToFirstDrip",
+  "lastStep",
+] as const satisfies readonly (keyof SummaryNumbers)[];
+export type NumberName = (typeof NUMBERS)[number];
+
+/** The numbers a summary gives where none are named: with the count, the Overview's four (#465). */
+export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight"];
 
 /**
  * What a summary's Shots are grouped by (#465, Groupings), each by what the
@@ -73,23 +146,24 @@ export interface GroupedBy {
   barista?: string | null;
 }
 
-/** What a set of Shots have in common. */
+/**
+ * What a set of Shots have in common. Its first three counts add up to the
+ * Shots list's total for the same filters and the group's.
+ */
 export interface SummaryGroup {
   by: GroupedBy;
   counts: {
     /** The Shots its numbers cover. */
     shots: number;
-    /** The Shots left out of them, as cleaning or calibration (`LEFT_OUT`). With `shots`, the Shots list's total for the same filters and the group's. */
+    /** The Unfinished Shots left out of them (`UNFINISHED`), counted apart. */
+    unfinished: number;
+    /** The Shots left out of them as cleaning or calibration (`LEFT_OUT`), whether they poured or not. */
     cleaningAndCalibration: number;
+    /** Of `shots`, those whose stored values aren't worked out yet (`AWAITING`), which count as poured and have none of those values. */
+    awaitingValues: number;
   };
-  numbers: {
-    /** Yield weighed less target yield, in grams; a Shot whose target is 0 or missing, or that weighed none, has no value. */
-    yieldAgainstTarget: SummaryNumber;
-    /** How long each Shot's profile ran, in seconds: the recording less its Preheat, as the Shots list shows it (`shownDuration`). */
-    duration: SummaryNumber;
-    /** Among the Shots that recorded a stop reason, those Decaid stopped at the target weight (`targetWeight`). */
-    stoppedOnWeight: SummaryShare;
-  };
+  /** The numbers asked for, in the order of `NUMBERS`. */
+  numbers: Partial<SummaryNumbers>;
 }
 
 /**
@@ -115,11 +189,207 @@ export interface ShotSummary {
 const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
 
 /**
+ * Whether the Shot of `shots` aliased `s` is an Unfinished Shot (GLOSSARY.md):
+ * nothing poured, as its stored values show it. The Machine never reported
+ * pouring (`poured`) and the scale never read 1 g or more after its Preheat
+ * (`time_to_first_drip`), so it was stopped in its Preheat or early in its
+ * preinfusion. Both are needed: a Shot that reaches its yield while its
+ * profile is still in the steps it counts as preinfusion, as a fast one
+ * stopped on weight in a long preinfusion step, never reports pouring,
+ * though it ran whole. A Shot with no scale is unfinished where it never
+ * reported pouring. The scale's reading is the Shot's as `time_to_first_drip`
+ * takes it, so a cup put on the scale during Preheat, read before Decaid's
+ * tare lands, or a cup on a scale in full gateway mode, which is never
+ * tared, reads as a first drip, and such a Shot counts as poured though
+ * nothing poured. A Shot whose stored values aren't worked out yet
+ * (`AWAITING`) counts as poured.
+ */
+const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
+
+/**
+ * Whether the Shot of `shots` aliased `s` awaits its stored values: stored
+ * at an earlier curves revision, they are worked out again in the
+ * background (`CurvesRefresh`). Whether it poured is never null once they
+ * are, as no other of them promises.
+ */
+const AWAITING = Prisma.sql`s.poured IS NULL`;
+
+/**
  * The most a yield or target may be, in grams, to have a yield against
  * target: a record may hold any number, and the difference of two beyond
  * this fits no float8, which would fail the whole summary.
  */
 const MAX_GRAMS = 1e307;
+
+/**
+ * The most a Shot's value of a number may be, in size, to count in its
+ * quartiles: a record may hold any number, and PostgreSQL interpolates a
+ * percentile between two values from their difference, which for two
+ * beyond this fits no float8 and makes it infinite. No Shot records one.
+ */
+const MAX_VALUE = 1e307;
+
+/**
+ * The most a yield may be over its dose, as a multiple, to have a ratio: a
+ * record may hold any number, and a quotient beyond what a float8 holds
+ * would fail the whole summary. A ratio is rounded to millionths, so one
+ * too small for a float8 is 0.
+ */
+const MAX_RATIO = 1e300;
+
+/**
+ * Where a Shot's record holds its grind setting, as its Workflow recorded it
+ * (`recordedDetails`), read as a number where its whole text is a decimal
+ * number, such as "8.8", "2.00", "12" or "-.5", with only spaces, tabs and
+ * line ends around it (`BLANK`), or the record holds a number there; none
+ * for a text setting, such as "8.8 fine" or "1e3". The path is strict, so a
+ * record that holds something else on the way has none, as the Shot page
+ * reads it, and silent, so a number too large for a float8 has none rather
+ * than failing the summary.
+ */
+const GRIND_SETTING = String.raw`strict $.workflow.context.grinderSetting ? (@.type() == "number" || @ like_regex "^[ \t\n\r\f\v]*[+-]?([0-9]+([.][0-9]*)?|[.][0-9]+)[ \t\n\r\f\v]*$").double()`;
+
+/** A number a Shot's record holds at a path of its annotations (`recordedDetails`), none where it holds anything else, as a text. */
+function annotatedNumberSql(field: "drinkTds" | "drinkEy"): Prisma.Sql {
+  return Prisma.sql`jsonb_path_query_first(s.record, ${`strict $.annotations.${field} ? (@.type() == "number")`}::jsonpath, '{}', true)::float8`;
+}
+
+/** What a number reads of a summary's statement. */
+interface NumberSql {
+  /** What each Shot of `shots` aliased `s` gives for it: columns of the Shots' query, each with its name. */
+  columns: Prisma.Sql[];
+  /** What a group puts together of them, as columns of the groups' query, of `shot`, with `covered` the condition its Shots meet. */
+  aggregates(covered: Prisma.Sql): Prisma.Sql[];
+  /** The number, from a group's row, of a group of `shots` Shots its numbers cover. */
+  read(row: Record<string, unknown>, shots: number): unknown;
+}
+
+/** A column or a group's aggregate named by `name`, one of this file's, as it is written into the statement. */
+function quoted(name: string): Prisma.Sql {
+  return Prisma.raw(`"${name}"`);
+}
+
+/** Whether a Shot covered has a value of the column `name` to count (`MAX_VALUE`): null, none, is not. */
+function countedSql(name: string, covered: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`${covered} AND abs(shot.${quoted(name)}) < ${MAX_VALUE}::float8`;
+}
+
+/** The quartiles of the column `name` of the Shots covered that count it, as `percentile_cont` interpolates them. */
+function quartilesSql(name: string, covered: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`percentile_cont(ARRAY[0.25, 0.5, 0.75]) WITHIN GROUP (ORDER BY shot.${quoted(name)}) FILTER (WHERE ${countedSql(name, covered)})`;
+}
+
+/** A number from its quartiles and the Shots that had a value. */
+function numberOf(shots: number, quartiles: number[] | null): SummaryNumber {
+  return { shots, median: quartiles?.[1] ?? null, p25: quartiles?.[0] ?? null, p75: quartiles?.[2] ?? null };
+}
+
+/** A median number of each Shot's `value`, null where it has none, or one too large to count (`MAX_VALUE`), named `name` in the statement. */
+function medianSql(name: string, value: Prisma.Sql): NumberSql {
+  return {
+    columns: [Prisma.sql`${value} AS ${quoted(name)}`],
+    aggregates: (covered) => [
+      Prisma.sql`count(*) FILTER (WHERE ${countedSql(name, covered)})::int AS ${quoted(`${name}Shots`)}`,
+      Prisma.sql`${quartilesSql(name, covered)} AS ${quoted(`${name}Quartiles`)}`,
+    ],
+    read: (row) => numberOf(row[`${name}Shots`] as number, row[`${name}Quartiles`] as number[] | null),
+  };
+}
+
+/**
+ * Each number in the summary's statement, over `shots` aliased `s`. Each is
+ * worked out in decimal where it is of two columns, as they print, so 35.9
+ * less 36 is -0.1 and 36 over 18 is 2. A step's Shots are put together
+ * apart (`summarise`), so `lastStep` here counts the Shots that ended in
+ * one.
+ */
+function numberSql(name: NumberName): NumberSql {
+  switch (name) {
+    case "yieldAgainstTarget":
+      return medianSql(
+        name,
+        Prisma.sql`CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
+          THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END`,
+      );
+    case "duration":
+      return medianSql(name, Prisma.sql`round((s.duration - coalesce(s.preheat, 0))::numeric, 3)::float8`);
+    case "stoppedOnWeight":
+      return {
+        columns: [Prisma.sql`nullif(btrim(s.record ->> 'stopReason', ${BLANK}), '') AS "stopReason"`],
+        aggregates: (covered) => [
+          Prisma.sql`count(shot."stopReason") FILTER (WHERE ${covered})::int AS "stopShots"`,
+          Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot."stopReason" = 'targetWeight')::int AS "stoppedOnWeight"`,
+        ],
+        read: (row) => {
+          const shots = row.stopShots as number;
+          return { shots, share: shots === 0 ? null : (row.stoppedOnWeight as number) / shots } satisfies SummaryShare;
+        },
+      };
+    case "ratio":
+      return medianSql(
+        name,
+        Prisma.sql`CASE WHEN s.actual_dose <> 0 AND abs(s.actual_yield::numeric) < abs(s.actual_dose::numeric) * ${MAX_RATIO}::numeric
+          THEN round(s.actual_yield::numeric / s.actual_dose::numeric, 6)::float8 END`,
+      );
+    case "peakPressure":
+      return medianSql(name, Prisma.sql`s.peak_pressure`);
+    case "peakFlow":
+      return medianSql(name, Prisma.sql`s.peak_flow`);
+    case "rating": {
+      const median = medianSql(name, Prisma.sql`CASE WHEN s.enjoyment > 0 THEN s.enjoyment END`);
+      return {
+        ...median,
+        read: (row, shots) => {
+          const number = median.read(row, shots) as SummaryNumber;
+          return { ...number, rated: shots === 0 ? null : number.shots / shots } satisfies RatingNumber;
+        },
+      };
+    }
+    case "grindSetting": {
+      const median = medianSql(name, Prisma.sql`jsonb_path_query_first(s.record, ${GRIND_SETTING}::jsonpath, '{}', true)::float8`);
+      return {
+        columns: median.columns,
+        aggregates: (covered) => [
+          ...median.aggregates(covered),
+          Prisma.sql`min(shot."grindSetting") FILTER (WHERE ${countedSql("grindSetting", covered)}) AS "grindSettingLowest"`,
+          Prisma.sql`max(shot."grindSetting") FILTER (WHERE ${countedSql("grindSetting", covered)}) AS "grindSettingHighest"`,
+        ],
+        read: (row, shots) =>
+          ({ ...(median.read(row, shots) as SummaryNumber), lowest: row.grindSettingLowest as number | null, highest: row.grindSettingHighest as number | null }) satisfies RangedNumber,
+      };
+    }
+    case "tds":
+      return medianSql(name, annotatedNumberSql("drinkTds"));
+    case "extractionYield":
+      return medianSql(name, annotatedNumberSql("drinkEy"));
+    case "timeToFirstDrip":
+      return medianSql(name, Prisma.sql`s.time_to_first_drip`);
+    case "lastStep":
+      return {
+        columns: [Prisma.sql`s.last_step_frame AS "stepFrame"`, Prisma.sql`s.last_step_name AS "stepName"`],
+        aggregates: (covered) => [Prisma.sql`count(shot."stepFrame") FILTER (WHERE ${covered})::int AS "lastStepShots"`],
+        read: (row) => ({ shots: row.lastStepShots as number, mostCommon: (row.lastSteps as LastSteps["mostCommon"] | null) ?? [] }) satisfies LastSteps,
+      };
+  }
+}
+
+/** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default four. */
+export function readNumbers(query: Record<string, unknown>): NumberName[] {
+  const problems: string[] = [];
+  const given = queryValue(query, "numbers", problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return given === undefined ? [...DEFAULT_NUMBERS] : numbersOf(given.split(","));
+}
+
+/** The numbers named, each one of `NUMBERS`, at least one, none twice. */
+export function numbersOf(names: readonly string[]): NumberName[] {
+  const known = names.filter((name): name is NumberName => (NUMBERS as readonly string[]).includes(name));
+  if (known.length < names.length || names.length === 0) {
+    throw new BadRequestException(`Enter numbers as one or more of ${NUMBERS.slice(0, -1).join(", ")} and ${NUMBERS.at(-1)}, separated by a comma`);
+  }
+  if (new Set(known).size < known.length) throw new BadRequestException("Give each number once");
+  return known;
+}
 
 /**
  * Reads a summary's groupings from its query's `groupBy`: none, one, or two
@@ -268,20 +538,6 @@ function joined(parts: Prisma.Sql[], separator: string): Prisma.Sql {
   return parts.length > 0 ? Prisma.join(parts, separator) : Prisma.empty;
 }
 
-interface SummaryRow {
-  total: number;
-  /** Null where the page holds no group. */
-  by: GroupedBy | null;
-  shots: number;
-  leftOut: number;
-  yieldShots: number;
-  yieldQuartiles: number[] | null;
-  durationShots: number;
-  durationQuartiles: number[] | null;
-  stopShots: number;
-  stoppedOnWeight: number;
-}
-
 /**
  * The summary of the Shots `listed` and `filters` find together: `listed`
  * the rest of a query of every listed Shot from its `FROM` on, over `shots`
@@ -291,7 +547,8 @@ interface SummaryRow {
  * found have, or, without a grouping, as one group; the groups are ordered
  * by the first grouping, then the second, each by name, ignoring case, then
  * by id, with its group of Shots with none last, and `page` takes that many
- * groups of them.
+ * groups of them. Each group gives its counts and the `numbers` asked for,
+ * only those being read.
  *
  * Each Shot's numbers are worked out in decimal, as its columns print, so
  * 35.9 less 36 is -0.1, and its duration to the millisecond, as the list
@@ -312,6 +569,7 @@ export async function summarise(
   filters: Prisma.Sql,
   groupBy: readonly Grouping[],
   page: { limit: number; offset: number },
+  numbers: readonly NumberName[] = DEFAULT_NUMBERS,
 ): Promise<ShotSummary> {
   const groupings = groupBy.map((grouping) => groupingSql(grouping, listed));
   const keys = groupings.flatMap((grouping) => Object.entries(grouping.keys));
@@ -319,60 +577,81 @@ export async function summarise(
   const joins = groupings.flatMap((grouping) => (grouping.joins ? [grouping.joins] : []));
   const by = groupings.flatMap((grouping) => Object.entries(grouping.by).map(([name, value]) => Prisma.sql`${Prisma.raw(`'${name}'`)}, ${value}`));
   const order = groupings.map((grouping) => grouping.order);
-  const keyNames = keys.map(([name]) => Prisma.raw(`shot.${name}`));
-  const covered = Prisma.sql`FILTER (WHERE NOT shot.left_out)`;
-  const quartiles = (number: string) => Prisma.sql`percentile_cont(ARRAY[0.25, 0.5, 0.75]) WITHIN GROUP (ORDER BY shot.${Prisma.raw(number)}) ${covered}`;
-  const rows = await db.$queryRaw<SummaryRow[]>`
+  const keyNames = keys.map(([name]) => Prisma.raw(name));
+  const asked = NUMBERS.filter((name) => numbers.includes(name)).map((name) => [name, numberSql(name)] as const);
+  // A Shot's numbers cover it unless it is left out as cleaning or calibration, or is unfinished.
+  const covered = Prisma.sql`NOT shot.left_out AND NOT shot.unfinished`;
+  const ofShot = (name: Prisma.Sql) => Prisma.sql`shot.${name}`;
+  // The steps the Shots ended in: counted for every group at once, those most of them did kept, and joined to the groups
+  // on the page by the group's keys as one value, so a group's are found by hash rather than by reading every Shot again
+  // for each group, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed).
+  const steps = asked.some(([name]) => name === "lastStep");
+  const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames.map(ofShot), ", ")})`;
+  const rows = await db.$queryRaw<Record<string, unknown>[]>`
     WITH ${joined(named, " ")} shot AS MATERIALIZED (
-      SELECT ${Prisma.join([...keys.map(([name, value]) => Prisma.sql`${value} AS ${Prisma.raw(name)}`), Prisma.sql`${LEFT_OUT} AS left_out`], ", ")},
-        CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
-          THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END AS yield_against_target,
-        round((s.duration - coalesce(s.preheat, 0))::numeric, 3)::float8 AS duration,
-        nullif(btrim(s.record ->> 'stopReason', ${BLANK}), '') AS stop_reason
+      SELECT ${Prisma.join(
+        [
+          ...keys.map(([name, value]) => Prisma.sql`${value} AS ${Prisma.raw(name)}`),
+          Prisma.sql`${LEFT_OUT} AS left_out`,
+          Prisma.sql`${UNFINISHED} AS unfinished`,
+          Prisma.sql`${AWAITING} AS awaiting`,
+          ...asked.flatMap(([, number]) => number.columns),
+        ],
+        ", ",
+      )}
       ${listed} AND ${filters}
     ),
     grouped AS (
-      SELECT ${Prisma.join([...keyNames, Prisma.sql`count(*) ${covered}::int AS shots`], ", ")},
-        count(*) FILTER (WHERE shot.left_out)::int AS "leftOut",
-        count(shot.yield_against_target) ${covered}::int AS "yieldShots",
-        ${quartiles("yield_against_target")} AS "yieldQuartiles",
-        count(shot.duration) ${covered}::int AS "durationShots",
-        ${quartiles("duration")} AS "durationQuartiles",
-        count(shot.stop_reason) ${covered}::int AS "stopShots",
-        count(*) FILTER (WHERE NOT shot.left_out AND shot.stop_reason = 'targetWeight')::int AS "stoppedOnWeight"
-      FROM shot ${keyNames.length > 0 ? Prisma.sql`GROUP BY ${Prisma.join(keyNames, ", ")}` : Prisma.empty}
+      SELECT ${Prisma.join(
+        [
+          ...keyNames.map(ofShot),
+          Prisma.sql`count(*) FILTER (WHERE ${covered})::int AS shots`,
+          Prisma.sql`count(*) FILTER (WHERE NOT shot.left_out AND shot.unfinished)::int AS unfinished`,
+          Prisma.sql`count(*) FILTER (WHERE shot.left_out)::int AS "leftOut"`,
+          Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot.awaiting)::int AS awaiting`,
+          ...asked.flatMap(([, number]) => number.aggregates(covered)),
+          ...(steps ? [Prisma.sql`${groupKey} AS group_key`] : []),
+        ],
+        ", ",
+      )}
+      FROM shot ${keyNames.length > 0 ? Prisma.sql`GROUP BY ${Prisma.join(keyNames.map(ofShot), ", ")}` : Prisma.empty}
     ),
+    ${
+      steps
+        ? Prisma.sql`ended AS (
+      SELECT ${groupKey} AS group_key, shot."stepFrame" AS frame, shot."stepName" AS name, count(*)::int AS shots,
+        row_number() OVER (PARTITION BY ${groupKey} ORDER BY count(*) DESC, shot."stepFrame", shot."stepName") AS rank
+      FROM shot WHERE ${covered} AND shot."stepFrame" IS NOT NULL
+      GROUP BY 1, 2, 3
+    ),
+    steps AS (
+      SELECT ended.group_key, json_agg(json_build_object('frame', ended.frame, 'name', ended.name, 'shots', ended.shots) ORDER BY ended.rank) AS "lastSteps"
+      FROM ended WHERE ended.rank <= ${LAST_STEPS} GROUP BY ended.group_key
+    ),`
+        : Prisma.empty
+    }
     page AS (
       SELECT g.*, json_build_object(${joined(by, ", ")}) AS by, row_number() OVER (${order.length > 0 ? Prisma.sql`ORDER BY ${Prisma.join(order, ", ")}` : Prisma.empty}) AS position
       FROM grouped g ${joined(joins, " ")}
       ORDER BY position LIMIT ${page.limit} OFFSET ${page.offset}
     )
-    SELECT (SELECT count(*)::int FROM grouped) AS total, page.*
+    SELECT (SELECT count(*)::int FROM grouped) AS total, page.*${steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
     FROM (SELECT 1) AS whole LEFT JOIN page ON TRUE
+    ${steps ? Prisma.sql`LEFT JOIN steps ON steps.group_key = page.group_key` : Prisma.empty}
     ORDER BY page.position`;
-  const number = (shots: number, quartiles: number[] | null): SummaryNumber => ({
-    shots,
-    median: quartiles?.[1] ?? null,
-    p25: quartiles?.[0] ?? null,
-    p75: quartiles?.[2] ?? null,
-  });
   return {
-    groups: rows.flatMap((row) =>
-      row.by === null
-        ? []
-        : [
-            {
-              by: row.by,
-              counts: { shots: row.shots, cleaningAndCalibration: row.leftOut },
-              numbers: {
-                yieldAgainstTarget: number(row.yieldShots, row.yieldQuartiles),
-                duration: number(row.durationShots, row.durationQuartiles),
-                stoppedOnWeight: { shots: row.stopShots, share: row.stopShots === 0 ? null : row.stoppedOnWeight / row.stopShots },
-              },
-            },
-          ],
-    ),
-    total: rows[0]!.total,
+    groups: rows.flatMap((row) => {
+      if (row.by === null) return [];
+      const shots = row.shots as number;
+      return [
+        {
+          by: row.by as GroupedBy,
+          counts: { shots, unfinished: row.unfinished as number, cleaningAndCalibration: row.leftOut as number, awaitingValues: row.awaiting as number },
+          numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.read(row, shots)])) as Partial<SummaryNumbers>,
+        },
+      ];
+    }),
+    total: rows[0]!.total as number,
     limit: page.limit,
     offset: page.offset,
   };

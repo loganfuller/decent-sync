@@ -374,7 +374,7 @@ describe("poured", () => {
     expect(samples.findIndex((sample) => sample.substate === "pouring")).toBe(72);
     expect(poured(samples)).toBe(true);
     // Derived: the real Shot stopped at its first pouring sample poured; stopped a sample earlier, in its preinfusion, or in
-    // its Preheat, it is an Unfinished Shot.
+    // its Preheat, it never reported pouring.
     expect(poured(shotSamples(measurements.slice(0, 73)))).toBe(true);
     expect(poured(shotSamples(measurements.slice(0, 72)))).toBe(false);
     expect(poured(shotSamples(measurements.slice(0, 43)))).toBe(false);

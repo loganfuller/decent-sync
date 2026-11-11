@@ -327,15 +327,15 @@ Preheat:
 - `poured`: whether any of its samples is in the `pouring` substate
   (`poured`), which Decaid maps from the DE1's `pour`: the Machine reports
   it once its profile is past the steps it counts as preinfusion (the
-  profile's `target_volume_count_start`). A Shot with none is an Unfinished
-  Shot (`GLOSSARY.md`), stopped in its Preheat or its preinfusion. It is
-  never null once worked out, which no other of them promises. It says what
-  the Machine reported, not how much coffee landed: a Shot that reaches its
-  yield while its profile is still in those steps, as a fast one stopped on
-  weight in a long preinfusion step, never reports pouring, though it ran
-  whole; nor would any Shot of a profile that counts every one of its
-  steps as preinfusion, which none of those bundled with Decaid v0.9.1
-  does.
+  profile's `target_volume_count_start`). It is never null once worked out,
+  which no other of them promises. It says what the Machine reported, not
+  how much coffee landed: a Shot that reaches its yield while its profile is
+  still in those steps, as a fast one stopped on weight in a long
+  preinfusion step, never reports pouring, though it ran whole; nor would
+  any Shot of a profile that counts every one of its steps as preinfusion,
+  which none of those bundled with Decaid v0.9.1 does. So an Unfinished
+  Shot (`GLOSSARY.md`) is one with none and no `time_to_first_drip`
+  either: nothing poured (Shot Summaries, below).
 - `last_weight` and `last_weight_seconds`: the scale's last weight after
   its Preheat, with its seconds (`lastRecordedWeight`), and `flow_at_stop`:
   the scale's weight flow at that reading, in g/s (`flowAtStop`), kept for
@@ -472,10 +472,13 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Summaries, below): `{ groups, total, limit, offset }`, each group with
   its `by`, `counts` and `numbers`. `groupBy` names what to group them by:
   none, one, or two separated by a comma, such as `groupBy=recipe,machine`;
-  another name, a third or one given twice is a 400. `limit`, 1–100 and 20
-  if not given, and `offset` page the groups, and `total` counts them all.
-  The MCP endpoint's `summarise_shots` gives the same for `find_shots`'
-  filters, its numbers to hundredths, its `groupBy` a list, a Bean Batch's
+  another name, a third or one given twice is a 400. `numbers` names the
+  numbers each group gives, one or more separated by a comma, such as
+  `numbers=ratio,lastStep`, and without it the default three; an empty one,
+  another name or one given twice is a 400. `limit`, 1–100 and 20 if not
+  given, and `offset` page the groups, and `total` counts them all. The MCP
+  endpoint's `summarise_shots` gives the same for `find_shots`' filters, its
+  numbers to hundredths, its `groupBy` and `numbers` lists, a Bean Batch's
   roast date as its day, and its page as a tool's list pages: `total`,
   `offset` and `more` before `groups`, at most 50 of them.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
@@ -500,7 +503,7 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   `timeToFirstDrip`: `flowAtStop`, the scale's weight flow at that last
   weight, in g/s. Each is null where the Shot has none, and until a Shot
   stored before they were kept is computed again. No read gives whether a
-  Shot poured: a Shot Summary is to count Unfinished Shots by it (#469).
+  Shot poured: a Shot Summary counts Unfinished Shots by it.
   The MCP endpoint's `get_shot` gives all five too, to hundredths, the
   first three from the same read of the measurements as its curves.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
@@ -534,8 +537,9 @@ Shots list's Summary card. Ticket [#468](https://github.com/loganfuller/decent-s
 groups them, by up to two of what Shots have, in the REST route and the
 tool: the Shots list's card stays one group, as the owner chose on
 2026-11-10, a set of Shots being summarised there by filtering to it, and
-sets shown side by side being the Overview's (#471). Buckets and the other
-numbers are later tickets'.
+sets shown side by side being the Overview's (#471). Ticket [#469](https://github.com/loganfuller/decent-sync/issues/469)
+gives the other numbers, each when asked for, and counts Unfinished Shots
+apart. Buckets are a later ticket's.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -543,10 +547,28 @@ numbers are later tickets'.
   (`workflow.profile.beverage_type`), is `cleaning` or `calibrate`, ignoring
   case, as Decaid reads one (`_parseBeverageType` in
   `decaid:lib/src/models/data/profile.dart`). A Shot that recorded no type,
-  which Decaid reads as `espresso`, counts, as does any other type.
-  `counts.shots` is how many Shots the numbers cover, and
-  `counts.cleaningAndCalibration` how many were left out; the two add up to
-  the list's `total`, both read in one statement.
+  which Decaid reads as `espresso`, counts, as does any other type. Less,
+  too, its Unfinished Shots (`GLOSSARY.md`, `UNFINISHED`), in which nothing
+  poured: `poured` is false and `time_to_first_drip` null, so the Machine
+  never reported pouring and the scale never read 1 g after the Preheat.
+  Both are needed, as a Shot that reaches its yield while its profile is
+  still in the steps it counts as preinfusion never reports pouring, though
+  it ran whole (`poured`, above), as a fast Shot stopped on weight in a
+  long preinfusion step does. A Shot with no scale is unfinished where it
+  never reported pouring. The scale's reading is as `time_to_first_drip`
+  takes it (above), so a Shot whose cup was put on the scale during its
+  Preheat, read before Decaid's tare landed, or any Shot with a cup on the
+  scale in full gateway mode, which never tares, counts as poured though
+  nothing poured. A
+  cleaning or calibration Shot that never poured is counted as cleaning or
+  calibration.
+  - `counts` gives four counts, read in one statement: `shots`, how many
+    the numbers cover; `unfinished`; `cleaningAndCalibration`; and
+    `awaitingValues`, how many of `shots` await their stored values
+    (`poured` null), as Shots stored at an earlier curves revision do until
+    they are computed again (`CurvesRefresh`). Those count as poured, as
+    #465 has it, and have no time to first drip or last step meanwhile. The
+    first three add up to the list's `total`.
 - **Groups.** `groupBy` takes up to two groupings, each by what the list's
   filter of the same name takes, so a group opens as that filter: the Shots
   the list lists for the summary's filters and the group's are the group's,
@@ -620,7 +642,13 @@ numbers are later tickets'.
   `list_shot_values`. The `barista` filter finds every spelling by any of
   them, so for the previous release's page, which passes one spelling as
   recorded, it finds more Shots than it did, never fewer (ADR-0025).
-- **The numbers,** each of the Shots covered:
+- **The numbers,** each of the Shots covered. `numbers` names those a
+  summary gives: in the REST route one or more separated by a comma, such
+  as `numbers=ratio,rating`, each once, and in the tool a list. Without it a
+  summary gives `yieldAgainstTarget`, `duration` and `stoppedOnWeight`, which
+  with the count are the Overview's four (#465). A group gives those named,
+  in the order below, and only those are read, so a number read from each
+  Shot's record costs only a summary that asks for it.
   - `yieldAgainstTarget`: the yield weighed less the target yield
     (`actual_yield`, `target_yield`), in grams, negative under target. A
     Shot whose target is 0 or missing, or that weighed no yield, has no
@@ -630,23 +658,57 @@ numbers are later tickets'.
   - `duration`: the recording's duration less its Preheat, in seconds to the
     millisecond, as the list shows it (`shownDuration`); the whole recording
     for a Shot of an earlier curves revision, until it is computed again.
-  - Each of those two is `{ shots, median, p25, p75 }`: how many Shots had a
-    value, their median, and the 25th and 75th percentiles, between which the
-    middle half of them fall. A percentile is interpolated between the two
-    Shots nearest it (PostgreSQL's `percentile_cont`), so the median of two
-    Shots is halfway between them. The three are null where no Shot had a
-    value. One or two Shots give the same; `shots` says how little it rests
-    on.
   - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
     reason (`stopReason`, with more in it than spaces, tabs and line ends;
     Decaid writes one of its stop reasons' names or nothing), and the part
     of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
     where none recorded one.
+  - `ratio`: the yield weighed over the dose weighed (`actual_yield`,
+    `actual_dose`), to millionths. A Shot whose dose is 0 or missing, or
+    that weighed no yield, has no value; nor has one whose yield is more
+    than 1e300 times its dose, as a quotient beyond what a float8 holds
+    would fail the statement.
+  - `peakPressure` and `peakFlow`: as the Shot keeps them, leaving out its
+    Preheat, in bar and ml/s.
+  - `rating`: the Shot's enjoyment (`enjoyment`), on Decaid's scale of 0 to
+    10, where above 0: DYE2 writes 0 for no stars, so 0 is unrated. It also
+    gives `rated`, the part of the group's Shots rated, from 0 to 1, null
+    where its numbers cover none.
+  - `grindSetting`: the setting its Workflow recorded
+    (`workflow.context.grinderSetting`), where its whole text is a decimal
+    number, such as `8.8`, `2.00` or `-.5`, with only spaces, tabs and line
+    ends around it, or the record holds a number there (`GRIND_SETTING`). A
+    text setting, such as `8.8 fine`, `1e3` or `8,8`, has no value, nor has
+    a number too large for a float8. It also gives `lowest` and `highest`.
+  - `tds` and `extractionYield`: as recorded on the tablet
+    (`annotations.drinkTds`, `annotations.drinkEy`), in %, where the record
+    holds a number; text there has no value, as the Shot page shows none.
+  - `timeToFirstDrip`: as the Shot keeps it (`time_to_first_drip`, above).
+  - Each of those but `stoppedOnWeight` is `{ shots, median, p25, p75 }`:
+    how many Shots had a value, their median, and the 25th and 75th
+    percentiles, between which the middle half of them fall. A percentile
+    is interpolated between the two Shots nearest it (PostgreSQL's
+    `percentile_cont`), so the median of two Shots is halfway between them.
+    The three are null where no Shot had a value. One or two Shots give the
+    same; `shots` says how little it rests on. A value of more than 1e307
+    in size, which no Shot records, counts as none (`MAX_VALUE`):
+    PostgreSQL interpolates a percentile from the difference of two
+    values, which for two such fits no float8 and would make it infinite.
+  - `lastStep`: `{ shots, mostCommon }`, how many Shots ended in a step of
+    their Profile (`last_step_frame`, above), and the steps most of them
+    ended in, at most 10 (`LAST_STEPS`), each `{ frame, name, shots }`, most
+    first, then by frame and name, so a group stays small whatever its
+    Shots' Profiles; `shots` less the steps' says how many ended in others.
+    A step is its frame and name together: two Profiles' steps of one frame
+    and name are one. It is not called `steps`, which the MCP endpoint's
+    budget keeps whole as a Profile's steps (ADR-0028), as its names are
+    free text.
 - **Worked out when read,** from the Shot's columns and its record, with
-  nothing stored, so a Shot's edit shows in the next summary. Differences
-  are taken in decimal, as the columns print, so 35.9 less 36 is -0.1. The
-  REST API gives each number as worked out; the management interface and the
-  MCP endpoint round them.
+  nothing stored for it, so a Shot's edit, such as its rating, shows in the
+  next summary. Differences and quotients are taken in decimal, as the
+  columns print, so 35.9 less 36 is -0.1 and 36 over 18 is 2. The REST API
+  gives each number as worked out; the management interface and the MCP
+  endpoint round them.
 - **What it costs.** The profile's type and the stop reason are read from
   each Shot's record, which is most of the time a summary takes: each
   number's values are worked out once per Shot in a `MATERIALIZED` query
@@ -685,6 +747,23 @@ numbers are later tickets'.
   every Shot's took 40 ms. Naming them from the Shots summarised alone
   would cost a day's summary less, and give a Barista one name in the
   filter's choices and another in a summary of earlier Shots.
+- **What the other numbers cost.** Measured for #469 through the REST
+  route, on the development machine, on a scratch database of 50,000 copies
+  of a real Shot's record (the table 143 MB), as one group, the medians of
+  seven reads: 297 ms with the default numbers; 199 ms with the five read
+  from columns alone (ratio, peaks, rating and time to first drip); 144 ms
+  with the steps they ended in alone; 513 ms with the three read from the
+  record (grind setting, TDS and extraction yield), each read about 100 ms
+  of 50,000; and 747 ms with every number, and 386 ms for 24,000 of them.
+  Grouped, on the same Shots spread over 400 Baristas and seven profile
+  titles, a page of 100 groups: 187 ms with the steps alone by Barista, 202
+  ms by Barista and profile (2,800 groups), and 791 ms with every number by
+  Barista. The steps are counted for every group at once and joined to
+  the page's groups by their keys as one value (`jsonb_build_array`), which
+  is hashed: joined on each key instead (`IS NOT DISTINCT FROM`, which
+  can't be), PostgreSQL read every Shot again for each group on the page,
+  and the steps by Barista took 357 ms. No field becomes a column for it
+  (#465).
 - **Access.** Staff and Viewers read it, as they read Shots, at every
   Location.
 
@@ -705,6 +784,17 @@ them. `server/test/assistant-records.test.ts` checks `summarise_shots`
 against the route, grouped and not, and
 `server/test/assistant-budget.test.ts` its size, with two groupings at its
 largest page on realistic and on hostile data.
+`server/test/shot-summary-numbers.test.ts` covers the other numbers and
+Unfinished Shots the same way: every number against values worked out by
+hand, a rating of 0, a dose of 0, grind settings of text, `2.00` and within
+spaces, TDS as text, an Unfinished Shot alone and absent from every number,
+a Shot that never reported pouring whose scale read a gram counted as
+poured, the four counts against the list's total, the steps most Shots
+ended in, Shots at the earlier curves revision counted as awaiting and as
+poured until another instance computes them again, and a rating edited on
+the tablet. The assistant tests check every number against the route,
+whole and by group, and within the budget with two groupings, on realistic
+data and with step names and grind settings of 3,000 characters.
 
 ## Management interface
 
@@ -712,18 +802,28 @@ largest page on realistic and on hostile data.
 list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
 among them. Above its rows, its Summary card
 (`web/src/components/shot-summary.tsx`) gives the Shot Summary of the Shots
-those filters find: how many its numbers cover, with how many cleaning and
-calibration Shots were left out where there are any; the duration and the
-yield against target, each as its median with the middle half's range, such
-as "26.0 s (25.6–26.6)" and "−0.1 g (−0.8 to +0.4)"
-(`web/src/lib/shot-summary.ts`); and the share that stopped on weight. A
+those filters find: how many its numbers cover, with how many Unfinished
+Shots and cleaning and calibration Shots were left out where there are any,
+and how many still await their first drip and last step; and the numbers
+chosen, by default the duration and the yield against target, each as its
+median with the middle half's range, such as "26.0 s (25.6–26.6)" and
+"−0.1 g (−0.8 to +0.4)" (`web/src/lib/shot-summary.ts`), and the share that
+stopped on weight. Its Numbers menu chooses others, at least one, in the
+order the REST API gives them: the ratio, as "1:2.10", peak pressure and
+flow, the rating, the grind setting, with its lowest and highest where they
+differ, TDS, extraction yield, time to first drip, and the steps most Shots
+ended in, each with how many. The choice is kept in the page's address as
+`numbers`, apart from the filters, so it survives a reload and a shared
+address, and Clear filters leaves it; the default is kept as none, and a
+name the page doesn't know, as from a later release, is left out. A
 number says how many Shots it rests on where some of those covered had no
-value for it, and reads as a dash where none had. The card follows the
-filters, loads again every 30 s, and is not shown while no Shot matches. The
-last filters' numbers stay while the next ones' load, as the rows do, but
-give way to dashes while a load has failed since the last that succeeded,
-so that they never stand under a failure as the next filters'. It is never
-grouped: the page asks for no `groupBy`. The Barista filter offers each
+value for it, and reads as a dash where none had, as one just chosen does
+until it loads. The card follows the filters, loads again every 30 s, and is
+not shown while no Shot matches. The last filters' numbers stay while the
+next ones' load, as the rows do, but give way to dashes while a load has
+failed since the last that succeeded, so that they never stand under a
+failure as the next filters'. It is never grouped: the page asks for no
+`groupBy`. The Barista filter offers each
 Barista once, as the REST API gives them, finds every spelling of the name,
 and shows that choice for any spelling an address holds, as one shared
 before the choices were folded (`baristaKey` in `web/src/lib/shot-summary.ts`).

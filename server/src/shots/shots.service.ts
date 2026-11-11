@@ -9,7 +9,7 @@ import type { Reporter } from "../sync/identity.js";
 import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
-import { type Grouping, type ShotSummary, summarise } from "./summary.js";
+import { DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -139,10 +139,11 @@ export class ShotsService {
 
   /**
    * The Shot Summary of the Shots `list` lists for the same filters, grouped
-   * by `groupBy`: a page of its groups (summary.ts).
+   * by `groupBy`, with the `numbers` named: a page of its groups
+   * (summary.ts).
    */
-  summary(filters: ShotFilters = {}, groupBy: readonly Grouping[] = [], page = { limit: 20, offset: 0 }): Promise<ShotSummary> {
-    return summarise(this.prisma, listedFrom, shotFilterSql(filters), groupBy, page);
+  summary(filters: ShotFilters = {}, groupBy: readonly Grouping[] = [], page = { limit: 20, offset: 0 }, numbers: readonly NumberName[] = DEFAULT_NUMBERS): Promise<ShotSummary> {
+    return summarise(this.prisma, listedFrom, shotFilterSql(filters), groupBy, page, numbers);
   }
 
   /**
@@ -298,8 +299,8 @@ const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: tr
 /**
  * What no read gives of a Shot. Of what its samples show (`measuredValues`),
  * whether it poured is kept for Shot Summaries to count Unfinished Shots by
- * (#469), and the scale's last weight is read from its samples where it is
- * given (`ShotsService.read`).
+ * (`UNFINISHED` in summary.ts), and the scale's last weight is read from its
+ * samples where it is given (`ShotsService.read`).
  */
 const readOmitted = { versionAt: true, hasFullRecord: true, curvesRevision: true, poured: true, lastWeight: true, lastWeightSeconds: true, ...linkColumns } as const;
 /** A list leaves out the record too, and the flow at the stop. */

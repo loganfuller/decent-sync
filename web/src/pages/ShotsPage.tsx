@@ -1,5 +1,5 @@
 import { useEffect, useId, useState } from "react";
-import { Link } from "react-router";
+import { Link, useSearchParams } from "react-router";
 import { PageTitleWithInfo } from "@/components/info-tip";
 import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
@@ -12,20 +12,32 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
-import { baristaKey } from "@/lib/shot-summary";
+import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
 const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId"] as const;
 
 /**
  * Every Shot, newest first, across every Location, with filters, and the
- * Shot Summary of those the filters find above its rows. Times are each
- * Shot's Location's, and dates are read in each Shot's own Location's time
- * zone; Shots with no Location use UTC. Staff see all of it.
+ * Shot Summary of those the filters find above its rows, with the numbers
+ * chosen, which the address keeps as `numbers`, apart from the filters.
+ * Times are each Shot's Location's, and dates are read in each Shot's own
+ * Location's time zone; Shots with no Location use UTC. Staff see all of it.
  */
 export function ShotsPage() {
   const list = useRecordList<ShotPage>("/shots", FILTERS, (page) => page.shots);
   const { data, error } = list;
+  const [, setParams] = useSearchParams();
+  const numbers = shownNumbers(list.params.get("numbers"));
+  // The rows stay where they are: the numbers shown are no filter.
+  const onNumbers = (chosen: typeof numbers) =>
+    setParams((current) => {
+      const next = new URLSearchParams(current);
+      const param = numbersParam(chosen);
+      if (param === null) next.delete("numbers");
+      else next.set("numbers", param);
+      return next;
+    });
 
   return (
     // One column no wider than the page, so a wide table scrolls rather than widening it.
@@ -48,7 +60,7 @@ export function ShotsPage() {
       )}
 
       {data?.total === 0 && <p className="text-muted-foreground">{list.filtered ? "No Shots match these filters." : "No Shots yet."}</p>}
-      {data && data.total > 0 && <ShotSummaryCard filterQuery={list.filterQuery} />}
+      {data && data.total > 0 && <ShotSummaryCard filterQuery={list.filterQuery} numbers={numbers} onNumbers={onNumbers} />}
       {data && data.shots.length > 0 && (
         <>
           <div className="rounded-lg border">

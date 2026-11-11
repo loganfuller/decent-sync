@@ -34,7 +34,7 @@ interface SummaryNumber {
 }
 
 interface Group {
-  counts: { shots: number; cleaningAndCalibration: number };
+  counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: { yieldAgainstTarget: SummaryNumber; duration: SummaryNumber; stoppedOnWeight: { shots: number; share: number | null } };
 }
 
@@ -172,7 +172,7 @@ describe("Shot Summaries", () => {
     expect(await summary()).toEqual({
       // Every Shot but the cleaning and the calibration one, whose type is matched ignoring case. One that recorded no
       // type counts, as does a pourover.
-      counts: { shots: 9, cleaningAndCalibration: 2 },
+      counts: { shots: 9, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
       numbers: {
         // All but the Shot whose target is 0: −6, −1.3, −1.3, −1, −0.1, −0.1, 0.5 and 2.4. The median is halfway from −1 to
         // −0.1, the 25th percentile between the two at −1.3, and the 75th a quarter of the way from −0.1 to 0.5.
@@ -187,7 +187,7 @@ describe("Shot Summaries", () => {
 
     // A group of two Shots gives the same, each number saying how little it rests on: −1.3 and −1, and 23.549 and 25.833.
     expect(await summary({ locationId: harbor.id })).toEqual({
-      counts: { shots: 2, cleaningAndCalibration: 0 },
+      counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
       numbers: {
         yieldAgainstTarget: { shots: 2, median: -1.15, p25: -1.225, p75: -1.075 },
         duration: { shots: 2, median: 24.691, p25: 24.12, p75: 25.262 },
@@ -203,7 +203,7 @@ describe("Shot Summaries", () => {
     // Shot and not the Lab's evening one.
     const day = { from: "2026-02-10", to: "2026-02-10" };
     expect(await summary(day)).toEqual({
-      counts: { shots: 7, cleaningAndCalibration: 2 },
+      counts: { shots: 7, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
       numbers: {
         // −6, −1.3, −1, −0.1, 0.5 and 2.4.
         yieldAgainstTarget: { shots: 6, median: -0.55, p25: -1.225, p75: 0.35 },
@@ -213,10 +213,10 @@ describe("Shot Summaries", () => {
       },
     });
     expect(await listTotal(day)).toBe(9);
-    expect(await summary({ ...day, locationId: harbor.id })).toMatchObject({ counts: { shots: 1, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: { shots: 1, median: -1, p25: -1, p75: -1 } } });
+    expect(await summary({ ...day, locationId: harbor.id })).toMatchObject({ counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: { shots: 1, median: -1, p25: -1, p75: -1 } } });
     // Times too: 13:00 to 15:00 at the Lab holds only its cleaning and calibration Shots, so there is no number.
     expect(await summary({ from: "2026-02-10T13:00", to: "2026-02-10T15:00" })).toEqual({
-      counts: { shots: 0, cleaningAndCalibration: 2 },
+      counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
       numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedOnWeight: { shots: 0, share: null } },
     });
   });
@@ -254,9 +254,9 @@ describe("Shot Summaries", () => {
     for (const filter of filters) {
       const name = JSON.stringify(filter);
       const { counts, numbers } = await summary(filter);
-      expect(counts.shots + counts.cleaningAndCalibration, name).toBe(await listTotal(filter));
+      expect(counts.shots + counts.unfinished + counts.cleaningAndCalibration, name).toBe(await listTotal(filter));
       for (const number of Object.values(numbers)) expect(number.shots, name).toBeLessThanOrEqual(counts.shots);
-      found[name] = counts.shots + counts.cleaningAndCalibration;
+      found[name] = counts.shots + counts.unfinished + counts.cleaningAndCalibration;
     }
     // Each filter narrows the Shots: none finds them all, and a few find some, one or none.
     expect(found[JSON.stringify({})]).toBe(11);
@@ -267,7 +267,7 @@ describe("Shot Summaries", () => {
     expect(found[JSON.stringify({ profileId: "profile:no-such-profile" })]).toBe(0);
 
     expect(await summary({ barista: "Nobody" })).toEqual({
-      counts: { shots: 0, cleaningAndCalibration: 0 },
+      counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
       numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedOnWeight: { shots: 0, share: null } },
     });
   });
@@ -311,7 +311,7 @@ describe("Shot Summaries", () => {
     const before = await summary(atLab);
     // −6, −1.3, −0.1, 0.5 and 2.4; and of the five that recorded a stop reason, all but the one its Machine ended.
     expect(before).toMatchObject({
-      counts: { shots: 6, cleaningAndCalibration: 2 },
+      counts: { shots: 6, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
       numbers: { yieldAgainstTarget: { shots: 5, median: -0.1, p25: -1.3, p75: 0.5 }, stoppedOnWeight: { shots: 5, share: 0.8 } },
     });
     // A record may hold any number: these two are stored, and their difference fits no float8. One is a cleaning Shot.
@@ -320,7 +320,7 @@ describe("Shot Summaries", () => {
     await expect.poll(() => listTotal(atLab)).toBe(10);
     // Each is counted, the first with a duration, 23.549 s as four others; it has no yield against target, and recorded no stop reason.
     expect(await summary(atLab)).toEqual({
-      counts: { shots: 7, cleaningAndCalibration: 3 },
+      counts: { shots: 7, unfinished: 0, cleaningAndCalibration: 3, awaitingValues: 0 },
       numbers: { ...before.numbers, duration: { shots: 7, median: 23.549, p25: 23.549, p75: 23.549 } },
     });
   });
@@ -328,8 +328,8 @@ describe("Shot Summaries", () => {
   it("leaves out a dismissed Pending Machine's Shots, as the list does", async () => {
     const pendingMachineId = (await api.pendingMachines()).find((pending) => pending.serial === UNKNOWN_SERIAL)!.id;
     await api.send("POST", `/pending-machines/${pendingMachineId}/dismiss`);
-    expect((await summary()).counts).toEqual({ shots: 9, cleaningAndCalibration: 3 });
+    expect((await summary()).counts).toEqual({ shots: 9, unfinished: 0, cleaningAndCalibration: 3, awaitingValues: 0 });
     expect(await listTotal()).toBe(12);
-    expect((await summary({ pendingMachineId })).counts).toEqual({ shots: 0, cleaningAndCalibration: 0 });
+    expect((await summary({ pendingMachineId })).counts).toEqual({ shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 });
   });
 });
