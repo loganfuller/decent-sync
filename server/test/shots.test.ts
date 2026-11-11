@@ -20,6 +20,7 @@ interface ShotView {
   id: string; machineId: string | null; pendingMachineId: string | null; machineInferred: boolean;
   pulledAt: string | null; actualDose: number | null; actualYield: number | null; enjoyment: number | null;
   profileTitle: string | null; duration: number | null; peakPressure: number | null;
+  timeToFirstDrip: number | null; flowAtStop: number | null; lastRecordedWeight: { weight: number; seconds: number } | null;
   record?: Record<string, unknown>;
 }
 /** A frame the plugin sent or received, as far as these tests read it. */
@@ -500,6 +501,8 @@ describe("Shot capture and reconciliation", () => {
     const replacement = await connect(machine, other.url);
     await deliver(replacement, record);
     expect(await detail(String(record.id))).toMatchObject({ enjoyment: 92, actualDose: null, actualYield: 40, profileTitle: "Londonium", duration: 23.549 });
+    // With what the older record's samples show, which the edit had none of.
+    expect(await detail(String(record.id))).toMatchObject({ timeToFirstDrip: 21.45, flowAtStop: 3.21596222288838 });
     expect(await measurements(String(record.id))).toEqual(record.measurements);
     expect((await list(machine.machine.id)).total).toBe(1);
   });
@@ -545,13 +548,17 @@ describe("Shot capture and reconciliation", () => {
     await ownerRaw.close();
   });
 
-  it("keeps a Shot's credit when a newer full record arrives through another Machine", async () => {
+  it("keeps a Shot's credit when a newer full record arrives through another Machine, and stores what that record's samples show", async () => {
     const first = await api.createMachine("First reporter");
     const second = await api.createMachine("Second reporter");
     const record = shot("credited-once");
     await deliver(await connect(first), record);
-    await deliver(await connect(second, other.url), { ...record, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 77 } });
+    expect(await detail(String(record.id))).toMatchObject({ timeToFirstDrip: 21.45, flowAtStop: 3.21596222288838, lastRecordedWeight: { weight: 32.5, seconds: 23.549 } });
+    // Derived: the newer record without its last sample, as a backup holding another copy of the Shot would bring.
+    const newer = { ...record, updatedAt: "2026-11-01T12:00:00Z", annotations: { enjoyment: 77 }, measurements: (record.measurements as unknown[]).slice(0, 3) };
+    await deliver(await connect(second, other.url), newer);
     expect(await detail(String(record.id))).toMatchObject({ machineId: first.machine.id, machineInferred: true, enjoyment: 77 });
+    expect(await detail(String(record.id))).toMatchObject({ timeToFirstDrip: 21.45, flowAtStop: 3.0782169945104423, lastRecordedWeight: { weight: 25.8, seconds: 21.45 } });
   });
 
   it("uses inferred reporting credit for missing machine, serial zero and unavailable provenance", async () => {

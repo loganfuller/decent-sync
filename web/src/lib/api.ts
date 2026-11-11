@@ -513,6 +513,18 @@ export interface ListedShot {
   barista: string | null;
   peakPressure: number | null;
   peakFlow: number | null;
+  /**
+   * In seconds, from the start of its profile to the scale's first reading of 1 g or more; null where none read that, as
+   * without a scale, and until the server has worked it out. Absent from the previous release's answer during a deploy
+   * (ADR-0025).
+   */
+  timeToFirstDrip?: number | null;
+  /**
+   * The step of its Profile it ended in; null when it stopped in its Preheat or its samples name no step. A list gives it
+   * as stored, so null too until the server has worked it out, and absent from the previous release's rows during a
+   * deploy (ADR-0025); a Shot read on its own gives it from its samples.
+   */
+  lastStep?: { frame: number; name: string } | null;
   /** The Library's Bean Batch it used, through its tablet's ids; null until its tablet's batch is in the Library. */
   beanBatch: BatchLink | null;
   /** The Library's Grinder it used, the same way. */
@@ -573,6 +585,11 @@ export interface ShotPage {
 /** A Shot with its Decaid record, without measurements, as stored. */
 export interface Shot extends ListedShot {
   record: Record<string, unknown>;
+  /**
+   * The scale's weight flow at its last weight sample, in g/s; null without one, and until the server has worked it out.
+   * Absent from the previous release's answer during a deploy (ADR-0025).
+   */
+  flowAtStop?: number | null;
   /** The Shot pulled just before it on the same Machine, or held by the same Pending Machine. */
   previousShot: { id: string; pulledAt: string } | null;
 }
@@ -606,6 +623,41 @@ export interface SummaryGroup {
 /** The Shot Summary of the Shots a list's filters find, as one group. */
 export interface ShotSummary {
   groups: SummaryGroup[];
+}
+
+/** How long a Machine spent in one of Decaid's states, whatever its substates. */
+export interface StateTime {
+  /** Decaid's name for the state, such as `espresso` or `sleeping`. */
+  state: string;
+  /** The Machine State as the management interface names it, such as Pulling a shot or Asleep. */
+  name: string;
+  seconds: number;
+}
+
+/** A Machine's use in one day, or one hour of a day, at the Location it was at then. */
+export interface UseBucket {
+  /** The day, as a date on that Location's wall clock. */
+  date: string;
+  /** By hour, the hour of that day, 0 to 23. */
+  hour?: number;
+  /** The Shots pulled in it, cleaning and calibration Shots included. */
+  shots: number;
+  steamRecords: number;
+  /** The flushes and hot water pours that began in it. */
+  flushes: number;
+  hotWaterPours: number;
+  /** The time spent in each of Decaid's states in it, the longest first. */
+  states: StateTime[];
+}
+
+/** A Machine's use over a range, by day or by hour (`GET /api/machines/:id/use`). */
+export interface MachineUse {
+  by: "day" | "hour";
+  from: string;
+  /** The range's end, or now if that is sooner. */
+  to: string;
+  /** Each day or hour of the range, oldest first. */
+  buckets: UseBucket[];
 }
 
 /** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */

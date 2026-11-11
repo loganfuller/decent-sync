@@ -111,6 +111,103 @@ describe("Shot extraction", () => {
     expect(curves.preheat).toBeCloseTo(7.166, 3);
   });
 
+  it("works out what a Shot's samples show of how it went: its first drip, the step it ended in, whether it poured, and the scale at the stop", () => {
+    const shot = preheatShotFixture();
+    const samples = shot.measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
+    // The whole Shot: its scale first read 1 g 7.945 s into its profile, and it stopped on weight in its last step, at
+    // 32.4 g, landing at 2.82 g/s.
+    expect(extractCurves(shot, samples)).toMatchObject({
+      timeToFirstDrip: 7.945,
+      lastStepFrame: 6,
+      lastStepName: "Extraction",
+      poured: true,
+      lastWeight: 32.4,
+      lastWeightSeconds: 25.833,
+      flowAtStop: 2.8189155419461156,
+    });
+    // Derived: stopped in Pressurize, before its Profile's last steps.
+    expect(extractCurves(shot, samples.slice(0, 120))).toMatchObject({
+      timeToFirstDrip: 7.945,
+      lastStepFrame: 4,
+      lastStepName: "Pressurize",
+      poured: true,
+      lastWeight: 4.6,
+      lastWeightSeconds: 15.841,
+      flowAtStop: 0.975336540336653,
+    });
+    // Derived: stopped in its preinfusion, an Unfinished Shot, its scale tared and still at 0.
+    expect(extractCurves(shot, samples.slice(0, 72))).toMatchObject({
+      timeToFirstDrip: null,
+      lastStepFrame: 2,
+      lastStepName: "Compressing",
+      poured: false,
+      lastWeight: 0,
+      lastWeightSeconds: 5.845,
+      flowAtStop: 0,
+    });
+    // Derived: stopped in its Preheat, an Unfinished Shot too, with nothing else to show.
+    expect(extractCurves(shot, samples.slice(0, 43))).toMatchObject({
+      timeToFirstDrip: null,
+      lastStepFrame: null,
+      lastStepName: null,
+      poured: false,
+      lastWeight: null,
+      lastWeightSeconds: null,
+      flowAtStop: null,
+    });
+    // Derived: with no scale, it still poured and ended in its last step.
+    expect(extractCurves(shot, samples.map((sample) => ({ ...sample, scale: null })))).toMatchObject({
+      timeToFirstDrip: null,
+      lastStepFrame: 6,
+      lastStepName: "Extraction",
+      poured: true,
+      lastWeight: null,
+      lastWeightSeconds: null,
+      flowAtStop: null,
+    });
+  });
+
+  it("names the step a Shot ended in from its own Workflow's profile, or Step N where that names none", () => {
+    // Recorded with a recipe applied on DYE2's dashboard, on Classic Italian espresso.
+    const recorded = dye2Recording<{ dashboard: { shot: { response: { body: Record<string, unknown> } } } }>("shot").dashboard.shot.response.body;
+    expect(extractCurves(recorded, recorded.measurements)).toMatchObject({ lastStepFrame: 3, lastStepName: "rise and hold" });
+    // Derived: the same Shot with no profile in its Workflow.
+    expect(extractCurves({ ...recorded, workflow: { ...(recorded.workflow as object), profile: undefined } }, recorded.measurements)).toMatchObject({
+      lastStepFrame: 3,
+      lastStepName: "Step 4",
+    });
+    // Decaid's simulated machine, on a profile of one step.
+    const simulated = burrsShotFixture();
+    expect(extractCurves(simulated, simulated.measurements)).toMatchObject({ lastStepFrame: 0, lastStepName: "Free flow", timeToFirstDrip: 0.594 });
+    // Derived: a frame no profile has, which a record may still hold, is kept as it is.
+    const shot = shotFixture();
+    const beyond = (shot.measurements as { machine: Record<string, unknown> }[]).map((sample) => ({ ...sample, machine: { ...sample.machine, profileFrame: 3e10 } }));
+    expect(extractCurves(shot, beyond)).toMatchObject({ lastStepFrame: 3e10, lastStepName: "Step 30000000001" });
+  });
+
+  // The Unfinished Shot rule (#467): a Shot with no sample in the pouring substate. Every Shot the fixtures hold ran until
+  // it stopped on weight, so each must have poured, whatever its profile counts as preinfusion.
+  it("finds that every fixture Shot poured, on each profile the fixtures hold a Shot of", () => {
+    const dye2 = dye2Recording<Record<"dashboard" | "streamline", Record<string, { response: { body: Record<string, unknown> } }>>>("shot");
+    const shots = [shotFixture(), preheatShotFixture(), burrsShotFixture(), dye2.dashboard.shot!.response.body, dye2.streamline.pulled!.response.body];
+    const profile = (shot: Record<string, unknown>) => (shot.workflow as { profile: Record<string, unknown> }).profile;
+    const checked = shots.map((shot) => ({
+      profile: profile(shot).title,
+      type: profile(shot).beverage_type,
+      // How many of its steps its profile counts as preinfusion, of how many.
+      preinfusion: `${String(profile(shot).target_volume_count_start)} of ${(profile(shot).steps as unknown[]).length}`,
+      stopReason: shot.stopReason,
+      poured: extractCurves(shot, shot.measurements).poured,
+    }));
+    expect(checked).toEqual([
+      { profile: "Londonium", type: "espresso", preinfusion: "2 of 7", stopReason: "targetWeight", poured: true },
+      { profile: "Adaptive v3", type: "espresso", preinfusion: "3 of 7", stopReason: "targetWeight", poured: true },
+      { profile: "Default", type: "espresso", preinfusion: "0 of 1", stopReason: "targetWeight", poured: true },
+      { profile: "Classic Italian espresso", type: "espresso", preinfusion: "2 of 4", stopReason: "targetWeight", poured: true },
+      { profile: "Classic Italian espresso", type: "espresso", preinfusion: "2 of 4", stopReason: "targetWeight", poured: true },
+    ]);
+  });
+
   it("stores the whole recording as the duration, as the release before does, and shows it without Preheat", () => {
     const shot = preheatShotFixture();
     const curves = extractCurves(shot, shot.measurements);
@@ -126,7 +223,9 @@ describe("Shot extraction", () => {
   it("tolerates absent, unfamiliar and mistyped optional fields", () => {
     for (const shot of [{}, { workflow: null, annotations: "unknown", measurements: [{ machine: null }, { machine: { pressure: "high" } }] }]) {
       expect(Object.values(extractShot(shot))).toEqual(expect.arrayContaining([null]));
-      expect(Object.values(extractCurves(shot, shot.measurements))).toEqual([null, null, null, null, null]);
+      // Every value is null, but whether it poured, which it didn't.
+      const curves = extractCurves(shot, shot.measurements);
+      expect(curves).toEqual({ ...Object.fromEntries(Object.keys(curves).map((key) => [key, null])), poured: false });
       expect(shotHardware(shot)).toBeNull();
     }
     // Every value is null, but the Tools, a list, which is empty.

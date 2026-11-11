@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets } from "./support/loaded-tablets.js";
 import { SimulatedDye2, dye2List, dye2NeverUsed, recordedDye2MainTablet, selectRecipeInDye2 } from "./support/simulated-dye2.js";
 import { startStreamline } from "./support/simulated-streamline.js";
@@ -90,6 +90,14 @@ interface Activity {
   workflowChanges?: Page<TrailEntry>;
   loadedRecipes?: Page<{ recipe: Record_; loadedAt: string; unloadedAt: string | null }>;
   machineStates?: Page<{ state: string; substate: string; observedAt: string; receivedAt: string }>;
+}
+
+/** A Machine's use, as get_machine_use and the REST API's route give it. */
+interface Use {
+  by: "day" | "hour";
+  from: string;
+  to: string;
+  buckets: { date: string; hour?: number; shots: number; steamRecords: number; flushes: number; hotWaterPours: number; states: { state: string; name: string; seconds: number }[] }[];
 }
 
 const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
@@ -212,7 +220,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
 
   it("lists the Machine tools, each only reading", async () => {
     const { tools } = await assistant.client.listTools();
-    for (const name of ["list_machines", "get_machine", "get_machine_reports", "get_machine_activity", "list_settings_edits", "list_settings_history"]) {
+    for (const name of ["list_machines", "get_machine", "get_machine_reports", "get_machine_activity", "get_machine_use", "list_settings_edits", "list_settings_history"]) {
       expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({ readOnlyHint: true });
     }
   });
@@ -749,6 +757,58 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(instants(await recipes({ limit: 1, offset: 1 }))).toEqual(instants({ entries: [withoutId(earlier!)], total: 2, offset: 1, more: false }));
       expect(await recipes({ limit: 1, offset: 2 })).toEqual({ entries: [], total: 2, offset: 2, more: false });
     });
+
+    it("gives a Machine's use by day and by hour as the REST API does, its range with the offset of where it was then", async () => {
+      const use = (args: Record_) => assistant.call<Use>("get_machine_use", { machineId: roaster.machine.id, ...args });
+      const rest = async (query: Record<string, string>) => asTools(await api.get<Use>(`/machines/${roaster.machine.id}/use?${new URLSearchParams(query)}`));
+      // All of 2 November at the Lab: nothing before it was first reported asleep at 6, awake from 7, a Shot's two
+      // hours from 9, though no Shot was stored, and asleep again from 11 at night.
+      const monday = await use({ from: "2026-11-02", to: "2026-11-02" });
+      expect(monday).toEqual({ ...(await rest({ from: "2026-11-02", to: "2026-11-02" })), from: local(0), to: "2026-11-03T00:00:00.000-06:00" });
+      expect(monday).toMatchObject({
+        by: "day",
+        buckets: [
+          {
+            date: "2026-11-02",
+            shots: 0,
+            steamRecords: 0,
+            flushes: 0,
+            hotWaterPours: 0,
+            states: [
+              { state: "idle", name: "Idle", seconds: 50_400 },
+              { state: "espresso", name: "Pulling a shot", seconds: 7_200 },
+              { state: "sleeping", name: "Asleep", seconds: 7_200 },
+            ],
+          },
+        ],
+      });
+      // By hour, and the same range as times with their offsets.
+      const hourly = await use({ from: "2026-11-02", to: "2026-11-02", by: "hour" });
+      expect(hourly).toEqual({ ...(await rest({ from: "2026-11-02", to: "2026-11-02", by: "hour" })), from: local(0), to: "2026-11-03T00:00:00.000-06:00" });
+      expect(hourly.buckets.map((bucket) => [bucket.hour, bucket.states.map((state) => state.state)])).toEqual(
+        Array.from({ length: 24 }, (_, hour) => [hour, hour < 6 ? [] : hour === 6 || hour === 23 ? ["sleeping"] : hour === 9 || hour === 10 ? ["espresso"] : ["idle"]]),
+      );
+      expect(await use({ from: chicago(0), to: at(24), by: "hour" })).toEqual(hourly);
+      // A morning: its first and last hours cut at the range's ends.
+      const morning = await use({ from: chicago(8, 30), to: chicago(10, 15), by: "hour" });
+      expect(morning).toMatchObject({ from: local(8, 30), to: local(10, 15) });
+      expect(morning.buckets.map((bucket) => [bucket.hour, bucket.states])).toEqual([
+        [8, [{ state: "idle", name: "Idle", seconds: 1_800 }]],
+        [9, [{ state: "espresso", name: "Pulling a shot", seconds: 3_600 }]],
+        [10, [{ state: "espresso", name: "Pulling a shot", seconds: 900 }]],
+      ]);
+      // With no range, the 14 days ending today, until now.
+      const fortnight = await use({});
+      expect(fortnight.buckets).toHaveLength(14);
+      expect(Math.abs(Date.parse(fortnight.to) - Date.now())).toBeLessThan(10_000);
+      // What the REST API refuses is refused with its message.
+      const refused = (args: Record_) => assistant.client.callTool({ name: "get_machine_use", arguments: { machineId: roaster.machine.id, ...args } });
+      expect(await refused({ from: "2026-11-02", to: "2026-11-03", by: "hour" })).toMatchObject({ isError: true, content: [{ text: "Choose a range of at most 25 hours to read by hour" }] });
+      expect(await refused({ from: "2026-10-01", to: "2026-11-02" })).toMatchObject({ isError: true, content: [{ text: "Choose a range of at most 31 days" }] });
+      expect(await refused({ from: "2026-11-03", to: "2026-11-02" })).toMatchObject({ isError: true, content: [{ text: "Choose an end after the start" }] });
+      expect((await refused({ by: "week" })).isError).toBe(true);
+      expect((await refused({ from: "2026-11-02T07:30:00" })).isError).toBe(true);
+    });
   });
 
   describe("a Machine's dial-in trail", () => {
@@ -894,6 +954,8 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       }
       const activity = (through: Assistant) => through.call<Activity>("get_machine_activity", { machineId: roaster.machine.id });
       expect(await activity(as.assistant), who).toEqual(await activity(assistant));
+      const use = (through: Assistant) => through.call<Use>("get_machine_use", { machineId: roaster.machine.id, from: "2026-11-02", to: "2026-11-02" });
+      expect(await use(as.assistant), who).toEqual(await use(assistant));
     }
   });
 
