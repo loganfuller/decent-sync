@@ -1,5 +1,5 @@
 import { CalendarIcon, ChevronDownIcon } from "lucide-react";
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, useCallback, useEffect, useRef, useState } from "react";
 import { Bar, BarChart, type BarShapeProps, CartesianGrid, Rectangle, XAxis, YAxis } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -41,18 +41,34 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  * calendar days, the browser's own time zone playing no part. It is loaded
  * again every 30 s. As another range is chosen, what was read last stays,
  * faded, until the new range's arrives, and goes if that can't be read, so
- * no figures stand under days they aren't of.
+ * no figures stand under days they aren't of, and no error of a range since
+ * left stands over the one chosen.
  */
 export function MachineUseCard({ machineId }: { machineId: string }) {
   const [by, setBy] = useState<MachineUse["by"]>("day");
   const [range, setRange] = useState<{ from?: string; to?: string }>({});
   const [day, setDay] = useState<string>();
   const query = new URLSearchParams(by === "day" ? { ...(range.from && { from: range.from }), ...(range.to && { to: range.to }) } : { by, ...(day && { from: day, to: day }) }).toString();
-  // Each answer names the range it was asked for, so one for a range since changed is never shown as the new one's.
-  const load = useCallback(async () => ({ query, use: await api<MachineUse>("GET", `/machines/${encodeURIComponent(machineId)}/use${query ? `?${query}` : ""}`) }), [machineId, query]);
-  const { data, error } = usePolled(load, DETAILS_POLL_MS);
-  const use = data?.use;
-  const current = data?.query === query;
+  // Each answer names the range it was asked for, and `failed` the range the error shown is of, so neither figures nor
+  // an error of a range since changed are shown as the new one's. A load that fails after its range was left says
+  // nothing: `chosen` is the range chosen now.
+  const chosen = useRef(query);
+  useEffect(() => {
+    chosen.current = query;
+  }, [query]);
+  const [failed, setFailed] = useState<string>();
+  const load = useCallback(async () => {
+    try {
+      return { query, use: await api<MachineUse>("GET", `/machines/${encodeURIComponent(machineId)}/use${query ? `?${query}` : ""}`) };
+    } catch (caught) {
+      if (chosen.current === query) setFailed(query);
+      throw caught;
+    }
+  }, [machineId, query]);
+  const polled = usePolled(load, DETAILS_POLL_MS);
+  const use = polled.data?.use;
+  const current = polled.data?.query === query;
+  const error = failed === query ? polled.error : undefined;
   // The days read, where none was chosen: the server's last 14 days, or today.
   const read = use?.by === by ? { first: use.buckets[0]?.date, last: use.buckets.at(-1)?.date } : {};
 

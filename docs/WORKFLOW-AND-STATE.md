@@ -914,10 +914,16 @@ offset of the Location the Machine was at then.
   its end for `to`. With no `to` the range runs until now; with no `from` it
   starts with the day it ends in, by hour, or 13 days before that, by day, so
   no bounds give the last 14 days. By day it is at most 31 days, and by hour
-  at most a day, 25 hours where the clocks go back; a longer one is refused
-  with 400, as is one that ends at or before its start. Nothing is counted
-  after now, by PostgreSQL's clock, and `to` says so: a range still to come
-  has no buckets, and its `to`, now, is before its `from`.
+  at most 25 hours, the longest a day is, as the clocks go back; a longer one
+  is refused with 400, as is one whose `to` is at or before its start. On a
+  day the Machine moved between time zones a date is still read by where it
+  was at noon UTC, so a range of that one date leaves out the part of it
+  spent at the other Location, which a range of the days either side
+  holds, and a range of 31 such dates may run longer than 31 days and be
+  refused. Nothing is counted
+  after now, by PostgreSQL's clock, and `to` says so: a range still to come,
+  one with no `to` that starts after now included, has no buckets, and its
+  `to`, now, is before its `from`.
 - **Whose day.** Each moment belongs to the date, and hour, its wall clock
   read at the Location the Machine was at then, by its Location History, and
   UTC's before its first Location (`useSpans`). A day the clocks change in
