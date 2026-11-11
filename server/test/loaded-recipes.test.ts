@@ -274,9 +274,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const before = structuredClone(tablet.workflow());
     const loaded = (await history(machine)).total;
 
-    // Tapped again, it is refused before anything is sent: the Workflow is as it was, still naming the recipe in slot 1.
+    // Tapped again, it is refused before its PUT, for the feed rate alone, so nothing reaches the Workflow or DYE2's selection:
+    // the Workflow is as it was, still naming the recipe in slot 1. Streamline still keeps the recipe's steam, hot water and
+    // flush values, as it does before any apply, which are the slot 1 recipe's here.
     const applied = await streamline.applyRecipe(2);
-    expect(applied).toEqual({ refused: expect.stringContaining("context.extras.feedRate") });
+    expect(applied).toEqual({ refused: "updateWorkflow: writer 'dye.applyRecipe' sent undeclared field(s) context.extras.feedRate" });
     expect(tablet.workflow()).toEqual(before);
     expect(recipeIdInWorkflow(tablet)).toBe(LIBRARY);
     // Once anything the tap might have set off is done, the Machine keeps the recipe in slot 1 loaded, with no load since.
