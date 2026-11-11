@@ -288,6 +288,10 @@ test("the Machines' status is read again every 5 seconds, and the numbers every 
   await expect(depot.getByText("No Shots were pulled here today.")).toBeVisible();
   // From here the page's clock moves only as the test moves it, so nothing is read again until then.
   await page.clock.pauseAt(Date.now() + 1_000);
+  let summariesRead = 0;
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname === "/api/shots/summary") summariesRead++;
+  });
 
   // Its tablet connects, with a Shot pulled today.
   SimulatedTablet.load({
@@ -308,6 +312,7 @@ test("the Machines' status is read again every 5 seconds, and the numbers every 
   await page.clock.fastForward(5_000);
   await expect(depotTable.getByRole("columnheader").nth(1)).toHaveText(/^Depot 1Online/);
   await expect(depot.getByText("No Shots were pulled here today.")).toBeVisible();
+  expect(summariesRead).toBe(0);
 
   // Thirty seconds after they were read, the numbers are too.
   await page.clock.fastForward(25_000);

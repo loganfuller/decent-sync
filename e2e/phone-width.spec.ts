@@ -112,8 +112,9 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
 async function visitEachPage(page: Page, account: { name: string; links: string[] }) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
-  // With Uptown's block, whose table of its Machine scrolls within it.
+  // With Uptown's block, whose table of its Machine scrolls within it, once its numbers have arrived.
   await expect(page.getByRole("table", { name: "Recipes by Machine at Uptown" })).toBeVisible();
+  await expect(page.getByText("No Shots were pulled here today.")).toBeVisible();
   await expect(page.getByRole("banner").getByRole("navigation", { name: "Main" })).toBeHidden();
   await expectFits(page);
   await expectThemeInReach(page);
@@ -137,6 +138,7 @@ async function visitEachPage(page: Page, account: { name: string; links: string[
       await page.getByRole("list", { name: "Locations" }).getByRole("link", { name: "Uptown" }).click();
       await expect(page.getByRole("heading", { name: "Uptown", level: 1 })).toBeVisible();
       await expect(page.getByRole("table", { name: "Recipes by Machine at Uptown" })).toBeVisible();
+      await expect(page.getByText("No Shots were pulled here today.")).toBeVisible();
       await expectFits(page);
     }
   }
