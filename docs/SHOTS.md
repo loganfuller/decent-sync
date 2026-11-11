@@ -350,15 +350,20 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     it, so the same Bean is found across Machines), `barista` and
     `profileTitle`: exact matches on what the Shot recorded, as the Shots
     page's choices pass them. An empty value matches Shots that recorded
-    none.
+    none. `barista` matches the Barista its name names (Shot Summaries,
+    Baristas, below), whatever the name's case and the blanks around it: any
+    spelling finds the Shots of every spelling, and an empty or blank one
+    those that recorded no name or a blank one.
   - `match`: `exact`, the default, or `words`, for those four to match each
     of their words anywhere in what the Shot recorded, in any order and
     ignoring case as the database's collation folds it (`lower()`), as the
     MCP endpoint's `find_library_items` matches names. Each then holds at
     most 20 words, each a search of every Shot's text; one of no words, only
-    spaces, matches Shots that recorded none, as an empty one does. The MCP
+    spaces, matches Shots that recorded none, as an empty one does, and,
+    for `barista`, those that recorded a blank name. The MCP
     endpoint's `find_shots` takes `match` too, matching words unless asked
-    for `exact`, which picks one value `list_shot_values` gives alone. A
+    for `exact`, which picks one value `list_shot_values` gives alone, a
+    Barista by any spelling. A
     text filter holding a NUL character, which no Shot recorded, is a 400.
   - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
     or Grinder (Links to the Library, above), whichever tablet's id for it
@@ -379,7 +384,9 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
 - `GET /api/shots/filters` returns `{ beans, baristas, profiles,
   beanBatches, grinders, recipes, baskets }`: the distinct Beans (`{
   coffeeRoaster, coffeeName }`), Baristas and profile titles listed Shots
-  recorded, sorted ignoring case, with null for Shots that recorded none;
+  recorded, sorted ignoring case, with null for Shots that recorded none,
+  each Barista once, by its most recent spelling (Shot Summaries, Baristas,
+  below), and null for a blank name too;
   and the Library's Bean Batches (`{ id, bean: { id, roaster, name },
   roastDate }`, as the Bean Batches list orders them), Grinders (`{ id,
   model, location }`, by model, then Location), Recipes (`{ id, name,
@@ -391,9 +398,15 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Location as `{ id, name }`.
 - `GET /api/shots/summary` returns the Shot Summary of the Shots the list
   lists for the same filters, each filter as the list takes it (Shot
-  Summaries, below): `{ groups }`, one group, each with its `counts` and
-  `numbers`. The MCP endpoint's `summarise_shots` gives the same for
-  `find_shots`' filters, its numbers to hundredths.
+  Summaries, below): `{ groups, total, limit, offset }`, each group with
+  its `by`, `counts` and `numbers`. `groupBy` names what to group them by:
+  none, one, or two separated by a comma, such as `groupBy=recipe,machine`;
+  another name, a third or one given twice is a 400. `limit`, 1–100 and 20
+  if not given, and `offset` page the groups, and `total` counts them all.
+  The MCP endpoint's `summarise_shots` gives the same for `find_shots`'
+  filters, its numbers to hundredths, its `groupBy` a list, a Bean Batch's
+  roast date as its day, and its page as a tool's list pages: `total`,
+  `offset` and `more` before `groups`, at most 50 of them.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
@@ -439,8 +452,9 @@ builds the first of milestone 7's ([#465](https://github.com/loganfuller/decent-
 the Shots a filter finds as one group, with three numbers, in
 `server/src/shots/summary.ts`, behind `GET /api/shots/summary`
 (`ShotsService.summary`), the MCP endpoint's `summarise_shots` and the
-Shots list's Summary card. Grouping, buckets and the other numbers are later
-tickets'.
+Shots list's Summary card. Ticket [#468](https://github.com/loganfuller/decent-sync/issues/468)
+groups them, by up to two of what Shots have. Buckets and the other numbers
+are later tickets'.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -452,6 +466,68 @@ tickets'.
   `counts.shots` is how many Shots the numbers cover, and
   `counts.cleaningAndCalibration` how many were left out; the two add up to
   the list's `total`, both read in one statement.
+- **Groups.** `groupBy` takes up to two groupings, each by what the list's
+  filter of the same name takes, so a group opens as that filter: the Shots
+  the list lists for the summary's filters and the group's are the group's,
+  and its `counts` add up to that list's `total`.
+
+  | `groupBy` | Groups by | A group's `by` gives | Its filter |
+  |---|---|---|---|
+  | `location` | The Location the Shot is credited to | `location: { id, name }` | `locationId`, `none` |
+  | `machine` | The Machine it is credited to, or the Pending Machine holding it | `machine: { id, name }` with `pendingMachine: null`, or `machine: null` with `pendingMachine: { id, model, serial }` | `machineId`, or `pendingMachineId` |
+  | `recipe` | The Recipe it was pulled with (`shotRecipeSql`) | `recipe: { id, name, location }` | `recipeId`, `none` |
+  | `bean` | The roaster and name it recorded, together | `bean: { roaster, name }`, either null where it recorded none | `coffeeRoaster` and `coffeeName`, each empty for none |
+  | `beanBatch` | The Library's Bean Batch it is linked to | `beanBatch: { id, bean: { id, roaster, name }, roastDate }` | `beanBatchId`, `none` |
+  | `profile` | The profile title it recorded | `profile`, the title | `profileTitle`, empty |
+  | `grinder` | The Library's Grinder it is linked to | `grinder: { id, model, location }` | `grinderId`, `none` |
+  | `basket` | The Library's Basket it is linked to | `basket: { id, name }` | `basketId`, `none` |
+  | `barista` | The Barista it names (Baristas, below) | `barista`, the name | `barista`, empty |
+
+  - `by` holds an entry for each grouping, in their order, and is `{}`
+    without one. An entry is null for the group of Shots with none of it:
+    no Location, no Recipe loaded, linked to no Bean Batch, Grinder or
+    Basket, or recording no Bean, title or Barista. No Shot is without a
+    Machine or a Pending Machine, so grouped by Machine each group is one
+    or the other's. A Recipe and a Grinder are given with the Location they
+    belong to (`location: { id, name }`, null for one with none), as the
+    list's filters name them, since two Locations may each have a Recipe
+    of one name.
+  - Grouping by Profile is by the title recorded, as the list's Profile
+    filter is: a Shot's Library Profile is matched as it is read
+    (`shotProfileSql`), which took 2 s for 10,000 Shots (#465). Two
+    Profiles with one title are one group. Only a Barista's names are
+    folded: a Bean or a title in another case is another group.
+  - Without a grouping the summary is one group, there even where the
+    filters find no Shot. With one, a group is there only for Shots found,
+    so filters that find none give no group.
+  - **Order.** Groups are ordered by the first grouping, then the second,
+    each by name, ignoring case (`lower()`, folded and ordered as the
+    database's collation does), then by id, its group of Shots with none
+    last: a Location, Machine, Recipe or Basket by its name, a Grinder by
+    its model, a Bean by roaster and then name, as the filter's choices
+    are, a Bean Batch as the Bean Batches list orders them, by its Bean's
+    name, then roaster, then the latest roast date first, and Pending
+    Machines after the Machines, by model and serial. Two items of one
+    name are in their ids' order, which is not the order they were made
+    in.
+  - **Paging.** A page is a number of groups: `limit` and `offset`, with
+    `total`, how many groups there are, read in the same statement as the
+    page, so the two agree. An `offset` past the last group gives no group
+    and the `total`.
+- **Baristas.** A Barista is who a Shot's name for one names (`barista`,
+  its Workflow's `context.baristaName`): the name without its case or the
+  blanks around it, which are spaces, tabs and line ends (`baristaKeySql`
+  in `server/src/shots/filters.ts`). So `jules`, `Jules` and ` JULES ` are
+  one Barista, one group and one of the filter's choices, and a name of
+  blanks alone is none. Case is folded as the database's collation folds
+  it (`lower()`). Nothing else is merged, so `Jules V` is another Barista,
+  and no table holds Baristas. A Barista is named by its most recent
+  spelling among the listed Shots, without the blanks around it
+  (`baristaNamesSql`): one name wherever it is given, in a
+  summary's groups whatever its filters, in `GET /api/shots/filters` and in
+  `list_shot_values`. The `barista` filter finds every spelling by any of
+  them, so for the previous release's page, which passes one spelling as
+  recorded, it finds more Shots than it did, never fewer (ADR-0025).
 - **The numbers,** each of the Shots covered:
   - `yieldAgainstTarget`: the yield weighed less the target yield
     (`actual_yield`, `target_yield`), in grams, negative under target. A
@@ -489,6 +565,34 @@ tickets'.
   395 ms for 50,000, where the same statement reading only the columns took
   14 ms; 52 ms for 30 days of them (6,171 Shots) and 3 ms for a day (206).
   Either field becomes a column only if a summary proves slow (#465).
+- **What grouping costs.** Little beside that: the Shots are grouped where
+  their numbers are put together, and what names a group is joined to the
+  groups, never to each Shot. Measured for #468 through the REST route, on
+  the development machine, on a scratch database of 50,000 copies of that
+  record: four Machines at two Locations pulling 200 Shots a day each, ten
+  in a row with one of its Location's eight Recipes loaded, so 5,000
+  Loaded Recipes, with 77 profile titles and 12 Baristas, each spelled
+  three ways. The medians of seven reads:
+
+  | Summary | 50,000 Shots | 30 days (24,000) | A day (800) |
+  |---|---|---|---|
+  | One group | 400 ms | 199 ms | |
+  | By Machine | 401 ms | | |
+  | By Profile | 407 ms | 200 ms | |
+  | By Recipe | 477 ms | | |
+  | By Recipe and Machine | 485 ms | 226 ms | 11 ms |
+  | By Barista | 427 ms | 217 ms | 25 ms |
+  | By Barista and Machine | 431 ms | | |
+
+  A Shot's Recipe is resolved through its Machine's Loaded Recipes for each
+  Shot naming one, about 80 ms of 50,000. Naming the Baristas reads every
+  listed Shot's name, whatever the summary's filters, about 15 ms of
+  50,000, which is half of a day's summary by Barista, and of what
+  `GET /api/shots/filters` took, 131 ms, where listing every spelling took
+  8 ms. Its spellings are put together before they are ordered: ordering
+  every Shot's took 40 ms. Naming them from the Shots summarised alone
+  would cost a day's summary less, and give a Barista one name in the
+  filter's choices and another in a summary of earlier Shots.
 - **Access.** Staff and Viewers read it, as they read Shots, at every
   Location.
 
@@ -497,8 +601,18 @@ simulated tablets store, against values worked out by hand from the
 fixtures: a date across two Locations in different time zones, cleaning and
 calibration Shots, a target of 0, Shots with no stop reason, a Shot's edit,
 and every filter's counts against the list's total.
-`server/test/assistant-records.test.ts` checks `summarise_shots` against it,
-and `server/test/assistant-budget.test.ts` its size.
+`server/test/shot-summary-groups.test.ts` covers the groups the same way:
+one and two groupings against values worked out by hand, each grouping's
+order and group of Shots with none, a Pending Machine's group, paging, a
+Barista's spellings in the grouping, the filter and the filter's choices,
+and, for every grouping, each group's filters finding exactly its Shots.
+Its Shots are stored through simulated tablets; their links to the Library
+and their Machines' Loaded Recipes are set in PostgreSQL, as
+`shot-links.test.ts` and `shot-recipe-links.test.ts` cover how tablets make
+them. `server/test/assistant-records.test.ts` checks `summarise_shots`
+against the route, grouped and not, and
+`server/test/assistant-budget.test.ts` its size, with two groupings at its
+largest page on realistic and on hostile data.
 
 ## Management interface
 
@@ -516,7 +630,19 @@ value for it, and reads as a dash where none had. The card follows the
 filters, loads again every 30 s, and is not shown while no Shot matches. The
 last filters' numbers stay while the next ones' load, as the rows do, but
 give way to dashes while a load has failed since the last that succeeded,
-so that they never stand under a failure as the next filters'.
+so that they never stand under a failure as the next filters'. Its grouping
+control, Group by and Then by, turns the summary into a table of its
+groups, 25 at a time: a column for each grouping, naming each group as the
+list's filter of that name names its choice, then its count and numbers,
+each number with how many Shots it rests on where some had no value. A
+group's count links to the list with the group as its filters and no
+grouping, so its Shots and their summary show. The grouping is kept in the
+address as the REST API takes it (`groupBy=recipe,machine`), beside the
+filters, so a grouped list can be shared or reloaded; what an address names
+that is no grouping is passed over, and Clear filters leaves the grouping.
+The page of groups is not in the address, and starts over with the filters
+and the grouping. The Barista filter offers each Barista once, and shows
+that choice for any spelling an address holds (`baristaKey`).
 `e2e/shot-summary.spec.ts` covers it. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),

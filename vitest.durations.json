@@ -119,6 +119,7 @@
   "server/test/shot-links.test.ts": 13,
   "server/test/shot-lists.test.ts": 4,
   "server/test/shot-recipe-links.test.ts": 33,
+  "server/test/shot-summary-groups.test.ts": 8,
   "server/test/shot-summary.test.ts": 8,
   "server/test/shots.test.ts": 36,
   "server/test/sign-in-limits.test.ts": 17,

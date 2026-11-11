@@ -1,8 +1,56 @@
-import type { SummaryNumber } from "@/lib/api";
+import type { SummaryGroupedBy, SummaryNumber } from "@/lib/api";
 
 // How a Shot Summary's numbers read (#466): each as its median, with the
 // range the middle half of its Shots fall in beside it, such as
-// "26.0 s (25.6–26.6)".
+// "26.0 s (25.6–26.6)"; and what its Shots are grouped by (#468), which the
+// Shots list keeps in its address, and the filters a group opens as.
+
+/** What a summary's Shots are grouped by, as the REST API's `groupBy` names each. */
+export const GROUPINGS = ["location", "machine", "recipe", "bean", "beanBatch", "profile", "grinder", "basket", "barista"] as const;
+export type Grouping = (typeof GROUPINGS)[number];
+
+/** The most groupings a summary takes at once. */
+export const MAX_GROUPINGS = 2;
+
+/**
+ * The groupings an address's `groupBy` names, such as `recipe,machine`:
+ * those the summary has, each once, at most two. What else it holds is
+ * passed over, so a mistyped address still shows a summary.
+ */
+export function groupingsIn(groupBy: string | null): Grouping[] {
+  const named = (groupBy ?? "").split(",").filter((name): name is Grouping => (GROUPINGS as readonly string[]).includes(name));
+  return [...new Set(named)].slice(0, MAX_GROUPINGS);
+}
+
+/**
+ * The Shots list's filters a group opens as, each grouping's own, by what
+ * the group is grouped by: the Shots they find are the group's. Null clears
+ * a filter, `none` or an empty one finds the Shots with none, as the REST
+ * API takes them.
+ */
+export function groupFilters(by: SummaryGroupedBy): Record<string, string | null> {
+  const filters: Record<string, string | null> = {};
+  if (by.location !== undefined) filters.locationId = by.location?.id ?? "none";
+  // A Machine's group, or a Pending Machine's: the list takes one or the other.
+  if (by.machine !== undefined || by.pendingMachine !== undefined) Object.assign(filters, { machineId: by.machine?.id ?? null, pendingMachineId: by.pendingMachine?.id ?? null });
+  if (by.recipe !== undefined) filters.recipeId = by.recipe?.id ?? "none";
+  if (by.bean !== undefined) Object.assign(filters, { coffeeRoaster: by.bean?.roaster ?? "", coffeeName: by.bean?.name ?? "" });
+  if (by.beanBatch !== undefined) filters.beanBatchId = by.beanBatch?.id ?? "none";
+  if (by.profile !== undefined) filters.profileTitle = by.profile ?? "";
+  if (by.grinder !== undefined) filters.grinderId = by.grinder?.id ?? "none";
+  if (by.basket !== undefined) filters.basketId = by.basket?.id ?? "none";
+  if (by.barista !== undefined) filters.barista = by.barista ?? "";
+  return filters;
+}
+
+/**
+ * Who a Barista's name names, as the server reads one: the name without its
+ * case or the blanks around it, so the Barista filter's choice is found for
+ * any spelling an address holds. Empty for no name, or a blank one.
+ */
+export function baristaKey(name: string): string {
+  return name.trim().toLowerCase();
+}
 
 /** A number of a summary as it reads: its median with its unit, and the range from its 25th percentile to its 75th. */
 export interface MedianText {

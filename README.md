@@ -105,6 +105,12 @@ Each server has one owner: a household, or a business with all of its sites.
   against target, each with the range the middle half of them fall in, and
   the share that stopped on weight. Cleaning and calibration Shots are left
   out, and counted.
+- **Grouped to compare.** Group that summary by Machine, Recipe, Bean, Bean
+  Batch, Profile, Grinder, Basket, Barista or Location, two at once, for a
+  row of the same numbers per group: two Machines on the same Recipe, side
+  by side. Each group opens its Shots in the list. A Barista whose name was
+  typed "jules" and "Jules" is one group, and one choice in the Barista
+  filter.
 - **Compared at a glance.** Open any Shot's curves beside the previous Shot on
   its Machine. Steam Records show the milk's temperature.
 
@@ -268,8 +274,8 @@ An assistant can read Locations, Machines with their settings, then or now,
 and their activity, each dial-in change included, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
 History, Shots with their curves and the profile steps they ran, a summary
-of the Shots any filter finds, Steam Records, and the Library with each
-item's history and Conflicts. It can create
+of the Shots any filter finds, grouped as on the Shots list, Steam Records,
+and the Library with each item's history and Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
 Slots and copy them to other Locations, use or dismiss a Conflict's value, make

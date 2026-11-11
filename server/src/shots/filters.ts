@@ -13,7 +13,8 @@ import { shotPulledWithSql, shotRecipeSql } from "./links.js";
  * What a Shots list is narrowed to: the filters every record list has, what
  * the Shot recorded, and the Library items it is linked to (links.ts). Each
  * text filter matches what the Shot recorded as `match` says, or, when
- * empty, matches Shots that recorded none.
+ * empty, matches Shots that recorded none; but a Barista's name, which
+ * matches whatever its case and the blanks around it (`baristaKeySql`).
  */
 export interface ShotFilters extends RecordFilters {
   /**
@@ -21,7 +22,8 @@ export interface ShotFilters extends RecordFilters {
    * choices pass what Shots recorded; or `words`, as an assistant's
    * find_shots does unless asked for exact, each word anywhere, ignoring
    * case, as find_library_items matches names, a filter of no words then
-   * matching Shots that recorded none.
+   * matching Shots that recorded none. Matched exactly, `barista` still
+   * finds every spelling of the Barista it names (`baristaKeySql`).
    */
   match?: "exact" | "words";
   coffeeRoaster?: string;
@@ -43,6 +45,47 @@ export interface ShotFilters extends RecordFilters {
 }
 
 const TEXT_FILTERS = ["coffeeRoaster", "coffeeName", "barista", "profileTitle"] as const;
+
+/**
+ * What text recorded with nothing else in it is blank by, and what a
+ * Barista's name is read without around it: spaces, tabs and line ends, as
+ * a tablet's keyboard leaves them. Unicode's other spaces are text.
+ */
+export const BLANK = " \t\n\r\f\v";
+
+/**
+ * Who a Barista's name names (#468): the name without its case or the
+ * blanks around it (`BLANK`), so "jules", "Jules" and " JULES " are one
+ * Barista, in the Barista filter, the filter's choices and a Shot Summary's
+ * groups alike; null for no name, or a blank one. Case is folded as the
+ * database's collation folds it (`lower()`). Nothing else is merged, and no
+ * table holds Baristas.
+ */
+export function baristaKeySql(name: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`nullif(lower(btrim(${name}, ${BLANK})), '')`;
+}
+
+/**
+ * Each Barista the Shots `from` finds name, once: its `key`
+ * (`baristaKeySql`) and its `name`, the most recent spelling of it among
+ * them, without the blanks around it, of two spelled at one moment the first
+ * in the names' order; in the keys' order, which is the names' ignoring
+ * case, and then, where any of those Shots recorded no name or a blank one,
+ * a row of nulls. `from` is the rest of a query from its `FROM` on, over
+ * `shots` aliased `s`. The spellings are put together before they are
+ * ordered, a few for each Barista, rather than every Shot's.
+ */
+export function baristaNamesSql(from: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`
+    SELECT DISTINCT ON (spelled.key) spelled.key, CASE WHEN spelled.key IS NOT NULL THEN spelled.name END AS name
+    FROM (
+      SELECT recorded.key, recorded.name, max(recorded.pulled_at) AS latest
+      FROM (SELECT ${baristaKeySql(Prisma.raw("s.barista"))} AS key, btrim(s.barista, ${BLANK}) AS name, s.pulled_at ${from}) AS recorded
+      GROUP BY recorded.key, recorded.name
+    ) AS spelled
+    ORDER BY spelled.key, spelled.latest DESC NULLS LAST, spelled.name`;
+}
+
 const MAX_TEXT_LENGTH = 500;
 /** The most words a text filter matched by words holds: each is a search of every Shot's text, which hundreds would make take seconds. */
 export const MAX_WORDS = 20;
@@ -96,7 +139,8 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
   ] as const) {
     const text = filters[name];
     if (text === undefined) continue;
-    conditions.push(textSql(Prisma.raw(`s.${column}`), text, filters.match ?? "exact"));
+    const match = filters.match ?? "exact";
+    conditions.push(name === "barista" ? baristaFilterSql(text, match) : textSql(Prisma.raw(`s.${column}`), text, match));
   }
   for (const [name, column] of [
     ["beanBatchId", "library_batch_id"],
@@ -123,6 +167,19 @@ function textSql(field: Prisma.Sql, text: string, match: "exact" | "words"): Pri
   if (text === "" || (match === "words" && words.length === 0)) return Prisma.sql`nullif(${field}, '') IS NULL`;
   if (match === "exact") return Prisma.sql`${field} = ${text}`;
   return Prisma.join(words.map((word) => Prisma.sql`strpos(lower(${field}), lower(${word})) > 0`), " AND ");
+}
+
+/**
+ * The condition the Barista filter makes: exactly, the Shots of the Barista
+ * the text names, however each spelled it (`baristaKeySql`), so a name
+ * differing only in case or the blanks around it finds the same Shots, and
+ * an empty or blank one those that recorded no name or a blank one; by
+ * words, as any text filter, but that one of no words finds those too.
+ */
+function baristaFilterSql(text: string, match: "exact" | "words"): Prisma.Sql {
+  const recorded = baristaKeySql(Prisma.raw("s.barista"));
+  if (match === "exact") return Prisma.sql`${recorded} IS NOT DISTINCT FROM ${baristaKeySql(Prisma.sql`${text}::text`)}`;
+  return wordsOf(text).length === 0 ? Prisma.sql`${recorded} IS NULL` : textSql(Prisma.raw("s.barista"), text, match);
 }
 
 /** A text filter's words, as matching by words reads them: split at whitespace. */

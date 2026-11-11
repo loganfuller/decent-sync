@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { SHOT_CURVES, STEAM_CURVES, globalIdOf, lastRecordedWeight, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt, stepSpans } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp, type SummaryGroup, toolSummary } from "./support/assistants.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { derivedShot, preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import { RawConnection, derivedProfile, helloWith } from "./support/simulated-tablet.js";
@@ -900,10 +900,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
   });
 
   it("summarises the Shots find_shots finds as the REST API's summary does, its numbers to hundredths", async () => {
-    interface Group {
-      counts: { shots: number; cleaningAndCalibration: number };
-      numbers: Record<string, Fields>;
-    }
+    type Group = SummaryGroup;
     // Derived: three Shots on one day, at 12:00, 13:00 and 14:00 UTC: one 2.5 g over its target that its Machine ended,
     // the real Shot, 0.1 g under and stopped on weight, and one pulled with a cleaning profile.
     const over = shotAt("assistant-over", "2026-06-01T12:00:00Z", hardware.roaming, "Ann");
@@ -917,8 +914,10 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     /** summarise_shots, checked against the REST API's summary for the same filters, matching words as the tool does, and against find_shots' total: its one group. */
     async function summarisedAsRest(input: Fields, query: Record<string, string>, by = assistant, at = api): Promise<Group> {
-      const summarised = await by.call<{ groups: Group[] }>("summarise_shots", input);
-      expect(summarised).toEqual(asTools(await at.get(`/shots/summary?${new URLSearchParams({ match: "words", ...query })}`)));
+      const summarised = await by.call<{ groups: Group[] } & Page>("summarise_shots", input);
+      expect(summarised).toEqual(toolSummary(await at.get(`/shots/summary?${new URLSearchParams({ match: "words", ...query })}`)));
+      // One group, a page of its own.
+      expect(summarised).toMatchObject({ total: 1, offset: 0, more: false });
       expect(summarised.groups).toHaveLength(1);
       const [group] = summarised.groups;
       expect(group!.counts.shots + group!.counts.cleaningAndCalibration).toBe((await by.call<Page>("find_shots", { ...input, limit: 1 })).total);
@@ -927,6 +926,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const day = { from: "2026-06-01", to: "2026-06-01" };
     expect(await summarisedAsRest(day, day)).toEqual({
+      by: {},
       counts: { shots: 2, cleaningAndCalibration: 1 },
       numbers: {
         // −0.1 and 2.5, and 23.549 s twice.
@@ -950,6 +950,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect((await summarisedAsRest(exact, { match: "exact", coffeeName: "China Gao's Honey" })).counts.shots).toBe(1);
     const nothing = randomUUID();
     expect(await summarisedAsRest({ recipeId: nothing }, { recipeId: nothing })).toEqual({
+      by: {},
       counts: { shots: 0, cleaningAndCalibration: 0 },
       numbers: { yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null }, duration: { shots: 0, median: null, p25: null, p75: null }, stoppedOnWeight: { shots: 0, share: null } },
     });
@@ -965,6 +966,70 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await toolError("summarise_shots", { barista: "Ann…[cut]" })).toContain("…[cut]");
   });
 
+  it("groups a summary as the REST API does, a page of groups at a time, with each Barista once, and finds every spelling of one as it does", async () => {
+    // Derived: two Shots on 1 July, by Baristas earlier Shots name, each spelled another way, with blanks around it.
+    await deliverShots(roaming, hardware.roaming, [
+      shotAt("assistant-ann-again", "2026-07-01T12:00:00Z", hardware.roaming, " ann"),
+      shotAt("assistant-ben-again", "2026-07-01T13:00:00Z", hardware.roaming, "BEN "),
+    ]);
+    type Summarised = { groups: SummaryGroup[] } & Page;
+
+    /** summarise_shots, checked against the REST API's summary for the same filters, groupings and page. */
+    async function groupedAsRest(input: Fields, query: Record<string, string>): Promise<Summarised> {
+      const summarised = await assistant.call<Summarised>("summarise_shots", input);
+      expect(summarised, JSON.stringify(input)).toEqual(toolSummary(await api.get(`/shots/summary?${new URLSearchParams({ match: "words", ...query })}`)));
+      return summarised;
+    }
+
+    // One grouping and two, of every kind: the REST route's groups, in its order, and the same two at a time, the next
+    // page's offset the last's plus its length. These Shots are linked to no Recipe or Basket, so those two give one
+    // group, of Shots with none.
+    for (const groupBy of [["barista"], ["location", "machine"], ["bean", "profile"], ["beanBatch", "grinder"], ["recipe", "basket"]]) {
+      const all = await groupedAsRest({ groupBy, limit: 50 }, { groupBy: groupBy.join(","), limit: "50" });
+      expect(all.groups.length, groupBy.join()).toBeGreaterThan(groupBy.includes("recipe") ? 0 : 1);
+      expect(all).toMatchObject({ total: all.groups.length, offset: 0, more: false });
+      // What a group is grouped by, in the groupings' order; a Machine's or a Pending Machine's for machine.
+      const entries = groupBy.flatMap((grouping) => (grouping === "machine" ? ["machine", "pendingMachine"] : [grouping]));
+      for (const group of all.groups) expect(Object.keys(group.by), groupBy.join()).toEqual(entries);
+      const paged: SummaryGroup[] = [];
+      for (let offset = 0; ; offset += 2) {
+        const page = await groupedAsRest({ groupBy, limit: 2, offset }, { groupBy: groupBy.join(","), limit: "2", offset: String(offset) });
+        expect(page).toMatchObject({ total: all.total, offset, more: offset + 2 < all.total });
+        paged.push(...page.groups);
+        if (!page.more) break;
+      }
+      expect(paged, groupBy.join()).toEqual(all.groups);
+    }
+    // 20 groups by default, with the filters find_shots takes: Uptown's Shots by Barista are Ann's and Ben's.
+    const uptownDay = { locationId: uptown.id, from: "2026-02-09", to: "2026-02-10" };
+    const atUptown = await groupedAsRest({ groupBy: ["barista"], ...uptownDay }, { groupBy: "barista", ...uptownDay });
+    // Each Barista by its latest spelling, without the blanks around it, whichever Shots are summarised.
+    expect(atUptown.groups.map((group) => [group.by.barista, group.counts.shots])).toEqual([["ann", 2], ["BEN", 1]]);
+
+    // Each Barista once, as list_shot_values gives them, and a group's Shots are those find_shots finds by its name exactly.
+    const { groups } = await groupedAsRest({ groupBy: ["barista"], limit: 50 }, { groupBy: "barista", limit: "50" });
+    const names = groups.map((group) => group.by.barista);
+    expect(names).toEqual((await assistant.call<{ baristas: { entries: (string | null)[] } }>("list_shot_values", { kinds: ["baristas"], limit: 50 })).baristas.entries);
+    expect(names).toEqual(expect.arrayContaining(["ann", "BEN", "Cat", null]));
+    expect(names.filter((name) => name?.toLowerCase() === "ann")).toEqual(["ann"]);
+    for (const group of groups) {
+      const found = await assistant.call<Page>("find_shots", { barista: group.by.barista ?? "", match: "exact", limit: 1 });
+      expect(found.total, String(group.by.barista)).toBe(group.counts.shots + group.counts.cleaningAndCalibration);
+    }
+    // Any spelling finds them, exactly as by its words.
+    const anns = await findShotsAsRest({ barista: " ANN ", match: "exact", limit: 50 }, { barista: " ANN ", match: "exact", limit: "50" });
+    expect(anns).toEqual(expect.arrayContaining(["assistant-ann-again", "uptown-dawn", "harbor-early"]));
+    expect(anns).toEqual(await findShotsAsRest({ barista: "ann", match: "exact", limit: 50 }, { barista: "ann", match: "exact", limit: "50" }));
+    // The other text filters still match the whole of what was recorded, case and all.
+    expect(await findShotsAsRest({ beanName: "china gao's honey", match: "exact" }, { coffeeName: "china gao's honey", match: "exact" })).toEqual([]);
+
+    // Refused as the REST API refuses them.
+    expect(await toolError("summarise_shots", { groupBy: ["recipe", "recipe"] })).toBe("Give each grouping once");
+    expect(await toolError("summarise_shots", { groupBy: ["recipe", "machine", "barista"] })).toContain("groupBy");
+    expect(await toolError("summarise_shots", { groupBy: ["roaster"] })).toContain("groupBy");
+    expect(await toolError("summarise_shots", { groupBy: ["recipe"], limit: 51 })).toContain("limit");
+  });
+
   it("answers a Viewer's read-only Connected App as it answers an Admin's", async () => {
     const { link } = await api.invite("viewer-408@example.com", "viewer", []);
     const cookie = await acceptInvite(server.url, link, { name: "Viewer", password: "a password for apps" });
@@ -973,6 +1038,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
       expect(await findShotsAsRest({ locationId: harbor.id }, { locationId: harbor.id }, viewer, AdminApi.signedInAs(server.url, cookie))).toEqual(["harbor-next", "harbor-noon", "harbor-early"]);
       expect(await viewer.call<Fields>("list_shot_values", {})).toEqual(await assistant.call<Fields>("list_shot_values", {}));
       expect(await viewer.call<Fields>("summarise_shots", {})).toEqual(await assistant.call<Fields>("summarise_shots", {}));
+      expect(await viewer.call<Fields>("summarise_shots", { groupBy: ["machine", "barista"] })).toEqual(await assistant.call<Fields>("summarise_shots", { groupBy: ["machine", "barista"] }));
       expect(await viewer.call<Fields>("get_steam_record", { id: "steam-harbor-early" })).toMatchObject({ id: "steam-harbor-early", location: harbor });
     } finally {
       await viewer.close();

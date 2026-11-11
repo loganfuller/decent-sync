@@ -97,6 +97,27 @@ export function asTools<T>(value: T): T {
   return JSON.parse(JSON.stringify(value), (_, field: unknown) => (typeof field === "number" && !Number.isInteger(field) ? Math.round(field * 100) / 100 || 0 : field)) as T;
 }
 
+/** A Shot Summary's group, as the REST API and summarise_shots both give one. */
+export interface SummaryGroup {
+  by: Record<string, unknown> & { beanBatch?: { roastDate: string | null } | null; barista?: string | null };
+  counts: { shots: number; cleaningAndCalibration: number };
+  numbers: Record<string, Record<string, unknown>>;
+}
+
+/**
+ * What summarise_shots gives for the REST API's summary: its page of groups
+ * as a tool's list pages, `total`, `offset` and `more` first, its numbers
+ * to hundredths, and a Bean Batch's roast date as its day, as find_shots
+ * gives one.
+ */
+export function toolSummary(rest: { groups: SummaryGroup[]; total: number; offset: number }): { total: number; offset: number; more: boolean; groups: SummaryGroup[] } {
+  const groups = asTools(rest.groups).map(({ by, ...group }) => ({
+    by: by.beanBatch ? { ...by, beanBatch: { ...by.beanBatch, roastDate: by.beanBatch.roastDate && by.beanBatch.roastDate.slice(0, 10) } } : by,
+    ...group,
+  }));
+  return { total: rest.total, offset: rest.offset, more: rest.offset + groups.length < rest.total, groups };
+}
+
 /** Which protocol revisions the app's client speaks: the 2025 ones (`initialize`), or 2026-07-28. */
 export type Era = "legacy" | "modern";
 

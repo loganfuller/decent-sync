@@ -23,7 +23,8 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Archived: a Library item retired everywhere, kept so past Shots still name it, offered nowhere. Not deleted.
 - Conflict: an edit to a field of a Library item that lost to another edit of the same field made without seeing it, kept until someone uses its value or dismisses it.
 - Shot: one extraction recorded on a Machine. Its Preheat, the Machine heating its water before the profile starts, is shown with it but not counted in its duration or peaks.
-- Shot Summary: what a set of Shots have in common: how many there are, the median of each number they have, such as their duration, with the range the middle half of them fall in, and the share that did something, such as stopping on weight. It leaves out cleaning and calibration Shots, and counts them.
+- Barista: the person who pulled a Shot, as named on its tablet. Names that differ only in case or the spaces around them are one Barista.
+- Shot Summary: what a set of Shots have in common, by group, such as by Machine or Recipe: how many there are, the median of each number they have, such as their duration, with the range the middle half of them fall in, and the share that did something, such as stopping on weight. It leaves out cleaning and calibration Shots, and counts them.
 - Steam Record: one recorded use of a Machine's steam wand. Its duration counts only the steaming, not the steam starting up, its pauses, puffs or purge.
 
 A day, such as "yesterday", is each Location's own day in its time zone. Times are ISO 8601 with offsets.

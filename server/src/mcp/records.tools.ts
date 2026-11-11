@@ -6,10 +6,11 @@ import { readRecordFilters } from "../record-filters.js";
 import { recordedText } from "../shots/extraction.js";
 import { MAX_WORDS, type ShotFilters, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
+import { GROUPINGS, MAX_GROUPINGS, groupingsOf } from "../shots/summary.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
-import { PAGED, page, pageOf, pageOutput } from "./paging.js";
+import { MAX_PAGE, PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 
 // Shots and Steam Records, found and read through an assistant as the REST
@@ -202,13 +203,13 @@ const STEAM_UNITS =
 const CURVES_NOTE =
   "curves is true for all of them, or a list of those to give. Each gives its unit, its readings as [seconds, value] points, and its targets, the targets the Machine reported, which the management interface draws dashed, empty where it reported none. A series of more than 100 readings is thinned to 100, keeping its shape and peaks; thinnedTo gives the most points one was thinned to, null where every reading is given.";
 
-/** A text filter of find_shots, matching as its match says (`ShotFilters.match`). */
-const textFilter = (which: string) =>
+/** A text filter of find_shots, matching as its match says (`ShotFilters.match`), with what more it does, if anything. */
+const textFilter = (which: string, more = "") =>
   z
     .string()
     .max(500)
     .optional()
-    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one finds Shots that recorded none, and so does one of spaces alone when matching words.`);
+    .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one finds Shots that recorded none, and so does one of spaces alone when matching words.${more}`);
 
 /** The filters find_shots finds Shots by, which summarise_shots takes too. */
 const shotFilters = {
@@ -220,17 +221,23 @@ const shotFilters = {
   grinderId: id.optional().describe("Shots that used this Library Grinder."),
   basketId: id.optional().describe("Shots that used this Library Basket."),
   recipeId: id.optional().describe("Shots pulled with this Recipe loaded."),
-  barista: textFilter("Shots whose Barista, as each Shot records it,"),
+  barista: textFilter(
+    "Shots whose Barista, as each Shot records it,",
+    " With match exact it is one Barista's name, still ignoring case and the spaces around it, and an empty or blank one finds Shots that recorded none or a blank name.",
+  ),
   beanRoaster: textFilter("Shots whose Bean's roaster, as each Shot records it, linked to the Library or not,"),
   beanName: textFilter("Shots whose Bean's name, as each Shot records it, linked to the Library or not,"),
   profileTitle: textFilter("Shots whose profile's title, as each Shot records it,"),
   match: z
     .enum(["words", "exact"])
     .default("words")
-    .describe("How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone."),
+    .describe(
+      "How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone, but that barista still ignores case and the spaces around the name.",
+    ),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
 };
+const shotFiltersInput = z.object(shotFilters);
 const findShotsInput = z.object({ ...shotFilters, ...page });
 const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
@@ -240,7 +247,7 @@ const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile,
 
 /** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
 const SHOT_FILTERS =
-  "The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id.";
+  "The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A Barista is one whatever the name's case and the spaces around it: with match exact, barista finds every such spelling, jules and Jules alike, and list_shot_values and summarise_shots give each Barista once, by the latest spelling. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id.";
 
 const summaryNumber = (what: string) =>
   z
@@ -252,11 +259,43 @@ const summaryNumber = (what: string) =>
     })
     .describe(`${what} Null where no Shot had a value.`);
 
-const summariseShotsInput = z.object(shotFilters);
+const summariseShotsInput = z.object({
+  ...shotFilters,
+  groupBy: z
+    .array(z.enum(GROUPINGS))
+    .max(MAX_GROUPINGS)
+    .default([])
+    .describe(`What to group the Shots by, up to ${MAX_GROUPINGS}, the first then the second, such as recipe then machine; one group of them all if none.`),
+  limit: page.limit.describe(`How many groups to give, from 1 to ${MAX_PAGE}.`),
+  offset: page.offset.describe("How many groups to skip, in their order: the previous page's offset plus its length."),
+});
+const namedLocation = z.object({ id, name: z.string() });
+const recorded = z.string().nullable();
+// Null for the group of Shots with none, and left out unless grouped by.
+const groupedBy = <T extends z.ZodType>(entry: T, what: string) => entry.nullable().optional().describe(what);
+const summaryGroupBy = z
+  .object({
+    location: groupedBy(namedLocation, "The Location the Shots were pulled at."),
+    machine: groupedBy(z.object({ id, name: z.string() }), "The Machine the Shots are credited to; null for a pendingMachine's."),
+    pendingMachine: groupedBy(
+      z.object({ id, model: z.string(), serial: z.string() }),
+      "Given with machine: the hardware that recorded the Shots, where they wait for an Admin to name its Machine; null for a Machine's.",
+    ),
+    recipe: groupedBy(z.object({ id, name: recorded, location: namedLocation.nullable() }), "The Recipe the Shots were pulled with loaded, and the Location it belongs to."),
+    bean: groupedBy(z.object({ roaster: recorded, name: recorded }), "The Bean's roaster and name, as the Shots recorded them."),
+    beanBatch: groupedBy(z.object({ id, bean: z.object({ id, roaster: recorded, name: recorded }), roastDate: recorded }), "The Library's Bean Batch the Shots used."),
+    profile: groupedBy(z.string(), "The profile's title, as the Shots recorded it."),
+    grinder: groupedBy(z.object({ id, model: recorded, location: namedLocation.nullable() }), "The Library's Grinder the Shots used, and the Location it belongs to."),
+    basket: groupedBy(z.object({ id, name: recorded }), "The Library's Basket the Shots used."),
+    barista: groupedBy(z.string(), "The Barista, by the most recent spelling of the name."),
+  })
+  .describe("What the group is grouped by: an entry for each of groupBy, null for its group of Shots with none; empty without groupBy.");
 const summariseShotsOutput = z.object({
+  ...pageOutput,
   groups: z
     .array(
       z.object({
+        by: summaryGroupBy,
         counts: z.object({
           shots: z.number().describe("The Shots its numbers cover."),
           cleaningAndCalibration: z.number().describe("The cleaning and calibration Shots left out of them."),
@@ -273,8 +312,11 @@ const summariseShotsOutput = z.object({
         }),
       }),
     )
-    .describe("One group: every Shot the filters find."),
+    .describe("A page of the groups, in their order; without groupBy, one group, every Shot the filters find."),
 });
+
+/** What summarise_shots' groups are, for its description. */
+const SHOT_GROUPS = `groupBy takes up to ${MAX_GROUPINGS} of ${GROUPINGS.slice(0, -1).join(", ")} and ${GROUPINGS.at(-1)}, such as recipe then machine, to compare Machines on one Recipe; without it, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping: location, machine, recipe, beanBatch, grinder and basket by id and name, a recipe and a grinder with their Location; bean, the roaster and name the Shots recorded; profile, the title they recorded; and barista. An entry is null for the group of Shots with none. By machine, Shots waiting for an Admin to name the Machine that recorded them are a group of their own: machine null, and pendingMachine, that hardware's model and serial, which find_shots has no filter for. find_shots finds a group's Shots with the same filters and the group's: its id as locationId, machineId, recipeId, beanBatchId, grinderId or basketId, or, with match exact, its bean's roaster and name as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, with its group of none last, and limit and offset page them.`;
 
 /** The lists list_shot_values gives, as `GET /api/shots/filters` gives them. */
 const SHOT_VALUE_KINDS = ["beans", "baristas", "profileTitles", "beanBatches", "grinders", "recipes", "baskets"] as const;
@@ -295,7 +337,7 @@ const shotValuesOutput = z.object({
     z.object({ roaster: z.string().nullable(), name: z.string().nullable() }),
     "The Beans Shots recorded, by roaster and name, linked to the Library or not; one whose roaster and name are both null stands for Shots that recorded neither.",
   ),
-  baristas: valuesPage(z.string().nullable(), `The Baristas Shots recorded; ${recordedNone}.`),
+  baristas: valuesPage(z.string().nullable(), `The Baristas Shots recorded, each once, by the most recent spelling of the name; null, last, for Shots that recorded none or a blank name.`),
   profileTitles: valuesPage(z.string().nullable(), `The profile titles Shots recorded; ${recordedNone}.`),
   beanBatches: valuesPage(
     z.object({ id, bean: z.object({ id, roaster: z.string().nullable(), name: z.string().nullable() }), roastDate: z.string().nullable() }).nullable(),
@@ -361,14 +403,19 @@ export class RecordsTools {
   @BudgetedTool({
     name: "summarise_shots",
     title: "Summarise Shots",
-    description: `Summarises the Shots find_shots finds for the same filters, in one call rather than a page of Shots at a time: how many there are and how they went. It leaves out cleaning and calibration Shots, those whose profile's type, as the Shot recorded it, is cleaning or calibrate, and counts them: counts.shots is how many Shots its numbers cover, and counts.cleaningAndCalibration how many were left out, the two adding up to find_shots' total for the same filters. numbers gives, of the Shots covered: yieldAgainstTarget, each Shot's yield as weighed less its target yield, in grams, negative under target, a Shot whose target is 0 or missing, or that weighed no yield, having no value; and duration, how long each Shot's profile ran, in seconds, leaving out its Preheat, the Machine heating its water before the profile starts. Each of those two is a median with p25 and p75, the 25th and 75th percentiles, between which the middle half of the Shots fall, and shots, how many Shots had a value, which the three rest on: a median of 3 Shots says less than one of 80. They are null where no Shot had a value. stoppedOnWeight is the share, from 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping the Shot as the scale's projected weight reached the target yield, with shots, how many recorded one, which the share rests on; a Shot stopped by hand or by its profile ending recorded another reason, and the share is null where none recorded one. Everything is worked out as it is read, so a Shot edited on its tablet shows in the next summary. groups holds one group, every Shot the filters find. For two time ranges, such as before and after a change, ask twice. Each filter's id is one find_shots' Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS}`,
+    description: `Summarises the Shots find_shots finds for the same filters, in one call rather than a page of Shots at a time: how many there are and how they went, as one group or, with groupBy, by group, such as each Machine's. It leaves out cleaning and calibration Shots, those whose profile's type, as the Shot recorded it, is cleaning or calibrate, and counts them: counts.shots is how many Shots a group's numbers cover, and counts.cleaningAndCalibration how many were left out, the two adding up to find_shots' total for the same filters and the group's. numbers gives, of the Shots covered: yieldAgainstTarget, each Shot's yield as weighed less its target yield, in grams, negative under target, a Shot whose target is 0 or missing, or that weighed no yield, having no value; and duration, how long each Shot's profile ran, in seconds, leaving out its Preheat, the Machine heating its water before the profile starts. Each of those two is a median with p25 and p75, the 25th and 75th percentiles, between which the middle half of the Shots fall, and shots, how many Shots had a value, which the three rest on: a median of 3 Shots says less than one of 80. They are null where no Shot had a value. stoppedOnWeight is the share, from 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping the Shot as the scale's projected weight reached the target yield, with shots, how many recorded one, which the share rests on; a Shot stopped by hand or by its profile ending recorded another reason, and the share is null where none recorded one. Everything is worked out as it is read, so a Shot edited on its tablet shows in the next summary. ${SHOT_GROUPS} ${PAGED} For two time ranges, such as before and after a change, ask twice. Each filter's id is one find_shots' Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS}`,
     inputSchema: summariseShotsInput,
     outputSchema: summariseShotsOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
+    budget: { rest: "Asked for fewer groups at a time, it has more of each name." },
   })
   async summariseShots(input: z.infer<typeof summariseShotsInput>): Promise<z.infer<typeof summariseShotsOutput>> {
-    return this.shots.summary(shotFiltersOf(input));
+    const { groupBy, limit, offset, ...named } = input;
+    const summary = await this.shots.summary(shotFiltersOf(named), groupingsOf(groupBy), { limit, offset });
+    // A roast date as its day, as find_shots gives one.
+    const groups = summary.groups.map(({ by, ...group }) => ({ by: by.beanBatch ? { ...by, beanBatch: { ...by.beanBatch, roastDate: dayOf(by.beanBatch.roastDate) } } : by, ...group }));
+    return { ...pageOf(summary.total, offset, groups.length), groups };
   }
 
   @BudgetedTool({
@@ -408,7 +455,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "list_shot_values",
     title: "List what Shots recorded",
-    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
+    description: `Lists what find_shots finds Shots by, as the management interface's Shots page offers them: the Beans, by roaster and name, Baristas and profile titles Shots recorded, which find_shots' beanRoaster, beanName, barista and profileTitle filters match, each one alone with its match exact, a Barista given once, by the most recent spelling of the name, whatever its case and the spaces around it, as barista finds every such spelling, and the Library's Bean Batches, Grinders, Recipes and Baskets Shots are linked to, whose ids its beanBatchId, grinderId, recipeId and basketId filters take. A linked item's names are the Library's. Each list is sorted ignoring case, with null last for Shots that recorded none, or are linked to none. limit and offset page each list, and kinds asks for some of them alone. ${PAGED}`,
     inputSchema: shotValuesInput,
     outputSchema: shotValuesOutput,
     annotations: { readOnlyHint: true },
@@ -482,7 +529,7 @@ export class RecordsTools {
  * itself (`timeRange`). A name a find_shots row cut is refused, as no Shot
  * recorded one.
  */
-function shotFiltersOf({ from, to, beanRoaster, beanName, ...named }: z.infer<typeof summariseShotsInput>): ShotFilters {
+function shotFiltersOf({ from, to, beanRoaster, beanName, ...named }: z.infer<typeof shotFiltersInput>): ShotFilters {
   refuseCutText({ beanRoaster, beanName, ...named }, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
   const times = timeRange(from, to);
   return { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
