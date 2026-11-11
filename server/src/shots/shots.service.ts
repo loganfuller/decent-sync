@@ -277,7 +277,7 @@ const visible: Prisma.ShotWhereInput = {
   hasFullRecord: true,
   OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }],
 };
-/** `visible` in SQL, for `shots` aliased `s` with `listedJoins`, which also joins its Location as `l` for filters. */
+/** `visible` in SQL, for `shots` aliased `s` with `listedJoins`, which also joins its Location as `l` for filters; `shotListedSql` (links.ts) without the joins. */
 const listed = Prisma.sql`s.has_full_record AND (s.machine_id IS NOT NULL OR (p.id IS NOT NULL AND p.dismissed_at IS NULL))`;
 const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = s.pending_machine_id LEFT JOIN locations l ON l.id = s.location_id`;
 /** The rest of a query of every listed Shot, from its `FROM` on, to narrow with `AND`. */
@@ -331,6 +331,11 @@ export interface NamedLink {
   name: string | null;
 }
 
+/** A Recipe a Shot is the Reference Shot of (ADR-0029), by its name, and the Location it belongs to, if that still exists. */
+export interface ReferenceOf extends NamedLink {
+  location: { id: string; name: string; timeZone: string } | null;
+}
+
 function viewBatchLink(batch: Prisma.BeanBatchGetPayload<{ select: typeof batchLink }>): BatchLink {
   const bean = object(batch.bean.content);
   return { id: batch.id, bean: { id: batch.bean.id, roaster: string(bean.roaster), name: string(bean.name) }, roastDate: string(object(batch.content).roastDate) };
@@ -351,7 +356,8 @@ function viewRecipeLink(recipe: Prisma.RecipeGetPayload<{ select: typeof recipeL
 /**
  * The Shots with the Library items they are linked to (links.ts): their
  * Bean Batch, Grinder and Basket, stored, and the Profile and Recipe they
- * were pulled with.
+ * were pulled with; and, only where there are any, the Recipes each is the
+ * Reference Shot of (ADR-0029), Archived or not, by name, ignoring case.
  */
 async function withLinks<
   T extends {
@@ -370,19 +376,31 @@ async function withLinks<
     basket: NamedLink | null;
     profile: ProfileLink | null;
     recipe: NamedLink | null;
+    referenceOf?: ReferenceOf[];
   })[]
 > {
   const ids = shots.map((shot) => shot.id);
-  const [profiles, recipes] = await Promise.all([
+  const [profiles, recipes, references] = await Promise.all([
     db.$queryRaw<{ shotId: string; id: string; title: string | null }[]>`
       SELECT s.id AS "shotId", p.id, p.content -> 'profile' ->> 'title' AS title
       FROM shots AS s JOIN profiles AS p ON p.id = ${shotProfileSql("s")} WHERE s.id = ANY(${ids}::text[])`,
     db.$queryRaw<{ shotId: string; id: string; name: string | null }[]>`
       SELECT s.id AS "shotId", r.id::text AS id, r.content ->> 'name' AS name
       FROM shots AS s JOIN recipes AS r ON r.id = ${shotRecipeSql("s")} WHERE s.id = ANY(${ids}::text[])`,
+    db.$queryRaw<{ shotId: string; id: string; name: string | null; locationId: string | null; locationName: string | null; timeZone: string | null }[]>`
+      SELECT r.reference_shot_id AS "shotId", r.id::text AS id, r.content ->> 'name' AS name,
+        l.id::text AS "locationId", l.name AS "locationName", l.time_zone AS "timeZone"
+      FROM recipes AS r LEFT JOIN locations AS l ON l.id = r.location_id
+      WHERE r.reference_shot_id = ANY(${ids}::text[])
+      ORDER BY lower(r.content ->> 'name') NULLS LAST, r.id`,
   ]);
   const profileOf = new Map(profiles.map(({ shotId, ...profile }) => [shotId, profile]));
   const recipeOf = new Map(recipes.map(({ shotId, ...recipe }) => [shotId, recipe]));
+  const referencesOf = new Map<string, ReferenceOf[]>();
+  for (const { shotId, id, name, locationId, locationName, timeZone } of references) {
+    const location = locationId === null ? null : { id: locationId, name: locationName!, timeZone: timeZone! };
+    referencesOf.set(shotId, [...(referencesOf.get(shotId) ?? []), { id, name, location }]);
+  }
   return shots.map(({ libraryBatch, libraryGrinder, libraryBasket, ...shot }) => ({
     ...shot,
     beanBatch: libraryBatch ? viewBatchLink(libraryBatch) : null,
@@ -390,6 +408,7 @@ async function withLinks<
     basket: libraryBasket ? viewBasketLink(libraryBasket) : null,
     profile: profileOf.get(shot.id) ?? null,
     recipe: recipeOf.get(shot.id) ?? null,
+    ...(referencesOf.has(shot.id) && { referenceOf: referencesOf.get(shot.id) }),
   }));
 }
 

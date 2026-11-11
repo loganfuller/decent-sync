@@ -396,7 +396,11 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   (Links to the Library, above), each null when none: `beanBatch` (`{ id,
   bean: { id, roaster, name }, roastDate }`), `grinder` (`{ id, model }`),
   `profile` (`{ id, title }`), `recipe` (`{ id, name }`) and `basket` (`{
-  id, name }`). Each also gives what it recorded beyond those columns, read
+  id, name }`). A Shot that is a Recipe's Reference Shot (ADR-0029, `LIBRARY.md`)
+  names those Recipes, Archived or not, by name, in `referenceOf` (`[{ id,
+  name, location }]`), given only where there are any, as `GET
+  /api/shots/:id` does; `find_shots` rows give them as `{ id, name }`, and
+  `get_shot` with their Location's `{ id, name }`. Each also gives what it recorded beyond those columns, read
   from the parts of its record that hold it as the Shot page shows them
   (`recordedDetails`), each null where it recorded none or blank text:
   `grinderModel` and `basketName`, the names its Grinder and Basket recorded,

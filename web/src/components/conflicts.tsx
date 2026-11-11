@@ -41,7 +41,7 @@ function itemApiPath(kind: ItemKind, id: string): string {
  * Basket's diameter, a Tool's attributes, which DYE2 keeps as `custom`, and
  * a Recipe's items, named by their ids, its dial and hot water, and
  * whether it was shown on the strip, which only its versions made by 1.6.0
- * and earlier hold.
+ * and earlier hold; and a Recipe's Reference Shot, which is not its content.
  */
 const FIELD_LABELS: Readonly<Record<string, string>> = {
   diameterMm: "Diameter (mm)",
@@ -71,6 +71,7 @@ const FIELD_LABELS: Readonly<Record<string, string>> = {
   flushTemperature: "Flush temperature (°C)",
   flushDuration: "Flush time (s)",
   flushFlow: "Flush flow (ml/s)",
+  referenceShotId: "Reference Shot",
 };
 
 /** A field's name as people read it: a Location's state of the item names the Location, and a field of its content is spelled out, as `roastDate` is "Roast date". */
@@ -396,7 +397,15 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
                       {Object.entries(version.fields).map(([field, value]) => (
                         <div key={field} className="contents">
                           <dt className="text-muted-foreground">{fieldLabel(field, version.location)}</dt>
-                          <dd className="min-w-0 wrap-anywhere">{valueText(field, value, names)}</dd>
+                          <dd className="min-w-0 wrap-anywhere">
+                            {field === "referenceShotId" && typeof value === "string" ? (
+                              <Link to={`/shots/${encodeURIComponent(value)}`} className="underline-offset-4 hover:underline">
+                                The Shot
+                              </Link>
+                            ) : (
+                              valueText(field, value, names)
+                            )}
+                          </dd>
                         </div>
                       ))}
                     </dl>

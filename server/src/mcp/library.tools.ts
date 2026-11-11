@@ -9,7 +9,7 @@ import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipm
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
 import { type ConflictView, HistoryService, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
-import { type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
+import { type RecipeDetailsView, type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
 import { locationNotFound, readLocationId } from "../locations/input.js";
 import { type LocationView, LocationsService, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -46,7 +46,7 @@ const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sen
 
 /** Each time's offset, which every tool's description states. */
 export const TIMES =
-  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to. Others, such as a Bean's content edits, are in UTC.";
+  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to, but a Recipe's Reference Shot's pulledAt, with that of the Location it was pulled at. Others, such as a Bean's content edits, are in UTC.";
 
 /** What the Library's items hold, for the descriptions of the tools that read or change them. */
 export const ITEMS =
@@ -146,6 +146,31 @@ const recipe = z.object({
   batchFinished: z.boolean().describe("Whether it isn't Archived and names a Bean Batch that isn't at its Location now: a Recipe whose dial needs the next roast."),
 });
 
+/** A Recipe as get_library_item reads it, and as the tools changing one return it: with its Reference Shot. */
+const recipeItem = recipe.extend({
+  referenceShot: z
+    .object({
+      id: id.describe("The Shot's id, as find_shots and get_shot give it."),
+      pulledAt: time("When it was pulled, with the offset of the Location it was pulled at.").nullable(),
+      machine: z.object({ id, name: z.string() }).nullable().describe("The Machine it is credited to; null while it waits for an Admin to name the Machine that recorded it."),
+      location: location.nullable().describe("The Location its Machine was at then; null when unknown."),
+      profileTitle: z.string().nullable().describe("Its profile's title, as the Shot recorded it."),
+      profile: z.object({ id, title: z.string().nullable() }).nullable().describe("The Library's Profile it was pulled with."),
+      targetDose: z.number().nullable().describe("In grams."),
+      actualDose: z.number().nullable().describe("Weighed, in grams."),
+      targetYield: z.number().nullable().describe("In grams."),
+      actualYield: z.number().nullable().describe("Weighed, in grams."),
+      duration: z.number().nullable().describe("How long its profile ran, leaving out its Preheat, in seconds."),
+      profileDiffers: z
+        .boolean()
+        .describe("Whether it was pulled on another Profile than the Recipe's: the Recipe names a Profile, and the Shot's is another, or matches none in the Library."),
+    })
+    .nullable()
+    .describe(
+      "Its Reference Shot: the one Shot chosen to show how its Shots should go, from any Machine or Location, kept until someone chooses another or clears it (set_reference_shot); get_shot reads it whole. Null for none, as for one held by hardware an Admin dismissed, until that hardware is named as a Machine.",
+    ),
+});
+
 const source = z
   .object({
     machine: z.object({ id, name: z.string() }).nullable().describe("The Machine whose tablet made it, if one did and it still exists."),
@@ -164,7 +189,7 @@ const source = z
 const version = z.object({
   id,
   fields: content(
-    "The fields it set, each with its value: of the item's content, by Decaid's names, or of its state at its Location (atLocation, remainingWeight, shown). The first version is the item joining the Library.",
+    "The fields it set, each with its value: of the item's content, by Decaid's names, or of its state at its Location (atLocation, remainingWeight, shown), or a Recipe's referenceShotId, its Reference Shot's id, null when cleared. The first version is the item joining the Library.",
   ),
   location: location.nullable().describe("The Location whose state of the item it changed; null for its content."),
   source,
@@ -267,7 +292,7 @@ export const itemOutput = z.object({
   grinder: grinderSummary.extend({ content: content(RECORD_FIELDS) }).optional(),
   basket: equipmentSummary.extend({ locations: decidedAt }).optional(),
   tool: equipmentSummary.extend({ locations: decidedAt }).optional(),
-  recipe: recipe.optional(),
+  recipe: recipeItem.optional(),
 });
 
 const getOutput = itemOutput.extend({
@@ -463,7 +488,7 @@ export class LibraryTools {
       }
       case "recipe": {
         const found = await this.recipes.get(readRecipeId(itemId));
-        return { item: { recipe: recipeOf(found) }, ref: { kind, id: found.id }, itemLocation: found.location };
+        return { item: { recipe: recipeItemOf(found) }, ref: { kind, id: found.id }, itemLocation: found.location };
       }
     }
   }
@@ -624,6 +649,28 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
       tools: tools.map((tool) => ({ id: tool.id, name: tool.name })),
     },
     batchFinished: found.batchFinished,
+  };
+}
+
+/** A Recipe with its Reference Shot, which gives its time with the offset of the Location it was pulled at. */
+function recipeItemOf(found: RecipeDetailsView): z.infer<typeof recipeItem> {
+  const shot = found.referenceShot;
+  return {
+    ...recipeOf(found),
+    referenceShot: shot && {
+      id: shot.id,
+      pulledAt: shot.pulledAt && timeAt(shot.pulledAt, shot.location),
+      machine: shot.machine,
+      location: maybeLocation(shot.location),
+      profileTitle: shot.profileTitle,
+      profile: shot.profile,
+      targetDose: shot.targetDose,
+      actualDose: shot.actualDose,
+      targetYield: shot.targetYield,
+      actualYield: shot.actualYield,
+      duration: shot.duration,
+      profileDiffers: shot.profileDiffers,
+    },
   };
 }
 

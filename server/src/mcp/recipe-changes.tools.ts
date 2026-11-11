@@ -3,7 +3,7 @@ import { Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
 import { CHANGE, READ } from "../connected-apps/oauth.js";
-import { readContentEdit, readNewRecipe, readRecipeCopy, readSlot } from "../library/item-input.js";
+import { readContentEdit, readNewRecipe, readRecipeCopy, readReferenceShot, readSlot } from "../library/item-input.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { readRecipeId } from "../library/recipes.service.js";
 import { changed, contentFields, editorOf } from "./library-changes.tools.js";
@@ -12,7 +12,8 @@ import { type ItemOutput, LibraryTools, TIMES, itemOutput } from "./library.tool
 import { callerOf } from "./token-verifier.js";
 
 // Recipes changed through an assistant (#412, ADR-0026): created and edited,
-// put in a Recipe Slot or taken out of one, and copied to another Location,
+// put in a Recipe Slot or taken out of one, given a Reference Shot or
+// cleared of it (#472, ADR-0029), and copied to another Location,
 // each by the service its REST route calls (`RecipeEditsService`), so a
 // change is timed and merged as the management interface's are (ADR-0020),
 // is written to its Location's tablets and into the Workflow of every
@@ -38,6 +39,10 @@ const recipeEditInput = z.strictObject({ id: recipeId, ...contentFields("recipe"
 const slotInput = z.strictObject({
   id: recipeId,
   slot: slot.describe(`${SLOTS} A Recipe in that slot takes this one's place: its slot, or none.`),
+});
+const referenceShotInput = z.strictObject({
+  id: recipeId,
+  shotId: id.nullable().describe("The id of the Shot to make its Reference Shot, as find_shots gives it, from any Machine or Location, pulled with this Recipe or not; null to clear it."),
 });
 const copyInput = z.strictObject({
   id: recipeId,
@@ -116,9 +121,24 @@ export class RecipeChangesTools {
   }
 
   @BudgetedTool({
+    name: "set_reference_shot",
+    title: "Choose a Recipe's Reference Shot",
+    description: `Makes a Shot a Recipe's Reference Shot, replacing any it has, or clears it: the one Shot that shows how the Recipe's Shots should go, which they are compared with, as a roaster compares each roast with a reference roast. Any Shot find_shots finds may be one, from any Machine or Location, on the Recipe's Profile or another, pulled with the Recipe or not, such as a Shot dialled in at another Location. It stays through edits to the Recipe until someone chooses another or clears it, and get_library_item gives it, saying where its Profile is another than the Recipe's. It is the server's alone: nothing is written to tablets, and it makes no Conflict, but the Recipe's history keeps each change. An Archived Recipe keeps its Reference Shot and may have it cleared, but is given none until restored (set_archived). Staff choose one only for Recipes of the Locations they work at. ${TIMES}`,
+    inputSchema: referenceShotInput,
+    outputSchema: recipeOutput,
+    annotations: { ...CHANGES, idempotentHint: true },
+    scopes: [READ, CHANGE],
+  })
+  async setReferenceShot({ id: given, shotId }: z.infer<typeof referenceShotInput>, context: McpContext): Promise<ItemOutput> {
+    const recipe = readRecipeId(given);
+    await this.edits.setReferenceShot(recipe, readReferenceShot({ shotId }), editorOf(context), callerOf(context).scope);
+    return this.library.read("recipe", recipe);
+  }
+
+  @BudgetedTool({
     name: "copy_recipe",
     title: "Copy a Recipe to a Location",
-    description: `Copies a Recipe to another Location as a new Recipe there, whose history names the Recipe it was copied from, which is not changed. The copy holds the Recipe's fields as they stand, its steam, hot water and flush settings included, but its Grinder, chosen from that Location's, the grind setting kept as a starting point, and its Bean Batch where another, or none, is chosen. ${USES} Staff copy one, from any Location, only to the Locations they work at. ${TIMES}`,
+    description: `Copies a Recipe to another Location as a new Recipe there, whose history names the Recipe it was copied from, which is not changed. The copy holds the Recipe's fields as they stand, its steam, hot water and flush settings included, but its Grinder, chosen from that Location's, the grind setting kept as a starting point, and its Bean Batch where another, or none, is chosen. It starts with the Recipe's Reference Shot. ${USES} Staff copy one, from any Location, only to the Locations they work at. ${TIMES}`,
     inputSchema: copyInput,
     outputSchema: recipeOutput,
     annotations: CHANGES,

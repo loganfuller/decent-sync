@@ -56,6 +56,10 @@ const shotBasics = z.object({
   barista: z.string().nullable(),
   peakPressure: z.number().nullable().describe("In bar, leaving out its Preheat."),
   peakFlow: z.number().nullable().describe("In ml/s, leaving out its Preheat."),
+  referenceOf: z
+    .array(z.object({ id, name: z.string().nullable(), location: z.object({ id, name: z.string() }).nullable().describe("The Location it belongs to.") }))
+    .optional()
+    .describe("Only where there are any: the Recipes it is the Reference Shot of, the Shot chosen to show how each Recipe's Shots should go (set_reference_shot)."),
 });
 
 const step = z.object({ frame: z.number().describe("Its index among its Profile's steps, from 0."), name: z.string() });
@@ -139,6 +143,7 @@ const shotRow = z.object({
   tds: amount("Total dissolved solids, in %."),
   extractionYield: amount("In %."),
   notes: text.describe(`As typed on the tablet, cut beyond about ${ROW_NOTES} characters.`),
+  referenceOf: z.array(z.object({ id, name: text })).optional().describe("Only where there are any: the Recipes it is the Reference Shot of, by the Library's name."),
 });
 
 const steamSummary = z.object({
@@ -250,7 +255,7 @@ const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
 /** What a find_shots row's fields mean, for its description. */
-const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 /** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
 const SHOT_FILTERS =
@@ -616,6 +621,7 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     tds: shot.tds,
     extractionYield: shot.extractionYield,
     notes: shorten(shot.notes, ROW_NOTES),
+    referenceOf: shot.referenceOf?.map((recipe) => present({ id: recipe.id, name: shorten(recipe.name, ROW_NAME) })),
   }) as z.infer<typeof shotRow>;
 }
 
@@ -655,6 +661,7 @@ function shotBasicsOf(shot: ShownShot): z.infer<typeof shotBasics> {
     barista: shot.barista,
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
+    ...(shot.referenceOf && { referenceOf: shot.referenceOf.map(({ id, name, location }) => ({ id, name, location: location && { id: location.id, name: location.name } })) }),
   };
 }
 

@@ -2,6 +2,8 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { steamTimeOf } from "@decent-sync/protocol";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { shownDuration } from "../shots/extraction.js";
+import { shotListedSql, shotProfileSql } from "../shots/links.js";
 import { isObject } from "./listed.js";
 
 /** A Recipe as the REST API returns it. */
@@ -39,6 +41,44 @@ export interface RecipeView {
    * Archived, as a Recipe whose dial needs the next roast.
    */
   batchFinished: boolean;
+}
+
+/** A Recipe as its own read gives it: with its Reference Shot. */
+export interface RecipeDetailsView extends RecipeView {
+  /**
+   * Its Reference Shot (ADR-0029), the one Shot chosen to show how its Shots
+   * should go, from any Machine or Location; null for none, as for one the
+   * Shots list no longer lists, since its Pending Machine was dismissed,
+   * until that hardware is adopted.
+   */
+  referenceShot: ReferenceShotView | null;
+}
+
+/** A Recipe's Reference Shot: what the Recipe page shows of it, and whether its Profile is another than the Recipe's. */
+export interface ReferenceShotView {
+  id: string;
+  /** When it was pulled; null when unknown. */
+  pulledAt: string | null;
+  /** The Machine it is credited to; null while a Pending Machine holds it. */
+  machine: { id: string; name: string } | null;
+  /** Where its Machine was then; null when unknown. */
+  location: LocationView | null;
+  /** Its profile's title, as the Shot recorded it. */
+  profileTitle: string | null;
+  /** The Library's Profile it was pulled with; null where none matches it. */
+  profile: { id: string; title: string | null } | null;
+  targetDose: number | null;
+  actualDose: number | null;
+  targetYield: number | null;
+  actualYield: number | null;
+  /** How long its profile ran, leaving out its Preheat, in seconds, as the Shots list shows it. */
+  duration: number | null;
+  /**
+   * Whether it was pulled on another Profile than the Recipe's: the Recipe
+   * names a Profile, and the Shot's is another, or matches none in the
+   * Library. False for a Recipe naming none.
+   */
+  profileDiffers: boolean;
 }
 
 /**
@@ -84,14 +124,67 @@ export class RecipesService {
       .sort((a, b) => compareSlots(a.slot, b.slot) || compareText(a.name, b.name) || a.id.localeCompare(b.id));
   }
 
-  /** A Recipe; 404 for none. */
-  async get(id: string): Promise<RecipeView> {
-    const [row] = await this.prisma.$queryRaw<RecipeRow[]>`
-      SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt"
+  /** A Recipe, with its Reference Shot; 404 for none. */
+  async get(id: string): Promise<RecipeDetailsView> {
+    const [row] = await this.prisma.$queryRaw<(RecipeRow & { referenceShotId: string | null })[]>`
+      SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt", reference_shot_id AS "referenceShotId"
       FROM recipes WHERE id = ${id}::uuid`;
     if (!row) throw notFound();
-    const location = row.locationId === null ? null : await this.prisma.location.findUnique({ where: { id: row.locationId } });
-    return view(row, location ? viewLocation(location) : null, await this.uses([row]));
+    const [location, referenceShot] = await Promise.all([
+      row.locationId === null ? null : this.prisma.location.findUnique({ where: { id: row.locationId } }),
+      row.referenceShotId === null ? null : this.referenceShot(row.referenceShotId, row.content),
+    ]);
+    return { ...view(row, location ? viewLocation(location) : null, await this.uses([row])), referenceShot };
+  }
+
+  /** The Recipe's Reference Shot, if the Shots list lists it, with whether its Profile is another than the one the Recipe's content names. */
+  private async referenceShot(shotId: string, content: unknown): Promise<ReferenceShotView | null> {
+    const [shot] = await this.prisma.$queryRaw<
+      {
+        id: string;
+        pulledAt: Date | null;
+        machineId: string | null;
+        machineName: string | null;
+        locationId: string | null;
+        locationName: string | null;
+        timeZone: string | null;
+        profileTitle: string | null;
+        profileId: string | null;
+        libraryTitle: string | null;
+        targetDose: number | null;
+        actualDose: number | null;
+        targetYield: number | null;
+        actualYield: number | null;
+        duration: number | null;
+        preheat: number | null;
+      }[]
+    >`
+      SELECT s.id, s.pulled_at AS "pulledAt", m.id::text AS "machineId", m.name AS "machineName",
+        l.id::text AS "locationId", l.name AS "locationName", l.time_zone AS "timeZone", s.profile_title AS "profileTitle",
+        p.id AS "profileId", p.content -> 'profile' ->> 'title' AS "libraryTitle",
+        s.target_dose AS "targetDose", s.actual_dose AS "actualDose", s.target_yield AS "targetYield", s.actual_yield AS "actualYield",
+        s.duration, s.preheat
+      FROM shots AS s
+      LEFT JOIN machines AS m ON m.id = s.machine_id
+      LEFT JOIN locations AS l ON l.id = s.location_id
+      LEFT JOIN profiles AS p ON p.id = ${shotProfileSql("s")}
+      WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
+    if (!shot) return null;
+    const recipeProfile = isObject(content) && typeof content.profileId === "string" ? content.profileId : null;
+    return {
+      id: shot.id,
+      pulledAt: shot.pulledAt?.toISOString() ?? null,
+      machine: shot.machineId === null ? null : { id: shot.machineId, name: shot.machineName! },
+      location: shot.locationId === null ? null : { id: shot.locationId, name: shot.locationName!, timeZone: shot.timeZone! },
+      profileTitle: shot.profileTitle,
+      profile: shot.profileId === null ? null : { id: shot.profileId, title: shot.libraryTitle },
+      targetDose: shot.targetDose,
+      actualDose: shot.actualDose,
+      targetYield: shot.targetYield,
+      actualYield: shot.actualYield,
+      duration: shownDuration(shot.duration, shot.preheat),
+      profileDiffers: recipeProfile !== null && shot.profileId !== recipeProfile,
+    };
   }
 
   /** What names each item these Recipes' content names, by kind and id, and whether each batch is at the Recipe's Location now. */

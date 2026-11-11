@@ -4,6 +4,7 @@ import { PageTitleWithInfo } from "@/components/info-tip";
 import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
 import { batchName } from "@/components/bean-batches";
+import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
 import { beanText, gramsText, shotTime } from "@/components/shots";
@@ -20,7 +21,8 @@ const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "p
 /**
  * Every Shot, newest first, across every Location, with filters, and the
  * Shot Summary of those the filters find above its rows, with the numbers
- * chosen, which the address keeps as `numbers`, apart from the filters.
+ * chosen, which the address keeps as `numbers`, apart from the filters. A
+ * Shot that is a Recipe's Reference Shot is marked.
  * Times are each Shot's Location's, and dates are read in each Shot's own
  * Location's time zone; Shots with no Location use UTC. Staff see all of it.
  */
@@ -83,13 +85,16 @@ export function ShotsPage() {
                 {data.shots.map((shot) => (
                   <TableRow key={shot.id}>
                     <TableCell className="font-medium">
-                      <Link
-                        to={`/shots/${encodeURIComponent(shot.id)}`}
-                        state={{ list: list.search } satisfies ListState}
-                        className="underline-offset-4 hover:underline"
-                      >
-                        {shotTime(shot)}
-                      </Link>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <Link
+                          to={`/shots/${encodeURIComponent(shot.id)}`}
+                          state={{ list: list.search } satisfies ListState}
+                          className="underline-offset-4 hover:underline"
+                        >
+                          {shotTime(shot)}
+                        </Link>
+                        <ReferenceMark shot={shot} />
+                      </div>
                     </TableCell>
                     <TableCell className="min-w-28 whitespace-normal">
                       <MachineCredit record={shot} />

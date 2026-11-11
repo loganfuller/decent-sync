@@ -547,6 +547,11 @@ export interface ListedShot {
   tds: number | null;
   /** In %. */
   extractionYield: number | null;
+  /**
+   * The Recipes it is the Reference Shot of (ADR-0029), Archived or not, by name; given only where there are any, and
+   * never by the previous release during a deploy (ADR-0025).
+   */
+  referenceOf?: (NamedLink & { location: Location | null })[];
 }
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
@@ -1033,6 +1038,34 @@ export interface Recipe {
   };
   /** Not Archived, and naming a Bean Batch that is no longer at its Location: its dial needs the next roast. */
   batchFinished: boolean;
+  /**
+   * Its Reference Shot (ADR-0029), given by its own read, `GET /api/recipes/:id`, and not by a Location's list: null for
+   * none, as for one whose Pending Machine was dismissed, until that hardware is adopted. Absent from the previous
+   * release's answer during a deploy (ADR-0025).
+   */
+  referenceShot?: ReferenceShot | null;
+}
+
+/** A Recipe's Reference Shot: what its page shows of it. */
+export interface ReferenceShot {
+  id: string;
+  pulledAt: string | null;
+  /** The Machine it is credited to; null while a Pending Machine holds it. */
+  machine: { id: string; name: string } | null;
+  /** Where its Machine was then; null when unknown, and its time is then in UTC. */
+  location: Location | null;
+  /** Its profile's title, as the Shot recorded it. */
+  profileTitle: string | null;
+  /** The Library's Profile it was pulled with. */
+  profile: ProfileLink | null;
+  targetDose: number | null;
+  actualDose: number | null;
+  targetYield: number | null;
+  actualYield: number | null;
+  /** In seconds, without its Preheat, as the Shots list shows it. */
+  duration: number | null;
+  /** The Recipe names a Profile, and this Shot's is another, or none in the Library. */
+  profileDiffers: boolean;
 }
 
 /** The kinds of Library item (`LIBRARY_KINDS`). */

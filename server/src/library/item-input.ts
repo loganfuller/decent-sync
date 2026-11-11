@@ -1,4 +1,4 @@
-import { type LibraryKind, RECIPE_SLOTS, grindSettingOf, isRecipeSlot } from "@decent-sync/protocol";
+import { type LibraryKind, RECIPE_SLOTS, grindSettingOf, isRecipeSlot, isRecordId } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
@@ -298,6 +298,21 @@ function slotOf(slot: unknown): SlotChoice {
   if (slot === null || slot === "next") return slot;
   if (isRecipeSlot(slot)) return slot;
   throw new BadRequestException(`slot must be a whole number from 1 to ${RECIPE_SLOTS}, next for the lowest one free, or null for none`);
+}
+
+/**
+ * A Recipe's Reference Shot from a request's `shotId`: a Shot's id, or null
+ * to clear it. An id no Shot could have (`isRecordId`) is refused as no Shot,
+ * as one the Shots list doesn't list is (`setReferenceShot`).
+ */
+export function readReferenceShot(body: unknown): string | null {
+  const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
+  if (!Object.prototype.hasOwnProperty.call(fields, "shotId")) throw new BadRequestException("Send shotId: a Shot's id, or null to clear it");
+  const { shotId } = fields;
+  if (shotId === null) return null;
+  if (typeof shotId !== "string") throw new BadRequestException("shotId must be a Shot's id, or null to clear it");
+  if (!isRecordId(shotId)) throw new BadRequestException("No such Shot");
+  return shotId;
 }
 
 /**

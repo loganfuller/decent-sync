@@ -3,6 +3,7 @@ import { Link, useLocation, useParams } from "react-router";
 import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
+import { ReferenceShotControl } from "@/components/reference-shots";
 import type { ListState } from "@/components/record-lists";
 import {
   LocationCredit,
@@ -31,7 +32,8 @@ interface ShotData {
 
 /**
  * One Shot: its curves, everything recorded about it, how it was credited,
- * and a comparison with the previous Shot on the same Machine.
+ * a comparison with the previous Shot on the same Machine, which Recipes it
+ * is the Reference Shot of, and a control making it one.
  */
 export function ShotPage() {
   const { id = "" } = useParams();
@@ -58,6 +60,13 @@ function ShotDetails({ id }: { id: string }) {
   const [previous, setPrevious] = useState<ShotData>();
   const [previousError, setPreviousError] = useState<string>();
   const compareId = useId();
+  // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
+  const changed = useCallback(() => {
+    api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`).then(
+      ({ shot }) => setData((loaded) => loaded && { ...loaded, shot }),
+      (caught: unknown) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
+    );
+  }, [id]);
 
   useEffect(() => {
     let current = true;
@@ -126,6 +135,8 @@ function ShotDetails({ id }: { id: string }) {
           {[shot.profileTitle, beanText(shot), shot.barista].filter(Boolean).join(", ") || "No profile, Bean or Barista recorded"}
         </p>
       </div>
+
+      <ReferenceShotControl shot={shot} onChanged={changed} />
 
       {shot.machineInferred && (
         <Alert>
