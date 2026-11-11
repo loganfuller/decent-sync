@@ -3,6 +3,7 @@ import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
 import { readPage } from "../pagination.js";
 import { MachineEventsService, type WorkflowEventView, type WorkflowSummaryView, summarised } from "./machine-events.service.js";
+import { type MachineUse, readUseRequest } from "./machine-use.js";
 
 /** What a Machine is set up to do next and what it has been doing, as its tablet reported them. Staff read them too. */
 @AllowStaff()
@@ -47,5 +48,16 @@ export class MachineEventsController {
   machineStateEvents(@Param("id") id: string, @Query("limit") limit?: string, @Query("offset") offset?: string) {
     const machineId = readMachineId(id);
     return this.events.machineStateEvents(machineId, readPage(limit, offset));
+  }
+
+  /**
+   * How much the Machine was used over a range (`from`, `to`), by day or,
+   * with `by=hour`, by hour of a range of at most 25 hours: its Shots, Steam
+   * Records, flushes and hot water pours, and its time in each Machine State,
+   * in each day or hour of the Location it was at then (machine-use.ts).
+   */
+  @Get(":id/use")
+  use(@Param("id") id: string, @Query() query: Record<string, unknown>): Promise<MachineUse> {
+    return this.events.use(readMachineId(id), readUseRequest(query));
   }
 }

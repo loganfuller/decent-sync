@@ -46,25 +46,6 @@ export function timeRange(from: string | undefined, to: string | undefined): { q
   return { query, filters };
 }
 
-/** Whether a bound is a date, for a day, rather than a moment. */
-export function isDay(bound: string): boolean {
-  return DAY.test(bound);
-}
-
-/**
- * When a day, or the day `days` after it, began in a time zone, UTC's for
- * none or for a zone this runtime doesn't know: its first moment, which
- * daylight saving time may move from midnight.
- */
-export function startOfDay(day: string, timeZone: string | null | undefined, days = 0): Date {
-  const date = Temporal.PlainDate.from(day).add({ days });
-  try {
-    return new Date(date.toZonedDateTime(timeZone ?? "UTC").epochMilliseconds);
-  } catch {
-    return new Date(date.toZonedDateTime("UTC").epochMilliseconds);
-  }
-}
-
 /** A moment as given, if PostgreSQL reads it; otherwise refused, as the REST API refuses a time it can't read. */
 function moment(name: string, value: string): string {
   if (MOMENT.test(value)) return value;
