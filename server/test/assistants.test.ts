@@ -588,16 +588,18 @@ describe("connecting an assistant", () => {
 
         const starting = await startTestServer({ env: ASSISTANT_ENV, sharing: server, publicUrl: server.url });
         try {
-          // The last of its deletions as it starts.
-          await expect.poll(() => starting.output()).toMatch(/Deleted \d+ lapsed Connected Apps/);
-          const { rows } = await database.query<{ requests: number; codes: number; tokens: number; apps: number }>(
-            `SELECT (SELECT count(*)::int FROM authorization_requests WHERE id = $1) AS requests,
-               (SELECT count(*)::int FROM authorization_codes WHERE code_hash = $2) AS codes,
-               (SELECT count(*)::int FROM access_tokens WHERE token_hash = ANY($3)) AS tokens,
-               (SELECT count(*)::int FROM connected_apps WHERE account_id = $4) AS apps`,
-            [unanswered, hash(unexchanged.code), [hash(expiringTokens.body.access_token as string), hash(lapsedTokens.body.access_token as string)], lapsing.id],
-          );
-          expect(rows[0]).toEqual({ requests: 0, codes: 0, tokens: 0, apps: 0 });
+          // Its cleanup as it starts deletes each kind in turn, the lapsed Connected Apps last, with their access tokens, so
+          // once those are gone it has deleted the rest too. Read from the database, not its log, where an earlier step's
+          // line can read like the last one's.
+          const remaining = async () =>
+            (await database.query<{ requests: number; codes: number; tokens: number; apps: number }>(
+              `SELECT (SELECT count(*)::int FROM authorization_requests WHERE id = $1) AS requests,
+                 (SELECT count(*)::int FROM authorization_codes WHERE code_hash = $2) AS codes,
+                 (SELECT count(*)::int FROM access_tokens WHERE token_hash = ANY($3)) AS tokens,
+                 (SELECT count(*)::int FROM connected_apps WHERE account_id = $4) AS apps`,
+              [unanswered, hash(unexchanged.code), [hash(expiringTokens.body.access_token as string), hash(lapsedTokens.body.access_token as string)], lapsing.id],
+            )).rows[0];
+          await expect.poll(remaining).toEqual({ requests: 0, codes: 0, tokens: 0, apps: 0 });
           const kept = await database.query<{ apps: number; refreshTokens: number }>(
             `SELECT (SELECT count(*)::int FROM connected_apps WHERE account_id = ANY($1)) AS apps,
                (SELECT count(*)::int FROM refresh_tokens JOIN connected_apps ON connected_apps.id = refresh_tokens.connected_app_id WHERE account_id = ANY($1)) AS "refreshTokens"`,
