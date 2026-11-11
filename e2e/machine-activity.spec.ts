@@ -15,8 +15,12 @@ import { expectTip } from "./support/tooltips.js";
 // server/test/fixtures/decaid/dye2-v0.1.26/, reports yesterday's Machine
 // State changes with its plugin's clock set to each change's time, then has
 // the Brazil's recipe applied in DYE2 and its grind changed as the spec
-// runs. The Lab is in Phoenix, 7 hours behind UTC all year. Hardware ids are
-// made up.
+// runs. Hardware ids are made up.
+//
+// The days are counted back from today, so the Lab is where no day begins
+// while this runs, as e2e/machine-use.spec.ts has it: in Phoenix, 7 hours
+// behind UTC all year, or, within three hours of midnight there, in Bangkok,
+// 7 hours ahead all year.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Record_ = Record<string, unknown>;
@@ -27,8 +31,12 @@ const HOUR = 3_600_000;
 /** The recording's tablet's record id of the Brazil's recipe, in Recipe Slot 2, whose grind is 3. */
 const BRAZIL = "2";
 
+/** The Lab's time zone, how many hours it is ahead of UTC, and how a time there names it. Midnight in Phoenix is 07:00 UTC, and in Bangkok 17:00. */
+const [ZONE, AHEAD, ZONE_NAME] =
+  new Date().getUTCHours() >= 4 && new Date().getUTCHours() < 10 ? (["Asia/Bangkok", 7, "GMT+7"] as const) : (["America/Phoenix", -7, "MST"] as const);
+
 /** Today at the Lab, as a UTC date holding its wall clock's parts. */
-const TODAY = new Date(Date.now() - 7 * HOUR);
+const TODAY = new Date(Date.now() + AHEAD * HOUR);
 
 /** A day at the Lab, `days` from today, as a UTC date at its midnight on the wall clock. */
 function day(days: number): Date {
@@ -37,7 +45,7 @@ function day(days: number): Date {
 
 /** The moment the Lab's wall clock read a time on a day `days` from today. */
 function at(days: number, hours: number, minutes = 0, seconds = 0): string {
-  return new Date(day(days).getTime() + ((hours + 7) * 3600 + minutes * 60 + seconds) * 1000).toISOString();
+  return new Date(day(days).getTime() + ((hours - AHEAD) * 3600 + minutes * 60 + seconds) * 1000).toISOString();
 }
 
 /**
@@ -61,7 +69,7 @@ let recipeId: string;
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grind changed after it, from what to what, with the Recipe loaded then and links to the Library items it names", async ({ page }) => {
-  const lab = await createLocation(page, "Lab", "America/Phoenix");
+  const lab = await createLocation(page, "Lab", ZONE);
   machineId = await adopt(page, "Lab 1", lab.id);
 
   await page.goto(`/machines/${machineId}`);
@@ -110,7 +118,7 @@ test("the day's Loaded Recipes and Machine States are each a list of their own, 
   // Idle since its tablet said so today, and asleep before that since 21:00 yesterday.
   await expect(rows(states)).toHaveCount(2);
   await expect(rows(states).first().getByRole("cell")).toHaveText([TODAY_AT_THE_LAB, "Idle"]);
-  await expect(rows(states).nth(1).getByRole("cell")).toHaveText([`${dateText(-1)}, 9:00:00 PM MST`, "Asleep"]);
+  await expect(rows(states).nth(1).getByRole("cell")).toHaveText([`${dateText(-1)}, 9:00:00 PM ${ZONE_NAME}`, "Asleep"]);
   // Two entries need no paging.
   await expect(activity.getByRole("button", { name: "Older" })).toHaveCount(0);
 });
@@ -125,19 +133,19 @@ test("another day is chosen from a calendar, its Machine States a page at a time
   const states = activity.getByRole("table", { name: "Machine States that day" });
   await expect(rows(states)).toHaveCount(20);
   await expect(activity.getByText("1–20 of 25")).toBeVisible();
-  await expect(rows(states).first().getByRole("cell")).toHaveText(["9:00:00 PM MST", "Asleep"]);
+  await expect(rows(states).first().getByRole("cell")).toHaveText([`9:00:00 PM ${ZONE_NAME}`, "Asleep"]);
   // The eleventh Shot, 30 s long, the last of the day.
-  await expect(rows(states).nth(1).getByRole("cell")).toHaveText(["9:40:30 AM MST", "Idle"]);
-  await expect(rows(states).nth(2).getByRole("cell")).toHaveText(["9:40:00 AM MST", "Pulling a shot · Pouring"]);
+  await expect(rows(states).nth(1).getByRole("cell")).toHaveText([`9:40:30 AM ${ZONE_NAME}`, "Idle"]);
+  await expect(rows(states).nth(2).getByRole("cell")).toHaveText([`9:40:00 AM ${ZONE_NAME}`, "Pulling a shot · Pouring"]);
   await expect(activity.getByRole("button", { name: "Newer" })).toBeDisabled();
 
   await activity.getByRole("button", { name: "Older" }).click();
   await expect(activity.getByText("21–25 of 25")).toBeVisible();
   await expect(rows(states)).toHaveCount(5);
   // The day's first Shot, its waking, and last the sleep it began in, from the night before.
-  await expect(rows(states).nth(2).getByRole("cell")).toHaveText(["8:00:00 AM MST", "Pulling a shot · Pouring"]);
-  await expect(rows(states).nth(3).getByRole("cell")).toHaveText(["6:00:00 AM MST", "Idle"]);
-  await expect(rows(states).nth(4).getByRole("cell")).toHaveText([`${dateText(-2)}, 10:00:00 PM MST`, "Asleep"]);
+  await expect(rows(states).nth(2).getByRole("cell")).toHaveText([`8:00:00 AM ${ZONE_NAME}`, "Pulling a shot · Pouring"]);
+  await expect(rows(states).nth(3).getByRole("cell")).toHaveText([`6:00:00 AM ${ZONE_NAME}`, "Idle"]);
+  await expect(rows(states).nth(4).getByRole("cell")).toHaveText([`${dateText(-2)}, 10:00:00 PM ${ZONE_NAME}`, "Asleep"]);
   await expect(activity.getByRole("button", { name: "Older" })).toBeDisabled();
   await activity.getByRole("button", { name: "Newer" }).click();
   await expect(activity.getByText("1–20 of 25")).toBeVisible();
@@ -156,7 +164,7 @@ test("another day is chosen from a calendar, its Machine States a page at a time
 });
 
 /** A time today as the lists show it under today, at the Lab: to the second, with the Lab's zone. */
-const TODAY_AT_THE_LAB = /^\d+:\d\d:\d\d [AP]M MST$/;
+const TODAY_AT_THE_LAB = new RegExp(`^\\d+:\\d\\d:\\d\\d [AP]M ${ZONE_NAME.replace("+", "\\+")}$`);
 
 /** A day `days` from today as the Day field shows it, such as "Nov 9, 2026". */
 function dateText(days: number): string {
