@@ -283,6 +283,41 @@ describe("the latest release beside the change", () => {
       }
     });
 
+    // The latest release knows none of the columns that keep what a Shot's samples show of how it went (#467), and
+    // stores a Shot at its own curves revision, below the change's. Each is a real Shot of 4 samples under another id:
+    // its scale first read 1 g or more 21.45 s into its profile, which ended in its Pressure Decline step at 3.216 g/s.
+    it("works out what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
+      const { tablet } = await connected("Measured, on the latest release", "latest release", "latest release");
+      const shot = derivedShot("mixed-measured-shot");
+      tablet.pullShot(shot);
+      await expect.poll(async () => (await apis["latest release"].call("GET", `/shots/${shot.id}`)).status).toBe(200);
+      interface Measured { id: string; timeToFirstDrip: number | null; flowAtStop?: number | null; lastStep: { frame: number; name: string } | null; enjoyment: number | null }
+      const read = async () => (await apis.change.get<{ shot: Measured }>(`/shots/${shot.id}`)).shot;
+      const row = async () => (await apis.change.get<{ shots: Measured[] }>("/shots?limit=100")).shots.find((listed) => listed.id === shot.id);
+      // Until the change works them out, it gives neither stored value, and its row no step; its read gives that from its samples.
+      expect(await read()).toMatchObject({ timeToFirstDrip: null, flowAtStop: null, lastStep: { frame: 4, name: "Pressure Decline" } });
+      expect(await row()).toMatchObject({ timeToFirstDrip: null, lastStep: null });
+
+      // The change's instance ran its refresh as it started, before the Shot was pulled, and next runs it within the hour;
+      // another instance of the change runs it as it starts.
+      const later = await startTestServer({ env, sharing: servers["latest release"] });
+      try {
+        await expect.poll(async () => (await read()).timeToFirstDrip).toBe(21.45);
+      } finally {
+        await later.stop();
+      }
+      const measured = { timeToFirstDrip: 21.45, lastStep: { frame: 4, name: "Pressure Decline" } };
+      expect(await read()).toMatchObject({ ...measured, flowAtStop: 3.21596222288838 });
+      expect(await row()).toMatchObject(measured);
+
+      // An edit carries the Shot's metadata whole, without its measurements; the latest release's server stores it.
+      const { measurements: _, ...metadata } = shot;
+      tablet.fire("shotUpdated", { id: shot.id, shot: { ...metadata, updatedAt: "2026-11-01T12:00:00Z", annotations: { ...(metadata.annotations as object), enjoyment: 80 } } });
+      await expect.poll(async () => (await read()).enjoyment).toBe(80);
+      expect(await read()).toMatchObject({ ...measured, flowAtStop: 3.21596222288838 });
+      expect(await row()).toMatchObject(measured);
+    });
+
     it("sends a Settings Edit made through one instance from the other", async () => {
       const location = await apis.change.createLocation("Settings, on both", "America/Chicago");
       const onRelease = await connected("Settings, on the latest release", "latest release", "latest release", { location });

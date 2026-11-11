@@ -1,4 +1,17 @@
-import { MAX_HARDWARE_LENGTH, type Sample, type ShotCurve, dye2RecipeIdOf, lastRecordedWeight, realHardware, stepSpans, type Hardware } from "@decent-sync/protocol";
+import {
+  MAX_HARDWARE_LENGTH,
+  type Sample,
+  type ShotCurve,
+  dye2RecipeIdOf,
+  flowAtStop,
+  lastRecordedWeight,
+  poured,
+  realHardware,
+  shotSamples,
+  stepSpans,
+  timeToFirstDrip,
+  type Hardware,
+} from "@decent-sync/protocol";
 
 /** Analytics are a projection; missing or unfamiliar Decaid fields never invalidate a record. */
 export function extractShot(record: unknown) {
@@ -59,6 +72,28 @@ export function measuredDetails(samples: readonly Sample<ShotCurve>[]) {
   const steps = stepSpans(samples);
   const last = steps.at(-1);
   return { steps, lastStep: last ? { frame: last.frame, name: last.name } : null, lastRecordedWeight: lastRecordedWeight(samples) };
+}
+
+/**
+ * What a Shot's samples (`shotSamples`) show of how it went, as its columns
+ * keep it, so that a list or a Shot Summary reads it without the Shot's
+ * measurements (#467): its time to first drip (`timeToFirstDrip`), the step
+ * it ended in and the scale's last weight with its seconds
+ * (`measuredDetails`), whether it poured (`poured`), and its flow at the
+ * stop (`flowAtStop`). Each but `poured` is null where the samples show
+ * none.
+ */
+export function measuredValues(samples: readonly Sample<ShotCurve>[]) {
+  const { lastStep, lastRecordedWeight: last } = measuredDetails(samples);
+  return {
+    timeToFirstDrip: timeToFirstDrip(samples),
+    lastStepFrame: lastStep?.frame ?? null,
+    lastStepName: lastStep?.name ?? null,
+    poured: poured(samples),
+    lastWeight: last?.weight ?? null,
+    lastWeightSeconds: last?.seconds ?? null,
+    flowAtStop: flowAtStop(samples),
+  };
 }
 
 /** Text Decaid recorded, or a number as its text, as the management interface shows it; null for none or blank. */
@@ -189,9 +224,10 @@ export function elapsedMilliseconds(times: readonly number[]): number[] {
  * The revision of the values `extractCurves` stores, raised whenever it
  * changes them, so that the Shots stored with an earlier revision's are
  * computed again (`CurvesRefresh`). Revision 1 adds Preheat and leaves it
- * out of the peaks.
+ * out of the peaks. Revision 2 adds what a Shot's samples show of how it
+ * went (`measuredValues`, #467).
  */
-export const CURVES_REVISION = 1;
+export const CURVES_REVISION = 2;
 
 /**
  * A Shot's duration as `shots.duration` keeps it: the whole recording, its
@@ -214,7 +250,8 @@ export function shownDuration(recording: number | null, preheat: number | null):
 
 /**
  * Values that need the Shot's curves: when it was pulled, how long its
- * Preheat lasted, its duration and its peaks. Preheat is the Shot's leading
+ * Preheat lasted, its duration and its peaks, and what its samples show of
+ * how it went (`measuredValues`). Preheat is the Shot's leading
  * samples whose substate is `preparingForShot`, which Decaid maps from the
  * DE1's heating states before the profile starts; it ends at the first sample
  * with any other substate, or none. The duration counts from that sample to
@@ -254,6 +291,7 @@ export function extractCurves(record: unknown, measurements: unknown) {
     duration: times.length === 0 ? null : (elapsedSeconds(times.slice(preheatTimes)) ?? 0),
     peakPressure,
     peakFlow,
+    ...measuredValues(shotSamples(measurements, object(object(record).workflow).profile)),
   };
 }
 

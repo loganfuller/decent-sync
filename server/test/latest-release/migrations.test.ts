@@ -21,6 +21,9 @@ describe("a migration that fails on its lock_timeout beside the latest release",
       [COLUMN]: `BEGIN;\nSET LOCAL lock_timeout = '5s';\n\nALTER TABLE "machines" ADD COLUMN "staged" INTEGER;\nALTER TABLE "shots" ADD COLUMN "staged" INTEGER;\n\nCOMMIT;\n`,
     });
     release = await startTestServer({ latestRelease: true });
+    // The change's own migrations first, as the release that brings the staged one finds them applied: one of them may
+    // need a table the test holds, as the one that added what a Shot's samples show needs shots (#467).
+    await (await startTestServer({ sharing: release })).stop();
     holder = await release.connectDatabase();
   });
   afterAll(async () => {

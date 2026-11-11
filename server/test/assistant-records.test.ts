@@ -1,5 +1,18 @@
 import { randomUUID } from "node:crypto";
-import { SHOT_CURVES, STEAM_CURVES, globalIdOf, lastRecordedWeight, shadedSpans, shotSamples, steamPhases, steamSamples, steamStopAt, stepSpans } from "@decent-sync/protocol";
+import {
+  SHOT_CURVES,
+  STEAM_CURVES,
+  flowAtStop,
+  globalIdOf,
+  lastRecordedWeight,
+  shadedSpans,
+  shotSamples,
+  steamPhases,
+  steamSamples,
+  steamStopAt,
+  stepSpans,
+  timeToFirstDrip,
+} from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
 import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp } from "./support/assistants.js";
@@ -53,12 +66,15 @@ interface RestShot {
   tds: number | null;
   extractionYield: number | null;
   notes: string | null;
+  /** As stored with the Shot, and in a Shot read on its own, the step from its samples. */
+  timeToFirstDrip: number | null;
+  lastStep: { frame: number; name: string } | null;
   record?: Fields;
   previousShot?: { id: string; pulledAt: string } | null;
   /** Only in a Shot read on its own. */
   steps?: { frame: number; name: string; from: number; until: number }[];
-  lastStep?: { frame: number; name: string } | null;
   lastRecordedWeight?: { weight: number; seconds: number } | null;
+  flowAtStop?: number | null;
 }
 
 /** A Steam Record as the REST API lists or shows it. */
@@ -168,9 +184,11 @@ function shotRow(shot: RestShot): Fields {
     targetYield: hundredths(shot.targetYield),
     actualYield: hundredths(shot.actualYield),
     duration: hundredths(shot.duration),
+    timeToFirstDrip: hundredths(shot.timeToFirstDrip),
     peakPressure: hundredths(shot.peakPressure),
     peakFlow: hundredths(shot.peakFlow),
     stopReason: shot.stopReason,
+    lastStep: shot.lastStep,
     enjoyment: shot.enjoyment,
     barista: recorded(shot.barista),
     tds: hundredths(shot.tds),
@@ -557,8 +575,11 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // where inferred; it was pulled with no Recipe loaded and rated with no enjoyment, so neither is given.
     expect(Object.keys(measuredRow)).toEqual([
       "id", "pulledAt", "machine", "location", "profile", "beanBatch", "grinder", "grinderSetting", "basket", "targetDose", "actualDose",
-      "targetYield", "actualYield", "duration", "peakPressure", "peakFlow", "stopReason", "barista", "tds", "extractionYield", "notes",
+      "targetYield", "actualYield", "duration", "timeToFirstDrip", "peakPressure", "peakFlow", "stopReason", "lastStep", "barista", "tds",
+      "extractionYield", "notes",
     ]);
+    // Its scale first read 1 g or more 21.45 s into its profile, which ended in its fifth step.
+    expect(measuredRow).toMatchObject({ timeToFirstDrip: 21.45, lastStep: { frame: 4, name: "Pressure Decline" } });
     expect(Object.keys(measuredRow.beanBatch as Fields)).toEqual(["id", "roaster", "name"]);
     expect(inferredRow).toMatchObject({ machine: { id: uptown1.machine.id }, machineInferred: true, location: { id: uptown.id }, locationInferred: true });
   });
@@ -606,10 +627,13 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, steps, lastStep, ...summary } = read;
+    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, steps, lastStep, timeToFirstDrip: firstDrip, flowAtStop: flow, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
     expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
     expect({ steps, lastStep }).toEqual({ steps: toolSteps(rest.steps!), lastStep: rest.lastStep });
+    // As stored with the Shot, to hundredths: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.819 g/s.
+    expect({ timeToFirstDrip: rest.timeToFirstDrip, flowAtStop: rest.flowAtStop }).toEqual({ timeToFirstDrip: 7.945, flowAtStop: 2.8189155419461156 });
+    expect({ firstDrip, flow }).toEqual({ firstDrip: hundredths(rest.timeToFirstDrip!), flow: 2.82 });
     sameTimes([pulledAt], [rest.pulledAt]);
     expect(pulledAt).toMatch(/-0[56]:00$/);
     expect({ grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason }).toEqual({
@@ -700,7 +724,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(milk.curves).toEqual({ shaded: steam.curves.shaded, thinnedTo: steam.curves.thinnedTo, milkTemperature: steam.curves.milkTemperature });
   });
 
-  it("gives the steps of its Profile a Shot ran, the one it ended in and its last recorded weight, without curves, as the REST API does, timed as its curves", async () => {
+  it("gives the steps of its Profile a Shot ran, the one it ended in, its last recorded weight, its time to first drip and its flow at the stop, without curves, as the REST API does, timed as its curves", async () => {
     const fixture = preheatShotFixture();
     const workflow = fixture.workflow as Record<string, Fields>;
     const measurements = fixture.measurements as Fields[];
@@ -713,7 +737,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
       "assistant-no-scale": measurements.map((sample) => ({ ...sample, scale: null })),
     };
     await deliverShots(uptown1, hardware.uptown1, Object.entries(shots).map(([id, samples]) => ({ ...fixture, id, workflow: recorded, measurements: samples })));
-    type Read = { steps: Fields[]; lastStep: Fields | null; lastRecordedWeight: { weight: number; seconds: number } | null };
+    type Read = { steps: Fields[]; lastStep: Fields | null; lastRecordedWeight: { weight: number; seconds: number } | null; timeToFirstDrip: number | null; flowAtStop: number | null };
     const reads: Record<string, Read> = {};
     for (const [id, samples] of Object.entries(shots)) {
       // The REST API's, from the samples the Shot page reads, and the tool's the same, to hundredths.
@@ -723,11 +747,14 @@ describe("reading Shots and Steam Records through an assistant", () => {
       expect(rest.steps, id).toEqual(steps);
       expect(rest.lastStep, id).toEqual(steps.length === 0 ? null : { frame: steps.at(-1)!.frame, name: steps.at(-1)!.name });
       expect(rest.lastRecordedWeight, id).toEqual(lastRecordedWeight(read));
+      // Its stored values, as the same samples show them.
+      expect({ timeToFirstDrip: rest.timeToFirstDrip, flowAtStop: rest.flowAtStop }, id).toEqual({ timeToFirstDrip: timeToFirstDrip(read), flowAtStop: flowAtStop(read) });
       const tool = await assistant.call<ToolShot & Read>("get_shot", { id });
       expect(tool).not.toHaveProperty("curves");
       expect(tool.steps, id).toEqual(toolSteps(rest.steps!));
       expect(tool.lastStep, id).toEqual(rest.lastStep);
       expect(tool.lastRecordedWeight, id).toEqual(shotSummary(rest).lastRecordedWeight);
+      expect({ timeToFirstDrip: tool.timeToFirstDrip, flowAtStop: tool.flowAtStop }, id).toEqual(asTools({ timeToFirstDrip: rest.timeToFirstDrip, flowAtStop: rest.flowAtStop }));
       reads[id] = tool;
     }
     const early = reads["assistant-stopped-early"]!;
@@ -736,15 +763,34 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(early.lastStep).toEqual({ frame: 4, name: "Pressurize" });
     // Its last weight is its weight curve's last point.
     expect(early.lastRecordedWeight).toEqual({ weight: 4.6, seconds: early.steps.at(-1)!.until });
-    const { curves } = await assistant.call<{ curves: { weight: Curve } }>("get_shot", { id: "assistant-stopped-early", curves: true });
+    const { curves } = await assistant.call<{ curves: { weight: Curve; weightFlow: Curve } }>("get_shot", { id: "assistant-stopped-early", curves: true });
     expect(curves.weight.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.lastRecordedWeight!.weight]);
+    // Its flow at the stop is its weight flow curve's last point, and its time to first drip the first of its weight curve's
+    // readings at 1 g or more, each reading up to it given by a window.
+    expect({ timeToFirstDrip: early.timeToFirstDrip, flowAtStop: early.flowAtStop }).toEqual({ timeToFirstDrip: 7.95, flowAtStop: 0.98 });
+    expect(curves.weightFlow.values.at(-1)).toEqual([early.lastRecordedWeight!.seconds, early.flowAtStop]);
+    const { curves: before } = await assistant.call<{ curves: { weight: Curve } }>("get_shot", { id: "assistant-stopped-early", window: { until: early.timeToFirstDrip! } });
+    expect(before.weight.values.at(-1)).toEqual([early.timeToFirstDrip, 1]);
+    expect(before.weight.values.slice(0, -1).every(([, weight]) => weight < 1)).toBe(true);
     // Stopped in its Preheat, it ran no step, and has no last weight: Decaid records 0 for the scale until it tares it.
     const preheat = reads["assistant-stopped-in-preheat"]!;
     expect({ steps: preheat.steps, lastStep: preheat.lastStep, lastRecordedWeight: preheat.lastRecordedWeight }).toEqual({ steps: [], lastStep: null, lastRecordedWeight: null });
-    // Without a scale, it has its steps but no last weight.
+    expect({ timeToFirstDrip: preheat.timeToFirstDrip, flowAtStop: preheat.flowAtStop }).toEqual({ timeToFirstDrip: null, flowAtStop: null });
+    // Without a scale, it has its steps but no last weight, first drip or flow at the stop.
     const unweighed = reads["assistant-no-scale"]!;
     expect(unweighed.lastStep).toEqual({ frame: 6, name: "Extraction" });
-    expect(unweighed.lastRecordedWeight).toBeNull();
+    expect({ lastRecordedWeight: unweighed.lastRecordedWeight, timeToFirstDrip: unweighed.timeToFirstDrip, flowAtStop: unweighed.flowAtStop }).toEqual({
+      lastRecordedWeight: null,
+      timeToFirstDrip: null,
+      flowAtStop: null,
+    });
+    // Listed, each gives its time to first drip and the step it ended in, and leaves out the one it has none of.
+    const { shots: rows } = await assistant.call<{ shots: Fields[] }>("find_shots", { machineId: uptown1.machine.id, from: "2026-10-25", to: "2026-10-26", limit: 50 });
+    const row = (id: string) => rows.find((shot) => shot.id === id)!;
+    expect(row("assistant-stopped-early")).toMatchObject({ timeToFirstDrip: 7.95, lastStep: { frame: 4, name: "Pressurize" } });
+    expect(row("assistant-no-scale")).toMatchObject({ lastStep: { frame: 6, name: "Extraction" } });
+    expect(row("assistant-no-scale")).not.toHaveProperty("timeToFirstDrip");
+    for (const none of ["timeToFirstDrip", "lastStep"]) expect(row("assistant-stopped-in-preheat"), none).not.toHaveProperty(none);
   });
 
   it("finds Steam Records as the REST API lists them, counting a day per Location, and reads one with its curves only when asked, its start-up, pauses, puffs and purge marked as the management interface shows them", async () => {

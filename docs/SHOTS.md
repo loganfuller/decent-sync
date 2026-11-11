@@ -301,18 +301,83 @@ and bounds when a Shot was pulled with a Loaded Recipe by
 (`shotRecipeSql`); the REST API shows the duration without Preheat
 (`shownDuration`). So the two releases agree on `duration` while both run.
 
-`curves_revision` names the revision of `extractCurves` the Preheat and
-peaks were computed by (`CURVES_REVISION`). A full record stores them at the
+Ticket [#467](https://github.com/loganfuller/decent-sync/issues/467) keeps,
+beside the Preheat and peaks, what a Shot's samples show of how it went
+(`measuredValues` in `server/src/shots/extraction.ts`, over the pure readers
+in `protocol/src/record-samples.ts`), so that a list or a Shot Summary reads
+it without the Shot's measurements. Each is a nullable column, and their
+seconds count from the start of its profile, its first sample after its
+Preheat:
+
+- `time_to_first_drip`: when the scale first read 1 g or more
+  (`timeToFirstDrip`), by the sample that carries the reading; null where
+  none read that, as on a Shot with no scale. No reading in Preheat counts:
+  Decaid records 0 for the scale there until it tares it as the profile
+  starts, or, in full gateway mode, the untared reading. Decaid sends that
+  tare at the profile's first sample without waiting for the scale
+  (`ShotSequencer._handleStateTransition` in
+  `decaid:lib/src/controllers/shot_sequencer.dart`), so a reading taken
+  before it lands, as of a cup put on the scale during Preheat, is recorded
+  as it is, and counts as a first drip a fraction of a second in. In full
+  gateway mode a cup on the scale reads so throughout.
+- `last_step_frame` and `last_step_name`: the step of its Profile it ended
+  in, as the Shot's read works it out (`stepSpans`), null when it stopped
+  in its Preheat or its samples name no step. The frame is a float, as a
+  record may hold any whole number there.
+- `poured`: whether any of its samples is in the `pouring` substate
+  (`poured`), which Decaid maps from the DE1's `pour`: the Machine reports
+  it once its profile is past the steps it counts as preinfusion (the
+  profile's `target_volume_count_start`). A Shot with none is an Unfinished
+  Shot (`GLOSSARY.md`), stopped in its Preheat or its preinfusion. It is
+  never null once worked out, which no other of them promises. It says what
+  the Machine reported, not how much coffee landed: a Shot that reaches its
+  yield while its profile is still in those steps, as a fast one stopped on
+  weight in a long preinfusion step, never reports pouring, though it ran
+  whole; nor would any Shot of a profile that counts every one of its
+  steps as preinfusion, which none of those bundled with Decaid v0.9.1
+  does.
+- `last_weight` and `last_weight_seconds`: the scale's last weight after
+  its Preheat, with its seconds (`lastRecordedWeight`), and `flow_at_stop`:
+  the scale's weight flow at that reading, in g/s (`flowAtStop`), kept for
+  the calibration milestone. Decaid records no sample after the stop, so
+  both are before it: just before, unless the scale dropped out or went
+  stale during the Shot, from when Decaid records no reading
+  (`ShotSequencer._scaleFor`), and both are then as much earlier. A fit of
+  the stop on weight is to take only the Shots whose last weight is at
+  their end, `last_weight_seconds` against the duration they show. The
+  weight flow Decaid records is the one it shows:
+  the scale's own where it reports one, or else Decaid's average over its
+  smoothing window, which lags the weight (`ScaleController` in
+  `decaid:lib/src/controllers/scale_controller.dart`). It is not the flow
+  Decaid's stop on weight projects with (`controlWeightFlow`), which it
+  never records.
+
+`extractCurves` computes them, so they are stored and computed again as the
+Preheat and peaks are.
+
+`curves_revision` names the revision of `extractCurves` those values were
+computed by (`CURVES_REVISION`): 1 added the Preheat and left it out of the
+peaks, and 2 what a Shot's samples show. A full record stores them at the
 current one, and an edit leaves them as they are. `CurvesRefresh` computes
 those of an earlier revision again from their measurements, in batches of 20
 with their rows locked, skipping any another transaction holds, as the server
-starts and then hourly, so it also takes the Shots the previous release
-stores while it still serves beside this one during an upgrade. Until then
-such a Shot shows the whole recording as its duration. Raising the revision
-recomputes every stored Shot the same way. An accepted gap: the previous
-release still writes peaks with Preheat in them when it stores a newer full
-record of a Shot already computed again, or an edit it read before the
-refresh, and those stay until that Shot's next full record here.
+starts and then hourly, on every instance, so each Shot is computed by one of
+them. Raising the revision recomputes every stored Shot that way. Until it
+is computed again, a Shot stored at revision 0 shows the whole recording as
+its duration. A Shot whose samples' values have never been computed has
+none of them: its row gives neither its time to first drip nor the step it
+ended in, and its read neither its time to first drip nor its flow at the
+stop. `poured` is null for exactly those Shots, so a Shot Summary can count
+the Shots awaiting their values by it (#469); the revision says only whether
+the values a Shot has are the current one's.
+
+The previous release, 1.8.2, stores a Shot at revision 1 and knows none of
+those columns, so the hourly runs take the Shots it stores while it still
+serves beside this one during an upgrade. Its own refresh takes only Shots
+below revision 1, and its edits write none of them, so it leaves what this
+release computed alone. Where it stores a newer full record of a Shot
+already computed, it sets the revision back to 1 and leaves those columns
+as they were, and the next hourly run computes them again.
 
 ## REST API
 
@@ -336,11 +401,16 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   (`recordedDetails`), each null where it recorded none or blank text:
   `grinderModel` and `basketName`, the names its Grinder and Basket recorded,
   `grinderSetting`, `stopReason`, `notes` (whole), `tds` and
-  `extractionYield`. The MCP endpoint's `find_shots` lists these rows
+  `extractionYield`. And each gives two of the values its samples show, as
+  stored (`measuredValues`, above): `timeToFirstDrip`, in seconds, and
+  `lastStep` (`{ frame, name }`), the step of its Profile it ended in, each
+  null where the Shot has none, and until a Shot stored before they were
+  kept is computed again. The MCP endpoint's `find_shots` lists these rows
   compactly: each Library item by the Library's id and name, or a null id
   and the name the Shot recorded, each field with no value left out, the
-  names people type cut beyond about 60 characters and notes beyond about
-  200, which `get_shot` reads whole, with `grinderModel` and `basketName`.
+  names people type, a step's among them, cut beyond about 60 characters
+  and notes beyond about 200, which `get_shot` reads whole, with
+  `grinderModel` and `basketName`.
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
@@ -410,8 +480,15 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Preheat Decaid records 0 for the scale until it tares it as the profile
   starts, or, in full gateway mode, the untared reading. Decaid records no sample after the stop, so that
   is the weight just before it, while `actualYield` is what Decaid weighed
-  once the flow settled. The MCP endpoint's `get_shot` gives them too, to
-  hundredths, from the same read of the measurements as its curves.
+  once the flow settled. Those three are read from the samples, so a Shot
+  has them whatever its curves revision. Beside them it gives two of its
+  stored values (`measuredValues`, above), with the list's
+  `timeToFirstDrip`: `flowAtStop`, the scale's weight flow at that last
+  weight, in g/s. Each is null where the Shot has none, and until a Shot
+  stored before they were kept is computed again. No read gives whether a
+  Shot poured: a Shot Summary is to count Unfinished Shots by it (#469).
+  The MCP endpoint's `get_shot` gives all five too, to hundredths, the
+  first three from the same read of the measurements as its curves.
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
 - `GET /api/machines/:id/set-aside-deliveries?limit=20&offset=0` returns
@@ -528,7 +605,9 @@ the tooltip and the measurements table,
 the previous Shot it is compared with aligned at 0 s too,
 everything its record holds, the Basket's and Tools' names DYE2 stored
 and its Grinder's burrs, after the Grinder, among it, the scale's last
-weight recorded beside the yield weighed, its credit, the Library's Recipe, Bean Batch, Grinder, Basket
+weight recorded beside the yield weighed, with its time to first drip and
+its flow at the stop as stored, each left out where the Shot has none,
+its credit, the Library's Recipe, Bean Batch, Grinder, Basket
 and Profile it is linked to, each linking to its page, and a comparison
 with its previous Shot. Each Bean's, Bean Batch's, Grinder's, Profile's,
 Recipe's and Basket's page lists its Shots, ten at a time
@@ -540,6 +619,17 @@ measurements into curves, counting time as `elapsedSeconds` does.
 `e2e/shot-links.spec.ts` a batch's Shots and the Bean Batch and Grinder
 filters, and `e2e/shot-recipe-links.spec.ts` a Recipe's and a Basket's
 Shots, their filters, and the hard deletes they decide.
+
+`server/test/shot-measured-values.test.ts` covers what a Shot's samples show
+through Seam 1, against values worked out by hand from the fixtures: a Shot
+with no scale, one whose scale never read 1 g, one stopped in its
+preinfusion and one in its Preheat, and an edit leaving them as they are.
+`server/test/shot-curves-refresh.test.ts` covers Shots of an earlier
+revision computed again, by two instances starting at once, and
+`server/test/latest-release/mixed-versions.test.ts` a Shot the previous
+release stores. `web/test/curves.test.ts` holds the module tests of the
+readers, and `server/test/shot-extraction.test.ts` checks that every
+fixture Shot poured.
 
 `server/test/shots.test.ts` verifies the built plugin through Seam 1, REST
 reads, and two server instances sharing PostgreSQL. It includes 205-record

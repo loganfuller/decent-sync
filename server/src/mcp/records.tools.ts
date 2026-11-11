@@ -69,6 +69,11 @@ const shotDetails = shotBasics.extend({
   notes: z.string().nullable().describe("As typed on the tablet."),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
   lastStep: step.nullable().describe("The step of its Profile it ended in; null when it stopped in its Preheat, or its samples name no step."),
+  timeToFirstDrip: z
+    .number()
+    .nullable()
+    .describe("From the start of its profile to the scale's first reading of 1 g or more, in seconds; null where none read that, as without a scale, and until worked out."),
+  flowAtStop: z.number().nullable().describe("The scale's weight flow at its last weight sample, in g/s; null without one, or where it recorded no weight flow, and until worked out."),
   steps: z
     .array(step.extend({ from: z.number(), until: z.number() }))
     .describe("The steps of its Profile it ran, in order, each from and until in seconds on its curves' axis, until where the next starts or it ends."),
@@ -123,9 +128,11 @@ const shotRow = z.object({
   targetYield: amount("In grams."),
   actualYield: amount("Weighed, in grams."),
   duration: amount("How long its profile ran, leaving out its Preheat, in seconds."),
+  timeToFirstDrip: amount("From the start of its profile to the scale's first reading of 1 g or more, in seconds."),
   peakPressure: amount("In bar, leaving out its Preheat."),
   peakFlow: amount("In ml/s, leaving out its Preheat."),
   stopReason: text.describe("What stopped it, as Decaid recorded it."),
+  lastStep: step.optional().describe("The step of its Profile it ended in."),
   enjoyment: amount("As rated on the tablet."),
   barista: text,
   tds: amount("Total dissolved solids, in %."),
@@ -190,9 +197,9 @@ const SHOT_UNITS =
 const STOP_REASONS =
   "stopReason is what Decaid recorded stopping it: targetWeight, Decaid stopping it as the scale's projected weight reached the target yield; targetVolume, Decaid stopping it at the target water volume, without a scale; machineEnded, the Machine ending it itself, as its profile finishes or it is stopped on the Machine; appStop, the Stop button in Decaid's own app; apiStop, a stop through Decaid's API, as a skin's such as Streamline's; error, the Machine going into an error state. Another value is Decaid's name for what stopped it.";
 
-/** What get_shot's steps, lastStep and lastRecordedWeight are. */
+/** What get_shot's steps, lastStep, lastRecordedWeight, flowAtStop and timeToFirstDrip are. */
 const SHOT_STEPS =
-  "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, Step N, from 1, where the Profile names none, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat or its samples name no step; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample after its Preheat, in grams, at its seconds, null without one. Decaid records no sample after the stop, so it is just before the stop, not at it. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus it is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell.";
+  "steps are the steps of its Profile it ran, in order, each with its frame, its index among the Profile's steps from 0, its name, Step N, from 1, where the Profile names none, and from and until, where the next starts or the Shot ends; a step that ended between two samples is left out. lastStep is the one it ended in, null when it stopped in its Preheat or its samples name no step; get_library_item gives a linked Profile's steps, to see which it never reached. lastRecordedWeight is the scale's last weight sample after its Preheat, in grams, at its seconds, and flowAtStop the scale's weightFlow at that sample, in g/s, each null without one. Decaid records no sample after the stop, so both are just before the stop, or earlier if the scale dropped out. actualYield, which Decaid keeps weighing after the stop until the flow settles, minus that weight is roughly what arrived after the stop; that difference is wrong if the yield was edited on the tablet, which the server can't tell. timeToFirstDrip is when the scale first read 1 g or more, null where it never did, as without a scale. It and flowAtStop are null too until the server has worked them out.";
 
 /** What a Steam Record's numbers mean, its steam settings' included. */
 const STEAM_UNITS =
@@ -236,7 +243,7 @@ const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
 /** What a find_shots row's fields mean, for its description. */
-const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 /** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
 const SHOT_FILTERS =
@@ -374,7 +381,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves false or left out, it gives all of them. Ask for a few seconds, such as those around the stop, to see every reading there. ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves false or left out, it gives all of them. Ask for a few seconds, such as those around the stop, to see every reading there. ${timeZoneNote}`,
     inputSchema: getShotInput,
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
@@ -397,6 +404,8 @@ export class RecordsTools {
       notes: shot.notes,
       stopReason: shot.stopReason,
       lastStep: shot.lastStep,
+      timeToFirstDrip: shot.timeToFirstDrip,
+      flowAtStop: shot.flowAtStop,
       steps: shot.steps,
       previousShot: shot.previousShot && { id: shot.previousShot.id, pulledAt: zonedTime(shot.previousShot.pulledAt, timeZone) },
     };
@@ -518,9 +527,11 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     targetYield: shot.targetYield,
     actualYield: shot.actualYield,
     duration: shot.duration,
+    timeToFirstDrip: shot.timeToFirstDrip,
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
     stopReason: shot.stopReason,
+    lastStep: shot.lastStep && { frame: shot.lastStep.frame, name: shorten(shot.lastStep.name, ROW_NAME)! },
     enjoyment: shot.enjoyment,
     barista: shorten(recordedText(shot.barista), ROW_NAME),
     tds: shot.tds,

@@ -201,7 +201,7 @@ function ShotDetails({ id }: { id: string }) {
         </Card>
 
         <div className="grid content-start gap-4">
-          <RecordCard title="Annotations" description={ANNOTATIONS_TIP} fields={annotationFields(shot.record, lastRecordedWeight(samples))} />
+          <RecordCard title="Annotations" description={ANNOTATIONS_TIP} fields={annotationFields(shot, lastRecordedWeight(samples))} />
           <RecordCard
             title="Machine at the time"
             description="The machine's identity as the Shot recorded it."
@@ -269,23 +269,28 @@ function ShotDetails({ id }: { id: string }) {
 }
 
 const ANNOTATIONS_TIP =
-  "How it turned out, as recorded on the tablet. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet.";
+  "How it turned out, as recorded on the tablet. The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.";
 
 /**
- * Decaid's annotations: the weighed dose and yield, with the scale's last weight its samples recorded beside the yield,
- * refractometer readings, enjoyment and notes.
+ * Decaid's annotations: the weighed dose and yield, with what the scale's samples show beside the yield (its time to
+ * first drip, the last weight they recorded and the flow at the stop), refractometer readings, enjoyment and notes. The
+ * time to first drip and the flow at the stop are the Shot's stored ones, which a Shot stored before they were kept has
+ * once the server has worked them out.
  */
-function annotationFields(shot: Record<string, unknown>, lastWeight: { weight: number; seconds: number } | null): [string, string][] {
-  const annotations = record(shot.annotations);
+function annotationFields(shot: Shot, lastWeight: { weight: number; seconds: number } | null): [string, string][] {
+  const annotations = record(shot.record.annotations);
   return present([
     ["Dose weighed", amount(annotations?.actualDoseWeight, "g")],
     ["Yield weighed", amount(annotations?.actualYield, "g")],
+    // The previous release answers with neither stored value, as it may during a deploy (ADR-0025).
+    ["Time to first drip", secondsText(shot.timeToFirstDrip ?? null)],
     ["Last weight recorded", lastWeight ? `${amount(lastWeight.weight, "g")} at ${secondsText(lastWeight.seconds)}` : undefined],
+    ["Flow at the stop", numberText(shot.flowAtStop ?? null, "g/s")],
     ["TDS", amount(annotations?.drinkTds, "%")],
     ["Extraction yield", amount(annotations?.drinkEy, "%")],
     ["Enjoyment", text(annotations?.enjoyment)],
     ["Notes", text(annotations?.espressoNotes)],
-    ["Stopped by", text(shot.stopReason)],
+    ["Stopped by", text(shot.record.stopReason)],
   ]);
 }
 

@@ -244,9 +244,13 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const { ids, lengths } = await everyPage("find_shots", "shots", { machineId: bar.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: bar.machine.id }));
       expect(lengths).toEqual([50, 10]);
-      // About 800 characters a Shot, a quarter of them the ids of the items each names, so 50 fit, uncut.
-      const { result } = await assistant.callWithinBudget<{ shots: Fields[] }>("find_shots", { machineId: bar.machine.id, limit: 50 });
+      // About 870 characters a Shot, a quarter of them the ids of the items each names and 73 its time to first drip and
+      // the step it ended in, so 50 still fit, uncut: about 43,400 characters of the 45,000.
+      const { result, text } = await assistant.callWithinBudget<{ shots: Fields[] }>("find_shots", { machineId: bar.machine.id, limit: 50 });
       expect(result).not.toHaveProperty("cut");
+      expect(result.shots).toHaveLength(50);
+      expect(result.shots.every((shot) => shot.timeToFirstDrip === 21.45 && (shot.lastStep as Fields).name === "Pressure Decline")).toBe(true);
+      expect(text.length).toBeGreaterThan(43_000);
       expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
     });
 
@@ -257,7 +261,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result).toMatchObject({
         groups: [{ counts: { shots: 60, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedOnWeight: { shots: 60, share: 1 } } }],
       });
-      // One group's counts and numbers, whatever the number of Shots, where 50 of them listed are about 40,000.
+      // One group's counts and numbers, whatever the number of Shots, where 50 of them listed are about 43,000.
       expect(text.length).toBeLessThan(500);
     });
 
@@ -273,6 +277,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(Object.keys(result.curves)).toEqual(["shaded", "thinnedTo", "pressure", "flow", "weight", "weightFlow", "temperature"]);
       expect(result.steps).toHaveLength(5);
       expect(result.lastRecordedWeight).toMatchObject({ weight: 32.4 });
+      expect(result).toMatchObject({ timeToFirstDrip: 7.95, flowAtStop: 2.82 });
       const listed = await assistant.callWithinBudget<{ curves: Fields }>("get_shot", { id: "preheat", curves: ["weight", "weightFlow"] });
       expect(Object.keys(listed.result.curves)).toEqual(["shaded", "thinnedTo", "weight", "weightFlow"]);
       // Its widest window, the whole Shot: every reading of the Shot, and as many of the long one's as fit.
@@ -769,6 +774,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.curves).toEqual(plain.curves);
       expect(result.steps).toEqual(plain.steps);
       expect(result.lastRecordedWeight).toEqual(plain.lastRecordedWeight);
+      expect([result.timeToFirstDrip, result.flowAtStop]).toEqual([plain.timeToFirstDrip, plain.flowAtStop]);
       expect(result.steps).not.toEqual([]);
     });
 
@@ -789,6 +795,16 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(widest.result.curves).toEqual(result.curves);
       expect(widest.result.curves.thinnedTo).toBe(100);
       expect(widest.result.steps).toEqual(result.steps);
+      // Listed, the step a Shot ended in is named cut, as the names people type are, and the page says so first: of the
+      // same Shot under another profile title, with nothing else long enough to cut.
+      await deliverShots(raw, [shotAt("haunted-steps-alone", 401, "43102", { profile: { title: "Haunted steps", steps } }, fixture)]);
+      const listed = await assistant.callWithinBudget<{ cut?: string; shots: Fields[] }>("find_shots", { machineId: haunted.machine.id, profileTitle: "Haunted steps", match: "exact" });
+      expect(Object.keys(listed.result)[0]).toBe("cut");
+      expect(listed.result.shots.map((shot) => shot.id)).toEqual(["haunted-steps-alone"]);
+      const { lastStep, ...row } = listed.result.shots[0] as Fields & { lastStep: { frame: number; name: string } };
+      expect(lastStep.frame).toBe(6);
+      expect(cut(lastStep.name) && lastStep.name.startsWith("6 Quote") && lastStep.name.length <= 60 + CUT_MARK.length).toBe(true);
+      expect(JSON.stringify(row)).not.toContain(CUT_MARK);
     });
 
     it("gives a Machine whose Workflow's text runs long with that text cut, summarised and whole, its Profile's steps and its settings whole", async () => {
