@@ -52,7 +52,7 @@ export class MachineEventsController {
 
   /**
    * How much the Machine was used over a range (`from`, `to`), by day or,
-   * with `by=hour`, by hour of a range of at most a day: its Shots, Steam
+   * with `by=hour`, by hour of a range of at most 25 hours: its Shots, Steam
    * Records, flushes and hot water pours, and its time in each Machine State,
    * in each day or hour of the Location it was at then (machine-use.ts).
    */

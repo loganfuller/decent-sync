@@ -803,7 +803,7 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
       expect(Math.abs(Date.parse(fortnight.to) - Date.now())).toBeLessThan(10_000);
       // What the REST API refuses is refused with its message.
       const refused = (args: Record_) => assistant.client.callTool({ name: "get_machine_use", arguments: { machineId: roaster.machine.id, ...args } });
-      expect(await refused({ from: "2026-11-02", to: "2026-11-03", by: "hour" })).toMatchObject({ isError: true, content: [{ text: "Choose a range of at most a day to read by hour" }] });
+      expect(await refused({ from: "2026-11-02", to: "2026-11-03", by: "hour" })).toMatchObject({ isError: true, content: [{ text: "Choose a range of at most 25 hours to read by hour" }] });
       expect(await refused({ from: "2026-10-01", to: "2026-11-02" })).toMatchObject({ isError: true, content: [{ text: "Choose a range of at most 31 days" }] });
       expect(await refused({ from: "2026-11-03", to: "2026-11-02" })).toMatchObject({ isError: true, content: [{ text: "Choose an end after the start" }] });
       expect((await refused({ by: "week" })).isError).toBe(true);

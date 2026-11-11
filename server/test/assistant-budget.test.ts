@@ -360,8 +360,9 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     it("gives a Machine's use over its longest ranges, 31 days by day and a day of 25 hours by hour, eleven of Decaid's states in each, as the REST API does", async () => {
       // An hour of a busy bar, in Decaid's states: a Shot, steaming with its purge, a flush, hot water, the steam wand
       // rinsed, the tank refilled, a clean and a descale begun, a wake schedule's idle and a doze. Sent for each hour
-      // of 2 October 2026 in Chicago, 5 hours behind UTC, then copied in PostgreSQL to each of the 31 days after it:
-      // through 1 November, 25 hours long as the clocks go back there, which the longest range of each kind takes in.
+      // of 2 October 2026 in Chicago, 5 hours behind UTC, then copied in PostgreSQL to each of the 31 days after it,
+      // into 2 November, so that 1 November, 25 hours long as the clocks go back there, has every hour of it: the
+      // longest range of each kind takes that day in.
       const hour: [state: string, substate: string, minute: number, second: number][] = [
         ["idle", "idle", 0, 0],
         ["espresso", "preinfusion", 5, 0],

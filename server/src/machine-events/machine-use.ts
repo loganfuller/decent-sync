@@ -141,7 +141,7 @@ export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], n
   const start = moment(from ?? lastDay.subtract({ days: by === "day" ? DEFAULT_USE_DAYS - 1 : 0 }).toString(), false);
   if (to !== undefined && end <= start) throw new BadRequestException("Choose an end after the start");
   if (end - start > LONGEST[by]) {
-    throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most a day to read by hour");
+    throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most 25 hours to read by hour");
   }
   return { from: start, to: end };
 }
