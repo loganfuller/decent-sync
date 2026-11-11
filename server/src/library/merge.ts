@@ -70,6 +70,13 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
  * earlier than the field's latest decides it, and the value it replaces, if
  * another, is kept as a Conflict; one made earlier loses, and its value, if
  * another, is kept as a Conflict.
+ *
+ * Among edits made out of each other's sight, the order they arrive in
+ * changes neither the value the field ends with nor that every other
+ * tablet's last value is kept. It does change whether a tablet's own earlier
+ * value is: one that another tablet's edit overwrote before its tablet's
+ * next arrived stays a Conflict, though its tablet has since replaced it,
+ * where its tablet's next arriving first would have replaced it unkept.
  */
 export function mergeEdit(current: Readonly<Record<string, unknown>>, edits: FieldEdits, edit: ContentEdit): Merged {
   const merged: Merged = { applied: {}, lost: {}, overwritten: [] };

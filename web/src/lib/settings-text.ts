@@ -1,5 +1,5 @@
 import { type SettingsField, decimalPlaces, isEditable } from "@decent-sync/protocol";
-import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText } from "@/lib/tablet-time";
+import { inTabletTime, localTimeText, timeOfDayMinutes, timeOfDayText } from "./tablet-time";
 
 // How the Settings card writes a Machine's or Tablet's settings values.
 
