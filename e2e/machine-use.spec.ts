@@ -132,7 +132,7 @@ test("the chart switches to one day by hour, today until another day is chosen, 
   await expect(rows(use.getByRole("table", { name: "Use by day" }))).toHaveCount(14);
 });
 
-test("another range is chosen by its first and last day, and one longer than 31 days is refused, the chart staying as it was", async ({ page }) => {
+test("another range is chosen by its first and last day, and one longer than 31 days is refused, with no figures left under it", async ({ page }) => {
   await page.goto(`/machines/${machineId}`);
   const use = page.getByRole("region", { name: "Use" });
   await use.getByRole("button", { name: "Show the numbers" }).click();
@@ -149,9 +149,16 @@ test("another range is chosen by its first and last day, and one longer than 31 
   const times = use.getByRole("region", { name: "Time in each Machine State" });
   await expect(field(times, "Asleep")).toHaveText("11 h");
 
+  // The two days' figures are not those of the range now chosen, so they go.
   await chooseDate(page, use, "From", day(-60));
   await expect(use.getByRole("alert")).toHaveText("Could not read its use: Choose a range of at most 31 days");
-  await expect(rows(table)).toHaveCount(2);
+  await expect(use.getByRole("figure")).toHaveCount(0);
+  await expect(use.locator('dl[aria-label="Totals"]')).toHaveCount(0);
+  // A range it can read brings them back.
+  await chooseDate(page, use, "From", day(-1));
+  await expect(use.getByRole("alert")).toHaveCount(0);
+  await expectTotals(use, { Shots: "2", "Steam Records": "1", Flushes: "1", "Hot water pours": "1" });
+  await expect(field(times, "Asleep")).toHaveText("9 h");
 });
 
 /** A day `days` from today as a date field shows it, such as "Nov 9, 2026". */

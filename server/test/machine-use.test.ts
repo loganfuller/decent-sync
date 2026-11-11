@@ -352,9 +352,13 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     expect(Date.parse(hourly.from)).toBe(startOf(today));
     expect(hourly.buckets.length).toBeLessThanOrEqual(25);
     expect(new Set(hourly.buckets.map((entry) => entry.date))).toEqual(new Set([String(today)]));
-    // A day yet to come has nothing in it.
-    const later = String(today.add({ days: 2 }));
-    expect((await use(lab1, { from: later, to: later })).buckets).toEqual([]);
+    // A day yet to come has nothing in it, and its range ends now, before it starts.
+    const later = today.add({ days: 2 });
+    const toCome = await use(lab1, { from: String(later), to: String(later) });
+    expect(toCome.buckets).toEqual([]);
+    expect(Date.parse(toCome.from)).toBe(startOf(later));
+    expect(Date.parse(toCome.to)).toBeGreaterThanOrEqual(before - 5_000);
+    expect(Date.parse(toCome.to)).toBeLessThanOrEqual(Date.now() + 5_000);
   });
 
   it("refuses a range it can't read, one that ends before it starts, and one longer than 31 days by day or a day by hour", async () => {

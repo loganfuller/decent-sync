@@ -83,7 +83,7 @@ export interface MachineUse {
   by: UseBy;
   /** The range's start. */
   from: string;
-  /** The range's end, or now if that is sooner: nothing is counted after it. */
+  /** The range's end, or now if that is sooner: nothing is counted after it. For a range still to come that is before its start. */
   to: string;
   /** Each day or hour of the range, oldest first, those with nothing counted included. */
   buckets: UseBucket[];
@@ -214,7 +214,9 @@ interface UseRow {
 
 /**
  * The Machine's use over a range that ends at or before now, cut into
- * `spans`, in one statement, so its counts and times are of one moment:
+ * `spans`, in one statement, so its counts and times are of one moment; a
+ * range that ends before it starts, as one still to come does once cut at
+ * now, has no buckets:
  *
  * - the time in each of Decaid's states, from the stored Machine State
  *   changes: the one in effect as the range began, the latest before it,
@@ -234,7 +236,7 @@ interface UseRow {
 export async function readMachineUse(db: Prisma.TransactionClient, machineId: string, range: { from: number; to: number }, by: UseBy, stays: readonly Stay[]): Promise<MachineUse> {
   const { buckets: labels, spans } = useSpans(range, stays, by);
   const buckets = labels.map((label): UseBucket => ({ ...label, shots: 0, steamRecords: 0, flushes: 0, hotWaterPours: 0, states: [] }));
-  const [from, to] = [new Date(range.from).toISOString(), new Date(Math.max(range.from, range.to)).toISOString()];
+  const [from, to] = [new Date(range.from).toISOString(), new Date(range.to).toISOString()];
   if (spans.length === 0) return { by, from, to, buckets };
   const rows = await db.$queryRaw<UseRow[]>`
     WITH span AS (

@@ -917,7 +917,7 @@ offset of the Location the Machine was at then.
   at most a day, 25 hours where the clocks go back; a longer one is refused
   with 400, as is one that ends at or before its start. Nothing is counted
   after now, by PostgreSQL's clock, and `to` says so: a range still to come
-  has no buckets.
+  has no buckets, and its `to`, now, is before its `from`.
 - **Whose day.** Each moment belongs to the date, and hour, its wall clock
   read at the Location the Machine was at then, by its Location History, and
   UTC's before its first Location (`useSpans`). A day the clocks change in

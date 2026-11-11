@@ -833,7 +833,9 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
 
     it("gives a Machine's use whose states' names run far longer than any Decaid sends with each cut and marked, saying so, its counts and times whole, by hour and over 31 days", async () => {
       // Two states with such names, half an hour each, through 1 October 2026 in Chicago, 5 hours behind UTC, then
-      // copied in PostgreSQL to each of the 30 days after it.
+      // copied in PostgreSQL to each of the 30 days after it. Its days and hours aren't a page, so the guard can only
+      // cut the names, to no shorter than 200 characters: four such states every day of a month would overrun, and
+      // be logged, as a list within one item does (ADR-0028). Decaid sends the names of an enum, a word or two each.
       const states = [`haunting${hostile(20_000)}`, `rattling${hostile(20_000)}`];
       for (let n = 0; n < 48; n++) {
         await raw.deliver({ type: "machineState", id: randomUUID(), observedAt: new Date(Date.UTC(2026, 9, 1, 5, 30 * n)).toISOString(), state: states[n % 2], substate: "idle" });

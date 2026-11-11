@@ -39,15 +39,20 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  * each Machine State over them. A day or an hour is that of the Location the
  * Machine was at then, as the server counts them, so the days chosen are
  * calendar days, the browser's own time zone playing no part. It is loaded
- * again every 30 s; what was read last stays until the next arrives.
+ * again every 30 s. As another range is chosen, what was read last stays,
+ * faded, until the new range's arrives, and goes if that can't be read, so
+ * no figures stand under days they aren't of.
  */
 export function MachineUseCard({ machineId }: { machineId: string }) {
   const [by, setBy] = useState<MachineUse["by"]>("day");
   const [range, setRange] = useState<{ from?: string; to?: string }>({});
   const [day, setDay] = useState<string>();
   const query = new URLSearchParams(by === "day" ? { ...(range.from && { from: range.from }), ...(range.to && { to: range.to }) } : { by, ...(day && { from: day, to: day }) }).toString();
-  const load = useCallback(() => api<MachineUse>("GET", `/machines/${encodeURIComponent(machineId)}/use${query ? `?${query}` : ""}`), [machineId, query]);
-  const { data: use, error } = usePolled(load, DETAILS_POLL_MS);
+  // Each answer names the range it was asked for, so one for a range since changed is never shown as the new one's.
+  const load = useCallback(async () => ({ query, use: await api<MachineUse>("GET", `/machines/${encodeURIComponent(machineId)}/use${query ? `?${query}` : ""}`) }), [machineId, query]);
+  const { data, error } = usePolled(load, DETAILS_POLL_MS);
+  const use = data?.use;
+  const current = data?.query === query;
   // The days read, where none was chosen: the server's last 14 days, or today.
   const read = use?.by === by ? { first: use.buckets[0]?.date, last: use.buckets.at(-1)?.date } : {};
 
@@ -88,7 +93,11 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
                 <AlertDescription>Could not read its use: {error}</AlertDescription>
               </Alert>
             )}
-            {use && <UseFigures use={use} />}
+            {use && (current || !error) && (
+              <div className={current ? "grid gap-4" : "grid gap-4 opacity-50"} aria-busy={!current}>
+                <UseFigures use={use} />
+              </div>
+            )}
           </TabsContent>
         </Tabs>
       </CardContent>
