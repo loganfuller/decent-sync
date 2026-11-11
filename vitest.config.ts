@@ -10,10 +10,11 @@ import { dealOut, estimateDurations, longestFirst, readManifest } from "./script
 // Vitest's own split by count, and a split by size, both left one shard far
 // slower than another, since a file's size tracks its duration poorly. So
 // this deals the files out by their typical CI durations in
-// vitest.durations.json (scripts/update-test-durations.mjs, which the checks
-// job runs with --check), longest first, each to the shard with the least
-// time so far, the fewest files on a tie. A file the manifest lacks is
-// estimated from its size (scripts/test-durations.mjs). The split reads only
+// vitest.durations.json (scripts/update-test-durations.mjs, which each
+// release rebuilds it with), longest first, each to the shard with the least
+// time so far, the fewest files on a tie. A file the manifest lacks, such as
+// one added since, is estimated from its size (scripts/test-durations.mjs),
+// and an entry for a file that is gone is ignored. The split reads only
 // the file list, the manifest and file sizes, never Vitest's results cache,
 // so every shard computes the same one.
 //
@@ -46,7 +47,7 @@ class DurationBalancedSequencer extends BaseSequencer {
 
   // Estimates every test file of each project in the run, not just the files
   // given, so a file the manifest lacks gets the same estimate however the
-  // run is filtered, and in shard() and sort() alike, as in --add-missing.
+  // run is filtered, and in shard() and sort() alike.
   private async estimate(files: TestSpecification[]) {
     const { root } = this.ctx.config;
     const key = (project: string, moduleId: string) => `${project}:${moduleId}`;
