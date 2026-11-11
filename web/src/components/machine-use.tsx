@@ -120,7 +120,7 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
 }
 
 /** A day chosen from a calendar, as a date such as 2026-11-05; "Today" until one is chosen or read. */
-function DayField({ id, label, value, onChange }: { id: string; label: string; value: string | undefined; onChange(day: string): void }) {
+export function DayField({ id, label, value, onChange }: { id: string; label: string; value: string | undefined; onChange(day: string): void }) {
   const [open, setOpen] = useState(false);
   const [year, month, dayOfMonth] = (value ?? "").split("-").map(Number);
   const date = value ? new Date(year!, month! - 1, dayOfMonth!) : undefined;
