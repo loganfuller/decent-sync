@@ -1,3 +1,7 @@
+import { BadRequestException } from "@nestjs/common";
+import { queryValue } from "../record-filters.js";
+import { readTime } from "./input.js";
+
 // A Machine's days: a day or an hour of a Machine is that of the Location it
 // was at then, by its Location History, in that Location's time zone, and
 // UTC's while it was at none. What reads a range of a Machine's activity, or
@@ -35,6 +39,29 @@ export function isDay(bound: string): boolean {
   return DAY.test(bound);
 }
 
+/** Whether a date names a day the calendar has. */
+function isCalendarDay(day: string): boolean {
+  try {
+    Temporal.PlainDate.from(day);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * A bound of a range of a Machine's activity or use, `from` or `to`, as a
+ * REST query gives it, for `rangeBound` to read: a date, such as 2026-11-06,
+ * or a time with its offset. Undefined if it isn't given; one that is
+ * neither, or given more than once, is added to `problems`.
+ */
+export function readRangeBound(query: Record<string, unknown>, name: "from" | "to", problems: string[]): string | undefined {
+  const value = queryValue(query, name, problems);
+  if (value === undefined || (isDay(value) ? isCalendarDay(value) : readTime(value, []) !== undefined)) return value;
+  problems.push(`Enter ${name} as a date, such as 2026-11-06, or a time with its offset, such as 2026-11-06T14:30:00-05:00`);
+  return undefined;
+}
+
 /**
  * When a day, or the day `days` after it, began in a time zone, UTC's for
  * none or for a zone this runtime doesn't know: its first moment, which
@@ -60,4 +87,19 @@ export function startOfDay(day: string, timeZone: string | null | undefined, day
 export function rangeBound(bound: string, stays: readonly Stay[], end: boolean): Date {
   if (!isDay(bound)) return new Date(bound);
   return startOfDay(bound, timeZoneAt(stays, Date.parse(`${bound}T12:00:00Z`)), end ? 1 : 0);
+}
+
+/**
+ * A range of a Machine's activity from its bounds (`rangeBound`), an end
+ * left open, as null, where none is given: refused if a bound is outside the
+ * years PostgreSQL reads, or if it ends at or before its start.
+ */
+export function machineRange(from: string | undefined, to: string | undefined, stays: readonly Stay[]): { from: Date | null; to: Date | null } {
+  const range = { from: from === undefined ? null : rangeBound(from, stays, false), to: to === undefined ? null : rangeBound(to, stays, true) };
+  // PostgreSQL has no year 0, and doesn't parse the six-digit year toISOString writes past 9999 or before 1.
+  if ([range.from, range.to].some((end) => end && !(end.getUTCFullYear() >= 1 && end.getUTCFullYear() <= 9999))) {
+    throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
+  }
+  if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
+  return range;
 }

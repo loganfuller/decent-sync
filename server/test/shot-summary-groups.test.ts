@@ -198,7 +198,8 @@ describe("Shot Summaries by group", () => {
     api = await AdminApi.setUp(server.url);
     lab = await api.createLocation("Lab", "America/Denver");
     harbor = await api.createLocation("Harbor", "Asia/Tokyo");
-    // Named so that their order shows case ignored.
+    // Named in two cases. The database's collation (en_US.utf8) orders these ignoring case without lower() too: the
+    // Grinders' EK43 and ek43, two of one model ordered by id, are what show the order ignoring case.
     left = await api.createMachine("bar Left");
     right = await api.createMachine("Bar Right");
     harbor1 = await api.createMachine("Harbor 1");

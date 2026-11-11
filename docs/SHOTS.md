@@ -568,7 +568,13 @@ apart. Buckets are a later ticket's.
 - **Groups.** `groupBy` takes up to two groupings, each by what the list's
   filter of the same name takes, so a group opens as that filter: the Shots
   the list lists for the summary's filters and the group's are the group's,
-  and its `counts` add up to that list's `total`.
+  and its `counts` add up to that list's `total`. A group by Bean, Profile
+  or Barista opens so only with the text filters matched exactly, the
+  REST API's default: `match` is one for every text filter, so where the
+  summary's text filters match by words, as `summarise_shots`' do by
+  default, no filter finds just such a group's Shots. The tool's
+  description says to summarise with no text filter, or with
+  `match: exact`, to open them.
 
   | `groupBy` | Groups by | A group's `by` gives | Its filter |
   |---|---|---|---|
@@ -612,8 +618,8 @@ apart. Buckets are a later ticket's.
     are, a Bean Batch as the Bean Batches list orders them, by its Bean's
     name, then roaster, then the latest roast date first, and Pending
     Machines after the Machines, by model and serial. Two items of one
-    name are in their ids' order, which is not the order they were made
-    in.
+    name are in their ids' order, which need not be the order they were
+    made in.
   - **Paging.** A page is a number of groups: `limit` and `offset`, with
     `total`, how many groups there are, read in the same statement as the
     page, so the two agree. An `offset` past the last group gives no group
@@ -805,8 +811,11 @@ failure as the next filters'. It is never grouped: the page asks for no
 `groupBy`. The Barista filter offers each
 Barista once, as the REST API gives them, finds every spelling of the name,
 and shows that choice for any spelling an address holds, as one shared
-before the choices were folded (`baristaKey` in `web/src/lib/shot-summary.ts`,
-which reads a name as the server does).
+before the choices were folded (`baristaKey` in `web/src/lib/shot-summary.ts`).
+It reads a name as the server does but for case beyond A to Z, which the
+server folds as its database's collation does, unlike JavaScript for some
+letters, such as a final sigma or a dotted I; so for such a name an address
+spelled another way shows no choice, never another Barista's.
 `e2e/shot-summary.spec.ts` covers both. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),

@@ -1,4 +1,4 @@
-import { Injectable } from "@nestjs/common";
+import { BadRequestException, Injectable } from "@nestjs/common";
 import { PLUGIN_WORKFLOW_WRITES, type MachineStateDelivery, type PluginWorkflowWrite, type WorkflowDelivery } from "@decent-sync/protocol";
 import { type MachineStateEvent, Prisma, type WorkflowEvent } from "../generated/prisma/client.js";
 import { INTAKE_TRANSACTION, lockTablet, sharingLocation } from "../library/intake.js";
@@ -7,11 +7,13 @@ import { lockLocation } from "../library/location-state.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
 import { databaseNow } from "../machines/location-history.js";
+import { type Stay, machineRange, readRangeBound } from "../machines/machine-days.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
+import { queryValue } from "../record-filters.js";
 import { profileOfSql } from "../shots/links.js";
 import type { Reporter } from "../sync/identity.js";
-import { type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
+import { CHANGE_CAUSES, type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
 import { type LoadedRecipeView, everyLoadedRecipeDuring, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
 import { type MachineUse, type UseRequest, readMachineUse, useRange } from "./machine-use.js";
 import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
@@ -27,7 +29,8 @@ export interface TimeRange {
 }
 
 /** The kinds of a Machine's activity. */
-export type ActivityKind = "workflowChanges" | "loadedRecipes" | "machineStates";
+export const ACTIVITY_KINDS = ["workflowChanges", "loadedRecipes", "machineStates"] as const;
+export type ActivityKind = (typeof ACTIVITY_KINDS)[number];
 
 /** A page of one kind of a Machine's activity, and how many there are in all. */
 export interface ActivityPage<T> {
@@ -35,9 +38,37 @@ export interface ActivityPage<T> {
   total: number;
 }
 
-/** Which of a Machine's activity to give: its Workflow changes of one cause alone (`TrailEntry.cause`), or all of them. */
-export interface ActivityFilters {
+/**
+ * What a Machine's activity is asked for, as the REST API and
+ * `get_machine_activity` both ask: its range, each bound a date, for a day
+ * at the Location the Machine was at, or a moment with its offset
+ * (`rangeBound`), an end not given left open; the kinds to give, all three
+ * if none; and its Workflow changes of one cause alone (`TrailEntry.cause`),
+ * or all of them.
+ */
+export interface ActivityRequest {
+  from?: string;
+  to?: string;
+  kinds?: readonly ActivityKind[];
   cause?: ChangeCause;
+}
+
+/**
+ * Reads what a Machine's activity is asked for from a REST query: `from`
+ * and `to`, each a date, such as 2026-11-06, or a time with its offset;
+ * `kind`, given once or more; and `cause`.
+ */
+export function readActivityRequest(query: Record<string, unknown>): ActivityRequest {
+  const problems: string[] = [];
+  const from = readRangeBound(query, "from", problems);
+  const to = readRangeBound(query, "to", problems);
+  const given = query.kind === undefined ? [] : [query.kind].flat();
+  const kinds = given.filter((kind): kind is ActivityKind => (ACTIVITY_KINDS as readonly unknown[]).includes(kind));
+  if (kinds.length < given.length) problems.push(`Choose each kind from ${ACTIVITY_KINDS.join(", ")}`);
+  const cause = queryValue(query, "cause", problems);
+  if (cause !== undefined && !(CHANGE_CAUSES as readonly string[]).includes(cause)) problems.push(`Choose cause as ${CHANGE_CAUSES.join(", ")}`);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return { from, to, ...(kinds.length > 0 && { kinds }), cause: cause as ChangeCause | undefined };
 }
 
 /** A Machine's activity over a time range, a page of each kind asked for, its Workflow changes as a dial-in trail (dial-in-trail.ts). */
@@ -220,13 +251,14 @@ export class MachineEventsService {
    * dial-in trail (`workflowTrail`); the Machine States in effect at any time
    * in it, those observed in it and the one in effect as it began, the
    * latest observed then or before; and the Loaded Recipes loaded at any time
-   * in it.
+   * in it. A bound given as a date is that day at the Location the Machine
+   * was at, by its Location History (`machineRange`).
    */
-  async activity(machineId: string, range: TimeRange, page: Page, kinds: readonly ActivityKind[], filters: ActivityFilters = {}): Promise<ActivityView> {
-    await this.requireMachine(machineId);
+  async activity(machineId: string, { from, to, kinds = ACTIVITY_KINDS, cause }: ActivityRequest, page: Page): Promise<ActivityView> {
+    const range = machineRange(from, to, await this.stays(machineId));
     const bounds = boundsOf(range);
     const [workflowChanges, loadedRecipes, machineStates] = await Promise.all([
-      kinds.includes("workflowChanges") ? this.workflowTrail(machineId, range, bounds, page, filters.cause) : undefined,
+      kinds.includes("workflowChanges") ? this.workflowTrail(machineId, range, bounds, page, cause) : undefined,
       kinds.includes("loadedRecipes") ? loadedRecipesDuring(this.prisma, machineId, bounds, page) : undefined,
       kinds.includes("machineStates") ? this.machineStateEventsDuring(machineId, bounds, page) : undefined,
     ]);
@@ -241,15 +273,7 @@ export class MachineEventsService {
    * by PostgreSQL's clock, where the range's last Machine State is cut.
    */
   async use(machineId: string, request: UseRequest): Promise<MachineUse> {
-    const [machine, now] = await Promise.all([
-      this.prisma.machine.findUnique({
-        where: { id: machineId },
-        select: { locationHistory: { orderBy: { effectiveFrom: "asc" }, select: { effectiveFrom: true, location: { select: { timeZone: true } } } } },
-      }),
-      databaseNow(this.prisma),
-    ]);
-    if (!machine) throw machineNotFound();
-    const stays = machine.locationHistory.map((entry) => ({ from: entry.effectiveFrom.getTime(), timeZone: entry.location.timeZone }));
+    const [stays, now] = await Promise.all([this.stays(machineId), databaseNow(this.prisma)]);
     const range = useRange(request, stays, now.getTime());
     return readMachineUse(this.prisma, machineId, { from: range.from, to: Math.min(range.to, now.getTime()) }, request.by, stays);
   }
@@ -337,6 +361,16 @@ export class MachineEventsService {
 
   private async requireMachine(id: string): Promise<void> {
     if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
+  }
+
+  /** The Machine's stays, oldest first, from its Location History, which its days are read by (machine-days.ts). */
+  private async stays(machineId: string): Promise<Stay[]> {
+    const machine = await this.prisma.machine.findUnique({
+      where: { id: machineId },
+      select: { locationHistory: { orderBy: { effectiveFrom: "asc" }, select: { effectiveFrom: true, location: { select: { timeZone: true } } } } },
+    });
+    if (!machine) throw machineNotFound();
+    return machine.locationHistory.map((entry) => ({ from: entry.effectiveFrom.getTime(), timeZone: entry.location.timeZone }));
   }
 }
 
