@@ -2,7 +2,8 @@ import { type Locator, type Page, expect } from "@playwright/test";
 import { type LiveFixtureFrame, openingFrames } from "../../server/test/support/live-fixtures.js";
 import { syncingTablet } from "../../server/test/support/loaded-tablets.js";
 import { derivedShot, shotFixture } from "../../server/test/support/shot-fixtures.js";
-import { type DecaidApi, type SimulatedTablet, derivedDe1Pro } from "../../server/test/support/simulated-tablet.js";
+import { type DecaidApi, type LiveReplay, type SimulatedTablet, derivedDe1Pro } from "../../server/test/support/simulated-tablet.js";
+import { field } from "./locators.js";
 
 // What the specs of the Live View's curves (e2e/live-curves-*.spec.ts) share.
 // They are three files rather than one, as a spec file runs its tests in turn
@@ -38,6 +39,36 @@ export function first(frames: LiveFixtureFrame[], state: string, substate: strin
   });
   if (index < 0) throw new Error(`No snapshot in ${state}, ${substate}`);
   return index;
+}
+
+/** The index of a recording's last machine snapshot in that state and substate. */
+export function last(frames: LiveFixtureFrame[], state: string, substate: string): number {
+  for (let index = frames.length - 1; index >= 0; index--) {
+    const { source, frame } = frames[index]!;
+    const reported = frame.state as { state: string; substate: string } | undefined;
+    if (source === "machine" && reported?.state === state && reported.substate === substate) return index;
+  }
+  throw new Error(`No snapshot in ${state}, ${substate}`);
+}
+
+/**
+ * Plays a recorded shot (shot.json), from where its replay is, through its
+ * Preheat and preinfusion, up to its first snapshot of pouring. It pauses
+ * just past the first snapshot of each until the card's Machine State shows
+ * it. The server relays a Machine's frames one at a time, the latest of each
+ * source waiting its turn (ADR-0024). So when it falls behind, as on a loaded
+ * machine, it skips each snapshot that a later one replaces as it waits. The
+ * last before a pause has nothing to replace it (#490). A shot's axis is read
+ * from the snapshots a replay pauses past: Preheat's first, where it starts;
+ * preinfusion's first, at 0 s; and the last before pouring, where it ends.
+ */
+export async function playToPouring(replay: LiveReplay, frames: LiveFixtureFrame[], card: Locator): Promise<void> {
+  const state = field(card.getByRole("group", { name: "Machine State" }), "Machine State");
+  await replay.to(first(frames, "espresso", "preparingForShot") + 1);
+  await expect(state).toHaveText("Pulling a shot Preparing");
+  await replay.to(first(frames, "espresso", "preinfusion") + 1);
+  await expect(state).toHaveText("Pulling a shot Preinfusion");
+  await replay.to(first(frames, "espresso", "pouring"));
 }
 
 /** The times a chart's axis is marked at, as it shows them, such as "10 s". */

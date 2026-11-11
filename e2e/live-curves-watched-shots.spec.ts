@@ -2,7 +2,7 @@ import { expect, test } from "@playwright/test";
 import { liveFixture, machineDisconnects } from "../server/test/support/live-fixtures.js";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { SPEED, connectedTabletOn, first, openMachinePage, shotOf, ticks } from "./support/live-curves.js";
+import { SPEED, connectedTabletOn, first, last, openMachinePage, playToPouring, shotOf, ticks } from "./support/live-curves.js";
 import { field } from "./support/locators.js";
 import { setTabHidden } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
@@ -15,7 +15,10 @@ import { expectTip } from "./support/tooltips.js";
 // replays the test tablet's DE1Pro's recorded shot
 // (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259), its scale on, SPEED
 // times as fast as recorded (e2e/support/live-curves.ts), in parts where a test
-// looks at what the card shows. Serials are made up.
+// looks at what the card shows. On a loaded machine the server skips a
+// snapshot that a later one replaces while it waits to be relayed, so a replay
+// pauses just past each one an axis is read from, as `playToPouring` does.
+// Serials are made up.
 const server = useFreshServer();
 test.use({ timezoneId: "America/New_York" });
 
@@ -35,7 +38,7 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   // The Shot before this one is stored as it begins, so the page most likely sees it only while this one runs.
   tablet.pullShot(shotOf("shot-just-before", "28001", new Date(Date.now() - 60_000)));
   // Its 2.9 s of Preheat and 7.7 s of preinfusion.
-  await replay.to(first(frames, "espresso", "pouring"));
+  await playToPouring(replay, frames, card);
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(curves.getByRole("heading", { name: "Shot curves", exact: true })).toBeVisible();
   for (const chart of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
@@ -48,9 +51,10 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   // Not over yet, so nothing is linked.
   await expect(curves.getByText(/^Waiting for its/)).toHaveCount(0);
 
-  // The rest: 23.8 s pouring and 4.2 s ending it, then idle.
-  await replay.to();
+  // The rest: 23.8 s pouring and 4.2 s ending it, played to its last snapshot, where the axis ends, then idle.
+  await replay.to(last(frames, "espresso", "pouringDone") + 1);
   await expect(ticks(curves, "Pressure")).toHaveText(["0 s", "10 s", "20 s", "30 s"]);
+  await replay.to();
   await expect(field(card.getByRole("group", { name: "Machine State" }), "Machine State")).toHaveText("Idle");
   await expect(curves.getByText("Waiting for its Shot")).toBeVisible();
   // The page loads the Machine again, its last Shot the one just before: it isn't linked.
@@ -88,7 +92,7 @@ test("a shot's curves end at a takeover by a Tablet that streams nothing, so the
   const frames = liveFixture("shot.json");
   const espresso = first(frames, "espresso", "preparingForShot");
   const pouring = first(frames, "espresso", "pouring");
-  await tablet.replayLive(frames, { speed: SPEED }).to(pouring);
+  await playToPouring(tablet.replayLive(frames, { speed: SPEED }), frames, card);
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(ticks(curves, "Pressure")).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
 
@@ -100,10 +104,12 @@ test("a shot's curves end at a takeover by a Tablet that streams nothing, so the
   // Meanwhile the first Tablet's Decaid sees the shot end and the Machine go idle, which it doesn't stream.
   await tablet.replayLive(frames.slice(pouring), { speed: SPEED }).to();
 
-  // That Tablet leaves, and the first connects again and streams its next shot from its first frame.
+  // That Tablet leaves, and the first connects again and streams its next shot from its first frame: had the page missed
+  // that one, its curves would be partial.
   await silent.close();
   await expect.poll(() => tablet.delivered.filter((frame) => (frame as { type?: string }).type === "liveStart").length, { timeout: 30_000 }).toBe(2);
-  await tablet.replayLive(frames.slice(espresso), { speed: SPEED }).to(pouring - espresso);
+  const next = frames.slice(espresso);
+  await playToPouring(tablet.replayLive(next, { speed: SPEED }), next, card);
   // Its Preheat and preinfusion alone, as the first shot's were: joined to them, the axis would span both shots.
   await expect(ticks(curves, "Pressure")).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
   await expect(curves.getByText("Partial", { exact: true })).toHaveCount(0);
@@ -115,9 +121,14 @@ test("a shot's curves, its page opened mid-shot, are labelled partial", async ({
   const frames = liveFixture("shot.json");
   const replay = tablet.replayLive(frames, { speed: SPEED });
   // Begun with nobody watching, so the plugin isn't streaming, though it tracks how long the Machine has been pulling it.
-  await replay.to(first(frames, "espresso", "pouring"));
+  const pouring = first(frames, "espresso", "pouring");
+  await replay.to(pouring);
   const card = await openMachinePage(page, machine.id, tablet);
-  await replay.to();
+  // Paused just past the axis's start and end, as `playToPouring` pauses: the page's first snapshot, the first of
+  // pouring, and the shot's last.
+  await replay.to(pouring + 1);
+  await expect(field(card.getByRole("group", { name: "Machine State" }), "Machine State")).toHaveText("Pulling a shot Pouring");
+  await replay.to(last(frames, "espresso", "pouringDone") + 1);
 
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(curves.getByRole("heading", { name: "Shot curves", exact: true })).toBeVisible();
