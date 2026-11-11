@@ -1070,11 +1070,11 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     it("summarises Shots by two groupings whose names run far longer than any typed, each name cut and marked, a page of groups at a time", async () => {
       // 60 Shots on a Machine of their own, each recording a long Bean, by roaster and name, and a long Barista of its own.
       const grouped = await machineAt("Haunted groups", lab);
-      const connection = await connectionOf(grouped, "43104");
+      const connection = await connectionOf(grouped, "43105");
       await deliverShots(
         connection,
         Array.from({ length: 60 }, (_, n) =>
-          shotAt(`haunted-group-${String(n).padStart(2, "0")}`, 600 + n, "43104", {
+          shotAt(`haunted-group-${String(n).padStart(2, "0")}`, 600 + n, "43105", {
             context: { baristaName: `${String(n).padStart(2, "0")} ${hostile(3_000)}`, coffeeRoaster: `${String(n).padStart(2, "0")} ${hostile(3_000)}`, coffeeName: `${String(n).padStart(2, "0")} ${hostile(3_000)}` },
           }),
         ),
