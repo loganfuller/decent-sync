@@ -103,7 +103,7 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
   await expect(samsOtherTab.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
 
   await samsNav.getByRole("link", { name: "Accounts" }).click();
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(samsNav.getByRole("link", { name: "Accounts" })).toHaveCount(0);
   await samsNav.getByRole("link", { name: "Locations" }).click();
   await expect(samsPage.getByRole("heading", { name: "Locations", level: 1 })).toBeVisible();
@@ -138,7 +138,7 @@ test("an Admin resets a Staff member's password with a one-time link that ends t
   await samsPhone.getByLabel("New password").fill(newPassword);
   const refused = nextRefusedPoll(samsLaptop, `/api/machines/${uptown1.id}`);
   await samsPhone.getByRole("button", { name: "Set password" }).click();
-  await expect(samsPhone.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPhone.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
 
   // The laptop's session ended, so its page is refused at its next poll and goes to sign-in, and back after Sam signs in.
   await refused();
@@ -276,7 +276,7 @@ test("a session read answered before signing out does not sign the person back i
   await form.getByRole("button", { name: "Create Machine" }).click();
   await read.held;
   await samsPage.getByRole("link", { name: "Decent Sync" }).click();
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await signOut(samsPage, sam.name);
   await expect(samsPage).toHaveURL(/\/sign-in$/);
 
@@ -293,7 +293,7 @@ test("a session read answered before signing out does not sign the person back i
   await samsPage.getByRole("button", { name: "Sign in" }).click();
   await expect(samsPage.getByRole("alert")).toHaveText("The email or password is incorrect");
   await expect(samsPage).toHaveURL(/\/sign-in$/);
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toHaveCount(0);
+  await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toHaveCount(0);
   await samsPage.context().close();
 });
 
@@ -325,7 +325,7 @@ test("a session read another read overtook leaves later refusals reading the ses
   // Made Staff again, Sam's next invite is refused, and that refusal reads the session again.
   await setAccess(page, sam.email, { role: "staff", locationIds: [uptown] });
   await form.getByRole("button", { name: "Create invite" }).click();
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(samsPage.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
   await samsPage.context().close();
 });

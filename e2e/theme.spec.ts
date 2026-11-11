@@ -122,7 +122,7 @@ test("<html> has the theme's class and color-scheme before the app's JavaScript 
 
   // Once the app runs, it reads the same choice.
   release();
-  await expect(page.getByRole("heading", { name: "Welcome, Ada Admin" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expectTheme(page, "light");
   await expectChoice(page, "Light");
 });

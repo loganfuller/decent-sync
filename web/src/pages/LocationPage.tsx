@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { Link, useParams } from "react-router";
 import { useStaffLocationIds } from "@/auth";
 import { LocationMachinesCard } from "@/components/loaded-recipes";
+import { LocationOverviewCard } from "@/components/overview";
 import { LocationRecipesCard } from "@/components/recipes";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -9,9 +10,10 @@ import { ApiError, api, type Location, type Machine, type Recipe } from "@/lib/a
 import { usePolled } from "@/lib/use-polled";
 
 /**
- * One Location: its Recipes, in its Recipe Slots and in none, and its
- * Machines and the Recipe each has loaded. Loaded every 5 s, so a change
- * made on a tablet shows.
+ * One Location: its block of the Overview (#471), its Recipes, in its Recipe
+ * Slots and in none, and its Machines and the Recipe each has loaded. Loaded
+ * every 5 s, so a change made on a tablet shows; the Overview's numbers are
+ * read every 30 s.
  */
 export function LocationPage() {
   const { id = "" } = useParams();
@@ -29,7 +31,8 @@ function LocationDetails({ id }: { id: string }) {
         api<{ machines: Machine[] }>("GET", "/machines"),
       ]);
       const here = machines.filter((machine) => machine.location?.id === id);
-      return { location: locations.find((location) => location.id === id), recipes, machines: here };
+      // Every Machine too: the Overview shows one that pulled Shots here and has since moved.
+      return { location: locations.find((location) => location.id === id), recipes, machines: here, everyMachine: machines };
     } catch (caught) {
       if (caught instanceof ApiError && caught.status === 404) return null;
       throw caught;
@@ -62,10 +65,11 @@ function LocationDetails({ id }: { id: string }) {
       </section>
     );
   }
-  const { location, recipes, machines } = data;
+  const { location, recipes, machines, everyMachine } = data;
 
   return (
-    <section className="grid gap-6">
+    // One column no wider than the page, so a wide table scrolls rather than widening it.
+    <section className="grid grid-cols-1 gap-6">
       {back}
       <div className="grid gap-1">
         <h1 className="flex items-center gap-2 text-2xl font-semibold">
@@ -80,6 +84,7 @@ function LocationDetails({ id }: { id: string }) {
           <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
+      {location && <LocationOverviewCard location={location} machines={everyMachine} />}
       {location && <LocationRecipesCard location={location} recipes={recipes} onChanged={reload} />}
       <LocationMachinesCard machines={machines} />
     </section>

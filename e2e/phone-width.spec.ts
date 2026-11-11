@@ -111,7 +111,7 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
  */
 async function visitEachPage(page: Page, account: { name: string; links: string[] }) {
   await page.goto("/");
-  await expect(page.getByRole("heading", { name: `Welcome, ${account.name}`, level: 1 })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(page.getByRole("banner").getByRole("navigation", { name: "Main" })).toBeHidden();
   await expectFits(page);
   await expectThemeInReach(page);

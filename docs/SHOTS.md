@@ -541,7 +541,11 @@ Shots list's Summary card. Ticket [#468](https://github.com/loganfuller/decent-s
 groups them, by up to two of what Shots have, in the REST route and the
 tool: the Shots list's card stays one group, as the owner chose on
 2026-11-10, a set of Shots being summarised there by filtering to it, and
-sets shown side by side being the Overview's (#471). Ticket [#469](https://github.com/loganfuller/decent-sync/issues/469)
+sets shown side by side being the Overview's: ticket [#471](https://github.com/loganfuller/decent-sync/issues/471)
+shows each Location's Shots of a period grouped by Recipe and Machine, on
+the home page and the Location's page (`web/src/components/overview.tsx`),
+from this route alone, a cell opening as the list's filters
+(`e2e/overview.spec.ts`, `web/test/overview.test.ts`). Ticket [#469](https://github.com/loganfuller/decent-sync/issues/469)
 gives the other numbers, each when asked for, and counts Unfinished Shots
 apart. Buckets are a later ticket's.
 
