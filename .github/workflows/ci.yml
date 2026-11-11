@@ -123,7 +123,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
 
     env: &env
       DATABASE_URL: postgresql://decent_sync:decent_sync@localhost:5432/decent_sync
@@ -287,7 +287,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2, 3, 4]
+        shard: [1, 2, 3, 4, 5]
 
     env: *env
 
@@ -348,7 +348,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        shard: [1, 2]
+        shard: [1, 2, 3]
 
     env: *env
 
@@ -387,8 +387,8 @@ jobs:
       - *postgres-logs
 
   # Builds what a release publishes without publishing it: the plugin ZIP, and
-  # the server image, run the way a self-hoster runs it and built for each
-  # platform the release publishes.
+  # the server image for the runner's platform, run the way a self-hoster runs
+  # it. The image job below builds it for each platform the release publishes.
   package:
     needs: changes
     if: needs.changes.outputs.docs-only != 'true'
@@ -429,12 +429,28 @@ jobs:
         if: always()
         run: docker compose down --volumes
 
-      # As the release builds it, arm64 under emulation, which Docker Compose
-      # above doesn't: a build only arm64 breaks would otherwise fail the
-      # release.
+  # Builds the server image for amd64 and arm64 as the release builds it
+  # (release.yml), arm64 under emulation, which the package job's Docker
+  # Compose build doesn't: a build only arm64 breaks would otherwise fail the
+  # release. It pushes nothing and uses no layer cache, so it runs every step
+  # the release would. Emulated, it takes over two minutes, so it is a job of
+  # its own, beside the tests, rather than following the package job's
+  # Compose check. The buildx step's cleanup is off: it would only remove the
+  # builder and its temporary files from a runner about to be discarded.
+  image:
+    needs: changes
+    if: needs.changes.outputs.docs-only != 'true'
+    runs-on: ubuntu-26.04
+    timeout-minutes: 20
+
+    steps:
+      - uses: actions/checkout@v7
+
       - uses: docker/setup-qemu-action@v4
 
       - uses: docker/setup-buildx-action@v4
+        with:
+          cleanup: false
 
       - name: Build the server image for amd64 and arm64
         uses: docker/build-push-action@v7
@@ -450,7 +466,7 @@ jobs:
   # a superseded run's included, fails it rather than leaving it skipped, which
   # branch protection would count as passing.
   ci:
-    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package]
+    needs: [changes, checks, vitest, latest-release, latest-release-suite, playwright, package, image]
     if: always()
     runs-on: ubuntu-26.04
     timeout-minutes: 5
