@@ -660,9 +660,29 @@ model Shot {
   barista          String?
   peakPressure     Float?            @map("peak_pressure")
   peakFlow         Float?            @map("peak_flow")
-  /// The revision of extractCurves its Preheat and peaks were
-  /// computed by (CURVES_REVISION); those of an earlier one are computed
-  /// again from its measurements (CurvesRefresh).
+  /// What its samples show of how it went (measuredValues, #467), each null
+  /// until a Shot of an earlier curves revision is computed again, and each
+  /// but `poured` where its samples show none. Its time to first drip: the
+  /// seconds from the start of its profile to the scale's first reading of
+  /// 1 g or more.
+  timeToFirstDrip  Float?            @map("time_to_first_drip")
+  /// The step of its Profile it ended in: its index among the Profile's
+  /// steps, a float as a record may hold any whole number there, and its
+  /// name.
+  lastStepFrame    Float?            @map("last_step_frame")
+  lastStepName     String?           @map("last_step_name")
+  /// Whether any of its samples is in the `pouring` substate: a Shot that
+  /// has none is an Unfinished Shot.
+  poured           Boolean?
+  /// The scale's last weight after its Preheat, in grams, its seconds from
+  /// the start of the profile, and the scale's weight flow at that reading,
+  /// in g/s: the flow at the stop.
+  lastWeight       Float?            @map("last_weight")
+  lastWeightSeconds Float?           @map("last_weight_seconds")
+  flowAtStop       Float?            @map("flow_at_stop")
+  /// The revision of extractCurves its Preheat, peaks and what its samples
+  /// show were computed by (CURVES_REVISION); those of an earlier one are
+  /// computed again from its measurements (CurvesRefresh).
   curvesRevision   Int               @default(0) @map("curves_revision")
   measurements     ShotMeasurements?
 
