@@ -7,9 +7,9 @@ import { creditShotLocation } from "../machines/location-history.js";
 import { PrismaService } from "../prisma.service.js";
 import type { Reporter } from "../sync/identity.js";
 import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
-import { type ShotFilters, shotFilterSql } from "./filters.js";
+import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
-import { type ShotSummary, summarise } from "./summary.js";
+import { type Grouping, type ShotSummary, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -137,17 +137,23 @@ export class ShotsService {
     return { shots: page.map(shownShot), total, limit, offset };
   }
 
-  /** The Shot Summary of the Shots `list` lists for the same filters (summary.ts). */
-  summary(filters: ShotFilters = {}): Promise<ShotSummary> {
-    return summarise(this.prisma, Prisma.sql`FROM shots s ${listedJoins} WHERE ${listed} AND ${shotFilterSql(filters)}`);
+  /**
+   * The Shot Summary of the Shots `list` lists for the same filters, grouped
+   * by `groupBy`: a page of its groups (summary.ts).
+   */
+  summary(filters: ShotFilters = {}, groupBy: readonly Grouping[] = [], page = { limit: 20, offset: 0 }): Promise<ShotSummary> {
+    return summarise(this.prisma, listedFrom, shotFilterSql(filters), groupBy, page);
   }
 
   /**
    * The Beans, Baristas and profiles listed Shots recorded, for choosing
    * filters, each as recorded and sorted ignoring case, and the Bean
-   * Batches, Grinders, Recipes and Baskets they are linked to. Null stands
-   * for the Shots that recorded none, or are linked to none: a Bean names
-   * neither roaster nor name.
+   * Batches, Grinders, Recipes and Baskets they are linked to. A Barista is
+   * given once, whatever the case of the name or the blanks around it, by
+   * its most recent spelling (`baristaNamesSql`), as the Barista filter
+   * finds every spelling. Null stands for the Shots that recorded none, or
+   * are linked to none: a Bean names neither roaster nor name, and a
+   * Barista's name may be blank.
    */
   async filterOptions() {
     return this.prisma.$transaction(
@@ -157,7 +163,7 @@ export class ShotsService {
             SELECT nullif(s.coffee_roaster, '') AS "coffeeRoaster", nullif(s.coffee_name, '') AS "coffeeName"
             FROM shots s ${listedJoins} WHERE ${listed} GROUP BY 1, 2
             ORDER BY lower(nullif(s.coffee_roaster, '')) NULLS LAST, lower(nullif(s.coffee_name, '')) NULLS LAST, 1, 2`,
-          distinct(tx, Prisma.raw("nullif(s.barista, '')")),
+          tx.$queryRaw<{ name: string | null }[]>(baristaNamesSql(listedFrom)),
           distinct(tx, Prisma.raw("nullif(s.profile_title, '')")),
           distinct(tx, Prisma.raw("s.library_batch_id::text")),
           distinct(tx, Prisma.raw("s.library_grinder_id::text")),
@@ -174,7 +180,7 @@ export class ShotsService {
         ]);
         return {
           beans,
-          baristas: baristas.map((row) => row.value),
+          baristas: baristas.map((row) => row.name),
           profiles: profiles.map((row) => row.value),
           beanBatches: [...batches.map(viewBatchLink).sort(byBatchName), ...unlinked(batchIds)],
           grinders: [
@@ -273,6 +279,8 @@ const visible: Prisma.ShotWhereInput = {
 /** `visible` in SQL, for `shots` aliased `s` with `listedJoins`, which also joins its Location as `l` for filters. */
 const listed = Prisma.sql`s.has_full_record AND (s.machine_id IS NOT NULL OR (p.id IS NOT NULL AND p.dismissed_at IS NULL))`;
 const listedJoins = Prisma.sql`LEFT JOIN pending_machines p ON p.id = s.pending_machine_id LEFT JOIN locations l ON l.id = s.location_id`;
+/** The rest of a query of every listed Shot, from its `FROM` on, to narrow with `AND`. */
+const listedFrom = Prisma.sql`FROM shots s ${listedJoins} WHERE ${listed}`;
 const batchLink = { id: true, content: true, bean: { select: { id: true, content: true } } } as const satisfies Prisma.BeanBatchSelect;
 const grinderLink = { id: true, content: true } as const satisfies Prisma.GrinderSelect;
 const basketLink = { id: true, content: true } as const satisfies Prisma.BasketSelect;

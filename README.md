@@ -99,7 +99,8 @@ Each server has one owner: a household, or a business with all of its sites.
   hardware no Machine has yet waits under a Pending Machine for an Admin.
 - **Linked to what made it.** Each Shot names its Bean Batch, Grinder,
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
-  and date. Each item's page lists its Shots.
+  and date. Each item's page lists its Shots. A Barista whose name was typed
+  "jules" and "Jules" is one choice in the Barista filter, which finds both.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and
@@ -123,6 +124,11 @@ Each server has one owner: a household, or a business with all of its sites.
   spent in each Machine State: idle, asleep, needing water and the rest. A
   day is its Location's own. For now, a Machine whose tablet was off counts
   as in its last state until the tablet is back.
+- **What happened, day by day.** Each Machine's page lists a chosen day's
+  activity, today's unless you choose another: its dial-in trail, each
+  Recipe loaded or unloaded and what was changed between them, from what to
+  what and by whom, with links to the Recipe, Profile, Bean Batch, Grinder
+  and Basket named; the Recipes it had loaded; and its Machine States.
 - **Remote settings.** While a Machine's tablet is connected, edit the
   Machine's settings, wake schedules included, and the tablet's Decaid
   settings. Each Settings Edit is listed with who made it and what came of it.
@@ -276,8 +282,10 @@ day or by hour, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
 History, Shots with their curves, the profile steps they ran, their time to
 first drip and their flow at the stop, a summary of the Shots any filter
-finds, Steam Records, and the Library with each item's history and
-Conflicts. It can create
+finds, as one group or grouped by Machine, Recipe, Bean, Bean Batch,
+Profile, Grinder, Basket, Barista or Location, two at once, such as two
+Machines on the same Recipe side by side, Steam Records, and the Library
+with each item's history and Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
 Slots and copy them to other Locations, use or dismiss a Conflict's value, make
