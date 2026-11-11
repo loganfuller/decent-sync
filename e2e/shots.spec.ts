@@ -159,7 +159,7 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expectTip(
     page.getByRole("region", { name: "Annotations" }),
     "Annotations",
-    "How it turned out, as recorded on the tablet. The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
+    "How it turned out, as recorded on the tablet. The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
   );
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();

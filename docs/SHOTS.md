@@ -340,7 +340,12 @@ Preheat:
   its Preheat, with its seconds (`lastRecordedWeight`), and `flow_at_stop`:
   the scale's weight flow at that reading, in g/s (`flowAtStop`), kept for
   the calibration milestone. Decaid records no sample after the stop, so
-  both are just before it. The weight flow it records is the one it shows:
+  both are before it: just before, unless the scale dropped out or went
+  stale during the Shot, from when Decaid records no reading
+  (`ShotSequencer._scaleFor`), and both are then as much earlier. A fit of
+  the stop on weight is to take only the Shots whose last weight is at
+  their end, `last_weight_seconds` against the duration they show. The
+  weight flow Decaid records is the one it shows:
   the scale's own where it reports one, or else Decaid's average over its
   smoothing window, which lags the weight (`ScaleController` in
   `decaid:lib/src/controllers/scale_controller.dart`). It is not the flow

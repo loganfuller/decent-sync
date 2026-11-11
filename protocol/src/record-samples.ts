@@ -240,7 +240,8 @@ export function stepSpans(samples: readonly Sample<string>[]): StepSpan[] {
 /**
  * The scale's last weight a Shot's samples (`shotSamples`) recorded after
  * its Preheat, in grams, and its seconds; null where none did. Decaid records
- * no sample after a Shot's stop, so it is the weight just before the stop. In
+ * no sample after a Shot's stop, so it is the weight just before the stop, or
+ * earlier where the scale dropped out, from when Decaid records no reading. In
  * Preheat it records 0 for the scale until it tares it as the profile starts
  * (`ShotSequencer._processSnapshot` in decaid), or, in full gateway mode,
  * where it never tares, the untared reading, so no reading there is the
@@ -254,8 +255,9 @@ export function lastRecordedWeight(samples: readonly Sample<ShotCurve>[]): { wei
 /**
  * A Shot's flow at the stop: the scale's weight flow, in g/s, at its last
  * weight its samples (`shotSamples`) recorded after its Preheat
- * (`lastRecordedWeight`), so just before the stop; null where there is no
- * such reading, or it recorded no weight flow.
+ * (`lastRecordedWeight`), so just before the stop, or earlier where the
+ * scale dropped out; null where there is no such reading, or it recorded no
+ * weight flow.
  */
 export function flowAtStop(samples: readonly Sample<ShotCurve>[]): number | null {
   return lastWeighed(samples)?.values.weightFlow ?? null;
