@@ -692,6 +692,9 @@ Conflict names is kept, still refused, so history goes on naming it
   Machine was dismissed, leaves the Recipe reading as having none until that
   hardware is adopted, when it reads it again; it is kept stored. Choosing
   one locks the Location and then the Recipe's row, as a slot change does.
+  The Recipe's other Shots are read against it in a Shot Summary grouped by
+  Recipe, in the Overview's cells and on a Shot's page (`SHOTS.md`, Shot
+  Summaries and Management interface; #473).
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it

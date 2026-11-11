@@ -9,7 +9,8 @@ import { expectTip } from "./support/tooltips.js";
 
 // The Overview (#471), as an Admin: the home page's block for each Location
 // and each Location's page's own, with a column for each Machine and a row
-// for each Recipe pulled in the period.
+// for each Recipe pulled in the period, a cell giving the duration of the
+// Recipe's Reference Shot beside its Shots' median (#473).
 //
 // Simulated tablets running the built plugin backfill twelve Shots on two
 // Machines at the Lab and one at the Harbor, each derived from one of two
@@ -199,6 +200,31 @@ test("a cell gives a Machine's Shots of a Recipe as the Shot Summary of its filt
   await expect(page).toHaveURL(new RegExp(`/shots\\?locationId=${lab.id}&machineId=${machines.left.id}&recipeId=none&from=${date(0)}&to=${date(0)}$`));
   await expect(shotRows(page)).toHaveCount(2);
   await expect(page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: "Recipe", exact: true })).toHaveText("Pulled with no Recipe loaded");
+});
+
+test("a cell gives the duration of its Recipe's Reference Shot beside the median, where the Recipe has one", async ({ page }) => {
+  const choose = async (shotId: string | null) => expect((await page.request.put(`/api/recipes/${recipes.house}/reference-shot`, { data: { shotId } })).status()).toBe(200);
+  // The House is read against a Shot pulled yesterday with another Recipe, which ran 25.833 s: any Shot may be chosen.
+  await choose("right-decaf");
+  await page.goto("/");
+  const labTable = table(page, "Lab");
+  // Each Machine's Shots of the House, beside the one reference.
+  await expect(cell(labTable, "House", 0)).toHaveText("2 Shots · 1 unfinished24.7 s (reference 25.8 s) · −0.7 g vs target · 100% on weight");
+  await expect(cell(labTable, "House", 1)).toHaveText("1 Shot23.5 s (reference 25.8 s) · −0.1 g vs target · 100% on weight");
+  // A Recipe with none, and the Shots pulled with no Recipe, are as they were.
+  await expect(cell(labTable, "Decaf", 0)).toHaveText("1 Shot23.5 s · +2.5 g vs target · 0% on weight");
+  await expect(cell(labTable, "No Recipe loaded", 0)).toHaveText("1 Shot · 1 cleaning or calibration23.5 s · −0.1 g vs target · 100% on weight");
+  await expectTip(page.getByRole("main"), "Overview", /Where the Recipe has a Reference Shot, the Shot chosen to show how its Shots should go, its duration is beside the median, so a Machine running fast or slow against it shows\./);
+
+  // The Location's own block gives it too.
+  await page.goto(`/locations/${lab.id}`);
+  const ownTable = page.getByRole("region", { name: "Overview", exact: true }).getByRole("table", { name: "Recipes by Machine at Lab" });
+  await expect(cell(ownTable, "House", 0)).toHaveText("2 Shots · 1 unfinished24.7 s (reference 25.8 s) · −0.7 g vs target · 100% on weight");
+
+  // Cleared, the cells give their medians alone.
+  await choose(null);
+  await page.reload();
+  await expect(cell(ownTable, "House", 0)).toHaveText("2 Shots · 1 unfinished24.7 s · −0.7 g vs target · 100% on weight");
 });
 
 test("the period switches to yesterday and to the last 7 days, and stays in the address", async ({ page }) => {

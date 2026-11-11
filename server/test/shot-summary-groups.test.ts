@@ -9,7 +9,8 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // Seam 1: a Shot Summary grouped by Location, Machine, Recipe, Bean, Bean
 // Batch, Profile, Grinder, Basket or Barista, two at once (#468), through
 // the REST API, with a Barista's spellings folded in the grouping, the
-// Barista filter and the filter's choices.
+// Barista filter and the filter's choices; and, grouped by Recipe, each
+// Recipe's Reference Shot beside its Shots' numbers (#473).
 //
 // Eleven Shots are stored through simulated tablets running the built
 // plugin, each derived from one of three Shots Decaid recorded
@@ -77,6 +78,13 @@ interface Group {
   by: By;
   counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: Numbers;
+  /** Its Recipe's Reference Shot, with its own value of each number asked for. */
+  reference?: Reference;
+}
+
+interface Reference {
+  id: string;
+  numbers: Fields;
 }
 
 interface Summary {
@@ -105,6 +113,42 @@ const HARBOR_SERIAL = "47803";
 const UNKNOWN_SERIAL = "47809";
 
 const GROUPINGS = ["location", "machine", "recipe", "bean", "beanBatch", "profile", "grinder", "basket", "barista"] as const;
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+
+/**
+ * One Shot of shot-espresso.json's own value of each number, worked out by
+ * hand (shot-summary-numbers.test.ts): 35.9 g of a target of 36 from a dose
+ * of 18, a grind setting of "8", and no rating, TDS or extraction yield.
+ */
+const ESPRESSO_OWN = {
+  yieldAgainstTarget: -0.1,
+  duration: 23.549,
+  stoppedOnWeight: true,
+  ratio: 1.994444,
+  peakPressure: 9.004639,
+  peakFlow: 9.502197,
+  rating: null,
+  grindSetting: 8,
+  tds: null,
+  extractionYield: null,
+  timeToFirstDrip: 21.45,
+  lastStep: { frame: 4, name: "Pressure Decline" },
+};
+/** One of shot-preheat.json's: 34.7 g of a target of 36 from a dose of 16, and a grind setting of "6.50". */
+const PREHEAT_OWN = {
+  yieldAgainstTarget: -1.3,
+  duration: 25.833,
+  stoppedOnWeight: true,
+  ratio: 2.16875,
+  peakPressure: 8.012207,
+  peakFlow: 8.045166,
+  rating: null,
+  grindSetting: 6.5,
+  tds: null,
+  extractionYield: null,
+  timeToFirstDrip: 7.945,
+  lastStep: { frame: 6, name: "Extraction" },
+};
 
 /** A number of `shots` Shots. */
 const number = (shots: number, median: number, p25 = median, p75 = median): SummaryNumber => ({ shots, median, p25, p75 });
@@ -587,8 +631,90 @@ describe("Shot Summaries by group", () => {
     expect((await api.call("GET", "/shots/summary?groupBy=machine", undefined, {})).status).toBe(401);
   });
 
-  it("leaves out a dismissed Pending Machine's group, and names a Barista by the listed Shots alone", async () => {
+  it("gives each group of a Recipe its Reference Shot's own value of each number asked for, whatever else it is grouped by, and none for a Recipe with none", async () => {
+    const choose = (recipe: Named, shotId: string | null) => api.send("PUT", `/recipes/${recipe.id}/reference-shot`, { shotId });
+    /** Each group's Reference Shot, by what the group is grouped by, each number to the millionth; null for a group giving none. */
+    const references = async (query: Record<string, string>): Promise<[By, Reference | null][]> => {
+      const { groups } = await api.get<Summary>(`/shots/summary?${new URLSearchParams(query)}`);
+      const exact = (value: unknown) => (typeof value === "number" && !Number.isInteger(value) ? Math.round(value * 1e6) / 1e6 : value);
+      return groups.map((group) => [group.by, "reference" in group ? (JSON.parse(JSON.stringify(group.reference), (_key, value: unknown) => exact(value)) as Reference) : null]);
+    };
+    const every = EVERY_NUMBER.join(",");
+    // House before House, by their ids.
+    const houses = [recipes.labHouse, recipes.harborHouse].sort((a, b) => a.id.localeCompare(b.id));
+    const ofHouse = (recipe: Named, lab: Reference | null, atHarbor: Reference | null) => (recipe.id === recipes.labHouse.id ? lab : atHarbor);
+
+    // The Lab's House is read against a Harbor Shot, of another profile, and the Harbor's against the Shot a Pending
+    // Machine holds, pulled with no Recipe; decaf has none.
+    await choose(recipes.labHouse, "harbor-house-2");
+    await choose(recipes.harborHouse, "pending");
+    const preheat = { id: "harbor-house-2", numbers: PREHEAT_OWN };
+    const espresso = { id: "pending", numbers: ESPRESSO_OWN };
+    expect(await references({ groupBy: "recipe", numbers: every })).toEqual([
+      [{ recipe: recipes.decaf }, null],
+      ...houses.map((recipe) => [{ recipe }, ofHouse(recipe, preheat, espresso)]),
+      // The Shots pulled with no Recipe have none to have one.
+      [{ recipe: null }, null],
+    ]);
+    // They are the Shot's own, as its read gives those it keeps, and its duration as the list shows it.
+    const read = (await api.get<{ shot: Fields }>("/shots/harbor-house-2")).shot;
+    const given = (await api.get<Summary>(`/shots/summary?${new URLSearchParams({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: every })}`)).groups[0]!.reference!;
+    expect(given.numbers).toMatchObject({ duration: read.duration, peakPressure: read.peakPressure, peakFlow: read.peakFlow, timeToFirstDrip: read.timeToFirstDrip, lastStep: read.lastStep });
+    expect((read.actualYield as number) - (read.targetYield as number)).toBeCloseTo(given.numbers.yieldAgainstTarget as number, 9);
+    // Only the numbers asked for, in one order: the default three where none are named.
+    const { yieldAgainstTarget, duration, stoppedOnWeight, ratio, lastStep } = PREHEAT_OWN;
+    const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedOnWeight } };
+    expect((await references({ groupBy: "recipe", recipeId: recipes.labHouse.id }))[0]![1]).toEqual(defaults);
+    const asked = (await references({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: "lastStep,ratio" }))[0]![1]!;
+    expect(asked).toEqual({ id: "harbor-house-2", numbers: { ratio, lastStep } });
+    expect(Object.keys(asked.numbers)).toEqual(["ratio", "lastStep"]);
+
+    // With a second grouping, each group of the Recipe gives it, in either order, on whatever page it falls, and
+    // whatever the filters: the Lab's Shots on 2 March don't hold the Harbor Shot.
+    const machine = (created: CreatedMachine) => ({ machine: { id: created.machine.id, name: created.machine.name }, pendingMachine: null });
+    const atLab = { locationId: lab.id, from: "2026-03-02", to: "2026-03-02" };
+    expect(await references({ groupBy: "recipe,machine", ...atLab })).toEqual([
+      [{ recipe: recipes.decaf, ...machine(left) }, null],
+      [{ recipe: recipes.labHouse, ...machine(left) }, defaults],
+      [{ recipe: recipes.labHouse, ...machine(right) }, defaults],
+      [{ recipe: null, ...machine(left) }, null],
+    ]);
+    expect(await references({ groupBy: "machine,recipe", ...atLab })).toEqual([
+      [{ ...machine(left), recipe: recipes.decaf }, null],
+      [{ ...machine(left), recipe: recipes.labHouse }, defaults],
+      [{ ...machine(left), recipe: null }, null],
+      [{ ...machine(right), recipe: recipes.labHouse }, defaults],
+    ]);
+    expect(await references({ groupBy: "recipe,machine", ...atLab, limit: "1", offset: "2" })).toEqual([[{ recipe: recipes.labHouse, ...machine(right) }, defaults]]);
+    // Grouped by anything but Recipe, no group has one, nor the one group of no grouping.
+    for (const groupBy of ["machine", "location,barista"]) expect((await references({ groupBy })).every(([, reference]) => reference === null), groupBy).toBe(true);
+    expect(await references({})).toEqual([[{}, null]]);
+
+    // Whether it stopped on weight is its own: none where it recorded no stop reason, and not where its Machine ended it.
+    const ofDecaf = async () => (await references({ groupBy: "recipe", recipeId: recipes.decaf.id }))[0]![1];
+    await choose(recipes.decaf, "right-decaf");
+    expect(await ofDecaf()).toEqual({ id: "right-decaf", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: null } });
+    await choose(recipes.decaf, "left-decaf");
+    expect(await ofDecaf()).toEqual({ id: "left-decaf", numbers: { yieldAgainstTarget: 2.4, duration: 23.549, stoppedOnWeight: false } });
+    // A cleaning Shot, left out of every group's numbers, gives its own as a Reference Shot.
+    await choose(recipes.decaf, "left-cleaning");
+    expect(await ofDecaf()).toEqual({ id: "left-cleaning", numbers: { yieldAgainstTarget: -0.1, duration: 23.549, stoppedOnWeight: true } });
+    // Cleared, the Recipe gives none again.
+    await choose(recipes.decaf, null);
+    expect(await ofDecaf()).toBeNull();
+
+    // Nothing is worked out of the two: a group gives its numbers and the reference, and no more.
+    const [group] = (await api.get<Summary>(`/shots/summary?${new URLSearchParams({ groupBy: "recipe", recipeId: recipes.labHouse.id })}`)).groups;
+    expect(Object.keys(group!)).toEqual(["by", "counts", "numbers", "reference"]);
+    expect(Object.keys(group!.reference!)).toEqual(["id", "numbers"]);
+  });
+
+  it("leaves out a dismissed Pending Machine's group, a Reference Shot it held reading as none, and names a Barista by the listed Shots alone", async () => {
+    // The Harbor's House is read against the Pending Machine's Shot, until that hardware is dismissed (ADR-0029).
+    const referenceIds = async () => (await summary({ groupBy: "recipe" })).groups.map((group) => [group.by.recipe?.id ?? null, group.reference?.id ?? null]);
+    expect(await referenceIds()).toContainEqual([recipes.harborHouse.id, "pending"]);
     await api.send("POST", `/pending-machines/${pending.id}/dismiss`);
+    expect(await referenceIds()).toEqual(expect.arrayContaining([[recipes.harborHouse.id, null], [recipes.labHouse.id, "harbor-house-2"]]));
     const groups = await groupsOf("machine");
     expect(groups.map((group) => group.by.machine?.name ?? null)).toEqual(["bar Left", "Bar Right", "Harbor 1"]);
     expect((await summary({ groupBy: "location" })).groups.map((group) => group.by.location?.name ?? null)).toEqual(["Harbor", "Lab"]);

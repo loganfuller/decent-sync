@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
@@ -19,10 +19,10 @@ import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, 
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { Checkbox } from "@/components/ui/checkbox";
-import { Field as FormField, FieldLabel } from "@/components/ui/field";
+import { Label } from "@/components/ui/label";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { ApiError, api, type Shot } from "@/lib/api";
+import { ApiError, api, type Recipe, type Shot } from "@/lib/api";
 import { SHOT_CURVES, type Sample, type ShotCurve, lastRecordedWeight, shotSamples } from "@/lib/curves";
 
 interface ShotData {
@@ -30,10 +30,20 @@ interface ShotData {
   samples: Sample<ShotCurve>[];
 }
 
+/** What a Shot is compared with: nothing, the Shot before it on its Machine, or its Recipe's Reference Shot. */
+type Compared = "nothing" | "previous" | "reference";
+
+/** How each Shot compared with is named: in the curves' legends and tooltips, and in the comparison's table. */
+const COMPARED = {
+  previous: { label: "Previous Shot", comparison: "Comparison with the previous Shot", failed: "The previous Shot could not be loaded" },
+  reference: { label: "Reference Shot", comparison: "Comparison with the Reference Shot", failed: "The Reference Shot could not be loaded" },
+} as const;
+
 /**
  * One Shot: its curves, everything recorded about it, how it was credited,
- * a comparison with the previous Shot on the same Machine, which Recipes it
- * is the Reference Shot of, and a control making it one.
+ * a comparison with the previous Shot on the same Machine or with its
+ * Recipe's Reference Shot (#473), which Recipes it is the Reference Shot of,
+ * and a control making it one.
  */
 export function ShotPage() {
   const { id = "" } = useParams();
@@ -56,9 +66,16 @@ function ShotDetails({ id }: { id: string }) {
   const [data, setData] = useState<ShotData>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
-  const [comparing, setComparing] = useState(false);
-  const [previous, setPrevious] = useState<ShotData>();
-  const [previousError, setPreviousError] = useState<string>();
+  const [comparing, setComparing] = useState<Compared>("nothing");
+  // Each Shot it has been compared with, by its id, so one is read once: a Map, as an id may be any text.
+  const [others, setOthers] = useState<ReadonlyMap<string, ShotData>>(new Map());
+  // Counts the choices made, so a load that fails after a later choice says nothing of that one.
+  const choicesMade = useRef(0);
+  // Why the Shot chosen could not be loaded, with the choice it was: shown while that is still what it is compared with.
+  const [compareError, setCompareError] = useState<{ choice: Compared; message: string }>();
+  const [referenceId, setReferenceId] = useState<string>();
+  // Why its Recipe's Reference Shot isn't offered, where its Recipe could not be read: apart from a comparison's own failure.
+  const [referenceError, setReferenceError] = useState<string>();
   const compareId = useId();
   // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
   const changed = useCallback(() => {
@@ -83,20 +100,47 @@ function ShotDetails({ id }: { id: string }) {
     };
   }, [id]);
 
-  const previousId = data?.shot.previousShot?.id;
-  const compare = useCallback(
-    async (checked: boolean) => {
-      setComparing(checked);
-      if (!checked || !previousId || previous) return;
-      setPreviousError(undefined);
-      try {
-        setPrevious(await loadShot(previousId));
-      } catch (caught) {
-        setPreviousError(caught instanceof Error ? caught.message : "The previous Shot could not be loaded");
-      }
-    },
-    [previousId, previous],
-  );
+  // Its Recipe's Reference Shot, which the Recipe's own read gives: none for a Shot pulled with no Recipe, a Recipe with
+  // none, or one whose Reference Shot is hidden. Read again when the Shot becomes its own Recipe's Reference Shot, or
+  // stops being it: while it is, it has no other to compare with, and a comparison with the one it had ends.
+  const recipeId = data?.shot.recipe?.id;
+  const isOwnReference = data?.shot.referenceOf?.some((recipe) => recipe.id === recipeId) ?? false;
+  useEffect(() => {
+    setReferenceId(undefined);
+    setReferenceError(undefined);
+    setComparing((choice) => (choice === "reference" ? "nothing" : choice));
+    if (recipeId === undefined || isOwnReference) return;
+    let current = true;
+    api<{ recipe: Recipe }>("GET", `/recipes/${encodeURIComponent(recipeId)}`).then(
+      ({ recipe }) => current && setReferenceId(recipe.referenceShot && recipe.referenceShot.id !== id ? recipe.referenceShot.id : undefined),
+      (caught: unknown) => {
+        // A Recipe deleted since is one with no Reference Shot.
+        if (!current || (caught instanceof ApiError && caught.status === 404)) return;
+        setReferenceError(caught instanceof Error ? caught.message : "The Recipe could not be loaded");
+      },
+    );
+    return () => {
+      current = false;
+    };
+  }, [id, recipeId, isOwnReference]);
+
+  const comparable = { previous: data?.shot.previousShot?.id, reference: referenceId };
+  // What it is compared with, where there is still such a Shot: its Reference Shot may have become itself.
+  const compared = comparing !== "nothing" && comparable[comparing] !== undefined ? comparing : "nothing";
+  const comparedId = compared === "nothing" ? undefined : comparable[compared];
+  async function compare(choice: Compared) {
+    const made = ++choicesMade.current;
+    setComparing(choice);
+    setCompareError(undefined);
+    const otherId = choice === "nothing" ? undefined : comparable[choice];
+    if (choice === "nothing" || otherId === undefined || others.has(otherId)) return;
+    try {
+      const other = await loadShot(otherId);
+      setOthers((loaded) => new Map(loaded).set(otherId, other));
+    } catch (caught) {
+      if (choicesMade.current === made) setCompareError({ choice, message: caught instanceof Error ? caught.message : COMPARED[choice].failed });
+    }
+  }
 
   const back = (
     <Link to={`/shots${state?.list ?? ""}`} className="text-sm text-muted-foreground hover:text-foreground">
@@ -125,7 +169,12 @@ function ShotDetails({ id }: { id: string }) {
   }
 
   const { shot, samples } = data;
-  const shown = comparing && previous ? previous : undefined;
+  const other = comparedId === undefined ? undefined : others.get(comparedId);
+  const shown = compared !== "nothing" && other ? { ...COMPARED[compared], ...other } : undefined;
+  const on = shot.machine?.name ?? "this Pending Machine";
+  const choices: [Compared, string][] = [["nothing", "Nothing"]];
+  if (comparable.previous !== undefined) choices.push(["previous", `The previous Shot on ${on}`]);
+  if (comparable.reference !== undefined) choices.push(["reference", "Its Recipe's Reference Shot"]);
   return (
     <section className="grid gap-6">
       {back}
@@ -247,29 +296,41 @@ function ShotDetails({ id }: { id: string }) {
           </CardTitleWithInfo>
         </CardHeader>
         <CardContent className="grid gap-6">
-          {shot.previousShot ? (
-            <FormField orientation="horizontal">
-              <Checkbox id={compareId} checked={comparing} onCheckedChange={(checked) => void compare(checked === true)} />
-              <FieldLabel htmlFor={compareId} className="font-normal">
-                Compare with the previous Shot on {shot.machine?.name ?? "this Pending Machine"}
-              </FieldLabel>
-            </FormField>
+          {choices.length > 1 ? (
+            <div className="grid gap-2">
+              <p id={`${compareId}-label`} className="text-sm font-medium">
+                Compare with
+              </p>
+              <RadioGroup aria-labelledby={`${compareId}-label`} value={compared} onValueChange={(choice) => void compare(choice as Compared)}>
+                {choices.map(([choice, label]) => (
+                  <div key={choice} className="flex items-center gap-3">
+                    <RadioGroupItem id={`${compareId}-${choice}`} value={choice} />
+                    <Label htmlFor={`${compareId}-${choice}`} className="font-normal">
+                      {label}
+                    </Label>
+                  </div>
+                ))}
+              </RadioGroup>
+            </div>
           ) : (
-            <p className="text-sm text-muted-foreground">
-              There is no earlier Shot on {shot.machine?.name ?? "this Pending Machine"} to compare it with.
-            </p>
+            <p className="text-sm text-muted-foreground">There is no earlier Shot on {on} to compare it with.</p>
           )}
-          {previousError && (
+          {referenceError && (
             <Alert variant="destructive">
-              <AlertDescription>{previousError}</AlertDescription>
+              <AlertDescription>Its Recipe's Reference Shot could not be read, so it is not offered here: {referenceError}</AlertDescription>
+            </Alert>
+          )}
+          {compareError?.choice === compared && (
+            <Alert variant="destructive">
+              <AlertDescription>{compareError.message}</AlertDescription>
             </Alert>
           )}
           {samples.length > 0 ? (
-            <Curves curves={SHOT_CURVES} label="This Shot" current={samples} previous={shown && { label: "Previous Shot", samples: shown.samples }} />
+            <Curves curves={SHOT_CURVES} label="This Shot" current={samples} previous={shown && { label: shown.label, samples: shown.samples }} />
           ) : (
             <p className="text-sm text-muted-foreground">No measurements were recorded.</p>
           )}
-          {shown && <Comparison shot={shot} previous={shown.shot} />}
+          {shown && <Comparison shot={shot} other={shown.shot} label={shown.label} name={shown.comparison} />}
           {samples.length > 0 && <MeasurementsTable curves={SHOT_CURVES} samples={samples} steps />}
         </CardContent>
       </Card>
@@ -340,8 +401,12 @@ function shotWorkflowFields(shot: Record<string, unknown>): [string, string][] {
   ];
 }
 
-/** This Shot and the previous one on its Machine, side by side. */
-function Comparison({ shot, previous }: { shot: Shot; previous: Shot }) {
+/**
+ * This Shot and the one it is compared with, the previous one on its Machine
+ * or its Recipe's Reference Shot, side by side: `label` heads the other's
+ * column, linking to it, and `name` names the table.
+ */
+function Comparison({ shot, other, label, name }: { shot: Shot; other: Shot; label: string; name: string }) {
   const rows: [string, (shown: Shot) => string | undefined][] = [
     ["Pulled", shotTime],
     ["Profile", (shown) => shown.profileTitle ?? undefined],
@@ -356,14 +421,14 @@ function Comparison({ shot, previous }: { shot: Shot; previous: Shot }) {
   ];
   return (
     <div className="min-w-0 rounded-lg border">
-      <Table aria-label="Comparison with the previous Shot">
+      <Table aria-label={name}>
         <TableHeader>
           <TableRow>
             <TableHead />
             <TableHead>This Shot</TableHead>
             <TableHead>
-              <Link to={`/shots/${encodeURIComponent(previous.id)}`} className="underline underline-offset-4">
-                Previous Shot
+              <Link to={`/shots/${encodeURIComponent(other.id)}`} className="underline underline-offset-4">
+                {label}
               </Link>
             </TableHead>
           </TableRow>
@@ -376,7 +441,7 @@ function Comparison({ shot, previous }: { shot: Shot; previous: Shot }) {
                 <OrNone>{value(shot)}</OrNone>
               </TableCell>
               <TableCell>
-                <OrNone>{value(previous)}</OrNone>
+                <OrNone>{value(other)}</OrNone>
               </TableCell>
             </TableRow>
           ))}

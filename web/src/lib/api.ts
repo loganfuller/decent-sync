@@ -675,7 +675,26 @@ export interface SummaryGroup {
   };
   /** The numbers asked for. */
   numbers: Partial<SummaryNumbers>;
+  /**
+   * Grouped by Recipe, its Recipe's Reference Shot, where it has one the Shots list lists: the same for each group of
+   * the Recipe. Absent from the previous release's answer during a deploy (ADR-0025).
+   */
+  reference?: SummaryReference;
 }
+
+/** A Recipe's Reference Shot beside a group of the Recipe's Shots: its id, and its own value of each number asked for. */
+export interface SummaryReference {
+  id: string;
+  numbers: Partial<ShotNumbers>;
+}
+
+/**
+ * One Shot's own value of each number of a Shot Summary, null where it has none: whether it stopped on weight is true
+ * or false, and its last step the step of its Profile it ended in.
+ */
+export type ShotNumbers = {
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+};
 
 /**
  * The Shot Summary of the Shots a list's filters find: one group, or, grouped, a page of its groups in their order,

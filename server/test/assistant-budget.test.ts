@@ -647,19 +647,25 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(result.recipes!.entries).toContainEqual({ id: made.recipes![0]!, name: "Harbor espresso 00", location: { id: harbor.id, name: "Harbor" } });
       });
 
-      it("summarises those 55 Shots by two groupings, 50 groups a page, as the REST API does, and every group on some page once", async () => {
+      it("summarises those 55 Shots by two groupings, each Recipe's Reference Shot beside its group, 50 groups a page, as the REST API does, and every group on some page once", async () => {
         // Each of the 55 was pulled with a Recipe of its own and is linked to a Bean Batch of its own, so by both there
         // are 55 groups, each naming a Recipe with its Location and a Bean Batch with its Bean: the most a group names.
+        // Each Recipe's Reference Shot is its own Shot, so each group gives one too (#473).
+        for (const [n, id] of made.recipes!.entries()) await api.send("PUT", `/recipes/${id}/reference-shot`, { shotId: `copied-${String(n + 1).padStart(2, "0")}` });
         const day = { from: "2026-11-06", to: "2026-11-06" };
         const groupBy = ["recipe", "beanBatch"];
         const rest = (offset: number) => api.get<{ groups: SummaryGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams({ ...day, groupBy: groupBy.join(), limit: "50", offset: String(offset) })}`);
         const first = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy, limit: 50 });
         pagingFirst(first.text, "groups");
-        // About 600 characters a group, half of them its ids, so 50 fit, uncut.
+        // About 740 characters a group, 110 of them its Reference Shot and 300 its ids, so 50 fit, uncut.
         expect(first.result).not.toHaveProperty("cut");
         expect(first.result).toEqual(toolSummary(await rest(0)));
         expect(first.result).toMatchObject({ total: 55, offset: 0, more: true });
         expect(first.result.groups).toHaveLength(50);
+        // Each group's Reference Shot, with its own value of each of the default numbers, to hundredths.
+        expect(first.result.groups.map((group) => group.reference)).toEqual(
+          Array.from({ length: 50 }, (_, n) => ({ id: `copied-${String(n + 1).padStart(2, "0")}`, numbers: { yieldAgainstTarget: -0.1, duration: 23.55, stoppedOnWeight: true } })),
+        );
         expect(first.result.groups[0]!.by).toEqual({
           recipe: { id: made.recipes![0]!, name: "Harbor espresso 00", location: { id: harbor.id, name: "Harbor" } },
           beanBatch: { id: made.beanBatches![0]!, bean: { id: made.beans![0]!, roaster: "Roux Bakehouse", name: "Ethiopia Guji Hambela lot 00" }, roastDate: "2026-10-28" },
@@ -673,18 +679,21 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(recorded.result).toMatchObject({ total: 55, more: true, groups: expect.arrayContaining([expect.objectContaining({ by: { barista: "Barista 01", profile: "Blooming espresso 01" } })]) });
         expect(recorded.result.groups).toHaveLength(50);
 
-        // Every number at once: about 1,200 characters a group, so a page of 50 ends sooner, uncut, each page as the REST
-        // API gives those groups, and every group on some page once.
+        // Every number at once: about 1,500 characters a group, 300 of them its Reference Shot's, so a page of 50 ends
+        // sooner, uncut, each page as the REST API gives those groups, and every group on some page once.
         const recipes: string[] = [];
         for (let offset = 0; ; ) {
           const { result, text } = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy, numbers: EVERY_NUMBER, limit: 50, offset });
           pagingFirst(text, "groups");
           expect(result).not.toHaveProperty("cut");
-          // 37 of them the first page, and the other 18 the next.
-          expect(result.groups.length).toBe(offset === 0 ? 37 : 18);
+          // 29 of them the first page, and the other 26 the next.
+          expect(result.groups.length).toBe(offset === 0 ? 29 : 26);
           const page = { ...day, groupBy: groupBy.join(), numbers: EVERY_NUMBER.join(), limit: String(result.groups.length), offset: String(offset) };
           expect(result.groups).toEqual(toolSummary(await api.get<{ groups: SummaryGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams(page)}`)).groups);
-          for (const group of result.groups) expect(Object.keys(group.numbers)).toEqual(EVERY_NUMBER);
+          for (const group of result.groups) {
+            expect(Object.keys(group.numbers)).toEqual(EVERY_NUMBER);
+            expect(Object.keys(group.reference!.numbers)).toEqual(EVERY_NUMBER);
+          }
           recipes.push(...result.groups.map((group) => (group.by.recipe as { id: string }).id));
           offset += result.groups.length;
           expect(result.more).toBe(offset < 55);
@@ -1227,6 +1236,28 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       // Asked for one group at a time, as the cut note says, it has the whole of more of them.
       const one = await assistant.callWithinBudget<Page & { groups: Group[] }>("summarise_shots", { ...args, limit: 1 });
       expect(one.result).toMatchObject({ total: 2, offset: 0, more: true });
+
+      // Pulled with one Recipe loaded, whose Reference Shot is the first of them: by Recipe, each Barista's group gives
+      // it too (#473), the name of the step it ended in cut and marked as the groups' are, and its numbers its own.
+      const recipe = (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: lab.id, content: { name: "Haunted house" } }, 201)).recipe.id;
+      const database = await server.connectDatabase();
+      try {
+        await database.query("UPDATE shots SET recipe_id = $2 WHERE machine_id = $1", [numbered.machine.id, recipe]);
+        await database.query("INSERT INTO loaded_recipes (machine_id, recipe_id, loaded_at) VALUES ($1, $2, '2026-11-02T00:00:00Z')", [numbered.machine.id, recipe]);
+      } finally {
+        await database.end();
+      }
+      await api.send("PUT", `/recipes/${recipe}/reference-shot`, { shotId: "haunted-numbers-00" });
+      const byRecipe = await assistant.callWithinBudget<Page & { cut: string; groups: Group[] }>("summarise_shots", { ...args, groupBy: ["recipe", "barista"] });
+      expect(Object.keys(byRecipe.result)[0]).toBe("cut");
+      expect(byRecipe.result.groups.map((group) => [(group.by.recipe as { id: string }).id, group.by.barista])).toEqual([[recipe, "Ann"], [recipe, "Ben"]]);
+      for (const group of byRecipe.result.groups) {
+        expect(group.reference!.id).toBe("haunted-numbers-00");
+        expect(Object.keys(group.reference!.numbers)).toEqual(EVERY_NUMBER);
+        // Its grind setting is text, so it has none; it ended in the first step.
+        expect(group.reference!.numbers).toMatchObject({ grindSetting: null, rating: 8, tds: 9.5, ratio: 1.99, stoppedOnWeight: true, lastStep: { frame: 0 } });
+        expect(cut((group.reference!.numbers.lastStep as { name: string }).name)).toBe(true);
+      }
     });
 
     it("finds Beans whose names run long a page at a time, each name cut and marked", async () => {

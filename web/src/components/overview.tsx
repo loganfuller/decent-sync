@@ -11,7 +11,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type Location, type Machine, type Recipe, type ShotSummary, type SummaryGroup, api } from "@/lib/api";
 import { type OverviewColumn, type OverviewRow, PERIODS, type Period, cellFilters, daysSinceRoast, overviewColumns, overviewRows, periodDays, periodOf } from "@/lib/overview";
-import { durationText, shareText, shotsText, yieldAgainstTargetText } from "@/lib/shot-summary";
+import { durationText, referenceDurationText, shareText, shotsText, yieldAgainstTargetText } from "@/lib/shot-summary";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 // The Overview (#471; GLOSSARY.md): a block for a Location, which the home
@@ -19,8 +19,8 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 // block's columns are its Machines, each with its status as the Machines
 // page gives it, and its rows the Recipes pulled there in the period, a
 // cell giving what a Shot Summary grouped by Recipe and Machine gives of a
-// Machine's Shots of a Recipe. Nothing is read for it that the REST API
-// didn't already give.
+// Machine's Shots of a Recipe, with the duration of the Recipe's Reference
+// Shot beside theirs (#473).
 
 /** The most groups one read of a summary gives (`readPage` in the server's pagination.ts). */
 const PAGE = 100;
@@ -81,6 +81,10 @@ export function OverviewAbout() {
         A cell counts a Machine's Shots of a Recipe, and gives their median duration, their median yield against each Shot's own target, and the
         share that stopped on weight, of those that recorded what stopped them. Cleaning and calibration Shots, and Unfinished Shots, in which
         nothing poured, are counted beside them and left out of the numbers.
+      </p>
+      <p>
+        Where the Recipe has a Reference Shot, the Shot chosen to show how its Shots should go, its duration is beside the median, so a Machine
+        running fast or slow against it shows.
       </p>
       <p>A cell opens its Shots in the Shots list. The status is read again every 5 seconds, and the numbers every 30.</p>
     </>
@@ -322,7 +326,9 @@ function RecipeHeading({ row, locationId, today }: { row: OverviewRow; locationI
  * A cell: how many Shots its numbers cover, with the Unfinished Shots and
  * the cleaning and calibration Shots left out of them beside it, and their
  * median duration, median yield against target and the share stopped on
- * weight, each where the Shots give one. It opens them in the Shots list.
+ * weight, each where the Shots give one. Beside the median duration is the
+ * duration of the Recipe's Reference Shot, where it has one. It opens the
+ * Shots in the Shots list.
  */
 function ShotsCell({ group, to }: { group: SummaryGroup; to: string }) {
   const { counts, numbers } = group;
@@ -330,7 +336,8 @@ function ShotsCell({ group, to }: { group: SummaryGroup; to: string }) {
     ...(counts.unfinished > 0 ? [`${counts.unfinished} unfinished`] : []),
     ...(counts.cleaningAndCalibration > 0 ? [`${counts.cleaningAndCalibration} cleaning or calibration`] : []),
   ];
-  const duration = numbers.duration && durationText(numbers.duration)?.median;
+  const median = numbers.duration && durationText(numbers.duration)?.median;
+  const duration = median && referenceDurationText(median, group.reference);
   const against = numbers.yieldAgainstTarget && yieldAgainstTargetText(numbers.yieldAgainstTarget)?.median;
   const onWeight = numbers.stoppedOnWeight && shareText(numbers.stoppedOnWeight.share);
   const medians = [...(duration ? [duration] : []), ...(against ? [`${against} vs target`] : []), ...(onWeight ? [`${onWeight} on weight`] : [])];

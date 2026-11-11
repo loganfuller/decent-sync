@@ -2,13 +2,14 @@ import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { queryValue } from "../record-filters.js";
 import { BLANK, baristaKeySql, baristaNamesSql } from "./filters.js";
-import { shotRecipeSql } from "./links.js";
+import { shotListedSql, shotRecipeSql } from "./links.js";
 
-// A Shot Summary (#466, #468, #469; #465, Which Shots a summary counts, The
-// numbers, Groupings): what the Shots a list's filters find have in common,
-// by group, worked out as it is read, in one statement, from each Shot's
-// columns and its record. Nothing is stored for it, so a Shot edit shows in
-// the next one.
+// A Shot Summary (#466, #468, #469, #473; #465, Which Shots a summary counts,
+// The numbers, Groupings): what the Shots a list's filters find have in
+// common, by group, worked out as it is read, in one statement, from each
+// Shot's columns and its record, with the Reference Shot of each Recipe they
+// are grouped by. Nothing is stored for it, so a Shot edit shows in the next
+// one.
 
 /**
  * A number of a summary: the median of the Shots that had a value for it,
@@ -81,6 +82,17 @@ export interface SummaryNumbers {
   /** The step of its Profile each Shot ended in, as the Shot keeps it. */
   lastStep: LastSteps;
 }
+
+/**
+ * What one Shot has of each number, as a Recipe's Reference Shot gives them
+ * (`SummaryReference`): its own value, null where it has none, as a Shot
+ * with no value of a number is not counted in a group's. Whether it stopped
+ * on weight is true or false, null where it recorded no stop reason, and its
+ * last step the step of its Profile it ended in.
+ */
+export type ShotNumbers = {
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+};
 
 /** The numbers a summary can give, in the order a group gives them. */
 export const NUMBERS = [
@@ -164,6 +176,28 @@ export interface SummaryGroup {
   };
   /** The numbers asked for, in the order of `NUMBERS`. */
   numbers: Partial<SummaryNumbers>;
+  /**
+   * With a grouping by Recipe, where the group's Recipe has a Reference Shot
+   * (ADR-0029) the Shots list lists: that Shot, to read the group's numbers
+   * against. It is the Recipe's, so each group of the Recipe gives the same
+   * one, whatever else they are grouped by and whatever the filters, which
+   * need not find it. No group has one otherwise: not a Recipe's with none,
+   * or whose Reference Shot is hidden, its Pending Machine dismissed, nor
+   * the group of Shots with no Recipe.
+   */
+  reference?: SummaryReference;
+}
+
+/**
+ * A Recipe's Reference Shot beside a group of the Recipe's Shots: its id,
+ * and its own value of each number asked for, in the order of `NUMBERS`,
+ * whatever kind of Shot it is, a cleaning or an Unfinished Shot too. Nothing
+ * is worked out of the two: no score, and no judgement of the group's Shots
+ * against it (#465, Out of Scope).
+ */
+export interface SummaryReference {
+  id: string;
+  numbers: Partial<ShotNumbers>;
 }
 
 /**
@@ -262,6 +296,8 @@ interface NumberSql {
   aggregates(covered: Prisma.Sql): Prisma.Sql[];
   /** The number, from a group's row, of a group of `shots` Shots its numbers cover. */
   read(row: Record<string, unknown>, shots: number): unknown;
+  /** One Shot's own value of it (`ShotNumbers`), from its `columns`. */
+  own(shot: Record<string, unknown>): unknown;
 }
 
 /** A column or a group's aggregate named by `name`, one of this file's, as it is written into the statement. */
@@ -293,6 +329,11 @@ function medianSql(name: string, value: Prisma.Sql): NumberSql {
       Prisma.sql`${quartilesSql(name, covered)} AS ${quoted(`${name}Quartiles`)}`,
     ],
     read: (row) => numberOf(row[`${name}Shots`] as number, row[`${name}Quartiles`] as number[] | null),
+    // A value too large to count in a group's is none here too.
+    own: (shot) => {
+      const value = shot[name] as number | null;
+      return value !== null && Math.abs(value) < MAX_VALUE ? value : null;
+    },
   };
 }
 
@@ -324,6 +365,7 @@ function numberSql(name: NumberName): NumberSql {
           const shots = row.stopShots as number;
           return { shots, share: shots === 0 ? null : (row.stoppedOnWeight as number) / shots } satisfies SummaryShare;
         },
+        own: (shot) => (shot.stopReason === null ? null : shot.stopReason === "targetWeight"),
       };
     case "ratio":
       return medianSql(
@@ -356,6 +398,7 @@ function numberSql(name: NumberName): NumberSql {
         ],
         read: (row, shots) =>
           ({ ...(median.read(row, shots) as SummaryNumber), lowest: row.grindSettingLowest as number | null, highest: row.grindSettingHighest as number | null }) satisfies RangedNumber,
+        own: median.own,
       };
     }
     case "tds":
@@ -369,6 +412,7 @@ function numberSql(name: NumberName): NumberSql {
         columns: [Prisma.sql`s.last_step_frame AS "stepFrame"`, Prisma.sql`s.last_step_name AS "stepName"`],
         aggregates: (covered) => [Prisma.sql`count(shot."stepFrame") FILTER (WHERE ${covered})::int AS "lastStepShots"`],
         read: (row) => ({ shots: row.lastStepShots as number, mostCommon: (row.lastSteps as LastSteps["mostCommon"] | null) ?? [] }) satisfies LastSteps,
+        own: (shot) => (shot.stepFrame === null ? null : { frame: shot.stepFrame as number, name: shot.stepName as string | null }),
       };
   }
 }
@@ -422,6 +466,8 @@ interface GroupingSql {
   joins?: Prisma.Sql;
   /** What a group gives for it (`GroupedBy`), by its name there. */
   by: Record<string, Prisma.Sql>;
+  /** The id of the Reference Shot of what a group is grouped by, of its `joins`: a grouping by Recipe's alone. */
+  referenceShotId?: Prisma.Sql;
   /** The order of its groups: by name, ignoring case, then by id, the group of Shots with none last. */
   order: Prisma.Sql;
 }
@@ -486,7 +532,7 @@ function groupingSql(grouping: Grouping, listed: Prisma.Sql): GroupingSql {
       };
     // Resolved through its Machine's Loaded Recipes for each Shot, as the list's filter reads it.
     case "recipe":
-      return itemSql("recipe", shotRecipeSql("s"), "recipes", "name", true);
+      return { ...itemSql("recipe", shotRecipeSql("s"), "recipes", "name", true), referenceShotId: Prisma.sql`by_recipe.reference_shot_id` };
     // As the list's filter takes a Bean: by roaster and name together, an empty one as none, in its choices' order.
     case "bean":
       return {
@@ -548,7 +594,11 @@ function joined(parts: Prisma.Sql[], separator: string): Prisma.Sql {
  * by the first grouping, then the second, each by name, ignoring case, then
  * by id, with its group of Shots with none last, and `page` takes that many
  * groups of them. Each group gives its counts and the `numbers` asked for,
- * only those being read.
+ * only those being read. Grouped by Recipe, each group on the page gives its
+ * Recipe's Reference Shot too, where it has one the Shots list lists
+ * (`shotListedSql`), with that Shot's own value of each of those numbers,
+ * read as each Shot's are, in the same statement, so the two are of one
+ * moment.
  *
  * Each Shot's numbers are worked out in decimal, as its columns print, so
  * 35.9 less 36 is -0.1, and its duration to the millisecond, as the list
@@ -586,6 +636,7 @@ export async function summarise(
   // on the page by the group's keys as one value, so a group's are found by hash rather than by reading every Shot again
   // for each group, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed).
   const steps = asked.some(([name]) => name === "lastStep");
+  const referenceShotId = groupings.find((grouping) => grouping.referenceShotId)?.referenceShotId;
   const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames.map(ofShot), ", ")})`;
   const rows = await db.$queryRaw<Record<string, unknown>[]>`
     WITH ${joined(named, " ")} shot AS MATERIALIZED (
@@ -632,22 +683,37 @@ export async function summarise(
     }
     page AS (
       SELECT g.*, json_build_object(${joined(by, ", ")}) AS by, row_number() OVER (${order.length > 0 ? Prisma.sql`ORDER BY ${Prisma.join(order, ", ")}` : Prisma.empty}) AS position
+        ${referenceShotId ? Prisma.sql`, ${referenceShotId} AS reference_shot_id` : Prisma.empty}
       FROM grouped g ${joined(joins, " ")}
       ORDER BY position LIMIT ${page.limit} OFFSET ${page.offset}
     )
     SELECT (SELECT count(*)::int FROM grouped) AS total, page.*${steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
+      ${referenceShotId ? Prisma.sql`, CASE WHEN reference_shot.id IS NOT NULL THEN to_json(reference_shot) END AS reference` : Prisma.empty}
     FROM (SELECT 1) AS whole LEFT JOIN page ON TRUE
     ${steps ? Prisma.sql`LEFT JOIN steps ON steps.group_key = page.group_key` : Prisma.empty}
+    ${
+      // Read for the groups on the page alone, each by its id.
+      referenceShotId
+        ? Prisma.sql`LEFT JOIN LATERAL (
+      SELECT ${Prisma.join([Prisma.sql`s.id`, ...asked.flatMap(([, number]) => number.columns)], ", ")}
+      FROM shots s WHERE s.id = page.reference_shot_id AND ${shotListedSql("s")}
+    ) AS reference_shot ON TRUE`
+        : Prisma.empty
+    }
     ORDER BY page.position`;
   return {
     groups: rows.flatMap((row) => {
       if (row.by === null) return [];
       const shots = row.shots as number;
+      const reference = (row.reference ?? null) as Record<string, unknown> | null;
       return [
         {
           by: row.by as GroupedBy,
           counts: { shots, unfinished: row.unfinished as number, cleaningAndCalibration: row.leftOut as number, awaitingValues: row.awaiting as number },
           numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.read(row, shots)])) as Partial<SummaryNumbers>,
+          ...(reference && {
+            reference: { id: reference.id as string, numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.own(reference)])) as Partial<ShotNumbers> },
+          }),
         },
       ];
     }),

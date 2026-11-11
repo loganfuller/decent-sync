@@ -309,6 +309,32 @@ const summaryGroupBy = z
     barista: groupedBy(z.string(), "The Barista, by the most recent spelling of the name."),
   })
   .describe("What the group is grouped by: an entry for each of groupBy, null for its group of Shots with none; empty without groupBy.");
+// One Shot's own value of a number, as a Recipe's Reference Shot gives it.
+const ownNumber = z.number().nullable().optional();
+const summaryReference = z
+  .object({
+    id: id.describe("The Reference Shot's id, which get_shot reads."),
+    numbers: z
+      .object({
+        yieldAgainstTarget: ownNumber,
+        duration: ownNumber,
+        stoppedOnWeight: z.boolean().nullable().optional().describe("Whether targetWeight stopped it; null where it recorded no stop reason."),
+        ratio: ownNumber,
+        peakPressure: ownNumber,
+        peakFlow: ownNumber,
+        rating: ownNumber,
+        grindSetting: ownNumber,
+        tds: ownNumber,
+        extractionYield: ownNumber,
+        timeToFirstDrip: ownNumber,
+        lastStep: z.object({ frame: z.number(), name: z.string().nullable() }).nullable().optional().describe("The step of its Profile it ended in."),
+      })
+      .describe("Its own value of each number asked for, as the group's are worked out for each Shot; null where it has none."),
+  })
+  .optional()
+  .describe(
+    "Only with groupBy recipe, where the group's Recipe has a Reference Shot, the Shot chosen to show how its Shots should go (set_reference_shot): that Shot, to read the group's numbers against. Every group of one Recipe gives the same, whatever the filters, and whatever kind of Shot it is. Nothing is scored against it.",
+  );
 const summariseShotsOutput = z.object({
   ...pageOutput,
   groups: z
@@ -354,6 +380,7 @@ const summariseShotsOutput = z.object({
             .optional()
             .describe("The steps of their Profiles the Shots ended in; given only when asked for."),
         }),
+        reference: summaryReference,
       }),
     )
     .describe("A page of the groups, in their order; without groupBy, one group, every Shot the filters find."),
@@ -447,7 +474,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "summarise_shots",
     title: "Summarise Shots",
-    description: `Summarises the Shots find_shots finds for the same filters in one call: how many there are and how they went, as one group or, with groupBy, by group, such as each Machine's. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured: the Machine never reported pouring and the scale never read 1 g, as in a Shot stopped at once; and counts.cleaningAndCalibration, those whose profile's type, as recorded, is cleaning or calibrate. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots have no timeToFirstDrip or lastStep yet, stored before the server kept them, which it is working out; they count as poured. numbers gives those numbers names, by default ${DEFAULT_NUMBERS.slice(0, -1).join(", ")} and ${DEFAULT_NUMBERS.at(-1)}, worked out as read, so an edit on the tablet shows next time: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts; ratio, yield over dose weighed, none where the dose is 0 or missing; rating, the enjoyment rated on the tablet, 0 to 10, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the whole setting recorded is a decimal number, such as 8.8, not text, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: a median of 3 says less than one of 80. They are null where none had. stoppedOnWeight is the share, 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping it as the scale's projected weight reached the target, with shots, how many recorded one. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} ${PAGED} For two time ranges, ask twice. Its filters are find_shots', and match as there.`,
+    description: `Summarises the Shots find_shots finds for the same filters in one call: how many there are and how they went, as one group or, with groupBy, by group, such as each Machine's. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured: the Machine never reported pouring and the scale never read 1 g, as in a Shot stopped at once; and counts.cleaningAndCalibration, those whose profile's type, as recorded, is cleaning or calibrate. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots have no timeToFirstDrip or lastStep yet, stored before the server kept them, which it is working out; they count as poured. numbers gives those numbers names, by default ${DEFAULT_NUMBERS.slice(0, -1).join(", ")} and ${DEFAULT_NUMBERS.at(-1)}, worked out as read, so an edit on the tablet shows next time: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts; ratio, yield over dose weighed, none where the dose is 0 or missing; rating, the enjoyment rated on the tablet, 0 to 10, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the whole setting recorded is a decimal number, such as 8.8, not text, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: a median of 3 says less than one of 80. They are null where none had. stoppedOnWeight is the share, 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping it as the scale's projected weight reached the target, with shots, how many recorded one. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} By recipe, a group whose Recipe has a Reference Shot gives reference: that Shot's id and, as numbers, its own value of each number, stoppedOnWeight true or false and lastStep one step. ${PAGED} For two time ranges, ask twice. Its filters are find_shots', and match as there.`,
     inputSchema: summariseShotsInput,
     outputSchema: summariseShotsOutput,
     annotations: { readOnlyHint: true },

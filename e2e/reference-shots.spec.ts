@@ -12,11 +12,13 @@ import { expectTip } from "./support/tooltips.js";
 // which offers the Shot's own Recipe first and then the others the person
 // may edit, says which Recipes it is the Reference Shot of, and is marked in
 // the Shots list; shown on the Recipe's page with its numbers, a note where
-// its Profile is another than the Recipe's, and cleared there; and read by a
-// Viewer, who has no control for it. A simulated tablet running the built
-// plugin acts as DYE2 v0.1.33 does with the steps recorded from it
-// (server/test/fixtures/decaid/dye2-v0.1.26/ and later), its eight recipes
-// becoming Uptown's Recipes. Serials are made up, from 47501.
+// its Profile is another than the Recipe's, and cleared there; read by a
+// Viewer, who has no control for it; and its curves drawn behind those of
+// another Shot of the Recipe, on that Shot's page (#473). A simulated
+// tablet running the built plugin acts as DYE2 v0.1.33 does with the steps
+// recorded from it (server/test/fixtures/decaid/dye2-v0.1.26/ and later),
+// its eight recipes becoming Uptown's Recipes. Serials are made up, from
+// 47501.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Record_ = Record<string, unknown>;
@@ -24,6 +26,12 @@ type Record_ = Record<string, unknown>;
 /** The record id of the recording's Ethiopia, in no slot. */
 const ETHIOPIA = "1";
 const SHOT = "uptown-ethiopia";
+/** Pulled with the Ethiopia loaded too, by the last test. */
+const LATER_SHOT = "uptown-ethiopia-later";
+
+/** Uptown's tablet, which the first test loads, and the Library's id of its Ethiopia. */
+let uptownTablet: SimulatedTablet;
+let ethiopiaId: string;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -34,6 +42,8 @@ test("from a Shot's page, an Admin makes it its own Recipe's Reference Shot, off
   await expect.poll(() => recordOf(ETHIOPIA)).not.toBeNull();
   const ethiopia = recordOf(ETHIOPIA)!;
   await pullWith(page, tablet, ETHIOPIA, ethiopia, SHOT, 47501);
+  uptownTablet = tablet;
+  ethiopiaId = ethiopia;
 
   // Belmont's espresso names a Profile the Shot wasn't pulled on.
   const belmont = await createLocation(page, "Belmont");
@@ -122,6 +132,81 @@ test("a Viewer reads a Recipe's Reference Shot and the Recipes a Shot is that of
   });
 });
 
+test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, with the comparison beside them, but not for the Reference Shot itself, a Recipe with none or one it can't read", async ({ page }) => {
+  // The Ethiopia's Reference Shot is the first Shot on its Machine: it has none before it, and is not compared with itself.
+  await page.goto(`/shots/${SHOT}`);
+  const curves = page.getByRole("region", { name: "Curves" });
+  await expect(curves.getByText("There is no earlier Shot on Uptown 1 to compare it with.")).toBeVisible();
+  await expect(curves.getByRole("radiogroup")).toHaveCount(0);
+
+  // A later Shot of the Ethiopia, which weighed 34.2 g, is compared with nothing, until one is chosen.
+  await pullWith(page, uptownTablet, ETHIOPIA, ethiopiaId, LATER_SHOT, 47501, { actualYield: 34.2 });
+  await page.goto(`/shots/${LATER_SHOT}`);
+  const choice = curves.getByRole("radiogroup", { name: "Compare with" });
+  await expect(choice.getByRole("radio")).toHaveCount(3);
+  await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
+  const comparison = curves.getByRole("table", { name: "Comparison with the Reference Shot" });
+  await expect(comparison).toHaveCount(0);
+  await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
+
+  // A Reference Shot that can't be loaded says so while it is the choice, and no longer once another is made.
+  const measurements = `**/api/shots/${SHOT}/measurements`;
+  await page.route(measurements, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
+  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  await expect(curves.getByRole("alert")).toHaveText("Internal server error");
+  await expect(comparison).toHaveCount(0);
+  await choice.getByRole("radio", { name: "Nothing" }).check();
+  await expect(curves.getByRole("alert")).toHaveCount(0);
+  await page.unroute(measurements);
+
+  // Its Recipe's Reference Shot, behind each curve, and beside them as the previous Shot is.
+  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Reference Shot");
+  }
+  await expect(comparison.getByRole("columnheader")).toHaveText(["", "This Shot", "Reference Shot"]);
+  await expect(comparison.getByRole("row", { name: /^Yield/ }).getByRole("cell")).toHaveText(["34.2 g", "35.9 g"]);
+  await expect(comparison.getByRole("link", { name: "Reference Shot" })).toHaveAttribute("href", `/shots/${SHOT}`);
+
+  // The previous Shot instead, one at a time: here the same Shot, named as the previous one.
+  await choice.getByRole("radio", { name: "The previous Shot on Uptown 1" }).check();
+  await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).toContainText("Previous Shot");
+  await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
+  await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
+  await expect(comparison).toHaveCount(0);
+  await choice.getByRole("radio", { name: "Nothing" }).check();
+  await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Previous Shot");
+
+  // Made its Recipe's Reference Shot itself, it has no other to compare with.
+  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  await expect(comparison).toBeVisible();
+  await page.getByRole("button", { name: "Make it a Reference Shot" }).click();
+  const dialog = page.getByRole("dialog", { name: "Make it a Reference Shot" });
+  await expect(dialog.getByRole("combobox", { name: "Recipe" })).toHaveText("Fixture Ethiopia Espresso at Uptown");
+  await dialog.getByRole("button", { name: "Make it the Reference Shot" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(choice.getByRole("radio")).toHaveCount(2);
+  await expect(choice.getByRole("radio", { name: "Its Recipe's Reference Shot" })).toHaveCount(0);
+  await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
+  await expect(comparison).toHaveCount(0);
+
+  // The Recipe's Reference Shot cleared, a Shot of it is offered only the previous one, once its Recipe is read.
+  expect((await page.request.put(`/api/recipes/${ethiopiaId}/reference-shot`, { data: { shotId: null } })).status()).toBe(200);
+  const recipeRead = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/recipes/${ethiopiaId}`);
+  await page.reload();
+  await recipeRead;
+  await expect(choice.getByRole("radio", { name: "The previous Shot on Uptown 1" })).toBeVisible();
+  await expect(choice.getByRole("radio", { name: "Its Recipe's Reference Shot" })).toHaveCount(0);
+
+  // Its Recipe unreadable, the page says why its Reference Shot isn't offered, apart from the comparison it still makes.
+  await page.route(`**/api/recipes/${ethiopiaId}`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
+  await page.reload();
+  await expect(curves.getByRole("alert")).toHaveText("Its Recipe's Reference Shot could not be read, so it is not offered here: Internal server error");
+  await choice.getByRole("radio", { name: "The previous Shot on Uptown 1" }).check();
+  await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
+  await expect(curves.getByRole("alert")).toHaveCount(1);
+});
+
 /** The ids of the two Recipes the first test made the Shot the Reference Shot of. */
 async function recipes(page: Page): Promise<{ ethiopia: string; belmont: string }> {
   const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
@@ -138,8 +223,9 @@ async function recipes(page: Page): Promise<{ ethiopia: string; belmont: string 
  * a Shot with the Workflow as it stands, its samples a tenth of a second
  * apart, once the server has the Recipe loaded on the Machine, and waits for
  * the Shot to be linked to the Recipe, as shot-recipe-links.spec.ts does.
+ * `annotations` are those the Shot records other than the fixture's.
  */
-async function pullWith(page: Page, tablet: SimulatedTablet, recordId: string, recipeId: string, id: string, serial: number): Promise<void> {
+async function pullWith(page: Page, tablet: SimulatedTablet, recordId: string, recipeId: string, id: string, serial: number, annotations: Record_ = {}): Promise<void> {
   const dashboard = await openDye2Dashboard(tablet);
   const applied = dashboard.recipePills().some((pill) => pill.id === recordId) ? await dashboard.applyRecipe(recordId) : (await selectRecipeInDye2(tablet, recordId)).applied;
   expect(applied?.workflow?.status).toBe(200);
@@ -159,6 +245,7 @@ async function pullWith(page: Page, tablet: SimulatedTablet, recordId: string, r
     timestamp: new Date(startedAt).toISOString(),
     measurements: samples.map((sample, index) => ({ ...sample, machine: { ...(sample.machine as Record_), timestamp: new Date(startedAt + index * 100).toISOString().slice(0, -1) } })),
     workflow: { ...structuredClone(tablet.workflow()), machine: { ...((fixture.workflow as Record_).machine as Record_), serialNumber: String(serial) } },
+    annotations: { ...(fixture.annotations as Record_), ...annotations },
   });
   await expect
     .poll(async () => {
