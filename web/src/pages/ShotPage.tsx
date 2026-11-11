@@ -71,7 +71,8 @@ function ShotDetails({ id }: { id: string }) {
   const [others, setOthers] = useState<ReadonlyMap<string, ShotData>>(new Map());
   // Counts the choices made, so a load that fails after a later choice says nothing of that one.
   const choicesMade = useRef(0);
-  const [compareError, setCompareError] = useState<string>();
+  // Why the Shot chosen could not be loaded, with the choice it was: shown while that is still what it is compared with.
+  const [compareError, setCompareError] = useState<{ choice: Compared; message: string }>();
   const [referenceId, setReferenceId] = useState<string>();
   // Why its Recipe's Reference Shot isn't offered, where its Recipe could not be read: apart from a comparison's own failure.
   const [referenceError, setReferenceError] = useState<string>();
@@ -137,7 +138,7 @@ function ShotDetails({ id }: { id: string }) {
       const other = await loadShot(otherId);
       setOthers((loaded) => new Map(loaded).set(otherId, other));
     } catch (caught) {
-      if (choicesMade.current === made) setCompareError(caught instanceof Error ? caught.message : COMPARED[choice].failed);
+      if (choicesMade.current === made) setCompareError({ choice, message: caught instanceof Error ? caught.message : COMPARED[choice].failed });
     }
   }
 
@@ -319,9 +320,9 @@ function ShotDetails({ id }: { id: string }) {
               <AlertDescription>Its Recipe's Reference Shot could not be read, so it is not offered here: {referenceError}</AlertDescription>
             </Alert>
           )}
-          {compareError && (
+          {compareError?.choice === compared && (
             <Alert variant="destructive">
-              <AlertDescription>{compareError}</AlertDescription>
+              <AlertDescription>{compareError.message}</AlertDescription>
             </Alert>
           )}
           {samples.length > 0 ? (
