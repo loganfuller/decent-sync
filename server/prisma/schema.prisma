@@ -1617,6 +1617,14 @@ model Recipe {
   /// Recipes; null for none, as for one a tablet took off the strip or
   /// removed from its list (ADR-0019).
   slot       Int?
+  /// Its Reference Shot (ADR-0029), by the Shot's id: the one Shot chosen to
+  /// show how its Shots should go, from any Machine or Location, kept outside
+  /// its content, so no tablet is written it, until someone chooses another
+  /// or clears it; null for none. No foreign key, as Shots are never
+  /// deleted. One the Shots list no longer lists, as a dismissed Pending
+  /// Machine's, reads as none (recipes.service.ts). Found by Shot through a
+  /// partial index in the migration.
+  referenceShotId String? @map("reference_shot_id")
   /// What it holds, in the Library's terms (`recipeContent` in
   /// recipe-intake.ts): its name, beverage, Bean, Bean Batch, Profile,
   /// Grinder, Basket and Tools by their global ids, its dose, yield and the

@@ -307,3 +307,17 @@ export function shotPulledWithSql(alias: string, profileId: string): Prisma.Sql 
   return Prisma.sql`${stepsKeySql(Prisma.sql`${Prisma.raw(alias)}.record -> 'workflow' -> 'profile' -> 'steps'`)} = ${stepsKeySql(Prisma.sql`${target} -> 'steps'`)}
     AND ${Prisma.join(same, " AND ")} AND ${shotProfileSql(alias)} = ${profileId}`;
 }
+
+/**
+ * Whether the Shot of `shots` aliased `alias` is one the Shots list lists:
+ * stored with its full record, and credited to a Machine or held by a
+ * Pending Machine not dismissed, as `listed` in shots.service.ts has it. A
+ * Recipe's Reference Shot is chosen from these, and reads as none while it
+ * is not one (ADR-0029).
+ */
+export function shotListedSql(alias: string): Prisma.Sql {
+  const shot = Prisma.raw(alias);
+  return Prisma.sql`(${shot}.has_full_record AND (${shot}.machine_id IS NOT NULL OR EXISTS (
+    SELECT 1 FROM pending_machines AS pending WHERE pending.id = ${shot}.pending_machine_id AND pending.dismissed_at IS NULL
+  )))`;
+}

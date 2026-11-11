@@ -671,7 +671,27 @@ Conflict names is kept, still refused, so history goes on naming it
   lock, as a new Recipe does. Its history starts with the copy: its first
   version names the Recipe it was copied from and that Recipe's Location
   then (`copied_from_id` and `copied_from_location_id` on `item_versions`),
-  the Recipe by its id alone, so the note outlives its hard delete.
+  the Recipe by its id alone, so the note outlives its hard delete. It
+  starts with the Recipe's Reference Shot, a version of its own, and chooses
+  its own from then on.
+- **A Recipe's Reference Shot** (#472, ADR-0029). The one Shot chosen to
+  show how a Recipe's Shots should go: any Shot the Shots list lists when it
+  is chosen, from any Machine, Location or Profile, pulled with the Recipe
+  or not (`PUT /api/recipes/:id/reference-shot`, `set_reference_shot`).
+  It is held on the Recipe beside its slot (`reference_shot_id`), by the
+  Shot's id with no foreign key, as Shots are never deleted, and is not its
+  content: it is never written to tablets, sends no `NOTIFY`, and makes no
+  Conflict. Each change of it is a version of its own, `referenceShotId`
+  set to the Shot's id or null, with no Location, as Archiving is, timed
+  and attributed as every edit is. It stays through edits to the Recipe's
+  content and slot until someone chooses another or clears it, so a
+  Reference Shot may be on another Profile than the Recipe's names now,
+  which its read says (`profileDiffers`). An Archived Recipe keeps it and
+  may have it cleared, but is given none until restored (409), as it is put
+  in no slot. A Shot hidden after it was chosen, because its Pending
+  Machine was dismissed, leaves the Recipe reading as having none until that
+  hardware is adopted, when it reads it again; it is kept stored. Choosing
+  one locks the Location and then the Recipe's row, as a slot change does.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it
@@ -691,7 +711,8 @@ Conflict names is kept, still refused, so history goes on naming it
   restore items, but add and finish batches, set their remaining weight,
   create and edit Grinders, create Baskets and Tools, show and hide
   Profiles, Baskets and Tools, and create, edit, slot, Archive and restore
-  Recipes, and copy a Recipe from anywhere to a Location, only at the
+  Recipes and choose and clear their Reference Shots, and copy a Recipe
+  from anywhere to a Location, only at the
   Locations they work at, as a Grinder and a Recipe belong to one
   (ADR-0008), and never hard-delete. A Recipe's Conflicts are
   resolved where it may be edited.
@@ -2196,10 +2217,17 @@ Every endpoint requires the account session; Staff read them as Admins do.
   named by its id alone; and `batchFinished` whether it is in a slot and
   names a batch not at its Location now, finished there or Archived. 404
   for no such Location. `GET /api/recipes/:id` returns `{ recipe }`, the
-  same; or 404. `GET /api/recipes/:id/history` and `GET
+  same with its Reference Shot, `referenceShot`, `{ id, pulledAt, machine,
+  location, profileTitle, profile, targetDose, actualDose, targetYield,
+  actualYield, duration, profileDiffers }`, as the Shots list gives those
+  of the Shot, and `profileDiffers` whether the Recipe names a Profile and
+  the Shot's is another or none in the Library; null for none, or for one
+  the Shots list no longer lists; or 404. Each route changing a Recipe
+  returns it so. `GET /api/recipes/:id/history` and `GET
   /api/recipes/:id/conflicts` are an item's (below); a version that moved
-  it sets `slot` at its Location, null out of any. Staff read them as Admins
-  do.
+  it sets `slot` at its Location, null out of any, and one that chose or
+  cleared its Reference Shot sets `referenceShotId`, with no Location.
+  Staff read them as Admins do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
   Recipe at the Location under a new record id, in `slot`, a whole number
   from 1 to 5 (`RECIPE_SLOTS`), `next` for the lowest free, or none where
@@ -2208,7 +2236,11 @@ Every endpoint requires the account session; Staff read them as Admins do.
   field to change, null to clear it, edits one. `PUT /api/recipes/:id/slot`,
   with `{ slot }` as for a new one, moves it, the Recipe in that slot taking
   its old one, or takes it out of its slot (null); `next` where every slot
-  holds a Recipe is refused (409). `PUT /api/recipes/:id/archived`, with `{
+  holds a Recipe is refused (409). `PUT /api/recipes/:id/reference-shot`,
+  with `{ shotId }`, a Shot's id or null, makes that Shot its Reference
+  Shot or clears it: 400 for a Shot the Shots list does not list ("No such
+  Shot"), 409 for choosing one for an Archived Recipe. `PUT
+  /api/recipes/:id/archived`, with `{
   archived }`, Archives it, out of its slot, or restores it, in none, under
   a new record id where another Recipe there has taken its own. Each
   returns `{ recipe }`. 400 for a field that is not one a Recipe takes, as

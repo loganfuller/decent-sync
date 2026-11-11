@@ -693,9 +693,27 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect([...recipes].sort()).toEqual([...made.recipes!].sort());
       });
 
-      it("reads a Recipe with its history, a Profile, and a Bean with its batches", async () => {
-        const { result } = await assistant.callWithinBudget<{ history: Page & { entries: unknown[] } }>("get_library_item", { kind: "recipe", id: recipe, history: true, conflicts: true, limit: 50 });
-        expect(result.history.total).toBeGreaterThanOrEqual(56);
+      it("reads a Recipe with its history and its Reference Shot, a Profile, and a Bean with its batches", async () => {
+        const shelf = (await api.machineNamed("Lab copies"))!;
+        // Each Recipe's Reference Shot is the copied Shot pulled with it (#472).
+        for (const [n, id] of made.recipes!.entries()) await api.send("PUT", `/recipes/${id}/reference-shot`, { shotId: `copied-${String(n + 1).padStart(2, "0")}` });
+        const { result } = await assistant.callWithinBudget<{ recipe: { referenceShot: Fields }; history: Page & { entries: unknown[] } }>("get_library_item", {
+          kind: "recipe",
+          id: recipe,
+          history: true,
+          conflicts: true,
+          limit: 50,
+        });
+        expect(result).not.toHaveProperty("cut");
+        expect(result.history.total).toBeGreaterThanOrEqual(57);
+        expect(result.recipe.referenceShot).toMatchObject({ id: "copied-01", machine: { name: "Lab copies" } });
+        // find_shots names the Recipe each is the Reference Shot of. These rows, linked to every kind of item, fill a page
+        // at 46 without it, so it ends sooner, at 42 measured, uncut.
+        const rows = await assistant.callWithinBudget<Page & { shots: Fields[] }>("find_shots", { machineId: shelf.id, limit: 50 });
+        expect(rows.result).not.toHaveProperty("cut");
+        expect(rows.result).toMatchObject({ total: 55, more: true });
+        expect(rows.result.shots.length).toBeGreaterThanOrEqual(40);
+        for (const row of rows.result.shots) expect(row.referenceOf, row.id as string).toEqual([row.recipe]);
         const { profiles } = await api.get<{ profiles: { id: string; title: string }[] }>("/profiles");
         const adaptive = profiles.find((profile) => profile.title === "Adaptive v3")!;
         const profile = await assistant.callWithinBudget<Fields>("get_library_item", { kind: "profile", id: adaptive.id, history: true, conflicts: true, limit: 50 });
@@ -767,6 +785,29 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       }
       const { ids } = await everyPage("find_shots", "shots", { machineId: haunted.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: haunted.machine.id }));
+    });
+
+    it("finds and reads Shots that are the Reference Shots of Recipes whose names run far longer than any typed, each name cut and marked, its id whole", async () => {
+      // At Harbor, which has no tablets to write to: 55 Recipes named far longer than any typed, each the Reference Shot
+      // of a Haunted Shot of its own.
+      const recipes: string[] = [];
+      for (let n = 0; n < 55; n++) {
+        const { recipe } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: harbor.id, slot: null, content: { name: `${String(n).padStart(2, "0")} ${hostile(3_000)}` } }, 201);
+        recipes.push(recipe.id);
+        await api.send("PUT", `/recipes/${recipe.id}/reference-shot`, { shotId: `haunted-${String(n).padStart(2, "0")}` });
+      }
+      const { result } = await assistant.callWithinBudget<Page & { shots: Fields[] }>("find_shots", { machineId: haunted.machine.id, limit: 50 });
+      for (const row of result.shots) {
+        const [named] = row.referenceOf as { id: string; name: string }[];
+        expect(named!.id).toBe(recipes[Number((row.id as string).slice(-2))]);
+        expect(cut(named!.name) && named!.name.length <= 60 + CUT_MARK.length, row.id as string).toBe(true);
+      }
+      // Every one the Reference Shot of one Shot: get_shot gives the 55, their names cut to fit.
+      for (const id of recipes) await api.send("PUT", `/recipes/${id}/reference-shot`, { shotId: "haunted-00" });
+      const read = await assistant.callWithinBudget<{ cut?: string; referenceOf: { id: string; name: string }[] }>("get_shot", { id: "haunted-00" });
+      expect(read.result.referenceOf.map((named) => named.id).sort()).toEqual([...recipes].sort());
+      expect(read.result.cut).toBeDefined();
+      expect(read.result.referenceOf.every((named) => cut(named.name))).toBe(true);
     });
 
     it("summarises Shots whose names run far longer than any typed in as few characters, as it gives none of their text", async () => {

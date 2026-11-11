@@ -70,6 +70,12 @@ Each server has one owner: a household, or a business with all of its sites.
   Machine is saved into the Recipe it has loaded. An edit to a Recipe, from a
   tablet or the web, reaches every Machine with it loaded. Each Recipe holds
   its steam, hot water and flush settings too.
+- **A Reference Shot for each Recipe.** Make the Shot you just dialled in,
+  or one from another Location, such as the lab's, the Shot a Recipe's
+  Shots should go like. Its page shows the Shot's numbers, says where its
+  Profile is another than the Recipe's, and keeps who chose it in its
+  history. It stays until someone chooses another or clears it, the Shots
+  list marks it, and nothing changes on the tablets.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -293,7 +299,7 @@ Records, and the Library
 with each item's history and Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
-Slots and copy them to other Locations, use or dismiss a Conflict's value, make
+Slots, choose their Reference Shots and copy them to other Locations, use or dismiss a Conflict's value, make
 Settings Edits, and move Machines between Locations. An Admin's assistant can
 also turn a Machine's sharing on or off, and create and edit Locations. Nothing
 an assistant does grants access or deletes anything for good. Each Library

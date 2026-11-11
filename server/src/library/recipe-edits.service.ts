@@ -4,6 +4,7 @@ import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
+import { shotListedSql } from "../shots/links.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
 import { type CopiedFrom, type EditSource, type Editor, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
@@ -38,6 +39,11 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 // there written its own, and each keeps its record id and history
 // (`recipeWrites` in holdings.ts).
 //
+// A Recipe's Reference Shot (ADR-0029) is its own too, not its content: a
+// change of it is a version of its own, as a slot change is, so it makes no
+// Conflict, and nothing is written to tablets, so no `NOTIFY` is sent. A
+// copy starts with the Recipe's.
+//
 // Locks are taken as a tablet's report of its recipes takes them: the
 // Location's, then the Recipe's row; then the rows of the items it is set to
 // use, so none is Archived or deleted until it is offered at the Location.
@@ -68,6 +74,8 @@ interface Placed {
   slot: number | null;
   archived: boolean;
   content: Record<string, unknown>;
+  /** Its Reference Shot, by the Shot's id, listed or not; null for none. */
+  referenceShotId: string | null;
 }
 
 @Injectable()
@@ -101,7 +109,7 @@ export class RecipeEditsService {
    * none, is chosen. What it uses is checked and offered at the Location as
    * an edit's is (`recipeEditValues`): a batch not there is added there, and
    * a Profile, Basket or Tool not shown there is shown there. Its steam, hot
-   * water and flush settings are the Recipe's. It goes in the slot chosen, the Recipe
+   * water and flush settings are the Recipe's, and so is its Reference Shot. It goes in the slot chosen, the Recipe
    * there taken out of it and kept, or the lowest free one, or none. The
    * Recipe copied is not changed. 404 for no such Recipe or Location, 403
    * for Staff not working at the Location, 400 for the Recipe's own
@@ -114,8 +122,8 @@ export class RecipeEditsService {
       if ((await tx.location.count({ where: { id: to.locationId } })) === 0) throw new NotFoundException("No such Location");
       await lockLocation(tx, to.locationId);
       // Read as it stands, without its lock: the copy is of its content then, and changes nothing of it.
-      const [original] = await tx.$queryRaw<{ id: string; locationId: string | null; content: unknown }[]>`
-        SELECT id::text AS id, location_id::text AS "locationId", content FROM recipes WHERE id = ${id}::uuid`;
+      const [original] = await tx.$queryRaw<{ id: string; locationId: string | null; content: unknown; referenceShotId: string | null }[]>`
+        SELECT id::text AS id, location_id::text AS "locationId", content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
       if (!original) throw new NotFoundException("No such Recipe");
       // A copy is for another Location; at its own, the slot chosen could be the Recipe's own, which the copy would take from it.
       if (original.locationId === to.locationId) throw new BadRequestException("Copy a Recipe to another Location than its own");
@@ -133,8 +141,9 @@ export class RecipeEditsService {
       const set = await recipeEditValues(tx, to.locationId, content, {}, source, at);
       // A new Recipe holds no field it has no value for.
       const values = Object.fromEntries(Object.entries(set).filter(([, value]) => value !== null && value !== undefined));
-      // Its id as PostgreSQL writes it, as versions name items, however the request spelled it.
-      return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id: original.id, locationId: original.locationId });
+      // Its id as PostgreSQL writes it, as versions name items, however the request spelled it. It starts with the
+      // Recipe's Reference Shot as stored, listed or not, so one hidden now comes back to both as its hardware is adopted.
+      return insertRecipe(tx, to.locationId, values, to.slot, source, at, { id: original.id, locationId: original.locationId }, original.referenceShotId);
     }, INTAKE_TRANSACTION);
   }
 
@@ -173,6 +182,32 @@ export class RecipeEditsService {
       if (taken === recipe.slot) return false;
       await setSlot(tx, recipe, taken, source, at);
       return true;
+    });
+  }
+
+  /**
+   * Makes the Shot the Recipe's Reference Shot (ADR-0029), replacing any it
+   * has, or clears it (null), as a version of its own. The Shot may be from
+   * any Machine or Location, pulled with the Recipe or not, but must be one
+   * the Shots list lists. An Archived Recipe keeps its Reference Shot, and
+   * may have it cleared, but is given none until it is restored, as it is
+   * put in no slot. 404 for no such Recipe, 403 for Staff elsewhere, 400 for
+   * a Shot the list doesn't list, 409 for choosing one for an Archived
+   * Recipe.
+   */
+  async setReferenceShot(id: string, shotId: string | null, editor: Editor, scope: Scope): Promise<void> {
+    await this.change(id, editor, scope, "choose or clear a Recipe's Reference Shot", async (tx, recipe, source, at) => {
+      if (shotId !== null) {
+        if (recipe.archived) throw new ConflictException("This Recipe is Archived: restore it before choosing its Reference Shot");
+        const [listed] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
+        if (!listed) throw new BadRequestException("No such Shot");
+      }
+      if (recipe.referenceShotId !== shotId) {
+        await tx.$executeRaw`UPDATE recipes SET reference_shot_id = ${shotId} WHERE id = ${recipe.id}::uuid`;
+        await recordVersion(tx, { kind: "recipe", id: recipe.id }, null, { referenceShotId: shotId }, source, at);
+      }
+      // Nothing of it is written to tablets.
+      return false;
     });
   }
 
@@ -219,11 +254,18 @@ export class RecipeEditsService {
       if (owned.locationId === null) throw new ConflictException("This Recipe's Location no longer exists");
       await lockLocation(tx, owned.locationId);
       await lockItems(tx, "recipe", [id]);
-      const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown }[]>`
-        SELECT slot, archived, content FROM recipes WHERE id = ${id}::uuid`;
+      const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown; referenceShotId: string | null }[]>`
+        SELECT slot, archived, content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
       if (!row) throw new NotFoundException("No such Recipe");
       // Its id as PostgreSQL writes it, however the request spelled it, as the slots it is compared with name it (`freeSlot`).
-      const recipe: Placed = { id: id.toLowerCase(), locationId: owned.locationId, slot: row.slot, archived: row.archived, content: isObject(row.content) ? row.content : {} };
+      const recipe: Placed = {
+        id: id.toLowerCase(),
+        locationId: owned.locationId,
+        slot: row.slot,
+        archived: row.archived,
+        content: isObject(row.content) ? row.content : {},
+        referenceShotId: row.referenceShotId,
+      };
       if (await apply(tx, recipe, accountSource(editor), await editTime(tx))) {
         await notify(tx, "library_changes", owned.locationId);
       }
@@ -236,8 +278,9 @@ export class RecipeEditsService {
  * id, in the slot chosen, the Recipe there taken out of it, or the lowest
  * free one, or none, as for `next` where none is free, as the Location's
  * state; it joins the Library as its first version, which names the Recipe a
- * copy was copied from. Notifies the Location's tablets, under its lock.
- * Returns its id.
+ * copy was copied from, and a copy's Reference Shot is a version of its own,
+ * as its slot is. Notifies the Location's tablets, under its lock. Returns
+ * its id.
  */
 async function insertRecipe(
   tx: Prisma.TransactionClient,
@@ -247,14 +290,16 @@ async function insertRecipe(
   source: EditSource,
   at: Date,
   copiedFrom?: CopiedFrom,
+  referenceShotId: string | null = null,
 ): Promise<string> {
   const taken = slot === null ? null : await freeSlot(tx, locationId, null, slot, source, at);
   const [created] = await tx.$queryRaw<[{ id: string }]>`
-    INSERT INTO recipes (id, location_id, record_id, slot, content)
-    VALUES (gen_random_uuid(), ${locationId}::uuid, gen_random_uuid()::text, ${taken}::integer, ${JSON.stringify(values)}::jsonb)
+    INSERT INTO recipes (id, location_id, record_id, slot, content, reference_shot_id)
+    VALUES (gen_random_uuid(), ${locationId}::uuid, gen_random_uuid()::text, ${taken}::integer, ${JSON.stringify(values)}::jsonb, ${referenceShotId})
     RETURNING id::text AS id`;
   await recordJoined(tx, { kind: "recipe", id: created.id }, values, at, source, copiedFrom);
   if (taken !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, locationId, { slot: taken }, source, at);
+  if (referenceShotId !== null) await recordVersion(tx, { kind: "recipe", id: created.id }, null, { referenceShotId }, source, at);
   await notify(tx, "library_changes", locationId);
   return created.id;
 }

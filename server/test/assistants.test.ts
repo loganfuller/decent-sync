@@ -176,6 +176,7 @@ describe("connecting an assistant", () => {
         "set_location_offering",
         "set_machine_sharing",
         "set_recipe_slot",
+        "set_reference_shot",
       ];
       expect(tools.map((tool) => tool.name).sort()).toEqual([...reading, ...changing].sort());
       // Archiving retires an item everywhere, and a Settings Edit writes a Machine's settings, which an app may ask about

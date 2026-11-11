@@ -36,7 +36,8 @@ const BEARER = ["ALL /api/mcp"];
  * Routes Staff may use too: reading everything but other accounts, moving Machines between their Locations,
  * resolving Conflicts about items they can edit, creating, editing, Archiving and restoring Beans, Bean Batches,
  * Grinders, Baskets and Tools, but never hard-deleting any, creating, editing, slotting, Archiving and restoring
- * Recipes at their Locations, but never hard-deleting them, and seeing and disconnecting their own Connected Apps.
+ * Recipes at their Locations and choosing their Reference Shots, but never hard-deleting them, and seeing and
+ * disconnecting their own Connected Apps.
  */
 const STAFF = [
   "GET /api/session",
@@ -93,6 +94,7 @@ const STAFF = [
   "GET /api/recipes/:id",
   "PATCH /api/recipes/:id",
   "PUT /api/recipes/:id/slot",
+  "PUT /api/recipes/:id/reference-shot",
   "PUT /api/recipes/:id/archived",
   "POST /api/recipes/:id/copies",
   "GET /api/recipes/:id/history",

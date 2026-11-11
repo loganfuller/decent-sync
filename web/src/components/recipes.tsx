@@ -8,6 +8,7 @@ import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
+import { ReferenceShotCard } from "@/components/reference-shots";
 import { ArchiveButton, type Attribute, DeleteButton, FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
 import { profilePath, profileTitle } from "@/components/profiles";
@@ -1329,10 +1330,11 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
 }
 
 /**
- * One Recipe: where it is, its fields, its open Conflicts and its history.
- * An Admin, or Staff working at its Location, edits it, moves it to another
- * slot or takes it out of its slot, and Archives or restores it; an Admin,
- * or Staff, copies it to a Location they change Recipes at.
+ * One Recipe: where it is, its fields, its Reference Shot, its open
+ * Conflicts and its history. An Admin, or Staff working at its Location,
+ * edits it, moves it to another slot or takes it out of its slot, clears its
+ * Reference Shot, and Archives or restores it; an Admin, or Staff, copies it
+ * to a Location they change Recipes at.
  */
 export function RecipeDetails({ id }: { id: string }) {
   const mayChangeAt = useMayChangeAt();
@@ -1532,6 +1534,8 @@ export function RecipeDetails({ id }: { id: string }) {
           </Fields>
         </CardContent>
       </Card>
+
+      <ReferenceShotCard recipe={recipe} mayChange={mayChange} onChanged={changed} />
 
       <RecipeSettingsCard content={content} />
 
