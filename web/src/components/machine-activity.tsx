@@ -1,12 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { CardTitleWithInfo } from "@/components/info-tip";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { LoadedRecipeLink } from "@/components/loaded-recipes";
 import { DayField } from "@/components/machine-use";
 import { describeMachineState } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type LoadedRecipe, type Machine, type MachineActivity, type MachineStateEvent, type TrailEntry, type TrailRecipe, api } from "@/lib/api";
@@ -31,22 +31,17 @@ const NOTHING: Record<ActivityKind, string> = {
 type When = (at: string) => string;
 
 /**
- * A Machine's activity over one day: today, at the Location it is at, until
- * another is chosen. The day is the Location's the Machine was at then, as
- * the server reads a date, and each time is shown on that Location's wall
- * clock, the browser's own time zone playing no part. One list is shown at
- * a time, and only that one is loaded, again every 30 s.
+ * A Machine's activity over one day. Shown closed until opened, as the
+ * Settings Edits and Settings History cards are, as most who read the page
+ * do not need it: it loads nothing while closed, and starts at today's
+ * dial-in trail each time it is opened.
  */
 export function MachineActivityCard({ machine }: { machine: Machine }) {
-  const [kind, setKind] = useState<ActivityKind>("workflowChanges");
-  const [chosen, setChosen] = useState<string>();
-  const day = chosen ?? dateIn(machine.location?.timeZone);
-  const when: When = (at) => whenText(at, day, machine.locationHistory);
-
   return (
-    <Card role="region" aria-label="Activity">
-      <CardHeader>
-        <CardTitleWithInfo title="Activity">
+    <CollapsibleCard
+      title="Activity"
+      info={
+        <>
           <p>
             What happened on this Machine over one day, latest first: what changed in its Workflow, the Recipes it had loaded and its Machine States. The day is
             that of the Location it was at then, and so is each time, by its tablet's clock.
@@ -59,30 +54,50 @@ export function MachineActivityCard({ machine }: { machine: Machine }) {
             Where its tablet had reported any by then, each list ends with what was in effect as the day began, which dates from before it. The trail's last entry
             is a Workflow whole: that one, or else the first of the day. A Machine State lasts until the next one its tablet reports.
           </p>
-        </CardTitleWithInfo>
-      </CardHeader>
-      <CardContent>
-        <Tabs value={kind} onValueChange={(value) => setKind(ACTIVITY_KINDS.find((found) => found.kind === value)?.kind ?? "workflowChanges")} className="gap-4">
-          <div className="flex flex-wrap items-end gap-3">
-            {/* On a row of its own on a phone, where the day chosen doesn't fit beside it. */}
-            <div className="max-sm:basis-full">
-              <TabsList>
-                {ACTIVITY_KINDS.map(({ kind: value, label }) => (
-                  <TabsTrigger key={value} value={value}>
-                    {label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </div>
-            <DayField id="activity-day" label="Day" value={day} onChange={setChosen} />
+        </>
+      }
+    >
+      <ActivityLists machine={machine} />
+    </CollapsibleCard>
+  );
+}
+
+/**
+ * The day and its lists, while their card is open: today, at the Location
+ * the Machine is at, until another is chosen. The day is the Location's the
+ * Machine was at then, as the server reads a date, and each time is shown on
+ * that Location's wall clock, the browser's own time zone playing no part.
+ * One list is shown at a time, and only that one is loaded, again every
+ * 30 s.
+ */
+function ActivityLists({ machine }: { machine: Machine }) {
+  const [kind, setKind] = useState<ActivityKind>("workflowChanges");
+  const [chosen, setChosen] = useState<string>();
+  const day = chosen ?? dateIn(machine.location?.timeZone);
+  const when: When = (at) => whenText(at, day, machine.locationHistory);
+
+  return (
+    <CardContent>
+      <Tabs value={kind} onValueChange={(value) => setKind(ACTIVITY_KINDS.find((found) => found.kind === value)?.kind ?? "workflowChanges")} className="gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          {/* On a row of its own on a phone, where the day chosen doesn't fit beside it. */}
+          <div className="max-sm:basis-full">
+            <TabsList>
+              {ACTIVITY_KINDS.map(({ kind: value, label }) => (
+                <TabsTrigger key={value} value={value}>
+                  {label}
+                </TabsTrigger>
+              ))}
+            </TabsList>
           </div>
-          <TabsContent value={kind}>
-            {/* Keyed, so a list starts at its latest page for each day and kind, and shows nothing read for another. */}
-            <ActivityList key={`${kind} ${day}`} machineId={machine.id} kind={kind} day={day} when={when} />
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+          <DayField id="activity-day" label="Day" value={day} onChange={setChosen} />
+        </div>
+        <TabsContent value={kind}>
+          {/* Keyed, so a list starts at its latest page for each day and kind, and shows nothing read for another. */}
+          <ActivityList key={`${kind} ${day}`} machineId={machine.id} kind={kind} day={day} when={when} />
+        </TabsContent>
+      </Tabs>
+    </CardContent>
   );
 }
 

@@ -96,9 +96,9 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       path: `/machines/${machineId}`,
       loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(),
       staffHave: "button Edit General",
-      closed: ["Settings Edits", "Settings History"],
+      closed: ["Activity", "Settings Edits", "Settings History"],
       // The days its Use card counts and its table of them, and the day its Activity card lists, which a Viewer chooses as anyone does.
-      filters: [/^checkbox Show brief changes$/, /^button Hide Settings (Edits|History)$/, /^button (From|To|Day|Show the numbers)$/],
+      filters: [/^checkbox Show brief changes$/, /^button Hide (Activity|Settings (Edits|History))$/, /^button (From|To|Day|Show the numbers)$/],
     },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },

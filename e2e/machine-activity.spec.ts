@@ -4,12 +4,13 @@ import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } fr
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { chooseDate } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { openCard, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
-// A Machine's activity on its page (#476), as an Admin: the list for today,
+// A Machine's activity on its page (#476), as an Admin, in a card shown
+// closed until it is opened: the list for today,
 // with a Recipe loaded and a grind changed in its dial-in trail, its Loaded
 // Recipes and Machine States, another day chosen, a list paged, and one
 // that shrinks under the page shown. A simulated tablet running the built plugin and DYE2, as recorded in
@@ -75,7 +76,9 @@ test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grin
   machineId = await adopt(page, "Lab 1", lab.id);
 
   await page.goto(`/machines/${machineId}`);
-  const activity = page.getByRole("region", { name: "Activity" });
+  // Closed until it is opened, with nothing of the day read.
+  await expect(page.getByRole("region", { name: "Activity" }).getByRole("tab")).toHaveCount(0);
+  const activity = await openCard(page, "Activity");
   await expect(activity.getByRole("tab", { name: "Dial-in trail" })).toHaveAttribute("aria-selected", "true");
   await expect(activity.getByRole("button", { name: "Day", exact: true })).toHaveText(dateText(0));
   await expectTip(activity, "Activity", /The day is that of the Location it was at then, and so is each time, by its tablet's clock\..*Changes within 5 seconds of each other from one source are one entry\./);
@@ -108,7 +111,7 @@ test("a Machine's page lists today's dial-in trail: a Recipe loaded and its grin
 
 test("the day's Loaded Recipes and Machine States are each a list of their own, the Machine State in effect as the day began given with the day it dates from", async ({ page }) => {
   await page.goto(`/machines/${machineId}`);
-  const activity = page.getByRole("region", { name: "Activity" });
+  const activity = await openCard(page, "Activity");
 
   await activity.getByRole("tab", { name: "Loaded Recipes" }).click();
   const recipes = activity.getByRole("table", { name: "Loaded Recipes that day" });
@@ -127,7 +130,7 @@ test("the day's Loaded Recipes and Machine States are each a list of their own, 
 
 test("another day is chosen from a calendar, its Machine States a page at a time, and a list with nothing that day says so", async ({ page }) => {
   await page.goto(`/machines/${machineId}`);
-  const activity = page.getByRole("region", { name: "Activity" });
+  const activity = await openCard(page, "Activity");
   await activity.getByRole("tab", { name: "Machine States" }).click();
   await chooseDate(page, activity, "Day", day(-1));
   await expect(activity.getByRole("button", { name: "Day", exact: true })).toHaveText(dateText(-1));
@@ -180,7 +183,7 @@ test("a trail that shrinks to end before the page shown, as a change undone with
   // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
   await page.goto(`/machines/${machineId}`);
-  const activity = page.getByRole("region", { name: "Activity" });
+  const activity = await openCard(page, "Activity");
   const trail = activity.getByRole("table", { name: "Dial-in trail" });
   await expect(rows(trail)).toHaveCount(20);
   await expect(activity.getByRole("button", { name: "Older" })).toHaveCount(0);

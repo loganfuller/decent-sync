@@ -938,6 +938,8 @@ paged routes above are as they were.
   State by; and it pages by `offset` and `more`, with at most 50 a page.
 
 The Machine page's Activity card (`web/src/components/machine-activity.tsx`)
+is shown closed until it is opened, as its Settings Edits and Settings
+History are, and reads nothing while closed. Open, it
 lists one day, today at the Location the Machine is at until another is
 chosen, as a date for `from` and `to`: the dial-in trail, the Loaded Recipes
 or the Machine States, one list at a time, 20 to a page, loaded every 30 s.
