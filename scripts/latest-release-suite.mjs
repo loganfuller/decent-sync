@@ -12,7 +12,7 @@
 // database created on a server copies its template1. In CI, `--database-url`
 // names the job's own PostgreSQL instead; it is refused outside CI.
 //
-// Usage: node scripts/latest-release-suite.mjs [--database-url <url>] [Vitest options, such as --shard=1/4]
+// Usage: node scripts/latest-release-suite.mjs [--database-url <url>] [Vitest options, such as --shard=1/5]
 //   (npm run test:latest-release-suite -- [options])
 
 import { execFileSync, spawn } from "node:child_process";
