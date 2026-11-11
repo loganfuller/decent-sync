@@ -101,8 +101,9 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
             {shot.profileDiffers && (
               <Alert role="status" aria-label="Another Profile">
                 <AlertDescription>
-                  It was pulled on {shot.profile?.title ?? shot.profileTitle ?? "a Profile the Library doesn't have"}, not the Recipe's Profile,{" "}
-                  {recipe.uses.profile ? (recipe.uses.profile.title ?? "untitled") : "a Profile the Library doesn't have"}, so its curves describe another program.
+                  {/* The Recipe's Profile is named where the Library has it with a title: one it no longer has has none either. */}
+                  It was pulled on {shot.profile?.title ?? shot.profileTitle ?? "a Profile the Library doesn't have"}, not the Recipe's Profile
+                  {recipe.uses.profile?.title ? `, ${recipe.uses.profile.title},` : ","} so its curves describe another program.
                 </AlertDescription>
               </Alert>
             )}
