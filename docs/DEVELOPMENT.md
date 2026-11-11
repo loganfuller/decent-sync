@@ -80,8 +80,8 @@ Decaid installs whatever is committed in `decent-sync.reaplugin/`, so commit
 the rebuilt plugin with every change to `plugin/` or `protocol/`.
 
 CI checks that the committed plugin matches a fresh build. It also packages
-the plugin ZIP and runs the server image with Docker Compose, without
-publishing either.
+the plugin ZIP, runs the server image with Docker Compose, and builds the
+image for amd64 and arm64 as the release does, without publishing any of them.
 
 ## Releasing
 
