@@ -7,6 +7,7 @@ import { batchName } from "@/components/bean-batches";
 import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
+import { ShotTrendCard } from "@/components/shot-trend";
 import { beanText, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -14,6 +15,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
 import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
+import { bucketParam, trendBucket, trendNumber, trendParam } from "@/lib/shot-trend";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
 const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId"] as const;
@@ -21,8 +23,10 @@ const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "p
 /**
  * Every Shot, newest first, across every Location, with filters, and the
  * Shot Summary of those the filters find above its rows, with the numbers
- * chosen, which the address keeps as `numbers`, apart from the filters. A
- * Shot that is a Recipe's Reference Shot is marked.
+ * chosen, which the address keeps as `numbers`, apart from the filters, and
+ * under it the trend of one of its numbers by day or week, which the address
+ * keeps as `trend` and `bucket`. A Shot that is a Recipe's Reference Shot is
+ * marked.
  * Times are each Shot's Location's, and dates are read in each Shot's own
  * Location's time zone; Shots with no Location use UTC. Staff see all of it.
  */
@@ -31,15 +35,17 @@ export function ShotsPage() {
   const { data, error } = list;
   const [, setParams] = useSearchParams();
   const numbers = shownNumbers(list.params.get("numbers"));
-  // The rows stay where they are: the numbers shown are no filter.
-  const onNumbers = (chosen: typeof numbers) =>
+  const trend = trendNumber(list.params.get("trend"));
+  const bucket = trendBucket(list.params.get("bucket"));
+  // The rows stay where they are: the numbers shown, and the trend's number and bucket, are no filter.
+  const keep = (name: string, param: string | null) =>
     setParams((current) => {
       const next = new URLSearchParams(current);
-      const param = numbersParam(chosen);
-      if (param === null) next.delete("numbers");
-      else next.set("numbers", param);
+      if (param === null) next.delete(name);
+      else next.set(name, param);
       return next;
     });
+  const onNumbers = (chosen: typeof numbers) => keep("numbers", numbersParam(chosen));
 
   return (
     // One column no wider than the page, so a wide table scrolls rather than widening it.
@@ -62,7 +68,18 @@ export function ShotsPage() {
       )}
 
       {data?.total === 0 && <p className="text-muted-foreground">{list.filtered ? "No Shots match these filters." : "No Shots yet."}</p>}
-      {data && data.total > 0 && <ShotSummaryCard filterQuery={list.filterQuery} numbers={numbers} onNumbers={onNumbers} />}
+      {data && data.total > 0 && (
+        <>
+          <ShotSummaryCard filterQuery={list.filterQuery} numbers={numbers} onNumbers={onNumbers} />
+          <ShotTrendCard
+            filterQuery={list.filterQuery}
+            number={trend}
+            bucket={bucket}
+            onNumber={(chosen) => keep("trend", trendParam(chosen))}
+            onBucket={(chosen) => keep("bucket", bucketParam(chosen))}
+          />
+        </>
+      )}
       {data && data.shots.length > 0 && (
         <>
           <div className="rounded-lg border">

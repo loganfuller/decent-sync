@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, RESPONSE_BUDGET, type SummaryGroup, type TestApp, asTools, serveTestApp, toolSummary } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, type BucketedGroup, RESPONSE_BUDGET, type SummaryGroup, type TestApp, asTools, serveTestApp, toolSummary } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import {
@@ -700,6 +700,66 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           if (!result.more) break;
         }
         expect([...recipes].sort()).toEqual([...made.recipes!].sort());
+      });
+
+      it("summarises a month of Shots by day and two groupings, each group with its 30 days whole, its pages ending sooner to fit, as the REST API does", async () => {
+        // Two Machines at the Lab with no tablets, pulling four Recipes through October: the bar's first Shot copied in
+        // PostgreSQL three times a day for each Recipe on each Machine, ten minutes apart from 10:00 at the Lab, 720 in
+        // all, each pulled with its Recipe loaded. By Recipe and Machine they are 8 groups of 30 days each.
+        const machines = [await machineAt("Lab month left", lab), await machineAt("Lab month right", lab)];
+        const pulled = made.recipes!.slice(0, 4);
+        const database = await server.connectDatabase();
+        try {
+          await database.query(
+            `INSERT INTO shots
+             SELECT (jsonb_populate_record(NULL::shots, to_jsonb(s) || jsonb_build_object(
+               'id', format('month-%s-%s-%s-%s', m, r, d, k), 'machine_id', ($1::uuid[])[m], 'tablet_id', NULL, 'recipe_id', ($2::uuid[])[r],
+               'pulled_at', '2026-10-01T15:00:00Z'::timestamptz + d * interval '1 day' + ((r - 1) * 3 + k) * interval '10 minutes'))).*
+             FROM shots AS s, generate_series(1, 2) AS m, generate_series(1, 4) AS r, generate_series(0, 29) AS d, generate_series(0, 2) AS k WHERE s.id = 'morning-00'`,
+            [machines.map((machine) => machine.machine.id), pulled],
+          );
+          await database.query(
+            `INSERT INTO loaded_recipes (machine_id, recipe_id, loaded_at, unloaded_at)
+             SELECT machine_id, recipe_id, pulled_at - interval '20 seconds', pulled_at + interval '30 seconds' FROM shots WHERE machine_id = ANY($1::uuid[]) ORDER BY pulled_at`,
+            [machines.map((machine) => machine.machine.id)],
+          );
+        } finally {
+          await database.end();
+        }
+        const month = { from: "2026-10-01", to: "2026-10-30" };
+        const days = Array.from({ length: 30 }, (_, day) => `2026-10-${String(day + 1).padStart(2, "0")}`);
+        type Bucketed = Page & { groups: BucketedGroup[] };
+        /** Every page of the month by day, Recipe and Machine, with the numbers named, each as the REST API gives its groups: how many groups each held. */
+        const pages = async (numbers: string[] | undefined) => {
+          const lengths: number[] = [];
+          const groups: BucketedGroup[] = [];
+          for (let offset = 0; ; ) {
+            const { result, text } = await assistant.callWithinBudget<Bucketed>("summarise_shots", { ...month, groupBy: ["recipe", "machine"], bucket: "day", ...(numbers && { numbers }), limit: 50, offset });
+            pagingFirst(text, "groups");
+            expect(result).not.toHaveProperty("cut");
+            expect(result).toMatchObject({ total: 8, offset });
+            // However soon the page ends, each group on it has every one of its days: none is split between two pages.
+            for (const group of result.groups) expect(group.buckets.map(({ start }) => start)).toEqual(days);
+            const page = { ...month, groupBy: "recipe,machine", bucket: "day", ...(numbers && { numbers: numbers.join() }), limit: String(result.groups.length), offset: String(offset) };
+            expect(result.groups).toEqual(toolSummary(await api.get<{ groups: BucketedGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams(page)}`)).groups);
+            lengths.push(result.groups.length);
+            groups.push(...result.groups);
+            offset += result.groups.length;
+            expect(result.more).toBe(offset < 8);
+            if (!result.more) break;
+          }
+          // Every group on some page once: each Recipe on each Machine, and each day's three Shots.
+          expect(groups.map((group) => [(group.by.recipe as { id: string }).id, (group.by.machine as { id: string }).id])).toEqual(
+            [...pulled].sort((a, b) => made.recipes!.indexOf(a) - made.recipes!.indexOf(b)).flatMap((recipe) => machines.map((machine) => [recipe, machine.machine.id])),
+          );
+          for (const group of groups) expect(group.buckets.every(({ counts }) => counts.shots === 3)).toBe(true);
+          return lengths;
+        };
+        // The default numbers: about 290 characters a day, 9,000 a group, so a page of 50 ends at 4 groups, and the
+        // other 4 follow.
+        expect(await pages(undefined)).toEqual([4, 4]);
+        // Every number at once: about 870 characters a day, 26,700 a group, so a page holds one group, its 30 days.
+        expect(await pages(EVERY_NUMBER)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
       });
 
       it("reads a Recipe with its history and its Reference Shot, a Profile, and a Bean with its batches", async () => {

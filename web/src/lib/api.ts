@@ -682,6 +682,24 @@ export interface SummaryGroup {
   reference?: SummaryReference;
 }
 
+/**
+ * A group's Shots of one day or week, of a Shot Summary asked for by `bucket`: `start`, the day, or the Monday its week
+ * starts on, as a date, such as `2026-03-02`, in each Shot's own Location's time zone, or UTC for a Shot with none; null
+ * for the Shots whose time is unknown.
+ */
+export interface SummaryBucket extends Pick<SummaryGroup, "counts" | "numbers"> {
+  start: string | null;
+}
+
+/**
+ * A group of a Shot Summary asked for by `bucket`: in place of its counts and numbers, its buckets, one for each day or
+ * week it has Shots of, oldest first, then that of the Shots whose time is unknown. The previous release's answer during
+ * a deploy has none (ADR-0025): it knows no `bucket`, and gives the group's counts and numbers.
+ */
+export interface BucketedGroup extends Pick<SummaryGroup, "by" | "reference"> {
+  buckets?: SummaryBucket[];
+}
+
 /** A Recipe's Reference Shot beside a group of the Recipe's Shots: its id, and its own value of each number asked for. */
 export interface SummaryReference {
   id: string;
@@ -700,8 +718,8 @@ export type ShotNumbers = {
  * The Shot Summary of the Shots a list's filters find: one group, or, grouped, a page of its groups in their order,
  * with how many groups there are.
  */
-export interface ShotSummary {
-  groups: SummaryGroup[];
+export interface ShotSummary<Group = SummaryGroup> {
+  groups: Group[];
   total: number;
   limit: number;
   offset: number;

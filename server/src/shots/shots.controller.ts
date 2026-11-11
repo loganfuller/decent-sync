@@ -3,7 +3,7 @@ import { AllowStaff } from "../accounts/guards.js";
 import { readQueryPage } from "../pagination.js";
 import { readShotFilters } from "./filters.js";
 import { ShotsService } from "./shots.service.js";
-import { readGroupBy, readNumbers } from "./summary.js";
+import { readBucket, readGroupBy, readNumbers } from "./summary.js";
 
 /** Every Shot captured, which Staff read too. */
 @AllowStaff()
@@ -24,11 +24,12 @@ export class ShotsController {
   /**
    * The Shot Summary of the Shots the list lists for the same filters, by
    * the groupings `groupBy` names, with the `numbers` it names, a page of
-   * its groups at a time. Before `:id` too.
+   * its groups at a time, each, with `bucket`, as its buckets by `day` or
+   * `week`. Before `:id` too.
    */
   @Get("summary")
   summary(@Query() query: Record<string, unknown>) {
-    return this.shots.summary(readShotFilters(query), readGroupBy(query), readQueryPage(query), readNumbers(query));
+    return this.shots.summary(readShotFilters(query), readGroupBy(query), readQueryPage(query), readNumbers(query), readBucket(query));
   }
 
   @Get(":id")
