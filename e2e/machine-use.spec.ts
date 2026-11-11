@@ -14,15 +14,22 @@ import { expectTip } from "./support/tooltips.js";
 // plugin backfills two Shots and a Steam Record derived from ones Decaid
 // recorded, changing only their ids, times and recorded hardware, and
 // reports each Machine State change with its plugin's clock set to the
-// change's time. The Lab is in Phoenix, 7 hours behind UTC all year, so its
-// days are 24 hours whenever this runs. Hardware ids are made up.
+// change's time. Hardware ids are made up.
+//
+// The days are counted back from today, so the Lab is where no day begins
+// while this runs and every day is 24 hours: in Phoenix, 7 hours behind UTC
+// all year, or, within three hours of midnight there, in Bangkok, 7 hours
+// ahead all year.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const HARDWARE = { model: "DE1Pro", serial: "10061" };
 const HOUR = 3_600_000;
 
+/** The Lab's time zone, and how many hours it is ahead of UTC. Midnight in Phoenix is 07:00 UTC, and in Bangkok 17:00. */
+const [ZONE, AHEAD] = new Date().getUTCHours() >= 4 && new Date().getUTCHours() < 10 ? (["Asia/Bangkok", 7] as const) : (["America/Phoenix", -7] as const);
+
 /** Today at the Lab, as a UTC date holding its wall clock's parts. */
-const TODAY = new Date(Date.now() - 7 * HOUR);
+const TODAY = new Date(Date.now() + AHEAD * HOUR);
 
 /** A day at the Lab, `days` from today, as a UTC date at its midnight on the wall clock. */
 function day(days: number): Date {
@@ -31,7 +38,7 @@ function day(days: number): Date {
 
 /** The moment the Lab's wall clock read a time on a day `days` from today. */
 function at(days: number, hours: number, minutes = 0, seconds = 0): string {
-  return new Date(day(days).getTime() + ((hours + 7) * 3600 + minutes * 60 + seconds) * 1000).toISOString();
+  return new Date(day(days).getTime() + ((hours - AHEAD) * 3600 + minutes * 60 + seconds) * 1000).toISOString();
 }
 
 /**
@@ -59,7 +66,7 @@ let machineId: string;
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a Machine's page charts its use by day for the last 14 days, with each count's total, the time in each Machine State and the note about a tablet that was off", async ({ page }) => {
-  const lab = await createLocation(page, "Lab", "America/Phoenix");
+  const lab = await createLocation(page, "Lab", ZONE);
   machineId = await adopt(page, "Lab 1", lab.id);
 
   await page.goto(`/machines/${machineId}`);

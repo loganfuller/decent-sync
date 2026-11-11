@@ -150,9 +150,6 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     const moverTablet = tablets.syncing(mover, server, { api: withShots(emptyLibrary(MOVER_SERIAL), moverShots) });
     await api.waitForOnline(lab1, mover);
     await Promise.all([report(lab1, labTablet, LAB_DAY), report(mover, moverTablet, MOVER_DAYS)]);
-    // Since then the Lab's tablet reported nothing, until now: idle, by its plugin's own clock.
-    labTablet.reportState("idle", "idle");
-    await until(async () => (await api.get<{ total: number }>(`/machines/${lab1.machine.id}/machine-state-events?limit=1`)).total === LAB_DAY.length + 1);
     await until(async () => (await api.get<{ total: number }>("/shots?limit=1")).total === labShots.length + moverShots.length);
     await until(async () => (await api.get<{ total: number }>("/steam-records?limit=1")).total === labSteams.length);
   });
@@ -326,39 +323,44 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
   });
 
   it("gives the last 14 days by day, or today by hour, when no range is given, a Machine whose tablet reported nothing since counted as in its last state, until now", async () => {
+    const startOf = (day: Temporal.PlainDate) => day.toZonedDateTime("America/Denver").epochMilliseconds;
+    /** The day a range ends in at the Lab, where the Machine is now, by the range's own end, so that a midnight between two reads moves nothing. */
+    const lastDay = (read: Use) => Temporal.Instant.fromEpochMilliseconds(Date.parse(read.to) - 1).toZonedDateTimeISO("America/Denver").toPlainDate();
+    /** That a range ends now, by the database's clock, which is within seconds of this computer's. */
+    const endsNow = (read: Use, since: number) => {
+      expect(Date.parse(read.to)).toBeGreaterThanOrEqual(since - 5_000);
+      expect(Date.parse(read.to)).toBeLessThanOrEqual(Date.now() + 5_000);
+    };
     const before = Date.now();
     const fortnight = await use(lab1);
-    const after = Date.now();
-    // Its days at the Lab, where it is now.
-    const today = Temporal.Instant.fromEpochMilliseconds(Date.parse(fortnight.to)).toZonedDateTimeISO("America/Denver").toPlainDate();
+    const today = lastDay(fortnight);
     const days = Array.from({ length: 14 }, (_, n) => today.subtract({ days: 13 - n }));
-    const startOf = (day: Temporal.PlainDate) => day.toZonedDateTime("America/Denver").epochMilliseconds;
     expect(fortnight.by).toBe("day");
     expect(Date.parse(fortnight.from)).toBe(startOf(days[0]!));
-    // Until now, by the database's clock, which is this computer's.
-    expect(Date.parse(fortnight.to)).toBeGreaterThanOrEqual(before - 5_000);
-    expect(Date.parse(fortnight.to)).toBeLessThanOrEqual(after + 5_000);
+    endsNow(fortnight, before);
     expect(fortnight.buckets.map((entry) => entry.date)).toEqual(days.map(String));
-    // Asleep since 11 February, as far as its tablet said: each whole day asleep, 23 or 25 hours where the clocks changed.
-    for (const [n, day] of days.slice(0, 13).entries()) {
-      expect(fortnight.buckets[n], String(day)).toEqual(bucket(String(day), { states: [time("sleeping", (startOf(day.add({ days: 1 })) - startOf(day)) / 1000)] }));
+    // Asleep since 11 February, as far as its tablet said: each whole day asleep, 23 or 25 hours where the clocks
+    // changed, and today until now.
+    for (const [n, day] of days.entries()) {
+      const end = n === 13 ? Date.parse(fortnight.to) : startOf(day.add({ days: 1 }));
+      expect(fortnight.buckets[n], String(day)).toEqual(bucket(String(day), { states: [time("sleeping", Math.round((end - startOf(day)) / 1000))] }));
     }
-    // Today, asleep until its tablet reported it idle as this file began, and idle until now.
-    const counted = fortnight.buckets[13]!.states.reduce((sum, state) => sum + state.seconds, 0);
-    expect(fortnight.buckets[13]!.states.map((state) => state.state).sort()).toEqual(["idle", "sleeping"]);
-    expect(Math.abs(counted - (Date.parse(fortnight.to) - startOf(today)) / 1000)).toBeLessThanOrEqual(1);
 
     const hourly = await use(lab1, { by: "hour" });
-    expect(Date.parse(hourly.from)).toBe(startOf(today));
+    expect(Date.parse(hourly.from)).toBe(startOf(lastDay(hourly)));
+    endsNow(hourly, before);
     expect(hourly.buckets.length).toBeLessThanOrEqual(25);
-    expect(new Set(hourly.buckets.map((entry) => entry.date))).toEqual(new Set([String(today)]));
-    // A day yet to come has nothing in it, and its range ends now, before it starts.
-    const later = today.add({ days: 2 });
-    const toCome = await use(lab1, { from: String(later), to: String(later) });
-    expect(toCome.buckets).toEqual([]);
-    expect(Date.parse(toCome.from)).toBe(startOf(later));
-    expect(Date.parse(toCome.to)).toBeGreaterThanOrEqual(before - 5_000);
-    expect(Date.parse(toCome.to)).toBeLessThanOrEqual(Date.now() + 5_000);
+    expect(new Set(hourly.buckets.map((entry) => entry.date))).toEqual(new Set([String(lastDay(hourly))]));
+
+    // A day yet to come has nothing in it, and its range ends now, before it starts; so does one given no end.
+    const later = lastDay(hourly).add({ days: 2 });
+    const ranges: Record<string, string>[] = [{ from: String(later), to: String(later) }, { from: String(later) }];
+    for (const range of ranges) {
+      const toCome = await use(lab1, range);
+      expect(toCome.buckets).toEqual([]);
+      expect(Date.parse(toCome.from)).toBe(startOf(later));
+      endsNow(toCome, before);
+    }
   });
 
   it("refuses a range it can't read, one that ends before it starts, and one longer than 31 days by day or a day by hour", async () => {

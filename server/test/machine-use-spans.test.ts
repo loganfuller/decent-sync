@@ -119,8 +119,8 @@ describe("the range of a Machine's use", () => {
       return undefined;
     };
     expect(refused({ from: "2026-02-11", to: "2026-02-10", by: "day" })).toBe("Choose an end after the start");
-    // One that starts after now, with no end.
-    expect(refused({ from: "2026-02-12", by: "day" })).toBe("Choose an end after the start");
+    // One that starts after now, with no end, is still to come: it ends now, before it starts.
+    expect(range({ from: "2026-02-12", by: "day" })).toEqual(["2026-02-12T07:00:00.000Z", "2026-02-11T22:45:00.000Z"]);
     // 31 days, 25 hours longer or 1 hour shorter where the clocks change, are read; 32 are not.
     expect(refused({ from: "2026-10-05", to: "2026-11-04", by: "day" })).toBeUndefined();
     expect(refused({ from: "2026-02-10", to: "2026-03-12", by: "day" })).toBeUndefined();

@@ -357,10 +357,11 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       }
     });
 
-    it("gives a Machine's use over its longest ranges, 31 days by day and a day by hour, eleven of Decaid's states in each, as the REST API does", async () => {
+    it("gives a Machine's use over its longest ranges, 31 days by day and a day of 25 hours by hour, eleven of Decaid's states in each, as the REST API does", async () => {
       // An hour of a busy bar, in Decaid's states: a Shot, steaming with its purge, a flush, hot water, the steam wand
       // rinsed, the tank refilled, a clean and a descale begun, a wake schedule's idle and a doze. Sent for each hour
-      // of 1 October 2026 in Chicago, 5 hours behind UTC, then copied in PostgreSQL to each of the 30 days after it.
+      // of 2 October 2026 in Chicago, 5 hours behind UTC, then copied in PostgreSQL to each of the 31 days after it:
+      // through 1 November, 25 hours long as the clocks go back there, which the longest range of each kind takes in.
       const hour: [state: string, substate: string, minute: number, second: number][] = [
         ["idle", "idle", 0, 0],
         ["espresso", "preinfusion", 5, 0],
@@ -388,7 +389,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const frames = await connectionOf(busy, "43104");
       for (let n = 0; n < 24; n++) {
         for (const [state, substate, minute, second] of hour) {
-          await frames.deliver({ type: "machineState", id: randomUUID(), observedAt: new Date(Date.UTC(2026, 9, 1, 5 + n, minute, second)).toISOString(), state, substate });
+          await frames.deliver({ type: "machineState", id: randomUUID(), observedAt: new Date(Date.UTC(2026, 9, 2, 5 + n, minute, second)).toISOString(), state, substate });
         }
       }
       const database = await server.connectDatabase();
@@ -396,29 +397,38 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         await database.query(
           `INSERT INTO machine_state_events (machine_id, observed_at, state, substate)
            SELECT machine_id, observed_at + n * interval '24 hours', state, substate
-           FROM machine_state_events, generate_series(1, 30) AS n WHERE machine_id = $1 ORDER BY n, id`,
+           FROM machine_state_events, generate_series(1, 31) AS n WHERE machine_id = $1 ORDER BY n, id`,
           [busy.machine.id],
         );
       } finally {
         await database.end();
       }
       const rest = async (query: Record<string, string>) => asTools(await api.get<Use>(`/machines/${busy.machine.id}/use?${new URLSearchParams(query)}`));
+      /** The offsets either side of the change: the days begin 5 hours behind UTC, and 2 November 6 hours behind. */
+      const ends = { from: "T00:00:00.000-05:00", to: "2026-11-02T00:00:00.000-06:00" };
 
-      const month = await assistant.callWithinBudget<Use>("get_machine_use", { machineId: busy.machine.id, from: "2026-10-01", to: "2026-10-31" });
+      // 31 days, an hour over 31 times 24, which is as long as a range by day may be.
+      const month = await assistant.callWithinBudget<Use>("get_machine_use", { machineId: busy.machine.id, from: "2026-10-02", to: "2026-11-01" });
       expect(month.result).not.toHaveProperty("cut");
-      expect(month.result).toEqual({ ...(await rest({ from: "2026-10-01", to: "2026-10-31" })), from: "2026-10-01T00:00:00.000-05:00", to: "2026-11-01T00:00:00.000-05:00" });
+      expect(month.result).toEqual({ ...(await rest({ from: "2026-10-02", to: "2026-11-01" })), from: `2026-10-02${ends.from}`, to: ends.to });
       expect(month.result.buckets).toHaveLength(31);
       for (const day of month.result.buckets) {
-        expect([day.flushes, day.hotWaterPours, day.states.length], day.date).toEqual([24, 24, 11]);
-        expect(day.states.reduce((sum, state) => sum + state.seconds, 0), day.date).toBe(86_400);
+        // A flush and a hot water pour an hour, and every second of the day in some state.
+        const hours = day.date === "2026-11-01" ? 25 : 24;
+        expect([day.flushes, day.hotWaterPours, day.states.length], day.date).toEqual([hours, hours, 11]);
+        expect(day.states.reduce((sum, state) => sum + state.seconds, 0), day.date).toBe(hours * 3_600);
       }
-      // About 800 characters a day, so a month is over half the budget.
+      // About 700 characters a day, so a month is about half the budget.
       expect(month.text.length).toBeGreaterThan(20_000);
 
-      const day = await assistant.callWithinBudget<Use>("get_machine_use", { machineId: busy.machine.id, from: "2026-10-15", to: "2026-10-15", by: "hour" });
+      // The day of 25 hours, as long as a range by hour may be: 24 hours on the wall clock, the one repeated twice as long.
+      const day = await assistant.callWithinBudget<Use>("get_machine_use", { machineId: busy.machine.id, from: "2026-11-01", to: "2026-11-01", by: "hour" });
       expect(day.result).not.toHaveProperty("cut");
-      expect(day.result).toEqual({ ...(await rest({ from: "2026-10-15", to: "2026-10-15", by: "hour" })), from: "2026-10-15T00:00:00.000-05:00", to: "2026-10-16T00:00:00.000-05:00" });
-      expect(day.result.buckets.map((bucket) => [bucket.hour, bucket.flushes, bucket.hotWaterPours, bucket.states.length])).toEqual(Array.from({ length: 24 }, (_, n) => [n, 1, 1, 11]));
+      expect(day.result).toEqual({ ...(await rest({ from: "2026-11-01", to: "2026-11-01", by: "hour" })), from: `2026-11-01${ends.from}`, to: ends.to });
+      expect(day.result.buckets.map((bucket) => [bucket.hour, bucket.flushes, bucket.hotWaterPours, bucket.states.length])).toEqual(
+        Array.from({ length: 24 }, (_, n) => [n, n === 1 ? 2 : 1, n === 1 ? 2 : 1, 11]),
+      );
+      expect(day.result.buckets.reduce((sum, bucket) => sum + bucket.states.reduce((seconds, state) => seconds + state.seconds, 0), 0)).toBe(25 * 3_600);
     });
 
     it("lists a Machine's Settings Edits a page at a time", async () => {

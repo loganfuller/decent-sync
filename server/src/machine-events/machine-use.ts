@@ -32,8 +32,8 @@ const DAY = 24 * HOUR;
 
 /**
  * The longest range of each kind, in milliseconds: by day, `MAX_USE_DAYS`
- * days and the hour a day gains as the clocks go back; by hour, one day,
- * which is 25 hours long then.
+ * days and the hour a day gains as the clocks go back; by hour, 25 hours,
+ * the longest a day is, as the clocks go back.
  */
 const LONGEST: Record<UseBy, number> = { day: MAX_USE_DAYS * DAY + HOUR, hour: 25 * HOUR };
 
@@ -105,8 +105,9 @@ export function readUseRequest(query: Record<string, unknown>): UseRequest {
 
 /**
  * The range a request asks for, as moments in milliseconds, by the
- * Machine's stays and the time now: refused if it ends at or before its
- * start, or runs longer than `LONGEST` allows.
+ * Machine's stays and the time now: refused if the end it gives is at or
+ * before its start, or it runs longer than `LONGEST` allows. One with no
+ * end that starts after now ends before it starts: it is still to come.
  */
 export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], now: number): { from: number; to: number } {
   const moment = (bound: string, end: boolean): number => {
@@ -121,7 +122,7 @@ export function useRange({ from, to, by }: UseRequest, stays: readonly Stay[], n
   // With no start, from the day the range's last moment is in, or the days before it too.
   const lastDay = zoned(end - 1, timeZoneAt(stays, end - 1)).toPlainDate();
   const start = moment(from ?? lastDay.subtract({ days: by === "day" ? DEFAULT_USE_DAYS - 1 : 0 }).toString(), false);
-  if (end <= start) throw new BadRequestException("Choose an end after the start");
+  if (to !== undefined && end <= start) throw new BadRequestException("Choose an end after the start");
   if (end - start > LONGEST[by]) {
     throw new BadRequestException(by === "day" ? `Choose a range of at most ${MAX_USE_DAYS} days` : "Choose a range of at most a day to read by hour");
   }
