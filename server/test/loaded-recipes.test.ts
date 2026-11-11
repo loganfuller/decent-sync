@@ -34,11 +34,13 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // not, and nor does a restart of DYE2. The plugin has DYE2 save each change
 // of the Workflow while a Recipe is loaded (`record`), and reports the recipes
 // it saved at once, never into a recipe applied while the save waited its
-// turn; the server unloads one by having the plugin clear the field.
-// Through the built plugin in simulated tablets running DYE2 v0.1.36 and
-// Streamline v0.2.24 as recorded (fixtures/decaid/dye2-v0.1.26/), on two
-// server instances sharing one database, with assertions through the REST
-// API and what each simulated tablet holds. Serials are made up, from 47001.
+// turn; the server unloads one by having the plugin clear the field. A
+// Recipe holding a feed rate applies nothing from Streamline v0.2.24's strip,
+// a known gap of that release's. Through the built plugin in simulated
+// tablets running DYE2 v0.1.36 and Streamline v0.2.24 as recorded
+// (fixtures/decaid/dye2-v0.1.26/), on two server instances sharing one
+// database, with assertions through the REST API and what each simulated
+// tablet holds. Serials are made up, from 47001.
 
 type Record_ = Record<string, unknown>;
 
@@ -57,6 +59,8 @@ const HOT_WATER = { targetTemperature: 85, duration: 40, volume: 120, flow: 7.5 
 /** The recording's tablet's record ids: the Ethiopia's recipe, in no Recipe Slot, and the Brazil's, in slot 2. */
 const ETHIOPIA = "1";
 const BRAZIL = "2";
+/** The recording's `Fixture Library Recipe`, in slot 1, under the UUID DYE2's editor gave it. */
+const LIBRARY = "05fd1e80-61e3-46ef-b202-2cbad5eb7983";
 /** The recording's blank recipe, naming no Bean, hidden from the strip in its stripSlot 3, so in no slot. */
 const BLANK = "3";
 
@@ -242,6 +246,45 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await quiet({ streamline });
     expect((await loadedRecipe(machine))?.recipe.id).toBe(brazil);
     expect((await history(machine)).total).toBe(1);
+  });
+
+  it("applies nothing of a Recipe holding a feed rate from Streamline v0.2.24's strip, which refuses it, the Workflow and Loaded Recipe staying as they were, though it applied there before it held one", async () => {
+    // This records a known gap in Streamline v0.2.24, accepted until a release fixes it: its strip copies the recipe's embedded
+    // Workflow's context whole, and `updateWorkflow` throws in `assertDeclaredFields` before its PUT, as the `dye.applyRecipe`
+    // writer does not own `context.extras.feedRate`, which the server writes there for a Recipe holding one, as DYE2 does
+    // from v0.1.34. Upstream's main adds the field to that writer (streamline-js 26d894e and 60ccf0b), not yet released. When
+    // the simulators follow the Streamline release that carries it, turn this round: the tap then applies and loads the Recipe.
+    const { machine, tablet, brazil, edit, quiet } = await lab("Strip feed rate", 47341);
+    await expect.poll(() => dye2GlobalIdOf(record(tablet, LIBRARY)), { timeout: 15_000 }).not.toBeNull();
+    const library = dye2GlobalIdOf(record(tablet, LIBRARY))!;
+    const streamline = await startStreamline(tablet);
+    // Holding no feed rate, the Brazil in slot 2 applies and loads; then the recipe in slot 1 does.
+    expect((await streamline.applyRecipe(2)).workflow?.status).toBe(200);
+    await loads(machine, brazil);
+    expect((await streamline.applyRecipe(1)).workflow?.status).toBe(200);
+    await loads(machine, library);
+
+    // The Brazil is given a feed rate in the management interface, which reaches its record and its embedded Workflow.
+    await edit(brazil, { feedRate: "1200" });
+    await expect
+      .poll(() => [variables(record(tablet, BRAZIL)).feedRate, (((record(tablet, BRAZIL)?.workflow as Record_ | undefined)?.context as Record_ | undefined)?.extras as Record_ | undefined)?.feedRate], { timeout: 15_000 })
+      .toEqual(["1200", "1200"]);
+    // Once the edit's writes, their reports and Streamline's replies are done.
+    await quiet({ streamline });
+    const before = structuredClone(tablet.workflow());
+    const loaded = (await history(machine)).total;
+
+    // Tapped again, it is refused before anything is sent: the Workflow is as it was, still naming the recipe in slot 1.
+    const applied = await streamline.applyRecipe(2);
+    expect(applied).toEqual({ refused: expect.stringContaining("context.extras.feedRate") });
+    expect(tablet.workflow()).toEqual(before);
+    expect(recipeIdInWorkflow(tablet)).toBe(LIBRARY);
+    // Once anything the tap might have set off is done, the Machine keeps the recipe in slot 1 loaded, with no load since.
+    await quiet({ streamline });
+    expect(tablet.workflow()).toEqual(before);
+    expect(dye2RecipeIdOf((await storedWorkflow(machine))!)).toBe(LIBRARY);
+    expect((await loadedRecipe(machine))?.recipe.id).toBe(library);
+    expect((await history(machine)).total).toBe(loaded);
   });
 
   it("keeps the Recipe loaded through a dial tap and Done on DYE2's dashboard, which send only the page's own edits, the tap's grind saved into the Recipe", async () => {
