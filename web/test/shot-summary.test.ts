@@ -34,10 +34,12 @@ describe("a Shot Summary's numbers as text", () => {
 });
 
 describe("a Barista's name", () => {
-  it("is read without its case or the blanks around it, as the server reads one", () => {
+  it("is read without the blanks around it or the case of A to Z, as the server reads one", () => {
     expect([" Jules", "JULES\t", "jules", "Jules Verne"].map(baristaKey)).toEqual(["jules", "jules", "jules", "jules verne"]);
     expect(["", "   ", "\n", " \t\r\n\f\v"].map(baristaKey)).toEqual(["", "", "", ""]);
     // Only the blanks the server leaves out: a name within another space is another Barista, as it is there.
     expect(["\u00a0Jules", "Jules\u2003", "\u00a0"].map(baristaKey)).toEqual(["\u00a0jules", "jules\u2003", "\u00a0"]);
+    // Other letters as they are, as JavaScript folds some unlike the server, such as a final sigma or a dotted I.
+    expect(["ΣΑΣ", "İpek", "Élodie", "ÉLODIE"].map(baristaKey)).toEqual(["ΣΑΣ", "İpek", "Élodie", "Élodie"]);
   });
 });
