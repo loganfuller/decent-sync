@@ -59,14 +59,7 @@ export class ShotsService {
       const data = {
         ...metadata,
         ...links,
-        ...(curves && {
-          ...(!stored?.hasFullRecord && { pulledAt: curves.pulledAt }),
-          preheat: curves.preheat,
-          duration: recordingSeconds(curves),
-          peakPressure: curves.peakPressure,
-          peakFlow: curves.peakFlow,
-          curvesRevision: CURVES_REVISION,
-        }),
+        ...(curves && storedCurves(curves, !stored?.hasFullRecord)),
         hasFullRecord: full || stored?.hasFullRecord === true,
         record: record as Prisma.InputJsonObject,
         ...credit,
@@ -231,10 +224,14 @@ export class ShotsService {
    * A Shot as `GET /api/shots/:id` shows it, with what its record and its
    * samples show beyond its columns (`recordedDetails`, `measuredDetails`),
    * and those samples (`shotSamples`), from one read of its measurements,
-   * which get_shot also draws its curves from.
+   * which get_shot also draws its curves from. Its steps, the one it ended
+   * in and the scale's last weight are read from those samples, so a Shot
+   * has them before its stored values are worked out (`measuredValues`);
+   * its time to first drip and its flow at the stop are the stored ones,
+   * null until then.
    */
   async read(id: string) {
-    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: { versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns }, include: creditView });
+    const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: readOmitted, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
     const [measurements, previousShot] = await Promise.all([
@@ -259,6 +256,16 @@ export class ShotsService {
   }
 }
 
+/**
+ * What a full record's curves store on its Shot (`extractCurves`), at the
+ * current revision: its Preheat and peaks, what its samples show of how it
+ * went (`measuredValues`), and the whole recording as its duration
+ * (`recordingSeconds`); and its pull time, from its first full record alone.
+ */
+function storedCurves({ pulledAt, ...curves }: ReturnType<typeof extractCurves>, first: boolean) {
+  return { ...(first && { pulledAt }), ...curves, duration: recordingSeconds(curves), curvesRevision: CURVES_REVISION };
+}
+
 const visible: Prisma.ShotWhereInput = {
   hasFullRecord: true,
   OR: [{ machineId: { not: null } }, { pendingMachine: { dismissedAt: null } }],
@@ -280,7 +287,15 @@ const creditView = {
 } as const;
 /** The columns behind a Shot's links, which it shows as the items they link to. */
 const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: true, libraryBasketId: true, libraryToolIds: true, recipeId: true } as const;
-const listOmitted = { record: true, versionAt: true, hasFullRecord: true, curvesRevision: true, ...linkColumns } as const;
+/**
+ * What no read gives of a Shot. Of what its samples show (`measuredValues`),
+ * whether it poured is kept for Shot Summaries to count Unfinished Shots by
+ * (#469), and the scale's last weight is read from its samples where it is
+ * given (`ShotsService.read`).
+ */
+const readOmitted = { versionAt: true, hasFullRecord: true, curvesRevision: true, poured: true, lastWeight: true, lastWeightSeconds: true, ...linkColumns } as const;
+/** A list leaves out the record too, and the flow at the stop. */
+const listOmitted = { ...readOmitted, record: true, flowAtStop: true } as const;
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
 export interface BatchLink {
@@ -407,13 +422,19 @@ function compareText(a: string | null, b: string | null): number {
 /**
  * A Shot as it is shown. A Location credited through an inferred Machine is
  * inferred too; an unknown Location is not. Its duration leaves its Preheat
- * out (`shownDuration`).
+ * out (`shownDuration`). The step it ended in, as stored, is one value, null
+ * where it ended in none or until it is worked out.
  */
-function shownShot<T extends { machineInferred: boolean; locationId: string | null; duration: number | null; preheat: number | null }>(
-  shot: T,
-): Omit<T, "preheat"> & { locationInferred: boolean } {
-  const { preheat, ...shown } = shot;
-  return { ...shown, duration: shownDuration(shot.duration, preheat), locationInferred: shot.machineInferred && shot.locationId !== null };
+function shownShot<
+  T extends { machineInferred: boolean; locationId: string | null; duration: number | null; preheat: number | null; lastStepFrame: number | null; lastStepName: string | null },
+>(shot: T): Omit<T, "preheat" | "lastStepFrame" | "lastStepName"> & { locationInferred: boolean; lastStep: { frame: number; name: string } | null } {
+  const { preheat, lastStepFrame, lastStepName, ...shown } = shot;
+  return {
+    ...shown,
+    duration: shownDuration(shot.duration, preheat),
+    locationInferred: shot.machineInferred && shot.locationId !== null,
+    lastStep: lastStepFrame !== null && lastStepName !== null ? { frame: lastStepFrame, name: lastStepName } : null,
+  };
 }
 
 function shotNotFound() { return new NotFoundException("Shot not found"); }

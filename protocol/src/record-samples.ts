@@ -54,6 +54,8 @@ export interface Sample<C extends string> {
   targets: Record<C, number | null>;
   /** A Shot's: the Profile step its Machine was running, null in Preheat or where it reported none. */
   step?: Step | null;
+  /** A Shot's: its Machine's substate, as Decaid names it, such as `preinfusion` or `pouring`; null where it reported none. */
+  substate?: string | null;
   /** A Steam Record's: its phase (`steamPhases`). */
   phase?: SteamPhase;
 }
@@ -89,6 +91,7 @@ export function shotSamples(measurements: unknown, profile?: unknown): Sample<Sh
   return timedSamples(measurements, (machine) => record(machine?.state)?.substate === "preparingForShot", (_, machine, scale, preheat) => ({
     shade: preheat ? "Preheat" : null,
     step: preheat ? null : profileStep(machine?.profileFrame, Array.isArray(steps) ? steps : []),
+    substate: text(record(machine?.state)?.substate),
     values: {
       pressure: number(machine?.pressure),
       flow: number(machine?.flow),
@@ -244,11 +247,59 @@ export function stepSpans(samples: readonly Sample<string>[]): StepSpan[] {
  * Shot's weight.
  */
 export function lastRecordedWeight(samples: readonly Sample<ShotCurve>[]): { weight: number; seconds: number } | null {
+  const last = lastWeighed(samples);
+  return last && { weight: last.values.weight!, seconds: last.seconds };
+}
+
+/**
+ * A Shot's flow at the stop: the scale's weight flow, in g/s, at its last
+ * weight its samples (`shotSamples`) recorded after its Preheat
+ * (`lastRecordedWeight`), so just before the stop; null where there is no
+ * such reading, or it recorded no weight flow.
+ */
+export function flowAtStop(samples: readonly Sample<ShotCurve>[]): number | null {
+  return lastWeighed(samples)?.values.weightFlow ?? null;
+}
+
+/** The last of a Shot's samples after its Preheat at which the scale recorded a weight. */
+function lastWeighed(samples: readonly Sample<ShotCurve>[]): Sample<ShotCurve> | null {
   for (let n = samples.length - 1; n >= 0; n--) {
-    const { values, seconds, shade } = samples[n]!;
-    if (shade === null && values.weight !== null) return { weight: values.weight, seconds };
+    const sample = samples[n]!;
+    if (sample.shade === null && sample.values.weight !== null) return sample;
   }
   return null;
+}
+
+/** The least the scale reads, in grams, once coffee has reached the cup: a Shot's first drip. */
+export const FIRST_DRIP_GRAMS = 1;
+
+/**
+ * A Shot's time to first drip: the seconds of the first of its samples
+ * (`shotSamples`) after its Preheat at which the scale read 1 g or more
+ * (FIRST_DRIP_GRAMS), so from the start of its profile; null where none read
+ * that, as on a Shot with no scale. No reading in Preheat counts, as none
+ * there is the Shot's weight (`lastRecordedWeight`). Decaid tares the scale
+ * again at the profile's first sample without waiting for it, so a reading
+ * taken before that tare lands, as of a cup put on during Preheat, counts
+ * as it was recorded.
+ */
+export function timeToFirstDrip(samples: readonly Sample<ShotCurve>[]): number | null {
+  for (const { values, seconds, shade } of samples) {
+    if (shade === null && values.weight !== null && values.weight >= FIRST_DRIP_GRAMS) return seconds;
+  }
+  return null;
+}
+
+/**
+ * Whether a Shot poured: one of its samples (`shotSamples`) is in the
+ * `pouring` substate, which the Machine reports once its profile is past the
+ * steps it counts as preinfusion. One that didn't, stopped in its Preheat or
+ * its preinfusion, is an Unfinished Shot. It is what the Machine reported,
+ * whatever landed in the cup: a Shot stopped on weight within those steps
+ * didn't pour either.
+ */
+export function poured(samples: readonly Sample<ShotCurve>[]): boolean {
+  return samples.some((sample) => sample.substate === "pouring");
 }
 
 /** A stretch of a record in one shaded phase, from its first sample to the sample after its last. */
@@ -288,6 +339,10 @@ function record(value: unknown): Record<string, unknown> | undefined {
 
 function number(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function text(value: unknown): string | null {
+  return typeof value === "string" ? value : null;
 }
 
 function positive(value: unknown): number | null {

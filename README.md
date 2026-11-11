@@ -267,9 +267,10 @@ Viewer's app can only read.
 An assistant can read Locations, Machines with their settings, then or now,
 and their activity, each dial-in change included, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
-History, Shots with their curves and the profile steps they ran, a summary
-of the Shots any filter finds, Steam Records, and the Library with each
-item's history and Conflicts. It can create
+History, Shots with their curves, the profile steps they ran, their time to
+first drip and their flow at the stop, a summary of the Shots any filter
+finds, Steam Records, and the Library with each item's history and
+Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
 Slots and copy them to other Locations, use or dismiss a Conflict's value, make

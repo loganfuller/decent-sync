@@ -1,3 +1,4 @@
+import { flowAtStop, poured, timeToFirstDrip } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import tapInNormal from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record.json" with { type: "json" };
 import timedStop from "../../server/test/fixtures/decaid/de1pro-live-v0.9.0/steam-record-timed-stop.json" with { type: "json" };
@@ -214,6 +215,85 @@ describe("lastRecordedWeight", () => {
     // Stopped at its first sample after Preheat, which still weighs 0, it has that 0, at 0 s.
     expect(lastRecordedWeight(shotSamples(measurements.slice(0, 44)))).toEqual({ weight: 0, seconds: 0 });
     expect(lastRecordedWeight([])).toBeNull();
+  });
+});
+
+describe("timeToFirstDrip", () => {
+  const scaled = measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
+
+  it("is the seconds, from the start of the Shot's profile, of the scale's first reading of 1 g or more", () => {
+    const samples = shotSamples(measurements);
+    // The scale read 0.6 g, then exactly 1 g at the Shot's 82nd sample, 7.945 s after its profile's first.
+    expect([80, 81].map((n) => samples[n]!.values.weight)).toEqual([0.6, 1]);
+    expect(timeToFirstDrip(samples)).toBe(7.945);
+    expect(timeToFirstDrip(samples)).toBe(samples[81]!.seconds);
+    // Derived: the real Shot stopped at that sample still has it, and stopped a sample earlier, its scale never read 1 g.
+    expect(timeToFirstDrip(shotSamples(measurements.slice(0, 82)))).toBe(7.945);
+    expect(timeToFirstDrip(shotSamples(measurements.slice(0, 81)))).toBeNull();
+  });
+
+  it("is null without a scale, and counts no reading in Preheat, which is not the Shot's weight", () => {
+    // Derived: the real Shot without a scale, and stopped in its Preheat.
+    expect(timeToFirstDrip(shotSamples(scaled.map((sample) => ({ ...sample, scale: null }))))).toBeNull();
+    expect(timeToFirstDrip(shotSamples(measurements.slice(0, 43)))).toBeNull();
+    // Derived: its Preheat's readings at 250 g, as a cup on a scale Decaid has not tared: the first drip is still the profile's.
+    const cup = scaled.map((sample, n) => (n < 43 ? { ...sample, scale: { ...sample.scale, weight: 250 } } : sample));
+    expect(timeToFirstDrip(shotSamples(cup))).toBe(7.945);
+    expect(timeToFirstDrip(shotSamples(cup.slice(0, 43)))).toBeNull();
+    expect(timeToFirstDrip([])).toBeNull();
+  });
+});
+
+describe("flowAtStop", () => {
+  const scaled = measurements as { machine: Record<string, unknown>; scale: Record<string, unknown> | null }[];
+
+  it("is the scale's weight flow at the last weight the samples recorded", () => {
+    const samples = shotSamples(measurements);
+    expect(flowAtStop(samples)).toBe(2.8189155419461156);
+    expect(flowAtStop(samples)).toBe(samples.at(-1)!.values.weightFlow);
+    // Derived: the real Shot with the scale's last two readings gone, as when it disconnects: the flow at its third last,
+    // where its last recorded weight is.
+    const disconnected = shotSamples(scaled.map((sample, n) => (n < 166 ? sample : { ...sample, scale: null })));
+    expect(flowAtStop(disconnected)).toBe(2.7897971873481056);
+    expect(flowAtStop(disconnected)).toBe(disconnected[165]!.values.weightFlow);
+    expect(lastRecordedWeight(disconnected)!.seconds).toBe(disconnected[165]!.seconds);
+  });
+
+  it("is null without a scale's readings after Preheat, or where the last weight recorded no weight flow", () => {
+    // Derived: the real Shot without a scale, and stopped in its Preheat.
+    expect(flowAtStop(shotSamples(scaled.map((sample) => ({ ...sample, scale: null }))))).toBeNull();
+    expect(flowAtStop(shotSamples(measurements.slice(0, 43)))).toBeNull();
+    // Derived: its last reading with no weight flow, which has none, rather than an earlier reading's.
+    const flowless = shotSamples(scaled.map((sample, n) => (n === 167 ? { ...sample, scale: { ...sample.scale, weightFlow: undefined } } : sample)));
+    expect(lastRecordedWeight(flowless)).toEqual({ weight: 32.4, seconds: lastSecond(flowless) });
+    expect(flowAtStop(flowless)).toBeNull();
+    expect(flowAtStop([])).toBeNull();
+  });
+});
+
+describe("poured", () => {
+  it("is whether any sample is in the pouring substate, which an Unfinished Shot has none of", () => {
+    const samples = shotSamples(measurements);
+    // Its profile counts its first three steps as preinfusion: 29 samples of it after the 43 of Preheat, then 96 of pouring,
+    // from its Dripping step on.
+    expect(["preparingForShot", "preinfusion", "pouring"].map((substate) => samples.filter((sample) => sample.substate === substate).length)).toEqual([43, 29, 96]);
+    expect(samples.findIndex((sample) => sample.substate === "pouring")).toBe(72);
+    expect(poured(samples)).toBe(true);
+    // Derived: the real Shot stopped at its first pouring sample poured; stopped a sample earlier, in its preinfusion, or in
+    // its Preheat, it is an Unfinished Shot.
+    expect(poured(shotSamples(measurements.slice(0, 73)))).toBe(true);
+    expect(poured(shotSamples(measurements.slice(0, 72)))).toBe(false);
+    expect(poured(shotSamples(measurements.slice(0, 43)))).toBe(false);
+    expect(poured([])).toBe(false);
+  });
+
+  it("needs no scale, and reads a sample with no substate as not pouring", () => {
+    const scaleless = measurements.map((sample) => ({ ...sample, scale: null }));
+    expect(poured(shotSamples(scaleless))).toBe(true);
+    // Derived: the real Shot with no sample's state reported.
+    const stateless = shotSamples(measurements.map((sample) => ({ ...sample, machine: { ...sample.machine, state: undefined } })));
+    expect(stateless.every((sample) => sample.substate === null)).toBe(true);
+    expect(poured(stateless)).toBe(false);
   });
 });
 

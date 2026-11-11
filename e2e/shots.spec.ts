@@ -152,11 +152,14 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
   // The scale's last reading in its curves, before the stop, beside the yield Decaid weighed once the flow settled.
   await expect(field(page.getByRole("region", { name: "Annotations" }), "Last weight recorded")).toHaveText("32.5 g at 23.5 s");
+  // Beside it, when its scale first read 1 g or more, 21.45 s into its profile, and its weight flow at that last reading.
+  await expect(field(page.getByRole("region", { name: "Annotations" }), "Time to first drip")).toHaveText("21.4 s");
+  await expect(field(page.getByRole("region", { name: "Annotations" }), "Flow at the stop")).toHaveText("3.22 g/s");
   await expectTip(curves, "Curves", CURVES_TIP);
   await expectTip(
     page.getByRole("region", { name: "Annotations" }),
     "Annotations",
-    "How it turned out, as recorded on the tablet. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet.",
+    "How it turned out, as recorded on the tablet. The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves, just before the stop: Decaid records none after it. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
   );
 
   await curves.getByRole("checkbox", { name: "Compare with the previous Shot on Lab 1" }).check();
@@ -263,11 +266,24 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
   const preheated = preheatShotFixture();
   const { machine, ...workflow } = preheated.workflow as Record<string, Record<string, unknown>>;
   const shot = { ...preheated, id: "preheat-shot", workflow: { ...workflow, machine: { ...machine, serialNumber: hardware.serial } } };
-  await adopt(page, "Preheater", hardware, null, [shot, shotAt("preheat-previous", "2026-10-25T12:00:00Z", { hardware })]);
+  // Derived: the same Shot pulled the day after with no scale.
+  const unweighed = { ...shot, id: "preheat-no-scale", timestamp: "2026-10-26T12:00:00Z", measurements: (preheated.measurements as object[]).map((sample) => ({ ...sample, scale: null })) };
+  await adopt(page, "Preheater", hardware, null, [shot, unweighed, shotAt("preheat-previous", "2026-10-25T12:00:00Z", { hardware })]);
+
+  // With no scale, it shows no last weight, time to first drip or flow at the stop.
+  await page.goto("/shots/preheat-no-scale");
+  const scaleless = page.getByRole("region", { name: "Annotations" });
+  await expect(field(scaleless, "Yield weighed")).toHaveText("34.7 g");
+  for (const none of ["Last weight recorded", "Time to first drip", "Flow at the stop"]) await expect(field(scaleless, none)).toHaveCount(0);
 
   await page.goto("/shots/preheat-shot");
   // From the first sample after Preheat, not the 33.2 s since the recording started.
   await expect(field(page, "Duration")).toHaveText("25.8 s");
+  // Counted from there too: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.82 g/s.
+  const annotations = page.getByRole("region", { name: "Annotations" });
+  await expect(field(annotations, "Time to first drip")).toHaveText("7.9 s");
+  await expect(field(annotations, "Last weight recorded")).toHaveText("32.4 g at 25.8 s");
+  await expect(field(annotations, "Flow at the stop")).toHaveText("2.82 g/s");
   const curves = page.getByRole("region", { name: "Curves" });
   for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
     const chart = curves.getByRole("figure", { name, exact: true });

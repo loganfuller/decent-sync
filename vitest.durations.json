@@ -118,6 +118,7 @@
   "server/test/shot-holds.test.ts": 24,
   "server/test/shot-links.test.ts": 13,
   "server/test/shot-lists.test.ts": 4,
+  "server/test/shot-measured-values.test.ts": 6,
   "server/test/shot-recipe-links.test.ts": 33,
   "server/test/shot-summary.test.ts": 8,
   "server/test/shots.test.ts": 36,
