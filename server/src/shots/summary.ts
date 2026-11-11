@@ -218,6 +218,14 @@ const AWAITING = Prisma.sql`s.poured IS NULL`;
 const MAX_GRAMS = 1e307;
 
 /**
+ * The most a Shot's value of a number may be, in size, to count in its
+ * quartiles: a record may hold any number, and PostgreSQL interpolates a
+ * percentile between two values from their difference, which for two
+ * beyond this fits no float8 and makes it infinite. No Shot records one.
+ */
+const MAX_VALUE = 1e307;
+
+/**
  * The most a yield may be over its dose, as a multiple, to have a ratio: a
  * record may hold any number, and a quotient beyond what a float8 holds
  * would fail the whole summary. A ratio is rounded to millionths, so one
@@ -257,9 +265,14 @@ function quoted(name: string): Prisma.Sql {
   return Prisma.raw(`"${name}"`);
 }
 
-/** The quartiles of the column `name` of the Shots covered, as `percentile_cont` interpolates them. */
+/** Whether a Shot covered has a value of the column `name` to count (`MAX_VALUE`): null, none, is not. */
+function countedSql(name: string, covered: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`${covered} AND abs(shot.${quoted(name)}) < ${MAX_VALUE}::float8`;
+}
+
+/** The quartiles of the column `name` of the Shots covered that count it, as `percentile_cont` interpolates them. */
 function quartilesSql(name: string, covered: Prisma.Sql): Prisma.Sql {
-  return Prisma.sql`percentile_cont(ARRAY[0.25, 0.5, 0.75]) WITHIN GROUP (ORDER BY shot.${quoted(name)}) FILTER (WHERE ${covered})`;
+  return Prisma.sql`percentile_cont(ARRAY[0.25, 0.5, 0.75]) WITHIN GROUP (ORDER BY shot.${quoted(name)}) FILTER (WHERE ${countedSql(name, covered)})`;
 }
 
 /** A number from its quartiles and the Shots that had a value. */
@@ -267,12 +280,12 @@ function numberOf(shots: number, quartiles: number[] | null): SummaryNumber {
   return { shots, median: quartiles?.[1] ?? null, p25: quartiles?.[0] ?? null, p75: quartiles?.[2] ?? null };
 }
 
-/** A median number of each Shot's `value`, null where it has none, named `name` in the statement. */
+/** A median number of each Shot's `value`, null where it has none, or one too large to count (`MAX_VALUE`), named `name` in the statement. */
 function medianSql(name: string, value: Prisma.Sql): NumberSql {
   return {
     columns: [Prisma.sql`${value} AS ${quoted(name)}`],
     aggregates: (covered) => [
-      Prisma.sql`count(shot.${quoted(name)}) FILTER (WHERE ${covered})::int AS ${quoted(`${name}Shots`)}`,
+      Prisma.sql`count(*) FILTER (WHERE ${countedSql(name, covered)})::int AS ${quoted(`${name}Shots`)}`,
       Prisma.sql`${quartilesSql(name, covered)} AS ${quoted(`${name}Quartiles`)}`,
     ],
     read: (row) => numberOf(row[`${name}Shots`] as number, row[`${name}Quartiles`] as number[] | null),
@@ -334,8 +347,8 @@ function numberSql(name: NumberName): NumberSql {
         columns: median.columns,
         aggregates: (covered) => [
           ...median.aggregates(covered),
-          Prisma.sql`min(shot."grindSetting") FILTER (WHERE ${covered}) AS "grindSettingLowest"`,
-          Prisma.sql`max(shot."grindSetting") FILTER (WHERE ${covered}) AS "grindSettingHighest"`,
+          Prisma.sql`min(shot."grindSetting") FILTER (WHERE ${countedSql("grindSetting", covered)}) AS "grindSettingLowest"`,
+          Prisma.sql`max(shot."grindSetting") FILTER (WHERE ${countedSql("grindSetting", covered)}) AS "grindSettingHighest"`,
         ],
         read: (row, shots) =>
           ({ ...(median.read(row, shots) as SummaryNumber), lowest: row.grindSettingLowest as number | null, highest: row.grindSettingHighest as number | null }) satisfies RangedNumber,

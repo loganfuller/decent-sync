@@ -686,7 +686,10 @@ apart. Buckets are a later ticket's.
     is interpolated between the two Shots nearest it (PostgreSQL's
     `percentile_cont`), so the median of two Shots is halfway between them.
     The three are null where no Shot had a value. One or two Shots give the
-    same; `shots` says how little it rests on.
+    same; `shots` says how little it rests on. A value of more than 1e307
+    in size, which no Shot records, counts as none (`MAX_VALUE`):
+    PostgreSQL interpolates a percentile from the difference of two
+    values, which for two such fits no float8 and would make it infinite.
   - `lastStep`: `{ shots, mostCommon }`, how many Shots ended in a step of
     their Profile (`last_step_frame`, above), and the steps most of them
     ended in, at most 10 (`LAST_STEPS`), each `{ frame, name, shots }`, most

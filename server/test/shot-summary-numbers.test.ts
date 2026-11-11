@@ -108,6 +108,7 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
   let lab1: CreatedMachine;
   let lab2: CreatedMachine;
   let labTablet: SimulatedTablet;
+  let stepsTablet: SimulatedTablet;
   const tablets = new LoadedTablets();
 
   const labShots = [
@@ -143,7 +144,7 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
       await api.send("POST", `/machines/${machine.machine.id}/location-history`, { locationId: lab.id, effectiveFrom: "2025-01-01T00:00:00Z" }, 201);
     }
     labTablet = tablets.syncing(lab1, server, { api: withShots(emptyLibrary(LAB_SERIAL), labShots) });
-    tablets.syncing(lab2, server, { api: withShots(emptyLibrary(STEPS_SERIAL), stepShots) });
+    stepsTablet = tablets.syncing(lab2, server, { api: withShots(emptyLibrary(STEPS_SERIAL), stepShots) });
     // Each tablet's plugin indexes its Shots and sends those the server asks for, one at a time.
     await until(async () => (await listTotal()) === labShots.length + stepShots.length);
   });
@@ -380,5 +381,20 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
     await expect.poll(async () => (await summary({ ...atLab1(), numbers: "rating" })).numbers.rating).toEqual({ ...number(5, 6, 4, 8), rated: 0.833333 });
     // What its measurements show is as it was.
     expect((await summary(everyNumber())).numbers).toEqual({ ...LAB_1.numbers, rating: { ...number(5, 6, 4, 8), rated: 0.833333 } });
+  });
+
+  it("leaves out a value beyond any a Shot records, as two such have quartiles no float8 holds, and still answers", async () => {
+    // On Lab 2, a day later: two Shots recording, as numbers, a grind setting, TDS and extraction yield of 1e308 and −1e308,
+    // the first a rating of 1e308 too, and one a grind setting of 8. PostgreSQL interpolates between two values from
+    // their difference, 2e308, which would make every percentile infinite.
+    stepsTablet.pullShot(shotOf("beyond-high", "2026-02-12T10:00:00Z", { grinderSetting: 1e308, tds: 1e308, extractionYield: 1e308, enjoyment: 1e308 }, shotFixture(), STEPS_SERIAL));
+    stepsTablet.pullShot(shotOf("beyond-low", "2026-02-12T11:00:00Z", { grinderSetting: -1e308, tds: -1e308, extractionYield: -1e308 }, shotFixture(), STEPS_SERIAL));
+    stepsTablet.pullShot(shotOf("beyond-none", "2026-02-12T12:00:00Z", { grinderSetting: "8" }, shotFixture(), STEPS_SERIAL));
+    const day = { machineId: lab2.machine.id, from: "2026-02-12", to: "2026-02-12" };
+    await expect.poll(() => listTotal(day)).toBe(3);
+    expect(await summary({ ...day, numbers: "rating,grindSetting,tds,extractionYield" })).toEqual({
+      counts: { shots: 3, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
+      numbers: { rating: { ...NONE, rated: 0 }, grindSetting: { ...number(1, 8), lowest: 8, highest: 8 }, tds: NONE, extractionYield: NONE },
+    });
   });
 });
