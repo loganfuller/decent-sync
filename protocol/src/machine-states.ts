@@ -85,6 +85,16 @@ export function nameMachineState(state: string, substate: string, snapshot?: unk
   return { name: row.name, detail, note: row.note ?? null };
 }
 
+/**
+ * The name of Decaid's state alone, whatever its substate, as a Machine's use
+ * names the time spent in each (#475): the name `nameMachineState` gives it,
+ * so `schedIdle` is Idle and `skipStep` Pulling a shot, and the whole of
+ * `steam`, its purge included, is Steaming.
+ */
+export function nameDecaidState(state: string): string {
+  return nameMachineState(state, "idle").name;
+}
+
 /** The Machine State a machine snapshot, as `stateUpdate` carries it, reports, with Decaid's names; null if it reports none. */
 export function machineStateOf(snapshot: unknown): (MachineStateName & { state: string; substate: string }) | null {
   const reported = record(record(snapshot).state);

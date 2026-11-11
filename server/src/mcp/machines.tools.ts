@@ -7,19 +7,20 @@ import { CollectionsService } from "../collections/collections.service.js";
 import type { PairedDevicesView } from "../collections/paired-devices.js";
 import { SettingsHistoryService } from "../collections/settings-history.service.js";
 import { READ } from "../connected-apps/oauth.js";
-import type { LocationView } from "../locations/locations.service.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
 import type { TrailEntry } from "../machine-events/dial-in-trail.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
 import { type ActivityKind, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
+import { DEFAULT_USE_DAYS, MAX_USE_DAYS, USE_BYS } from "../machine-events/machine-use.js";
 import { workflowSummary } from "../machine-events/workflow-summary.js";
 import { readMachineId } from "../machines/input.js";
+import { rangeBound, staysOf, timeZoneAt } from "../machines/machine-days.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { BudgetedTool } from "./budget.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
-import { isDay, startOfDay, timeBound, zonedTime } from "./times.js";
+import { timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 import { WORKFLOW_SUMMARY, workflowSummaryOutput } from "./workflow-summary.js";
 
@@ -213,6 +214,43 @@ const activityOutput = z.object({
   ),
 });
 
+const useInput = z.object({
+  machineId,
+  from: timeBound(`The range's start; none for the start of the day the range ends in, or by day of the ${DEFAULT_USE_DAYS} days ending with it.`, MACHINE_DAY),
+  to: timeBound("The range's end, not included, or through the end of a day given as a date; none for until now.", MACHINE_DAY),
+  by: z.enum(USE_BYS).default("day").describe(`Whether to count by day, over at most ${MAX_USE_DAYS} days, or by hour, over at most 25 hours, the longest a day is.`),
+});
+
+const useOutput = z.object({
+  by: z.enum(USE_BYS),
+  from: time.describe("The range's start."),
+  to: time.describe("The range's end, or now if that is sooner: nothing is counted after it."),
+  buckets: z
+    .array(
+      z.object({
+        date: z.string().describe("The day, as a date at the Location the Machine was at."),
+        hour: z.number().int().optional().describe("By hour, the hour of that day, 0 to 23."),
+        shots: z.number().int().describe("The Shots pulled in it, cleaning and calibration Shots included."),
+        steamRecords: z.number().int(),
+        flushes: z.number().int().describe("The flushes that began in it."),
+        hotWaterPours: z.number().int().describe("The hot water pours that began in it."),
+        states: z
+          .array(
+            z.object({
+              state: z.string().describe("Decaid's name for the state, such as espresso or sleeping."),
+              name: z.string().describe("The Machine State as the management interface names it, such as Pulling a shot or Asleep."),
+              seconds: z.number(),
+            }),
+          )
+          .describe("The time it spent in each of Decaid's states, the longest first."),
+      }),
+    )
+    .describe("Each day or hour of the range, oldest first."),
+});
+
+/** What get_machine_use counts, and how, as machine-use.ts works it out. */
+const USE_NOTE = `In each day or hour: shots, the Shots credited to it that were pulled then, cleaning and calibration Shots included; steamRecords, its Steam Records recorded then; flushes and hotWaterPours, each one visit to that Machine State, counted in the day or hour it began in, with no weight or volume, which Decaid doesn't record; and states, the seconds it spent in each of Decaid's states, the longest first, by state, as get_machine_activity names it, such as espresso, steam, flush, hotWater, idle or sleeping, whatever its substates, so a steam's purge counts as steam, with name, the Machine State as the management interface names it, such as Pulling a shot or Asleep. A Machine State lasts until the next one reported, by the tablet's clock, cut at each day's or hour's edge and at now. So a Machine whose tablet was off counts as in its last state until its tablet reports again: a Machine put to sleep while its tablet is off reads as idle, or whatever it did last, for those hours. Monitoring, a later milestone, will correct this from each Machine's connection history. Nothing is counted before its first Machine State was reported, so a day's seconds may add up to less than the day. A day or an hour is that of the Location the Machine was at then, by its Location History, in its time zone, or UTC's while it was at none: a day the clocks change in is 23 or 25 hours long, an hour they repeat is one hour two hours long, and on a day the Machine moved between time zones each part of the day goes by where it was, while a date given as from or to is still that day where it was at noon UTC, so ask for the days either side of a move to have all of it. buckets are oldest first, each with its date and, by hour, its hour, 0 to 23, those with nothing counted included, and none after now. by day takes a range of at most ${MAX_USE_DAYS} days, and with no from gives the ${DEFAULT_USE_DAYS} days ending with the day the range ends in; by hour takes a range of at most 25 hours, the longest a day is, and with no from gives the day the range ends in. from and to give the range read, to no later than now, with the offset of the time zone of the Location the Machine was at then, or UTC's while it was at none.`;
+
 const settingsEditsInput = z.object({ machineId, ...page });
 
 /** A Settings Edit, as list_settings_edits gives it. */
@@ -378,9 +416,9 @@ const historyOutput = z.object({
  * Machines, read through an assistant as the REST API reads them, calling
  * the same services (ADR-0026): which are online and what each is doing, how
  * one is set up, what its tablet reports, what happened on it over a time
- * range, and its Settings Edits. Every account reads every Machine, as
- * through the REST API; who made a Settings Edit is named as the REST API
- * names it to the account.
+ * range, how much it was used, and its Settings Edits. Every account reads
+ * every Machine, as through the REST API; who made a Settings Edit is named
+ * as the REST API names it to the account.
  */
 @Injectable()
 export class MachinesTools {
@@ -504,6 +542,23 @@ export class MachinesTools {
   }
 
   @BudgetedTool({
+    name: "get_machine_use",
+    title: "Get a Machine's use",
+    description: `How much one Machine was used over a time range, by day or by hour: how many Shots, Steam Records, flushes and hot water pours it made, and how long it spent in each Machine State. ${USE_NOTE}`,
+    inputSchema: useInput,
+    outputSchema: useOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+    budget: { rest: "Asked for a shorter range, it has more of each." },
+  })
+  async getMachineUse({ machineId, from, to, by }: z.infer<typeof useInput>): Promise<z.infer<typeof useOutput>> {
+    const machine = await this.machines.get(readMachineId(machineId));
+    const use = await this.events.use(machine.id, { from, to, by });
+    const zone = zoneOf(machine);
+    return { ...use, from: zone(use.from), to: zone(use.to) };
+  }
+
+  @BudgetedTool({
     name: "list_settings_edits",
     title: "List a Machine's Settings Edits",
     description: `One Machine's Settings Edits, newest first: who made each and when, its fields' values before and after, and what came of it. ${SETTINGS_EDIT_NOTE} ${PAGED} ${MACHINE_TIMES}`,
@@ -607,35 +662,17 @@ export type Zone = (at: string) => string;
  * Location's (`zonedTime`), and UTC's while it was at none.
  */
 export function zoneOf(machine: MachineView): Zone {
-  return (at) => zonedTime(new Date(at), locationAt(machine, Date.parse(at))?.timeZone);
+  const stays = staysOf(machine.locationHistory);
+  return (at) => zonedTime(new Date(at), timeZoneAt(stays, Date.parse(at)));
 }
 
 function zoneMaybe(zone: Zone, at: string | null): string | null {
   return at === null ? null : zone(at);
 }
 
-/** The Location the Machine was at, at a moment, by its Location History, oldest first; null before its first entry. */
-function locationAt(machine: MachineView, at: number): LocationView | null {
-  let found: LocationView | null = null;
-  for (const entry of machine.locationHistory) {
-    if (Date.parse(entry.effectiveFrom) > at) break;
-    found = entry.location;
-  }
-  return found;
-}
-
-/**
- * A bound of a range of the Machine's activity as a moment: one given with
- * its offset as itself, and a date as when that day began at the Location
- * the Machine was at, or for an end the day after it, through its end, in
- * UTC while it was at none. The day's Location is the one it was at at noon
- * UTC that day, within the day nearly everywhere, which differs only on a
- * day it moved between time zones.
- */
+/** A bound of a range of the Machine's activity as a moment (`rangeBound`); null for none. */
 function boundOf(bound: string | undefined, machine: MachineView, end: boolean): Date | null {
-  if (bound === undefined) return null;
-  if (!isDay(bound)) return new Date(bound);
-  return startOfDay(bound, locationAt(machine, Date.parse(`${bound}T12:00:00Z`))?.timeZone, end ? 1 : 0);
+  return bound === undefined ? null : rangeBound(bound, staysOf(machine.locationHistory), end);
 }
 
 function listed(machine: MachineView, zone: Zone): z.infer<typeof listedMachine> {
