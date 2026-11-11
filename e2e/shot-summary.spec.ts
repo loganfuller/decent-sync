@@ -37,7 +37,7 @@ test("the summary of the Shots the filters find sits above the rows, each number
   const summary = page.getByRole("region", { name: "Summary" });
   await expectTip(summary, "Summary", /^How the Shots these filters find went, leaving out cleaning and calibration Shots\./);
   // Four of the five listed, the cleaning Shot left out and said so. Three of 23.549 s and one of 25.833 s.
-  await expect(field(summary, "Shots")).toHaveText("41 cleaning and calibration Shot left out");
+  await expect(field(summary, "Shots")).toHaveText("41 cleaning or calibration Shot left out");
   await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–24.1)");
   // −1.3, −0.1 and 2.5: a number says how many Shots it rests on where some had no value.
   await expect(field(summary, "Yield against target")).toHaveText("−0.1 g (−0.7 to +1.2)3 of 4 Shots had a target and a yield");
@@ -48,7 +48,7 @@ test("the summary of the Shots the filters find sits above the rows, each number
 test("the summary follows the filters, says when only cleaning Shots match, and is gone when none do", async ({ page }) => {
   await page.goto("/shots");
   const summary = page.getByRole("region", { name: "Summary" });
-  await expect(field(summary, "Shots")).toHaveText("41 cleaning and calibration Shot left out");
+  await expect(field(summary, "Shots")).toHaveText("41 cleaning or calibration Shot left out");
 
   // The two real Shots: −1.3 and −0.1, and 23.549 s and 25.833 s.
   await choose(page, "Barista", "Ann");
@@ -72,12 +72,34 @@ test("the summary follows the filters, says when only cleaning Shots match, and 
   // Only a cleaning Shot: it is counted, and there is no number.
   await choose(page, "Barista", "Dee");
   await expect(rows(page)).toHaveCount(1);
-  await expect(field(summary, "Shots")).toHaveText("01 cleaning and calibration Shot left out");
+  await expect(field(summary, "Shots")).toHaveText("01 cleaning or calibration Shot left out");
   for (const number of ["Duration", "Yield against target", "Stopped on weight"]) await expect(field(summary, number)).toHaveText("-");
 
   await choose(page, "Profile", "Adaptive v3");
   await expect(page.getByText("No Shots match these filters.")).toBeVisible();
   await expect(summary).toHaveCount(0);
+});
+
+test("a summary that fails to load for the filters chosen gives no numbers, rather than those of the filters before", async ({ page }) => {
+  await page.goto("/shots");
+  const summary = page.getByRole("region", { name: "Summary" });
+  await expect(field(summary, "Shots")).toHaveText("41 cleaning or calibration Shot left out");
+
+  // As the previous release's instance answers during a deploy: it has no such route, and reads the path as a Shot's.
+  await page.route(
+    /\/api\/shots\/summary\?.*barista=Ann/,
+    (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ statusCode: 404, message: "Shot not found" }) }),
+    { times: 1 },
+  );
+  await choose(page, "Barista", "Ann");
+  await expect(rows(page)).toHaveCount(2);
+  await expect(summary.getByRole("alert")).toHaveText("Could not read the summary: Shot not found");
+  for (const number of ["Shots", "Duration", "Yield against target", "Stopped on weight"]) await expect(field(summary, number)).toHaveText("-");
+
+  // The next filters' summary loads as usual.
+  await choose(page, "Barista", "Ben");
+  await expect(field(summary, "Shots")).toHaveText("1");
+  await expect(summary.getByRole("alert")).toHaveCount(0);
 });
 
 /** What a test changes of a fixture's record. */

@@ -57,6 +57,22 @@ export interface ShotSummary {
  */
 const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
 
+/**
+ * The most a yield or target may be, in grams, to have a yield against
+ * target: a record may hold any number, and the difference of two beyond
+ * this fits no float8, which would fail the whole summary.
+ */
+const MAX_GRAMS = 1e307;
+
+/**
+ * What a stop reason of nothing else is blank by: spaces, tabs and line
+ * ends. Decaid writes one of its stop reasons' names or nothing, so this
+ * follows the Shots list's reading of one (`recordedText`) no further: not
+ * into Unicode's other spaces, nor a value that is no text, which counts as
+ * recorded by its text.
+ */
+const BLANK = " \t\n\r\f\v";
+
 interface SummaryRow {
   shots: number;
   leftOut: number;
@@ -76,7 +92,7 @@ interface SummaryRow {
  * millisecond, as the list shows it. They are worked out once for each Shot
  * (`MATERIALIZED`) before they are put together: left to itself, PostgreSQL
  * writes what is read from a Shot's record into each place that uses it,
- * and reads the record again for each, which took five times as long.
+ * and reads the record again for each, which took four times as long.
  */
 export async function summarise(db: Prisma.TransactionClient, from: Prisma.Sql): Promise<ShotSummary> {
   const covered = Prisma.sql`FILTER (WHERE NOT shot.left_out)`;
@@ -84,9 +100,10 @@ export async function summarise(db: Prisma.TransactionClient, from: Prisma.Sql):
   const [row] = await db.$queryRaw<SummaryRow[]>`
     WITH shot AS MATERIALIZED (
       SELECT ${LEFT_OUT} AS left_out,
-        CASE WHEN s.target_yield <> 0 THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END AS yield_against_target,
+        CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
+          THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END AS yield_against_target,
         round((s.duration - coalesce(s.preheat, 0))::numeric, 3)::float8 AS duration,
-        nullif(btrim(s.record ->> 'stopReason'), '') AS stop_reason
+        nullif(btrim(s.record ->> 'stopReason', ${BLANK}), '') AS stop_reason
       ${from}
     )
     SELECT

@@ -75,6 +75,7 @@ describe("Shot Summaries", () => {
   let harbor: LocationView;
   let lab1: CreatedMachine;
   let harbor1: CreatedMachine;
+  let labTablet: SimulatedTablet;
   let harborTablet: SimulatedTablet;
   const tablets = new LoadedTablets();
 
@@ -113,7 +114,7 @@ describe("Shot Summaries", () => {
     for (const [machine, location] of [[lab1, lab], [harbor1, harbor]] as const) {
       await api.send("POST", `/machines/${machine.machine.id}/location-history`, { locationId: location.id, effectiveFrom: "2025-01-01T00:00:00Z" }, 201);
     }
-    tablets.syncing(lab1, server, { api: withShots(emptyLibrary(LAB_SERIAL), labShots) });
+    labTablet = tablets.syncing(lab1, server, { api: withShots(emptyLibrary(LAB_SERIAL), labShots) });
     harborTablet = tablets.syncing(harbor1, server, { api: withShots(emptyLibrary(HARBOR_SERIAL), harborShots) });
     // Each tablet's plugin indexes its Shots and sends those the server asks for, one at a time.
     await until(async () => (await listTotal()) === labShots.length + harborShots.length);
@@ -305,11 +306,30 @@ describe("Shot Summaries", () => {
     expect(await summary({ locationId: harbor.id })).toEqual({ ...before, numbers: { ...before.numbers, yieldAgainstTarget: { shots: 2, median: -0.15, p25: -0.725, p75: 0.425 } } });
   });
 
+  it("still answers where a Shot's record holds a yield and a target beyond any weight, and a stop reason of white space alone", async () => {
+    const atLab = { locationId: lab.id };
+    const before = await summary(atLab);
+    // −6, −1.3, −0.1, 0.5 and 2.4; and of the five that recorded a stop reason, all but the one its Machine ended.
+    expect(before).toMatchObject({
+      counts: { shots: 6, cleaningAndCalibration: 2 },
+      numbers: { yieldAgainstTarget: { shots: 5, median: -0.1, p25: -1.3, p75: 0.5 }, stoppedOnWeight: { shots: 5, share: 0.8 } },
+    });
+    // A record may hold any number: these two are stored, and their difference fits no float8. One is a cleaning Shot.
+    labTablet.pullShot(shotOf("lab-beyond", "2026-02-12T15:00:00Z", LAB_SERIAL, { actualYield: 1e308, targetYield: -1e308, stopReason: "\t\n" }));
+    labTablet.pullShot(shotOf("lab-beyond-cleaning", "2026-02-12T16:00:00Z", LAB_SERIAL, { actualYield: -1e308, targetYield: 1e308, type: "cleaning" }));
+    await expect.poll(() => listTotal(atLab)).toBe(10);
+    // Each is counted, the first with a duration, 23.549 s as four others; it has no yield against target, and recorded no stop reason.
+    expect(await summary(atLab)).toEqual({
+      counts: { shots: 7, cleaningAndCalibration: 3 },
+      numbers: { ...before.numbers, duration: { shots: 7, median: 23.549, p25: 23.549, p75: 23.549 } },
+    });
+  });
+
   it("leaves out a dismissed Pending Machine's Shots, as the list does", async () => {
     const pendingMachineId = (await api.pendingMachines()).find((pending) => pending.serial === UNKNOWN_SERIAL)!.id;
     await api.send("POST", `/pending-machines/${pendingMachineId}/dismiss`);
-    expect((await summary()).counts).toEqual({ shots: 8, cleaningAndCalibration: 2 });
-    expect(await listTotal()).toBe(10);
+    expect((await summary()).counts).toEqual({ shots: 9, cleaningAndCalibration: 3 });
+    expect(await listTotal()).toBe(12);
     expect((await summary({ pendingMachineId })).counts).toEqual({ shots: 0, cleaningAndCalibration: 0 });
   });
 });

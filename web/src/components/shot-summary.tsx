@@ -13,12 +13,16 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
  * stopped on weight. `filterQuery` is the list's filters as the REST API's
  * query, so the summary follows them; it is loaded again every 30 s, less
  * often than the rows, as it reads every Shot the filters find. The numbers
- * of the last filters stay until the next ones' arrive, as the rows do.
+ * of the last filters stay until the next ones' arrive, as the rows do, but
+ * not while a load has failed since the last that succeeded: they would
+ * stand under that failure as these filters' until the next load, 30 s on.
+ * So filters changed after a failed load show dashes until theirs arrives.
  */
 export function ShotSummaryCard({ filterQuery }: { filterQuery: string }) {
-  const load = useCallback(() => api<ShotSummary>("GET", `/shots/summary${filterQuery ? `?${filterQuery}` : ""}`), [filterQuery]);
-  const { data, error } = usePolled(load, DETAILS_POLL_MS);
-  const group = data?.groups[0];
+  // Each summary loaded remembers the filters it answers.
+  const load = useCallback(async () => ({ filterQuery, summary: await api<ShotSummary>("GET", `/shots/summary${filterQuery ? `?${filterQuery}` : ""}`) }), [filterQuery]);
+  const { data: loaded, error } = usePolled(load, DETAILS_POLL_MS);
+  const group = loaded && (loaded.filterQuery === filterQuery || !error) ? loaded.summary.groups[0] : undefined;
   const covered = group?.counts.shots;
   const leftOut = group?.counts.cleaningAndCalibration ?? 0;
   /** How many Shots a number rests on, said only where some of those covered had no value for it. */
@@ -41,7 +45,7 @@ export function ShotSummaryCard({ filterQuery }: { filterQuery: string }) {
           </Alert>
         )}
         <dl className="grid grid-cols-2 gap-x-6 gap-y-4 lg:grid-cols-4">
-          <Figure term="Shots" value={covered === undefined ? undefined : String(covered)} note={leftOut > 0 ? `${leftOut} cleaning and calibration ${leftOut === 1 ? "Shot" : "Shots"} left out` : undefined} />
+          <Figure term="Shots" value={covered === undefined ? undefined : String(covered)} note={leftOut > 0 ? `${leftOut} cleaning ${leftOut === 1 ? "or calibration Shot" : "and calibration Shots"} left out` : undefined} />
           <Figure term="Duration" number={group && durationText(group.numbers.duration)} note={restsOn(group?.numbers.duration.shots, "had a duration")} />
           <Figure
             term="Yield against target"

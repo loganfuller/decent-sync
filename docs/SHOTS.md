@@ -456,7 +456,9 @@ tickets'.
   - `yieldAgainstTarget`: the yield weighed less the target yield
     (`actual_yield`, `target_yield`), in grams, negative under target. A
     Shot whose target is 0 or missing, or that weighed no yield, has no
-    value.
+    value; nor has one whose yield or target is beyond any weight (1e307 g),
+    as a record may hold any number, and the difference of two such fits no
+    float8, which would fail the statement.
   - `duration`: the recording's duration less its Preheat, in seconds to the
     millisecond, as the list shows it (`shownDuration`); the whole recording
     for a Shot of an earlier curves revision, until it is computed again.
@@ -468,8 +470,10 @@ tickets'.
     value. One or two Shots give the same; `shots` says how little it rests
     on.
   - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
-    reason (`stopReason`, not blank), and the part of them, from 0 to 1,
-    whose reason is `targetWeight`; `share` is null where none recorded one.
+    reason (`stopReason`, with more in it than spaces, tabs and line ends;
+    Decaid writes one of its stop reasons' names or nothing), and the part
+    of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
+    where none recorded one.
 - **Worked out when read,** from the Shot's columns and its record, with
   nothing stored, so a Shot's edit shows in the next summary. Differences
   are taken in decimal, as the columns print, so 35.9 less 36 is -0.1. The
@@ -479,12 +483,12 @@ tickets'.
   each Shot's record, which is most of the time a summary takes: each
   number's values are worked out once per Shot in a `MATERIALIZED` query
   before they are put together, as PostgreSQL otherwise reads the record
-  again for every place that uses one of them, which took five times as
+  again for every place that uses one of them, which took four times as
   long. Measured on a scratch database of copies of a real Shot's record
   (4.4 KB of JSON), on the development machine: 81 ms for 10,000 Shots and
-  395 ms for 50,000, of which the columns alone took 14 ms; 52 ms for 30
-  days of them (6,171 Shots) and 3 ms for a day (206). Either field becomes
-  a column only if a summary proves slow (#465).
+  395 ms for 50,000, where the same statement reading only the columns took
+  14 ms; 52 ms for 30 days of them (6,171 Shots) and 3 ms for a day (206).
+  Either field becomes a column only if a summary proves slow (#465).
 - **Access.** Staff and Viewers read it, as they read Shots, at every
   Location.
 
@@ -509,7 +513,10 @@ as "26.0 s (25.6–26.6)" and "−0.1 g (−0.8 to +0.4)"
 (`web/src/lib/shot-summary.ts`); and the share that stopped on weight. A
 number says how many Shots it rests on where some of those covered had no
 value for it, and reads as a dash where none had. The card follows the
-filters, loads again every 30 s, and is not shown while no Shot matches.
+filters, loads again every 30 s, and is not shown while no Shot matches. The
+last filters' numbers stay while the next ones' load, as the rows do, but
+give way to dashes while a load has failed since the last that succeeded,
+so that they never stand under a failure as the next filters'.
 `e2e/shot-summary.spec.ts` covers it. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
