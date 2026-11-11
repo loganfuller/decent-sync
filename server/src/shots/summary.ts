@@ -92,7 +92,7 @@ interface SummaryRow {
  * millisecond, as the list shows it. They are worked out once for each Shot
  * (`MATERIALIZED`) before they are put together: left to itself, PostgreSQL
  * writes what is read from a Shot's record into each place that uses it,
- * and reads the record again for each, which took five times as long.
+ * and reads the record again for each, which took four times as long.
  */
 export async function summarise(db: Prisma.TransactionClient, from: Prisma.Sql): Promise<ShotSummary> {
   const covered = Prisma.sql`FILTER (WHERE NOT shot.left_out)`;

@@ -318,7 +318,7 @@ describe("Shot Summaries", () => {
     labTablet.pullShot(shotOf("lab-beyond", "2026-02-12T15:00:00Z", LAB_SERIAL, { actualYield: 1e308, targetYield: -1e308, stopReason: "\t\n" }));
     labTablet.pullShot(shotOf("lab-beyond-cleaning", "2026-02-12T16:00:00Z", LAB_SERIAL, { actualYield: -1e308, targetYield: 1e308, type: "cleaning" }));
     await expect.poll(() => listTotal(atLab)).toBe(10);
-    // Each is counted, the first with a duration, 23.549 s as five others; it has no yield against target, and recorded no stop reason.
+    // Each is counted, the first with a duration, 23.549 s as four others; it has no yield against target, and recorded no stop reason.
     expect(await summary(atLab)).toEqual({
       counts: { shots: 7, cleaningAndCalibration: 3 },
       numbers: { ...before.numbers, duration: { shots: 7, median: 23.549, p25: 23.549, p75: 23.549 } },
