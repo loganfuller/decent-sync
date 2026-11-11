@@ -40,7 +40,7 @@ Decent Sync is one repository containing the plugin, server and management inter
 
 ## Working safely
 
-- Preserve existing work and keep changes focused. Leave commits, pushes, tags, publication and PR creation to explicit user requests.
+- Preserve existing work and keep changes focused. Leave commits, pushes, tags, publication and PR creation to explicit user requests. Asked to carry a change through to a pull request, push its branch to verify it rather than running the whole suite locally: CI is the full test run (`docs/AI_BUILD_NOTES.md`, Running a subset).
 - Treat a configured database as user data. Use a scratch database for experiments; deleting or rewriting one needs explicit approval.
 - Install or update code on the test tablet only when explicitly asked. Read-only `GET` requests to gather fixtures are allowed after confirming its identity; any write needs an explicit request. Use the simulated tablet for routine work.
 - Keep notes current when a reusable constraint changes; remove stale instructions.
