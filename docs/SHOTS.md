@@ -456,7 +456,9 @@ tickets'.
   - `yieldAgainstTarget`: the yield weighed less the target yield
     (`actual_yield`, `target_yield`), in grams, negative under target. A
     Shot whose target is 0 or missing, or that weighed no yield, has no
-    value.
+    value; nor has one whose yield or target is beyond any weight (1e307 g),
+    as a record may hold any number, and the difference of two such fits no
+    float8, which would fail the statement.
   - `duration`: the recording's duration less its Preheat, in seconds to the
     millisecond, as the list shows it (`shownDuration`); the whole recording
     for a Shot of an earlier curves revision, until it is computed again.
@@ -468,7 +470,8 @@ tickets'.
     value. One or two Shots give the same; `shots` says how little it rests
     on.
   - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
-    reason (`stopReason`, not blank), and the part of them, from 0 to 1,
+    reason (`stopReason`, not blank, as the list reads one), and the part of
+    them, from 0 to 1,
     whose reason is `targetWeight`; `share` is null where none recorded one.
 - **Worked out when read,** from the Shot's columns and its record, with
   nothing stored, so a Shot's edit shows in the next summary. Differences
