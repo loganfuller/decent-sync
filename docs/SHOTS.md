@@ -359,12 +359,12 @@ with their rows locked, skipping any another transaction holds, as the server
 starts and then hourly, on every instance, so each Shot is computed by one of
 them. Raising the revision recomputes every stored Shot that way. Until it
 is computed again, a Shot stored at revision 0 shows the whole recording as
-its duration, and one stored below revision 2 has none of what its samples
-show: its row gives neither its time to first drip nor the step it ended in,
-and its read neither its time to first drip nor its flow at the stop.
-`poured` is null for exactly the Shots that have none of those values yet,
-so a Shot Summary can count the Shots awaiting them by it (#469); the
-revision says only whether the values a Shot has are the current one's.
+its duration. A Shot whose samples' values have never been computed has
+none of them: its row gives neither its time to first drip nor the step it
+ended in, and its read neither its time to first drip nor its flow at the
+stop. `poured` is null for exactly those Shots, so a Shot Summary can count
+the Shots awaiting their values by it (#469); the revision says only whether
+the values a Shot has are the current one's.
 
 The previous release, 1.8.2, stores a Shot at revision 1 and knows none of
 those columns, so the hourly runs take the Shots it stores while it still
