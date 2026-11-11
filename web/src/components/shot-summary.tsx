@@ -95,7 +95,7 @@ function NumbersChoice({ numbers, onNumbers }: { numbers: NumberName[]; onNumber
           Numbers <ChevronDownIcon />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
+      <DropdownMenuContent align="end" className="w-48">
         {NUMBERS.map((name) => {
           const shown = numbers.includes(name);
           return (
