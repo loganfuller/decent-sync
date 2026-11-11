@@ -454,8 +454,11 @@ the Shots a filter finds as one group, with three numbers, in
 `server/src/shots/summary.ts`, behind `GET /api/shots/summary`
 (`ShotsService.summary`), the MCP endpoint's `summarise_shots` and the
 Shots list's Summary card. Ticket [#468](https://github.com/loganfuller/decent-sync/issues/468)
-groups them, by up to two of what Shots have. Buckets and the other numbers
-are later tickets'.
+groups them, by up to two of what Shots have, in the REST route and the
+tool: the Shots list's card stays one group, as the owner chose on
+2026-11-10, a set of Shots being summarised there by filtering to it, and
+sets shown side by side being the Overview's (#471). Buckets and the other
+numbers are later tickets'.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -501,8 +504,8 @@ are later tickets'.
   - A Bean, a title or a Barista's name longer than a text filter takes,
     500 characters, which no tablet's keyboard types, is still a group,
     named whole. Its filter is refused, as it is when chosen among the
-    filter's choices, which have always offered what Shots recorded whole;
-    an assistant finds its Shots by a few of its words.
+    Shots page's choices, which have always offered what Shots recorded
+    whole; an assistant finds its Shots by a few of its words.
   - Without a grouping the summary is one group, there even where the
     filters find no Shot. With one, a group is there only for Shots found,
     so filters that find none give no group.
@@ -636,20 +639,13 @@ value for it, and reads as a dash where none had. The card follows the
 filters, loads again every 30 s, and is not shown while no Shot matches. The
 last filters' numbers stay while the next ones' load, as the rows do, but
 give way to dashes while a load has failed since the last that succeeded,
-so that they never stand under a failure as the next filters'. Its grouping
-control, Group by and Then by, turns the summary into a table of its
-groups, 25 at a time: a column for each grouping, naming each group as the
-list's filter of that name names its choice, then its count and numbers,
-each number with how many Shots it rests on where some had no value. A
-group's count links to the list with the group as its filters and no
-grouping, so its Shots and their summary show. The grouping is kept in the
-address as the REST API takes it (`groupBy=recipe,machine`), beside the
-filters, so a grouped list can be shared or reloaded; what an address names
-that is no grouping is passed over, and Clear filters leaves the grouping.
-The page of groups is not in the address, and starts over with the filters
-and the grouping. The Barista filter offers each Barista once, and shows
-that choice for any spelling an address holds (`baristaKey`).
-`e2e/shot-summary.spec.ts` covers it. `/shots/:id` shows a Shot's curves (pressure,
+so that they never stand under a failure as the next filters'. It is never
+grouped: the page asks for no `groupBy`. The Barista filter offers each
+Barista once, as the REST API gives them, finds every spelling of the name,
+and shows that choice for any spelling an address holds, as one shared
+before the choices were folded (`baristaKey` in `web/src/lib/shot-summary.ts`,
+which reads a name as the server does).
+`e2e/shot-summary.spec.ts` covers both. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and

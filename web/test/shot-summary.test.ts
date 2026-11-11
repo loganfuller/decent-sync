@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { baristaKey, durationText, groupFilters, groupingsIn, shareText, shotsText, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
+import { baristaKey, durationText, shareText, shotsText, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
 
-// How a Shot Summary's numbers read on the Shots list (#466), what its
-// address groups it by, and the filters each of its groups opens as (#468).
+// How a Shot Summary's numbers read on the Shots list (#466), and who a
+// Barista's name names, for the Barista filter's choice (#468).
 
 const NONE = { shots: 0, median: null, p25: null, p75: null };
 
@@ -33,45 +33,8 @@ describe("a Shot Summary's numbers as text", () => {
   });
 });
 
-describe("a Shot Summary's grouping", () => {
-  it("reads the groupings an address names: those there are, each once, at most two", () => {
-    expect(groupingsIn(null)).toEqual([]);
-    expect(groupingsIn("")).toEqual([]);
-    expect(groupingsIn("recipe")).toEqual(["recipe"]);
-    expect(groupingsIn("recipe,machine")).toEqual(["recipe", "machine"]);
-    // What it doesn't have is passed over, as is one named twice, and any beyond two.
-    expect(groupingsIn("roaster,beanBatch,,Recipe")).toEqual(["beanBatch"]);
-    expect(groupingsIn("barista,barista,profile")).toEqual(["barista", "profile"]);
-    expect(groupingsIn("location,machine,recipe")).toEqual(["location", "machine"]);
-  });
-
-  it("opens a group as the list's filter of each grouping, by its id or by what its Shots recorded", () => {
-    expect(groupFilters({})).toEqual({});
-    expect(
-      groupFilters({
-        location: { id: "location-1", name: "Lab" },
-        recipe: { id: "recipe-1", name: "House", location: null },
-        beanBatch: { id: "batch-1", bean: { id: "bean-1", roaster: "Roux", name: "Guji" }, roastDate: null },
-        grinder: { id: "grinder-1", model: "EK43", location: null },
-        basket: { id: "basket-1", name: "18 g" },
-      }),
-    ).toEqual({ locationId: "location-1", recipeId: "recipe-1", beanBatchId: "batch-1", grinderId: "grinder-1", basketId: "basket-1" });
-    expect(groupFilters({ bean: { roaster: "Roux", name: "Guji" }, profile: "Londonium", barista: "Jules" })).toEqual({ coffeeRoaster: "Roux", coffeeName: "Guji", profileTitle: "Londonium", barista: "Jules" });
-    // A Bean with a roaster and no name: its name's filter finds those that recorded none.
-    expect(groupFilters({ bean: { roaster: "Roux", name: null } })).toEqual({ coffeeRoaster: "Roux", coffeeName: "" });
-  });
-
-  it("opens a Machine's group as that Machine, and a Pending Machine's as it, clearing the other", () => {
-    expect(groupFilters({ machine: { id: "machine-1", name: "Lab 1" }, pendingMachine: null })).toEqual({ machineId: "machine-1", pendingMachineId: null });
-    expect(groupFilters({ machine: null, pendingMachine: { id: "pending-1", model: "DE1Pro", serial: "10041" } })).toEqual({ machineId: null, pendingMachineId: "pending-1" });
-  });
-
-  it("opens a group of Shots with none as the filter that finds them: none for what is linked, empty for what is recorded", () => {
-    expect(groupFilters({ location: null, recipe: null, beanBatch: null, grinder: null, basket: null })).toEqual({ locationId: "none", recipeId: "none", beanBatchId: "none", grinderId: "none", basketId: "none" });
-    expect(groupFilters({ bean: null, profile: null, barista: null })).toEqual({ coffeeRoaster: "", coffeeName: "", profileTitle: "", barista: "" });
-  });
-
-  it("reads a Barista's name without its case or the blanks around it", () => {
+describe("a Barista's name", () => {
+  it("is read without its case or the blanks around it, as the server reads one", () => {
     expect([" Jules", "JULES\t", "jules", "Jules Verne"].map(baristaKey)).toEqual(["jules", "jules", "jules", "jules verne"]);
     expect(["", "   ", "\n", " \t\r\n\f\v"].map(baristaKey)).toEqual(["", "", "", ""]);
     // Only the blanks the server leaves out: a name within another space is another Barista, as it is there.

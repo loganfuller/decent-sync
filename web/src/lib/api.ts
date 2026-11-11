@@ -585,38 +585,8 @@ export interface SummaryNumber {
   p75: number | null;
 }
 
-/** A Location as a Shot Summary's group names one: the one its Shots are credited to, or the one a Recipe or Grinder belongs to. */
-export interface GroupLocation {
-  id: string;
-  name: string;
-}
-
-/**
- * What a Shot Summary's group is grouped by: an entry for each grouping
- * asked for, in their order, null for the group of Shots with none. Grouped
- * by Machine, where none occur, a group is a Machine's or a Pending
- * Machine's, the other being null.
- */
-export interface SummaryGroupedBy {
-  location?: GroupLocation | null;
-  machine?: { id: string; name: string } | null;
-  pendingMachine?: { id: string; model: string; serial: string } | null;
-  /** The Recipe the Shots were pulled with, and the Location it belongs to. */
-  recipe?: (NamedLink & { location: GroupLocation | null }) | null;
-  /** The roaster and name the Shots recorded. */
-  bean?: { roaster: string | null; name: string | null } | null;
-  beanBatch?: BatchLink | null;
-  /** The profile title the Shots recorded. */
-  profile?: string | null;
-  grinder?: (GrinderLink & { location: GroupLocation | null }) | null;
-  basket?: NamedLink | null;
-  /** The Barista, whatever the name's case and the blanks around it, by its most recent spelling. */
-  barista?: string | null;
-}
-
 /** What a set of Shots have in common: a Shot Summary's group. */
 export interface SummaryGroup {
-  by: SummaryGroupedBy;
   counts: {
     /** The Shots its numbers cover. */
     shots: number;
@@ -633,16 +603,9 @@ export interface SummaryGroup {
   };
 }
 
-/**
- * The Shot Summary of the Shots a list's filters find: a page of its groups,
- * in their order, and how many groups there are; without a grouping, one
- * group, every Shot.
- */
+/** The Shot Summary of the Shots a list's filters find, as one group. */
 export interface ShotSummary {
   groups: SummaryGroup[];
-  total: number;
-  limit: number;
-  offset: number;
 }
 
 /** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */
