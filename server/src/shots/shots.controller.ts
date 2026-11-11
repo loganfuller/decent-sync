@@ -3,6 +3,7 @@ import { AllowStaff } from "../accounts/guards.js";
 import { readQueryPage } from "../pagination.js";
 import { readShotFilters } from "./filters.js";
 import { ShotsService } from "./shots.service.js";
+import { readGroupBy } from "./summary.js";
 
 /** Every Shot captured, which Staff read too. */
 @AllowStaff()
@@ -20,9 +21,15 @@ export class ShotsController {
   @Get("filters")
   filters() { return this.shots.filterOptions(); }
 
-  /** The Shot Summary of the Shots the list lists for the same filters. Before `:id` too. */
+  /**
+   * The Shot Summary of the Shots the list lists for the same filters, by
+   * the groupings `groupBy` names, a page of its groups at a time. Before
+   * `:id` too.
+   */
   @Get("summary")
-  summary(@Query() query: Record<string, unknown>) { return this.shots.summary(readShotFilters(query)); }
+  summary(@Query() query: Record<string, unknown>) {
+    return this.shots.summary(readShotFilters(query), readGroupBy(query), readQueryPage(query));
+  }
 
   @Get(":id")
   async get(@Param("id") id: string) { return { shot: await this.shots.get(id) }; }

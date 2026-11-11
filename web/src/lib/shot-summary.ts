@@ -2,7 +2,8 @@ import type { SummaryNumber } from "@/lib/api";
 
 // How a Shot Summary's numbers read (#466): each as its median, with the
 // range the middle half of its Shots fall in beside it, such as
-// "26.0 s (25.6–26.6)".
+// "26.0 s (25.6–26.6)"; and who a Barista's name names (#468), for the
+// Barista filter's choice.
 
 /** A number of a summary as it reads: its median with its unit, and the range from its 25th percentile to its 75th. */
 export interface MedianText {
@@ -44,4 +45,19 @@ export function shareText(share: number | null): string | undefined {
 /** A count of Shots, as "1 Shot" or "12 Shots". */
 export function shotsText(count: number): string {
   return `${count} ${count === 1 ? "Shot" : "Shots"}`;
+}
+
+/**
+ * Who a Barista's name names, as the server reads one (`baristaKeySql`): the
+ * name without the blanks around it, which are spaces, tabs and line ends
+ * and no other space, and without the case of A to Z, so the Barista
+ * filter's choice is found for an address holding another spelling. Empty
+ * for no name, or a blank one. The server folds every letter's case as its
+ * database's collation does, which differs from JavaScript's for some, such
+ * as a final sigma or a dotted I, so other letters are left as they are:
+ * such a name spelled another way finds no choice, rather than another
+ * Barista's.
+ */
+export function baristaKey(name: string): string {
+  return name.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "").replace(/[A-Z]+/g, (capitals) => capitals.toLowerCase());
 }

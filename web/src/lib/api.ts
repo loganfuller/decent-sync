@@ -660,9 +660,102 @@ export interface MachineUse {
   buckets: UseBucket[];
 }
 
+/**
+ * A Workflow summarised, as a dial-in trail gives the one in effect as its
+ * range began: the parts the Workflow card shows, and its Basket and Recipe,
+ * with the Library's ids of what it names, each null for none.
+ */
+export interface WorkflowSummary {
+  profile: string | null;
+  profileId: string | null;
+  brewTemperature: number | null;
+  dose: number | null;
+  yield: number | null;
+  bean: string | null;
+  roaster: string | null;
+  beanBatchId: string | null;
+  grinder: string | null;
+  burrs: string | null;
+  grindSetting: string | null;
+  grinderId: string | null;
+  basket: string | null;
+  basketId: string | null;
+  recipe: string | null;
+  recipeId: string | null;
+  barista: string | null;
+  steam: { temperature: number | null; duration: number | null; flow: number | null } | null;
+  hotWater: { temperature: number | null; volume: number | null } | null;
+  flush: { temperature: number | null; duration: number | null } | null;
+}
+
+/** A Recipe as a dial-in trail names it. */
+export interface TrailRecipe {
+  id: string;
+  name: string | null;
+}
+
+/** A field of a Workflow's summary that changed, by its name there, a part's as `steam.duration`. */
+export interface TrailFieldChange {
+  field: string;
+  before: string | number | null;
+  after: string | number | null;
+}
+
+/**
+ * An entry of a Machine's dial-in trail: the Workflow in effect as its range
+ * began (`inEffect`), a Recipe loaded or unloaded, Decent Sync's write of an
+ * edit of the Loaded Recipe made elsewhere (`recipeUpdated`), or any other
+ * change, changes close together merged into one.
+ */
+export interface TrailEntry {
+  kind: "inEffect" | "loaded" | "unloaded" | "recipeUpdated" | "changed";
+  /** When it began, by the tablet's clock. */
+  observedAt: string;
+  /** When it took its last change after it began; otherwise null. */
+  lastObservedAt: string | null;
+  /** Who made its first change: Decent Sync (`plugin`), anyone else (`other`), or `unknown`. */
+  cause: "plugin" | "other" | "unknown";
+  /** For a `plugin` change, which of Decent Sync's writes it was; otherwise null. */
+  pluginWrite: string | null;
+  /** The Recipe loaded, unloaded or updated; for any other entry, the one loaded then, or null. */
+  loadedRecipe: TrailRecipe | null;
+  /** For a load, the Recipe unloaded as it loaded; otherwise null. */
+  replaced: TrailRecipe | null;
+  /** For `inEffect`, the Workflow summarised whole; otherwise null. */
+  workflow: WorkflowSummary | null;
+  /** For any other, each field that changed, before and after. */
+  changes: TrailFieldChange[];
+}
+
+/** A Machine State change as stored: the state it went into, when its tablet observed it and when the server received it. */
+export interface MachineStateEvent extends MachineState {
+  id: string;
+  receivedAt: string;
+}
+
+/** A page of one kind of a Machine's activity, latest first, and how many there are in all. */
+export interface ActivityPage<T> {
+  entries: T[];
+  total: number;
+}
+
+/**
+ * What a Machine was doing over a time range (`GET /api/machines/:id/activity`):
+ * a page of each kind asked for, of what was in effect at any time in the
+ * range, so each list's oldest entry may date from before it.
+ */
+export interface MachineActivity {
+  workflowChanges?: ActivityPage<TrailEntry>;
+  loadedRecipes?: ActivityPage<LoadedRecipe>;
+  machineStates?: ActivityPage<MachineStateEvent>;
+  limit: number;
+  offset: number;
+}
+
 /** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */
 export interface ShotFilterOptions {
   beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
+  /** Each Barista once, whatever the name's case and the blanks around it, by its most recent spelling. */
   baristas: (string | null)[];
   profiles: (string | null)[];
   /** The Library's Bean Batches listed Shots are linked to; null stands for Shots linked to none. */

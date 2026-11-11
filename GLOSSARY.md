@@ -101,7 +101,7 @@ _Avoid_: Dosing scale, second scale
 A person who can change everything on the server, including machines, tokens and hard deletes.
 
 **Barista**:
-The person who pulled a shot, as named on the tablet. A barista doesn't need an account.
+The person who pulled a shot, as named on the tablet. A barista doesn't need an account. Names that differ only in case or the spaces around them are one barista.
 
 **Staff**:
 A person who works at one or more locations. They can edit the library's shared content anywhere, and move machines, edit machines' settings, change what their locations offer, manage recipes and record stock there.

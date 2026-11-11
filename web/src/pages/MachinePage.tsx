@@ -20,6 +20,7 @@ import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LiveViewCard } from "@/components/live-view";
 import { LoadedRecipeCard } from "@/components/loaded-recipes";
+import { MachineActivityCard } from "@/components/machine-activity";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
 import { MachineUseCard } from "@/components/machine-use";
@@ -68,8 +69,9 @@ interface Reports {
 
 /**
  * One Machine: its identity, versions and status, deliveries from its tablet
- * set aside, its Live View, how much it was used by day and by hour, its
- * tablets, its Loaded Recipe and those it had, its Workflow,
+ * set aside, its Live View, how much it was used by day and by hour, what
+ * happened on it over a chosen day, shown on asking, its
+ * tablets, its Loaded Recipe, its Workflow,
  * paired devices, settings and library,
  * its Location, its token, and resolving its identity. Staff see all of it,
  * and can move it between the Locations they work at; every other change is
@@ -319,6 +321,7 @@ function MachineDetails({ id }: { id: string }) {
           </div>
 
           <MachineUseCard machineId={machine.id} />
+          <MachineActivityCard machine={machine} />
           <MachineTablets machine={machine} />
           <LoadedRecipeCard machine={machine} />
           {/* Shown once loaded: the status above does not wait for them. */}
