@@ -1,5 +1,5 @@
 import { CalendarIcon, ChevronDownIcon } from "lucide-react";
-import { Fragment, useCallback, useEffect, useRef, useState } from "react";
+import { Fragment, useCallback, useRef, useState } from "react";
 import { Bar, BarChart, type BarShapeProps, CartesianGrid, Rectangle, XAxis, YAxis } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -50,18 +50,16 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
   const [day, setDay] = useState<string>();
   const query = new URLSearchParams(by === "day" ? { ...(range.from && { from: range.from }), ...(range.to && { to: range.to }) } : { by, ...(day && { from: day, to: day }) }).toString();
   // Each answer names the range it was asked for, and `failed` the range the error shown is of, so neither figures nor
-  // an error of a range since changed are shown as the new one's. A load that fails after its range was left says
-  // nothing: `chosen` is the range chosen now.
-  const chosen = useRef(query);
-  useEffect(() => {
-    chosen.current = query;
-  }, [query]);
+  // an error of a range since changed are shown as the new one's. Only the latest load says which range failed, as
+  // usePolled keeps only the latest one's error: `loads` counts them.
+  const loads = useRef(0);
   const [failed, setFailed] = useState<string>();
   const load = useCallback(async () => {
+    const request = ++loads.current;
     try {
       return { query, use: await api<MachineUse>("GET", `/machines/${encodeURIComponent(machineId)}/use${query ? `?${query}` : ""}`) };
     } catch (caught) {
-      if (chosen.current === query) setFailed(query);
+      if (request === loads.current) setFailed(query);
       throw caught;
     }
   }, [machineId, query]);

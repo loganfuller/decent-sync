@@ -162,8 +162,19 @@ test("another range is chosen by its first and last day, and one longer than 31 
   await expect(use.getByRole("alert")).toHaveText("Could not read its use: Choose a range of at most 31 days");
   await expect(use.getByRole("figure")).toHaveCount(0);
   await expect(use.locator('dl[aria-label="Totals"]')).toHaveCount(0);
-  // A range it can read brings them back.
+  // A range it can read brings them back. While that loads, held here until let go, the figures read last are
+  // shown as not its own, and the refused range's error doesn't stand over it.
+  let letGo = () => {};
+  const held = new Promise<void>((resolve) => (letGo = resolve));
+  await page.route(/\/api\/machines\/[^/]+\/use\?/, async (route) => {
+    await held;
+    await route.continue();
+  });
   await chooseDate(page, use, "From", day(-1));
+  await expect(use.locator('[aria-busy="true"]')).toHaveCount(1);
+  await expect(use.getByRole("alert")).toHaveCount(0);
+  letGo();
+  await expect(use.locator('[aria-busy="true"]')).toHaveCount(0);
   await expect(use.getByRole("alert")).toHaveCount(0);
   await expectTotals(use, { Shots: "2", "Steam Records": "1", Flushes: "1", "Hot water pours": "1" });
   await expect(field(times, "Asleep")).toHaveText("9 h");

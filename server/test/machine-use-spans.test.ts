@@ -109,7 +109,7 @@ describe("the range of a Machine's use", () => {
     expect(range({ to: "2026-02-06T00:00:00-07:00", by: "hour" })).toEqual(["2026-02-05T07:00:00.000Z", "2026-02-06T07:00:00.000Z"]);
   });
 
-  it("refuses a range that ends at or before its start, or runs longer than 31 days by day or a day by hour", () => {
+  it("refuses a range that ends at or before its start, or runs longer than 31 days by day or 25 hours by hour", () => {
     const refused = (request: Parameters<typeof range>[0]) => {
       try {
         range(request);
@@ -127,7 +127,7 @@ describe("the range of a Machine's use", () => {
     expect(refused({ from: "2026-02-10", to: "2026-03-13", by: "day" })).toBe("Choose a range of at most 31 days");
     // A day, 25 hours long as the clocks go back.
     expect(refused({ from: "2026-11-01", to: "2026-11-01", by: "hour" })).toBeUndefined();
-    expect(refused({ from: "2026-11-01", to: "2026-11-02", by: "hour" })).toBe("Choose a range of at most a day to read by hour");
+    expect(refused({ from: "2026-11-01", to: "2026-11-02", by: "hour" })).toBe("Choose a range of at most 25 hours to read by hour");
     expect(refused({ from: "0000-01-01", to: "0000-01-02", by: "day" })).toBe("Times must be in the years 1 to 9999, in UTC");
   });
 });

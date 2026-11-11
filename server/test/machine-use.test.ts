@@ -363,7 +363,7 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     }
   });
 
-  it("refuses a range it can't read, one that ends before it starts, and one longer than 31 days by day or a day by hour", async () => {
+  it("refuses a range it can't read, one that ends before it starts, and one longer than 31 days by day or 25 hours by hour", async () => {
     const path = `/machines/${lab1.machine.id}/use`;
     const entered = (name: string) => `Enter ${name} as a date, such as 2026-11-06, or a time with its offset, such as 2026-11-06T14:30:00-05:00`;
     expect(await refusal(`${path}?from=2026-02-30`)).toEqual({ status: 400, message: [entered("from")] });
@@ -378,7 +378,7 @@ describe("a Machine's use", { timeout: 120_000 }, () => {
     // 31 days are read, across the day in March the clocks go forward at the Lab, and 32 are not.
     expect((await use(lab1, { from: "2026-02-10", to: "2026-03-12" })).buckets).toHaveLength(31);
     expect(await refusal(`${path}?from=2026-02-10&to=2026-03-13`)).toEqual({ status: 400, message: "Choose a range of at most 31 days" });
-    expect(await refusal(`${path}?from=2026-02-10&to=2026-02-11&by=hour`)).toEqual({ status: 400, message: "Choose a range of at most a day to read by hour" });
+    expect(await refusal(`${path}?from=2026-02-10&to=2026-02-11&by=hour`)).toEqual({ status: 400, message: "Choose a range of at most 25 hours to read by hour" });
 
     expect(await refusal("/machines/lab-1/use")).toMatchObject({ status: 404 });
     expect(await refusal("/machines/00000000-0000-7000-8000-000000000000/use")).toEqual({ status: 404, message: "No such Machine" });
