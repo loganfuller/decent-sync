@@ -966,14 +966,14 @@ describe("reading Shots and Steam Records through an assistant", () => {
       expect(summarised).toMatchObject({ total: 1, offset: 0, more: false });
       expect(summarised.groups).toHaveLength(1);
       const [group] = summarised.groups;
-      expect(group!.counts.shots + group!.counts.cleaningAndCalibration).toBe((await by.call<Page>("find_shots", { ...input, limit: 1 })).total);
+      expect(group!.counts.shots + group!.counts.unfinished + group!.counts.cleaningAndCalibration).toBe((await by.call<Page>("find_shots", { ...input, limit: 1 })).total);
       return group!;
     }
 
     const day = { from: "2026-06-01", to: "2026-06-01" };
     expect(await summarisedAsRest(day, day)).toEqual({
       by: {},
-      counts: { shots: 2, cleaningAndCalibration: 1 },
+      counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 },
       numbers: {
         // −0.1 and 2.5, and 23.549 s twice.
         yieldAgainstTarget: { shots: 2, median: 1.2, p25: 0.55, p75: 1.85 },
@@ -981,9 +981,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
         stoppedOnWeight: { shots: 2, share: 0.5 },
       },
     });
-    // Every filter find_shots takes, as it takes it.
+    // Every filter find_shots takes, as it takes it. The Shot stopped in its Preheat, earlier, is unfinished.
     const all = (await summarisedAsRest({}, {})).counts;
-    expect(all).toEqual({ shots: expect.any(Number), cleaningAndCalibration: 1 });
+    expect(all).toEqual({ shots: expect.any(Number), unfinished: 1, cleaningAndCalibration: 1, awaitingValues: 0 });
     const atUptown = (await summarisedAsRest({ locationId: uptown.id }, { locationId: uptown.id })).counts;
     expect(atUptown.shots).toBeGreaterThan(0);
     expect(atUptown.shots).toBeLessThan(all.shots);
@@ -997,13 +997,13 @@ describe("reading Shots and Steam Records through an assistant", () => {
     const nothing = randomUUID();
     expect(await summarisedAsRest({ recipeId: nothing }, { recipeId: nothing })).toEqual({
       by: {},
-      counts: { shots: 0, cleaningAndCalibration: 0 },
+      counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
       numbers: { yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null }, duration: { shots: 0, median: null, p25: null, p75: null }, stoppedOnWeight: { shots: 0, share: null } },
     });
     // A time with its offset is that moment: from 12:30 UTC the Shot at 13:00 and the cleaning one, up to 14:00 the first alone.
     const summarised = async (input: Fields) => (await assistant.call<{ groups: Group[] }>("summarise_shots", { machineId: roaming.machine.id, ...input })).groups[0]!.counts;
-    expect(await summarised({ from: "2026-06-01T12:30:00Z", to: "2026-06-02" })).toEqual({ shots: 1, cleaningAndCalibration: 1 });
-    expect(await summarised({ from: "2026-06-01T06:30:00-06:00", to: "2026-06-01T14:00:00Z" })).toEqual({ shots: 1, cleaningAndCalibration: 0 });
+    expect(await summarised({ from: "2026-06-01T12:30:00Z", to: "2026-06-02" })).toEqual({ shots: 1, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 });
+    expect(await summarised({ from: "2026-06-01T06:30:00-06:00", to: "2026-06-01T14:00:00Z" })).toEqual({ shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 });
 
     // Refused as find_shots refuses them.
     expect(await toolError("summarise_shots", { from: "2026-02-11", to: "2026-02-10" })).toBe("Choose an end after the start");
@@ -1071,7 +1071,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
         if (!filters) continue;
         if (Object.values(filters).some((filter) => filter === "none" || filter === "")) withNone++;
         const found = await assistant.call<Page>("find_shots", { ...filters, limit: 1 });
-        expect(found.total, `${groupBy.join()}: ${JSON.stringify(group.by)}`).toBe(group.counts.shots + group.counts.cleaningAndCalibration);
+        expect(found.total, `${groupBy.join()}: ${JSON.stringify(group.by)}`).toBe(group.counts.shots + group.counts.unfinished + group.counts.cleaningAndCalibration);
       }
       expect(withNone, groupBy.join()).toBeGreaterThan(0);
       const paged: SummaryGroup[] = [];
@@ -1107,6 +1107,33 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await toolError("summarise_shots", { groupBy: ["recipe", "machine", "barista"] })).toContain("groupBy");
     expect(await toolError("summarise_shots", { groupBy: ["roaster"] })).toContain("groupBy");
     expect(await toolError("summarise_shots", { groupBy: ["recipe"], limit: 51 })).toContain("limit");
+  });
+
+  it("gives the numbers asked for as the REST API does, whole and by group", async () => {
+    const every = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+    for (const groupBy of [[], ["machine"], ["recipe", "barista"]]) {
+      for (const numbers of [every, ["lastStep", "ratio"]]) {
+        const summarised = await assistant.call<{ groups: SummaryGroup[] } & Page>("summarise_shots", { groupBy, numbers, limit: 50 });
+        const rest = await api.get<{ groups: SummaryGroup[]; total: number; offset: number }>(
+          `/shots/summary?${new URLSearchParams({ ...(groupBy.length > 0 && { groupBy: groupBy.join(",") }), numbers: numbers.join(","), limit: "50" })}`,
+        );
+        expect(summarised, `${groupBy.join()} ${numbers.join()}`).toEqual(toolSummary(rest));
+        // Only those asked for, in one order.
+        for (const group of summarised.groups) expect(Object.keys(group.numbers)).toEqual(every.filter((number) => numbers.includes(number)));
+      }
+    }
+    // Every Shot is worked out, and one is unfinished, stopped in its Preheat. Each of the rest ended in a step, and
+    // each but the one pulled without a scale read a first drip.
+    const [whole] = (await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", { numbers: ["timeToFirstDrip", "lastStep"] })).groups;
+    expect(whole!.counts).toMatchObject({ unfinished: 1, awaitingValues: 0 });
+    expect(whole!.numbers.lastStep!.shots).toBe(whole!.counts.shots);
+    expect(whole!.numbers.timeToFirstDrip!.shots).toBe(whole!.counts.shots - 1);
+    // The default: yield against target, duration and stopped on weight.
+    expect(Object.keys((await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", {})).groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight"]);
+
+    expect(await toolError("summarise_shots", { numbers: ["ratio", "ratio"] })).toBe("Give each number once");
+    expect(await toolError("summarise_shots", { numbers: [] })).toContain("numbers");
+    expect(await toolError("summarise_shots", { numbers: ["count"] })).toContain("numbers");
   });
 
   it("answers a Viewer's read-only Connected App as it answers an Admin's", async () => {

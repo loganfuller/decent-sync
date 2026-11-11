@@ -1,8 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { baristaKey, durationText, shareText, shotsText, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
+import { DEFAULT_NUMBERS, MEDIAN_TEXT, baristaKey, durationText, numbersParam, ratioText, settingText, shareText, shotsText, shownNumbers, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
 
-// How a Shot Summary's numbers read on the Shots list (#466), and who a
-// Barista's name names, for the Barista filter's choice (#468).
+// How a Shot Summary's numbers read on the Shots list (#466, #469), which of
+// them its address keeps, and who a Barista's name names, for the Barista
+// filter's choice (#468).
 
 const NONE = { shots: 0, median: null, p25: null, p75: null };
 
@@ -30,6 +31,41 @@ describe("a Shot Summary's numbers as text", () => {
 
   it("counts Shots in words", () => {
     expect([0, 1, 2].map(shotsText)).toEqual(["0 Shots", "1 Shot", "2 Shots"]);
+  });
+
+  it("reads a ratio as yield to one gram of dose, and each other number with its unit and places", () => {
+    expect(ratioText({ shots: 4, median: 2.25, p25: 1.875, p75: 2.5 })).toEqual({ median: "1:2.25", range: "1.88–2.50" });
+    expect(ratioText(NONE)).toBeUndefined();
+    const one = (value: number) => ({ shots: 1, median: value, p25: value, p75: value });
+    expect(MEDIAN_TEXT.peakPressure(one(9.004638671875))).toEqual({ median: "9.0 bar", range: "9.0–9.0" });
+    expect(MEDIAN_TEXT.peakFlow(one(8.409423828125))).toEqual({ median: "8.4 ml/s", range: "8.4–8.4" });
+    expect(MEDIAN_TEXT.rating(one(7))).toEqual({ median: "7.0", range: "7.0–7.0" });
+    expect(MEDIAN_TEXT.tds(one(9.125))).toEqual({ median: "9.13%", range: "9.13–9.13" });
+    expect(MEDIAN_TEXT.extractionYield(one(19.84))).toEqual({ median: "19.8%", range: "19.8–19.8" });
+    expect(MEDIAN_TEXT.timeToFirstDrip(one(11.32125))).toEqual({ median: "11.3 s", range: "11.3–11.3" });
+    expect(MEDIAN_TEXT.grindSetting({ shots: 5, median: 8, p25: 6.5, p75: 9.125 })).toEqual({ median: "8", range: "6.5–9.13" });
+  });
+
+  it("reads a grind setting as Grinders' scales are written, without trailing zeros", () => {
+    expect([2, 6.5, 8.8, 12, 9.125, 1.999].map(settingText)).toEqual(["2", "6.5", "8.8", "12", "9.13", "2"]);
+  });
+});
+
+describe("the numbers the Shots list shows", () => {
+  it("reads them from the address in their own order, the default where it names none it knows", () => {
+    expect(shownNumbers(null)).toEqual(DEFAULT_NUMBERS);
+    expect(shownNumbers("")).toEqual(DEFAULT_NUMBERS);
+    expect(shownNumbers("lastStep,ratio,duration")).toEqual(["duration", "ratio", "lastStep"]);
+    // A number a later release gives, in an address shared from it, is left out.
+    expect(shownNumbers("ratio,brewTemperature")).toEqual(["ratio"]);
+    expect(shownNumbers("brewTemperature")).toEqual(DEFAULT_NUMBERS);
+  });
+
+  it("keeps them in the address in their own order, and nothing for the default", () => {
+    expect(numbersParam(["lastStep", "ratio"])).toBe("ratio,lastStep");
+    expect(numbersParam(["stoppedOnWeight", "yieldAgainstTarget", "duration"])).toBeNull();
+    expect(numbersParam(["yieldAgainstTarget", "duration"])).toBe("yieldAgainstTarget,duration");
+    expect(numbersParam([])).toBeNull();
   });
 });
 

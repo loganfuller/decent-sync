@@ -7,17 +7,20 @@ import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
 // The Shots list's summary of the Shots its filters find (#466), as an
-// Admin, and its Barista filter, which finds a Barista however the name was
-// spelled (#468). A simulated tablet running the built plugin backfills five
-// Shots derived from two real records, changing only their id, time,
-// recorded hardware, Barista and what each line names, and the last test two
-// more, on a Machine of their own. The real Shots weighed 0.1 g and 1.3 g
-// under their targets, ran 23.549 s and 25.833 s after their Preheat, and
-// stopped on weight. Baristas and hardware ids are made up.
+// Admin, its Barista filter, which finds a Barista however the name was
+// spelled (#468), and the other numbers it shows when chosen, with its
+// Unfinished Shots (#469). A simulated tablet running the built plugin
+// backfills five Shots derived from two real records, changing only their
+// id, time, recorded hardware, Barista and what each line names, and the
+// last two tests two more each, on Machines of their own. The real Shots
+// weighed 0.1 g and 1.3 g under their targets, ran 23.549 s and 25.833 s
+// after their Preheat, and stopped on weight. Baristas and hardware ids are
+// made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const HARDWARE = { model: "DE1Pro", serial: "10041" };
 const HARDWARE_2 = { model: "DE1Pro", serial: "10042" };
+const HARDWARE_3 = { model: "DE1Pro", serial: "10043" };
 
 type Fields = Record<string, unknown>;
 
@@ -38,7 +41,7 @@ test("the summary of the Shots the filters find sits above the rows, each number
   await page.goto("/shots");
   await expect(rows(page)).toHaveCount(5);
   const summary = page.getByRole("region", { name: "Summary" });
-  await expectTip(summary, "Summary", /^How the Shots these filters find went, leaving out cleaning and calibration Shots\./);
+  await expectTip(summary, "Summary", /^How the Shots these filters find went, leaving out cleaning and calibration Shots, and Unfinished Shots, in which nothing poured/);
   // Four of the five listed, the cleaning Shot left out and said so. Three of 23.549 s and one of 25.833 s.
   await expect(field(summary, "Shots")).toHaveText("41 cleaning or calibration Shot left out");
   await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–24.1)");
@@ -136,8 +139,48 @@ test("the Barista filter offers each Barista once, by the latest spelling, and f
   await expect(field(summary, "Shots")).toHaveText("4");
 });
 
+test("other numbers chosen show beside the count, which says how many Unfinished Shots were left out, and stay chosen in the address", async ({ page }) => {
+  // A third Machine's two Shots, by Eve: the real one, with a dose of 18 g, a rating of 8 and a grind setting of 8, and
+  // one stopped at once, in its preinfusion, before anything poured.
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const espresso = shotOf("lab3-espresso", "2026-02-12T13:30:00Z", "Eve", { enjoyment: 8 }, shotFixture(), HARDWARE_3);
+  const unfinished = shotOf("lab3-unfinished", "2026-02-12T14:00:00Z", "Eve", {}, shotFixture(), HARDWARE_3);
+  await adopt(page, "Lab 3", locations.find((location) => location.name === "Lab")!.id, [espresso, { ...unfinished, measurements: (unfinished.measurements as Fields[]).slice(0, 2) }], HARDWARE_3);
+
+  await page.goto("/shots?barista=Eve");
+  await expect(rows(page)).toHaveCount(2);
+  const summary = page.getByRole("region", { name: "Summary" });
+  await expect(field(summary, "Shots")).toHaveText("11 Unfinished Shot left out");
+  await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–23.5)");
+
+  // The ratio, rating and last step chosen, and stopped on weight no longer, the menu staying open meanwhile.
+  await summary.getByRole("button", { name: "Numbers" }).click();
+  for (const name of ["Ratio", "Rating", "Last step", "Stopped on weight"]) await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
+  await expect(page.getByRole("menuitemcheckbox", { checked: true })).toHaveText(["Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
+  await page.keyboard.press("Escape");
+  await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
+  // 35.9 g from 18 g, and the step the real Shot ended in. Not the Unfinished Shot's: it is in no number.
+  await expect(field(summary, "Ratio")).toHaveText("1:1.99 (1.99–1.99)");
+  await expect(field(summary, "Rating")).toHaveText("8.0 (8.0–8.0)");
+  await expect(field(summary, "Last step")).toHaveText("Pressure Decline (1)");
+  await expect(page).toHaveURL(/numbers=yieldAgainstTarget%2Cduration%2Cratio%2Crating%2ClastStep/);
+
+  // A reload or a shared address shows the same, and clearing the filters keeps them.
+  await page.reload();
+  await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
+  await expect(field(summary, "Ratio")).toHaveText("1:1.99 (1.99–1.99)");
+  await page.getByRole("button", { name: "Clear filters" }).click();
+  await expect(rows(page)).toHaveCount(9);
+  await expect(field(summary, "Shots")).toHaveText("71 Unfinished Shot left out1 cleaning or calibration Shot left out");
+  await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
+  // Of the seven Shots covered, one is rated.
+  await expect(field(summary, "Rating")).toHaveText("8.0 (8.0–8.0)1 of 7 Shots rated");
+});
+
 /** What a test changes of a fixture's record. */
 interface Changes {
+  /** Its enjoyment as rated on its tablet. */
+  enjoyment?: number;
   actualYield?: number;
   targetYield?: number;
   /** What stopped it; null for a Shot that recorded none. */
@@ -162,7 +205,11 @@ function shotOf(id: string, pulledAt: string, barista: string, changes: Changes 
       profile: { ...workflow.profile, ...(changes.type !== undefined && { beverage_type: changes.type }) },
       machine: { ...workflow.machine, model: hardware.model, serialNumber: hardware.serial },
     },
-    annotations: { ...(fixture.annotations as Fields), ...(changes.actualYield !== undefined && { actualYield: changes.actualYield }) },
+    annotations: {
+      ...(fixture.annotations as Fields),
+      ...(changes.actualYield !== undefined && { actualYield: changes.actualYield }),
+      ...(changes.enjoyment !== undefined && { enjoyment: changes.enjoyment }),
+    },
   };
 }
 

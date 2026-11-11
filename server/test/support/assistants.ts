@@ -100,7 +100,7 @@ export function asTools<T>(value: T): T {
 /** A Shot Summary's group, as the REST API and summarise_shots both give one. */
 export interface SummaryGroup {
   by: Record<string, unknown> & { beanBatch?: { roastDate: string | null } | null; barista?: string | null };
-  counts: { shots: number; cleaningAndCalibration: number };
+  counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: Record<string, Record<string, unknown>>;
 }
 

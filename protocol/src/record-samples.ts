@@ -295,10 +295,10 @@ export function timeToFirstDrip(samples: readonly Sample<ShotCurve>[]): number |
 /**
  * Whether a Shot poured: one of its samples (`shotSamples`) is in the
  * `pouring` substate, which the Machine reports once its profile is past the
- * steps it counts as preinfusion. One that didn't, stopped in its Preheat or
- * its preinfusion, is an Unfinished Shot. It is what the Machine reported,
- * whatever landed in the cup: a Shot stopped on weight within those steps
- * didn't pour either.
+ * steps it counts as preinfusion. It is what the Machine reported, whatever
+ * landed in the cup: a Shot stopped on weight within those steps didn't pour
+ * by it, though it ran whole. So an Unfinished Shot is one that didn't, and
+ * whose scale never read 1 g either (`timeToFirstDrip`).
  */
 export function poured(samples: readonly Sample<ShotCurve>[]): boolean {
   return samples.some((sample) => sample.substate === "pouring");

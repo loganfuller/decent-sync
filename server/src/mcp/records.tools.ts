@@ -6,7 +6,7 @@ import { readRecordFilters } from "../record-filters.js";
 import { recordedText } from "../shots/extraction.js";
 import { MAX_WORDS, type ShotFilters, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
-import { GROUPINGS, MAX_GROUPINGS, groupingsOf } from "../shots/summary.js";
+import { DEFAULT_NUMBERS, GROUPINGS, LAST_STEPS, MAX_GROUPINGS, NUMBERS, groupingsOf, numbersOf } from "../shots/summary.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
@@ -256,15 +256,17 @@ const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile,
 const SHOT_FILTERS =
   "The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A Barista is one whatever the name's case and the spaces around it: with match exact, barista finds every such spelling, jules and Jules alike, and list_shot_values and summarise_shots give each Barista once, by the latest spelling. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id.";
 
-const summaryNumber = (what: string) =>
+const summaryNumber = <T extends z.ZodRawShape = Record<never, never>>(what: string, more?: T) =>
   z
     .object({
       shots: z.number().describe("How many Shots had a value, which the median and percentiles rest on."),
       median: z.number().nullable(),
       p25: z.number().nullable().describe("The 25th percentile."),
       p75: z.number().nullable().describe("The 75th percentile: the middle half of the Shots fall from p25 to it."),
+      ...(more ?? ({} as T)),
     })
-    .describe(`${what} Null where no Shot had a value.`);
+    .optional()
+    .describe(`${what} Null where no Shot had a value; given only when asked for.`);
 
 const summariseShotsInput = z.object({
   ...shotFilters,
@@ -273,6 +275,11 @@ const summariseShotsInput = z.object({
     .max(MAX_GROUPINGS)
     .default([])
     .describe(`What to group the Shots by, up to ${MAX_GROUPINGS}, the first then the second, such as recipe then machine; one group of them all if none.`),
+  numbers: z
+    .array(z.enum(NUMBERS))
+    .min(1)
+    .optional()
+    .describe(`Which numbers to give, each once; ${DEFAULT_NUMBERS.slice(0, -1).join(", ")} and ${DEFAULT_NUMBERS.at(-1)} if none.`),
   limit: page.limit.describe(`How many groups to give, from 1 to ${MAX_PAGE}.`),
   offset: page.offset.describe("How many groups to skip, in their order: the previous page's offset plus its length."),
 });
@@ -305,7 +312,9 @@ const summariseShotsOutput = z.object({
         by: summaryGroupBy,
         counts: z.object({
           shots: z.number().describe("The Shots its numbers cover."),
+          unfinished: z.number().describe("The Unfinished Shots left out of them: nothing poured."),
           cleaningAndCalibration: z.number().describe("The cleaning and calibration Shots left out of them."),
+          awaitingValues: z.number().describe("Of shots, those the server hasn't yet worked out timeToFirstDrip and lastStep for."),
         }),
         numbers: z.object({
           yieldAgainstTarget: summaryNumber("Each Shot's yield as weighed less its target yield, in grams, negative under target."),
@@ -315,7 +324,30 @@ const summariseShotsOutput = z.object({
               shots: z.number().describe("How many Shots recorded a stop reason."),
               share: z.number().nullable().describe("The part of them stopped by targetWeight, from 0 to 1; null where none recorded one."),
             })
-            .describe("The share of Shots that stopped on weight."),
+            .optional()
+            .describe("The share of Shots that stopped on weight; given only when asked for."),
+          ratio: summaryNumber("Each Shot's yield weighed over its dose weighed."),
+          peakPressure: summaryNumber("Each Shot's peak pressure, leaving out its Preheat, in bar."),
+          peakFlow: summaryNumber("Each Shot's peak flow, leaving out its Preheat, in ml/s."),
+          rating: summaryNumber("Each Shot's enjoyment as rated on its tablet, 0 to 10, where above 0.", {
+            rated: z.number().nullable().describe("The part of counts.shots rated, from 0 to 1; null where there are none."),
+          }),
+          grindSetting: summaryNumber("Each Shot's grind setting, where it is a decimal number.", {
+            lowest: z.number().nullable(),
+            highest: z.number().nullable(),
+          }),
+          tds: summaryNumber("Each Shot's total dissolved solids, in %."),
+          extractionYield: summaryNumber("Each Shot's extraction yield, in %."),
+          timeToFirstDrip: summaryNumber("Seconds from the start of each Shot's profile to the scale's first reading of 1 g or more."),
+          lastStep: z
+            .object({
+              shots: z.number().describe("How many Shots ended in a step of their Profile."),
+              mostCommon: z
+                .array(z.object({ frame: z.number(), name: z.string().nullable(), shots: z.number() }))
+                .describe(`The steps they ended in, the ${LAST_STEPS} most of them did, most first.`),
+            })
+            .optional()
+            .describe("The steps of their Profiles the Shots ended in; given only when asked for."),
         }),
       }),
     )
@@ -410,7 +442,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "summarise_shots",
     title: "Summarise Shots",
-    description: `Summarises the Shots find_shots finds for the same filters, in one call rather than a page of Shots at a time: how many there are and how they went, as one group or, with groupBy, by group, such as each Machine's. It leaves out cleaning and calibration Shots, those whose profile's type, as the Shot recorded it, is cleaning or calibrate, and counts them: counts.shots is how many Shots a group's numbers cover, and counts.cleaningAndCalibration how many were left out, the two adding up to find_shots' total for the same filters and the group's. numbers gives, of the Shots covered: yieldAgainstTarget, each Shot's yield as weighed less its target yield, in grams, negative under target, a Shot whose target is 0 or missing, or that weighed no yield, having no value; and duration, how long each Shot's profile ran, in seconds, leaving out its Preheat, the Machine heating its water before the profile starts. Each of those two is a median with p25 and p75, the 25th and 75th percentiles, between which the middle half of the Shots fall, and shots, how many Shots had a value, which the three rest on: a median of 3 Shots says less than one of 80. They are null where no Shot had a value. stoppedOnWeight is the share, from 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping the Shot as the scale's projected weight reached the target yield, with shots, how many recorded one, which the share rests on; a Shot stopped by hand or by its profile ending recorded another reason, and the share is null where none recorded one. Everything is worked out as it is read, so a Shot edited on its tablet shows in the next summary. ${SHOT_GROUPS} ${PAGED} For two time ranges, such as before and after a change, ask twice. Each filter's id is one find_shots' Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS}`,
+    description: `Summarises the Shots find_shots finds for the same filters in one call: how many there are and how they went, as one group or, with groupBy, by group, such as each Machine's. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured: the Machine never reported pouring and the scale never read 1 g, as in a Shot stopped at once; and counts.cleaningAndCalibration, those whose profile's type, as recorded, is cleaning or calibrate. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots have no timeToFirstDrip or lastStep yet, stored before the server kept them, which it is working out; they count as poured. numbers gives those numbers names, by default ${DEFAULT_NUMBERS.slice(0, -1).join(", ")} and ${DEFAULT_NUMBERS.at(-1)}, worked out as read, so an edit on the tablet shows next time: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts; ratio, yield over dose weighed, none where the dose is 0 or missing; rating, the enjoyment rated on the tablet, 0 to 10, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the whole setting recorded is a decimal number, such as 8.8, not text, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: a median of 3 says less than one of 80. They are null where none had. stoppedOnWeight is the share, 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping it as the scale's projected weight reached the target, with shots, how many recorded one. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} ${PAGED} For two time ranges, ask twice. Its filters are find_shots', and match as there.`,
     inputSchema: summariseShotsInput,
     outputSchema: summariseShotsOutput,
     annotations: { readOnlyHint: true },
@@ -418,8 +450,8 @@ export class RecordsTools {
     budget: { rest: "Asked for fewer groups at a time, it has more of each name." },
   })
   async summariseShots(input: z.infer<typeof summariseShotsInput>): Promise<z.infer<typeof summariseShotsOutput>> {
-    const { groupBy, limit, offset, ...named } = input;
-    const summary = await this.shots.summary(shotFiltersOf(named), groupingsOf(groupBy), { limit, offset });
+    const { groupBy, numbers, limit, offset, ...named } = input;
+    const summary = await this.shots.summary(shotFiltersOf(named), groupingsOf(groupBy), { limit, offset }, numbersOf(numbers ?? DEFAULT_NUMBERS));
     // A roast date as its day, as find_shots gives one.
     const groups = summary.groups.map(({ by, ...group }) => ({ by: by.beanBatch ? { ...by, beanBatch: { ...by.beanBatch, roastDate: dayOf(by.beanBatch.roastDate) } } : by, ...group }));
     return { ...pageOf(summary.total, offset, groups.length), groups };

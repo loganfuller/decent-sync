@@ -58,6 +58,9 @@ function pagingFirst(text: string, list: string): void {
 
 const cut = (value: unknown) => typeof value === "string" && value.endsWith(CUT_MARK);
 
+/** Every number summarise_shots gives, asked for at once. */
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+
 /** A Machine's use, as get_machine_use and the REST API's route give it. */
 interface Use {
   by: "day" | "hour";
@@ -259,7 +262,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result).toEqual(toolSummary(await api.get(`/shots/summary?machineId=${bar.machine.id}`)));
       // Each derived from the real Shot, 0.1 g under its target and stopped on weight.
       expect(result).toMatchObject({
-        groups: [{ counts: { shots: 60, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedOnWeight: { shots: 60, share: 1 } } }],
+        groups: [{ counts: { shots: 60, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedOnWeight: { shots: 60, share: 1 } } }],
       });
       // One group's counts and numbers, whatever the number of Shots, where 50 of them listed are about 43,000.
       expect(text.length).toBeLessThan(500);
@@ -669,6 +672,25 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         const recorded = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy: ["barista", "profile"], limit: 50 });
         expect(recorded.result).toMatchObject({ total: 55, more: true, groups: expect.arrayContaining([expect.objectContaining({ by: { barista: "Barista 01", profile: "Blooming espresso 01" } })]) });
         expect(recorded.result.groups).toHaveLength(50);
+
+        // Every number at once: about 1,200 characters a group, so a page of 50 ends sooner, uncut, each page as the REST
+        // API gives those groups, and every group on some page once.
+        const recipes: string[] = [];
+        for (let offset = 0; ; ) {
+          const { result, text } = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy, numbers: EVERY_NUMBER, limit: 50, offset });
+          pagingFirst(text, "groups");
+          expect(result).not.toHaveProperty("cut");
+          // 37 of them the first page, and the other 18 the next.
+          expect(result.groups.length).toBe(offset === 0 ? 37 : 18);
+          const page = { ...day, groupBy: groupBy.join(), numbers: EVERY_NUMBER.join(), limit: String(result.groups.length), offset: String(offset) };
+          expect(result.groups).toEqual(toolSummary(await api.get<{ groups: SummaryGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams(page)}`)).groups);
+          for (const group of result.groups) expect(Object.keys(group.numbers)).toEqual(EVERY_NUMBER);
+          recipes.push(...result.groups.map((group) => (group.by.recipe as { id: string }).id));
+          offset += result.groups.length;
+          expect(result.more).toBe(offset < 55);
+          if (!result.more) break;
+        }
+        expect([...recipes].sort()).toEqual([...made.recipes!].sort());
       });
 
       it("reads a Recipe with its history, a Profile, and a Bean with its batches", async () => {
@@ -750,7 +772,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
     it("summarises Shots whose names run far longer than any typed in as few characters, as it gives none of their text", async () => {
       const { result, text } = await assistant.callWithinBudget<Fields>("summarise_shots", { machineId: haunted.machine.id });
       expect(result).toEqual(toolSummary(await api.get(`/shots/summary?machineId=${haunted.machine.id}`)));
-      expect(result).toMatchObject({ groups: [{ counts: { shots: 55, cleaningAndCalibration: 0 } }] });
+      expect(result).toMatchObject({ groups: [{ counts: { shots: 55, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 } }] });
       expect(result).not.toHaveProperty("cut");
       expect(text.length).toBeLessThan(500);
     });
@@ -1092,7 +1114,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(first.result.groups.length).toBeGreaterThan(30);
       for (const group of first.result.groups) {
         expect([group.by.bean.roaster, group.by.bean.name, group.by.barista].every(cut), JSON.stringify(group.by).slice(0, 80)).toBe(true);
-        expect(group.counts).toEqual({ shots: 1, cleaningAndCalibration: 0 });
+        expect(group.counts).toEqual({ shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 });
       }
       // Every group on some page once, in order, the next page's offset the last's plus its length.
       const baristas: string[] = [];
@@ -1113,6 +1135,57 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       // A Barista's name is given without the blanks around it.
       expect(one.result.groups[0]!.by).toEqual({ bean: { roaster: `00 ${hostile(3_000)}`, name: `00 ${hostile(3_000)}` }, barista: `00 ${hostile(3_000)}`.trim() });
       expect((await assistant.callWithinBudget<Page>("find_shots", { machineId: grouped.machine.id, barista: "00 Quote", limit: 1 })).result.total).toBe(1);
+    });
+
+    it("summarises every number by two groupings, where Shots ended in more steps than a group names, each named far longer than any typed", async () => {
+      // 24 Shots on a Machine of their own, of one profile, its title and each of its twelve steps' names 3,000 characters
+      // long, by two Baristas: each ended in a step of its own of the twelve, so each Barista's Shots ended in twelve, of
+      // which a group names ten. Each recorded a grind setting of text as long, and a dose, rating, TDS and extraction yield.
+      const numbered = await machineAt("Haunted numbers", lab);
+      const connection = await connectionOf(numbered, "43106");
+      const fixture = shotFixture();
+      const profile = (fixture.workflow as Record<string, Fields>).profile!;
+      const steps = Array.from({ length: 12 }, (_, frame) => ({ ...((profile.steps as Fields[])[frame % 7] as Fields), name: `${String(frame).padStart(2, "0")} ${hostile(3_000)}` }));
+      await deliverShots(
+        connection,
+        Array.from({ length: 24 }, (_, n) => {
+          const frame = n % 12;
+          const shot = shotAt(
+            `haunted-numbers-${String(n).padStart(2, "0")}`,
+            700 + n,
+            "43106",
+            {
+              context: { baristaName: n < 12 ? "Ann" : "Ben", grinderSetting: hostile(3_000) },
+              profile: { title: hostile(3_000), steps },
+              annotations: { actualDoseWeight: 18, enjoyment: 8, drinkTds: 9.5, drinkEy: 20 },
+            },
+            fixture,
+          );
+          return { ...shot, measurements: (fixture.measurements as Fields[]).map((sample, index) => (index === 0 ? sample : { ...sample, machine: { ...(sample.machine as Fields), profileFrame: frame } })) };
+        }),
+      );
+      type Group = SummaryGroup & { by: { profile: string; barista: string }; numbers: { lastStep: { shots: number; mostCommon: { frame: number; name: string; shots: number }[] } } };
+      const args = { machineId: numbered.machine.id, groupBy: ["profile", "barista"], numbers: EVERY_NUMBER, limit: 50 };
+      // Two groups, each naming its profile and ten steps of 3,000 characters: cut to fit.
+      const { result, text } = await assistant.callWithinBudget<Page & { cut: string; groups: Group[] }>("summarise_shots", args);
+      expect(Object.keys(result)[0]).toBe("cut");
+      pagingFirst(text, "groups");
+      expect(result).toMatchObject({ total: 2, offset: 0, more: false });
+      expect(result.groups.map((group) => group.by.barista)).toEqual(["Ann", "Ben"]);
+      for (const group of result.groups) {
+        expect(group.counts).toEqual({ shots: 12, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 });
+        expect(Object.keys(group.numbers)).toEqual(EVERY_NUMBER);
+        // A grind setting of text has no value; the rest are each Shot's.
+        expect(group.numbers).toMatchObject({ grindSetting: { shots: 0, median: null }, rating: { shots: 12, median: 8, rated: 1 }, tds: { shots: 12, median: 9.5 }, ratio: { shots: 12, median: 1.99 } });
+        // The ten steps of the twelve with the lowest frames, one Shot each, every name cut and marked.
+        expect(group.numbers.lastStep.shots).toBe(12);
+        expect(group.numbers.lastStep.mostCommon.map((step) => [step.frame, step.shots])).toEqual(Array.from({ length: 10 }, (_, frame) => [frame, 1]));
+        expect(group.numbers.lastStep.mostCommon.every((step) => cut(step.name))).toBe(true);
+        expect(cut(group.by.profile)).toBe(true);
+      }
+      // Asked for one group at a time, as the cut note says, it has the whole of more of them.
+      const one = await assistant.callWithinBudget<Page & { groups: Group[] }>("summarise_shots", { ...args, limit: 1 });
+      expect(one.result).toMatchObject({ total: 2, offset: 0, more: true });
     });
 
     it("finds Beans whose names run long a page at a time, each name cut and marked", async () => {

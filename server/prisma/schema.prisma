@@ -672,7 +672,7 @@ model Shot {
   lastStepFrame    Float?            @map("last_step_frame")
   lastStepName     String?           @map("last_step_name")
   /// Whether any of its samples is in the `pouring` substate: a Shot that
-  /// has none is an Unfinished Shot.
+  /// has none, and no time to first drip, is an Unfinished Shot.
   poured           Boolean?
   /// The scale's last weight after its Preheat, in grams, its seconds from
   /// the start of the profile, and the scale's weight flow at that reading,
