@@ -14,8 +14,9 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
  * query, so the summary follows them; it is loaded again every 30 s, less
  * often than the rows, as it reads every Shot the filters find. The numbers
  * of the last filters stay until the next ones' arrive, as the rows do, but
- * not once the next ones' have failed to load: they would stand under that
- * failure as these filters' until the next load, 30 s on.
+ * not while a load has failed since the last that succeeded: they would
+ * stand under that failure as these filters' until the next load, 30 s on.
+ * So filters changed after a failed load show dashes until theirs arrives.
  */
 export function ShotSummaryCard({ filterQuery }: { filterQuery: string }) {
   // Each summary loaded remembers the filters it answers.

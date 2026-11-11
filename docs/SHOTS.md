@@ -487,8 +487,8 @@ tickets'.
   long. Measured on a scratch database of copies of a real Shot's record
   (4.4 KB of JSON), on the development machine: 81 ms for 10,000 Shots and
   395 ms for 50,000, where the same statement reading only the columns took
-  14 ms; 52 ms for 30 days of them (6,171 Shots) and 3 ms for a day (206). Either field becomes
-  a column only if a summary proves slow (#465).
+  14 ms; 52 ms for 30 days of them (6,171 Shots) and 3 ms for a day (206).
+  Either field becomes a column only if a summary proves slow (#465).
 - **Access.** Staff and Viewers read it, as they read Shots, at every
   Location.
 
@@ -514,8 +514,9 @@ as "26.0 s (25.6–26.6)" and "−0.1 g (−0.8 to +0.4)"
 number says how many Shots it rests on where some of those covered had no
 value for it, and reads as a dash where none had. The card follows the
 filters, loads again every 30 s, and is not shown while no Shot matches. The
-last filters' numbers stay while the next ones' load, as the rows do, and
-give way to dashes if that load fails.
+last filters' numbers stay while the next ones' load, as the rows do, but
+give way to dashes while a load has failed since the last that succeeded,
+so that they never stand under a failure as the next filters'.
 `e2e/shot-summary.spec.ts` covers it. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
