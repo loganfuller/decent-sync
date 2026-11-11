@@ -150,8 +150,10 @@
   "web/test/curves.test.ts": 0,
   "web/test/live-curves.test.ts": 0,
   "web/test/live-view.test.ts": 0,
+  "web/test/settings-text.test.ts": 0,
   "web/test/shot-summary.test.ts": 0,
   "web/test/tablet-time.test.ts": 0,
   "web/test/wake-windows.test.ts": 0,
-  "web/test/workflow.test.ts": 0
+  "web/test/workflow.test.ts": 0,
+  "web/test/zoned-time.test.ts": 0
 }
