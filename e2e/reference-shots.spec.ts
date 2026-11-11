@@ -149,6 +149,16 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, w
   await expect(comparison).toHaveCount(0);
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
 
+  // A Reference Shot that can't be loaded says so while it is the choice, and no longer once another is made.
+  const measurements = `**/api/shots/${SHOT}/measurements`;
+  await page.route(measurements, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
+  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  await expect(curves.getByRole("alert")).toHaveText("Internal server error");
+  await expect(comparison).toHaveCount(0);
+  await choice.getByRole("radio", { name: "Nothing" }).check();
+  await expect(curves.getByRole("alert")).toHaveCount(0);
+  await page.unroute(measurements);
+
   // Its Recipe's Reference Shot, behind each curve, and beside them as the previous Shot is.
   await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
   for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
