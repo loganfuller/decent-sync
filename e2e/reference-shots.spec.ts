@@ -87,8 +87,14 @@ test("the Recipe's page shows its Reference Shot with its numbers, notes a Profi
   await field(card, "Pulled").getByRole("link").click();
   await expect(page).toHaveURL(new RegExp(`/shots/${SHOT}$`));
 
+  // Belmont's names a Profile with a title, which the note names after the Shot's.
+  const { recipe: belmontRecipe } = (await (await page.request.get(`/api/recipes/${belmont}`)).json()) as {
+    recipe: { uses: { profile: { title: string } }; referenceShot: { profile: { title: string } } };
+  };
   await page.goto(`/library/recipes/${belmont}`);
-  await expect(card.getByRole("status", { name: "Another Profile" })).toContainText("not the Recipe's Profile");
+  await expect(card.getByRole("status", { name: "Another Profile" })).toHaveText(
+    `It was pulled on ${belmontRecipe.referenceShot.profile.title}, not the Recipe's Profile, ${belmontRecipe.uses.profile.title}, so its curves describe another program.`,
+  );
   const history = page.getByRole("table", { name: "History" });
   await expect(rows(history).first()).toContainText("Reference Shot");
   await expect(rows(history).first().getByRole("link", { name: "The Shot" })).toHaveAttribute("href", `/shots/${SHOT}`);
