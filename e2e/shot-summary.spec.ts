@@ -7,14 +7,17 @@ import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
 // The Shots list's summary of the Shots its filters find (#466), as an
-// Admin. A simulated tablet running the built plugin backfills five Shots
-// derived from two real records, changing only their id, time, recorded
-// hardware, Barista and what each line names. The real Shots weighed 0.1 g
-// and 1.3 g under their targets, ran 23.549 s and 25.833 s after their
-// Preheat, and stopped on weight. Baristas and hardware ids are made up.
+// Admin, and its Barista filter, which finds a Barista however the name was
+// spelled (#468). A simulated tablet running the built plugin backfills five
+// Shots derived from two real records, changing only their id, time,
+// recorded hardware, Barista and what each line names, and the last test two
+// more, on a Machine of their own. The real Shots weighed 0.1 g and 1.3 g
+// under their targets, ran 23.549 s and 25.833 s after their Preheat, and
+// stopped on weight. Baristas and hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const HARDWARE = { model: "DE1Pro", serial: "10041" };
+const HARDWARE_2 = { model: "DE1Pro", serial: "10042" };
 
 type Fields = Record<string, unknown>;
 
@@ -102,6 +105,37 @@ test("a summary that fails to load for the filters chosen gives no numbers, rath
   await expect(summary.getByRole("alert")).toHaveCount(0);
 });
 
+test("the Barista filter offers each Barista once, by the latest spelling, and finds every spelling of the name", async ({ page }) => {
+  // A second Machine, whose two Shots, the real ones, a day later, name the first's Ann in other spellings: the last is the latest.
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  await adopt(
+    page,
+    "Lab 2",
+    locations.find((location) => location.name === "Lab")!.id,
+    [shotOf("lab2-espresso", "2026-02-11T13:30:00Z", " ann", {}, shotFixture(), HARDWARE_2), shotOf("lab2-preheat", "2026-02-11T14:00:00Z", "ANN ", {}, preheatShotFixture(), HARDWARE_2)],
+    HARDWARE_2,
+  );
+
+  await page.goto("/shots");
+  await expect(rows(page)).toHaveCount(7);
+  const filters = page.getByRole("region", { name: "Filters" });
+  const summary = page.getByRole("region", { name: "Summary" });
+  await filters.getByRole("combobox", { name: "Barista", exact: true }).click();
+  // Ann once, as last spelled, without the space after it.
+  await expect(page.getByRole("option")).toHaveText(["Any Barista", "ANN", "Ben", "Cat", "Dee"]);
+  await page.getByRole("option", { name: "ANN", exact: true }).click();
+  // Both Machines' Shots, however each spelled the name, and their summary: 23.549 s and 25.833 s twice each.
+  await expect(rows(page)).toHaveCount(4);
+  await expect(field(summary, "Shots")).toHaveText("4");
+  await expect(field(summary, "Duration")).toHaveText("24.7 s (23.5–25.8)");
+
+  // An address holding another spelling, as one shared before this, finds the same Shots, and shows the Barista's choice.
+  await page.goto("/shots?barista=%20ann");
+  await expect(rows(page)).toHaveCount(4);
+  await expect(filters.getByRole("combobox", { name: "Barista", exact: true })).toHaveText("ANN");
+  await expect(field(summary, "Shots")).toHaveText("4");
+});
+
 /** What a test changes of a fixture's record. */
 interface Changes {
   actualYield?: number;
@@ -112,8 +146,8 @@ interface Changes {
   type?: string;
 }
 
-/** A Shot pulled at a UTC time on the Lab's hardware by the Barista given, derived from `fixture` with the changes given. */
-function shotOf(id: string, pulledAt: string, barista: string, changes: Changes = {}, fixture = shotFixture()): Fields {
+/** A Shot pulled at a UTC time on the hardware given, the Lab's first Machine's unless said, by the Barista given, derived from `fixture` with the changes given. */
+function shotOf(id: string, pulledAt: string, barista: string, changes: Changes = {}, fixture = shotFixture(), hardware = HARDWARE): Fields {
   const { stopReason: recordedStop, ...record } = fixture;
   const workflow = fixture.workflow as Record<string, Fields>;
   const stopReason = changes.stopReason === undefined ? recordedStop : changes.stopReason;
@@ -126,21 +160,23 @@ function shotOf(id: string, pulledAt: string, barista: string, changes: Changes 
       ...workflow,
       context: { ...workflow.context, baristaName: barista, ...(changes.targetYield !== undefined && { targetYield: changes.targetYield }) },
       profile: { ...workflow.profile, ...(changes.type !== undefined && { beverage_type: changes.type }) },
-      machine: { ...workflow.machine, model: HARDWARE.model, serialNumber: HARDWARE.serial },
+      machine: { ...workflow.machine, model: hardware.model, serialNumber: hardware.serial },
     },
     annotations: { ...(fixture.annotations as Fields), ...(changes.actualYield !== undefined && { actualYield: changes.actualYield }) },
   };
 }
 
 /** Creates a machine entry at the Location since long before its Shots, and loads a simulated tablet on its hardware with the Shots, which it backfills. */
-async function adopt(page: Page, name: string, locationId: string, shots: Fields[]) {
+async function adopt(page: Page, name: string, locationId: string, shots: Fields[], hardware = HARDWARE) {
+  const total = async () => ((await (await page.request.get("/api/shots?limit=1")).json()) as { total: number }).total;
+  const before = await total();
   const response = await page.request.post("/api/machines", { data: { name } });
   expect(response.status()).toBe(201);
   const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
   const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
   expect(moved.status()).toBe(201);
-  SimulatedTablet.load({ settings: settingsFor({ serverUrl: server.url(), token }), api: withShots(derivedDe1Pro(HARDWARE), shots), timeScale: 50 });
-  await expect.poll(async () => ((await (await page.request.get("/api/shots?limit=1")).json()) as { total: number }).total).toBe(shots.length);
+  SimulatedTablet.load({ settings: settingsFor({ serverUrl: server.url(), token }), api: withShots(derivedDe1Pro(hardware), shots), timeScale: 50 });
+  await expect.poll(total).toBe(before + shots.length);
 }
 
 function rows(page: Page): Locator {

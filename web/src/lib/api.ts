@@ -755,6 +755,7 @@ export interface MachineActivity {
 /** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */
 export interface ShotFilterOptions {
   beans: { coffeeRoaster: string | null; coffeeName: string | null }[];
+  /** Each Barista once, whatever the name's case and the blanks around it, by its most recent spelling. */
   baristas: (string | null)[];
   profiles: (string | null)[];
   /** The Library's Bean Batches listed Shots are linked to; null stands for Shots linked to none. */

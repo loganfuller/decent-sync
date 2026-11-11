@@ -12,6 +12,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
+import { baristaKey } from "@/lib/shot-summary";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
 const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId"] as const;
@@ -154,6 +155,11 @@ function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
   const { params } = list;
   const roaster = params.get("coffeeRoaster");
   const bean = params.get("coffeeName");
+  // The filter finds a Barista by any spelling of the name and offers each Barista once (#468), so the choice shown
+  // for the address's spelling is the one that is the same Barista, or none recorded for a blank one.
+  const barista = params.get("barista");
+  const baristaChoice =
+    barista === null ? null : baristaKey(barista) === "" ? "" : (options?.baristas.find((name) => name !== null && baristaKey(name) === baristaKey(barista)) ?? barista);
 
   return (
     <RecordFilters
@@ -225,7 +231,7 @@ function ShotFilters({ list }: { list: RecordList<ShotPage> }) {
         id={`${id}-barista`}
         label="Barista"
         any="Any Barista"
-        value={params.get("barista")}
+        value={baristaChoice}
         options={options?.baristas}
         onChange={(barista) => list.filter({ barista })}
       />
