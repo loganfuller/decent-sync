@@ -318,6 +318,8 @@ test("the Machines' status is read again every 5 seconds, and the numbers every 
   await page.clock.fastForward(25_000);
   await expect(cell(depotTable, "No Recipe loaded", 0)).toHaveText("1 Shot23.5 s · −0.1 g vs target · 100% on weight");
   await expect(depot.getByText("No Shots were pulled here today.")).toHaveCount(0);
+  // And the count above was of something: these readings were counted.
+  await expect.poll(() => summariesRead).toBeGreaterThan(0);
 });
 
 /** The tablet with this serial, its Decaid holding no Library of its own, so the Library is only what the spec makes. */
