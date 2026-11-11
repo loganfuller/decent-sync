@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link, useLocation, useParams } from "react-router";
 import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
@@ -67,8 +67,10 @@ function ShotDetails({ id }: { id: string }) {
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
   const [comparing, setComparing] = useState<Compared>("nothing");
-  // Each Shot it has been compared with, by its id, so one is read once.
-  const [others, setOthers] = useState<Record<string, ShotData>>({});
+  // Each Shot it has been compared with, by its id, so one is read once: a Map, as an id may be any text.
+  const [others, setOthers] = useState<ReadonlyMap<string, ShotData>>(new Map());
+  // Counts the choices made, so a load that fails after a later choice says nothing of that one.
+  const choicesMade = useRef(0);
   const [compareError, setCompareError] = useState<string>();
   const [referenceId, setReferenceId] = useState<string>();
   const compareId = useId();
@@ -122,15 +124,16 @@ function ShotDetails({ id }: { id: string }) {
   const compared = comparing !== "nothing" && comparable[comparing] !== undefined ? comparing : "nothing";
   const comparedId = compared === "nothing" ? undefined : comparable[compared];
   async function compare(choice: Compared) {
+    const made = ++choicesMade.current;
     setComparing(choice);
     setCompareError(undefined);
     const otherId = choice === "nothing" ? undefined : comparable[choice];
-    if (choice === "nothing" || otherId === undefined || others[otherId]) return;
+    if (choice === "nothing" || otherId === undefined || others.has(otherId)) return;
     try {
       const other = await loadShot(otherId);
-      setOthers((loaded) => ({ ...loaded, [otherId]: other }));
+      setOthers((loaded) => new Map(loaded).set(otherId, other));
     } catch (caught) {
-      setCompareError(caught instanceof Error ? caught.message : COMPARED[choice].failed);
+      if (choicesMade.current === made) setCompareError(caught instanceof Error ? caught.message : COMPARED[choice].failed);
     }
   }
 
@@ -161,7 +164,8 @@ function ShotDetails({ id }: { id: string }) {
   }
 
   const { shot, samples } = data;
-  const shown = compared !== "nothing" && comparedId !== undefined && others[comparedId] ? { ...COMPARED[compared], ...others[comparedId] } : undefined;
+  const other = comparedId === undefined ? undefined : others.get(comparedId);
+  const shown = compared !== "nothing" && other ? { ...COMPARED[compared], ...other } : undefined;
   const on = shot.machine?.name ?? "this Pending Machine";
   const choices: [Compared, string][] = [["nothing", "Nothing"]];
   if (comparable.previous !== undefined) choices.push(["previous", `The previous Shot on ${on}`]);
