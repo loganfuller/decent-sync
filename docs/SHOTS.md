@@ -481,7 +481,10 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   another name, a third or one given twice is a 400. `numbers` names the
   numbers each group gives, one or more separated by a comma, such as
   `numbers=ratio,lastStep`, and without it the default three; an empty one,
-  another name or one given twice is a 400. `limit`, 1–100 and 20 if not
+  another name or one given twice is a 400. `bucket`, `day` or `week`,
+  gives each group as its `buckets` in place of its `counts` and `numbers`,
+  one for each day or week it has Shots of (Shot Summaries, Buckets); any
+  other is a 400. `limit`, 1–100 and 20 if not
   given, and `offset` page the groups, and `total` counts them all. The MCP
   endpoint's `summarise_shots` gives the same for `find_shots`' filters, its
   numbers to hundredths, its `groupBy` and `numbers` lists, a Bean Batch's
@@ -550,8 +553,10 @@ its numbers from this route alone, a cell opening as the list's filters
 (`e2e/overview.spec.ts`, `web/test/overview.test.ts`). Ticket [#469](https://github.com/loganfuller/decent-sync/issues/469)
 gives the other numbers, each when asked for, and counts Unfinished Shots
 apart. Ticket [#473](https://github.com/loganfuller/decent-sync/issues/473)
-gives a group by Recipe its Recipe's Reference Shot. Buckets are a later
-ticket's.
+gives a group by Recipe its Recipe's Reference Shot. Ticket [#470](https://github.com/loganfuller/decent-sync/issues/470)
+buckets a group's Shots by day or week, in the REST route and the tool, and
+charts one number of them as a trend on the Shots list. As the list has no
+grouping, its trend is one line, of the Shots its filters find.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -640,6 +645,56 @@ ticket's.
     `total`, how many groups there are, read in the same statement as the
     page, so the two agree. An `offset` past the last group gives no group
     and the `total`.
+- **Buckets.** `bucket` is `day` or `week`. With it a group gives, in place
+  of its `counts` and `numbers`, its `buckets`: one for each day or week it
+  has Shots of, oldest first, each `{ start, counts, numbers }`, its
+  `start` the day, or the Monday its week starts on, as a date, such as
+  `2026-03-02`, and its counts and numbers those of its own Shots, as a
+  group's are of the group's. A day or week with no Shot has no bucket, so
+  a trend's gaps are the reader's to draw. Without a grouping there is one
+  group, whose buckets are empty where the filters find no Shot.
+  - **A day and a week** are those of the Shot's Location, on that
+    Location's wall clock, or UTC's for a Shot with none, as the date
+    filters read a day (`bucketSql`, `recordFilterSql`): the Shots a day's
+    bucket holds are those `from` and `to` that day find. So one bucket may
+    hold Shots of Locations in different zones, pulled hours apart, and two
+    Shots pulled a minute apart at two Locations may be in different days.
+    A week starts on Monday (`date_trunc('week', …)`, ISO 8601's), each
+    Location's own. A day the clocks change is 23 or 25 hours long.
+  - **A Shot whose time is unknown** (`pulledAt` null: it recorded a time
+    with no offset and nothing to work one out from) is in no day or week.
+    Such Shots are a group's last bucket, its `start` null, so a group's
+    buckets' counts still add up to the list's `total` for its filters. No
+    date filter finds them.
+  - **Paging** is unchanged: a page is a number of groups, and each group on
+    it has every one of its buckets, so none is split between two pages.
+    `total` counts the groups. The Shots are put together by group and
+    bucket at once (`GROUP BY` both), the groups themselves are counted and
+    paged apart, and the buckets of the groups on the page are joined to
+    them by the group's keys as one value, as the steps are.
+  - **A Recipe's Reference Shot** is given once, on the group, before its
+    buckets, and in none of them.
+  - **Through an assistant,** `summarise_shots` takes `bucket` and gives the
+    same. The budget's guard ends a page of groups sooner to fit (ADR-0028),
+    never a group's buckets: 30 days by day by Recipe and Machine, about
+    290 characters a day at the default numbers, fill a page at 4 groups,
+    and with every number, about 870 a day, at one. A single group can't be
+    shortened, so one of more than about 150 days at the default numbers, or
+    50 with every number, is over the budget: a summary of every Shot by
+    day reaches that on any server a few months old. The tool refuses a
+    page whose first group alone can't fit (`overBudget` in
+    `server/src/mcp/budget.ts`), saying to give `from` and `to` for a
+    shorter range, bucket by week or ask for fewer numbers, rather than
+    return it whole. The REST route has no such limit.
+  - **What it costs.** Little beside the summary itself. Measured through
+    the REST route, on the development machine, on a scratch database of
+    50,000 copies of a real Shot's record spread over a year on four
+    Machines, each with a Recipe loaded, the medians of four reads: as one
+    group, 293 ms without a bucket, 308 ms by day (365 buckets) and 305 ms
+    by week; by Recipe and Machine, 353 ms without, 404 ms by day and 387 ms
+    by week; and with every number, by Recipe and Machine, 812 ms without
+    and 900 ms by day. A year by day in five groups is 440,000 characters
+    of JSON at the default numbers.
 - **Baristas.** A Barista is who a Shot's name for one names (`barista`,
   its Workflow's `context.baristaName`): the name without its case or the
   blanks around it, which are spaces, tabs and line ends (`baristaKeySql`
@@ -727,8 +782,9 @@ ticket's.
     of the Recipe gives the same one, and the summary's filters need not
     find it, so a day's Shots at one Location are read against a Shot
     pulled at another a month before. It is given whatever kind of Shot it
-    is, a cleaning or an Unfinished Shot too. It sits on the group, so a
-    later ticket's buckets nest beside it, never holding it.
+    is, a cleaning or an Unfinished Shot too. It sits on the group, so
+    with a `bucket` it is given once, before the group's buckets, and none
+    of them holds it.
   - A value is the Shot's own, worked out as each Shot's is for the group's
     numbers (`NumberSql.own`), null where it has none or one too large to
     count: `stoppedOnWeight` is true or false, null where it recorded no
@@ -822,6 +878,16 @@ them. `server/test/assistant-records.test.ts` checks `summarise_shots`
 against the route, grouped and not, and
 `server/test/assistant-budget.test.ts` its size, with two groupings at its
 largest page on realistic and on hostile data.
+`server/test/shot-summary-buckets.test.ts` covers the buckets the same way:
+day and week buckets against values worked out by hand, at two Locations
+in different time zones and a Machine at none, with Shots either side of
+each one's midnight between a Sunday and a Monday; each bucket's Shots
+against those the date filters find; a Shot whose time is unknown; buckets
+under one and two groupings, with pages that never split a group; each
+bucket's own steps; and a Recipe's Reference Shot once on its group. The
+assistant tests check the tool's buckets against the route's, and a month
+by day by Recipe and Machine within the budget, its pages ending sooner
+with each group's 30 days whole.
 `server/test/shot-summary-numbers.test.ts` covers the other numbers and
 Unfinished Shots the same way: every number against values worked out by
 hand, a rating of 0, a dose of 0, grind settings of text, `2.00` and within
@@ -869,7 +935,33 @@ It reads a name as the server does but for case beyond A to Z, which the
 server folds as its database's collation does, unlike JavaScript for some
 letters, such as a final sigma or a dotted I; so for such a name an address
 spelled another way shows no choice, never another Barista's.
-`e2e/shot-summary.spec.ts` covers both. `/shots/:id` shows a Shot's curves (pressure,
+`e2e/shot-summary.spec.ts` covers both.
+
+Under the Summary card, the Trend card (`web/src/components/shot-trend.tsx`)
+charts one number of the same Shots by day or by week, from the summary
+asked for by `bucket` with that number alone: its median as a line, each
+day or week marked while there are no more than 31 of them, with a band
+for the range the middle half of its Shots fall in, on the chart
+components the Shot page's curves use. A share, stopped on weight, is a
+line alone, from 0 to 100%. Any number the summary gives but the last
+step can be charted; duration by day is the default. The number and the
+bucket are kept in the page's address as `trend` and `bucket`, apart from
+the filters, each default as none, so the view survives a reload and a
+shared address. The time axis runs on the dates the server gives, so the
+days are each Shot's Location's and the browser's time zone plays no part
+(`web/src/lib/shot-trend.ts`, with `web/test/shot-trend.test.ts`). A day or
+week with no Shots, or none with a value, has no point, and the line runs
+past it to the next. Pointing at a day or week gives its value, range and
+how many Shots they rest on, and Show the numbers gives them all as a
+table. Shots whose time is unknown are on no chart, and a line under it
+says how many there are. The card follows the filters and loads again
+every 30 s; what was read last stays, faded, until the next arrives. It is
+one line, of the Shots the filters find: the list has no grouping, as the
+owner chose for the Summary card on 2026-11-10, so a line for each group
+waits for a page that has groups, as the Recipe page's trend by Machine
+(#474). During a deploy the previous release's instance knows no `bucket`
+and gives no buckets, of which nothing is drawn. `e2e/shot-trend.spec.ts`
+covers it. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and

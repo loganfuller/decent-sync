@@ -88,6 +88,25 @@ const logger = new Logger("McpBudget");
  * returned as it is then, and logged.
  */
 export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
+  const value = shortened(response, budget);
+  const length = size(value);
+  if (length > MAX_RESPONSE_CHARS) logger.warn(`${tool}'s response is ${length} characters, over ${MAX_RESPONSE_CHARS} even with its free text cut and its pages at one entry each`);
+  return value;
+}
+
+/**
+ * Whether a response is over `MAX_RESPONSE_CHARS` even as the guard would
+ * shorten it, rounded, its free text cut and its pages at one entry each:
+ * for a tool to refuse what it can't give within the budget where asking
+ * otherwise would fit, as summarise_shots does a group whose buckets are
+ * too many, rather than return it whole.
+ */
+export function overBudget(response: unknown, budget: Budget): boolean {
+  return size(shortened(rounded(response, budget), budget)) > MAX_RESPONSE_CHARS;
+}
+
+/** A response as `withinBudget` gives it, shortened as far as it must be, or as far as it can be if that isn't enough. */
+function shortened<T>(response: T, budget: Budget): T {
   if (typeof response !== "object" || response === null || Array.isArray(response) || size(response) <= MAX_RESPONSE_CHARS) return response;
   // As the client receives it: a Date as its text, and what is undefined left out. A cut note the tool gave for text it
   // cut itself is given again only if what is kept still holds cut text, as the entries holding it may not be kept.
@@ -111,10 +130,7 @@ export function withinBudget<T>(response: T, budget: Budget, tool: string): T {
     if (most > 1) entries = largest(1, most, (n) => fits(MIN_CUT, n));
     at = longest > MIN_CUT && fits(MIN_CUT, entries) ? largest(MIN_CUT, textUpTo, (n) => fits(n, entries)) : MIN_CUT;
   }
-  const { value } = fitted(at, entries);
-  const length = size(value);
-  if (length > MAX_RESPONSE_CHARS) logger.warn(`${tool}'s response is ${length} characters, over ${MAX_RESPONSE_CHARS} even with its free text cut and its pages at one entry each`);
-  return value as T;
+  return fitted(at, entries).value as T;
 }
 
 /**

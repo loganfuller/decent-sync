@@ -9,7 +9,7 @@ import type { Reporter } from "../sync/identity.js";
 import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
-import { DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, summarise } from "./summary.js";
+import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -139,11 +139,17 @@ export class ShotsService {
 
   /**
    * The Shot Summary of the Shots `list` lists for the same filters, grouped
-   * by `groupBy`, with the `numbers` named: a page of its groups
-   * (summary.ts).
+   * by `groupBy`, with the `numbers` named: a page of its groups, each, with
+   * a `bucket`, as its days' or weeks' buckets (summary.ts).
    */
-  summary(filters: ShotFilters = {}, groupBy: readonly Grouping[] = [], page = { limit: 20, offset: 0 }, numbers: readonly NumberName[] = DEFAULT_NUMBERS): Promise<ShotSummary> {
-    return summarise(this.prisma, listedFrom, shotFilterSql(filters), groupBy, page, numbers);
+  summary(
+    filters: ShotFilters = {},
+    groupBy: readonly Grouping[] = [],
+    page = { limit: 20, offset: 0 },
+    numbers: readonly NumberName[] = DEFAULT_NUMBERS,
+    bucket?: Bucket,
+  ): Promise<ShotSummary<SummaryGroup | BucketedGroup>> {
+    return summarise(this.prisma, listedFrom, shotFilterSql(filters), groupBy, page, numbers, bucket);
   }
 
   /**

@@ -121,6 +121,13 @@ Each server has one owner: a household, or a business with all of its sites.
   calibration Shots are left out, and counted, as are Unfinished Shots, in
   which nothing poured: the Machine never reached pouring and the scale
   never read a gram, as when a Shot is stopped at once.
+- **Trends.** Under that summary, a chart of one of its numbers by day or by
+  week, to see a coffee drift or a change take effect: each day's or week's
+  median as a line, with a band for the range the middle half of its Shots
+  fall in, or, for the share that stopped on weight, a line alone. A day is
+  each Shot's Location's own, in its time zone, or UTC's for a Shot with no
+  Location, and a week starts on Monday. The number and the day or week
+  chosen are kept in the page's address, with the filters.
 - **Each Location at a glance.** The home page is the Overview: a block for
   each Location, with a column for each Machine there, showing whether it is
   online, its Machine State, its Loaded Recipe and its last Shot, and a row
@@ -309,7 +316,8 @@ History, Shots with their curves, the profile steps they ran, their time to
 first drip and their flow at the stop, a summary of the Shots any filter
 finds, with the numbers it asks for, as one group or grouped by Machine,
 Recipe, Bean, Bean Batch, Profile, Grinder, Basket, Barista or Location,
-two at once, such as two Machines on the same Recipe side by side, Steam
+two at once, such as two Machines on the same Recipe side by side, and by
+day or by week, each Location's own, to read a trend, Steam
 Records, and the Library
 with each item's history and Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and

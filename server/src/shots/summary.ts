@@ -4,12 +4,12 @@ import { queryValue } from "../record-filters.js";
 import { BLANK, baristaKeySql, baristaNamesSql } from "./filters.js";
 import { shotListedSql, shotRecipeSql } from "./links.js";
 
-// A Shot Summary (#466, #468, #469, #473; #465, Which Shots a summary counts,
-// The numbers, Groupings): what the Shots a list's filters find have in
-// common, by group, worked out as it is read, in one statement, from each
-// Shot's columns and its record, with the Reference Shot of each Recipe they
-// are grouped by. Nothing is stored for it, so a Shot edit shows in the next
-// one.
+// A Shot Summary (#466, #468, #469, #470, #473; #465, Which Shots a summary
+// counts, The numbers, Groupings, The summary's contract): what the Shots a
+// list's filters find have in common, by group, and within a group by day or
+// week, worked out as it is read, in one statement, from each Shot's columns
+// and its record, with the Reference Shot of each Recipe they are grouped
+// by. Nothing is stored for it, so a Shot edit shows in the next one.
 
 /**
  * A number of a summary: the median of the Shots that had a value for it,
@@ -159,11 +159,11 @@ export interface GroupedBy {
 }
 
 /**
- * What a set of Shots have in common. Its first three counts add up to the
- * Shots list's total for the same filters and the group's.
+ * What a set of Shots have in common: a group's, or one of its buckets'.
+ * Its first three counts add up to the Shots list's total for the same
+ * filters and the group's.
  */
-export interface SummaryGroup {
-  by: GroupedBy;
+export interface SummaryFigures {
   counts: {
     /** The Shots its numbers cover. */
     shots: number;
@@ -176,6 +176,25 @@ export interface SummaryGroup {
   };
   /** The numbers asked for, in the order of `NUMBERS`. */
   numbers: Partial<SummaryNumbers>;
+}
+
+/** What a summary's Shots are bucketed by within each group (#465, The summary's contract): the day, or the week from its Monday, each Shot was pulled in (`bucketSql`). */
+export const BUCKETS = ["day", "week"] as const;
+export type Bucket = (typeof BUCKETS)[number];
+
+/**
+ * A group's Shots of one day or week: `start`, the day, or the Monday its
+ * week starts on, as a date, such as `2026-03-02`, and what they have in
+ * common. `start` is null for the Shots whose time is unknown, which are in
+ * no day.
+ */
+export interface SummaryBucket extends SummaryFigures {
+  start: string | null;
+}
+
+/** What a group is and, of a Recipe's, what its numbers are read against. */
+interface Grouped {
+  by: GroupedBy;
   /**
    * With a grouping by Recipe, where the group's Recipe has a Reference Shot
    * (ADR-0029) the Shots list lists: that Shot, to read the group's numbers
@@ -186,6 +205,19 @@ export interface SummaryGroup {
    * the group of Shots with no Recipe.
    */
   reference?: SummaryReference;
+}
+
+/** A group of a summary with no bucket: what its Shots have in common. */
+export interface SummaryGroup extends Grouped, SummaryFigures {}
+
+/**
+ * A group of a summary with a bucket: in place of its own counts and
+ * numbers, its buckets, one for each day or week it has Shots of, oldest
+ * first, then that of the Shots whose time is unknown. Their counts add up
+ * to what the group's would be. Its `reference` is given once, on the group.
+ */
+export interface BucketedGroup extends Grouped {
+  buckets: SummaryBucket[];
 }
 
 /**
@@ -204,10 +236,11 @@ export interface SummaryReference {
  * A Shot Summary: a page of its groups, in their order, with how many
  * groups there are, as a list gives its page. Without a grouping it is one
  * group, every Shot the filters find, there even where they find none; with
- * one, a group is there only for Shots found.
+ * one, a group is there only for Shots found. With a bucket its groups are
+ * `BucketedGroup`s.
  */
-export interface ShotSummary {
-  groups: SummaryGroup[];
+export interface ShotSummary<Group = SummaryGroup> {
+  groups: Group[];
   total: number;
   limit: number;
   offset: number;
@@ -411,7 +444,12 @@ function numberSql(name: NumberName): NumberSql {
       return {
         columns: [Prisma.sql`s.last_step_frame AS "stepFrame"`, Prisma.sql`s.last_step_name AS "stepName"`],
         aggregates: (covered) => [Prisma.sql`count(shot."stepFrame") FILTER (WHERE ${covered})::int AS "lastStepShots"`],
-        read: (row) => ({ shots: row.lastStepShots as number, mostCommon: (row.lastSteps as LastSteps["mostCommon"] | null) ?? [] }) satisfies LastSteps,
+        // Each step's fields in one order, whichever way it was read: a bucket's come through jsonb, which orders an object's keys its own way.
+        read: (row) =>
+          ({
+            shots: row.lastStepShots as number,
+            mostCommon: ((row.lastSteps as LastSteps["mostCommon"] | null) ?? []).map(({ frame, name, shots }) => ({ frame, name, shots })),
+          }) satisfies LastSteps,
         own: (shot) => (shot.stepFrame === null ? null : { frame: shot.stepFrame as number, name: shot.stepName as string | null }),
       };
   }
@@ -454,6 +492,34 @@ export function groupingsOf(names: readonly string[]): Grouping[] {
   }
   if (new Set(known).size < known.length) throw new BadRequestException("Give each grouping once");
   return known;
+}
+
+/** Reads a summary's bucket from its query's `bucket`: `day` or `week`, or none. */
+export function readBucket(query: Record<string, unknown>): Bucket | undefined {
+  const problems: string[] = [];
+  const given = queryValue(query, "bucket", problems);
+  if (problems.length > 0) throw new BadRequestException(problems);
+  return given === undefined ? undefined : bucketOf(given);
+}
+
+/** The bucket named, one of `BUCKETS`. */
+export function bucketOf(name: string): Bucket {
+  if (!(BUCKETS as readonly string[]).includes(name)) throw new BadRequestException("Enter bucket as day or week");
+  return name as Bucket;
+}
+
+/**
+ * The day or week the Shot of `shots` aliased `s`, joined to its Location
+ * as `l`, was pulled in, as the date it starts on: its own Location's, on
+ * that Location's wall clock, or UTC's for a Shot with none, as the date
+ * filters read a day (`recordFilterSql`), so the Shots a day's bucket holds
+ * are those the filters `from` and `to` that day find, and one bucket may
+ * hold Shots of Locations in different zones, pulled hours apart. A week
+ * starts on Monday (`date_trunc`'s, ISO 8601's). Null for a Shot whose time
+ * is unknown.
+ */
+function bucketSql(bucket: Bucket): Prisma.Sql {
+  return Prisma.sql`date_trunc(${bucket}::text, s.pulled_at AT TIME ZONE coalesce(l.time_zone, 'UTC'))::date`;
 }
 
 /** A grouping, in the summary's statement. */
@@ -600,6 +666,14 @@ function joined(parts: Prisma.Sql[], separator: string): Prisma.Sql {
  * read as each Shot's are, in the same statement, so the two are of one
  * moment.
  *
+ * With a `bucket`, a group gives in their place its buckets (`BucketedGroup`):
+ * its counts and numbers for each day or week it has Shots of (`bucketSql`),
+ * oldest first, a day or week with none having no bucket. The Shots are put
+ * together by group and bucket at once, and a page is still a number of
+ * groups, each with every one of its buckets, so none is split between two
+ * pages; the buckets of the groups on the page are read as one value each,
+ * found by the group's key.
+ *
  * Each Shot's numbers are worked out in decimal, as its columns print, so
  * 35.9 less 36 is -0.1, and its duration to the millisecond, as the list
  * shows it. They are worked out once for each Shot, with what it is grouped
@@ -620,29 +694,36 @@ export async function summarise(
   groupBy: readonly Grouping[],
   page: { limit: number; offset: number },
   numbers: readonly NumberName[] = DEFAULT_NUMBERS,
-): Promise<ShotSummary> {
+  bucket?: Bucket,
+): Promise<ShotSummary<SummaryGroup | BucketedGroup>> {
   const groupings = groupBy.map((grouping) => groupingSql(grouping, listed));
   const keys = groupings.flatMap((grouping) => Object.entries(grouping.keys));
   const named = groupings.flatMap((grouping) => (grouping.named ? [Prisma.sql`${grouping.named},`] : []));
   const joins = groupings.flatMap((grouping) => (grouping.joins ? [grouping.joins] : []));
   const by = groupings.flatMap((grouping) => Object.entries(grouping.by).map(([name, value]) => Prisma.sql`${Prisma.raw(`'${name}'`)}, ${value}`));
   const order = groupings.map((grouping) => grouping.order);
-  const keyNames = keys.map(([name]) => Prisma.raw(name));
+  const ofShot = (name: Prisma.Sql) => Prisma.sql`shot.${name}`;
+  const keyNames = keys.map(([name]) => ofShot(Prisma.raw(name)));
+  // What the Shots are put together by: their group, or, with a bucket, each day or week of it.
+  const cellNames = bucket ? [...keyNames, Prisma.sql`shot.bucket`] : keyNames;
   const asked = NUMBERS.filter((name) => numbers.includes(name)).map((name) => [name, numberSql(name)] as const);
   // A Shot's numbers cover it unless it is left out as cleaning or calibration, or is unfinished.
   const covered = Prisma.sql`NOT shot.left_out AND NOT shot.unfinished`;
-  const ofShot = (name: Prisma.Sql) => Prisma.sql`shot.${name}`;
-  // The steps the Shots ended in: counted for every group at once, those most of them did kept, and joined to the groups
-  // on the page by the group's keys as one value, so a group's are found by hash rather than by reading every Shot again
-  // for each group, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed).
+  // The steps the Shots ended in: counted for every group, or bucket of one, at once, those most of them did kept, and
+  // joined to those on the page by their keys as one value, so each one's are found by hash rather than by reading every
+  // Shot again for each, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed). A
+  // group's buckets are found by its keys as one value likewise.
   const steps = asked.some(([name]) => name === "lastStep");
   const referenceShotId = groupings.find((grouping) => grouping.referenceShotId)?.referenceShotId;
-  const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames.map(ofShot), ", ")})`;
+  const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames, ", ")})`;
+  const cellKey = Prisma.sql`jsonb_build_array(${joined(cellNames, ", ")})`;
+  const groupedBy = (names: Prisma.Sql[]) => (names.length > 0 ? Prisma.sql`GROUP BY ${Prisma.join(names, ", ")}` : Prisma.empty);
   const rows = await db.$queryRaw<Record<string, unknown>[]>`
     WITH ${joined(named, " ")} shot AS MATERIALIZED (
       SELECT ${Prisma.join(
         [
           ...keys.map(([name, value]) => Prisma.sql`${value} AS ${Prisma.raw(name)}`),
+          ...(bucket ? [Prisma.sql`${bucketSql(bucket)} AS bucket`] : []),
           Prisma.sql`${LEFT_OUT} AS left_out`,
           Prisma.sql`${UNFINISHED} AS unfinished`,
           Prisma.sql`${AWAITING} AS awaiting`,
@@ -655,42 +736,60 @@ export async function summarise(
     grouped AS (
       SELECT ${Prisma.join(
         [
-          ...keyNames.map(ofShot),
+          ...cellNames,
           Prisma.sql`count(*) FILTER (WHERE ${covered})::int AS shots`,
           Prisma.sql`count(*) FILTER (WHERE NOT shot.left_out AND shot.unfinished)::int AS unfinished`,
           Prisma.sql`count(*) FILTER (WHERE shot.left_out)::int AS "leftOut"`,
           Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot.awaiting)::int AS awaiting`,
           ...asked.flatMap(([, number]) => number.aggregates(covered)),
-          ...(steps ? [Prisma.sql`${groupKey} AS group_key`] : []),
+          ...(steps ? [Prisma.sql`${cellKey} AS cell_key`] : []),
+          ...(bucket ? [Prisma.sql`${groupKey} AS group_key`] : []),
         ],
         ", ",
       )}
-      FROM shot ${keyNames.length > 0 ? Prisma.sql`GROUP BY ${Prisma.join(keyNames.map(ofShot), ", ")}` : Prisma.empty}
+      FROM shot ${groupedBy(cellNames)}
     ),
+    ${
+      // The groups themselves, which the page counts: one even where no Shot is found, without a grouping, as an
+      // aggregate without one gives.
+      bucket ? Prisma.sql`groups AS (SELECT ${Prisma.join([...keyNames, Prisma.sql`${groupKey} AS group_key`, Prisma.sql`count(*) AS found`], ", ")} FROM shot ${groupedBy(keyNames)}),` : Prisma.empty
+    }
     ${
       steps
         ? Prisma.sql`ended AS (
-      SELECT ${groupKey} AS group_key, shot."stepFrame" AS frame, shot."stepName" AS name, count(*)::int AS shots,
-        row_number() OVER (PARTITION BY ${groupKey} ORDER BY count(*) DESC, shot."stepFrame", shot."stepName") AS rank
+      SELECT ${cellKey} AS cell_key, shot."stepFrame" AS frame, shot."stepName" AS name, count(*)::int AS shots,
+        row_number() OVER (PARTITION BY ${cellKey} ORDER BY count(*) DESC, shot."stepFrame", shot."stepName") AS rank
       FROM shot WHERE ${covered} AND shot."stepFrame" IS NOT NULL
       GROUP BY 1, 2, 3
     ),
     steps AS (
-      SELECT ended.group_key, json_agg(json_build_object('frame', ended.frame, 'name', ended.name, 'shots', ended.shots) ORDER BY ended.rank) AS "lastSteps"
-      FROM ended WHERE ended.rank <= ${LAST_STEPS} GROUP BY ended.group_key
+      SELECT ended.cell_key, json_agg(json_build_object('frame', ended.frame, 'name', ended.name, 'shots', ended.shots) ORDER BY ended.rank) AS "lastSteps"
+      FROM ended WHERE ended.rank <= ${LAST_STEPS} GROUP BY ended.cell_key
     ),`
         : Prisma.empty
     }
     page AS (
       SELECT g.*, json_build_object(${joined(by, ", ")}) AS by, row_number() OVER (${order.length > 0 ? Prisma.sql`ORDER BY ${Prisma.join(order, ", ")}` : Prisma.empty}) AS position
         ${referenceShotId ? Prisma.sql`, ${referenceShotId} AS reference_shot_id` : Prisma.empty}
-      FROM grouped g ${joined(joins, " ")}
+      FROM ${bucket ? Prisma.sql`groups` : Prisma.sql`grouped`} g ${joined(joins, " ")}
       ORDER BY position LIMIT ${page.limit} OFFSET ${page.offset}
-    )
-    SELECT (SELECT count(*)::int FROM grouped) AS total, page.*${steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
+    )${
+      // Each group on the page's buckets, oldest first, that of the Shots whose time is unknown last: each as its row.
+      bucket
+        ? Prisma.sql`,
+    bucketed AS (
+      SELECT cell.group_key, json_agg(${steps ? Prisma.sql`to_jsonb(cell) || jsonb_build_object('lastSteps', steps."lastSteps")` : Prisma.sql`to_jsonb(cell)`} ORDER BY cell.bucket NULLS LAST) AS buckets
+      FROM grouped cell ${steps ? Prisma.sql`LEFT JOIN steps ON steps.cell_key = cell.cell_key` : Prisma.empty}
+      WHERE cell.group_key IN (SELECT page.group_key FROM page)
+      GROUP BY cell.group_key
+    )`
+        : Prisma.empty
+    }
+    SELECT (SELECT count(*)::int FROM ${bucket ? Prisma.sql`groups` : Prisma.sql`grouped`}) AS total, page.*
+      ${bucket ? Prisma.sql`, bucketed.buckets` : steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
       ${referenceShotId ? Prisma.sql`, CASE WHEN reference_shot.id IS NOT NULL THEN to_json(reference_shot) END AS reference` : Prisma.empty}
     FROM (SELECT 1) AS whole LEFT JOIN page ON TRUE
-    ${steps ? Prisma.sql`LEFT JOIN steps ON steps.group_key = page.group_key` : Prisma.empty}
+    ${bucket ? Prisma.sql`LEFT JOIN bucketed ON bucketed.group_key = page.group_key` : steps ? Prisma.sql`LEFT JOIN steps ON steps.cell_key = page.cell_key` : Prisma.empty}
     ${
       // Read for the groups on the page alone, each by its id.
       referenceShotId
@@ -701,21 +800,25 @@ export async function summarise(
         : Prisma.empty
     }
     ORDER BY page.position`;
+  /** What the Shots of a row have in common: a group's, or a bucket's, which is a group's row as JSON. */
+  const figuresOf = (row: Record<string, unknown>): SummaryFigures => {
+    const shots = row.shots as number;
+    return {
+      counts: { shots, unfinished: row.unfinished as number, cleaningAndCalibration: row.leftOut as number, awaitingValues: row.awaiting as number },
+      numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.read(row, shots)])) as Partial<SummaryNumbers>,
+    };
+  };
   return {
-    groups: rows.flatMap((row) => {
+    groups: rows.flatMap((row): (SummaryGroup | BucketedGroup)[] => {
       if (row.by === null) return [];
-      const shots = row.shots as number;
-      const reference = (row.reference ?? null) as Record<string, unknown> | null;
-      return [
-        {
-          by: row.by as GroupedBy,
-          counts: { shots, unfinished: row.unfinished as number, cleaningAndCalibration: row.leftOut as number, awaitingValues: row.awaiting as number },
-          numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.read(row, shots)])) as Partial<SummaryNumbers>,
-          ...(reference && {
-            reference: { id: reference.id as string, numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.own(reference)])) as Partial<ShotNumbers> },
-          }),
-        },
-      ];
+      const by = row.by as GroupedBy;
+      const own = (row.reference ?? null) as Record<string, unknown> | null;
+      const reference = own && { reference: { id: own.id as string, numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.own(own)])) as Partial<ShotNumbers> } };
+      if (!bucket) return [{ by, ...figuresOf(row), ...reference }];
+      // A group with no Shots, the one group of no grouping, has no bucket.
+      const cells = (row.buckets ?? []) as Record<string, unknown>[];
+      // The reference before the buckets, which may be many.
+      return [{ by, ...reference, buckets: cells.map((cell) => ({ start: cell.bucket as string | null, ...figuresOf(cell) })) }];
     }),
     total: rows[0]!.total as number,
     limit: page.limit,

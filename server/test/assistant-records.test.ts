@@ -15,7 +15,7 @@ import {
 } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite, admin, signIn } from "./support/admin-api.js";
-import { ASSISTANT_ENV, Assistant, type TestApp, asTools, serveTestApp, type SummaryGroup, toolSummary } from "./support/assistants.js";
+import { ASSISTANT_ENV, Assistant, type BucketedGroup, type TestApp, asTools, serveTestApp, type SummaryGroup, toolSummary } from "./support/assistants.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { derivedShot, preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import { RawConnection, derivedProfile, helloWith } from "./support/simulated-tablet.js";
@@ -1134,6 +1134,48 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await toolError("summarise_shots", { numbers: ["ratio", "ratio"] })).toBe("Give each number once");
     expect(await toolError("summarise_shots", { numbers: [] })).toContain("numbers");
     expect(await toolError("summarise_shots", { numbers: ["count"] })).toContain("numbers");
+  });
+
+  it("buckets a summary by day and week as the REST API does, whole and by group, a page of groups at a time", async () => {
+    type Bucketed = { groups: BucketedGroup[] } & Page;
+    const total = (await assistant.call<Page>("find_shots", { limit: 1 })).total;
+    for (const bucket of ["day", "week"]) {
+      for (const groupBy of [[], ["machine"], ["location", "barista"]]) {
+        const query = { bucket, ...(groupBy.length > 0 && { groupBy: groupBy.join(",") }), numbers: "duration,lastStep", limit: "50" };
+        const summarised = await assistant.call<Bucketed>("summarise_shots", { bucket, groupBy, numbers: ["duration", "lastStep"], limit: 50 });
+        const rest = await api.get<{ groups: BucketedGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams(query)}`);
+        expect(summarised, `${bucket} ${groupBy.join()}`).toEqual(toolSummary(rest));
+        expect(summarised.groups.length, `${bucket} ${groupBy.join()}`).toBeGreaterThan(groupBy.length > 0 ? 1 : 0);
+        for (const group of summarised.groups) {
+          // Its buckets in place of its counts and numbers, each a day's, or a week's Monday's, oldest first.
+          expect(Object.keys(group)).toEqual(["by", "buckets"]);
+          const starts = group.buckets.map(({ start }) => start);
+          expect(starts.every((start) => start !== null && /^\d{4}-\d\d-\d\d$/.test(start)), starts.join()).toBe(true);
+          expect(starts).toEqual([...starts].sort());
+          if (bucket === "week") for (const start of starts) expect(new Date(`${start}T00:00:00Z`).getUTCDay(), start!).toBe(1);
+          for (const each of group.buckets) expect(Object.keys(each)).toEqual(["start", "counts", "numbers"]);
+        }
+        // Every Shot find_shots finds is in one bucket of one group.
+        const counted = summarised.groups.flatMap((group) => group.buckets.map(({ counts }) => counts.shots + counts.unfinished + counts.cleaningAndCalibration));
+        expect(counted.reduce((sum, count) => sum + count, 0), `${bucket} ${groupBy.join()}`).toBe(total);
+        // A page of one group gives it every bucket.
+        if (groupBy.length > 0) {
+          const second = await assistant.call<Bucketed>("summarise_shots", { bucket, groupBy, numbers: ["duration", "lastStep"], limit: 1, offset: 1 });
+          expect(second).toEqual({ total: summarised.total, offset: 1, more: summarised.total > 2, groups: [summarised.groups[1]] });
+        }
+      }
+    }
+    // A day is the Shot's Location's own: Uptown's Shots of 9 and 10 February, found by those dates there.
+    const uptownDays = { locationId: uptown.id, from: "2026-02-09", to: "2026-02-10" };
+    const [atUptown] = (await assistant.call<Bucketed>("summarise_shots", { ...uptownDays, bucket: "day" })).groups;
+    expect(atUptown!.buckets.map(({ start }) => start)).toEqual(expect.arrayContaining(["2026-02-09"]));
+    for (const { start, counts } of atUptown!.buckets) {
+      expect(["2026-02-09", "2026-02-10"]).toContain(start);
+      expect((await assistant.call<Page>("find_shots", { locationId: uptown.id, from: start, to: start, limit: 1 })).total).toBe(counts.shots + counts.unfinished + counts.cleaningAndCalibration);
+    }
+    // Both fall in the week of Monday 9 February.
+    expect((await assistant.call<Bucketed>("summarise_shots", { ...uptownDays, bucket: "week" })).groups[0]!.buckets.map(({ start }) => start)).toEqual(["2026-02-09"]);
+    expect(await toolError("summarise_shots", { bucket: "month" })).toContain("bucket");
   });
 
   it("answers a Viewer's read-only Connected App as it answers an Admin's", async () => {

@@ -106,17 +106,22 @@ export interface SummaryGroup {
   reference?: { id: string; numbers: Record<string, unknown> };
 }
 
+/** A Shot Summary's group with a bucket: in place of its counts and numbers, those of each of its days or weeks. */
+export interface BucketedGroup extends Pick<SummaryGroup, "by" | "reference"> {
+  buckets: (Pick<SummaryGroup, "counts" | "numbers"> & { start: string | null })[];
+}
+
 /**
  * What summarise_shots gives for the REST API's summary: its page of groups
  * as a tool's list pages, `total`, `offset` and `more` first, its numbers
  * to hundredths, and a Bean Batch's roast date as its day, as find_shots
  * gives one.
  */
-export function toolSummary(rest: { groups: SummaryGroup[]; total: number; offset: number }): { total: number; offset: number; more: boolean; groups: SummaryGroup[] } {
-  const groups = asTools(rest.groups).map(({ by, ...group }) => ({
-    by: by.beanBatch ? { ...by, beanBatch: { ...by.beanBatch, roastDate: by.beanBatch.roastDate && by.beanBatch.roastDate.slice(0, 10) } } : by,
-    ...group,
-  }));
+export function toolSummary<Group extends Pick<SummaryGroup, "by"> = SummaryGroup>(rest: { groups: Group[]; total: number; offset: number }): { total: number; offset: number; more: boolean; groups: Group[] } {
+  const groups = asTools(rest.groups).map((group) => {
+    const { by } = group;
+    return { ...group, by: by.beanBatch ? { ...by, beanBatch: { ...by.beanBatch, roastDate: by.beanBatch.roastDate && by.beanBatch.roastDate.slice(0, 10) } } : by };
+  });
   return { total: rest.total, offset: rest.offset, more: rest.offset + groups.length < rest.total, groups };
 }
 
