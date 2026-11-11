@@ -703,9 +703,10 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       });
 
       it("summarises a month of Shots by day and two groupings, each group with its 30 days whole, its pages ending sooner to fit, as the REST API does", async () => {
-        // Two Machines at the Lab with no tablets, pulling four Recipes through October: the bar's first Shot copied in
-        // PostgreSQL three times a day for each Recipe on each Machine, ten minutes apart from 10:00 at the Lab, 720 in
-        // all, each pulled with its Recipe loaded. By Recipe and Machine they are 8 groups of 30 days each.
+        // Two Machines at the Lab with no tablets, pulling four Recipes through September and October: the bar's first
+        // Shot copied in PostgreSQL three times a day for each Recipe on each Machine, ten minutes apart from 10:00 at
+        // the Lab, 1,440 in all, each pulled with its Recipe loaded. By Recipe and Machine, October's are 8 groups of 30
+        // days each.
         const machines = [await machineAt("Lab month left", lab), await machineAt("Lab month right", lab)];
         const pulled = made.recipes!.slice(0, 4);
         const database = await server.connectDatabase();
@@ -715,7 +716,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
              SELECT (jsonb_populate_record(NULL::shots, to_jsonb(s) || jsonb_build_object(
                'id', format('month-%s-%s-%s-%s', m, r, d, k), 'machine_id', ($1::uuid[])[m], 'tablet_id', NULL, 'recipe_id', ($2::uuid[])[r],
                'pulled_at', '2026-10-01T15:00:00Z'::timestamptz + d * interval '1 day' + ((r - 1) * 3 + k) * interval '10 minutes'))).*
-             FROM shots AS s, generate_series(1, 2) AS m, generate_series(1, 4) AS r, generate_series(0, 29) AS d, generate_series(0, 2) AS k WHERE s.id = 'morning-00'`,
+             FROM shots AS s, generate_series(1, 2) AS m, generate_series(1, 4) AS r, generate_series(-30, 29) AS d, generate_series(0, 2) AS k WHERE s.id = 'morning-00'`,
             [machines.map((machine) => machine.machine.id), pulled],
           );
           await database.query(
@@ -760,6 +761,20 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(await pages(undefined)).toEqual([4, 4]);
         // Every number at once: about 870 characters a day, 26,700 a group, so a page holds one group, its 30 days.
         expect(await pages(EVERY_NUMBER)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
+
+        // A group can't be split, so one whose buckets alone are over the budget is refused, saying what would fit:
+        // both months by day with every number, 60 days of about 870 characters each. Each of those does fit.
+        const both = { from: "2026-09-01", to: "2026-10-30", groupBy: ["recipe", "machine"], limit: 50 };
+        const refused = await assistant.client.callTool({ name: "summarise_shots", arguments: { ...both, bucket: "day", numbers: EVERY_NUMBER, offset: 3 } });
+        expect(refused.isError).toBe(true);
+        expect((refused.content as { text: string }[])[0]!.text).toContain(
+          "The group at offset 3 has too many days to read whole, and a page never splits a group's buckets: give from and to for a shorter range, bucket by week or ask for fewer numbers",
+        );
+        for (const fitting of [{ bucket: "week", numbers: EVERY_NUMBER }, { bucket: "day" }, { bucket: "day", numbers: EVERY_NUMBER, from: "2026-09-15" }]) {
+          const { result } = await assistant.callWithinBudget<Bucketed>("summarise_shots", { ...both, ...fitting });
+          expect(result.groups.length, JSON.stringify(fitting)).toBeGreaterThan(0);
+          expect(result.groups[0]!.buckets.length, JSON.stringify(fitting)).toBe(fitting.bucket === "week" ? 9 : fitting.from ? 46 : 60);
+        }
       });
 
       it("reads a Recipe with its history and its Reference Shot, a Profile, and a Bean with its batches", async () => {

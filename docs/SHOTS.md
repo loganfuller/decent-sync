@@ -680,10 +680,12 @@ grouping, its trend is one line, of the Shots its filters find.
     290 characters a day at the default numbers, fill a page at 4 groups,
     and with every number, about 870 a day, at one. A single group can't be
     shortened, so one of more than about 150 days at the default numbers, or
-    50 with every number, is over the budget, returned whole and logged, as
-    ADR-0028 has other lists within one item; the tool's description says a
-    page never splits a group's buckets, so an assistant asks for weeks, a
-    shorter range or fewer numbers.
+    50 with every number, is over the budget: a summary of every Shot by
+    day reaches that on any server a few months old. The tool refuses a
+    page whose first group alone can't fit (`overBudget` in
+    `server/src/mcp/budget.ts`), saying to give `from` and `to` for a
+    shorter range, bucket by week or ask for fewer numbers, rather than
+    return it whole. The REST route has no such limit.
   - **What it costs.** Little beside the summary itself. Measured through
     the REST route, on the development machine, on a scratch database of
     50,000 copies of a real Shot's record spread over a year on four

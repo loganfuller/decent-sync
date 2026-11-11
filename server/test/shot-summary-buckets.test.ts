@@ -405,6 +405,8 @@ describe("Shot Summaries by day and week", () => {
       ["2026-02-16", ["ratio", "lastStep"], { shots: 2, mostCommon: [espressoStep, { frame: 6, name: "Extraction", shots: 1 }] }],
       ["2026-02-19", ["ratio", "lastStep"], { shots: 1, mostCommon: [espressoStep] }],
     ]);
+    // Each step as a group with no bucket gives one: its frame, name and Shots, in that order.
+    for (const { numbers } of groups[0]!.buckets) expect(numbers.lastStep!.mostCommon.map((step) => Object.keys(step))).toEqual(numbers.lastStep!.mostCommon.map(() => ["frame", "name", "shots"]));
     // 35.9 g from 18 g, and on the Monday 34.7 g from 16 g and 38.4 g from 18 g.
     expect(groups[0]!.buckets.map(({ numbers }) => [numbers.ratio!.shots, Math.round(numbers.ratio!.median! * 1e6) / 1e6])).toEqual([
       [1, 1.994444],

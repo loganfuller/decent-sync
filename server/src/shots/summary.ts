@@ -444,7 +444,12 @@ function numberSql(name: NumberName): NumberSql {
       return {
         columns: [Prisma.sql`s.last_step_frame AS "stepFrame"`, Prisma.sql`s.last_step_name AS "stepName"`],
         aggregates: (covered) => [Prisma.sql`count(shot."stepFrame") FILTER (WHERE ${covered})::int AS "lastStepShots"`],
-        read: (row) => ({ shots: row.lastStepShots as number, mostCommon: (row.lastSteps as LastSteps["mostCommon"] | null) ?? [] }) satisfies LastSteps,
+        // Each step's fields in one order, whichever way it was read: a bucket's come through jsonb, which orders an object's keys its own way.
+        read: (row) =>
+          ({
+            shots: row.lastStepShots as number,
+            mostCommon: ((row.lastSteps as LastSteps["mostCommon"] | null) ?? []).map(({ frame, name, shots }) => ({ frame, name, shots })),
+          }) satisfies LastSteps,
         own: (shot) => (shot.stepFrame === null ? null : { frame: shot.stepFrame as number, name: shot.stepName as string | null }),
       };
   }
