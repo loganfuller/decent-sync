@@ -364,7 +364,8 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     endpoint's `find_shots` takes `match` too, matching words unless asked
     for `exact`, which picks one value `list_shot_values` gives alone, a
     Barista by any spelling. A
-    text filter holding a NUL character, which no Shot recorded, is a 400.
+    text filter holding a NUL character, which no Shot recorded, is a 400,
+    as is one of more than 500 characters.
   - `beanBatchId` and `grinderId`: Shots linked to that Library Bean Batch
     or Grinder (Links to the Library, above), whichever tablet's id for it
     they recorded, so a batch is compared across Machines and Locations;
@@ -497,6 +498,11 @@ are later tickets'.
     (`shotProfileSql`), which took 2 s for 10,000 Shots (#465). Two
     Profiles with one title are one group. Only a Barista's names are
     folded: a Bean or a title in another case is another group.
+  - A Bean, a title or a Barista's name longer than a text filter takes,
+    500 characters, which no tablet's keyboard types, is still a group,
+    named whole. Its filter is refused, as it is when chosen among the
+    filter's choices, which have always offered what Shots recorded whole;
+    an assistant finds its Shots by a few of its words.
   - Without a grouping the summary is one group, there even where the
     filters find no Shot. With one, a group is there only for Shots found,
     so filters that find none give no group.

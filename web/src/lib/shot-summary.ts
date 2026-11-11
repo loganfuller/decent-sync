@@ -44,12 +44,13 @@ export function groupFilters(by: SummaryGroupedBy): Record<string, string | null
 }
 
 /**
- * Who a Barista's name names, as the server reads one: the name without its
- * case or the blanks around it, so the Barista filter's choice is found for
+ * Who a Barista's name names, as the server reads one (`baristaKeySql`): the
+ * name without its case or the blanks around it, which are spaces, tabs and
+ * line ends and no other space, so the Barista filter's choice is found for
  * any spelling an address holds. Empty for no name, or a blank one.
  */
 export function baristaKey(name: string): string {
-  return name.trim().toLowerCase();
+  return name.replace(/^[ \t\n\r\f\v]+|[ \t\n\r\f\v]+$/g, "").toLowerCase();
 }
 
 /** A number of a summary as it reads: its median with its unit, and the range from its 25th percentile to its 75th. */

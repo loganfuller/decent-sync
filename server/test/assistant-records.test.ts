@@ -981,6 +981,32 @@ describe("reading Shots and Steam Records through an assistant", () => {
       return summarised;
     }
 
+    /**
+     * find_shots' filters a group opens as, by what it is grouped by: an id, or none for its group of Shots with
+     * none, and what its Shots recorded exactly, empty for none. Undefined for a Pending Machine's, which it has no
+     * filter for.
+     */
+    function toolFiltersOf(by: SummaryGroup["by"]): Fields | undefined {
+      const idOf = (entry: unknown) => (entry as { id: string } | null)?.id ?? "none";
+      const filters: Fields = { match: "exact" };
+      if ("location" in by) filters.locationId = idOf(by.location);
+      if ("machine" in by) {
+        if (by.machine === null) return undefined;
+        filters.machineId = idOf(by.machine);
+      }
+      if ("recipe" in by) filters.recipeId = idOf(by.recipe);
+      if ("bean" in by) {
+        const bean = by.bean as { roaster: string | null; name: string | null } | null;
+        Object.assign(filters, { beanRoaster: bean?.roaster ?? "", beanName: bean?.name ?? "" });
+      }
+      if ("beanBatch" in by) filters.beanBatchId = idOf(by.beanBatch);
+      if ("profile" in by) filters.profileTitle = by.profile ?? "";
+      if ("grinder" in by) filters.grinderId = idOf(by.grinder);
+      if ("basket" in by) filters.basketId = idOf(by.basket);
+      if ("barista" in by) filters.barista = by.barista ?? "";
+      return filters;
+    }
+
     // One grouping and two, of every kind: the REST route's groups, in its order, and the same two at a time, the next
     // page's offset the last's plus its length. These Shots are linked to no Recipe or Basket, so those two give one
     // group, of Shots with none.
@@ -991,6 +1017,17 @@ describe("reading Shots and Steam Records through an assistant", () => {
       // What a group is grouped by, in the groupings' order; a Machine's or a Pending Machine's for machine.
       const entries = groupBy.flatMap((grouping) => (grouping === "machine" ? ["machine", "pendingMachine"] : [grouping]));
       for (const group of all.groups) expect(Object.keys(group.by), groupBy.join()).toEqual(entries);
+      // Every group opens as find_shots' filters, which find its Shots: its group of Shots with none by none, or by
+      // an empty name.
+      let withNone = 0;
+      for (const group of all.groups) {
+        const filters = toolFiltersOf(group.by);
+        if (!filters) continue;
+        if (Object.values(filters).some((filter) => filter === "none" || filter === "")) withNone++;
+        const found = await assistant.call<Page>("find_shots", { ...filters, limit: 1 });
+        expect(found.total, `${groupBy.join()}: ${JSON.stringify(group.by)}`).toBe(group.counts.shots + group.counts.cleaningAndCalibration);
+      }
+      expect(withNone, groupBy.join()).toBeGreaterThan(0);
       const paged: SummaryGroup[] = [];
       for (let offset = 0; ; offset += 2) {
         const page = await groupedAsRest({ groupBy, limit: 2, offset }, { groupBy: groupBy.join(","), limit: "2", offset: String(offset) });
@@ -1006,16 +1043,12 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // Each Barista by its latest spelling, without the blanks around it, whichever Shots are summarised.
     expect(atUptown.groups.map((group) => [group.by.barista, group.counts.shots])).toEqual([["ann", 2], ["BEN", 1]]);
 
-    // Each Barista once, as list_shot_values gives them, and a group's Shots are those find_shots finds by its name exactly.
+    // Each Barista once, as list_shot_values gives them.
     const { groups } = await groupedAsRest({ groupBy: ["barista"], limit: 50 }, { groupBy: "barista", limit: "50" });
     const names = groups.map((group) => group.by.barista);
     expect(names).toEqual((await assistant.call<{ baristas: { entries: (string | null)[] } }>("list_shot_values", { kinds: ["baristas"], limit: 50 })).baristas.entries);
     expect(names).toEqual(expect.arrayContaining(["ann", "BEN", "Cat", null]));
     expect(names.filter((name) => name?.toLowerCase() === "ann")).toEqual(["ann"]);
-    for (const group of groups) {
-      const found = await assistant.call<Page>("find_shots", { barista: group.by.barista ?? "", match: "exact", limit: 1 });
-      expect(found.total, String(group.by.barista)).toBe(group.counts.shots + group.counts.cleaningAndCalibration);
-    }
     // Any spelling finds them, exactly as by its words.
     const anns = await findShotsAsRest({ barista: " ANN ", match: "exact", limit: 50 }, { barista: " ANN ", match: "exact", limit: "50" });
     expect(anns).toEqual(expect.arrayContaining(["assistant-ann-again", "uptown-dawn", "harbor-early"]));

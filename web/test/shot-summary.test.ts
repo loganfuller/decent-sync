@@ -73,6 +73,8 @@ describe("a Shot Summary's grouping", () => {
 
   it("reads a Barista's name without its case or the blanks around it", () => {
     expect([" Jules", "JULES\t", "jules", "Jules Verne"].map(baristaKey)).toEqual(["jules", "jules", "jules", "jules verne"]);
-    expect(["", "   ", "\n"].map(baristaKey)).toEqual(["", "", ""]);
+    expect(["", "   ", "\n", " \t\r\n\f\v"].map(baristaKey)).toEqual(["", "", "", ""]);
+    // Only the blanks the server leaves out: a name within another space is another Barista, as it is there.
+    expect(["\u00a0Jules", "Jules\u2003", "\u00a0"].map(baristaKey)).toEqual(["\u00a0jules", "jules\u2003", "\u00a0"]);
   });
 });

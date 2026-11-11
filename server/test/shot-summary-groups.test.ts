@@ -29,7 +29,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // | left-decaf | bar Left | +2.4 g | 23.549 s | machineEnded | `Ann` | roux bakehouse · Guji | Londonium | decaf | Brazil | EK43 | 20 g |
 // | left-none | bar Left | −6 g | 4.095 s | targetWeight | none | none | Default | none: it names House, which was not loaded then | none | none | none |
 // | left-cleaning | bar Left | a cleaning Shot | | | three spaces | Roux Bakehouse · Guji | Clean | none | none | none | none |
-// | right-house-1 | Bar Right | −0.1 g | 23.549 s | targetWeight | ` JULES` | Roux Bakehouse · Guji | Londonium | House, Lab | Guji, 10 Feb | EK43 | 18 g |
+// | right-house-1 | Bar Right | −0.1 g | 23.549 s | targetWeight | a tab, then `JULES` | Roux Bakehouse · Guji | Londonium | House, Lab | Guji, 10 Feb | EK43 | 18 g |
 // | right-house-2 | Bar Right | +0.5 g | 23.549 s | targetWeight | `Ann` | Roux Bakehouse · Guji | Londonium | House, Lab | Guji, 10 Feb | EK43 | 18 g |
 // | right-decaf | Bar Right | −1.3 g | 25.833 s | none recorded | `ann` | Roux Bakehouse, no name | Adaptive v3 | decaf | Brazil | none | 20 g |
 // | harbor-house-1 | Harbor 1 | −0.1 g | 23.549 s | targetWeight | `Jules` | Roux Bakehouse · Guji | Londonium | House, Harbor | Guji, 20 Feb | ek43 | 18 g |
@@ -219,7 +219,7 @@ describe("Shot Summaries by group", () => {
       shotOf("pending", "2026-03-04T12:00:00Z", UNKNOWN_SERIAL, { barista: "JULES", bean: "Guji" }),
     ]);
     stored(right, RIGHT_SERIAL, [
-      shotOf("right-house-1", "2026-03-02T15:30:00Z", RIGHT_SERIAL, { barista: " JULES", bean: "Guji" }),
+      shotOf("right-house-1", "2026-03-02T15:30:00Z", RIGHT_SERIAL, { barista: "\tJULES", bean: "Guji" }),
       shotOf("right-house-2", "2026-03-02T16:30:00Z", RIGHT_SERIAL, { barista: "Ann", bean: "Guji", actualYield: 36.5 }),
       // Its Bean has a roaster and no name, and it recorded no stop reason.
       shotOf("right-decaf", "2026-03-03T15:00:00Z", RIGHT_SERIAL, { barista: "ann", bean: null, stopReason: null }, preheatShotFixture()),

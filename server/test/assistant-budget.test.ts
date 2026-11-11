@@ -971,11 +971,13 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         if (!result.more) break;
       }
       expect(baristas).toEqual(Array.from({ length: 60 }, (_, n) => String(n).padStart(2, "0")));
-      // Asked for one group at a time, it has the whole of each name, which find_shots' filters then take.
+      // Asked for one group at a time, it has the whole of each name. No filter takes a name this long: a text filter
+      // holds 500 characters, so find_shots finds such a group's Shots by a few of its words.
       const one = await assistant.callWithinBudget<Page & { groups: Group[] }>("summarise_shots", { ...args, limit: 1 });
       expect(one.result).not.toHaveProperty("cut");
       // A Barista's name is given without the blanks around it.
       expect(one.result.groups[0]!.by).toEqual({ bean: { roaster: `00 ${hostile(3_000)}`, name: `00 ${hostile(3_000)}` }, barista: `00 ${hostile(3_000)}`.trim() });
+      expect((await assistant.callWithinBudget<Page>("find_shots", { machineId: grouped.machine.id, barista: "00 Quote", limit: 1 })).result.total).toBe(1);
     });
 
     it("finds Beans whose names run long a page at a time, each name cut and marked", async () => {

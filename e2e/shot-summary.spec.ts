@@ -170,15 +170,23 @@ test("the grouping control turns the summary into a table of groups, each openin
   await expect(field(summary, "Duration")).toHaveText("24.7 s (24.1–25.3)");
   await expect(page.getByRole("table", { name: "Groups" })).toHaveCount(0);
 
-  // Back to the groups, and a group of Shots with none opens as the filter that finds them.
+  // Back to the groups. By Recipe alone, every Shot here is in one group, as none was pulled with a Recipe loaded:
+  // 23.549 s four times and 25.833 s twice, and −1.3, −1.3, −0.1, −0.1 and 2.5.
   await page.goBack();
   await expect(groups(page)).toHaveCount(expected.length);
+  await group(page, "Then by", "Nothing more");
+  await expect(groups(page)).toHaveCount(2);
   await group(page, "Group by", "Recipe");
-  await expect(cells(groups(page).nth(0)).first()).toHaveText("No Recipe loaded");
-  await groups(page).nth(0).getByRole("link").click();
+  await expect(page).toHaveURL(/[?&]groupBy=recipe(&|$)/);
+  await expect(groups(page)).toHaveCount(1);
+  await expect(cells(groups(page).nth(0))).toHaveText(["No Recipe loaded", "61 left out", "23.5 s (23.5–25.3)", "−0.1 g (−1.3 to −0.1)5 of 6 Shots", "80%5 of 6 Shots"]);
+  // A group of Shots with none opens as the filter that finds them.
+  await groups(page).nth(0).getByRole("link", { name: "6 Shots: No Recipe loaded", exact: true }).click();
   await expect(page).toHaveURL(/[?&]recipeId=none(&|$)/);
+  await expect(page).not.toHaveURL(/groupBy/);
   await expect(filters.getByRole("combobox", { name: "Recipe", exact: true })).toHaveText("Pulled with no Recipe loaded");
-  // No Shot here was pulled with a Recipe loaded.
+  // Its summary as one group, which shows only once this address's has loaded, and its Shots.
+  await expect(field(summary, "Stopped on weight")).toHaveText("80%5 of 6 Shots recorded what stopped them");
   await expect(rows(page)).toHaveCount(7);
 });
 

@@ -213,14 +213,14 @@ const textFilter = (which: string, more = "") =>
 
 /** The filters find_shots finds Shots by, which summarise_shots takes too. */
 const shotFilters = {
-  locationId: id.optional().describe("Shots pulled at this Location."),
+  locationId: id.optional().describe("Shots pulled at this Location; none for those at no Location."),
   machineId: id.optional().describe("Shots credited to this Machine."),
   beanId: id.optional().describe("Shots that used any Bean Batch of this Library Bean."),
-  beanBatchId: id.optional().describe("Shots that used this Library Bean Batch."),
+  beanBatchId: id.optional().describe("Shots that used this Library Bean Batch; none for those linked to none."),
   profileId: id.optional().describe("Shots pulled with this Library Profile."),
-  grinderId: id.optional().describe("Shots that used this Library Grinder."),
-  basketId: id.optional().describe("Shots that used this Library Basket."),
-  recipeId: id.optional().describe("Shots pulled with this Recipe loaded."),
+  grinderId: id.optional().describe("Shots that used this Library Grinder; none for those linked to none."),
+  basketId: id.optional().describe("Shots that used this Library Basket; none for those linked to none."),
+  recipeId: id.optional().describe("Shots pulled with this Recipe loaded; none for those pulled with none."),
   barista: textFilter(
     "Shots whose Barista, as each Shot records it,",
     " With match exact it is one Barista's name, still ignoring case and the spaces around it, and an empty or blank one finds Shots that recorded none or a blank name.",
@@ -316,7 +316,7 @@ const summariseShotsOutput = z.object({
 });
 
 /** What summarise_shots' groups are, for its description. */
-const SHOT_GROUPS = `groupBy takes up to ${MAX_GROUPINGS} of ${GROUPINGS.slice(0, -1).join(", ")} and ${GROUPINGS.at(-1)}, such as recipe then machine, to compare Machines on one Recipe; without it, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping: location, machine, recipe, beanBatch, grinder and basket by id and name, a recipe and a grinder with their Location; bean, the roaster and name the Shots recorded; profile, the title they recorded; and barista. An entry is null for the group of Shots with none. By machine, Shots waiting for an Admin to name the Machine that recorded them are a group of their own: machine null, and pendingMachine, that hardware's model and serial, which find_shots has no filter for. find_shots finds a group's Shots with the same filters and the group's: its id as locationId, machineId, recipeId, beanBatchId, grinderId or basketId, or, with match exact, its bean's roaster and name as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, with its group of none last, and limit and offset page them.`;
+const SHOT_GROUPS = `groupBy takes up to ${MAX_GROUPINGS} of ${GROUPINGS.slice(0, -1).join(", ")} and ${GROUPINGS.at(-1)}, such as recipe then machine, to compare Machines on one Recipe; without it, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping: location, machine, recipe, beanBatch, grinder and basket by id and name, a recipe and a grinder with their Location; bean, the roaster and name the Shots recorded; profile, the title they recorded; and barista. An entry is null for the group of Shots with none. By machine, Shots waiting for an Admin to name the Machine that recorded them are a group of their own: machine null, and pendingMachine, that hardware's model and serial, which find_shots has no filter for. find_shots finds a group's Shots with the same filters and the group's: its id as locationId, machineId, recipeId, beanBatchId, grinderId or basketId, each but machineId none for the group of none, or, with match exact, its bean's roaster and name as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, with its group of none last, and limit and offset page them.`;
 
 /** The lists list_shot_values gives, as `GET /api/shots/filters` gives them. */
 const SHOT_VALUE_KINDS = ["beans", "baristas", "profileTitles", "beanBatches", "grinders", "recipes", "baskets"] as const;
