@@ -944,8 +944,9 @@ or the Machine States, one list at a time, 20 to a page, loaded every 30 s.
 A trail entry shows what it is, each field that changed, from what to what,
 the Recipe loaded then and who made it, the Library items it names linked
 to their pages; the Workflow in effect is listed whole. A time is shown on
-the wall clock of the Location the Machine was at then, with its date where
-that isn't the day chosen (`web/src/lib/machine-activity.ts`).
+the wall clock of the Location the Machine was at then, with the zone's
+abbreviation, and with its date where that isn't the day chosen; a zone the
+browser doesn't know reads as UTC (`web/src/lib/machine-activity.ts`).
 
 ### A Machine's use
 

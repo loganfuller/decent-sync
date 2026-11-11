@@ -62,7 +62,8 @@ describe("a Machine's activity as its page shows it", () => {
 
   it("shows a time of the day chosen as its time there alone, to the second, with its zone, and one of another day with its date, whatever the browser's time zone", () => {
     // In whatever locale this runs, as web/test/machine-use.test.ts reads a day: an hour may be 8 or 08, 10 PM or 22.
-    for (const browser of ["UTC", "Australia/Sydney"]) {
+    // Sydney first: a format is kept once made, so one made with no zone under UTC would go on reading as UTC's.
+    for (const browser of ["Australia/Sydney", "UTC"]) {
       vi.stubEnv("TZ", browser);
       // The 10th at the Lab: a Shot at 08:00:10, and the sleep it began in, from 22:00 on the 9th.
       const shot = whenText("2026-02-10T15:00:10Z", "2026-02-10", history);
