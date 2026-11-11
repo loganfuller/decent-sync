@@ -117,6 +117,12 @@ Each server has one owner: a household, or a business with all of its sites.
 
 - **Live View.** Watch what a Machine is doing and measuring, and the curves of
   a shot or steaming as it runs.
+- **Use, by day and by hour.** Each Machine's page charts how many Shots,
+  Steam Records, flushes and hot water pours it made each day, for the last
+  14 days or any range of up to 31, or each hour of one day, with how long it
+  spent in each Machine State: idle, asleep, needing water and the rest. A
+  day is its Location's own. For now, a Machine whose tablet was off counts
+  as in its last state until the tablet is back.
 - **Remote settings.** While a Machine's tablet is connected, edit the
   Machine's settings, wake schedules included, and the tablet's Decaid
   settings. Each Settings Edit is listed with who made it and what came of it.
@@ -265,7 +271,8 @@ or to read and change. It then acts as you, within what your account may do. A
 Viewer's app can only read.
 
 An assistant can read Locations, Machines with their settings, then or now,
-and their activity, each dial-in change included, each Machine's scale,
+their activity, each dial-in change included, and how much each was used by
+day or by hour, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
 History, Shots with their curves and the profile steps they ran, a summary
 of the Shots any filter finds, Steam Records, and the Library with each

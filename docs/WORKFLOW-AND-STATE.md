@@ -842,6 +842,13 @@ that takes their hardware over. Staff read them as Admins do.
   `/workflow` gives one, and a state event
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
 
+- `GET /api/machines/:id/use?from=&to=&by=` returns `{ by, from, to, buckets }`,
+  how much the Machine was used in each day of a range, or with `by=hour` each
+  hour, oldest first: each bucket `{ date, hour, shots, steamRecords, flushes,
+  hotWaterPours, states }`, its `hour` only by hour, and `states` the time in
+  each of Decaid's states, `{ state, name, seconds }`, the longest first (A
+  Machine's use, below).
+
 ### Dial-in trail
 
 From [#436](https://github.com/loganfuller/decent-sync/issues/436),
@@ -889,6 +896,71 @@ is found once (`profileOfSql`), and each Workflow read in two passes, one
 for its Profile and one for its summary, each taking its parts at once
 (`jsonb_to_record`).
 
+### A Machine's use
+
+From [#475](https://github.com/loganfuller/decent-sync/issues/475), a
+Machine's use is how many Shots, Steam Records, flushes and hot water pours
+it made in each day of a range, or each hour, and how long it spent in each
+Machine State (`server/src/machine-events/machine-use.ts`,
+`MachineEventsService.use`). It is worked out as it is read, in one
+statement, and nothing is stored for it. The REST route above and the MCP
+tool `get_machine_use` give the same, the tool's `from` and `to` with the
+offset of the Location the Machine was at then.
+
+- **The range.** `from` and `to` are each a date, such as `2026-11-06`, or a
+  time with its offset, read as `get_machine_activity` reads a range's
+  bounds (`rangeBound` in `server/src/machines/machine-days.ts`): a date is
+  that day at the Location the Machine was at at noon UTC that day, through
+  its end for `to`. With no `to` the range runs until now; with no `from` it
+  starts with the day it ends in, by hour, or 13 days before that, by day, so
+  no bounds give the last 14 days. By day it is at most 31 days, and by hour
+  at most a day, 25 hours where the clocks go back; a longer one is refused
+  with 400, as is one that ends at or before its start. Nothing is counted
+  after now, by PostgreSQL's clock, and `to` says so: a range still to come
+  has no buckets.
+- **Whose day.** Each moment belongs to the date, and hour, its wall clock
+  read at the Location the Machine was at then, by its Location History, and
+  UTC's before its first Location (`useSpans`). A day the clocks change in
+  is one bucket, 23 or 25 hours long, and an hour they repeat is one bucket
+  two hours long. On a day the Machine moved between time zones each part
+  goes by where it was, so the day it left may be short and the one it
+  arrived in long; a move west can bring a date or an hour a second time,
+  and both parts are that one bucket. Every day or hour of the range is
+  given, those with nothing counted too.
+- **Shots and Steam Records** are those credited to the Machine, by when
+  each was pulled or recorded. Every Shot counts, cleaning and calibration
+  Shots included, unlike a Shot Summary; one whose record has not arrived
+  whole is not counted, as the Shots list doesn't list it.
+- **Flushes and hot water pours** are visits to Decaid's `flush` and
+  `hotWater`: a run of stored Machine State changes in that state, whatever
+  its substates, as a flush that heats up before it pours is two changes.
+  Each is counted in the day or hour it began in, so one that crosses
+  midnight is the day before's, and one under way as the range began is not
+  counted in it. Decaid records no weight or volume for either.
+- **The time in each state** is by Decaid's state, whatever its substate,
+  with the name the management interface gives it (`nameDecaidState` in
+  `protocol/src/machine-states.ts`): `espresso` is Pulling a shot, `sleeping`
+  Asleep, and all of `steam`, its purge included, Steaming. A state lasts
+  from when the plugin observed it, by the tablet's clock, until the next one
+  observed, cut at each day's or hour's edge and at now; the one in effect as
+  the range began is the latest observed before it. Nothing is counted
+  before a Machine's first Machine State, so a bucket's times may add up to
+  less than its length.
+- **A tablet that was off.** Nothing is reported while the machine isn't
+  connected to its tablet or Decaid isn't running, so the Machine counts as
+  in its last state until its tablet reports again: one put to sleep while
+  its tablet is off reads as idle, or whatever it did last. Monitoring's
+  connection history (milestone 8) will correct this; the tool's
+  description and the Machine page's Use card say so.
+
+The Machine page's Use card (`web/src/components/machine-use.tsx`) charts
+the four counts by day, for the last 14 days unless a first and last day are
+chosen, or by hour of a chosen day, with each count's total and the time in
+each Machine State over the days or hours shown, Decaid's states of one name
+together (`web/src/lib/machine-use.ts`). Pointing at a day or hour gives its
+counts and times, and Show the numbers gives them all as a table. It is
+loaded every 30 s.
+
 The Machines list shows each Machine's state and last Shot; the Machine page
 also shows its current Workflow, its fields as a Shot's page shows them, the
 brew temperature read from its profile's first step as Streamline's Brew tile
@@ -906,6 +978,12 @@ built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/dial-in-trail.test.ts` the dial-in trail's pure module, with
 the trail through `get_machine_activity` on simulated tablets in
 `server/test/assistant-machines.test.ts`,
+`server/test/machine-use.test.ts` a Machine's use through the REST API on
+simulated tablets, `server/test/machine-use-spans.test.ts` its days and
+hours, `server/test/assistant-machines.test.ts` and
+`server/test/assistant-budget.test.ts` it through `get_machine_use`,
+`web/test/machine-use.test.ts` how the Use card words it and
+`e2e/machine-use.spec.ts` the card,
 `server/test/durable-outbox.test.ts` the deliveries kept across unloads and
 their bound, and
 `e2e/workflow-and-state.spec.ts` and `e2e/loaded-recipes.spec.ts` the

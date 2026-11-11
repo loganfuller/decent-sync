@@ -6,12 +6,14 @@ import { takeInWorkflow } from "../library/joining.js";
 import { lockLocation } from "../library/location-state.js";
 import { type Credit, creditFirstDelivery } from "../machines/credit.js";
 import { machineNotFound } from "../machines/input.js";
+import { databaseNow } from "../machines/location-history.js";
 import type { MachineStateView } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { profileOfSql } from "../shots/links.js";
 import type { Reporter } from "../sync/identity.js";
 import { type ChangeCause, type RecipeEvent, type TrailChange, type TrailEntry, type TrailRecipe, dialInTrail } from "./dial-in-trail.js";
 import { type LoadedRecipeView, everyLoadedRecipeDuring, loadedRecipeHistory, loadedRecipesDuring, takeInLoadedRecipe } from "./loaded-recipes.js";
+import { type MachineUse, type UseRequest, readMachineUse, useRange } from "./machine-use.js";
 import { WORKFLOW_LINK_COLUMNS, resolvedLinksSql } from "./workflow-links.js";
 import { type WorkflowLinks, type WorkflowSummary, workflowLinksSql, workflowSummary } from "./workflow-summary.js";
 
@@ -229,6 +231,27 @@ export class MachineEventsService {
       kinds.includes("machineStates") ? this.machineStateEventsDuring(machineId, bounds, page) : undefined,
     ]);
     return { workflowChanges, loadedRecipes, machineStates };
+  }
+
+  /**
+   * How much the Machine was used over a range, by day or by hour
+   * (machine-use.ts): its Shots, Steam Records, flushes and hot water pours,
+   * and its time in each Machine State, in each day or hour of the Location
+   * it was at then, by its Location History. Nothing is counted after now,
+   * by PostgreSQL's clock, where the range's last Machine State is cut.
+   */
+  async use(machineId: string, request: UseRequest): Promise<MachineUse> {
+    const [machine, now] = await Promise.all([
+      this.prisma.machine.findUnique({
+        where: { id: machineId },
+        select: { locationHistory: { orderBy: { effectiveFrom: "asc" }, select: { effectiveFrom: true, location: { select: { timeZone: true } } } } },
+      }),
+      databaseNow(this.prisma),
+    ]);
+    if (!machine) throw machineNotFound();
+    const stays = machine.locationHistory.map((entry) => ({ from: entry.effectiveFrom.getTime(), timeZone: entry.location.timeZone }));
+    const range = useRange(request, stays, now.getTime());
+    return readMachineUse(this.prisma, machineId, { from: range.from, to: Math.min(range.to, now.getTime()) }, request.by, stays);
   }
 
   /**
