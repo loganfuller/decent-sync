@@ -55,6 +55,10 @@ _Avoid_: Status (a machine's status is whether it is online), mode, purge (for a
 The management interface's real-time picture of what one machine is doing and measuring, shown while someone has its page open. Nothing in it is kept.
 _Avoid_: Live mode, dashboard, monitor
 
+**Machine Activity**:
+What happened on a machine over a period and how much it was used: its workflow changes, loaded recipes and machine states, with how many shots, steam records, flushes and hot water pours it made and how long it spent in each machine state.
+_Avoid_: Machine history, machine log, usage report
+
 **Connection Id**:
 The id Decaid uses to reach a machine: a Bluetooth address or a USB id. The server remembers a machine's connection ids as aliases, but they are not its identity.
 _Avoid_: Machine id, MAC (when a USB id is possible)
@@ -65,6 +69,10 @@ _Avoid_: Site, store, shop, venue
 
 **Location History**:
 The record of which location a machine was at from which time. It decides the location each shot and steam record is credited to, and correcting it re-credits them.
+
+**Overview**:
+The management interface's picture of each location over a day or a few: whether its machines are up, which recipes it is pulling, and how their shots are landing on each machine.
+_Avoid_: Dashboard, home, report
 
 **Equipment**:
 Gear used alongside a machine that can be shared between machines without changing what the machine is: grinders, baskets and tools. A grinder belongs to one location; baskets and tools are in the library, and each location shows or hides them.
@@ -152,6 +160,18 @@ _Avoid_: Pull, brew, extraction (as a noun for the record)
 **Preheat**:
 The part of a Shot's recording before its profile starts, while the Machine heats its water. Preheat is shown with the Shot but isn't counted in its duration or peaks.
 _Avoid_: Warmup, heater test
+
+**Reference Shot**:
+The one shot chosen for a recipe to show how its shots should go, as a roaster chooses a reference roast for a roast profile: the recipe's other shots are compared with it. A recipe has at most one, and it can be any shot, pulled on any machine at any location, with the recipe's profile or another. It stays until someone chooses another or clears it, so changing the recipe's grind, yield, bean batch or profile leaves it in place. A copy of a recipe starts with the same one.
+_Avoid_: Golden shot, best shot, baseline, target shot (a shot's targets are its profile's)
+
+**Unfinished Shot**:
+A shot whose machine never reached pouring: one stopped in its Preheat or its preinfusion. A shot summary counts unfinished shots apart and leaves them out of its numbers.
+_Avoid_: Aborted shot, failed shot, sink shot
+
+**Shot Summary**:
+What a set of shots have in common, by group: how many there are; for each number a shot has, such as its duration or its yield against its target, their median and the range the middle half of them fall in; and for what a shot either did or didn't, such as stopping on weight, the share that did. Grouped by machine it compares machines, and grouped by day it shows a trend.
+_Avoid_: Statistics, report, dial-in health, analytics (for one result)
 
 **Steam Record**:
 One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached. Its recording also holds the steam starting up, the pauses after each stop, the puffs that keep the wand clear and the purge, which are shown with it but aren't counted in its duration: that counts only the steaming.
