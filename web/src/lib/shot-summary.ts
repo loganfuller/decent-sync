@@ -1,4 +1,4 @@
-import type { SummaryNumber, SummaryNumbers } from "@/lib/api";
+import type { SummaryGroup, SummaryNumber, SummaryNumbers } from "@/lib/api";
 
 // How a Shot Summary's numbers read (#466, #469): each as its median, with
 // the range the middle half of its Shots fall in beside it, such as
@@ -133,6 +133,20 @@ export function signedText(value: number): string {
 /** A share, from 0 to 1, as a whole percentage: none where no Shot either did or didn't. */
 export function shareText(share: number | null): string | undefined {
   return share === null ? undefined : `${Math.round(share * 100)}%`;
+}
+
+/**
+ * What a summary's Shots count notes under it, each where there are any:
+ * the Unfinished Shots and the cleaning and calibration Shots left out of
+ * its numbers, and those of its Shots whose stored values, the first drip
+ * and last step, the server is still working out.
+ */
+export function countNotes({ unfinished, cleaningAndCalibration, awaitingValues }: SummaryGroup["counts"]): string[] {
+  return [
+    ...(unfinished > 0 ? [`${unfinished} Unfinished ${unfinished === 1 ? "Shot" : "Shots"} left out`] : []),
+    ...(cleaningAndCalibration > 0 ? [`${cleaningAndCalibration} cleaning ${cleaningAndCalibration === 1 ? "or calibration Shot" : "and calibration Shots"} left out`] : []),
+    ...(awaitingValues > 0 ? [`${awaitingValues} still ${awaitingValues === 1 ? "awaits its" : "await their"} first drip and last step`] : []),
+  ];
 }
 
 /** A count of Shots, as "1 Shot" or "12 Shots". */

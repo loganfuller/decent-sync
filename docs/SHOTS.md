@@ -555,7 +555,11 @@ apart. Buckets are a later ticket's.
   still in the steps it counts as preinfusion never reports pouring, though
   it ran whole (`poured`, above), as a fast Shot stopped on weight in a
   long preinfusion step does. A Shot with no scale is unfinished where it
-  never reported pouring. A
+  never reported pouring. The scale's reading is as `time_to_first_drip`
+  takes it (above), so a Shot whose cup was put on the scale during its
+  Preheat, read before Decaid's tare landed, or any Shot with a cup on the
+  scale in full gateway mode, which never tares, counts as poured though
+  nothing poured. A
   cleaning or calibration Shot that never poured is counted as cleaning or
   calibration.
   - `counts` gives four counts, read in one statement: `shots`, how many
@@ -750,8 +754,16 @@ apart. Buckets are a later ticket's.
   from columns alone (ratio, peaks, rating and time to first drip); 144 ms
   with the steps they ended in alone; 513 ms with the three read from the
   record (grind setting, TDS and extraction yield), each read about 100 ms
-  of 50,000; and 747 ms with every number, the same grouped by Machine, and
-  386 ms for 24,000 of them. No field becomes a column for it (#465).
+  of 50,000; and 747 ms with every number, and 386 ms for 24,000 of them.
+  Grouped, on the same Shots spread over 400 Baristas and seven profile
+  titles, a page of 100 groups: 187 ms with the steps alone by Barista, 202
+  ms by Barista and profile (2,800 groups), and 791 ms with every number by
+  Barista. The steps are counted for every group at once and joined to
+  the page's groups by their keys as one value (`jsonb_build_array`), which
+  is hashed: joined on each key instead (`IS NOT DISTINCT FROM`, which
+  can't be), PostgreSQL read every Shot again for each group on the page,
+  and the steps by Barista took 357 ms. No field becomes a column for it
+  (#465).
 - **Access.** Staff and Viewers read it, as they read Shots, at every
   Location.
 

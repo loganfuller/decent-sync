@@ -166,7 +166,7 @@ The one shot chosen for a recipe to show how its shots should go, as a roaster c
 _Avoid_: Golden shot, best shot, baseline, target shot (a shot's targets are its profile's)
 
 **Unfinished Shot**:
-A shot in which nothing poured: its machine never reached pouring and its scale never read a gram, so it was stopped in its Preheat or early in its preinfusion. A shot that reached its yield while its profile was still in the steps it counts as preinfusion poured, though its machine never reported pouring. A shot summary counts unfinished shots apart and leaves them out of its numbers.
+A shot in which nothing poured, as its machine and scale show it: its machine never reached pouring and its scale never read a gram, so it was stopped in its Preheat or early in its preinfusion. A shot that reached its yield while its profile was still in the steps it counts as preinfusion poured, though its machine never reported pouring. A shot summary counts unfinished shots apart and leaves them out of its numbers.
 _Avoid_: Aborted shot, failed shot, sink shot
 
 **Shot Summary**:

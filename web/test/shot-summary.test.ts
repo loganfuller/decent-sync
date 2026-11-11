@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DEFAULT_NUMBERS, MEDIAN_TEXT, baristaKey, durationText, numbersParam, ratioText, settingText, shareText, shotsText, shownNumbers, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
+import { DEFAULT_NUMBERS, MEDIAN_TEXT, baristaKey, countNotes, durationText, numbersParam, ratioText, settingText, shareText, shotsText, shownNumbers, signedText, yieldAgainstTargetText } from "../src/lib/shot-summary";
 
 // How a Shot Summary's numbers read on the Shots list (#466, #469), which of
 // them its address keeps, and who a Barista's name names, for the Barista
@@ -48,6 +48,22 @@ describe("a Shot Summary's numbers as text", () => {
 
   it("reads a grind setting as Grinders' scales are written, without trailing zeros", () => {
     expect([2, 6.5, 8.8, 12, 9.125, 1.999].map(settingText)).toEqual(["2", "6.5", "8.8", "12", "9.13", "2"]);
+  });
+});
+
+describe("the notes under a summary's count", () => {
+  it("say how many Shots were left out and how many await their stored values, each where there are any", () => {
+    expect(countNotes({ shots: 12, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 })).toEqual([]);
+    expect(countNotes({ shots: 12, unfinished: 1, cleaningAndCalibration: 1, awaitingValues: 1 })).toEqual([
+      "1 Unfinished Shot left out",
+      "1 cleaning or calibration Shot left out",
+      "1 still awaits its first drip and last step",
+    ]);
+    expect(countNotes({ shots: 12, unfinished: 3, cleaningAndCalibration: 2, awaitingValues: 9 })).toEqual([
+      "3 Unfinished Shots left out",
+      "2 cleaning and calibration Shots left out",
+      "9 still await their first drip and last step",
+    ]);
   });
 });
 

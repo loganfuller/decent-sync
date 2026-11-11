@@ -197,7 +197,11 @@ const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' -
  * profile is still in the steps it counts as preinfusion, as a fast one
  * stopped on weight in a long preinfusion step, never reports pouring,
  * though it ran whole. A Shot with no scale is unfinished where it never
- * reported pouring. A Shot whose stored values aren't worked out yet
+ * reported pouring. The scale's reading is the Shot's as `time_to_first_drip`
+ * takes it, so a cup put on the scale during Preheat, read before Decaid's
+ * tare lands, or a cup on a scale in full gateway mode, which is never
+ * tared, reads as a first drip, and such a Shot counts as poured though
+ * nothing poured. A Shot whose stored values aren't worked out yet
  * (`AWAITING`) counts as poured.
  */
 const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
@@ -578,9 +582,11 @@ export async function summarise(
   // A Shot's numbers cover it unless it is left out as cleaning or calibration, or is unfinished.
   const covered = Prisma.sql`NOT shot.left_out AND NOT shot.unfinished`;
   const ofShot = (name: Prisma.Sql) => Prisma.sql`shot.${name}`;
-  // The steps the Shots ended in, by group, and of each group on the page, those most of them did.
+  // The steps the Shots ended in: counted for every group at once, those most of them did kept, and joined to the groups
+  // on the page by the group's keys as one value, so a group's are found by hash rather than by reading every Shot again
+  // for each group, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed).
   const steps = asked.some(([name]) => name === "lastStep");
-  const sameGroup = joined(keyNames.map((name) => Prisma.sql`ended.${name} IS NOT DISTINCT FROM page.${name}`), " AND ");
+  const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames.map(ofShot), ", ")})`;
   const rows = await db.$queryRaw<Record<string, unknown>[]>`
     WITH ${joined(named, " ")} shot AS MATERIALIZED (
       SELECT ${Prisma.join(
@@ -604,6 +610,7 @@ export async function summarise(
           Prisma.sql`count(*) FILTER (WHERE shot.left_out)::int AS "leftOut"`,
           Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot.awaiting)::int AS awaiting`,
           ...asked.flatMap(([, number]) => number.aggregates(covered)),
+          ...(steps ? [Prisma.sql`${groupKey} AS group_key`] : []),
         ],
         ", ",
       )}
@@ -612,9 +619,14 @@ export async function summarise(
     ${
       steps
         ? Prisma.sql`ended AS (
-      SELECT ${Prisma.join([...keyNames.map(ofShot), Prisma.sql`shot."stepFrame" AS frame`, Prisma.sql`shot."stepName" AS name`, Prisma.sql`count(*)::int AS shots`], ", ")}
+      SELECT ${groupKey} AS group_key, shot."stepFrame" AS frame, shot."stepName" AS name, count(*)::int AS shots,
+        row_number() OVER (PARTITION BY ${groupKey} ORDER BY count(*) DESC, shot."stepFrame", shot."stepName") AS rank
       FROM shot WHERE ${covered} AND shot."stepFrame" IS NOT NULL
-      GROUP BY ${Prisma.join([...keyNames.map(ofShot), Prisma.sql`shot."stepFrame"`, Prisma.sql`shot."stepName"`], ", ")}
+      GROUP BY 1, 2, 3
+    ),
+    steps AS (
+      SELECT ended.group_key, json_agg(json_build_object('frame', ended.frame, 'name', ended.name, 'shots', ended.shots) ORDER BY ended.rank) AS "lastSteps"
+      FROM ended WHERE ended.rank <= ${LAST_STEPS} GROUP BY ended.group_key
     ),`
         : Prisma.empty
     }
@@ -625,17 +637,7 @@ export async function summarise(
     )
     SELECT (SELECT count(*)::int FROM grouped) AS total, page.*${steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
     FROM (SELECT 1) AS whole LEFT JOIN page ON TRUE
-    ${
-      steps
-        ? Prisma.sql`LEFT JOIN LATERAL (
-      SELECT json_agg(json_build_object('frame', top.frame, 'name', top.name, 'shots', top.shots) ORDER BY top.shots DESC, top.frame, top.name) AS "lastSteps"
-      FROM (
-        SELECT ended.frame, ended.name, ended.shots FROM ended WHERE page.position IS NOT NULL ${keyNames.length > 0 ? Prisma.sql`AND ${sameGroup}` : Prisma.empty}
-        ORDER BY ended.shots DESC, ended.frame, ended.name LIMIT ${LAST_STEPS}
-      ) AS top
-    ) AS steps ON TRUE`
-        : Prisma.empty
-    }
+    ${steps ? Prisma.sql`LEFT JOIN steps ON steps.group_key = page.group_key` : Prisma.empty}
     ORDER BY page.position`;
   return {
     groups: rows.flatMap((row) => {

@@ -6,7 +6,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type LastSteps, api, type ShotSummary, type SummaryGroup } from "@/lib/api";
-import { MEDIAN_TEXT, type MedianText, NUMBERS, NUMBER_NAMES, type NumberName, settingText, shareText, shotsText } from "@/lib/shot-summary";
+import { MEDIAN_TEXT, type MedianText, NUMBERS, NUMBER_NAMES, type NumberName, countNotes, settingText, shareText, shotsText } from "@/lib/shot-summary";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 /** What each number shown as a median rests on, for the note under it where some Shots had no value: "12 of 40 Shots …". */
@@ -113,15 +113,6 @@ function NumbersChoice({ numbers, onNumbers }: { numbers: NumberName[]; onNumber
       </DropdownMenuContent>
     </DropdownMenu>
   );
-}
-
-/** What the Shots count notes: the Shots left out of its numbers, and those whose stored numbers are still being worked out. */
-function countNotes({ unfinished, cleaningAndCalibration, awaitingValues }: SummaryGroup["counts"]): string[] {
-  return [
-    ...(unfinished > 0 ? [`${unfinished} Unfinished ${unfinished === 1 ? "Shot" : "Shots"} left out`] : []),
-    ...(cleaningAndCalibration > 0 ? [`${cleaningAndCalibration} cleaning ${cleaningAndCalibration === 1 ? "or calibration Shot" : "and calibration Shots"} left out`] : []),
-    ...(awaitingValues > 0 ? [`${awaitingValues} still ${awaitingValues === 1 ? "awaits its" : "await their"} first drip and last step`] : []),
-  ];
 }
 
 /** One of the numbers chosen, as `group` gives it: a dash until it does. */
