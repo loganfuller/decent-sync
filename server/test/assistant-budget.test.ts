@@ -242,6 +242,17 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.shots[0]).toMatchObject({ location: { id: lab.id }, beanBatch: { id: expect.any(String) }, grinder: { id: expect.any(String) }, basket: { id: expect.any(String) } });
     });
 
+    it("summarises the morning's Shots in a few hundred characters, as the REST API does", async () => {
+      const { result, text } = await assistant.callWithinBudget<Fields>("summarise_shots", { machineId: bar.machine.id });
+      expect(result).toEqual(asTools(await api.get<Fields>(`/shots/summary?machineId=${bar.machine.id}`)));
+      // Each derived from the real Shot, 0.1 g under its target and stopped on weight.
+      expect(result).toMatchObject({
+        groups: [{ counts: { shots: 60, cleaningAndCalibration: 0 }, numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedOnWeight: { shots: 60, share: 1 } } }],
+      });
+      // One group's counts and numbers, whatever the number of Shots, where 50 of them listed are about 40,000.
+      expect(text.length).toBeLessThan(500);
+    });
+
     it("reads a Shot with its steps, last recorded weight and curves, all of them, a list, or within its widest window", async () => {
       const fixture = preheatShotFixture();
       const notes = { annotations: { espressoNotes: "Sweet, a little sharp at the end; try a finer grind." } };
@@ -619,6 +630,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       }
       const { ids } = await everyPage("find_shots", "shots", { machineId: haunted.machine.id });
       expect(ids).toEqual(await restIds("/shots", "shots", { machineId: haunted.machine.id }));
+    });
+
+    it("summarises Shots whose names run far longer than any typed in as few characters, as it gives none of their text", async () => {
+      const { result, text } = await assistant.callWithinBudget<Fields>("summarise_shots", { machineId: haunted.machine.id });
+      expect(result).toEqual(asTools(await api.get<Fields>(`/shots/summary?machineId=${haunted.machine.id}`)));
+      expect(result).toMatchObject({ groups: [{ counts: { shots: 55, cleaningAndCalibration: 0 } }] });
+      expect(result).not.toHaveProperty("cut");
+      expect(text.length).toBeLessThan(500);
     });
 
     it("lists what Shots recorded whose names run far longer than any typed, each cut and marked, a page of each list at a time", async () => {

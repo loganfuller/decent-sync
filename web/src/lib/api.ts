@@ -486,7 +486,7 @@ export interface TabletVersions {
 }
 
 /** A Shot as the Shots list shows it: what it recorded and how it was credited, without its record or curves. */
-export interface ShotSummary {
+export interface ListedShot {
   id: string;
   /** When it was pulled; null when its record does not say. */
   pulledAt: string | null;
@@ -564,17 +564,48 @@ export interface NamedLink {
 
 /** One page of a Shots list, and how many Shots the whole list has. */
 export interface ShotPage {
-  shots: ShotSummary[];
+  shots: ListedShot[];
   total: number;
   limit: number;
   offset: number;
 }
 
 /** A Shot with its Decaid record, without measurements, as stored. */
-export interface Shot extends ShotSummary {
+export interface Shot extends ListedShot {
   record: Record<string, unknown>;
   /** The Shot pulled just before it on the same Machine, or held by the same Pending Machine. */
   previousShot: { id: string; pulledAt: string } | null;
+}
+
+/** A number of a Shot Summary: its median with the 25th and 75th percentiles, and how many Shots had a value; each null where none had. */
+export interface SummaryNumber {
+  shots: number;
+  median: number | null;
+  p25: number | null;
+  p75: number | null;
+}
+
+/** What a set of Shots have in common: a Shot Summary's group. */
+export interface SummaryGroup {
+  counts: {
+    /** The Shots its numbers cover. */
+    shots: number;
+    /** The cleaning and calibration Shots left out of them. With `shots`, the list's total for the same filters. */
+    cleaningAndCalibration: number;
+  };
+  numbers: {
+    /** Yield weighed less target yield, in grams. */
+    yieldAgainstTarget: SummaryNumber;
+    /** In seconds, without the Preheat, as the list shows it. */
+    duration: SummaryNumber;
+    /** Of the Shots that recorded a stop reason, how many there are, and the part Decaid stopped at the target weight, from 0 to 1. */
+    stoppedOnWeight: { shots: number; share: number | null };
+  };
+}
+
+/** The Shot Summary of the Shots a list's filters find, as one group. */
+export interface ShotSummary {
+  groups: SummaryGroup[];
 }
 
 /** What the listed Shots recorded, for choosing filters. Null stands for Shots that recorded none. */

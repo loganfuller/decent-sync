@@ -9,6 +9,7 @@ import type { Reporter } from "../sync/identity.js";
 import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
+import { type ShotSummary, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
@@ -141,6 +142,11 @@ export class ShotsService {
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
     return { shots: page.map(shownShot), total, limit, offset };
+  }
+
+  /** The Shot Summary of the Shots `list` lists for the same filters (summary.ts). */
+  summary(filters: ShotFilters = {}): Promise<ShotSummary> {
+    return summarise(this.prisma, Prisma.sql`FROM shots s ${listedJoins} WHERE ${listed} AND ${shotFilterSql(filters)}`);
   }
 
   /**

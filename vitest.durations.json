@@ -119,6 +119,7 @@
   "server/test/shot-links.test.ts": 13,
   "server/test/shot-lists.test.ts": 4,
   "server/test/shot-recipe-links.test.ts": 33,
+  "server/test/shot-summary.test.ts": 8,
   "server/test/shots.test.ts": 36,
   "server/test/sign-in-limits.test.ts": 17,
   "server/test/simulated-batch-writes.test.ts": 0,
@@ -149,6 +150,7 @@
   "web/test/curves.test.ts": 0,
   "web/test/live-curves.test.ts": 0,
   "web/test/live-view.test.ts": 0,
+  "web/test/shot-summary.test.ts": 0,
   "web/test/tablet-time.test.ts": 0,
   "web/test/wake-windows.test.ts": 0,
   "web/test/workflow.test.ts": 0

@@ -123,6 +123,7 @@ const STAFF = [
   "GET /api/pending-machines/:id",
   "GET /api/shots",
   "GET /api/shots/filters",
+  "GET /api/shots/summary",
   "GET /api/shots/:id",
   "GET /api/shots/:id/measurements",
   "GET /api/steam-records",
