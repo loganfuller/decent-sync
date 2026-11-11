@@ -24,7 +24,8 @@ export const BUILDS = {
     outputs: ["decent-sync.reaplugin/plugin.js", "decent-sync.reaplugin/manifest.json"],
     sources: ["plugin/src", "plugin/manifest.json", "plugin/build.mjs", "protocol/src", "package.json"],
   },
-  web: { outputs: ["web/dist"], sources: ["web/src", "web/index.html", "web/vite.config.ts", "web/tsconfig.app.json", "tsconfig.base.json"] },
+  // The management interface bundles the protocol's TypeScript source, as the plugin does (web/vite.config.ts).
+  web: { outputs: ["web/dist"], sources: ["web/src", "web/index.html", "web/vite.config.ts", "web/tsconfig.app.json", "protocol/src", "tsconfig.base.json"] },
   server: {
     outputs: ["server/dist"],
     sources: ["server/src", "server/prisma/schema.prisma", "server/tsconfig.json", "server/tsconfig.build.json", "server/nest-cli.json", "tsconfig.base.json"],

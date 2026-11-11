@@ -39,14 +39,15 @@ describe("staleBuilds", () => {
     expect(staleBuilds(root)).toEqual([]);
   });
 
-  it("names the protocol and the plugin, which is built from its sources too, after a protocol source changes", () => {
+  it("names the protocol, and the plugin and the management interface, which bundle its sources, after a protocol source changes", () => {
     write("protocol/src/messages.ts", new Date("2026-10-26T10:10:00Z"));
     const stale = staleBuilds(root);
     expect(stale).toEqual([
       { build: "protocol", reason: "protocol/src/messages.ts changed after protocol/dist/index.js was built" },
       { build: "plugin", reason: "protocol/src/messages.ts changed after decent-sync.reaplugin/plugin.js was built" },
+      { build: "web", reason: "protocol/src/messages.ts changed after web/dist/index.js was built" },
     ]);
-    expect(rebuildCommand(stale.map(({ build }) => build))).toBe("npm run build -w protocol && npm run build -w plugin");
+    expect(rebuildCommand(stale.map(({ build }) => build))).toBe("npm run build -w protocol && npm run build -w plugin && npm run build -w web");
   });
 
   it("lists every stale build in the root build script's order, with why", () => {
