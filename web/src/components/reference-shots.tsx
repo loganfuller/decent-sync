@@ -1,6 +1,6 @@
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
-import { useMayChange } from "@/auth";
+import { useIsAdmin, useStaffLocationIds } from "@/auth";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
@@ -102,7 +102,7 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
               <Alert role="status" aria-label="Another Profile">
                 <AlertDescription>
                   It was pulled on {shot.profile?.title ?? shot.profileTitle ?? "a Profile the Library doesn't have"}, not the Recipe's Profile,{" "}
-                  {recipe.uses.profile?.title ?? "untitled"}, so its curves describe another program.
+                  {recipe.uses.profile ? (recipe.uses.profile.title ?? "untitled") : "a Profile the Library doesn't have"}, so its curves describe another program.
                 </AlertDescription>
               </Alert>
             )}
@@ -213,7 +213,10 @@ function useChoices(shot: Shot, load: boolean): { choices: Choice[] | undefined;
  * this replaces any it has.
  */
 export function ReferenceShotControl({ shot, onChanged }: { shot: Shot; onChanged(): void }) {
-  const mayChange = useMayChange();
+  // An Admin changes Recipes anywhere, and Staff at the Locations they work at, if any.
+  const isAdmin = useIsAdmin();
+  const staffLocations = useStaffLocationIds();
+  const mayChange = isAdmin || staffLocations.size > 0;
   const references = shot.referenceOf ?? [];
   if (references.length === 0 && !mayChange) return null;
   return (

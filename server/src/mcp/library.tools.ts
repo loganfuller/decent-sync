@@ -46,7 +46,7 @@ const RECORD_FIELDS = "Decaid's record fields, as the tablet that created it sen
 
 /** Each time's offset, which every tool's description states. */
 export const TIMES =
-  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to. Others, such as a Bean's content edits, are in UTC.";
+  "Times are ISO 8601 with a Location's offset: an item's createdAt with that of the Location it joined the Library at; a time of its state at a Location, such as a Bean Batch added there, and each edit and Conflict of that state, with that Location's; and a Grinder's or Recipe's other times, edits and Conflicts with that of the Location it belongs to, but a Recipe's Reference Shot's pulledAt, with that of the Location it was pulled at. Others, such as a Bean's content edits, are in UTC.";
 
 /** What the Library's items hold, for the descriptions of the tools that read or change them. */
 export const ITEMS =

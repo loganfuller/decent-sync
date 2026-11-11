@@ -60,9 +60,13 @@ function ShotDetails({ id }: { id: string }) {
   const [previous, setPrevious] = useState<ShotData>();
   const [previousError, setPreviousError] = useState<string>();
   const compareId = useId();
-  // Making it a Reference Shot changes what it says of that, so it is loaded again.
-  const [changes, setChanges] = useState(0);
-  const changed = useCallback(() => setChanges((count) => count + 1), []);
+  // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
+  const changed = useCallback(() => {
+    api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`).then(
+      ({ shot }) => setData((loaded) => loaded && { ...loaded, shot }),
+      (caught: unknown) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
+    );
+  }, [id]);
 
   useEffect(() => {
     let current = true;
@@ -77,7 +81,7 @@ function ShotDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-  }, [id, changes]);
+  }, [id]);
 
   const previousId = data?.shot.previousShot?.id;
   const compare = useCallback(
