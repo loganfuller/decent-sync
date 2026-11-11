@@ -2,7 +2,7 @@ import { expect, type Page, test } from "@playwright/test";
 import { dye2GlobalIdOf } from "@decent-sync/protocol";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../server/test/support/simulated-dye2.js";
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
-import { chooseDate } from "./support/calendar.js";
+import { chooseDate, farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { openCard, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
@@ -20,9 +20,7 @@ import { expectTip } from "./support/tooltips.js";
 // runs. Hardware ids are made up.
 //
 // The days are counted back from today, so the Lab is where no day begins
-// while this runs, as e2e/machine-use.spec.ts has it: in Phoenix, 7 hours
-// behind UTC all year, or, within three hours of midnight there, in Bangkok,
-// 7 hours ahead all year.
+// while this runs (`farFromMidnight`).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 type Record_ = Record<string, unknown>;
@@ -33,9 +31,8 @@ const HOUR = 3_600_000;
 /** The recording's tablet's record id of the Brazil's recipe, in Recipe Slot 2, whose grind is 3. */
 const BRAZIL = "2";
 
-/** The Lab's time zone, how many hours it is ahead of UTC, and how a time there names it. Midnight in Phoenix is 07:00 UTC, and in Bangkok 17:00. */
-const [ZONE, AHEAD, ZONE_NAME] =
-  new Date().getUTCHours() >= 4 && new Date().getUTCHours() < 10 ? (["Asia/Bangkok", 7, "GMT+7"] as const) : (["America/Phoenix", -7, "MST"] as const);
+/** The Lab's time zone, how many hours it is ahead of UTC, and how a time there names it. */
+const { zone: ZONE, ahead: AHEAD, zoneName: ZONE_NAME } = farFromMidnight();
 
 /** Today at the Lab, as a UTC date holding its wall clock's parts. */
 const TODAY = new Date(Date.now() + AHEAD * HOUR);

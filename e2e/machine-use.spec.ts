@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
-import { chooseDate } from "./support/calendar.js";
+import { chooseDate, farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -17,16 +17,14 @@ import { expectTip } from "./support/tooltips.js";
 // change's time. Hardware ids are made up.
 //
 // The days are counted back from today, so the Lab is where no day begins
-// while this runs and every day is 24 hours: in Phoenix, 7 hours behind UTC
-// all year, or, within three hours of midnight there, in Bangkok, 7 hours
-// ahead all year.
+// while this runs and every day is 24 hours (`farFromMidnight`).
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const HARDWARE = { model: "DE1Pro", serial: "10061" };
 const HOUR = 3_600_000;
 
-/** The Lab's time zone, and how many hours it is ahead of UTC. Midnight in Phoenix is 07:00 UTC, and in Bangkok 17:00. */
-const [ZONE, AHEAD] = new Date().getUTCHours() >= 4 && new Date().getUTCHours() < 10 ? (["Asia/Bangkok", 7] as const) : (["America/Phoenix", -7] as const);
+/** The Lab's time zone, and how many hours it is ahead of UTC. */
+const { zone: ZONE, ahead: AHEAD } = farFromMidnight();
 
 /** Today at the Lab, as a UTC date holding its wall clock's parts. */
 const TODAY = new Date(Date.now() + AHEAD * HOUR);

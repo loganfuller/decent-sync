@@ -1026,9 +1026,9 @@ also shows its current Workflow, its fields as a Shot's page shows them, the
 brew temperature read from its profile's first step as Streamline's Brew tile
 reads it (`web/src/components/workflow.tsx`, tested in
 `web/test/workflow.test.ts`), loaded every 30 s rather than every 5 s as the
-state is, and its Loaded Recipe with its history, loaded again as the
-Loaded Recipe changes. Each Location's page lists its Machines and the
-Recipe each has loaded.
+state is, and its Loaded Recipe, as its status gives it. Those it had
+loaded are listed by day in its Activity card (A Machine's activity, above).
+Each Location's page lists its Machines and the Recipe each has loaded.
 
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
 built plugin and raw frames on two instances sharing PostgreSQL,

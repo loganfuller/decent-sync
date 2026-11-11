@@ -71,7 +71,7 @@ interface Reports {
  * One Machine: its identity, versions and status, deliveries from its tablet
  * set aside, its Live View, how much it was used by day and by hour, what
  * happened on it over a chosen day, shown on asking, its
- * tablets, its Loaded Recipe and those it had, its Workflow,
+ * tablets, its Loaded Recipe, its Workflow,
  * paired devices, settings and library,
  * its Location, its token, and resolving its identity. Staff see all of it,
  * and can move it between the Locations they work at; every other change is
