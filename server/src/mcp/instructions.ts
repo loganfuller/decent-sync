@@ -12,6 +12,7 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Location: a physical site, such as a cafe, with its own time zone. A Machine is at one Location at a time, or none.
 - Machine: a Decent espresso machine (any DE1 model or a Bengle), whatever its tablet.
 - Machine State: what a Machine is doing at a moment, such as pulling a Shot, steaming or sleeping. Its status is whether it is online.
+- Machine Activity: what happened on a Machine over a period and how much it was used: its Workflow changes, Loaded Recipes and Machine States, with how many Shots, Steam Records, flushes and hot water pours it made and how long it spent in each Machine State.
 - Capture-only Machine: one whose records are kept but which takes no part in the Library, as it has no Location or an Admin turned its sharing off.
 - Machine Settings: what a Machine's firmware is set to apart from what its Workflow sets. Tablet Settings: Decaid's own settings on its tablet. A Settings Edit changes either through Decent Sync, kept with who made it and what came of it. Settings History: each change of what a Machine's tablet reported for these, its plugins, Skins, paired devices and sensors, whatever made it; one made outside Decent Sync is tied to no person.
 - Recipe: a named, saved dial-in for a coffee, belonging to one Location: its Bean Batch, Profile, dose, yield, Grinder and setting, Basket and Tools, and any steam, hot water and flush settings.
