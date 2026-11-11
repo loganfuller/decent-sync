@@ -14,7 +14,8 @@ const REFRESH_TRANSACTION = { maxWait: 2_000, timeout: 60_000 } as const;
 /**
  * Computes again, from its measurements, the Preheat and peaks of every
  * Shot stored with an earlier revision of `extractCurves`
- * (CURVES_REVISION), and the steaming time of every Steam Record stored with
+ * (CURVES_REVISION), with what its samples show of how it went
+ * (`measuredValues`), and the steaming time of every Steam Record stored with
  * an earlier revision of `extractSteamRecord` (STEAM_CURVES_REVISION), as
  * the server starts and then every hour, on every instance, in the
  * background, as `DeliveryIdCleanup` deletes. The hourly runs take the
@@ -53,7 +54,7 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   private async run(): Promise<void> {
-    await this.refresh("Shot", "the Preheat and peaks", () => this.refreshShots());
+    await this.refresh("Shot", "the Preheat, peaks and measured values", () => this.refreshShots());
     await this.refresh("Steam Record", "the steaming time", () => this.refreshSteamRecords());
   }
 
@@ -88,11 +89,9 @@ export class CurvesRefresh implements OnApplicationBootstrap, OnModuleDestroy {
         ORDER BY s.id LIMIT ${CURVES_REFRESH_BATCH}::integer
         FOR UPDATE OF s SKIP LOCKED`;
       for (const shot of shots) {
-        const { preheat, peakPressure, peakFlow } = extractCurves(shot.record, shot.measurements);
-        await tx.$executeRaw`
-          UPDATE shots SET preheat = ${preheat}, peak_pressure = ${peakPressure}, peak_flow = ${peakFlow},
-            curves_revision = ${CURVES_REVISION}::integer
-          WHERE id = ${shot.id}`;
+        // All but its pull time, which its first full record set, and its duration, the whole recording, stored already.
+        const { pulledAt: _pulledAt, duration: _duration, ...values } = extractCurves(shot.record, shot.measurements);
+        await tx.shot.update({ where: { id: shot.id }, data: { ...values, curvesRevision: CURVES_REVISION }, select: { id: true } });
       }
       return shots.length;
     }, REFRESH_TRANSACTION);
