@@ -17,8 +17,8 @@ import { expectTip } from "./support/tooltips.js";
 // times as fast as recorded (e2e/support/live-curves.ts), in parts where a test
 // looks at what the card shows. On a loaded machine the server skips a
 // snapshot that a later one replaces while it waits to be relayed, so a replay
-// pauses just past each one an axis is read from (`playToPouring`). Serials
-// are made up.
+// pauses just past each one an axis is read from, as `playToPouring` does.
+// Serials are made up.
 const server = useFreshServer();
 test.use({ timezoneId: "America/New_York" });
 
