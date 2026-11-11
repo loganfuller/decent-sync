@@ -98,13 +98,24 @@ and the plugin build copies it into `decent-sync.reaplugin/manifest.json`.
 Replace `X.Y.Z` with the new version.
 
 1. Set the version, rebuild the plugin, and retitle the Unreleased notes in
-   `UPGRADING.md`, if there are any, with the version. Commit the changes and
-   merge them to `main`:
+   `UPGRADING.md`, if there are any, with the version. Rebuild the test
+   durations manifest too, once CI has passed on `main` for the last change
+   the release holds. Commit the changes and merge them to `main`:
 
    ```bash
    npm version X.Y.Z --no-git-tag-version
    npm run build -w plugin
+   node scripts/update-test-durations.mjs
    ```
+
+   The last command writes `vitest.durations.json`, which CI deals the test
+   files out to its shards by, from the logs of the last 10 successful CI runs
+   of `main`. It reads them through `gh` and takes a minute or two. A line
+   starting "No CI data for" names a test file none of those runs' shards
+   held, which gets an estimate from its size. The files under
+   `server/test/latest-release/` are always named, as they run in a job of
+   their own. If the release added any other, wait for its run on `main` to
+   pass and rebuild again.
 
 2. Tag the resulting commit on `main` as `vX.Y.Z`, and push the tag. A tag on
    any other commit fails the release, because pull request CI tests a merge
