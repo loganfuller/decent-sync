@@ -389,6 +389,11 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   time, `kinds` asking for some alone: each Bean as `{ roaster, name }`, the
   profile titles as `profileTitles`, a roast date as its day, and a
   Location as `{ id, name }`.
+- `GET /api/shots/summary` returns the Shot Summary of the Shots the list
+  lists for the same filters, each filter as the list takes it (Shot
+  Summaries, below): `{ groups }`, one group, each with its `counts` and
+  `numbers`. The MCP endpoint's `summarise_shots` gives the same for
+  `find_shots`' filters, its numbers to hundredths.
 - `GET /api/shots/:id` returns `{ shot }`, including the stored Decaid metadata
   in `shot.record`, without measurements, and `shot.previousShot`
   (`{ id, pulledAt }` or null): the listed Shot just before it on the same
@@ -425,11 +430,94 @@ the tablet.
 across Locations in different time zones and both of New York's 2025-2026
 daylight-saving changes, and previous Shots.
 
+## Shot Summaries
+
+A Shot Summary (`GLOSSARY.md`) is what a set of Shots have in common, so
+that nobody reads rows, or an assistant pages of them, to learn how a
+coffee is pulling. Ticket [#466](https://github.com/loganfuller/decent-sync/issues/466)
+builds the first of milestone 7's ([#465](https://github.com/loganfuller/decent-sync/issues/465)):
+the Shots a filter finds as one group, with three numbers, in
+`server/src/shots/summary.ts`, behind `GET /api/shots/summary`
+(`ShotsService.summary`), the MCP endpoint's `summarise_shots` and the
+Shots list's Summary card. Grouping, buckets and the other numbers are later
+tickets'.
+
+- **Which Shots.** Those the Shots list lists for the same filters, read by
+  the same conditions (`listed`, `shotFilterSql`), less those whose
+  Workflow's profile's type, as the Shot recorded it
+  (`workflow.profile.beverage_type`), is `cleaning` or `calibrate`, ignoring
+  case, as Decaid reads one (`_parseBeverageType` in
+  `decaid:lib/src/models/data/profile.dart`). A Shot that recorded no type,
+  which Decaid reads as `espresso`, counts, as does any other type.
+  `counts.shots` is how many Shots the numbers cover, and
+  `counts.cleaningAndCalibration` how many were left out; the two add up to
+  the list's `total`, both read in one statement.
+- **The numbers,** each of the Shots covered:
+  - `yieldAgainstTarget`: the yield weighed less the target yield
+    (`actual_yield`, `target_yield`), in grams, negative under target. A
+    Shot whose target is 0 or missing, or that weighed no yield, has no
+    value; nor has one whose yield or target is beyond any weight (1e307 g),
+    as a record may hold any number, and the difference of two such fits no
+    float8, which would fail the statement.
+  - `duration`: the recording's duration less its Preheat, in seconds to the
+    millisecond, as the list shows it (`shownDuration`); the whole recording
+    for a Shot of an earlier curves revision, until it is computed again.
+  - Each of those two is `{ shots, median, p25, p75 }`: how many Shots had a
+    value, their median, and the 25th and 75th percentiles, between which the
+    middle half of them fall. A percentile is interpolated between the two
+    Shots nearest it (PostgreSQL's `percentile_cont`), so the median of two
+    Shots is halfway between them. The three are null where no Shot had a
+    value. One or two Shots give the same; `shots` says how little it rests
+    on.
+  - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
+    reason (`stopReason`, with more in it than spaces, tabs and line ends;
+    Decaid writes one of its stop reasons' names or nothing), and the part
+    of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
+    where none recorded one.
+- **Worked out when read,** from the Shot's columns and its record, with
+  nothing stored, so a Shot's edit shows in the next summary. Differences
+  are taken in decimal, as the columns print, so 35.9 less 36 is -0.1. The
+  REST API gives each number as worked out; the management interface and the
+  MCP endpoint round them.
+- **What it costs.** The profile's type and the stop reason are read from
+  each Shot's record, which is most of the time a summary takes: each
+  number's values are worked out once per Shot in a `MATERIALIZED` query
+  before they are put together, as PostgreSQL otherwise reads the record
+  again for every place that uses one of them, which took four times as
+  long. Measured on a scratch database of copies of a real Shot's record
+  (4.4 KB of JSON), on the development machine: 81 ms for 10,000 Shots and
+  395 ms for 50,000, where the same statement reading only the columns took
+  14 ms; 52 ms for 30 days of them (6,171 Shots) and 3 ms for a day (206).
+  Either field becomes a column only if a summary proves slow (#465).
+- **Access.** Staff and Viewers read it, as they read Shots, at every
+  Location.
+
+`server/test/shot-summary.test.ts` covers it through Seam 1, with Shots
+simulated tablets store, against values worked out by hand from the
+fixtures: a date across two Locations in different time zones, cleaning and
+calibration Shots, a target of 0, Shots with no stop reason, a Shot's edit,
+and every filter's counts against the list's total.
+`server/test/assistant-records.test.ts` checks `summarise_shots` against it,
+and `server/test/assistant-budget.test.ts` its size.
+
 ## Management interface
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
 list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
-among them; `/shots/:id` shows a Shot's curves (pressure,
+among them. Above its rows, its Summary card
+(`web/src/components/shot-summary.tsx`) gives the Shot Summary of the Shots
+those filters find: how many its numbers cover, with how many cleaning and
+calibration Shots were left out where there are any; the duration and the
+yield against target, each as its median with the middle half's range, such
+as "26.0 s (25.6–26.6)" and "−0.1 g (−0.8 to +0.4)"
+(`web/src/lib/shot-summary.ts`); and the share that stopped on weight. A
+number says how many Shots it rests on where some of those covered had no
+value for it, and reads as a dash where none had. The card follows the
+filters, loads again every 30 s, and is not shown while no Shot matches. The
+last filters' numbers stay while the next ones' load, as the rows do, but
+give way to dashes while a load has failed since the last that succeeded,
+so that they never stand under a failure as the next filters'.
+`e2e/shot-summary.spec.ts` covers it. `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and

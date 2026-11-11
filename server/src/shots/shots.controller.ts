@@ -20,6 +20,10 @@ export class ShotsController {
   @Get("filters")
   filters() { return this.shots.filterOptions(); }
 
+  /** The Shot Summary of the Shots the list lists for the same filters. Before `:id` too. */
+  @Get("summary")
+  summary(@Query() query: Record<string, unknown>) { return this.shots.summary(readShotFilters(query)); }
+
   @Get(":id")
   async get(@Param("id") id: string) { return { shot: await this.shots.get(id) }; }
 

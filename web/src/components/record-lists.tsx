@@ -46,6 +46,8 @@ export interface RecordList<Page extends ListPage> {
   params: URLSearchParams;
   /** The list's address after its path, for a record's link back to it (`ListState`). */
   search: string;
+  /** The filters the address has, as the REST API's query, without the page: what a summary of the whole list takes. */
+  filterQuery: string;
   /** The page shown: the latest answer, which stays shown while the next loads. */
   data: Page | undefined;
   error: string | undefined;
@@ -73,7 +75,8 @@ export function useRecordList<Page extends ListPage>(path: string, filters: read
   const [params, setParams] = useSearchParams();
   const { search } = useLocation();
   const offset = Math.max(0, Number(params.get("offset")) || 0);
-  const query = new URLSearchParams([...filters.flatMap((name) => params.getAll(name).slice(0, 1).map((value) => [name, value])), ["limit", String(PAGE_SIZE)], ["offset", String(offset)]]).toString();
+  const filterQuery = new URLSearchParams(filters.flatMap((name) => params.getAll(name).slice(0, 1).map((value) => [name, value]))).toString();
+  const query = new URLSearchParams([...new URLSearchParams(filterQuery), ["limit", String(PAGE_SIZE)], ["offset", String(offset)]]).toString();
   // Each page loaded remembers what it answers: the last one is still shown while another loads.
   const load = useCallback(async () => ({ query, page: await api<Page>("GET", `${path}?${query}`) }), [path, query]);
   const { data: loaded, error } = usePolled(load);
@@ -110,6 +113,7 @@ export function useRecordList<Page extends ListPage>(path: string, filters: read
   return {
     params,
     search,
+    filterQuery,
     data,
     error,
     shown: data ? rows(data).length : 0,

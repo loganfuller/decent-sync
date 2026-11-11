@@ -3,18 +3,18 @@ import { batchName } from "@/components/bean-batches";
 import { grinderName } from "@/components/grinders";
 import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
-import type { ShotSummary } from "@/lib/api";
+import type { ListedShot } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
 
 /** When a Shot was pulled, in its Location's time zone with the zone named, such as "Oct 4, 2026, 2:14 PM EDT". */
-export function shotTime(shot: ShotSummary): string {
+export function shotTime(shot: ListedShot): string {
   return recordTime(shot.pulledAt, shot);
 }
 
 /** The Bean as the Shot recorded it: its roaster and name, either of which may be missing. */
-export function beanText(shot: Pick<ShotSummary, "coffeeRoaster" | "coffeeName">): string | undefined {
+export function beanText(shot: Pick<ListedShot, "coffeeRoaster" | "coffeeName">): string | undefined {
   const parts = [shot.coffeeRoaster, shot.coffeeName].filter((part): part is string => !!part?.trim());
   return parts.length > 0 ? parts.join(" · ") : undefined;
 }
@@ -36,28 +36,28 @@ function LibraryLink({ to, children }: { to: string | null; children: string | u
 }
 
 /** The Library's Bean Batch the Shot used. */
-export function ShotBatch({ shot }: { shot: Pick<ShotSummary, "beanBatch"> }) {
+export function ShotBatch({ shot }: { shot: Pick<ListedShot, "beanBatch"> }) {
   return <LibraryLink to={shot.beanBatch && `/library/bean-batches/${shot.beanBatch.id}`}>{shot.beanBatch ? batchName(shot.beanBatch) : undefined}</LibraryLink>;
 }
 
 /** The Library's Grinder the Shot used. */
-export function ShotGrinder({ shot }: { shot: Pick<ShotSummary, "grinder"> }) {
+export function ShotGrinder({ shot }: { shot: Pick<ListedShot, "grinder"> }) {
   return <LibraryLink to={shot.grinder && `/library/grinders/${shot.grinder.id}`}>{shot.grinder ? grinderName(shot.grinder) : undefined}</LibraryLink>;
 }
 
 /** The Library's Recipe the Shot was pulled with, as its Machine had it loaded; none where it had none loaded. */
-export function ShotRecipe({ shot }: { shot: Pick<ShotSummary, "recipe"> }) {
+export function ShotRecipe({ shot }: { shot: Pick<ListedShot, "recipe"> }) {
   if (shot.recipe === null) return <OrNone>{undefined}</OrNone>;
   return <LibraryLink to={`${LIBRARY_KINDS.recipe.pages}/${shot.recipe.id}`}>{shot.recipe.name ?? "Unnamed Recipe"}</LibraryLink>;
 }
 
 /** The Library's Basket the Shot used, as DYE2 recorded it. */
-export function ShotBasket({ shot }: { shot: Pick<ShotSummary, "basket"> }) {
+export function ShotBasket({ shot }: { shot: Pick<ListedShot, "basket"> }) {
   return <LibraryLink to={shot.basket && `${LIBRARY_KINDS.basket.pages}/${shot.basket.id}`}>{shot.basket ? (shot.basket.name ?? "Unnamed Basket") : undefined}</LibraryLink>;
 }
 
 /** The profile the Shot recorded, linked to the Library's Profile it was pulled with, if the Library has it. */
-export function ShotProfile({ shot }: { shot: Pick<ShotSummary, "profile" | "profileTitle"> }) {
+export function ShotProfile({ shot }: { shot: Pick<ListedShot, "profile" | "profileTitle"> }) {
   if (shot.profile === null) return <OrNone>{shot.profileTitle ?? undefined}</OrNone>;
   return (
     <LibraryLink to={profilePath(shot.profile.id)}>{shot.profileTitle ?? shot.profile.title ?? "Untitled Profile"}</LibraryLink>

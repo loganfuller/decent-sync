@@ -899,6 +899,72 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await toolError("list_shot_values", { kinds: [] })).toContain("kinds");
   });
 
+  it("summarises the Shots find_shots finds as the REST API's summary does, its numbers to hundredths", async () => {
+    interface Group {
+      counts: { shots: number; cleaningAndCalibration: number };
+      numbers: Record<string, Fields>;
+    }
+    // Derived: three Shots on one day, at 12:00, 13:00 and 14:00 UTC: one 2.5 g over its target that its Machine ended,
+    // the real Shot, 0.1 g under and stopped on weight, and one pulled with a cleaning profile.
+    const over = shotAt("assistant-over", "2026-06-01T12:00:00Z", hardware.roaming, "Ann");
+    const cleaning = shotAt("assistant-cleaning", "2026-06-01T14:00:00Z", hardware.roaming, "Ann");
+    const cleaningWorkflow = cleaning.workflow as Record<string, Fields>;
+    await deliverShots(roaming, hardware.roaming, [
+      { ...over, stopReason: "machineEnded", annotations: { ...(over.annotations as Fields), actualYield: 38.5 } },
+      shotAt("assistant-under", "2026-06-01T13:00:00Z", hardware.roaming, "Ann"),
+      { ...cleaning, workflow: { ...cleaningWorkflow, profile: { ...cleaningWorkflow.profile, beverage_type: "cleaning" } } },
+    ]);
+
+    /** summarise_shots, checked against the REST API's summary for the same filters, matching words as the tool does, and against find_shots' total: its one group. */
+    async function summarisedAsRest(input: Fields, query: Record<string, string>, by = assistant, at = api): Promise<Group> {
+      const summarised = await by.call<{ groups: Group[] }>("summarise_shots", input);
+      expect(summarised).toEqual(asTools(await at.get(`/shots/summary?${new URLSearchParams({ match: "words", ...query })}`)));
+      expect(summarised.groups).toHaveLength(1);
+      const [group] = summarised.groups;
+      expect(group!.counts.shots + group!.counts.cleaningAndCalibration).toBe((await by.call<Page>("find_shots", { ...input, limit: 1 })).total);
+      return group!;
+    }
+
+    const day = { from: "2026-06-01", to: "2026-06-01" };
+    expect(await summarisedAsRest(day, day)).toEqual({
+      counts: { shots: 2, cleaningAndCalibration: 1 },
+      numbers: {
+        // −0.1 and 2.5, and 23.549 s twice.
+        yieldAgainstTarget: { shots: 2, median: 1.2, p25: 0.55, p75: 1.85 },
+        duration: { shots: 2, median: 23.55, p25: 23.55, p75: 23.55 },
+        stoppedOnWeight: { shots: 2, share: 0.5 },
+      },
+    });
+    // Every filter find_shots takes, as it takes it.
+    const all = (await summarisedAsRest({}, {})).counts;
+    expect(all).toEqual({ shots: expect.any(Number), cleaningAndCalibration: 1 });
+    const atUptown = (await summarisedAsRest({ locationId: uptown.id }, { locationId: uptown.id })).counts;
+    expect(atUptown.shots).toBeGreaterThan(0);
+    expect(atUptown.shots).toBeLessThan(all.shots);
+    expect((await summarisedAsRest({ machineId: roaming.machine.id, ...day }, { machineId: roaming.machine.id, ...day })).counts.shots).toBe(2);
+    // A date as each Location's day, as the earlier test's four Shots of the 10th.
+    const february = { from: "2026-02-10", to: "2026-02-10", locationId: harbor.id };
+    expect((await summarisedAsRest(february, february)).counts.shots).toBe(2);
+    expect((await summarisedAsRest({ beanName: "gao honey", barista: "DEE" }, { coffeeName: "gao honey", barista: "DEE" })).counts.shots).toBe(1);
+    const exact = { match: "exact", beanName: "China Gao's Honey" };
+    expect((await summarisedAsRest(exact, { match: "exact", coffeeName: "China Gao's Honey" })).counts.shots).toBe(1);
+    const nothing = randomUUID();
+    expect(await summarisedAsRest({ recipeId: nothing }, { recipeId: nothing })).toEqual({
+      counts: { shots: 0, cleaningAndCalibration: 0 },
+      numbers: { yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null }, duration: { shots: 0, median: null, p25: null, p75: null }, stoppedOnWeight: { shots: 0, share: null } },
+    });
+    // A time with its offset is that moment: from 12:30 UTC the Shot at 13:00 and the cleaning one, up to 14:00 the first alone.
+    const summarised = async (input: Fields) => (await assistant.call<{ groups: Group[] }>("summarise_shots", { machineId: roaming.machine.id, ...input })).groups[0]!.counts;
+    expect(await summarised({ from: "2026-06-01T12:30:00Z", to: "2026-06-02" })).toEqual({ shots: 1, cleaningAndCalibration: 1 });
+    expect(await summarised({ from: "2026-06-01T06:30:00-06:00", to: "2026-06-01T14:00:00Z" })).toEqual({ shots: 1, cleaningAndCalibration: 0 });
+
+    // Refused as find_shots refuses them.
+    expect(await toolError("summarise_shots", { from: "2026-02-11", to: "2026-02-10" })).toBe("Choose an end after the start");
+    expect(await toolError("summarise_shots", { machineId: "not-an-id" })).toBe("No such Machine");
+    expect(await toolError("summarise_shots", { beanName: Array.from({ length: 21 }, (_, n) => `w${n}`).join(" ") })).toBe("Use at most 20 words in each text filter");
+    expect(await toolError("summarise_shots", { barista: "Ann…[cut]" })).toContain("…[cut]");
+  });
+
   it("answers a Viewer's read-only Connected App as it answers an Admin's", async () => {
     const { link } = await api.invite("viewer-408@example.com", "viewer", []);
     const cookie = await acceptInvite(server.url, link, { name: "Viewer", password: "a password for apps" });
@@ -906,6 +972,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     try {
       expect(await findShotsAsRest({ locationId: harbor.id }, { locationId: harbor.id }, viewer, AdminApi.signedInAs(server.url, cookie))).toEqual(["harbor-next", "harbor-noon", "harbor-early"]);
       expect(await viewer.call<Fields>("list_shot_values", {})).toEqual(await assistant.call<Fields>("list_shot_values", {}));
+      expect(await viewer.call<Fields>("summarise_shots", {})).toEqual(await assistant.call<Fields>("summarise_shots", {}));
       expect(await viewer.call<Fields>("get_steam_record", { id: "steam-harbor-early" })).toMatchObject({ id: "steam-harbor-early", location: harbor });
     } finally {
       await viewer.close();

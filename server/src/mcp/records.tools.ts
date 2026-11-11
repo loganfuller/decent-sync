@@ -4,7 +4,7 @@ import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
 import { recordedText } from "../shots/extraction.js";
-import { MAX_WORDS, readShotFilters } from "../shots/filters.js";
+import { MAX_WORDS, type ShotFilters, readShotFilters } from "../shots/filters.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, refuseCutText } from "./budget.js";
@@ -25,7 +25,7 @@ const location = z
 const seconds = (what: string) => z.number().nullable().describe(`${what}, in seconds.`);
 const celsius = (what: string) => z.number().nullable().describe(`${what}, in °C.`);
 
-const shotSummary = z.object({
+const shotBasics = z.object({
   id,
   pulledAt: z.string().nullable().describe("When it was pulled; null when unknown."),
   machine,
@@ -59,7 +59,7 @@ const shotSummary = z.object({
 
 const step = z.object({ frame: z.number().describe("Its index among its Profile's steps, from 0."), name: z.string() });
 
-const shotDetails = shotSummary.extend({
+const shotDetails = shotBasics.extend({
   grinderModel: z.string().nullable().describe("Its Grinder's model, as the Shot recorded it, linked to the Library or not."),
   basketName: z.string().nullable().describe("Its Basket's name, as the Shot recorded it, linked to the Library or not."),
   grinderSetting: z.string().nullable().describe("Its Grinder's setting, as its Workflow recorded it."),
@@ -210,7 +210,8 @@ const textFilter = (which: string) =>
     .optional()
     .describe(`${which} matches this as match says: by default, each of up to ${MAX_WORDS} words anywhere, ignoring case. An empty one finds Shots that recorded none, and so does one of spaces alone when matching words.`);
 
-const findShotsInput = z.object({
+/** The filters find_shots finds Shots by, which summarise_shots takes too. */
+const shotFilters = {
   locationId: id.optional().describe("Shots pulled at this Location."),
   machineId: id.optional().describe("Shots credited to this Machine."),
   beanId: id.optional().describe("Shots that used any Bean Batch of this Library Bean."),
@@ -229,13 +230,51 @@ const findShotsInput = z.object({
     .describe("How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone."),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
-  ...page,
-});
+};
+const findShotsInput = z.object({ ...shotFilters, ...page });
 const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
 /** What a find_shots row's fields mean, for its description. */
 const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+
+/** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
+const SHOT_FILTERS =
+  "The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id.";
+
+const summaryNumber = (what: string) =>
+  z
+    .object({
+      shots: z.number().describe("How many Shots had a value, which the median and percentiles rest on."),
+      median: z.number().nullable(),
+      p25: z.number().nullable().describe("The 25th percentile."),
+      p75: z.number().nullable().describe("The 75th percentile: the middle half of the Shots fall from p25 to it."),
+    })
+    .describe(`${what} Null where no Shot had a value.`);
+
+const summariseShotsInput = z.object(shotFilters);
+const summariseShotsOutput = z.object({
+  groups: z
+    .array(
+      z.object({
+        counts: z.object({
+          shots: z.number().describe("The Shots its numbers cover."),
+          cleaningAndCalibration: z.number().describe("The cleaning and calibration Shots left out of them."),
+        }),
+        numbers: z.object({
+          yieldAgainstTarget: summaryNumber("Each Shot's yield as weighed less its target yield, in grams, negative under target."),
+          duration: summaryNumber("How long each Shot's profile ran, leaving out its Preheat, in seconds."),
+          stoppedOnWeight: z
+            .object({
+              shots: z.number().describe("How many Shots recorded a stop reason."),
+              share: z.number().nullable().describe("The part of them stopped by targetWeight, from 0 to 1; null where none recorded one."),
+            })
+            .describe("The share of Shots that stopped on weight."),
+        }),
+      }),
+    )
+    .describe("One group: every Shot the filters find."),
+});
 
 /** The lists list_shot_values gives, as `GET /api/shots/filters` gives them. */
 const SHOT_VALUE_KINDS = ["beans", "baristas", "profileTitles", "beanBatches", "grinders", "recipes", "baskets"] as const;
@@ -298,7 +337,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. The barista, beanRoaster, beanName and profileTitle filters match each of their words anywhere in what each Shot recorded, ignoring case, or, with match exact, the whole of it; list_shot_values lists what Shots recorded, and match exact picks one of its values alone, not those holding its words too. A linked item's name is the Library's, which may differ from what the Shot recorded and those filters match, so find a linked item's Shots by its id. ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
@@ -306,12 +345,8 @@ export class RecordsTools {
     budget: findShotsBudget,
   })
   async findShots(input: z.infer<typeof findShotsInput>): Promise<z.infer<typeof findShotsOutput> & { cut?: string }> {
-    // A name a row cut is no name a Shot recorded.
-    refuseCutText(input, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
-    const { from, to, limit, offset, beanRoaster, beanName, ...named } = input;
-    const times = timeRange(from, to);
-    const filters = { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
-    const found = await this.shots.list(limit, offset, filters);
+    const { limit, offset, ...named } = input;
+    const found = await this.shots.list(limit, offset, shotFiltersOf(named));
     const cuts = { any: false };
     const shorten = (text: string | null, at: number) => {
       const kept = text === null ? null : cut(text, at);
@@ -321,6 +356,19 @@ export class RecordsTools {
     const shots = found.shots.map((shot) => shotRowOf(shot, shorten));
     // First, as the guard's note is, which says the same.
     return { ...(cuts.any && { cut: cutNoteOf(findShotsBudget) }), ...pageOf(found.total, offset, found.shots.length), shots };
+  }
+
+  @BudgetedTool({
+    name: "summarise_shots",
+    title: "Summarise Shots",
+    description: `Summarises the Shots find_shots finds for the same filters, in one call rather than a page of Shots at a time: how many there are and how they went. It leaves out cleaning and calibration Shots, those whose profile's type, as the Shot recorded it, is cleaning or calibrate, and counts them: counts.shots is how many Shots its numbers cover, and counts.cleaningAndCalibration how many were left out, the two adding up to find_shots' total for the same filters. numbers gives, of the Shots covered: yieldAgainstTarget, each Shot's yield as weighed less its target yield, in grams, negative under target, a Shot whose target is 0 or missing, or that weighed no yield, having no value; and duration, how long each Shot's profile ran, in seconds, leaving out its Preheat, the Machine heating its water before the profile starts. Each of those two is a median with p25 and p75, the 25th and 75th percentiles, between which the middle half of the Shots fall, and shots, how many Shots had a value, which the three rest on: a median of 3 Shots says less than one of 80. They are null where no Shot had a value. stoppedOnWeight is the share, from 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping the Shot as the scale's projected weight reached the target yield, with shots, how many recorded one, which the share rests on; a Shot stopped by hand or by its profile ending recorded another reason, and the share is null where none recorded one. Everything is worked out as it is read, so a Shot edited on its tablet shows in the next summary. groups holds one group, every Shot the filters find. For two time ranges, such as before and after a change, ask twice. Each filter's id is one find_shots' Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS}`,
+    inputSchema: summariseShotsInput,
+    outputSchema: summariseShotsOutput,
+    annotations: { readOnlyHint: true },
+    scopes: [READ],
+  })
+  async summariseShots(input: z.infer<typeof summariseShotsInput>): Promise<z.infer<typeof summariseShotsOutput>> {
+    return this.shots.summary(shotFiltersOf(input));
   }
 
   @BudgetedTool({
@@ -339,7 +387,7 @@ export class RecordsTools {
     const { shot, samples } = await this.shots.read(id);
     const timeZone = shot.location?.timeZone;
     const details = {
-      ...shotSummaryOf(shot),
+      ...shotBasicsOf(shot),
       grinderModel: shot.grinderModel,
       basketName: shot.basketName,
       grinderSetting: shot.grinderSetting,
@@ -429,6 +477,18 @@ export class RecordsTools {
 }
 
 /**
+ * The Shots list's filters find_shots' name, as the REST API reads them
+ * (`readShotFilters`), with a date for each Location's day and a moment as
+ * itself (`timeRange`). A name a find_shots row cut is refused, as no Shot
+ * recorded one.
+ */
+function shotFiltersOf({ from, to, beanRoaster, beanName, ...named }: z.infer<typeof summariseShotsInput>): ShotFilters {
+  refuseCutText({ beanRoaster, beanName, ...named }, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
+  const times = timeRange(from, to);
+  return { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
+}
+
+/**
  * A Shot as find_shots lists it, from the REST API's list: each Library item
  * it names by the Library's id and names where it is linked to it, or else
  * by the names it recorded, the names people type and its notes shortened
@@ -480,7 +540,7 @@ function dayOf(date: string | null): string | null {
 }
 
 /** A Shot as the REST API reads it, in the glossary's words, with its time on its Location's clock. */
-function shotSummaryOf(shot: ShownShot): z.infer<typeof shotSummary> {
+function shotBasicsOf(shot: ShownShot): z.infer<typeof shotBasics> {
   return {
     id: shot.id,
     pulledAt: shot.pulledAt && zonedTime(shot.pulledAt, shot.location?.timeZone),

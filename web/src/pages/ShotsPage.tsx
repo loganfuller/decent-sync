@@ -5,6 +5,7 @@ import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
 import { batchName } from "@/components/bean-batches";
 import { grinderName } from "@/components/grinders";
+import { ShotSummaryCard } from "@/components/shot-summary";
 import { beanText, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -16,9 +17,10 @@ import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
 const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId"] as const;
 
 /**
- * Every Shot, newest first, across every Location, with filters. Times are
- * each Shot's Location's, and dates are read in each Shot's own Location's
- * time zone; Shots with no Location use UTC. Staff see all of it.
+ * Every Shot, newest first, across every Location, with filters, and the
+ * Shot Summary of those the filters find above its rows. Times are each
+ * Shot's Location's, and dates are read in each Shot's own Location's time
+ * zone; Shots with no Location use UTC. Staff see all of it.
  */
 export function ShotsPage() {
   const list = useRecordList<ShotPage>("/shots", FILTERS, (page) => page.shots);
@@ -45,6 +47,7 @@ export function ShotsPage() {
       )}
 
       {data?.total === 0 && <p className="text-muted-foreground">{list.filtered ? "No Shots match these filters." : "No Shots yet."}</p>}
+      {data && data.total > 0 && <ShotSummaryCard filterQuery={list.filterQuery} />}
       {data && data.shots.length > 0 && (
         <>
           <div className="rounded-lg border">
