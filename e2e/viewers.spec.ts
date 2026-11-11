@@ -46,7 +46,7 @@ test("an Admin invites a Viewer, choosing no Locations, who is told what a Viewe
     await valsPage.getByLabel("Name").fill(val.name);
     await valsPage.getByLabel("Password").fill(val.password);
     await valsPage.getByRole("button", { name: "Create account" }).click();
-    await expect(valsPage.getByRole("heading", { name: `Welcome, ${val.name}` })).toBeVisible();
+    await expect(valsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
     const banner = valsPage.getByRole("banner");
     await expect(banner.getByText("Viewer", { exact: true })).toBeVisible();
     await expectTip(banner, "Viewers", VIEWER_TIP);

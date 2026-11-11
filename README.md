@@ -116,6 +116,14 @@ Each server has one owner: a household, or a business with all of its sites.
   calibration Shots are left out, and counted, as are Unfinished Shots, in
   which nothing poured: the Machine never reached pouring and the scale
   never read a gram, as when a Shot is stopped at once.
+- **Each Location at a glance.** The home page is the Overview: a block for
+  each Location, with a column for each Machine there, showing whether it is
+  online, its Machine State, its Loaded Recipe and its last Shot, and a row
+  for each Recipe pulled today, yesterday or in the last 7 days, in Recipe
+  Slot order. Each cell counts that Machine's Shots of that Recipe, with
+  their median duration, their median yield against target and the share
+  that stopped on weight, says how many were unfinished, and opens them in
+  the Shots list. Each Location's page shows its own block.
 - **Compared at a glance.** Open any Shot's curves beside the previous Shot on
   its Machine. Steam Records show the milk's temperature.
 

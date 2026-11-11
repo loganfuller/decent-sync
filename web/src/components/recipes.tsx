@@ -113,7 +113,7 @@ function grindText(recipe: Recipe): string | undefined {
 }
 
 /** A Recipe's Bean Batch, as lists name a batch. */
-function usedBatchText(recipe: Recipe): string | undefined {
+export function usedBatchText(recipe: Recipe): string | undefined {
   const { beanBatch, bean } = recipe.uses;
   if (beanBatch) return batchName({ bean: { id: bean?.id ?? "", roaster: bean?.roaster ?? null, name: bean?.name ?? null }, roastDate: beanBatch.roastDate });
   return bean ? `${bean.name ?? "Unnamed Bean"}, no batch` : undefined;

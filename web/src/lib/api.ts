@@ -649,8 +649,20 @@ export interface SummaryNumbers {
   lastStep: LastSteps;
 }
 
+/**
+ * What a Shot Summary's group is grouped by: an entry for each grouping asked for, of which the management interface
+ * asks for a Recipe and a Machine, and none without one. A Recipe's is null for the group of Shots pulled with none.
+ */
+export interface GroupedBy {
+  /** The Machine the Shots are credited to; null where a Pending Machine holds them, which is at no Location. */
+  machine?: { id: string; name: string } | null;
+  /** The Recipe the Shots were pulled with, and the Location it belongs to. */
+  recipe?: { id: string; name: string | null; location: { id: string; name: string } | null } | null;
+}
+
 /** What a set of Shots have in common: a Shot Summary's group. */
 export interface SummaryGroup {
+  by: GroupedBy;
   counts: {
     /** The Shots its numbers cover. */
     shots: number;
@@ -665,9 +677,15 @@ export interface SummaryGroup {
   numbers: Partial<SummaryNumbers>;
 }
 
-/** The Shot Summary of the Shots a list's filters find, as one group. */
+/**
+ * The Shot Summary of the Shots a list's filters find: one group, or, grouped, a page of its groups in their order,
+ * with how many groups there are.
+ */
 export interface ShotSummary {
   groups: SummaryGroup[];
+  total: number;
+  limit: number;
+  offset: number;
 }
 
 /** How long a Machine spent in one of Decaid's states, whatever its substates. */

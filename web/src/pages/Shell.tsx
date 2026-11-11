@@ -195,15 +195,3 @@ function MainNav({ className, onNavigate }: { className: string; onNavigate?: ()
 function navLinkClass({ isActive }: { isActive: boolean }): string {
   return isActive ? "font-medium" : "text-muted-foreground hover:text-foreground";
 }
-
-export function HomePage() {
-  const { state } = useAuth();
-  const name = state.status === "signed-in" ? state.account.name : "";
-
-  return (
-    <section className="grid gap-2">
-      <h1 className="text-2xl font-semibold wrap-anywhere">Welcome, {name}</h1>
-      <p className="text-muted-foreground">Locations, Machines and Shots will appear here.</p>
-    </section>
-  );
-}

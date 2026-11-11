@@ -58,7 +58,7 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
   await samsPage.getByRole("button", { name: "Create account" }).click();
 
   await expect(samsPage).toHaveURL(/\/$/);
-  await expect(samsPage.getByRole("heading", { name: `Welcome, ${sam.name}` })).toBeVisible();
+  await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   const nav = samsPage.getByRole("navigation", { name: "Main" });
   await expect(nav.getByRole("link", { name: "Accounts" })).toHaveCount(0);
 
@@ -128,7 +128,9 @@ test("someone signed in who opens an invite link signs out before accepting it",
   await page.getByLabel("Name").fill("Alex Admin");
   await page.getByLabel("Password").fill("admin password 1");
   await page.getByRole("button", { name: "Create account" }).click();
-  await expect(page.getByRole("heading", { name: "Welcome, Alex Admin" })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
+  // As the new account, not the Admin who signed out.
+  await expect(page.getByRole("banner").getByRole("button", { name: "Alex Admin" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toBeVisible();
 });
 

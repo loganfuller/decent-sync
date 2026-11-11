@@ -20,12 +20,13 @@ import { LocationPage } from "@/pages/LocationPage";
 import { LocationsPage } from "@/pages/LocationsPage";
 import { MachinePage } from "@/pages/MachinePage";
 import { MachinesPage } from "@/pages/MachinesPage";
+import { OverviewPage } from "@/pages/OverviewPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
 import { RecipePage } from "@/pages/RecipePage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
-import { HomePage, Shell } from "@/pages/Shell";
+import { Shell } from "@/pages/Shell";
 import { SignInPage, type SignInState } from "@/pages/SignInPage";
 import { ToolPage } from "@/pages/ToolPage";
 import { ToolsPage } from "@/pages/ToolsPage";
@@ -49,7 +50,7 @@ export function App() {
           <Route path="/reset-password/:secret" element={<Gate page="reset-password" />} />
           <Route path="/connect/:id" element={<Gate page="connect" />} />
           <Route element={<Gate page="signed-in" />}>
-            <Route index element={<HomePage />} />
+            <Route index element={<OverviewPage />} />
             <Route
               path="/accounts"
               element={

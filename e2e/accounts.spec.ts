@@ -138,7 +138,7 @@ async function signIn(page: Page, credentials: { email: string; password: string
 
 async function expectSignedIn(page: Page) {
   await expect(page).toHaveURL(/\/$/);
-  await expect(page.getByRole("heading", { name: `Welcome, ${admin.name}` })).toBeVisible();
+  await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await expect(page.getByRole("banner").getByRole("button", { name: admin.name })).toBeVisible();
 }
 

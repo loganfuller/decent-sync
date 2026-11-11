@@ -195,7 +195,7 @@ test("a Viewer is offered only to let it read", async ({ page, browser }) => {
     await viewer.getByLabel("Name").fill("Val Viewer");
     await viewer.getByLabel("Password").fill("viewer password 1");
     await viewer.getByRole("button", { name: "Create account" }).click();
-    await expect(viewer.getByRole("heading", { name: "Welcome, Val Viewer" })).toBeVisible();
+    await expect(viewer.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
 
     const { verifier, challenge } = pkce();
     await viewer.goto(authorizationUrl(server.url(), app, challenge));
