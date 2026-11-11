@@ -841,6 +841,12 @@ that takes their hardware over. Staff read them as Admins do.
   `{ events, total, limit, offset }`, latest first. A Workflow event is as
   `/workflow` gives one, and a state event
   `{ id, state, substate, observedAt, receivedAt }`. Limit is 1–100.
+- `GET /api/machines/:id/activity?from=&to=&kind=&cause=&limit=20&offset=0`
+  returns `{ workflowChanges, loadedRecipes, machineStates, limit, offset }`,
+  what the Machine was doing over a time range, as `get_machine_activity`
+  gives it (A Machine's activity, below): each a page `{ entries, total }`,
+  latest first, of what was in effect at any time in the range. Limit is
+  1–100.
 
 - `GET /api/machines/:id/use?from=&to=&by=` returns `{ by, from, to, buckets }`,
   how much the Machine was used in each day of a range, or with `by=hour` each
@@ -858,8 +864,11 @@ between them, so an assistant reads what a barista changed without comparing
 whole Workflows (`server/src/machine-events/dial-in-trail.ts`, a pure module
 `MachineEventsService.workflowTrail` feeds). It reshapes only what the REST
 API gives, the Workflow changes with who made each and the Loaded Recipes,
-which keep their raw lists above. Its entries, each with its time, who made
-its first change (`cause`, `pluginWrite`) and the Loaded Recipe:
+which keep their raw lists above, and from
+[#476](https://github.com/loganfuller/decent-sync/issues/476) the REST API's
+`activity` route gives the trail too (A Machine's activity, below). Its
+entries, each with its time, who made its first change (`cause`,
+`pluginWrite`) and the Loaded Recipe:
 
 - **`inEffect`**, its oldest: the Workflow in effect as the range began, the
   latest observed at or before its start, or the first observed in it where
@@ -895,6 +904,48 @@ the first, each `before` then as the changes left out left it. Each Profile
 is found once (`profileOfSql`), and each Workflow read in two passes, one
 for its Profile and one for its summary, each taking its parts at once
 (`jsonb_to_record`).
+
+### A Machine's activity
+
+From [#476](https://github.com/loganfuller/decent-sync/issues/476), the REST
+API gives what `get_machine_activity` gives, from the same service
+(`MachineEventsService.activity`), so the Machine's page lists it. The
+paged routes above are as they were.
+
+- **The range.** `from` and `to` are each a date, such as `2026-11-06`, or a
+  time with its offset, read as the tool reads them (`machineRange` in
+  `server/src/machines/machine-days.ts`, which both call): a date is that
+  day at the Location the Machine was at at noon UTC that day, by its
+  Location History, in its time zone, and UTC's while it was at none,
+  through its end for `to`. An end not given is open: since the first, or
+  until now. A range that ends at or before its start is refused with 400,
+  as is a time outside the years 1 to 9999.
+- **The lists.** `kind`, given once or more, names the lists to give
+  (`workflowChanges`, `loadedRecipes`, `machineStates`), all three if none,
+  and `limit` and `offset` page each alike. `workflowChanges` is the dial-in
+  trail (above), each entry
+  `{ kind, observedAt, lastObservedAt, cause, pluginWrite, loadedRecipe, replaced, workflow, changes }`,
+  what doesn't apply to its kind null, and `changes` empty for `inEffect`;
+  `cause` keeps the entries of one cause, and the first. `loadedRecipes` are
+  those loaded at any time in the range, each as the `loaded-recipes` route
+  gives one, and `machineStates` those observed in it and the one in effect
+  as it began, each as `machine-state-events` gives one. So each list's
+  oldest entry may date from before the range.
+- **Beside the tool.** The tool gives the same entries with each time
+  carrying the offset of the Location the Machine was at then, where the
+  REST API's are UTC's; it leaves out what doesn't apply to a trail entry's
+  kind, and the ids the REST API's lists key a Loaded Recipe and a Machine
+  State by; and it pages by `offset` and `more`, with at most 50 a page.
+
+The Machine page's Activity card (`web/src/components/machine-activity.tsx`)
+lists one day, today at the Location the Machine is at until another is
+chosen, as a date for `from` and `to`: the dial-in trail, the Loaded Recipes
+or the Machine States, one list at a time, 20 to a page, loaded every 30 s.
+A trail entry shows what it is, each field that changed, from what to what,
+the Recipe loaded then and who made it, the Library items it names linked
+to their pages; the Workflow in effect is listed whole. A time is shown on
+the wall clock of the Location the Machine was at then, with its date where
+that isn't the day chosen (`web/src/lib/machine-activity.ts`).
 
 ### A Machine's use
 
@@ -978,6 +1029,10 @@ built plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/dial-in-trail.test.ts` the dial-in trail's pure module, with
 the trail through `get_machine_activity` on simulated tablets in
 `server/test/assistant-machines.test.ts`,
+`server/test/machine-activity.test.ts` a Machine's activity through the REST
+API against `get_machine_activity` on simulated tablets,
+`web/test/machine-activity.test.ts` how the Activity card words it and
+`e2e/machine-activity.spec.ts` the card,
 `server/test/machine-use.test.ts` a Machine's use through the REST API on
 simulated tablets, `server/test/machine-use-spans.test.ts` its days and
 hours, `server/test/assistant-machines.test.ts` and

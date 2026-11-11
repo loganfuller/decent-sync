@@ -1,8 +1,7 @@
 import { BadRequestException } from "@nestjs/common";
 import { nameDecaidState } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
-import { readTime } from "../machines/input.js";
-import { type Stay, isDay, rangeBound, timeZoneAt } from "../machines/machine-days.js";
+import { type Stay, rangeBound, readRangeBound, timeZoneAt } from "../machines/machine-days.js";
 import { queryValue } from "../record-filters.js";
 
 // A Machine's use (#475; #465, Machine Activity): for each day of a range, or
@@ -96,28 +95,12 @@ export interface MachineUse {
  */
 export function readUseRequest(query: Record<string, unknown>): UseRequest {
   const problems: string[] = [];
-  const bound = (name: "from" | "to"): string | undefined => {
-    const value = queryValue(query, name, problems);
-    if (value === undefined || (isDay(value) ? isCalendarDay(value) : readTime(value, []) !== undefined)) return value;
-    problems.push(`Enter ${name} as a date, such as 2026-11-06, or a time with its offset, such as 2026-11-06T14:30:00-05:00`);
-    return undefined;
-  };
-  const from = bound("from");
-  const to = bound("to");
+  const from = readRangeBound(query, "from", problems);
+  const to = readRangeBound(query, "to", problems);
   const by = queryValue(query, "by", problems) ?? "day";
   if (!(USE_BYS as readonly string[]).includes(by)) problems.push("Choose by as day or hour");
   if (problems.length > 0) throw new BadRequestException(problems);
   return { from, to, by: by as UseBy };
-}
-
-/** Whether a date names a day the calendar has. */
-function isCalendarDay(day: string): boolean {
-  try {
-    Temporal.PlainDate.from(day);
-    return true;
-  } catch {
-    return false;
-  }
 }
 
 /**

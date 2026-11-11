@@ -2,6 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
+import { chooseDate } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
@@ -175,16 +176,6 @@ function dayText(days: number): string {
 async function expectTotals(use: Locator, totals: Record<string, string>) {
   const list = use.locator('dl[aria-label="Totals"]');
   for (const [count, total] of Object.entries(totals)) await expect(field(list, count), count).toHaveText(total);
-}
-
-/** Picks a day in one of the card's calendars, going to its month and year first. */
-async function chooseDate(page: Page, use: Locator, name: string, chosen: Date) {
-  await use.getByRole("button", { name, exact: true }).click();
-  const calendar = page.getByRole("dialog");
-  await calendar.getByRole("combobox", { name: "Choose the Year" }).selectOption(String(chosen.getUTCFullYear()));
-  await calendar.getByRole("combobox", { name: "Choose the Month" }).selectOption({ label: new Intl.DateTimeFormat("en-US", { timeZone: "UTC", month: "short" }).format(chosen) });
-  await calendar.getByRole("button", { name: new RegExp(`, \\w+ ${chosen.getUTCDate()}(st|nd|rd|th), ${chosen.getUTCFullYear()}`) }).click();
-  await expect(calendar).toHaveCount(0);
 }
 
 /**

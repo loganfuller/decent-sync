@@ -1,8 +1,8 @@
 import { Controller, Get, Param, Query } from "@nestjs/common";
 import { AllowStaff } from "../accounts/guards.js";
 import { readMachineId } from "../machines/input.js";
-import { readPage } from "../pagination.js";
-import { MachineEventsService, type WorkflowEventView, type WorkflowSummaryView, summarised } from "./machine-events.service.js";
+import { readPage, readQueryPage } from "../pagination.js";
+import { type ActivityView, MachineEventsService, type WorkflowEventView, type WorkflowSummaryView, readActivityRequest, summarised } from "./machine-events.service.js";
 import { type MachineUse, readUseRequest } from "./machine-use.js";
 
 /** What a Machine is set up to do next and what it has been doing, as its tablet reported them. Staff read them too. */
@@ -48,6 +48,21 @@ export class MachineEventsController {
   machineStateEvents(@Param("id") id: string, @Query("limit") limit?: string, @Query("offset") offset?: string) {
     const machineId = readMachineId(id);
     return this.events.machineStateEvents(machineId, readPage(limit, offset));
+  }
+
+  /**
+   * What the Machine was doing over a time range (`from`, `to`), as
+   * `get_machine_activity` gives it, from the same service: its Workflow
+   * changes as a dial-in trail, its Loaded Recipes and its Machine States,
+   * or those of them named by `kind`, each a page of what was in effect at
+   * any time in the range, latest first, with how many there are in all. A
+   * bound is a date, for that day at the Location the Machine was at, or a
+   * time with its offset; `cause` keeps the Workflow changes of one cause.
+   */
+  @Get(":id/activity")
+  async activity(@Param("id") id: string, @Query() query: Record<string, unknown>): Promise<ActivityView & { limit: number; offset: number }> {
+    const page = readQueryPage(query);
+    return { ...(await this.events.activity(readMachineId(id), readActivityRequest(query), page)), ...page };
   }
 
   /**
