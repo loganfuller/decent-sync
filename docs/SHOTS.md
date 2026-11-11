@@ -888,10 +888,11 @@ with the Shot chosen under Compare with: nothing, the previous Shot on its
 Machine, or its Recipe's Reference Shot (#473), one at a time, its curves
 drawn behind the Shot's own and the same table beside them. The Reference
 Shot is the one the Recipe's read gives (`GET /api/recipes/:id`), read
-with the Shot and again when the Recipes the Shot is the Reference Shot of
-change; it is not offered for a Shot pulled with no Recipe, a Recipe with
-none, or the Reference Shot itself (`e2e/reference-shots.spec.ts`). Each Bean's, Bean Batch's, Grinder's, Profile's,
-Recipe's and Basket's page lists its Shots, ten at a time
+with the Shot, and again when the Shot becomes its own Recipe's Reference
+Shot or stops being it; it is not offered for a Shot pulled with no
+Recipe, a Recipe with none, or the Reference Shot itself
+(`e2e/reference-shots.spec.ts`). Each Bean's, Bean Batch's, Grinder's,
+Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's

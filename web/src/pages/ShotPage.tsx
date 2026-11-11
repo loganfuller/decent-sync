@@ -73,6 +73,8 @@ function ShotDetails({ id }: { id: string }) {
   const choicesMade = useRef(0);
   const [compareError, setCompareError] = useState<string>();
   const [referenceId, setReferenceId] = useState<string>();
+  // Why its Recipe's Reference Shot isn't offered, where its Recipe could not be read: apart from a comparison's own failure.
+  const [referenceError, setReferenceError] = useState<string>();
   const compareId = useId();
   // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
   const changed = useCallback(() => {
@@ -98,12 +100,14 @@ function ShotDetails({ id }: { id: string }) {
   }, [id]);
 
   // Its Recipe's Reference Shot, which the Recipe's own read gives: none for a Shot pulled with no Recipe, a Recipe with
-  // none, or one whose Reference Shot is hidden. Read again when the Recipes it is the Reference Shot of change, as its
-  // own Recipe may be among them, and then it has no other to compare with.
+  // none, or one whose Reference Shot is hidden. Read again when the Shot becomes its own Recipe's Reference Shot, or
+  // stops being it: while it is, it has no other to compare with, and a comparison with the one it had ends.
   const recipeId = data?.shot.recipe?.id;
   const isOwnReference = data?.shot.referenceOf?.some((recipe) => recipe.id === recipeId) ?? false;
   useEffect(() => {
     setReferenceId(undefined);
+    setReferenceError(undefined);
+    setComparing((choice) => (choice === "reference" ? "nothing" : choice));
     if (recipeId === undefined || isOwnReference) return;
     let current = true;
     api<{ recipe: Recipe }>("GET", `/recipes/${encodeURIComponent(recipeId)}`).then(
@@ -111,7 +115,7 @@ function ShotDetails({ id }: { id: string }) {
       (caught: unknown) => {
         // A Recipe deleted since is one with no Reference Shot.
         if (!current || (caught instanceof ApiError && caught.status === 404)) return;
-        setCompareError(caught instanceof Error ? caught.message : "Its Recipe's Reference Shot could not be read");
+        setReferenceError(caught instanceof Error ? caught.message : "The Recipe could not be loaded");
       },
     );
     return () => {
@@ -309,6 +313,11 @@ function ShotDetails({ id }: { id: string }) {
             </div>
           ) : (
             <p className="text-sm text-muted-foreground">There is no earlier Shot on {on} to compare it with.</p>
+          )}
+          {referenceError && (
+            <Alert variant="destructive">
+              <AlertDescription>Its Recipe's Reference Shot could not be read, so it is not offered here: {referenceError}</AlertDescription>
+            </Alert>
           )}
           {compareError && (
             <Alert variant="destructive">

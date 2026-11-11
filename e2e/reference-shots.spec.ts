@@ -132,7 +132,7 @@ test("a Viewer reads a Recipe's Reference Shot and the Recipes a Shot is that of
   });
 });
 
-test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, with the comparison beside them, but not for the Reference Shot itself or a Recipe with none", async ({ page }) => {
+test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, with the comparison beside them, but not for the Reference Shot itself, a Recipe with none or one it can't read", async ({ page }) => {
   // The Ethiopia's Reference Shot is the first Shot on its Machine: it has none before it, and is not compared with itself.
   await page.goto(`/shots/${SHOT}`);
   const curves = page.getByRole("region", { name: "Curves" });
@@ -180,11 +180,21 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, w
   await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
   await expect(comparison).toHaveCount(0);
 
-  // The Recipe's Reference Shot cleared, a Shot of it is offered only the previous one.
+  // The Recipe's Reference Shot cleared, a Shot of it is offered only the previous one, once its Recipe is read.
   expect((await page.request.put(`/api/recipes/${ethiopiaId}/reference-shot`, { data: { shotId: null } })).status()).toBe(200);
+  const recipeRead = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/recipes/${ethiopiaId}`);
   await page.reload();
+  await recipeRead;
   await expect(choice.getByRole("radio", { name: "The previous Shot on Uptown 1" })).toBeVisible();
   await expect(choice.getByRole("radio", { name: "Its Recipe's Reference Shot" })).toHaveCount(0);
+
+  // Its Recipe unreadable, the page says why its Reference Shot isn't offered, apart from the comparison it still makes.
+  await page.route(`**/api/recipes/${ethiopiaId}`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
+  await page.reload();
+  await expect(curves.getByRole("alert")).toHaveText("Its Recipe's Reference Shot could not be read, so it is not offered here: Internal server error");
+  await choice.getByRole("radio", { name: "The previous Shot on Uptown 1" }).check();
+  await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
+  await expect(curves.getByRole("alert")).toHaveCount(1);
 });
 
 /** The ids of the two Recipes the first test made the Shot the Reference Shot of. */
