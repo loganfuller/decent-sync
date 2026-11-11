@@ -5,13 +5,14 @@ import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-t
 import { chooseDate } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { rows } from "./support/locators.js";
+import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
 // A Machine's activity on its page (#476), as an Admin: the list for today,
 // with a Recipe loaded and a grind changed in its dial-in trail, its Loaded
-// Recipes and Machine States, another day chosen, and a list paged. A
-// simulated tablet running the built plugin and DYE2, as recorded in
+// Recipes and Machine States, another day chosen, a list paged, and one
+// that shrinks under the page shown. A simulated tablet running the built plugin and DYE2, as recorded in
 // server/test/fixtures/decaid/dye2-v0.1.26/, reports yesterday's Machine
 // State changes with its plugin's clock set to each change's time, then has
 // the Brazil's recipe applied in DYE2 and its grind changed as the spec
@@ -65,6 +66,7 @@ const YESTERDAY: [state: string, substate: string, at: string][] = [
 
 let machineId: string;
 let recipeId: string;
+let tablet: SimulatedTablet;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
@@ -163,6 +165,41 @@ test("another day is chosen from a calendar, its Machine States a page at a time
   await expect(rows(activity.getByRole("table", { name: "Loaded Recipes that day" }))).toHaveCount(1);
 });
 
+test("a trail that shrinks to end before the page shown, as a change undone within 5 seconds leaves it, goes back to its last page", async ({ page }) => {
+  type Trail = { workflowChanges: { total: number } };
+  const total = async () => ((await (await page.request.get(`/api/machines/${machineId}/activity?kind=workflowChanges&from=${encodeURIComponent(at(0, 0))}`)).json()) as Trail).workflowChanges.total;
+  /** The grind changed with the plugin's clock that far on from now, so each change is an entry of its own unless within 5 s of the last. */
+  const grind = async (setting: string, aheadMs: number, entries: number) => {
+    tablet.setPluginClockOffset(aheadMs);
+    await tablet.changeSettings({ context: { grinderSetting: setting } });
+    await expect.poll(total).toBe(entries);
+  };
+  // Seventeen more grind changes, a minute apart: with the three there were, 20 entries, which is one page.
+  for (let n = 1; n <= 17; n++) await grind((3 + n / 10).toFixed(1), n * 60_000, 3 + n);
+
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
+  await page.goto(`/machines/${machineId}`);
+  const activity = page.getByRole("region", { name: "Activity" });
+  const trail = activity.getByRole("table", { name: "Dial-in trail" });
+  await expect(rows(trail)).toHaveCount(20);
+  await expect(activity.getByRole("button", { name: "Older" })).toHaveCount(0);
+
+  // A 21st, which the second page holds the oldest entry for.
+  const dialled = Date.now();
+  await grind("9.9", 18 * 60_000, 21);
+  await afterDetailsPolls(page, () => expect(activity.getByText("1–20 of 21")).toBeVisible({ timeout: CHECK_MS }));
+  await activity.getByRole("button", { name: "Older" }).click();
+  await expect(activity.getByText("21–21 of 21")).toBeVisible();
+  await expect(rows(trail).getByRole("cell").nth(1)).toHaveText("Workflow in effect");
+
+  // Undone 2 s later by the plugin's clock: the two are one entry that changed nothing, which the trail drops.
+  await grind("4.7", 18 * 60_000 + 2_000 - (Date.now() - dialled), 20);
+  await afterDetailsPolls(page, () => expect(rows(trail)).toHaveCount(20, { timeout: CHECK_MS }));
+  await expect(rows(trail).first().getByRole("cell").nth(2)).toHaveText("Grind setting: 4.6 to 4.7");
+  await expect(activity.getByRole("button", { name: "Newer" })).toHaveCount(0);
+});
+
 /** A time today as the lists show it under today, at the Lab: to the second, with the Lab's zone. */
 const TODAY_AT_THE_LAB = new RegExp(`^\\d+:\\d\\d:\\d\\d [AP]M ${ZONE_NAME.replace("+", "\\+")}$`);
 
@@ -183,12 +220,15 @@ async function adopt(page: Page, name: string, locationId: string): Promise<stri
   const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
   const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
   expect(moved.status()).toBe(201);
-  const tablet = SimulatedTablet.load({
-    settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
-    api: recordedDye2MainTablet(SERIAL, "Activity"),
-    dye2: new SimulatedDye2(),
-    timeScale: 50,
-  });
+  // Kept for the last test, which has more changed on it.
+  tablet = server.keep(() =>
+    SimulatedTablet.load({
+      settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 },
+      api: recordedDye2MainTablet(SERIAL, "Activity"),
+      dye2: new SimulatedDye2(),
+      timeScale: 50,
+    }),
+  );
   await tablet.waitForLog(/^Connected to /);
   const read = async <T>(path: string) => (await (await page.request.get(`/api/machines/${machine.id}${path}`)).json()) as T;
 

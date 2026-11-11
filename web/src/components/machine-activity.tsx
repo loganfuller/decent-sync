@@ -1,4 +1,4 @@
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LoadedRecipeLink } from "@/components/loaded-recipes";
@@ -56,8 +56,8 @@ export function MachineActivityCard({ machine }: { machine: Machine }) {
             one source are one entry. A change made by the tablet may be a barista's, its skin's or DYE2's, which can't be told apart.
           </p>
           <p>
-            Each list ends with what was in effect as the day began, which may date from before it: for the trail, the Workflow whole. A Machine State lasts until
-            the next one its tablet reports.
+            Where its tablet had reported any by then, each list ends with what was in effect as the day began, which dates from before it. The trail's last entry
+            is a Workflow whole: that one, or else the first of the day. A Machine State lasts until the next one its tablet reports.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -99,6 +99,13 @@ function ActivityList({ machineId, kind, day, when }: { machineId: string; kind:
   const page = workflowChanges ?? loadedRecipes ?? machineStates;
   const first = data ? data.offset + 1 : 0;
   const last = data && page ? data.offset + page.entries.length : 0;
+  // A list that shrank to end before the page shown, as when a change is undone within 5 seconds and so leaves the
+  // trail, goes back to its last page, rather than show none of it with no way back.
+  const end = page?.total;
+  const read = data?.offset;
+  useEffect(() => {
+    if (end !== undefined && read !== undefined && read > 0 && read >= end) setOffset(Math.max(0, Math.ceil(end / PAGE_SIZE) - 1) * PAGE_SIZE);
+  }, [end, read]);
 
   return (
     <div className="grid gap-3">
