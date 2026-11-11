@@ -13,13 +13,15 @@ import {
   trendNumber,
   trendParam,
   trendPoints,
+  trendRows,
   untimedShots,
 } from "../src/lib/shot-trend";
 
 // The Shots list's trend (#470): the number and bucket its address keeps,
 // and a group's buckets, as the REST API gives them, as the points of a
 // chart, the marks of its time axis and the words of its tooltips and
-// table.
+// table; and several groups' points as the rows of one chart, a line for
+// each (#474).
 
 const counts = (shots: number, cleaning = 0) => ({ shots, unfinished: 0, cleaningAndCalibration: cleaning, awaitingValues: 0 });
 const number = (shots: number, median: number | null, p25 = median, p75 = median) => ({ shots, median, p25, p75 });
@@ -81,6 +83,33 @@ describe("a group's buckets as a trend's points", () => {
   it("counts the Shots whose time is unknown, each kind of them, which are on no chart", () => {
     expect(untimedShots(buckets)).toBe(4);
     expect(untimedShots(buckets.slice(0, 3))).toBe(0);
+  });
+});
+
+describe("several lines' points as one chart's rows", () => {
+  const point = (start: string, value: number) => ({ start, at: dayNumber(start), value, band: [value, value] as [number, number], shots: 1, covered: 1 });
+  const left = [point("2026-02-10", 24), point("2026-02-12", 25)];
+  const right = [point("2026-02-09", 26), point("2026-02-12", 27)];
+
+  it("gives a row for each day any line has a point of, oldest first, each line's point in the lines' order and none where it has none", () => {
+    expect(trendRows([left, right])).toEqual([
+      { start: "2026-02-09", at: 20493, points: [undefined, right[0]] },
+      { start: "2026-02-10", at: 20494, points: [left[0], undefined] },
+      { start: "2026-02-12", at: 20496, points: [left[1], right[1]] },
+    ]);
+  });
+
+  it("gives one line's points as its rows, a line with no point a place in each row, and no rows of no points", () => {
+    expect(trendRows([left])).toEqual([
+      { start: "2026-02-10", at: 20494, points: [left[0]] },
+      { start: "2026-02-12", at: 20496, points: [left[1]] },
+    ]);
+    expect(trendRows([[], left]).map((row) => row.points)).toEqual([
+      [undefined, left[0]],
+      [undefined, left[1]],
+    ]);
+    expect(trendRows([[], []])).toEqual([]);
+    expect(trendRows([])).toEqual([]);
   });
 });
 

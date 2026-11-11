@@ -2,9 +2,10 @@ import type { SummaryBucket, SummaryNumber } from "@/lib/api";
 import { bucketTitle } from "./machine-use";
 import { MEDIAN_TEXT, NUMBERS, type NumberName, shareText } from "./shot-summary";
 
-// A Shot Summary's trend (#470) as the Shots list charts it: the pure parts,
-// which read the address's number and bucket, and put a group's buckets, as
-// the REST API gives them, on a time axis and into words.
+// A Shot Summary's trend (#470) as the Shots list charts it, and the Recipe
+// page a line for each Machine (#474): the pure parts, which read the
+// address's number and bucket, and put each group's buckets, as the REST
+// API gives them, on a time axis and into words.
 
 /** The numbers a trend can chart: each a summary gives as a median or a share, so not the last step, which is a count of Shots by step. */
 export type TrendNumber = Exclude<NumberName, "lastStep">;
@@ -100,6 +101,33 @@ export function trendPoints(buckets: readonly SummaryBucket[], number: TrendNumb
   });
 }
 
+/**
+ * A day or week of a trend of several lines, as its chart reads one: `at`
+ * and `start` as a point's, and each line's point of it, in the lines'
+ * order, none for a line with no value then.
+ */
+export interface TrendRow {
+  start: string;
+  at: number;
+  points: (TrendPoint | undefined)[];
+}
+
+/**
+ * The lines of a trend, each its points, as the rows of one chart, oldest
+ * first: one for each day or week any line has a point of.
+ */
+export function trendRows(lines: readonly (readonly TrendPoint[])[]): TrendRow[] {
+  const rows = new Map<number, TrendRow>();
+  lines.forEach((points, line) => {
+    for (const point of points) {
+      const row = rows.get(point.at) ?? { start: point.start, at: point.at, points: lines.map(() => undefined) };
+      row.points[line] = point;
+      rows.set(point.at, row);
+    }
+  });
+  return [...rows.values()].sort((a, b) => a.at - b.at);
+}
+
 /** How many Shots a group's buckets hold whose time is unknown, which are in no day or week, so on no chart. */
 export function untimedShots(buckets: readonly SummaryBucket[]): number {
   const { shots, unfinished, cleaningAndCalibration } = buckets.find((bucket) => bucket.start === null)?.counts ?? { shots: 0, unfinished: 0, cleaningAndCalibration: 0 };
@@ -111,7 +139,7 @@ export function untimedShots(buckets: readonly SummaryBucket[]): number {
  * last, or, for one point, a day or week either side of it, so it sits in
  * the middle.
  */
-export function axisSpan(points: readonly TrendPoint[], bucket: Bucket): [number, number] {
+export function axisSpan(points: readonly Pick<TrendPoint, "at">[], bucket: Bucket): [number, number] {
   const [first, last] = [points[0]?.at ?? 0, points.at(-1)?.at ?? 0];
   const step = bucket === "week" ? 7 : 1;
   return first === last ? [first - step, last + step] : [first, last];

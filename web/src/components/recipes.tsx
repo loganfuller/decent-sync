@@ -8,6 +8,7 @@ import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
+import { RecipeTodayCard, RecipeTrendCard } from "@/components/recipe-numbers";
 import { ReferenceShotCard } from "@/components/reference-shots";
 import { ArchiveButton, type Attribute, DeleteButton, FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
@@ -1330,7 +1331,8 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
 }
 
 /**
- * One Recipe: where it is, its fields, its Reference Shot, its open
+ * One Recipe: where it is, its fields, its Reference Shot, how it is
+ * pulling, today on each Machine and over the last 30 days, its open
  * Conflicts and its history. An Admin, or Staff working at its Location,
  * edits it, moves it to another slot or takes it out of its slot, clears its
  * Reference Shot, and Archives or restores it; an Admin, or Staff, copies it
@@ -1536,6 +1538,10 @@ export function RecipeDetails({ id }: { id: string }) {
       </Card>
 
       <ReferenceShotCard recipe={recipe} mayChange={mayChange} onChanged={changed} />
+
+      <RecipeTodayCard recipe={recipe} />
+
+      <RecipeTrendCard recipe={recipe} />
 
       <RecipeSettingsCard content={content} />
 

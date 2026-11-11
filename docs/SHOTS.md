@@ -556,7 +556,9 @@ apart. Ticket [#473](https://github.com/loganfuller/decent-sync/issues/473)
 gives a group by Recipe its Recipe's Reference Shot. Ticket [#470](https://github.com/loganfuller/decent-sync/issues/470)
 buckets a group's Shots by day or week, in the REST route and the tool, and
 charts one number of them as a trend on the Shots list. As the list has no
-grouping, its trend is one line, of the Shots its filters find.
+grouping, its trend is one line, of the Shots its filters find. Ticket [#474](https://github.com/loganfuller/decent-sync/issues/474)
+shows a Recipe's Shots grouped by Machine on its page, today's and the
+last 30 days' by day, a line for each Machine, from this route alone.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -958,10 +960,67 @@ says how many there are. The card follows the filters and loads again
 every 30 s; what was read last stays, faded, until the next arrives. It is
 one line, of the Shots the filters find: the list has no grouping, as the
 owner chose for the Summary card on 2026-11-10, so a line for each group
-waits for a page that has groups, as the Recipe page's trend by Machine
-(#474). During a deploy the previous release's instance knows no `bucket`
-and gives no buckets, of which nothing is drawn. `e2e/shot-trend.spec.ts`
-covers it. `/shots/:id` shows a Shot's curves (pressure,
+is drawn only by a page that has groups, the Recipe page's trend by
+Machine (#474, below). During a deploy the previous release's instance
+knows no `bucket` and gives no buckets, of which nothing is drawn.
+`e2e/shot-trend.spec.ts` covers it.
+
+A Recipe's page (`/library/recipes/:id`) shows how it is pulling, in two
+cards under its Reference Shot (`web/src/components/recipe-numbers.tsx`,
+#474), both open, each a read of `GET /api/shots/summary` filtered by the
+Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
+- **Today** asks for the Recipe's Location's day (`from` and `to` the same
+  date, by its time zone's wall clock now, or UTC's for a Recipe at no
+  Location) grouped by `recipe,machine`, with the default numbers: a row
+  for each Machine that pulled it, with its count of Shots, the Unfinished
+  and the cleaning or calibration Shots beside it, the median duration and
+  yield against target, each with the middle half's range, and the share
+  stopped on weight. Grouping by Recipe too brings the Reference Shot's own
+  numbers with each group, and its duration and yield against target are
+  the table's last row, shown while the summary's reference is the one the
+  page's Recipe names, so one cleared on the page goes at once. A Machine's
+  name opens its page, and its count the Shots list with the Recipe, the
+  Machine and the day as filters.
+- **Trend** asks for the 30 days that end with that day, grouped by
+  `machine` and bucketed by day, with `numbers` duration, yield against
+  target and grind setting at once, so choosing another charts it without
+  another read. The number charted is kept in the page's address as
+  `trend`, duration as none. It is drawn by the chart the Shots list's
+  trend uses (`TrendChart` in `web/src/components/shot-trend.tsx`), given a
+  line for each group: each Machine's median as a line with its middle
+  half's band, in a color of its own from the data visualization palette's
+  eight categorical slots, in the summary's order of Machines, by name,
+  the Machines named beside their colors under the chart, in the tooltip of
+  a day and in the table Show the numbers opens (`trendRows` in
+  `web/src/lib/shot-trend.ts` puts the lines' points into one chart's
+  rows). The time axis spans the 30 days whatever days have Shots. A
+  Machine's name under the chart opens the Shots list with the Recipe, the
+  Machine and the 30 days as filters, and `trend` the number charted, so
+  the list's own trend shows the same. The read asks for eight groups, as
+  many as the chart has colors; a line under the chart says so where more
+  Machines pulled the Recipe, as one under Today's table does past the 100
+  groups a page holds.
+- A day here is the Recipe's Location's, and the Shots of it are those the
+  date filters find, each by its own Location's time zone, as a bucket's
+  are: a Shot of the Recipe pulled at another Location, which a corrected
+  Location History can bring, is counted in that Location's day of the same
+  date.
+- A Recipe with no Shots in the period says so in each card. A grind
+  setting is a number of the summary only where its whole text is a decimal
+  number, so a Recipe whose Shots recorded text, such as "1.1.0", has no
+  grind trend: the chart says none of the Shots has a grind setting that is
+  a number.
+- The latest release has no summary route (ADR-0025), so its instance,
+  answering during a deploy, gives each card an error, which the next read
+  the new release answers clears.
+
+`web/src/lib/recipe-numbers.ts` holds the pure parts (the days, the number
+an address names, the Shots list's address for a Machine), with
+`web/test/recipe-numbers.test.ts`, and `e2e/recipe-numbers.spec.ts` covers
+the cards with a Recipe's Shots stored through simulated tablets on two
+Machines over a month.
+
+`/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
 with the targets its Machine reported),
 from 0 s at the first sample after its Preheat, which is shaded and
