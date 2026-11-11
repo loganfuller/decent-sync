@@ -470,9 +470,10 @@ tickets'.
     value. One or two Shots give the same; `shots` says how little it rests
     on.
   - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
-    reason (`stopReason`, not blank, as the list reads one), and the part of
-    them, from 0 to 1,
-    whose reason is `targetWeight`; `share` is null where none recorded one.
+    reason (`stopReason`, with more in it than spaces, tabs and line ends;
+    Decaid writes one of its stop reasons' names or nothing), and the part
+    of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
+    where none recorded one.
 - **Worked out when read,** from the Shot's columns and its record, with
   nothing stored, so a Shot's edit shows in the next summary. Differences
   are taken in decimal, as the columns print, so 35.9 less 36 is -0.1. The

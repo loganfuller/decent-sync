@@ -64,7 +64,13 @@ const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' -
  */
 const MAX_GRAMS = 1e307;
 
-/** What a stop reason of nothing else is blank by, as the Shots list reads one (`recordedText`): spaces, tabs and line ends. */
+/**
+ * What a stop reason of nothing else is blank by: spaces, tabs and line
+ * ends. Decaid writes one of its stop reasons' names or nothing, so this
+ * follows the Shots list's reading of one (`recordedText`) no further: not
+ * into Unicode's other spaces, nor a value that is no text, which counts as
+ * recorded by its text.
+ */
 const BLANK = " \t\n\r\f\v";
 
 interface SummaryRow {
