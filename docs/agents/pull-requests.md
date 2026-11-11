@@ -1,6 +1,6 @@
 # Pull requests
 
-Open a pull request only when asked (`AGENTS.md`). Its description says what changed and why, how it was verified, and what it does not cover.
+Open a pull request only when asked (`AGENTS.md`). Its description says what changed and why, how it was verified, and what it does not cover. Its CI run is the change's full test run: before pushing, run what covers the change (`docs/AI_BUILD_NOTES.md`, Running a subset), and after each push read the run of the commit just pushed.
 
 Branch protection on `main` requires CI's `ci` check, which passes once every other job has, and binds admins. On a pull request that changes only docs (anything under `docs/`, and Markdown other than `UPGRADING.md` and any in `decent-sync.reaplugin/`, which the plugin ZIP packs), every job but `changes` and `ci` skips, so its run passes within a minute. A cancelled run on an older commit was superseded by a newer push, not failed: read the newest run.
 

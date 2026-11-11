@@ -10,11 +10,11 @@ import { READ } from "../connected-apps/oauth.js";
 import { type ChangeView, sharingStatus } from "../library/sharing-status.js";
 import type { TrailEntry } from "../machine-events/dial-in-trail.js";
 import type { LoadedRecipeView } from "../machine-events/loaded-recipes.js";
-import { type ActivityKind, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
+import { ACTIVITY_KINDS, type ActivityPage, MachineEventsService } from "../machine-events/machine-events.service.js";
 import { DEFAULT_USE_DAYS, MAX_USE_DAYS, USE_BYS } from "../machine-events/machine-use.js";
 import { workflowSummary } from "../machine-events/workflow-summary.js";
 import { readMachineId } from "../machines/input.js";
-import { rangeBound, staysOf, timeZoneAt } from "../machines/machine-days.js";
+import { machineRange, staysOf, timeZoneAt } from "../machines/machine-days.js";
 import { type MachineView, MachinesService } from "../machines/machines.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
@@ -172,8 +172,6 @@ const machineOutput = z.object({
 });
 
 export const machineId = z.string().describe("The Machine's id, as list_machines gives it.");
-
-const ACTIVITY_KINDS = ["workflowChanges", "loadedRecipes", "machineStates"] as const satisfies readonly ActivityKind[];
 
 const activityInput = z.object({
   machineId,
@@ -523,14 +521,8 @@ export class MachinesTools {
   })
   async getMachineActivity(input: z.infer<typeof activityInput>): Promise<z.infer<typeof activityOutput>> {
     const machine = await this.machines.get(readMachineId(input.machineId));
-    const range = { from: boundOf(input.from, machine, false), to: boundOf(input.to, machine, true) };
-    // PostgreSQL has no year 0, and doesn't parse the six-digit year toISOString writes past 9999 or before 1.
-    if ([range.from, range.to].some((end) => end && (end.getUTCFullYear() < 1 || end.getUTCFullYear() > 9999))) {
-      throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
-    }
-    if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
-    const { limit, offset } = input;
-    const activity = await this.events.activity(machine.id, range, { limit, offset }, input.kinds ?? ACTIVITY_KINDS, { cause: input.cause });
+    const { from, to, kinds, cause, limit, offset } = input;
+    const activity = await this.events.activity(machine.id, { from, to, kinds, cause }, { limit, offset });
     const zone = zoneOf(machine);
     const paged = <T, R>(list: ActivityPage<T> | undefined, view: (entry: T) => R) =>
       list && { ...pageOf(list.total, offset, list.entries.length), entries: list.entries.map(view) };
@@ -592,11 +584,7 @@ export class MachinesTools {
   async listSettingsHistory(input: z.infer<typeof historyInput>, context: McpContext): Promise<z.infer<typeof historyOutput>> {
     const { limit, offset } = input;
     const machine = await this.machines.get(readMachineId(input.machineId));
-    const range = { from: boundOf(input.from, machine, false), to: boundOf(input.to, machine, true) };
-    if ([range.from, range.to].some((end) => end && (end.getUTCFullYear() < 1 || end.getUTCFullYear() > 9999))) {
-      throw new BadRequestException("Times must be in the years 1 to 9999, in UTC");
-    }
-    if (range.from && range.to && range.from >= range.to) throw new BadRequestException("Choose an end after the start");
+    const range = machineRange(input.from, input.to, staysOf(machine.locationHistory));
     const filters = { collections: input.collections, from: range.from ?? undefined, to: range.to ?? undefined, includeBrief: input.includeBrief };
     const { changes, total } = await this.history.changes(machine.id, filters, { limit, offset }, callerOf(context).scope);
     const zone = zoneOf(machine);
@@ -668,11 +656,6 @@ export function zoneOf(machine: MachineView): Zone {
 
 function zoneMaybe(zone: Zone, at: string | null): string | null {
   return at === null ? null : zone(at);
-}
-
-/** A bound of a range of the Machine's activity as a moment (`rangeBound`); null for none. */
-function boundOf(bound: string | undefined, machine: MachineView, end: boolean): Date | null {
-  return bound === undefined ? null : rangeBound(bound, staysOf(machine.locationHistory), end);
 }
 
 function listed(machine: MachineView, zone: Zone): z.infer<typeof listedMachine> {

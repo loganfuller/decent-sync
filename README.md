@@ -124,6 +124,11 @@ Each server has one owner: a household, or a business with all of its sites.
   spent in each Machine State: idle, asleep, needing water and the rest. A
   day is its Location's own. For now, a Machine whose tablet was off counts
   as in its last state until the tablet is back.
+- **What happened, day by day.** Each Machine's page lists a chosen day's
+  activity, today's unless you choose another: its dial-in trail, each
+  Recipe loaded or unloaded and what was changed between them, from what to
+  what and by whom, with links to the Recipe, Profile, Bean Batch, Grinder
+  and Basket named; the Recipes it had loaded; and its Machine States.
 - **Remote settings.** While a Machine's tablet is connected, edit the
   Machine's settings, wake schedules included, and the tablet's Decaid
   settings. Each Settings Edit is listed with who made it and what came of it.
