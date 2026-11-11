@@ -56,11 +56,11 @@ export function last(frames: LiveFixtureFrame[], state: string, substate: string
  * Preheat and preinfusion, up to its first snapshot of pouring. It pauses
  * just past the first snapshot of each until the card's Machine State shows
  * it. The server relays a Machine's frames one at a time, the latest of each
- * source waiting its turn (ADR-0024), so when it falls behind, as on a loaded
- * machine, the page misses some snapshots, but never the last before a pause
- * (#490). A shot's axis is read from the snapshots a replay pauses past:
- * Preheat's first, where it starts; preinfusion's first, at 0 s; and the last
- * before pouring, where it ends.
+ * source waiting its turn (ADR-0024). So when it falls behind, as on a loaded
+ * machine, it skips each snapshot that a later one replaces as it waits. The
+ * last before a pause has nothing to replace it (#490). A shot's axis is read
+ * from the snapshots a replay pauses past: Preheat's first, where it starts;
+ * preinfusion's first, at 0 s; and the last before pouring, where it ends.
  */
 export async function playToPouring(replay: LiveReplay, frames: LiveFixtureFrame[], card: Locator): Promise<void> {
   const state = field(card.getByRole("group", { name: "Machine State" }), "Machine State");

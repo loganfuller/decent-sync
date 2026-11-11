@@ -15,9 +15,10 @@ import { expectTip } from "./support/tooltips.js";
 // replays the test tablet's DE1Pro's recorded shot
 // (server/test/fixtures/decaid/de1pro-live-v0.9.0/, #259), its scale on, SPEED
 // times as fast as recorded (e2e/support/live-curves.ts), in parts where a test
-// looks at what the card shows. On a loaded machine the page may miss any
-// snapshot but the last before a pause, so a replay pauses just past each one
-// an axis is read from (`playToPouring`). Serials are made up.
+// looks at what the card shows. On a loaded machine the server skips a
+// snapshot that a later one replaces while it waits to be relayed, so a replay
+// pauses just past each one an axis is read from (`playToPouring`). Serials
+// are made up.
 const server = useFreshServer();
 test.use({ timezoneId: "America/New_York" });
 
