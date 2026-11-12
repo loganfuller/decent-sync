@@ -116,11 +116,18 @@ async function loadedToday(page: Page): Promise<Locator> {
   return activity.getByRole("table", { name: "Loaded Recipes that day" });
 }
 
-/** A Machine at the Location, its tablet connected with that API and running DYE2, polling every 5 s of its time, which runs 50 times faster here. */
+/**
+ * A Machine at the Location, its tablet connected with that API and running DYE2, polling every 5 s of its time, which
+ * runs 50 times faster here. It is there since long before, so its days are the Location's: a Machine put there only
+ * now has today read in UTC, the zone it was in at noon UTC, which from 00:00 to 04:00 UTC is over where the Location
+ * is still on the day before (#499).
+ */
 async function tabletAt(page: Page, name: string, location: { id: string }, api: Record<string, unknown>): Promise<{ id: string; tablet: SimulatedTablet }> {
-  const response = await page.request.post("/api/machines", { data: { name, locationId: location.id } });
+  const response = await page.request.post("/api/machines", { data: { name } });
   expect(response.status()).toBe(201);
   const { token, machine } = (await response.json()) as { token: string; machine: { id: string } };
+  const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId: location.id, effectiveFrom: "2025-01-01T00:00:00Z" } });
+  expect(moved.status()).toBe(201);
   const tablet = SimulatedTablet.load({ settings: { ...settingsFor({ serverUrl: server.url(), token }), PollSeconds: 5 }, api, dye2: new SimulatedDye2(), timeScale: 50 });
   await tablet.waitForLog(/^Connected to /);
   return { id: machine.id, tablet };
