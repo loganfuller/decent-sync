@@ -283,10 +283,11 @@ describe("the latest release beside the change", () => {
       }
     });
 
-    // The latest release knows none of the columns that keep what a Shot's samples show of how it went (#467), and
-    // stores a Shot at its own curves revision, below the change's. Each is a real Shot of 4 samples under another id:
-    // its scale first read 1 g or more 21.45 s into its profile, which ended in its Pressure Decline step at 3.216 g/s.
-    it("works out what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
+    // What a Shot's samples show of how it went (#467), of a Shot the latest release's server stored: that server works
+    // it out as it stores the Shot, or, where its curves revision is below the change's, the change's refresh does. Each
+    // is a real Shot of 4 samples under another id: its scale first read 1 g or more 21.45 s into its profile, which
+    // ended in its Pressure Decline step at 3.216 g/s.
+    it("gives what a Shot's samples show once the latest release's server has stored it, and keeps it through an edit that server stores", async () => {
       const { tablet } = await connected("Measured, on the latest release", "latest release", "latest release");
       const shot = derivedShot("mixed-measured-shot");
       tablet.pullShot(shot);
@@ -294,12 +295,8 @@ describe("the latest release beside the change", () => {
       interface Measured { id: string; timeToFirstDrip: number | null; flowAtStop?: number | null; lastStep: { frame: number; name: string } | null; enjoyment: number | null }
       const read = async () => (await apis.change.get<{ shot: Measured }>(`/shots/${shot.id}`)).shot;
       const row = async () => (await apis.change.get<{ shots: Measured[] }>("/shots?limit=100")).shots.find((listed) => listed.id === shot.id);
-      // Until the change works them out, it gives neither stored value, and its row no step; its read gives that from its samples.
-      expect(await read()).toMatchObject({ timeToFirstDrip: null, flowAtStop: null, lastStep: { frame: 4, name: "Pressure Decline" } });
-      expect(await row()).toMatchObject({ timeToFirstDrip: null, lastStep: null });
-
-      // The change's instance ran its refresh as it started, before the Shot was pulled, and next runs it within the hour;
-      // another instance of the change runs it as it starts.
+      // Where the refresh is to work them out: the change's instance ran its own as it started, before the Shot was
+      // pulled, and next runs it within the hour; another instance of the change runs it as it starts.
       const later = await startTestServer({ env, sharing: servers["latest release"] });
       try {
         await expect.poll(async () => (await read()).timeToFirstDrip).toBe(21.45);
