@@ -1036,6 +1036,13 @@ export class SimulatedTablet {
    * answers. Given `devices`, the device list saying it is connected, such as
    * Decaid's recorded one (`machineDisconnects` in live-fixtures.ts),
    * Decaid's devices socket sends it first.
+   *
+   * The plugin reconnects when it finds the machine back after seeing it
+   * away, or reporting hardware it hasn't told the server (`checkHardware`
+   * in the plugin's connection.ts). The one update delivered here then went
+   * on the connection it left, and a Live View may never be sent it (#493):
+   * a test that waits for a machine frame sends another (`reportSnapshot`)
+   * after the next `liveStart`.
    */
   connectMachine(devices?: Record<string, unknown>): void {
     this.machineConnected = true;
