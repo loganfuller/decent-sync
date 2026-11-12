@@ -470,7 +470,8 @@ describe("the Live View", () => {
     alone.connectMachine(reconnected);
     await expect.poll(() => fromSockets(stream)).toContainEqual({ source: "devices", frame: reconnected });
     // The plugin reconnects to report the machine's hardware, and the snapshot sent as the machine connected may be lost
-    // with the connection it left (#493, `connectMachine`). One sent once the new connection is started reaches the viewer.
+    // with the connection it left (#493, `connectMachine`). Decaid goes on sending them several times a second, and one
+    // sent once the new connection is started reaches the viewer.
     await expect.poll(() => count(alone.delivered, "liveStart")).toBe(2);
     await seen(alone, [idle[0]!], stream);
 
