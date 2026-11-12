@@ -991,7 +991,8 @@ Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
   half's band, in a color of its own from the data visualization palette's
   eight categorical slots, in the summary's order of Machines, by name,
   the Machines named beside their colors under the chart, in the tooltip of
-  a day and in the table Show the numbers opens (`trendRows` in
+  a day, a row for each Machine so that eight fit over the chart, and in
+  the table Show the numbers opens (`trendRows` in
   `web/src/lib/shot-trend.ts` puts the lines' points into one chart's
   rows). The time axis spans the 30 days whatever days have Shots. A
   Machine's name under the chart opens the Shots list with the Recipe, the

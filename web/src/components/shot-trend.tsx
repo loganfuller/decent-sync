@@ -1,5 +1,5 @@
 import { ChevronDownIcon } from "lucide-react";
-import { useCallback, useId, useState } from "react";
+import { Fragment, useCallback, useId, useState } from "react";
 import { Link } from "react-router";
 import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
@@ -300,34 +300,51 @@ function restsOn(point: TrendPoint): string {
 
 /**
  * What a day or week held, shown as it is pointed at: its value, the middle
- * half's range, and how many Shots they rest on, or, of lines named, those
- * of each line that has a point of it, under its name.
+ * half's range, and how many Shots they rest on. Of lines named, each line
+ * that has a point of it is a row instead, its name beside its color, then
+ * its value, range and Shots, so a day eight lines share still fits the
+ * chart it is shown over.
  */
 function PointTip({ row, lines, of, number, bucket }: { row: TrendRow; lines: readonly TrendLine[]; of: string | undefined; number: TrendNumber; bucket: Bucket }) {
+  const frame = "grid min-w-44 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl";
+  const title = <div className="font-medium">{pointTitle(row.start, bucket)}</div>;
+  if (of !== undefined) {
+    return (
+      <div className={frame}>
+        {title}
+        <div className="grid grid-cols-[auto_auto_auto] items-center gap-x-3 gap-y-1">
+          {row.points.map((point, index) => {
+            if (!point) return null;
+            const text = pointText(point, number);
+            const shots = point.shots === point.covered ? shotsText(point.shots) : `${point.shots} of ${shotsText(point.covered)}`;
+            return (
+              <Fragment key={lines[index]!.id}>
+                <span className="flex items-center gap-1.5">
+                  <Swatch line={index} />
+                  {lines[index]!.name}
+                </span>
+                <span className="text-right font-medium tabular-nums">{text.value}</span>
+                <span className="text-muted-foreground tabular-nums">{text.range ? `${text.range} · ${shots}` : shots}</span>
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  const point = row.points[0];
+  if (!point) return null;
+  const text = pointText(point, number);
+  const terms = [[NUMBER_NAMES[number], text.value], ...(text.range ? [["Middle half", text.range]] : []), ["Shots", restsOn(point)]];
   return (
-    <div className="grid min-w-44 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-      <div className="font-medium">{pointTitle(row.start, bucket)}</div>
-      {row.points.map((point, index) => {
-        if (!point) return null;
-        const text = pointText(point, number);
-        const terms = [[NUMBER_NAMES[number], text.value], ...(text.range ? [["Middle half", text.range]] : []), ["Shots", restsOn(point)]];
-        return (
-          <div key={lines[index]!.id} className="grid gap-1.5">
-            {of !== undefined && (
-              <div className="flex items-center gap-1.5 font-medium">
-                <Swatch line={index} />
-                {lines[index]!.name}
-              </div>
-            )}
-            {terms.map(([term, value]) => (
-              <div key={term} className="flex justify-between gap-4">
-                <span className="text-muted-foreground">{term}</span>
-                <span className="font-medium tabular-nums">{value}</span>
-              </div>
-            ))}
-          </div>
-        );
-      })}
+    <div className={frame}>
+      {title}
+      {terms.map(([term, value]) => (
+        <div key={term} className="flex justify-between gap-4">
+          <span className="text-muted-foreground">{term}</span>
+          <span className="font-medium tabular-nums">{value}</span>
+        </div>
+      ))}
     </div>
   );
 }

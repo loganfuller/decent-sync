@@ -189,7 +189,7 @@ test("the trend charts the last 30 days by day, a line for each Machine with its
 
   // Pointed at, a day gives each Machine's: the Left's last mark is today's, which the Right has one of too.
   await duration.locator(".recharts-line-dot").nth(2).hover();
-  await expect(duration.locator(".recharts-tooltip-wrapper")).toHaveText(`${dayTitle(0)}Lab LeftDuration24.7 sMiddle half24.1–25.3Shots2Lab RightDuration23.5 sMiddle half23.5–23.5Shots1`);
+  await expect(duration.locator(".recharts-tooltip-wrapper")).toHaveText(`${dayTitle(0)}Lab Left24.7 s24.1–25.3 · 2 ShotsLab Right23.5 s23.5–23.5 · 1 Shot`);
 
   // Yield against target, kept in the page's address.
   await trend.getByRole("tab", { name: "Yield against target" }).click();
