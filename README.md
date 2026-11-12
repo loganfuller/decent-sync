@@ -91,7 +91,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/location-dark.png">
-  <img src="docs/images/location-light.png" alt="A Location's page: its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, and grinder setting, and the Recipe each of its two Machines has loaded">
+  <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with today's Shots of each Recipe on each of its two Machines; its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, and grinder setting; and the Recipe each Machine has loaded">
 </picture>
 
 <picture>
@@ -155,8 +155,13 @@ Each server has one owner: a household, or a business with all of its sites.
   milk's temperature.
 
 <picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
+  <img src="docs/images/overview-light.png" alt="The Overview's block for a Location: a column for each of its two Machines, with its status, Machine State, Loaded Recipe and last Shot, and a row for each Recipe pulled today, each cell giving the count of Shots, their median duration beside the Reference Shot's, their median yield against target and the share that stopped on weight">
+</picture>
+
+<picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/shot-dark.png">
-  <img src="docs/images/shot-light.png" alt="A Shot's pressure, flow, weight, weight flow and temperature curves over the previous Shot on its Machine, with a table comparing their grind setting, dose, yield, duration and peak pressure">
+  <img src="docs/images/shot-light.png" alt="A Shot's pressure, flow, weight, weight flow and temperature curves over its Recipe's Reference Shot, with a table comparing their grind setting, dose, yield, duration and peak pressure">
 </picture>
 
 ### Machines, from anywhere
@@ -355,7 +360,7 @@ for how to turn assistants off.
 
 ## Status
 
-Milestones 1 to 6 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
+Milestones 1 to 7 are released. See [all releases](https://github.com/loganfuller/decent-sync/releases).
 
 | Milestone | What it adds | Spec | Released |
 |---|---|---|---|
@@ -365,7 +370,7 @@ Milestones 1 to 6 are released. See [all releases](https://github.com/loganfulle
 | 4. [Machine management](https://github.com/loganfuller/decent-sync/milestone/4) | Settings Edits from the management interface, then each Machine's Live View. No remote commands such as sleep and wake. | [#220](https://github.com/loganfuller/decent-sync/issues/220), [#258](https://github.com/loganfuller/decent-sync/issues/258) | [v1.2.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.2.0), [v1.5.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.5.0) |
 | 5. [Rolling upgrades](https://github.com/loganfuller/decent-sync/milestone/5) | Each release runs beside the previous one. | [#277](https://github.com/loganfuller/decent-sync/issues/277) | [v1.4.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.4.0) |
 | 6. [Assistants](https://github.com/loganfuller/decent-sync/milestone/6) | AI assistants through an MCP endpoint, each approved as a Connected App, then answers sized for them, with more of each Machine and Shot. | [#405](https://github.com/loganfuller/decent-sync/issues/405) | [v1.7.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.7.0), [v1.8.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.8.0) |
-| 7. [Analytics](https://github.com/loganfuller/decent-sync/milestone/7) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) | Planned |
+| 7. [Analytics](https://github.com/loganfuller/decent-sync/milestone/7) | Shot Summaries by Recipe, Machine, Barista and more, with trends; an Overview of each Location; a Reference Shot for each Recipe; and each Machine's activity. | [#465](https://github.com/loganfuller/decent-sync/issues/465) | [v1.9.0](https://github.com/loganfuller/decent-sync/releases/tag/v1.9.0) |
 | 8. Monitoring | Noticing lost Shots, low water and dropped scale or Machine connections, with alerts. | | Planned |
 | 9. Calibration | Checks of stop-at-weight, flow and temperature. | | Planned |
 | 10. Stock | Deliveries, transfers, counts, and the coffee each Shot uses. | | Planned |

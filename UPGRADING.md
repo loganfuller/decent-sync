@@ -15,6 +15,37 @@ Releasing).
 
 ## Unreleased
 
+## 1.9.0
+
+### Stored Shots get their new numbers in the background
+
+This release keeps, with each Shot, what its measurements show of how it
+went: its time to first drip, the profile step it ended in, whether anything
+poured, and its last recorded weight with the flow at the stop. Nothing is
+needed. A Shot stored from now on has them at once. The Shots already stored
+get theirs in the background, 20 at a time, starting as the server does, so
+a large history takes a while. Until a Shot has them, a Shot Summary counts
+it as awaiting its numbers and as poured, and its row gives neither its time
+to first drip nor the step it ended in. While a deploy runs this release
+beside the previous one, a Shot an instance of the previous release stores
+gets them within the hour.
+
+### The home page is the Overview
+
+The management interface now opens on the Overview, a block for each
+Location. The Shots list, with the summary and trend above its rows, is
+under Shots as before. While a deploy runs this release beside the previous
+one, a summary or trend read that reaches an instance of the previous
+release shows an error, which the next read clears.
+
+### The Barista filter finds every spelling of a name
+
+A Barista is now a name without its case or the blanks around it, so
+"jules" and "Jules" are one choice in the Shots list's Barista filter, one
+group in a summary and one value for an assistant. Nothing is needed. A
+saved address or an assistant's filter naming one spelling finds the Shots
+of every spelling, so it may find more Shots than it did.
+
 ## 1.8.2
 
 ### Streamline v0.2.24 and DYE2 v0.1.36 are the minimums
