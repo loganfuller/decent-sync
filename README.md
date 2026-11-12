@@ -76,11 +76,12 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile is another than the Recipe's, and keeps who chose it in its
   history. It stays until someone chooses another or clears it, the Shots
   list marks it, and nothing changes on the tablets. The Recipe's other
-  Shots are read against it in three places: a Shot's page draws its curves
+  Shots are read against it in four places: a Shot's page draws its curves
   behind the Shot's own, the Overview gives its duration beside each
-  Machine's median, and a summary grouped by Recipe, through the REST API
-  or an assistant, gives its numbers beside the Recipe's. Nothing scores a
-  Shot against it.
+  Machine's median, the Recipe's page gives its duration and yield against
+  target under each Machine's numbers of today, and a summary grouped by
+  Recipe, through the REST API or an assistant, gives its numbers beside
+  the Recipe's. Nothing scores a Shot against it.
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -137,6 +138,18 @@ Each server has one owner: a household, or a business with all of its sites.
   one, their median yield against target and the share that stopped on
   weight, says how many were unfinished, and opens them in the Shots list.
   Each Location's page shows its own block.
+- **Each Recipe on its page.** A Recipe's page shows how it is pulling.
+  Today, by its Location's day, for each Machine that pulled it: the count
+  of Shots, their median duration and median yield against target, each
+  with the range the middle half fall in, the share that stopped on weight,
+  and how many were unfinished, with its Reference Shot's duration and
+  yield against target under them where it has one, so the Machine that is
+  off stands out. And the last 30 days by day, a line for each Machine with
+  its middle-half band, of its duration, its yield against target or its
+  grind setting, one at a time, so a coffee ageing or a grinder drifting
+  shows. A grind setting is charted where it is a number, so a Recipe whose
+  setting is text has no grind trend. A Machine's count of today, and its
+  name under the chart, open those Shots in the Shots list.
 - **Compared at a glance.** Open any Shot's curves beside the previous Shot on
   its Machine, or beside its Recipe's Reference Shot. Steam Records show the
   milk's temperature.

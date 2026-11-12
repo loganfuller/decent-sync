@@ -1,5 +1,6 @@
 import { ChevronDownIcon } from "lucide-react";
-import { useCallback, useId, useState } from "react";
+import { Fragment, useCallback, useId, useState } from "react";
+import { Link } from "react-router";
 import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -14,14 +15,50 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type BucketedGroup, type ShotSummary, type SummaryBucket, api } from "@/lib/api";
 import { bucketLabel, bucketTitle } from "@/lib/machine-use";
 import { NUMBER_NAMES, shotsText } from "@/lib/shot-summary";
-import { type Bucket, TREND_NUMBERS, TREND_UNITS, type TrendNumber, type TrendPoint, axisSpan, axisTicks, dateOf, pointText, pointTitle, trendPoints, untimedShots } from "@/lib/shot-trend";
+import {
+  type Bucket,
+  TREND_NUMBERS,
+  TREND_UNITS,
+  type TrendNumber,
+  type TrendPoint,
+  type TrendRow,
+  axisSpan,
+  axisTicks,
+  dateOf,
+  dayNumber,
+  pointText,
+  pointTitle,
+  trendPoints,
+  trendRows,
+  untimedShots,
+} from "@/lib/shot-trend";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
-// The trend's color, the data visualization palette's first categorical
-// slot, as the Shot page's curves draw the record shown: checked for color
-// vision deficiencies against the card's light and dark surfaces. There is
-// one series, which the chart's title names, so nothing is told by color.
-const CHART = { value: { label: "Median", theme: { light: "#2a78d6", dark: "#3987e5" } } } satisfies ChartConfig;
+// Each line's color, from the data visualization palette's eight categorical
+// slots, in its order, the first as the Shot page's curves draw the record
+// shown: each beside the next checked for color vision deficiencies against
+// the card's light and dark surfaces. Three of them are faint on the light
+// surface, so the numbers are in a table too, and each line is named beside
+// its color. One line alone is named by the chart's title, and nothing is
+// told by its color.
+const COLORS: readonly { theme: { light: string; dark: string }; swatch: string }[] = [
+  { theme: { light: "#2a78d6", dark: "#3987e5" }, swatch: "bg-[#2a78d6] dark:bg-[#3987e5]" },
+  { theme: { light: "#eb6834", dark: "#d95926" }, swatch: "bg-[#eb6834] dark:bg-[#d95926]" },
+  { theme: { light: "#1baf7a", dark: "#199e70" }, swatch: "bg-[#1baf7a] dark:bg-[#199e70]" },
+  { theme: { light: "#eda100", dark: "#c98500" }, swatch: "bg-[#eda100] dark:bg-[#c98500]" },
+  { theme: { light: "#e87ba4", dark: "#d55181" }, swatch: "bg-[#e87ba4] dark:bg-[#d55181]" },
+  { theme: { light: "#008300", dark: "#008300" }, swatch: "bg-[#008300]" },
+  { theme: { light: "#6250d6", dark: "#9085e9" }, swatch: "bg-[#6250d6] dark:bg-[#9085e9]" },
+  { theme: { light: "#e34948", dark: "#e66767" }, swatch: "bg-[#e34948] dark:bg-[#e66767]" },
+];
+
+/** The most lines one chart draws, each in a color of its own: a chart given more draws the first of them. */
+export const MOST_LINES = COLORS.length;
+
+const CHART = Object.fromEntries(COLORS.map(({ theme }, line) => [`line${line}`, { theme }])) satisfies ChartConfig;
+
+/** A line's color, as the chart's own style names it. */
+const colorOf = (line: number) => `var(--color-line${line})`;
 
 /** The most points each is marked with a dot at: a month by day. Beyond it dots would run together, and the line alone is drawn. */
 const MOST_MARKERS = 31;
@@ -107,7 +144,7 @@ export function ShotTrendCard({
             )}
             {loaded && buckets && (
               <div className={current ? "grid gap-4" : "grid gap-4 opacity-50"} aria-busy={!current}>
-                <TrendFigures buckets={buckets} number={loaded.number} bucket={loaded.bucket} />
+                <TrendChart lines={[{ id: "all", buckets }]} number={loaded.number} bucket={loaded.bucket} />
               </div>
             )}
           </TabsContent>
@@ -117,14 +154,49 @@ export function ShotTrendCard({
   );
 }
 
-/** A group's buckets as a trend of `number`: its chart, a note of any Shots in no day or week, and its numbers as a table on asking. */
-function TrendFigures({ buckets, number, bucket }: { buckets: readonly SummaryBucket[]; number: TrendNumber; bucket: Bucket }) {
-  const points = trendPoints(buckets, number);
-  const untimed = untimedShots(buckets);
+/**
+ * A line of a trend: a group's buckets, as a Shot Summary asked for by
+ * `bucket` gives them. `id` tells it from the chart's other lines. Where
+ * the chart says what its lines are `of`, `name` names it beside its color,
+ * and leads to `to`, as to the line's Shots in the Shots list.
+ */
+export interface TrendLine {
+  id: string;
+  name?: string;
+  to?: string;
+  buckets: readonly SummaryBucket[];
+}
+
+/**
+ * A trend of `number` by day or week: a chart of its lines, each a group's
+ * median with the band of its middle half, a note of any Shots in no day or
+ * week, and its numbers as a table on asking. One line is named by the
+ * chart's title. With what its lines are `of`, such as Machine, each is
+ * named beside its color under the chart, in its tooltips and in the table,
+ * the first `MOST_LINES` of them drawn. The time axis runs from the first
+ * day or week with a point to the last, or over `days`, where given, as the
+ * days the Shots were asked for.
+ */
+export function TrendChart({
+  lines: given,
+  of,
+  number,
+  bucket,
+  days,
+}: {
+  lines: readonly TrendLine[];
+  of?: string;
+  number: TrendNumber;
+  bucket: Bucket;
+  days?: { from: string; to: string };
+}) {
+  const lines = given.slice(0, MOST_LINES);
+  const rows = trendRows(lines.map((line) => trendPoints(line.buckets, number)));
+  const untimed = lines.reduce((shots, line) => shots + untimedShots(line.buckets), 0);
   const name = NUMBER_NAMES[number];
   const unit = TREND_UNITS[number];
   const share = number === "stoppedOnWeight";
-  const span = axisSpan(points, bucket);
+  const span = days ? ([dayNumber(days.from), dayNumber(days.to)] satisfies [number, number]) : axisSpan(rows, bucket);
 
   return (
     <>
@@ -132,11 +204,13 @@ function TrendFigures({ buckets, number, bucket }: { buckets: readonly SummaryBu
         <figcaption className="text-sm font-medium">
           {name} {unit && <span className="font-normal text-muted-foreground">({unit})</span>}
         </figcaption>
-        {points.length === 0 ? (
-          <p className="text-sm text-muted-foreground">Nothing to chart: none of these Shots has a value for it.</p>
+        {rows.length === 0 ? (
+          <p className="text-sm text-muted-foreground">
+            {number === "grindSetting" ? "Nothing to chart: none of these Shots has a grind setting that is a number." : "Nothing to chart: none of these Shots has a value for it."}
+          </p>
         ) : (
           <ChartContainer config={CHART} className="aspect-auto h-56 w-full">
-            <ComposedChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            <ComposedChart data={rows} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} />
               <XAxis
                 dataKey="at"
@@ -153,31 +227,70 @@ function TrendFigures({ buckets, number, bucket }: { buckets: readonly SummaryBu
               <YAxis width={44} tickLine={false} axisLine={false} domain={share ? [0, 100] : ["auto", "auto"]} tickFormatter={(value: number) => (share ? `${value}%` : String(value))} />
               <ChartTooltip
                 cursor={{ stroke: "var(--muted-foreground)", strokeOpacity: 0.5 }}
-                content={({ active, payload }) => (active && payload?.[0] ? <PointTip point={payload[0].payload as TrendPoint} number={number} bucket={bucket} /> : null)}
+                content={({ active, payload }) => (active && payload?.[0] ? <PointTip row={payload[0].payload as TrendRow} lines={lines} of={of} number={number} bucket={bucket} /> : null)}
               />
-              {!share && <Area dataKey="band" type="linear" stroke="none" fill="var(--color-value)" fillOpacity={0.15} activeDot={false} isAnimationActive={false} />}
-              <Line
-                dataKey="value"
-                type="linear"
-                stroke="var(--color-value)"
-                strokeWidth={2}
-                // Each day or week marked, ringed in the surface's color where dots meet the line, while there is room for them.
-                dot={points.length <= MOST_MARKERS ? { r: 4, fill: "var(--color-value)", stroke: "var(--card)", strokeWidth: 2 } : false}
-                activeDot={{ r: 5, fill: "var(--color-value)", stroke: "var(--card)", strokeWidth: 2 }}
-                isAnimationActive={false}
-              />
+              {/* Every band under every line. A line, and its band, run past a day or week it has no point of. */}
+              {!share &&
+                lines.map((line, index) => (
+                  <Area
+                    key={line.id}
+                    dataKey={(row: TrendRow) => row.points[index]?.band}
+                    type="linear"
+                    stroke="none"
+                    fill={colorOf(index)}
+                    fillOpacity={0.15}
+                    activeDot={false}
+                    connectNulls
+                    isAnimationActive={false}
+                  />
+                ))}
+              {lines.map((line, index) => (
+                <Line
+                  key={line.id}
+                  dataKey={(row: TrendRow) => row.points[index]?.value}
+                  type="linear"
+                  stroke={colorOf(index)}
+                  strokeWidth={2}
+                  // Each day or week marked, ringed in the surface's color where dots meet a line, while there is room for them.
+                  dot={rows.length <= MOST_MARKERS ? { r: 4, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 } : false}
+                  activeDot={{ r: 5, fill: colorOf(index), stroke: "var(--card)", strokeWidth: 2 }}
+                  connectNulls
+                  isAnimationActive={false}
+                />
+              ))}
             </ComposedChart>
           </ChartContainer>
         )}
       </figure>
+      {of !== undefined && (
+        <ul aria-label="Lines" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+          {lines.map((line, index) => (
+            <li key={line.id} className="flex items-center gap-1.5">
+              <Swatch line={index} />
+              {line.to === undefined ? (
+                line.name
+              ) : (
+                <Link to={line.to} className="underline underline-offset-4">
+                  {line.name}
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
       {untimed > 0 && (
         <p className="text-xs text-muted-foreground">
           {shotsText(untimed)} whose time is unknown {untimed === 1 ? "is" : "are"} in no day or week.
         </p>
       )}
-      {points.length > 0 && <Numbers points={points} number={number} bucket={bucket} />}
+      {rows.length > 0 && <Numbers rows={rows} lines={lines} of={of} number={number} bucket={bucket} />}
     </>
   );
+}
+
+/** A line's color, beside its name. */
+function Swatch({ line }: { line: number }) {
+  return <span aria-hidden className={`size-2.5 shrink-0 rounded-full ${COLORS[line]!.swatch}`} />;
 }
 
 /** How many Shots a point's value rests on: said of those its day's or week's numbers cover where some had no value. */
@@ -185,14 +298,48 @@ function restsOn(point: TrendPoint): string {
   return point.shots === point.covered ? String(point.shots) : `${point.shots} of ${point.covered}`;
 }
 
-/** What a day or week held, shown as it is pointed at: its value, the middle half's range, and how many Shots they rest on. */
-function PointTip({ point, number, bucket }: { point: TrendPoint; number: TrendNumber; bucket: Bucket }) {
+/**
+ * What a day or week held, shown as it is pointed at: its value, the middle
+ * half's range, and how many Shots they rest on. Of lines named, each line
+ * that has a point of it is a row instead, its name beside its color, then
+ * its value, range and Shots, so a day eight lines share still fits the
+ * chart it is shown over.
+ */
+function PointTip({ row, lines, of, number, bucket }: { row: TrendRow; lines: readonly TrendLine[]; of: string | undefined; number: TrendNumber; bucket: Bucket }) {
+  const frame = "grid min-w-44 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl";
+  const title = <div className="font-medium">{pointTitle(row.start, bucket)}</div>;
+  if (of !== undefined) {
+    return (
+      <div className={frame}>
+        {title}
+        <div className="grid grid-cols-[auto_auto_auto] items-center gap-x-3 gap-y-1">
+          {row.points.map((point, index) => {
+            if (!point) return null;
+            const text = pointText(point, number);
+            const shots = point.shots === point.covered ? shotsText(point.shots) : `${point.shots} of ${shotsText(point.covered)}`;
+            return (
+              <Fragment key={lines[index]!.id}>
+                <span className="flex items-center gap-1.5">
+                  <Swatch line={index} />
+                  {lines[index]!.name}
+                </span>
+                <span className="text-right font-medium tabular-nums">{text.value}</span>
+                <span className="text-muted-foreground tabular-nums">{text.range ? `${text.range} · ${shots}` : shots}</span>
+              </Fragment>
+            );
+          })}
+        </div>
+      </div>
+    );
+  }
+  const point = row.points[0];
+  if (!point) return null;
   const text = pointText(point, number);
-  const rows = [[NUMBER_NAMES[number], text.value], ...(text.range ? [["Middle half", text.range]] : []), ["Shots", restsOn(point)]];
+  const terms = [[NUMBER_NAMES[number], text.value], ...(text.range ? [["Middle half", text.range]] : []), ["Shots", restsOn(point)]];
   return (
-    <div className="grid min-w-44 gap-1.5 rounded-lg border border-border/50 bg-background px-2.5 py-1.5 text-xs shadow-xl">
-      <div className="font-medium">{pointTitle(point.start, bucket)}</div>
-      {rows.map(([term, value]) => (
+    <div className={frame}>
+      {title}
+      {terms.map(([term, value]) => (
         <div key={term} className="flex justify-between gap-4">
           <span className="text-muted-foreground">{term}</span>
           <span className="font-medium tabular-nums">{value}</span>
@@ -202,8 +349,8 @@ function PointTip({ point, number, bucket }: { point: TrendPoint; number: TrendN
   );
 }
 
-/** Every number the chart draws and its tooltips give, as a table, shown on asking. */
-function Numbers({ points, number, bucket }: { points: readonly TrendPoint[]; number: TrendNumber; bucket: Bucket }) {
+/** Every number the chart draws and its tooltips give, as a table, shown on asking: a row for each day or week, and, of lines named, for each line with a point of it. */
+function Numbers({ rows, lines, of, number, bucket }: { rows: readonly TrendRow[]; lines: readonly TrendLine[]; of: string | undefined; number: TrendNumber; bucket: Bucket }) {
   const [open, setOpen] = useState(false);
   const name = NUMBER_NAMES[number];
   const share = number === "stoppedOnWeight";
@@ -222,23 +369,28 @@ function Numbers({ points, number, bucket }: { points: readonly TrendPoint[]; nu
           <TableHeader>
             <TableRow>
               <TableHead>{bucket === "day" ? "Day" : "Week of"}</TableHead>
+              {of !== undefined && <TableHead>{of}</TableHead>}
               <TableHead className="text-right">Shots</TableHead>
               <TableHead className="text-right">{share ? name : "Median"}</TableHead>
               {!share && <TableHead className="text-right">Middle half</TableHead>}
             </TableRow>
           </TableHeader>
           <TableBody>
-            {points.map((point) => {
-              const text = pointText(point, number);
-              return (
-                <TableRow key={point.start}>
-                  <TableCell className="whitespace-nowrap">{bucketTitle({ date: point.start })}</TableCell>
-                  <TableCell className="text-right tabular-nums">{restsOn(point)}</TableCell>
-                  <TableCell className="text-right tabular-nums">{text.value}</TableCell>
-                  {!share && <TableCell className="text-right tabular-nums">{text.range}</TableCell>}
-                </TableRow>
-              );
-            })}
+            {rows.flatMap((row) =>
+              row.points.map((point, index) => {
+                if (!point) return null;
+                const text = pointText(point, number);
+                return (
+                  <TableRow key={`${row.start} ${lines[index]!.id}`}>
+                    <TableCell className="whitespace-nowrap">{bucketTitle({ date: row.start })}</TableCell>
+                    {of !== undefined && <TableCell>{lines[index]!.name}</TableCell>}
+                    <TableCell className="text-right tabular-nums">{restsOn(point)}</TableCell>
+                    <TableCell className="text-right tabular-nums">{text.value}</TableCell>
+                    {!share && <TableCell className="text-right tabular-nums">{text.range}</TableCell>}
+                  </TableRow>
+                );
+              }),
+            )}
           </TableBody>
         </Table>
       </CollapsibleContent>
