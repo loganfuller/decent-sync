@@ -1038,11 +1038,11 @@ export class SimulatedTablet {
    * Decaid's devices socket sends it first.
    *
    * The plugin reconnects when it finds the machine back after seeing it
-   * away, or reporting hardware it hasn't told the server (`checkHardware`
-   * in the plugin's connection.ts). The one update delivered here then went
-   * on the connection it left, and a Live View may never be sent it (#493):
-   * a test that waits for a machine frame sends another (`reportSnapshot`)
-   * after the next `liveStart`.
+   * away, or finds it reporting hardware the plugin hasn't told the server
+   * (`checkHardware` in the plugin's connection.ts). The one update
+   * delivered here then went on the connection it left, and a Live View may
+   * never be sent it (#493): a test that waits for a machine frame sends
+   * another (`reportSnapshot`) after the next `liveStart`.
    */
   connectMachine(devices?: Record<string, unknown>): void {
     this.machineConnected = true;
