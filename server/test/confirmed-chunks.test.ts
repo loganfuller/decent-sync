@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { CLOSE_CODES, CONFIRMED_CHUNKS_WIRE_REVISION, type Chunk, MAX_FRAME_BYTES, globalIdOf } from "@decent-sync/protocol";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
-import { MAX_UNCONFIRMED_BYTES, MAX_WHOLE_BYTES } from "../src/sync/sender.js";
+import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES } from "../src/sync/sender.js";
 import { AdminApi, type CreatedMachine } from "./support/admin-api.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
 import { RawConnection, type SimulatedTablet, helloWith } from "./support/simulated-tablet.js";
@@ -177,13 +177,37 @@ describe("The server's chunks to the plugin", () => {
     expect(answer).toMatchObject({ type: "answer", ask: "status", result: { served: true } });
     const unconfirmed = chunksOn(raw);
     expect(unconfirmed.length).toBeLessThan(unconfirmed[0]!.count);
-    // An answer sent whole is not counted, and is small: with the chunks unconfirmed, it leaves Decaid's limit far off.
+    // An answer sent whole is small, and counted apart: with the chunks unconfirmed, it leaves Decaid's limit far off.
     const answerBytes = Buffer.byteLength(JSON.stringify(answer));
     expect(answerBytes).toBeLessThanOrEqual(MAX_WHOLE_BYTES);
     expect(bytesOf(unconfirmed)).toBeLessThanOrEqual(MAX_UNCONFIRMED_BYTES);
     expect(bytesOf(unconfirmed) + answerBytes).toBeLessThan(DECAID_INBOUND_LIMIT);
     // Its arrival confirms nothing: the write goes on only as its own chunks are confirmed.
     expect(await confirmEach(raw)).toMatchObject({ type: "write", kind: "bean" });
+  });
+
+  it("sends answers whole until those unconfirmed would pass their limit, then as chunks, and whole again once a chunk is confirmed", async () => {
+    const machine = await api.createMachine("Many answers");
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token));
+    const answers = () => (raw.messages as Frame[]).filter((frame) => frame.type === "answer");
+    const request = () => raw.send({ type: "request", id: randomUUID(), ask: "status" });
+    // As many as fit the limit on what is sent whole, by the first one's size, and then some: nothing confirms them.
+    request();
+    await expect.poll(() => answers().length).toBe(1);
+    const answerBytes = Buffer.byteLength(JSON.stringify(answers()[0]));
+    const fit = Math.floor(MAX_UNCONFIRMED_WHOLE_BYTES / answerBytes);
+    for (let sent = 1; sent < fit + 3; sent++) request();
+    await expect.poll(() => chunksOn(raw).length, { timeout: 30_000 }).toBe(3);
+    // Each id is as long as the first, so every answer is its size: exactly those that fit came whole.
+    expect(answers()).toHaveLength(fit);
+    expect(chunksOn(raw).map((chunk) => whole([chunk]))).toMatchObject([{ type: "answer" }, { type: "answer" }, { type: "answer" }]);
+    expect(answers().length * answerBytes + bytesOf(chunksOn(raw))).toBeLessThan(DECAID_INBOUND_LIMIT);
+
+    // Confirming a chunk confirms every frame before it, so the next answer comes whole again.
+    confirm(raw, chunksOn(raw)[0]!);
+    request();
+    await expect.poll(() => answers().length).toBe(fit + 1);
+    expect(chunksOn(raw)).toHaveLength(3);
   });
 
   it("sends a write again whole on the next connection after one dropped with chunks in flight, and no answer again", async () => {

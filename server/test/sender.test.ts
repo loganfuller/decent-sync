@@ -1,6 +1,6 @@
 import { CHUNK_LIMITS, type Chunk, MAX_FRAME_BYTES, Reassembly } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { MAX_UNCONFIRMED_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
+import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
 
 // A connection's sender of the server's writes and answers (ticket #508),
 // through its own interface: what it hands the connection, and when, as the
@@ -46,16 +46,47 @@ function confirmAll(sender: Sender, frames: string[], from = 0): string[] {
 }
 
 describe("The server's sender", () => {
-  it("sends a small message whole, at once, and counts nothing for it", () => {
+  it("sends a small message whole, at once, and counts nothing against the chunks' limit for it", () => {
     const { sender, frames } = connection();
     const small = message("answer", 200);
     const atTheLimit = message("write", MAX_WHOLE_BYTES);
     sender.send(small);
     sender.send(atTheLimit);
     expect(frames).toEqual([small, atTheLimit]);
-    // Nothing was counted: a large message still has the whole limit.
+    // A large message still has the chunks' whole limit.
     sender.send(message("write", MAX_UNCONFIRMED_BYTES));
     expect(frames).toHaveLength(4);
+  });
+
+  it("counts the messages sent whole until a later chunk is confirmed, and sends a small one as a chunk once they would pass their limit", () => {
+    const { sender, frames, chunks } = connection();
+    const small = message("answer", MAX_WHOLE_BYTES);
+    const fit = MAX_UNCONFIRMED_WHOLE_BYTES / MAX_WHOLE_BYTES;
+    for (let sent = 0; sent < fit; sent++) sender.send(small);
+    expect(frames).toEqual(Array.from({ length: fit }, () => small));
+
+    // Nothing confirms a whole frame, so the next small one goes as a chunk, which the plugin confirms.
+    const tiny = message("answer", 200);
+    sender.send(tiny);
+    sender.send(tiny);
+    expect(chunks()).toMatchObject([
+      { id: "message-1", index: 0, count: 1, data: tiny },
+      { id: "message-2", index: 0, count: 1, data: tiny },
+    ]);
+    // What is unconfirmed, whole frames and chunks together, is far under Decaid's limit.
+    expect(frames.reduce((sum, text) => sum + Buffer.byteLength(text), 0)).toBeLessThan(MAX_UNCONFIRMED_BYTES + MAX_UNCONFIRMED_WHOLE_BYTES);
+
+    // The first chunk's confirmation covers the whole frames sent before it: small messages go whole again.
+    sender.received("message-1", 0);
+    sender.send(tiny);
+    expect(frames.at(-1)).toBe(tiny);
+    // The second chunk's confirmation covers nothing sent after it: those two still count.
+    sender.send(tiny);
+    sender.received("message-2", 0);
+    for (let sent = 0; sent < fit - 1; sent++) sender.send(small);
+    expect(chunks()).toHaveLength(2);
+    sender.send(small);
+    expect(chunks()).toHaveLength(3);
   });
 
   it("sends a message past the small size as chunks, even one that would fit a frame", () => {
