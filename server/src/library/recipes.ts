@@ -384,9 +384,10 @@ function heldFeedRates(reported: readonly ReportedRecipe[], mapped: readonly Map
  * one made over a move the tablet had not seen, as in the management
  * interface, is not, and the Recipe's slot is written back. A tablet whose
  * plugin is from before slots 6 to 9 (`wireRevision`) knew a Recipe in one
- * of them in no slot, as it was written (`writtenRecipeSlot`), so its move
- * of that Recipe into a slot is made, rather than only the half of it that
- * takes the slot from its holder. Each change is a
+ * of them in no slot, as it was written (`writtenRecipeSlot`), or in its
+ * slot where its record still holds it, as the previous release's server
+ * wrote it, so its move of that Recipe is made either way, rather than only
+ * the half of it that takes a slot from its holder. Each change is a
  * version of its own, from the tablet, timed as the record moved. Slots
  * left are emptied first, so no two Recipes are ever in one.
  */
@@ -401,7 +402,13 @@ async function moveSlots(
   const rows = await tx.$queryRaw<{ id: string; slot: number | null }[]>`
     SELECT id::text AS id, slot FROM recipes WHERE id = ANY(${moves.map((move) => move.itemId)}::uuid[]) AND location_id = ${locationId}::uuid AND NOT archived`;
   const slots = new Map(rows.map((row) => [row.id, row.slot]));
-  const made = moves.filter((move) => slots.has(move.itemId) && writtenRecipeSlot(slots.get(move.itemId)!, wireRevision) === move.from);
+  // The slot the tablet knew: the Recipe's, or for a plugin behind the one it was written, whichever its record held; a
+  // move into the slot the Recipe is in changes nothing.
+  const made = moves.filter((move) => {
+    if (!slots.has(move.itemId)) return false;
+    const slot = slots.get(move.itemId)!;
+    return (move.from === slot || move.from === writtenRecipeSlot(slot, wireRevision)) && move.to !== slot;
+  });
   for (const move of made) {
     if (slots.get(move.itemId) !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
   }
