@@ -2255,9 +2255,9 @@ export class SimulatedTablet {
 
   /**
    * (Re)schedules a timer for its due time at the clock's current rate; call
-   * `now()` first. Node may run a timeout up to a millisecond early by
-   * `performance.now()`, which the clock reads, and that is `timeScale` ms of
-   * the tablet's: a timer run before the clock reaches its due time waits
+   * `now()` first. Node may run a timeout a millisecond or two early by
+   * `performance.now()`, which the clock reads, and each is `timeScale` ms
+   * of the tablet's: a timer run before the clock reaches its due time waits
    * out the rest, so that no wait reads shorter than it was set for.
    */
   private arm(id: number, timer: Timer): void {
