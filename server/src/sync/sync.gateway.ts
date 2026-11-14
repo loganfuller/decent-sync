@@ -84,7 +84,7 @@ import { hashSecret } from "../secrets.js";
 import { clientAddress } from "./client-address.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { Sender } from "./sender.js";
+import { MAX_MESSAGE_LENGTH, Sender } from "./sender.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
@@ -117,13 +117,6 @@ const GOING_AWAY = 1001;
  * this instance's memory.
  */
 const MAX_WAITING_BYTES = 2 * MAX_CHUNKED_LENGTH;
-
-/**
- * The longest answer sent, in code units of its encoding: what a plugin puts
- * back together from chunks (CHUNK_LIMITS), less room for the name its
- * chunks carry. A plugin given more drops its connection.
- */
-const MAX_ANSWER_LENGTH = MAX_CHUNKED_LENGTH - 1024;
 
 interface Session {
   /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
@@ -575,7 +568,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * takes them: it is not read, so what an instance holds for a connection
    * is bounded, and its plugin answers the Skin as unreachable. Nor has one
    * whose answer is longer than a plugin puts back together
-   * (MAX_ANSWER_LENGTH), as a page of Shots whose names someone made
+   * (MAX_MESSAGE_LENGTH), as a page of Shots whose names someone made
    * enormous, which would have its plugin drop the connection each time.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
@@ -595,7 +588,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     );
     if (answer === null) return this.check([session.live!]);
     const text = encode(answer);
-    if (text.length > MAX_ANSWER_LENGTH) {
+    if (text.length > MAX_MESSAGE_LENGTH) {
       this.logger.warn(`Left a request of ${this.describe(session)} unanswered: its answer, of ${text.length} characters, is longer than its plugin takes`);
       return;
     }

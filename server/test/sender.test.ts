@@ -1,6 +1,6 @@
 import { CHUNK_LIMITS, type Chunk, MAX_FRAME_BYTES, Reassembly } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
+import { MAX_MESSAGE_LENGTH, MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
 
 // A connection's sender of the server's writes and answers (ticket #508),
 // through its own interface: what it hands the connection, and when, as the
@@ -97,6 +97,20 @@ describe("The server's sender", () => {
     sender.send(text);
     expect(chunks()).toMatchObject([{ type: "chunk", index: 0, count: 1 }]);
     expect(confirmAll(sender, frames)).toEqual([text]);
+  });
+
+  it("names a longest message that leaves a plugin room for a small one arriving between its chunks", () => {
+    // What a plugin holds at worst: all of the longest message but its last code unit, as a small message, the largest
+    // sent whole, arrives as a single chunk ahead of it. Both count, with their names, until the small one completes.
+    const reassembly = new Reassembly();
+    const chunk = (id: string, index: number, count: number, data: string): Chunk => ({ type: "chunk", id, index, count, data });
+    expect(reassembly.add(chunk("message-1000000", 0, 2, "l".repeat(MAX_MESSAGE_LENGTH - 1)), CHUNK_LIMITS)).toEqual({ status: "incomplete" });
+    expect(reassembly.add(chunk("message-1000001", 0, 1, "s".repeat(MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toMatchObject({ status: "complete" });
+    expect(reassembly.add(chunk("message-1000000", 1, 2, "l"), CHUNK_LIMITS)).toMatchObject({ status: "complete" });
+    // And little is given up for it: a message a small one's length longer would not have fitted beside one.
+    const tight = new Reassembly();
+    expect(tight.add(chunk("message-1", 0, 2, "l".repeat(MAX_MESSAGE_LENGTH + MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toEqual({ status: "incomplete" });
+    expect(tight.add(chunk("message-2", 0, 1, "s".repeat(MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toMatchObject({ status: "invalid" });
   });
 
   it("says how many bytes it holds still to send, which the gateway bounds its answers by", () => {

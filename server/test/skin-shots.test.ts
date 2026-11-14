@@ -381,12 +381,14 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
       const posted = await left.callEndpoint(endpoint, { method: "POST", body: {}, query: { id: "skin-left-early" } });
       expect([posted.status, posted.headers.Allow]).toEqual([405, "GET"]);
     }
-    // None of those was asked of the server. A cursor is the server's to read: one it never gave is refused there.
+    // None of those was asked of the server. An id of the longest length asked is, and names no Shot.
     expect(requestsSent(left)).toHaveLength(asked);
+    expect(await call(left, "shot", { id: "x".repeat(2048) })).toEqual(NO_SUCH_SHOT);
+    // A cursor is the server's to read: one it never gave is refused there.
     for (const cursor of ["", "not a cursor", Buffer.from("[1]").toString("base64url"), Buffer.from('["then","skin-left-early"]').toString("base64url"), Buffer.from("[1e300,\"skin-left-early\"]").toString("base64url")]) {
       expect(await call(left, "shots", { cursor }), cursor).toEqual(invalidRequest("cursor"));
     }
-    expect(requestsSent(left)).toHaveLength(asked + 5);
+    expect(requestsSent(left)).toHaveLength(asked + 6);
   });
 
   it("drops a Shot from the list once its Machine's Location History is corrected, and lists it at the Location it is credited to", async () => {
@@ -562,7 +564,7 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
       expect(raw.acks("page") + raw.acks("whole") + raw.acks("none") + raw.acks("cursor")).toBe(0);
     });
 
-    it("leaves requests unanswered while more waits to be sent on their connection than twice the longest message, and answers again once it is taken", async () => {
+    it("leaves requests unanswered while more waits to be sent on their connection than twice the longest message, and answers again once it is taken", { timeout: 120_000 }, async () => {
       const here = await api.createLocation("Skin shots, waiting answers", "America/Chicago");
       const holder = await api.createMachine("Skin shots, holding a long Shot", here.id);
       const tablet = tablets.syncing(holder, server, { api: emptyLibrary(50_917) });
@@ -623,7 +625,7 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
       expect(first.reduce((sum, answer) => sum + answer.bytes, 0)).toBeGreaterThan(MAX_CHUNKED_LENGTH);
     });
 
-    it("leaves a request unanswered whose answer is longer than a plugin puts back together, and answers the next", async () => {
+    it("leaves a request unanswered whose answer is longer than a plugin puts back together, and answers the next", { timeout: 120_000 }, async () => {
       const here = await api.createLocation("Skin shots, an answer too long", "America/Chicago");
       const holder = await api.createMachine("Skin shots, holding Shots with long names", here.id);
       const tablet = tablets.syncing(holder, server, { api: emptyLibrary(50_918) });

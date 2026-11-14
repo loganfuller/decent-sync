@@ -1,4 +1,4 @@
-import { type Frame, chunks, utf8Length } from "@decent-sync/protocol";
+import { type Frame, MAX_CHUNKED_LENGTH, chunks, utf8Length } from "@decent-sync/protocol";
 
 /**
  * How many bytes of chunks may await the plugin's confirmation at once.
@@ -23,6 +23,18 @@ export const MAX_WHOLE_BYTES = 16 * 1024;
  * a chunk sent after it; past this, a small message goes as a chunk too.
  */
 export const MAX_UNCONFIRMED_WHOLE_BYTES = 256 * 1024;
+
+/**
+ * The longest message a plugin is sent, in code units of its encoding. A
+ * plugin puts chunks back together while what it holds of messages still
+ * incomplete, their names included, stays within MAX_CHUNKED_LENGTH
+ * (CHUNK_LIMITS), and drops its connection past that. A small message may go
+ * as a single chunk between two chunks of a larger one, and counts with it
+ * as it arrives, so the longest leaves room for one, of at most
+ * MAX_WHOLE_BYTES, and for both their names. No two larger messages are
+ * incomplete at once.
+ */
+export const MAX_MESSAGE_LENGTH = MAX_CHUNKED_LENGTH - MAX_WHOLE_BYTES - 1024;
 
 /** Frames handed to the connection that the plugin has not confirmed yet: a chunk, or the messages sent whole between two chunks. */
 interface Unconfirmed {
