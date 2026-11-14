@@ -1,4 +1,4 @@
-import { type LibraryKind, REQUESTABLE_RECIPE_SLOTS, grindSettingOf, isRecordId, isRequestableRecipeSlot } from "@decent-sync/protocol";
+import { type LibraryKind, RECIPE_SLOTS, grindSettingOf, isRecipeSlot, isRecordId } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { type EditableContent, KINDS } from "./kinds.js";
 
@@ -285,7 +285,7 @@ export function readGrinderLocation(body: unknown): string {
  */
 export type SlotChoice = number | "next" | null;
 
-/** A Recipe Slot from a request's `slot`: a whole number from 1 to REQUESTABLE_RECIPE_SLOTS, `next`, or null for none. */
+/** A Recipe Slot from a request's `slot`: a whole number from 1 to RECIPE_SLOTS, `next`, or null for none. */
 export function readSlot(body: unknown): SlotChoice {
   const fields = typeof body === "object" && body !== null ? (body as Record<string, unknown>) : {};
   if (!Object.prototype.hasOwnProperty.call(fields, "slot")) {
@@ -296,8 +296,8 @@ export function readSlot(body: unknown): SlotChoice {
 
 function slotOf(slot: unknown): SlotChoice {
   if (slot === null || slot === "next") return slot;
-  if (isRequestableRecipeSlot(slot)) return slot;
-  throw new BadRequestException(`slot must be a whole number from 1 to ${REQUESTABLE_RECIPE_SLOTS}, next for the lowest one free, or null for none`);
+  if (isRecipeSlot(slot)) return slot;
+  throw new BadRequestException(`slot must be a whole number from 1 to ${RECIPE_SLOTS}, next for the lowest one free, or null for none`);
 }
 
 /**

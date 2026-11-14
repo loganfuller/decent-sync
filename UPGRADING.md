@@ -17,13 +17,28 @@ Releasing).
 
 ### Check every tablet runs the 1.9.0 plugin before deploying
 
-This release raises the wire revision, for Recipe Slots 6 to 9, which it reads
-and keeps but nothing assigns yet
+This release raises the wire revision, for Recipe Slots 6 to 9
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
 Deploying). Before deploying, check on each Machine's page that it runs the
 1.9.0 plugin, the previous release's. A tablet still on the 1.4.0 plugin or
 earlier is refused as too old until its plugin is updated, at the tablet or
 through Decaid's API from its network with `POST /api/v1/plugins/update`.
+
+### The next free Recipe Slot may be one of 6 to 9
+
+A Location has nine Recipe Slots, and the management interface, the REST API
+and the MCP endpoint now put a Recipe in any of them. Streamline's strip
+shows slots 1 to 5 only: a Recipe in 6 to 9 is a button on a Skin that shows
+nine, and is listed by DYE2. Nothing is needed, but the next free slot is now
+the lowest free of the nine. Where slots 1 to 5 each hold a Recipe, a Recipe
+created, copied or moved to the next free slot goes in the lowest free of 6
+to 9, off Streamline's strip. Before, a new one or a copy was kept in no
+slot, and a move was refused. Choose no slot to keep a new Recipe or a copy
+as before.
+
+This release's server writes a tablet still on the 1.9.0 plugin a Recipe in
+slots 6 to 9 in no slot, until Decaid updates its plugin, and the Recipe
+keeps its slot meanwhile.
 
 ## 1.9.0
 
