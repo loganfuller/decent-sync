@@ -374,8 +374,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await expect.poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
     await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
-    // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5: once
-    // the Brazil has reached the Library, so that it is timed no earlier whenever its plugin reads it, as above.
+    // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5, picked
+    // once the Brazil has reached the Library, so that the Kenya is timed no earlier whenever it is read, as above.
     const save = async (tablet: SimulatedTablet, beanId: unknown, ratio: number) => {
       const list = recordsOn(tablet).map((record) =>
         record[GLOBAL_ID_KEY] === created.id ? { ...record, beanId, dashboardVariables: { ...(record.dashboardVariables as Record_), ratio } } : record,
