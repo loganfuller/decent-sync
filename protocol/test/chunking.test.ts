@@ -14,6 +14,7 @@ import {
   type ReassemblyLimits,
   type ShotDelivery,
   type ShotIndex,
+  chunks,
   decodePluginFrame,
   decodePluginMessage,
   decodeServerMessage,
@@ -163,6 +164,27 @@ describe("frames", () => {
 
   it("refuses a frame size with no room for any data beside the envelope", () => {
     expect(() => frames("x".repeat(100), "a long chunk id", 60)).toThrow("no room");
+  });
+});
+
+describe("chunks", () => {
+  it("sends a message that would fit one frame as a single chunk, and a larger one as frames() does", () => {
+    for (const size of [200, 1_000, MAX_FRAME_BYTES / 2]) {
+      const message = deliveryOfSize(size);
+      const sent = chunks(encode(message), "message-1");
+      expect(sent.map((frame) => JSON.parse(frame.text) as Chunk)).toEqual([{ type: "chunk", id: "message-1", index: 0, count: 1, data: encode(message) }]);
+      expectWellFormed(sent, MAX_FRAME_BYTES);
+      expect(receive(sent.map((frame) => frame.text))).toEqual([encode(message)]);
+    }
+    // One that only just fits a frame whole no longer does beside a chunk's envelope and escaping.
+    const full = deliveryOfSize(MAX_FRAME_BYTES);
+    const split = chunks(encode(full), full.id);
+    expect(split.length).toBe(2);
+    expectWellFormed(split, MAX_FRAME_BYTES);
+    expect(receive(split.map((frame) => frame.text))).toEqual([encode(full)]);
+
+    const large = deliveryOfSize(3 * 1024 * 1024);
+    expect(chunks(encode(large), large.id)).toEqual(frames(encode(large), large.id));
   });
 });
 
@@ -360,5 +382,19 @@ describe("chunk envelopes", () => {
       expect(decodeServerMessage(JSON.stringify({ ...receipt, index })).ok).toBe(false);
     }
     expect(decodeServerMessage(JSON.stringify({ ...receipt, id: "" })).ok).toBe(false);
+  });
+
+  it("reads the plugin's receipt for a chunk of the server's, naming the field of one it can't", () => {
+    const receipt = { type: "chunkReceived", id: "message-1", index: 3 };
+    expect(decodePluginMessage(JSON.stringify(receipt))).toEqual({ ok: true, message: receipt });
+    expect(decodePluginFrame(JSON.stringify(receipt))).toEqual({ ok: true, message: receipt });
+    const problem = (changes: Record<string, unknown>) => {
+      const decoded = decodePluginMessage(JSON.stringify({ ...receipt, ...changes }));
+      return decoded.ok ? undefined : decoded.problem;
+    };
+    for (const index of [undefined, 0.5, "3"]) expect(problem({ index })).toBe("chunkReceived.index must be a whole number");
+    expect(problem({ index: -1 })).toBe("chunkReceived.index must not be negative");
+    expect(problem({ id: "" })).toBe("chunkReceived.id must not be empty");
+    expect(problem({ id: "a".repeat(MAX_ID_LENGTH + 1) })).toBe(`chunkReceived.id must be at most ${MAX_ID_LENGTH} characters`);
   });
 });

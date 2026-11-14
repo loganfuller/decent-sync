@@ -63,6 +63,9 @@ var __decentSync = (() => {
       const bytes = utf8Length(text);
       if (bytes <= maxFrameBytes) return [{ text, bytes }];
     }
+    return chunks(text, id, maxFrameBytes);
+  }
+  function chunks(text, id, maxFrameBytes = MAX_FRAME_BYTES) {
     const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));
     if (room < 8) throw new Error("The frame size leaves no room for a chunk's data");
     const pieces = [];
@@ -151,8 +154,8 @@ var __decentSync = (() => {
       const held = message?.parts[index];
       if (held !== void 0) return held === data ? void 0 : "chunk.data differs from an earlier copy of the same chunk";
       const length = data.length + (message ? 0 : chunk.id.length);
-      const chunks = message ? 0 : count;
-      if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks > limits.maxChunks) {
+      const chunks2 = message ? 0 : count;
+      if (this.heldLength + length > limits.maxLength || this.heldChunks + chunks2 > limits.maxChunks) {
         return `Chunked messages still incomplete may hold at most ${limits.maxLength} characters, ids included, and ${limits.maxChunks} chunks between them`;
       }
       return void 0;
@@ -919,6 +922,7 @@ var __decentSync = (() => {
     const uuid = "00000000-0000-0000-0000-000000000000";
     return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
   }
+  var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
   var REQUESTS_WIRE_REVISION = 3;
   var SKIN_ASKS = ["status"];
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
@@ -4410,7 +4414,7 @@ var __decentSync = (() => {
     /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
     async send(message) {
       if (this.failure) throw this.failure;
-      const id = "id" in message && message.type !== "request" ? message.id : void 0;
+      const id = "id" in message && message.type !== "request" && message.type !== "chunkReceived" ? message.id : void 0;
       const name = id ?? `message-${++this.unnamed}`;
       const encoded = frames(encode(message), name);
       if (encoded.length === 1 && id === void 0) return this.sendFrame(encoded[0].text);
@@ -5256,6 +5260,8 @@ var __decentSync = (() => {
       __publicField(this, "sender");
       /** Puts the open handle's chunked messages from the server back together. */
       __publicField(this, "chunks", new Reassembly());
+      /** Whether the server that welcomed the open handle waits for its chunks to be confirmed (CONFIRMED_CHUNKS_WIRE_REVISION). */
+      __publicField(this, "confirmsChunks", false);
       /** Bumped by every attempt and drop, so late results of an older one are ignored. */
       __publicField(this, "attempt", 0);
       __publicField(this, "connecting", false);
@@ -5483,6 +5489,7 @@ var __decentSync = (() => {
         this.handle = handle;
         this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
         this.chunks = new Reassembly();
+        this.confirmsChunks = false;
         this.welcomed = false;
         this.sentHardware = identity.machine;
         this.machineAway = false;
@@ -5547,6 +5554,12 @@ var __decentSync = (() => {
       if (decoded.message.type !== "chunk") return this.onMessage(handle, decoded.message);
       const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
       if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
+      if (this.confirmsChunks) {
+        const { id, index } = decoded.message;
+        this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
+          this.sendFailed(handle, `could not confirm a chunk: ${describe2(error)}`);
+        });
+      }
       if (added.status === "incomplete") return;
       const whole = decodeServerMessage(added.text);
       if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
@@ -5566,6 +5579,7 @@ var __decentSync = (() => {
               `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`
             );
           }
+          this.confirmsChunks = peerHasWireRevision(wireRevisionOf(message), CONFIRMED_CHUNKS_WIRE_REVISION);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           this.machineEvents.welcome();
