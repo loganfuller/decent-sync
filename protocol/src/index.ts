@@ -2057,7 +2057,7 @@ export interface SkinShotRow {
   rating: number | null;
   barista: string | null;
   hasNote: boolean;
-  /** Whether it is an Unfinished Shot, as a Shot Summary counts one: nothing poured. */
+  /** Whether it is an Unfinished Shot, as a Shot Summary counts one: nothing poured, and no cleaning or calibration Shot. */
   unfinished: boolean;
   /** The Recipes of the asking Machine's Location, Archived ones left out, that it is the Reference Shot of (ADR-0029), by name. */
   referenceOf: SkinRecipe[];

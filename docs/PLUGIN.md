@@ -241,7 +241,9 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   `shot` goes to the server behind what the tablet had still to send as the
   Skin asked, so a Shot pulled a moment ago on this tablet is in the answer.
   While a tablet catches up after an outage that can take longer than the 10
-  seconds, and the request is refused as `unreachable`.
+  seconds, and the request is refused as `unreachable`, whatever else would
+  have refused it. Ask the status, which doesn't wait, to learn whether the
+  Machine is served.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API: Decaid checks no caller. That network can already change the
@@ -343,7 +345,7 @@ were pulled, a page at a time, with no filters.
 | `rating` | Its rating on Decaid's scale of 0 to 10, where 0 is unrated. |
 | `barista` | The Barista's name, as the tablet recorded it. |
 | `hasNote` | Whether it has a note. |
-| `unfinished` | Whether it is an Unfinished Shot, in which nothing poured: the Machine never reported pouring and the scale never read 1 g. |
+| `unfinished` | Whether it is an Unfinished Shot, in which nothing poured: the Machine never reported pouring and the scale never read 1 g. A cleaning or calibration Shot is never one. |
 | `referenceOf` | The Recipes of this Location it is the Reference Shot of, each named as `recipe` is, by name. Empty for most Shots. An Archived Recipe is left out, and so is another Location's. |
 
 A value the Shot didn't record is null. `nextCursor` is null on the last

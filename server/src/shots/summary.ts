@@ -253,7 +253,7 @@ export interface ShotSummary<Group = SummaryGroup> {
  * in decaid:lib/src/models/data/profile.dart). A Shot that recorded no type,
  * which Decaid reads as espresso, or any other, counts.
  */
-const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
+export const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
 
 /**
  * Whether the Shot of `shots` aliased `s` is an Unfinished Shot (GLOSSARY.md):

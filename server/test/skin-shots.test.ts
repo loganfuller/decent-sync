@@ -123,7 +123,7 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
   let library: string;
   let brazil: string;
   /** Belmont's Shots as its tablets list them at first, newest first. */
-  const BELMONT = ["skin-left-recipe", "skin-right-moved", "skin-right-long", "skin-left-rated", "skin-right-unfinished", "skin-left-early", "skin-tie-left", "skin-tie-right"];
+  const BELMONT = ["skin-left-recipe", "skin-right-moved", "skin-right-long", "skin-left-rated", "skin-right-unfinished", "skin-left-early", "skin-right-cleaning", "skin-tie-left", "skin-tie-right"];
 
   runAsSteps();
 
@@ -166,6 +166,14 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     );
     // Its first two samples alone, as a Shot stopped in its preinfusion at once: an Unfinished Shot.
     right.pullShot(shotOf("skin-right-unfinished", "2026-02-10T16:00:00Z", RIGHT_SERIAL, { measurements: samples.slice(0, 2) }));
+    // A cleaning cycle stopped as soon: nothing poured, but a Shot Summary counts it as cleaning, not as unfinished.
+    const profile = (fixture.workflow as Record_).profile as Record_;
+    right.pullShot(
+      shotOf("skin-right-cleaning", "2026-02-10T14:00:00Z", RIGHT_SERIAL, {
+        workflow: { ...(shotOf("", "", RIGHT_SERIAL).workflow as Record_), profile: { ...profile, beverage_type: "cleaning" } },
+        measurements: samples.slice(0, 2),
+      }),
+    );
     // Larger than 1 MiB.
     right.pullShot(longShot("skin-right-long", { timestamp: "2026-02-10T18:00:00Z", workflow: shotOf("", "", RIGHT_SERIAL).workflow }));
     right.pullShot(shotOf("skin-right-moved", "2026-03-01T10:00:00Z", RIGHT_SERIAL));
@@ -193,7 +201,7 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
         machine: { ...(sample.machine as Record_), timestamp: new Date(startedAt + index * SAMPLE_MS).toISOString().slice(0, -1) },
       })),
     });
-    await until(async () => (await api.get<{ total: number }>("/shots?limit=1")).total === 10);
+    await until(async () => (await api.get<{ total: number }>("/shots?limit=1")).total === 11);
     await until(async () => (await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/skin-left-recipe")).shot.recipe?.id === library);
   });
   afterAll(async () => {
@@ -220,7 +228,7 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
   });
 
   it("pages by cursor to the end, a page of up to 50, across two Shots pulled at the same moment", async () => {
-    for (const limit of [1, 3, 4, 7, 8, MAX_SHOTS_PAGE]) {
+    for (const limit of [1, 3, 4, 8, 9, MAX_SHOTS_PAGE]) {
       const pages: Page[] = [];
       for (let cursor: string | null | undefined; cursor !== null; cursor = pages.at(-1)!.nextCursor) {
         pages.push(await page(left, { limit: String(limit), ...(cursor && { cursor }) }));
@@ -273,10 +281,11 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     expect(await row(left, "skin-left-early")).toMatchObject({ rating: null, hasNote: false, barista: "Fixture Barista", dose: 18, yield: 35.9 });
   });
 
-  it("marks an Unfinished Shot, as a Shot Summary counts one", async () => {
+  it("marks an Unfinished Shot, as a Shot Summary counts one, and not a cleaning Shot in which nothing poured", async () => {
     expect((await page(left)).shots.filter((shot) => shot.unfinished).map((shot) => shot.id)).toEqual(["skin-right-unfinished"]);
-    const summary = await api.get<{ groups: { counts: { unfinished: number } }[] }>(`/shots/summary?locationId=${belmont.id}`);
-    expect(summary.groups[0]!.counts.unfinished).toBe(1);
+    expect(await row(left, "skin-right-cleaning")).toMatchObject({ unfinished: false });
+    const summary = await api.get<{ groups: { counts: { unfinished: number; cleaningAndCalibration: number } }[] }>(`/shots/summary?locationId=${belmont.id}`);
+    expect(summary.groups[0]!.counts).toMatchObject({ unfinished: 1, cleaningAndCalibration: 1 });
   });
 
   it("names a row's Recipe by the tablet's own record id, and by none on a tablet that holds no record of it", async () => {
@@ -391,6 +400,8 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     expect((await whole(labTablet, "skin-right-moved")).body.shot).toEqual((await right.callApi("GET", "/shots/skin-right-moved")).body);
   });
 
+  // A Pending Machine's Shot is at no Location until it is adopted (`shots_location_check`), so no tablet's list held it
+  // before this either, as the first test saw: dismissing it only hides it from the Shots list too.
   it("leaves a dismissed Pending Machine's Shot out, as the Shots list does", async () => {
     const pending = (await api.pendingMachines()).find((machine) => machine.serial === UNKNOWN_SERIAL);
     expect((await api.call("POST", `/pending-machines/${pending!.id}/dismiss`)).status).toBe(200);
@@ -402,6 +413,9 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
   });
 
   it("lists a Shot just pulled on its tablet, asking once the server has stored it", async () => {
+    // A page read before it was pulled: the page after it is the same once it has been.
+    const before = await page(left, { limit: "2" });
+    const next = ids(await page(left, { limit: "2", cursor: before.nextCursor! }));
     // Decaid is slow to read the Shot, so its delivery is still to come as the Skin asks.
     const release = left.holdShotReads();
     const shot = shotOf("skin-left-just-pulled", new Date().toISOString(), LEFT_SERIAL);
@@ -420,6 +434,9 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     expect(await reading).toMatchObject({ status: 200, body: { shot: { id: "skin-left-just-pulled" } } });
     const sent = (left.sent as Record_[]).map((frame) => (frame.type === "shot" ? frame.shotId : frame.type));
     expect(sent.indexOf("skin-left-just-pulled")).toBeLessThan(sent.lastIndexOf("request") - 1);
+    // The cursor given before it was pulled still starts where its page ended: no row repeats, and none is skipped.
+    expect(ids(await page(left, { limit: "2", cursor: before.nextCursor! }))).toEqual(next);
+    expect(ids(await page(left, { limit: "3" }))).toEqual(["skin-left-just-pulled", ...ids(before)]);
   });
 });
 

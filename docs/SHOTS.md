@@ -930,7 +930,9 @@ tool: only a Skin calls them.
   no filters and no total. A page's `nextCursor` holds its last Shot's pull
   time and id, and the next page starts just past them: a Shot credited to a
   Location has a pull time, which never changes once its full record is
-  stored, so paging is by keyset on the index on `pulled_at`, and a Shot
+  stored, so paging is by keyset on the index on the Location and
+  `pulled_at` (`shots_location_id_pulled_at_id_idx`), one index range
+  however many Shots the other Locations hold, and a Shot
   pulled or dropped since the first page neither repeats a row nor skips
   one. The server reads one Shot beyond the page to say whether another
   follows. A cursor it never gave is refused, not read as the first page.
@@ -939,7 +941,8 @@ tool: only a Skin calls them.
   weighed and aimed for, the duration without its Preheat, the rating
   (`enjoyment`) and the Barista. Whether it has a note is read from its
   record as the Shot page reads the note. Whether it is an Unfinished Shot
-  is `UNFINISHED` in `summary.ts`, as a Shot Summary counts one. Whether the
+  is as a Shot Summary counts one (`UNFINISHED` and not `LEFT_OUT` in
+  `summary.ts`): nothing poured, and it is no cleaning or calibration Shot. Whether the
   asking tablet holds it is whether that tablet last reported it
   (`shots.tablet_id`).
 - **Its Recipe.** The Recipe it was pulled with (`shotRecipeSql`), whichever

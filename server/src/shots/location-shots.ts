@@ -2,7 +2,7 @@ import { type SkinRecipe, type SkinShot, type SkinShotRow, type SkinShots, isRec
 import { Prisma } from "../generated/prisma/client.js";
 import { recordedText, shownDuration } from "./extraction.js";
 import { shotListedSql, shotRecipeSql } from "./links.js";
-import { UNFINISHED } from "./summary.js";
+import { LEFT_OUT, UNFINISHED } from "./summary.js";
 
 // A Location's Shots as one of its tablets reads them for a Skin (ticket
 // #509, ADR-0030): a page of them, newest first, and any one of them whole.
@@ -56,6 +56,13 @@ function readCursor(text: string): Cursor | null {
   return [pulledAt, id];
 }
 
+/**
+ * Whether the Shot of `shots` aliased `s` is one a Shot Summary counts as
+ * unfinished: nothing poured, and it is no cleaning or calibration Shot,
+ * which a summary counts as that whether it poured or not (summary.ts).
+ */
+const unfinished = Prisma.sql`(${UNFINISHED} AND NOT ${LEFT_OUT})`;
+
 interface PageRow {
   id: string;
   pulledAt: Date;
@@ -88,7 +95,7 @@ interface PageRow {
 export async function locationShots(db: Prisma.TransactionClient, asking: AskingTablet, limit: number, cursor: string | undefined): Promise<SkinShots | null> {
   const after = cursor === undefined ? undefined : readCursor(cursor);
   if (after === null) return null;
-  // Bounded above, so the index on pulled_at starts at the cursor's Shot, as `previous` in shots.service.ts has it.
+  // Bounded above, so the index on the Location and pulled_at starts at the cursor's Shot, as `previous` in shots.service.ts has it.
   const past = after
     ? Prisma.sql`AND s.pulled_at <= ${new Date(after[0])}::timestamptz AND (s.pulled_at < ${new Date(after[0])}::timestamptz OR s.id > ${after[1]})`
     : Prisma.empty;
@@ -97,7 +104,7 @@ export async function locationShots(db: Prisma.TransactionClient, asking: Asking
     WITH page AS MATERIALIZED (
       SELECT s.id, s.pulled_at, s.machine_id, s.tablet_id, ${shotRecipeSql("s")} AS linked_recipe_id,
         s.coffee_roaster, s.coffee_name, s.actual_dose, s.target_dose, s.actual_yield, s.target_yield, s.duration, s.preheat,
-        s.enjoyment, s.barista, s.record #> '{annotations,espressoNotes}' AS note, ${UNFINISHED} AS unfinished
+        s.enjoyment, s.barista, s.record #> '{annotations,espressoNotes}' AS note, ${unfinished} AS unfinished
       FROM shots AS s WHERE ${listedAt(asking)} ${past}
       ORDER BY s.pulled_at DESC NULLS LAST, s.id ASC LIMIT ${limit + 1}
     )
