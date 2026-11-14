@@ -10,7 +10,7 @@ import { expectTip } from "./support/tooltips.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
 // Slots and its Recipes in no slot, a Recipe created and edited with the
-// Recipe form, offering slots 1 to 5, moved between slots, taken out of its
+// Recipe form, offering slots 1 to 9, moved between slots, taken out of its
 // slot, Archived and restored; what the form offers at the Location, and
 // when every slot holds a Recipe; a Recipe whose batch is finished there
 // flagged; its Conflicts; and what Staff may change; and a
@@ -29,7 +29,7 @@ type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("Staff create a Recipe in slot 3 of the five at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
+test("Staff create a Recipe in slot 3 of the nine at their Location with a batch from elsewhere and a hidden Profile, edit it, and can't change another Location's", async ({
   page,
   browser,
 }) => {
@@ -52,7 +52,7 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await expectTip(
       recipes,
       "Recipes",
-      /^Its Recipe Slots, 1 to 5, the buttons of Streamline's DYE strip.+ Every Recipe here not Archived is on each tablet here\.\s*A Recipe is on the strip exactly while it is in a slot: taking it off any Machine's strip takes it out of its slot here\.$/,
+      /^Its Recipe Slots, 1 to 9, shared by every Machine here.+ Every Recipe here not Archived is on each tablet here\.\s*Streamline's DYE strip shows slots 1 to 5 only\. A Recipe in 6 to 9 is a button on a Skin that shows nine, and is listed by DYE2\.\s*A Recipe in 1 to 5 is on the strip exactly while it is in its slot: taking it off any Machine's strip takes it out of its slot here\.$/,
     );
     await recipes.getByRole("button", { name: "New Recipe" }).click();
     const form = samsPage.getByRole("form", { name: "New Recipe" });
@@ -72,9 +72,9 @@ test("Staff create a Recipe in slot 3 of the five at their Location with a batch
     await expect(form.getByText("Shown on the dashboard")).toHaveCount(0);
     await form.getByLabel("Recipe Slot").click();
     await samsPage.getByRole("option", { name: "A slot of my choosing" }).click();
-    // The slots offered are the five buttons of Streamline's DYE strip.
+    // The slots offered are the Location's nine.
     await form.getByLabel("Slot", { exact: true }).click();
-    await expect(samsPage.getByRole("option")).toHaveText(["1", "2", "3", "4", "5"]);
+    await expect(samsPage.getByRole("option")).toHaveText(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
     await samsPage.getByRole("option", { name: "3", exact: true }).click();
     // The form says what saving offers at the lab.
     const also = form.getByRole("status", { name: "Saving also" });
@@ -176,7 +176,7 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
 
 test("with every slot holding a Recipe, a new Recipe's next free slot says so and is none, and a move offers only a slot chosen", async ({ page }) => {
   const lab = await createLocation(page, "Full lab");
-  for (const slot of [1, 2, 3, 4, 5]) await createRecipe(page, lab, slot, { name: `Full ${slot}` });
+  for (const slot of [1, 2, 3, 4, 5, 6, 7, 8, 9]) await createRecipe(page, lab, slot, { name: `Full ${slot}` });
   const kept = await createRecipe(page, lab, null, { name: "Full kept" });
 
   await page.goto(`/locations/${lab.id}`);
@@ -192,38 +192,78 @@ test("with every slot holding a Recipe, a new Recipe's next free slot says so an
   await expect(page.getByRole("option")).toHaveText(["A slot of my choosing"]);
 });
 
-test("a Recipe a tablet put in slot 7 is shown in its slot, its Slot select offers 1 to 5, and it is taken out of its slot", async ({ page }) => {
+test("a Recipe is put in slot 7 from its page, swapping with the one there, a new one's next free slot is 6 where 1 to 5 hold a Recipe, and each tablet holds them there", async ({ page }) => {
   const lab = await createLocation(page, "Seven lab");
   const tablet = await tabletAt(page, server, "Seven lab 1", lab, "45591", tabletApi);
-  await createRecipe(page, lab, 1, { name: "Seven Kenya" });
-  const recipe = await createRecipe(page, lab, 2, { name: "Seven Brazil" });
+  for (const slot of [1, 2, 3, 4, 5]) await createRecipe(page, lab, slot, { name: `Seven ${slot}` });
+  const kenya = await createRecipe(page, lab, null, { name: "Seven Kenya" });
+  await expect.poll(() => slotOn(tablet, 5)?.name).toBe("Seven 5");
+
+  // Its move offers the Location's nine slots, and the next free one, 6, by name.
+  await page.goto(`/library/recipes/${kenya.id}`);
+  await expect(page.getByText("In no slot at Seven lab")).toBeVisible();
+  await page.getByRole("button", { name: "Put in a slot" }).click();
+  const move = page.getByRole("form", { name: "Move the Recipe" });
+  await move.getByLabel("Move it to").click();
+  await expect(page.getByRole("option")).toHaveText(["A slot of my choosing", "The next free slot (6)"]);
+  await page.keyboard.press("Escape");
+  await move.getByLabel("Slot", { exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
+  await page.getByRole("option", { name: "7", exact: true }).click();
+  await move.getByRole("button", { name: "Move" }).click();
+  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
+  // The tablet's record of it holds stripSlot 7.
+  await expect.poll(() => slotOn(tablet, 7)?.[GLOBAL_ID_KEY]).toBe(kenya.id);
+
+  // A new Recipe's next free slot is 6, named in the form, and it is created there.
+  await page.getByRole("link", { name: "← Seven lab" }).click();
+  await page.getByRole("region", { name: "Recipes" }).getByRole("button", { name: "New Recipe" }).click();
+  const form = page.getByRole("form", { name: "New Recipe" });
+  await form.getByLabel("Name", { exact: true }).fill("Seven Brazil");
+  await expect(form.getByLabel("Recipe Slot")).toHaveText("The next free slot (6)");
+  await form.getByRole("button", { name: "Create" }).click();
+  await expect(page.getByText("Slot 6 at Seven lab")).toBeVisible();
+  await expect.poll(() => slotOn(tablet, 6)?.name).toBe("Seven Brazil");
+
+  // Moved to slot 7, it swaps with the Recipe there, as the form says, which takes slot 6.
+  await page.getByRole("button", { name: "Move to a slot" }).click();
+  await move.getByLabel("Slot", { exact: true }).click();
+  await page.getByRole("option", { name: "7", exact: true }).click();
+  await expect(move.getByRole("list", { name: "About this slot" })).toContainText("Slot 7 holds Seven Kenya, which moves to slot 6.");
+  await move.getByRole("button", { name: "Move" }).click();
+  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
+  await expect.poll(() => [slotOn(tablet, 6)?.name, slotOn(tablet, 7)?.name]).toEqual(["Seven Kenya", "Seven Brazil"]);
+
+  // The Recipes card lists each in its slot.
+  await page.getByRole("link", { name: "← Seven lab" }).click();
+  await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Seven 1/, /^2Seven 2/, /^3Seven 3/, /^4Seven 4/, /^5Seven 5/, /^6Seven Kenya/, /^7Seven Brazil/]);
+});
+
+test("a Recipe a tablet put in slot 8 is shown in its slot, and is taken out of its slot", async ({ page }) => {
+  const lab = await createLocation(page, "Eight lab");
+  const tablet = await tabletAt(page, server, "Eight lab 1", lab, "45592", tabletApi);
+  await createRecipe(page, lab, 1, { name: "Eight Kenya" });
+  const recipe = await createRecipe(page, lab, 2, { name: "Eight Brazil" });
   await expect.poll(() => slotOn(tablet, 2)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
   // Once the tablet is due nothing, so the post races none of the plugin's writes.
-  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${await machineId(page, "Seven lab 1")}/sharing-status`)).json()) as { status: { waiting: number } }).status.waiting).toBe(0);
-  // Another app on the tablet puts its record in slot 7, which DYE2 and Streamline place none in (#506).
-  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === 2 ? { ...record, [RECIPE_SLOT_FIELD]: 7 } : record));
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${await machineId(page, "Eight lab 1")}/sharing-status`)).json()) as { status: { waiting: number } }).status.waiting).toBe(0);
+  // Another app on the tablet puts its record in slot 8, which DYE2 and Streamline place none in (#506).
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === 2 ? { ...record, [RECIPE_SLOT_FIELD]: 8 } : record));
   expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
-  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { slot: number | null } }).recipe.slot).toBe(7);
+  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { slot: number | null } }).recipe.slot).toBe(8);
 
-  // The Recipes card lists it in slot 7, after the one in slot 1.
+  // The Recipes card lists it in slot 8, after the one in slot 1, and its page gives its slot.
   await page.goto(`/locations/${lab.id}`);
-  await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Seven Kenya/, /^7Seven Brazil/]);
-  // Its page gives its slot, and its move offers the five a request may name.
-  await page.getByRole("link", { name: "Seven Brazil" }).click();
-  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
-  await page.getByRole("button", { name: "Move to a slot" }).click();
-  const move = page.getByRole("form", { name: "Move the Recipe" });
-  await move.getByLabel("Slot", { exact: true }).click();
-  await expect(page.getByRole("option")).toHaveText(["1", "2", "3", "4", "5"]);
-  await page.keyboard.press("Escape");
-  await page.keyboard.press("Escape");
+  await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Eight Kenya/, /^8Eight Brazil/]);
+  await page.getByRole("link", { name: "Eight Brazil" }).click();
+  await expect(page.getByText("Slot 8 at Eight lab")).toBeVisible();
 
-  // Taken out of its slot, it is kept in none, and the tablet's record leaves slot 7.
+  // Taken out of its slot, it is kept in none, and the tablet's record leaves slot 8.
   await page.getByRole("button", { name: "Take out of its slot" }).click();
-  await expect(page.getByRole("alertdialog")).toContainText("Take Seven Brazil out of slot 7?");
+  await expect(page.getByRole("alertdialog")).toContainText("Take Eight Brazil out of slot 8?");
   await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
-  await expect(page.getByText("In no slot at Seven lab")).toBeVisible();
-  await expect.poll(() => slotOn(tablet, 7)).toBeUndefined();
+  await expect(page.getByText("In no slot at Eight lab")).toBeVisible();
+  await expect.poll(() => slotOn(tablet, 8)).toBeUndefined();
 });
 
 test("a Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {

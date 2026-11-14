@@ -142,7 +142,7 @@ A named, saved dial-in for a coffee, such as the day's recipe for one roast: its
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:
-One of a location's five numbered positions for a recipe, 1 to 5, each a button of Streamline's DYE strip, shared by every machine at that location, like a programmed button on one group of a commercial machine. A recipe is in at most one slot, and keeps its identity when moved to another. It is on the strip exactly while it is in a slot, so taking it off any machine's strip takes it out of its slot at the location. One in no slot is kept at its location, where any machine can still load it, until someone puts it in one or archives it.
+One of a location's nine numbered positions for a recipe, 1 to 9, shared by every machine at that location, like a programmed button on one group of a commercial machine. Streamline's DYE strip has a button for each of slots 1 to 5 only; a recipe in one of 6 to 9 is a button on a Skin that shows nine, and DYE2 lists it. A recipe is in at most one slot, and keeps its identity when moved to another. One in slots 1 to 5 is on Streamline's strip exactly while it is in its slot, so taking it off any machine's strip takes it out of its slot at the location. One in no slot is kept at its location, where any machine can still load it, until someone puts it in one or archives it.
 _Avoid_: Recipe number, index
 
 **Loaded Recipe**:

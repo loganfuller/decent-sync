@@ -47,7 +47,7 @@ Each server has one owner: a household, or a business with all of its sites.
   either tablet appears on both, with one remaining weight, and every shot
   from both machines is in one history.
 - **A cafe.** Several DE1s work like the groups of one commercial machine: the
-  same Recipes on the same five buttons, one remaining weight for each batch, and a
+  same Recipes on the same buttons, one remaining weight for each batch, and a
   dial-in change on one group reaching every group with that Recipe loaded.
 - **A roastery with cafes.** Develop Profiles and Recipes in the lab, then roll
   them out: show a Profile at a cafe, or copy a Recipe there. Trace every shot
@@ -65,7 +65,8 @@ Each server has one owner: a household, or a business with all of its sites.
   added to, with its own remaining weight at each. Profiles, Baskets and Tools
   are shown or hidden per Location. Grinders belong to their Location.
 - **Recipes that follow the dial-in.** The Machines at a Location share its
-  DYE2 recipes and five Recipe Slots, and use the Baskets and Tools it shows.
+  DYE2 recipes and nine Recipe Slots, of which Streamline's strip shows 1 to
+  5, and use the Baskets and Tools it shows.
   A change made on a
   Machine is saved into the Recipe it has loaded. An edit to a Recipe, from a
   tablet or the web, reaches every Machine with it loaded. Each Recipe holds

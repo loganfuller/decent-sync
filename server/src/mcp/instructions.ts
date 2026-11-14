@@ -18,7 +18,7 @@ export const INSTRUCTIONS = `Decent Sync keeps the coffee data of Decent espress
 - Recipe: a named, saved dial-in for a coffee, belonging to one Location: its Bean Batch, Profile, dose, yield, Grinder and setting, Basket and Tools, and any steam, hot water and flush settings.
 - Workflow: what a Machine is set up to do next. A Recipe is saved; a Workflow is current.
 - Loaded Recipe: the Recipe a barista last applied on a Machine. A change on that Machine is saved into it, and a change to it reaches that Machine's Workflow.
-- Recipe Slot: one of a Location's five numbered positions, 1 to 5, each a button on its Machines' tablets. A Recipe is in at most one slot.
+- Recipe Slot: one of a Location's nine numbered positions, 1 to 9, shared by its Machines. Streamline's strip on a tablet shows slots 1 to 5 only, so a Recipe in 6 to 9 is a button on a Skin that shows nine, and is listed by DYE2. A Recipe is in at most one slot.
 - Reference Shot: the one Shot chosen for a Recipe to show how its Shots should go, as a roaster chooses a reference roast: any Shot, from any Machine or Location, on the Recipe's Profile or another. It stays until someone chooses another or clears it, and never reaches a tablet.
 - Bean: a coffee as a roaster sells it. Bean Batch: one roast of a Bean, at a Location from when it is added there until it is finished there.
 - Library: the Beans, Bean Batches, Profiles, Grinders, Baskets, Tools and Recipes Decent Sync keeps and shares with Machines. A Profile is a program a Machine follows while pulling a Shot, such as a pressure or flow curve; each Location shows or hides each Profile, Basket and Tool. A Grinder belongs to one Location.

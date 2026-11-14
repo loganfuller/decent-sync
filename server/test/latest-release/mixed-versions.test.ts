@@ -334,6 +334,56 @@ describe("the latest release beside the change", () => {
     for (const tablet of [moved, updated, ahead.tablet]) await expect.poll(() => slotsOf(tablet)).toEqual([4, null]);
   });
 
+  // A request puts a Recipe in a slot of 6 to 9 from the release after the one
+  // that first read them (#502): the latest release's server and plugin read
+  // and keep a `stripSlot` of 6 to 9, so the Recipe stays in the slot the
+  // change's server put it in, whichever release's plugin a tablet runs and
+  // whichever release's instance holds it. Beside a release from before them
+  // this fails, as that release's plugin is written the Recipe in no slot.
+  it("keeps a Recipe put in slot 7 through REST in slot 7, on each release's plugin and each release's instance, through their reports", async () => {
+    const api = apis.change;
+    const location = await api.createLocation("Slot 7 through REST", "America/Chicago");
+    const tablets = [
+      (await connected("Slot 7 through REST, the change's plugin", "change", "change", { location })).tablet,
+      (await connected("Slot 7 through REST, the latest release's plugin", "latest release", "change", { location })).tablet,
+      (await connected("Slot 7 through REST, on the latest release", "latest release", "latest release", { location })).tablet,
+      (await connected("Slot 7 through REST, the change's plugin on the latest release", "change", "latest release", { location })).tablet,
+    ];
+    type Record_ = Record<string, unknown>;
+    type Slotted = { recipe: { id: string; slot: number | null; name: string | null } };
+    const record = (tablet: SimulatedTablet, id: string) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === id);
+    /** Each tablet's record of each Recipe: its slot, and whether it is shown. */
+    const held = (...ids: string[]) => tablets.map((tablet) => ids.map((id) => [record(tablet, id)?.stripSlot, record(tablet, id)?.showOnStreamlineDashboard]));
+    const onEach = <T>(value: T) => tablets.map(() => value);
+    /** The Recipe as each release's server reads it. */
+    const read = async (id: string) => [(await api.get<Slotted>(`/recipes/${id}`)).recipe, (await apis["latest release"].get<Slotted>(`/recipes/${id}`)).recipe];
+
+    const { recipe } = await api.send<Slotted>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Seven", dose: 18, yield: 36 } }, 201);
+    await expect.poll(() => held(recipe.id)).toEqual(onEach([[1, true]]));
+
+    // Moved to slot 7 through the change's server: every tablet's record holds stripSlot 7, shown.
+    expect((await api.send<Slotted>("PUT", `/recipes/${recipe.id}/slot`, { slot: 7 })).recipe.slot).toBe(7);
+    await expect.poll(() => held(recipe.id)).toEqual(onEach([[7, true]]));
+    expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
+
+    // A report from each tablet, of an edit there, keeps the Recipe in slot 7 and reaches the others.
+    const route = "/store/dye2.reaplugin/recipes";
+    for (const [index, tablet] of tablets.entries()) {
+      const name = `Seven, renamed ${index + 1}`;
+      const list = (await tablet.callApi("GET", route)).body as Record_[];
+      expect((await tablet.callApi("POST", route, list.map((entry) => (dye2GlobalIdOf(entry) === recipe.id ? { ...entry, name, title: name } : entry)))).status).toBe(200);
+      await expect.poll(async () => (await read(recipe.id)).map((seen) => seen.name)).toEqual([name, name]);
+      await expect.poll(() => tablets.map((other) => record(other, recipe.id)?.name)).toEqual(onEach(name));
+      expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
+      expect(held(recipe.id)).toEqual(onEach([[7, true]]));
+    }
+
+    // Another created in slot 7 through the change's server takes the slot, and the first is kept in none, on every tablet.
+    const { recipe: taking } = await api.send<Slotted>("POST", "/recipes", { locationId: location.id, slot: 7, content: { name: "Seven too", dose: 18, yield: 36 } }, 201);
+    await expect.poll(() => held(taking.id, recipe.id)).toEqual(onEach([[7, true], [null, false]]));
+    expect([(await read(taking.id)).map(({ slot }) => slot), (await read(recipe.id)).map(({ slot }) => slot)]).toEqual([[7, 7], [null, null]]);
+  });
+
   // A Skin's requests came with the change's wire revision (#507, ADR-0030).
   // The latest release's plugin declares no `status` endpoint and sends no
   // request, so its tablet carries on as before. A tablet with the change's

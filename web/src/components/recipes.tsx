@@ -44,18 +44,16 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // modes, which are only what DYE2's stepper shows, moves it between slots,
 // takes it out of its slot, and Archives and restores it; each change
 // reaches every tablet there. A Recipe is on Streamline's strip exactly while
-// it is in a slot, so it has no switch of its own for that. Its grind
+// it is in a slot the strip has a button for, 1 to 5 of the nine, so it has
+// no switch of its own for that. Its grind
 // setting is a number or text, as DYE2 keeps one. Each steam, hot water and flush setting it does
 // not hold is each Machine's own. Picking a Bean Batch, Profile, Basket or
 // Tool its Location does not offer offers it there, as the form says before
 // saving. A Recipe is copied to a Location as a new Recipe there, offering
 // there what it uses.
 
-/**
- * How many Recipe Slots a request may name: the buttons of Streamline's DYE strip (`REQUESTABLE_RECIPE_SLOTS` in
- * protocol/src/index.ts). A Recipe a tablet put in one of 6 to 9 is shown in its slot, and its Slot select offers these.
- */
-const RECIPE_SLOTS = 5;
+/** How many Recipe Slots a Location has (`RECIPE_SLOTS` in protocol/src/index.ts), of which Streamline's DYE strip shows 1 to 5. */
+const RECIPE_SLOTS = 9;
 
 /** Each Recipe Slot offered, 1 to RECIPE_SLOTS. */
 const SLOTS = Array.from({ length: RECIPE_SLOTS }, (_, index) => index + 1);
@@ -133,11 +131,12 @@ function ItemLink({ to, children }: { to: string; children: string }) {
 }
 
 /**
- * Each Location's Recipes on its page: its Recipe Slots, the buttons of
- * Streamline's DYE strip, shared by every Machine there, and its Recipes in
- * no slot, kept there. Each not Archived is on every tablet there, one in no
- * slot found in DYE2's Select Recipe page. An Admin, or Staff working there,
- * creates one there.
+ * Each Location's Recipes on its page: its Recipe Slots, shared by every
+ * Machine there, and its Recipes in no slot, kept there. Each not Archived is
+ * on every tablet there, one in no slot found in DYE2's Select Recipe page.
+ * Its info text says which slots Streamline's strip shows, as the server
+ * does not work out which Skin a Location's tablets run (#502). An Admin, or
+ * Staff working there, creates one there.
  */
 export function LocationRecipesCard({ location, recipes, onChanged }: { location: Location; recipes: Recipe[]; onChanged(): Promise<void> | void }) {
   const mayChange = useMayChangeAt()(location.id);
@@ -148,10 +147,13 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
       <CardHeader>
         <CardTitleWithInfo title="Recipes">
           <p>
-            Its Recipe Slots, 1 to {RECIPE_SLOTS}, the buttons of Streamline's DYE strip, shared by every Machine here, and the Recipes kept here
-            in no slot. Every Recipe here not Archived is on each tablet here.
+            Its Recipe Slots, 1 to {RECIPE_SLOTS}, shared by every Machine here, and the Recipes kept here in no slot. Every Recipe here not
+            Archived is on each tablet here.
           </p>
-          <p>A Recipe is on the strip exactly while it is in a slot: taking it off any Machine's strip takes it out of its slot here.</p>
+          <p>
+            Streamline's DYE strip shows slots 1 to 5 only. A Recipe in 6 to 9 is a button on a Skin that shows nine, and is listed by DYE2.
+          </p>
+          <p>A Recipe in 1 to 5 is on the strip exactly while it is in its slot: taking it off any Machine's strip takes it out of its slot here.</p>
         </CardTitleWithInfo>
       </CardHeader>
       <CardContent className="grid gap-6">
