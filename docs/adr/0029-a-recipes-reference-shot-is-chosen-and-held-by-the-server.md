@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amended by ADR-0030)
 ---
 
 # A Recipe's Reference Shot is chosen, and held by the server alone

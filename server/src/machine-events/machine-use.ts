@@ -14,7 +14,7 @@ import { queryValue } from "../record-filters.js";
 // Location History, in that Location's time zone, and UTC's while it was at
 // none (`useSpans`). A Machine State lasts until the next one reported, so a
 // Machine whose tablet was off counts as in its last state until its tablet
-// reports again: Monitoring's connection history (milestone 8) will correct
+// reports again: Monitoring's connection history (milestone 9) will correct
 // that.
 
 /** What a use is counted by: each day of its range, or each hour. */

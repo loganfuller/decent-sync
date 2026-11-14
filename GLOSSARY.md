@@ -28,7 +28,7 @@ The Android device running Decaid that is attached to a machine, together with i
 _Avoid_: Machine, client, install
 
 **Skin**:
-The app baristas use on a tablet in place of Decaid's own screens, such as Streamline. It reads and changes the machine's workflow through Decaid's API, as the plugin does.
+The app baristas use on a tablet in place of Decaid's own screens, such as Streamline. It reads and changes the machine's workflow through Decaid's API, as the plugin does, and through the plugin it reads what the server holds for its machine's location: that location's shots and its recipes' reference shots.
 _Avoid_: Theme, front end
 
 **Machine Settings**:
