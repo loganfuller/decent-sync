@@ -924,8 +924,10 @@ var __decentSync = (() => {
   }
   var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
   var REQUESTS_WIRE_REVISION = 3;
-  var SKIN_ASKS = ["status"];
+  var SKIN_ASKS = ["status", "shots", "shot"];
+  var MAX_SHOTS_PAGE = 50;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
+  var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor"];
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -1064,7 +1066,18 @@ var __decentSync = (() => {
         return check(object3, "answer", (fields) => {
           fields.string("id", { nonEmpty: true });
           fields.oneOf("ask", SKIN_ASKS);
+          if (object3.ask !== "status" && object3.refused !== void 0) {
+            fields.oneOf("refused", SKIN_REFUSALS);
+            return fields.absent("result");
+          }
           fields.objectField("result");
+          if (object3.ask === "shots") {
+            fields.optionalObject("result", (page) => {
+              page.array("shots", (shot) => isObject(shot) && typeof shot.id === "string", MAX_SHOTS_PAGE);
+              page.optionalString("nextCursor");
+            });
+          }
+          if (object3.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
           if (object3.ask === "status") {
             fields.optionalObject("result", (status) => {
               status.boolean("served");
@@ -1781,18 +1794,18 @@ var __decentSync = (() => {
      * that Workflow too, but where the writes set the profile themselves.
      */
     wrote() {
-      const { reported, answered: answered2, before, written: written2 } = this.duringWrite;
-      if (!reported && answered2 !== void 0) this.latest = answered2;
+      const { reported, answered: answered3, before, written: written2 } = this.duringWrite;
+      if (!reported && answered3 !== void 0) this.latest = answered3;
       const latest = this.latest;
-      if (answered2 !== void 0 && steamOff(answered2)) this.steamWasOff = true;
-      const after = latest !== void 0 && answered2 !== void 0 && !sameValue(latest, answered2);
+      if (answered3 !== void 0 && steamOff(answered3)) this.steamWasOff = true;
+      const after = latest !== void 0 && answered3 !== void 0 && !sameValue(latest, answered3);
       const around = latest !== void 0 && before !== void 0 && changedBesides(before, latest, written2);
-      this.decide(written2.has("profile") ? answered2 ?? before : before, reported && after || around);
+      this.decide(written2.has("profile") ? answered3 ?? before : before, reported && after || around);
     }
     async beforePost(before, after) {
       const vacated = new Set(vacatedIds(before, after));
       if (vacated.size === 0) return;
-      await this.ownWrite("clear", async (answered2) => {
+      await this.ownWrite("clear", async (answered3) => {
         const workflow = await workflowNow();
         const named = dye2RecipeIdOf(workflow);
         if (named === null || !vacated.has(named)) return;
@@ -1800,7 +1813,7 @@ var __decentSync = (() => {
         const answer = await request("PUT", "/workflow", body);
         const updated = answer.ok ? parsed2(answer.text) : void 0;
         if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} clearing the Workflow's recipe before its record is replaced: ${answer.text.slice(0, 200)}`);
-        answered2(updated, body);
+        answered3(updated, body);
         this.workflowWritten(workflow, updated);
       });
     }
@@ -1965,11 +1978,11 @@ var __decentSync = (() => {
       const write = record3 === void 0 ? null : steamBackOnWrite(workflow, record3, pending.turnedOn);
       if (write !== null && this.shot.running()) return false;
       if (write !== null) {
-        await this.ownWrite("steamOn", async (answered2) => {
+        await this.ownWrite("steamOn", async (answered3) => {
           const answer = await request("PUT", "/workflow", write);
           const updated = answer.ok ? parsed2(answer.text) : void 0;
           if (!isObject4(updated)) throw new Error(`Decaid answered ${answer.status} turning steam back on with the Loaded Recipe's steam settings: ${answer.text.slice(0, 200)}`);
-          answered2(updated, write);
+          answered3(updated, write);
           this.workflowWritten(workflow, updated);
         });
       }
@@ -2048,7 +2061,7 @@ var __decentSync = (() => {
         if (this.loaded === globalId && this.heldLoad === null) this.holdLoad(globalId);
         return;
       }
-      await this.ownWrite("load", async (answered2) => {
+      await this.ownWrite("load", async (answered3) => {
         const workflow = await workflowNow();
         const recordId = dye2RecipeIdOf(workflow);
         const recipe = recordId === null ? void 0 : this.records?.get(recordId);
@@ -2056,10 +2069,10 @@ var __decentSync = (() => {
         const context = await this.loadContext(recipe.record);
         let write = loadWrite(workflow, recipe.record, context);
         if (write === null) return;
-        let answer = await putWorkflow(write, answered2);
+        let answer = await putWorkflow(write, answered3);
         if (!answer.ok && MACHINE_SETTING_PARTS.some((part) => part in write) && machineMissing(answer)) {
           write = loadWrite(workflow, recipe.record, context, new Set(RECIPE_SETTING_NAMES));
-          answer = write === null ? void 0 : await putWorkflow(write, answered2);
+          answer = write === null ? void 0 : await putWorkflow(write, answered3);
         }
         if (answer && !answer.ok) throw new Error(`Decaid answered ${answer.status} loading the recipe ${recordId}: ${answer.text.slice(0, 200)}`);
         const after = answer ? parsed2(answer.text) : void 0;
@@ -2095,10 +2108,10 @@ var __decentSync = (() => {
       return { profile: isObject4(stored) ? steps(stored.profile) : null };
     }
   };
-  async function putWorkflow(body, answered2) {
+  async function putWorkflow(body, answered3) {
     const answer = await request("PUT", "/workflow", body);
     const updated = answer.ok ? parsed2(answer.text) : void 0;
-    if (isObject4(updated)) answered2(updated, body);
+    if (isObject4(updated)) answered3(updated, body);
     return answer;
   }
   function fieldPaths(body, prefix = "") {
@@ -2427,8 +2440,8 @@ var __decentSync = (() => {
       const named = write.kind === LOADED_RECIPE_KIND && !(DYE2_RECIPE_FIELD in write.fields) ? "loadedRecipe" : "clear";
       return this.afterShot(
         again,
-        () => this.loaded.ownWrite(named, async (answered2) => {
-          const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered: answered2 }));
+        () => this.loaded.ownWrite(named, async (answered3) => {
+          const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered: answered3 }));
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
         })
@@ -4842,7 +4855,10 @@ var __decentSync = (() => {
 
   // src/skin-api.ts
   var STATUS_ENDPOINT = "status";
+  var SHOTS_ENDPOINT = "shots";
+  var SHOT_ENDPOINT = "shot";
   var CHANGES_ENDPOINT = "changes";
+  var MAX_ASKED_LENGTH = 2048;
   var REFUSALS = {
     unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
     serverTooOld: {
@@ -4856,21 +4872,69 @@ var __decentSync = (() => {
     hardwareMismatch: {
       status: 409,
       message: "The machine connected to this tablet is not the one this tablet's token was issued for, so the server serves it nothing until an Admin settles which Machine it is."
-    }
+    },
+    noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
+    // Each says what is wrong with it in a sentence of its own (`invalid`).
+    invalidRequest: { status: 400, message: "The request is not one this endpoint answers." }
   };
-  async function answerStatus(request2, requests) {
-    if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-    const asked = requests ? await requests.ask("status") : { unanswered: "unreachable" };
-    if ("unanswered" in asked) {
-      return refusal(asked.unanswered, { connected: requests?.connected ?? false, served: false, machine: null, location: null });
+  function answerSkin(request2, requests) {
+    switch (request2.endpoint) {
+      case STATUS_ENDPOINT:
+        return answerStatus(request2, requests);
+      case SHOTS_ENDPOINT:
+        return answerShots(request2, requests);
+      case SHOT_ENDPOINT:
+        return answerShot(request2, requests);
+      default:
+        return void 0;
     }
+  }
+  async function answerStatus(request2, requests) {
+    if (request2.method !== "GET") return onlyGet();
+    const asked = await ask(requests, { ask: "status" });
+    const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
+    if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
+    if (asked.answer.ask !== "status") return refusal("unreachable", unanswered);
     const { served, notServed, machine, location } = asked.answer.result;
     const status = { connected: true, served, machine, location };
     return notServed === void 0 ? json(200, status) : refusal(notServed, status);
   }
-  function refusal(code, body = {}) {
-    const { status, message } = REFUSALS[code];
-    return json(status, { ...body, code, message });
+  async function answerShots(request2, requests) {
+    if (request2.method !== "GET") return onlyGet();
+    const { limit, cursor } = request2.query;
+    if (limit !== void 0 && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
+      return invalid2(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
+    }
+    if (cursor !== void 0 && !askable(cursor)) return refused2("invalidCursor");
+    return answered2(await ask(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
+  }
+  async function answerShot(request2, requests) {
+    if (request2.method !== "GET") return onlyGet();
+    const { id } = request2.query;
+    if (!askable(id) || id === "") return invalid2("Give the Shot's id as id.");
+    return answered2(await ask(requests, { ask: "shot", shotId: id }));
+  }
+  function askable(value) {
+    return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
+  }
+  function ask(requests, question) {
+    return requests ? requests.ask(question) : Promise.resolve({ unanswered: "unreachable" });
+  }
+  function answered2(asked) {
+    if ("unanswered" in asked) return refusal(asked.unanswered);
+    return "refused" in asked.answer ? refused2(asked.answer.refused) : json(200, asked.answer.result);
+  }
+  function refused2(code) {
+    return code === "invalidCursor" ? invalid2("Give cursor as the nextCursor of the page before, or leave it out for the first page.") : refusal(code);
+  }
+  function refusal(code, body = {}, message = REFUSALS[code].message) {
+    return json(REFUSALS[code].status, { ...body, code, message });
+  }
+  function invalid2(message) {
+    return refusal("invalidRequest", {}, message);
+  }
+  function onlyGet() {
+    return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
   }
   function json(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -4884,12 +4948,11 @@ var __decentSync = (() => {
   }
 
   // src/skin-requests.ts
-  var FOLLOWS_REPORTS = { status: false };
+  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true };
   var SKIN_REQUEST_MS = 1e4;
   var SkinRequests = class {
-    constructor(outbox, followsReports = FOLLOWS_REPORTS) {
+    constructor(outbox) {
       __publicField(this, "outbox", outbox);
-      __publicField(this, "followsReports", followsReports);
       /** The welcomed connection, with the wire revision its server's welcome gave. */
       __publicField(this, "connection");
       /** The requests awaiting an answer, by id, each with what settles it. */
@@ -4912,8 +4975,8 @@ var __decentSync = (() => {
     answered(answer) {
       this.pending.get(answer.id)?.({ answer });
     }
-    /** Asks the server, and resolves with its answer or why there is none. It never rejects. */
-    ask(ask) {
+    /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
+    ask(question) {
       const connection = this.connection;
       if (!connection) return Promise.resolve({ unanswered: "unreachable" });
       if (!peerHasWireRevision(connection.serverRevision, REQUESTS_WIRE_REVISION)) return Promise.resolve({ unanswered: "serverTooOld" });
@@ -4929,8 +4992,8 @@ var __decentSync = (() => {
         };
         const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
         this.pending.set(id, settle);
-        const send = () => void connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
-        if (!this.followsReports[ask]) return send();
+        const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
+        if (!FOLLOWS_REPORTS[question.ask]) return send();
         giveUp = this.outbox.whenDelivered((delivered) => {
           if (!delivered) return settle({ unanswered: "unreachable" });
           if (this.pending.has(id)) send();
@@ -5880,9 +5943,9 @@ var __decentSync = (() => {
         if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
       },
-      // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking for the status
-      // is told the server can't be reached.
-      __httpRequestHandler: (request2) => request2.endpoint === STATUS_ENDPOINT ? answerStatus(request2, connection?.skinRequests) : answerHttp(request2)
+      // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
+      // holds is told the server can't be reached.
+      __httpRequestHandler: (request2) => answerSkin(request2, connection?.skinRequests) ?? answerHttp(request2)
     };
   }
   return __toCommonJS(index_exports);

@@ -54,6 +54,16 @@
       "id": "changes",
       "type": "websocket",
       "data": {}
+    },
+    {
+      "id": "shots",
+      "type": "http",
+      "data": {}
+    },
+    {
+      "id": "shot",
+      "type": "http",
+      "data": {}
     }
   ]
 }

@@ -1,12 +1,13 @@
 import { CHUNK_LIMITS, type Chunk, MAX_FRAME_BYTES, Reassembly } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
-import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
+import { MAX_MESSAGE_LENGTH, MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Sender } from "../src/sync/sender.js";
 
 // A connection's sender of the server's writes and answers (ticket #508),
 // through its own interface: what it hands the connection, and when, as the
 // plugin confirms chunks. The gateway's use of it is tested with hand-made
-// frames in confirmed-chunks.test.ts. The messages are made up: only their
-// sizes matter here, and no answer the server gives yet is large.
+// frames in confirmed-chunks.test.ts, and with a Shot larger than 1 MiB read
+// whole in skin-shots.test.ts. The messages are made up: only their sizes
+// matter here.
 
 /** Decaid's limit on the frames it holds for a plugin. */
 const DECAID_INBOUND_LIMIT = 1 << 20;
@@ -96,6 +97,41 @@ describe("The server's sender", () => {
     sender.send(text);
     expect(chunks()).toMatchObject([{ type: "chunk", index: 0, count: 1 }]);
     expect(confirmAll(sender, frames)).toEqual([text]);
+  });
+
+  it("names a longest message that leaves a plugin room for a small one arriving between its chunks", () => {
+    // What a plugin holds at worst: all of the longest message but its last code unit, as a small message, the largest
+    // sent whole, arrives as a single chunk ahead of it. Both count, with their names, until the small one completes.
+    const reassembly = new Reassembly();
+    const chunk = (id: string, index: number, count: number, data: string): Chunk => ({ type: "chunk", id, index, count, data });
+    expect(reassembly.add(chunk("message-1000000", 0, 2, "l".repeat(MAX_MESSAGE_LENGTH - 1)), CHUNK_LIMITS)).toEqual({ status: "incomplete" });
+    expect(reassembly.add(chunk("message-1000001", 0, 1, "s".repeat(MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toMatchObject({ status: "complete" });
+    expect(reassembly.add(chunk("message-1000000", 1, 2, "l"), CHUNK_LIMITS)).toMatchObject({ status: "complete" });
+    // And little is given up for it: a message a small one's length longer would not have fitted beside one.
+    const tight = new Reassembly();
+    expect(tight.add(chunk("message-1", 0, 2, "l".repeat(MAX_MESSAGE_LENGTH + MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toEqual({ status: "incomplete" });
+    expect(tight.add(chunk("message-2", 0, 1, "s".repeat(MAX_WHOLE_BYTES)), CHUNK_LIMITS)).toMatchObject({ status: "invalid" });
+  });
+
+  it("says how many bytes it holds still to send, which the gateway bounds its answers by", () => {
+    const { sender, frames, bytes } = connection();
+    // Sent whole, or as chunks within the limit: nothing waits.
+    sender.send(message("answer", 200));
+    sender.send(message("answer", MAX_UNCONFIRMED_BYTES / 2));
+    expect(sender.waitingBytes).toBe(0);
+    // All of a second message waits behind the first's unconfirmed chunks, and all the first's that the limit holds back.
+    sender.send(message("answer", 3 * DECAID_INBOUND_LIMIT));
+    sender.send(message("answer", 2 * DECAID_INBOUND_LIMIT));
+    const waiting = sender.waitingBytes;
+    expect(waiting).toBeGreaterThan(5 * DECAID_INBOUND_LIMIT - MAX_UNCONFIRMED_BYTES);
+    expect(waiting).toBeLessThan(5.1 * DECAID_INBOUND_LIMIT);
+    // What is handed over as chunks are confirmed waits no longer, down to nothing.
+    const before = bytes();
+    const confirmed = JSON.parse(frames.at(-1)!) as Chunk;
+    sender.received(confirmed.id, confirmed.index);
+    expect(sender.waitingBytes).toBe(waiting - (bytes() - before));
+    confirmAll(sender, frames);
+    expect(sender.waitingBytes).toBe(0);
   });
 
   it("holds back once the chunks unconfirmed would pass the limit, and carries on as they are confirmed", () => {

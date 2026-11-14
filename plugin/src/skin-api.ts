@@ -1,6 +1,6 @@
-import type { NotServed } from "@decent-sync/protocol";
+import { MAX_SHOTS_PAGE, type NotServed, type SkinQuestion, type SkinRefusal } from "@decent-sync/protocol";
 import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
-import type { SkinRequests, Unanswered } from "./skin-requests.js";
+import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 
 // What the plugin serves a Skin of what the server holds (ADR-0030,
 // milestone 8): HTTP endpoints of its own on the tablet, each declared in
@@ -19,13 +19,26 @@ import type { SkinRequests, Unanswered } from "./skin-requests.js";
 // out on an endpoint of its own.
 
 /** The plugin's HTTP endpoint a Skin asks whether its Machine is served (manifest.json). */
-export const STATUS_ENDPOINT = "status";
+const STATUS_ENDPOINT = "status";
+
+/** The plugin's HTTP endpoint a Skin reads a page of its Location's Shots from (manifest.json). */
+const SHOTS_ENDPOINT = "shots";
+
+/** The plugin's HTTP endpoint a Skin reads one of those Shots whole from (manifest.json). */
+const SHOT_ENDPOINT = "shot";
 
 /** The plugin's WebSocket endpoint a Skin listens on for what changed (manifest.json). */
 const CHANGES_ENDPOINT = "changes";
 
+/**
+ * The longest `cursor` or `id` the server is asked with: longer than any
+ * cursor it gives or any Shot's id, and short enough that a request never
+ * passes a frame, whatever a Skin sends.
+ */
+const MAX_ASKED_LENGTH = 2048;
+
 /** Why an endpoint refuses a request: one of these codes, each with its HTTP status and a sentence. */
-export type RefusalCode = Unanswered | NotServed;
+export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "invalidRequest";
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
@@ -41,7 +54,29 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
     status: 409,
     message: "The machine connected to this tablet is not the one this tablet's token was issued for, so the server serves it nothing until an Admin settles which Machine it is.",
   },
+  noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
+  // Each says what is wrong with it in a sentence of its own (`invalid`).
+  invalidRequest: { status: 400, message: "The request is not one this endpoint answers." },
 };
+
+/**
+ * Answers a request to one of the endpoints a Skin reads what the server
+ * holds from, or undefined for any other endpoint, as those Streamline reads
+ * (skins.ts). Each is answered whether or not the plugin connects: a Skin
+ * is then told the server can't be reached.
+ */
+export function answerSkin(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> | undefined {
+  switch (request.endpoint) {
+    case STATUS_ENDPOINT:
+      return answerStatus(request, requests);
+    case SHOTS_ENDPOINT:
+      return answerShots(request, requests);
+    case SHOT_ENDPOINT:
+      return answerShot(request, requests);
+    default:
+      return undefined;
+  }
+}
 
 /**
  * Answers a request to `status`: whether the plugin is connected to the
@@ -51,22 +86,84 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
  * refusal's `code` and `message` beside the same fields. While the plugin is
  * not connected it answers at once, asking nothing.
  */
-export async function answerStatus(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-  const asked = requests ? await requests.ask("status") : { unanswered: "unreachable" as const };
-  if ("unanswered" in asked) {
-    // Still connected where the server is too old to ask, or did not answer in time.
-    return refusal(asked.unanswered, { connected: requests?.connected ?? false, served: false, machine: null, location: null });
-  }
+async function answerStatus(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  if (request.method !== "GET") return onlyGet();
+  const asked = await ask(requests, { ask: "status" });
+  // Still connected where the server is too old to ask, or did not answer in time.
+  const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
+  if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
+  // An answer to another ask, which the server never gives a request for the status.
+  if (asked.answer.ask !== "status") return refusal("unreachable", unanswered);
   const { served, notServed, machine, location } = asked.answer.result;
   const status = { connected: true, served, machine, location };
   return notServed === undefined ? json(200, status) : refusal(notServed, status);
 }
 
+/**
+ * Answers a request to `shots`: a page of the Shots at the Machine's
+ * Location, newest first, whichever Machine pulled them, as the server
+ * lists them (`SkinShots` in protocol/). The query's `limit` is how many the
+ * page may hold, from 1 to MAX_SHOTS_PAGE, which it is without one, and its
+ * `cursor` the `nextCursor` of the page before. The request follows what the
+ * tablet has still to report, so a Shot just pulled here is in its answer.
+ */
+async function answerShots(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  if (request.method !== "GET") return onlyGet();
+  const { limit, cursor } = request.query;
+  if (limit !== undefined && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
+    return invalid(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
+  }
+  if (cursor !== undefined && !askable(cursor)) return refused("invalidCursor");
+  return answered(await ask(requests, { ask: "shots", limit: limit === undefined ? MAX_SHOTS_PAGE : Number(limit), ...(cursor !== undefined && { cursor }) }));
+}
+
+/**
+ * Answers a request to `shot`: the Shot the query's `id` names, whole, with
+ * its measurements, in the shape Decaid gives a tablet's own Shot
+ * (`SkinShot` in protocol/), where it is one of the Shots at the Machine's
+ * Location. Any other is refused as no such Shot, whether or not the server
+ * holds it.
+ */
+async function answerShot(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  if (request.method !== "GET") return onlyGet();
+  const { id } = request.query;
+  if (!askable(id) || id === "") return invalid("Give the Shot's id as id.");
+  return answered(await ask(requests, { ask: "shot", shotId: id }));
+}
+
+/** Whether a value of the query is text the server may be asked with. */
+function askable(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
+}
+
+/** Asks the server, where the plugin has a connection to ask on. */
+function ask(requests: SkinRequests | undefined, question: SkinQuestion): Promise<Asked> {
+  return requests ? requests.ask(question) : Promise.resolve({ unanswered: "unreachable" });
+}
+
+/** What a Skin is answered once the server was asked: the result as the server gave it, or the refusal. */
+function answered(asked: Asked): HttpAnswer {
+  if ("unanswered" in asked) return refusal(asked.unanswered);
+  return "refused" in asked.answer ? refused(asked.answer.refused) : json(200, asked.answer.result);
+}
+
+/** The server's refusal, as a Skin is told it. */
+function refused(code: SkinRefusal): HttpAnswer {
+  return code === "invalidCursor" ? invalid("Give cursor as the nextCursor of the page before, or leave it out for the first page.") : refusal(code);
+}
+
 /** An endpoint's refusal: its HTTP status, with its `code` and `message` after what else the answer holds. */
-function refusal(code: RefusalCode, body: Record<string, unknown> = {}): HttpAnswer {
-  const { status, message } = REFUSALS[code];
-  return json(status, { ...body, code, message });
+function refusal(code: RefusalCode, body: Record<string, unknown> = {}, message = REFUSALS[code].message): HttpAnswer {
+  return json(REFUSALS[code].status, { ...body, code, message });
+}
+
+/** The refusal of a request the endpoint can't read, saying what is wrong with it. */
+function invalid(message: string): HttpAnswer {
+  return refusal("invalidRequest", {}, message);
+}
+
+function onlyGet(): HttpAnswer {
+  return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
 }
 
 function json(status: number, body: unknown): HttpAnswer {

@@ -9,12 +9,13 @@ import { PluginStorage } from "../src/storage.js";
 // When a request for a Skin goes out (ADR-0030, ticket #507): at once, as
 // `status` does, or, for an ask whose answer depends on what the tablet
 // reports, once the server has acknowledged what the outbox held as the Skin
-// asked. No ask follows the tablet's reports yet: the Location's Shots are
-// the first (#509). So the wait is tested here, on the plugin's own outbox
-// with a Decaid that holds nothing, with `status` told to follow them; Seam
-// 1 covers `status` as it is asked (server/test/skin-status.test.ts).
+// asked, as a page of the Location's Shots does (#509). The wait is tested
+// here, on the plugin's own outbox with a Decaid that holds nothing; Seam 1
+// covers each ask as a Skin makes it (server/test/skin-status.test.ts,
+// skin-shots.test.ts).
 
-const SERVED: SkinAnswer["result"] = { served: true, machine: { id: "machine", name: "Machine" }, location: { id: "location", name: "Location" } };
+const SERVED = { served: true, machine: { id: "machine", name: "Machine" }, location: { id: "location", name: "Location" } };
+const PAGE = { shots: [], nextCursor: null };
 
 /** A Shot's read under way, which the test ends as Decaid would: with the Shot, with none, or failing. */
 interface Read {
@@ -25,8 +26,9 @@ interface Read {
 
 /**
  * The plugin's outbox and its requests for a Skin, on a welcomed connection
- * that records what is sent on it and acknowledges nothing by itself.
- * `follows` has `status` follow the tablet's reports, as no ask yet does.
+ * that records what is sent on it and acknowledges nothing by itself. Its
+ * `ask` asks for a page of Shots, which follows the tablet's reports, where
+ * `follows`, and otherwise for the status, which follows nothing.
  */
 async function connected(options: { follows: boolean; restored?: boolean }) {
   const logs: string[] = [];
@@ -54,7 +56,7 @@ async function connected(options: { follows: boolean; restored?: boolean }) {
     },
     new KeptDeliveries(storage, log, "a token"),
   );
-  const requests = new SkinRequests(outbox, { status: options.follows });
+  const requests = new SkinRequests(outbox);
   const sent: PluginMessage[] = [];
   const welcome = () => {
     outbox.welcome(async (message) => void sent.push(message));
@@ -77,16 +79,17 @@ async function connected(options: { follows: boolean; restored?: boolean }) {
     const delivery = sent.filter((message) => message.type !== "request").at(-1) as Delivery;
     outbox.acknowledge(delivery.id);
   };
-  /** Asks for the status, and gives what became of it once it is settled. */
+  /** Asks, and gives what became of it once it is settled. */
   const ask = () => {
     const asked: { settled?: Asked } = {};
-    void requests.ask("status").then((settled) => (asked.settled = settled));
+    void requests.ask(options.follows ? { ask: "shots", limit: 50 } : { ask: "status" }).then((settled) => (asked.settled = settled));
     return asked;
   };
   /** The server's answer to the request sent last. */
   const answer = () => {
     const request = sent.filter((message) => message.type === "request").at(-1) as { id: string };
-    requests.answered({ type: "answer", id: request.id, ask: "status", result: SERVED });
+    const answered: SkinAnswer = options.follows ? { type: "answer", id: request.id, ask: "shots", result: PAGE } : { type: "answer", id: request.id, ask: "status", result: SERVED };
+    requests.answered(answered);
   };
   /** The read of that Shot, once the outbox has begun it. */
   const read = async (id: string) => {
@@ -126,7 +129,7 @@ describe("A request that follows the tablet's reports", () => {
     expect(asked.settled).toBeUndefined();
     answer();
     await turns();
-    expect(asked.settled).toEqual({ answer: expect.objectContaining({ type: "answer", result: SERVED }) });
+    expect(asked.settled).toEqual({ answer: expect.objectContaining({ type: "answer", ask: "shots", result: PAGE }) });
   });
 
   it("follows a record new on the tablet, read only as it is sent, but not the records the server asked for", async () => {

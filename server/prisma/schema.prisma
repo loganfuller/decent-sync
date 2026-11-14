@@ -686,9 +686,11 @@ model Shot {
   curvesRevision   Int               @default(0) @map("curves_revision")
   measurements     ShotMeasurements?
 
-  /// The migration orders both pulled_at columns NULLS LAST, as the queries do; Prisma cannot express that.
+  /// The migrations order each pulled_at column NULLS LAST, as the queries do; Prisma cannot express that.
   @@index([pulledAt(sort: Desc), id])
   @@index([machineId, pulledAt(sort: Desc), id])
+  /// A Location's Shots, newest first, as its tablets page through them (shots/location-shots.ts).
+  @@index([locationId, pulledAt(sort: Desc), id])
   @@index([pendingMachineId])
   @@index([beanBatchId])
   @@index([grinderId])

@@ -253,7 +253,7 @@ export interface ShotSummary<Group = SummaryGroup> {
  * in decaid:lib/src/models/data/profile.dart). A Shot that recorded no type,
  * which Decaid reads as espresso, or any other, counts.
  */
-const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
+export const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' ->> 'beverage_type') IN ('cleaning', 'calibrate'), false)`;
 
 /**
  * Whether the Shot of `shots` aliased `s` is an Unfinished Shot (GLOSSARY.md):
@@ -271,7 +271,7 @@ const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' -
  * nothing poured. A Shot whose stored values aren't worked out yet
  * (`AWAITING`) counts as poured.
  */
-const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
+export const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
 
 /**
  * Whether the Shot of `shots` aliased `s` awaits its stored values: stored

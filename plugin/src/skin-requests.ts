@@ -1,4 +1,4 @@
-import { REQUESTS_WIRE_REVISION, type SkinAnswer, type SkinAsk, type SkinRequest, peerHasWireRevision } from "@decent-sync/protocol";
+import { REQUESTS_WIRE_REVISION, type SkinAnswer, type SkinAsk, type SkinQuestion, type SkinRequest, peerHasWireRevision } from "@decent-sync/protocol";
 import type { Outbox } from "./outbox.js";
 
 /**
@@ -8,9 +8,10 @@ import type { Outbox } from "./outbox.js";
  * once. `status` reads only where the Machine takes part, which nothing the
  * tablet reports changes, so it goes at once: behind a tablet's backlog
  * after an outage it would run out of time for nothing. An ask that reads
- * or names what the tablet delivers follows it.
+ * or names what the tablet delivers follows it: the Location's Shots, and
+ * any one of them, so a Shot just pulled on this tablet is among them.
  */
-export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false };
+export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true };
 
 /**
  * How long a request has to be answered, from when the Skin asked: its wait
@@ -49,11 +50,7 @@ export class SkinRequests {
   /** The requests awaiting an answer, by id, each with what settles it. */
   private readonly pending = new Map<string, (asked: Asked) => void>();
 
-  constructor(
-    private readonly outbox: Pick<Outbox, "nextId" | "whenDelivered">,
-    /** Which asks follow the tablet's reports: FOLLOWS_REPORTS, but in a test of one that does while none yet does. */
-    private readonly followsReports: Readonly<Record<SkinAsk, boolean>> = FOLLOWS_REPORTS,
-  ) {}
+  constructor(private readonly outbox: Pick<Outbox, "nextId" | "whenDelivered">) {}
 
   /** Whether the plugin holds a connection the server welcomed. */
   get connected(): boolean {
@@ -76,8 +73,8 @@ export class SkinRequests {
     this.pending.get(answer.id)?.({ answer });
   }
 
-  /** Asks the server, and resolves with its answer or why there is none. It never rejects. */
-  ask(ask: SkinAsk): Promise<Asked> {
+  /** Asks the server `question`, and resolves with its answer or why there is none. It never rejects. */
+  ask(question: SkinQuestion): Promise<Asked> {
     const connection = this.connection;
     if (!connection) return Promise.resolve({ unanswered: "unreachable" });
     if (!peerHasWireRevision(connection.serverRevision, REQUESTS_WIRE_REVISION)) return Promise.resolve({ unanswered: "serverTooOld" });
@@ -92,8 +89,8 @@ export class SkinRequests {
       };
       const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
       this.pending.set(id, settle);
-      const send = () => void connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
-      if (!this.followsReports[ask]) return send();
+      const send = () => void connection.send({ type: "request", id, ...question }).catch(() => settle({ unanswered: "unreachable" }));
+      if (!FOLLOWS_REPORTS[question.ask]) return send();
       giveUp = this.outbox.whenDelivered((delivered) => {
         if (!delivered) return settle({ unanswered: "unreachable" });
         // Settled already, as by its time running out while it waited.

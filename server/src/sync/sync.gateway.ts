@@ -27,6 +27,7 @@ import {
   type LibraryWrite,
   type ListUnrecognised,
   type LiveFrame,
+  MAX_CHUNKED_LENGTH,
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
@@ -83,7 +84,7 @@ import { hashSecret } from "../secrets.js";
 import { clientAddress } from "./client-address.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
-import { Sender } from "./sender.js";
+import { MAX_MESSAGE_LENGTH, Sender } from "./sender.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
@@ -107,6 +108,15 @@ const REFUSAL_WARNING_INTERVAL_MS = 60_000;
 const ABNORMAL_CLOSURE = 1006;
 const INTERNAL_ERROR = 1011;
 const GOING_AWAY = 1001;
+
+/**
+ * How many bytes may wait to be sent on a connection before its plugin's
+ * requests go unanswered: twice the longest message. An answer may be a
+ * Shot of megabytes, any caller on the tablet's network may have the plugin
+ * ask for one again and again, and what the plugin has not taken waits in
+ * this instance's memory.
+ */
+const MAX_WAITING_BYTES = 2 * MAX_CHUNKED_LENGTH;
 
 interface Session {
   /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
@@ -137,6 +147,8 @@ interface Session {
    * closes is lost with it.
    */
   sender?: Sender;
+  /** Whether its latest request went unanswered for what already waited to be sent (MAX_WAITING_BYTES), which is logged once until one is answered again. */
+  unanswering?: boolean;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
   /** Claims of its Settings Edits, made one at a time, so they are sent in the order they were made. */
@@ -550,15 +562,37 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * could not read it. One from a connection that no longer holds its
    * Machine, as once another hello took it and before this instance was
    * told, has no answer: the connection is ended as that notification ends
-   * it, and its plugin answers the Skin as unreachable.
+   * it, and its plugin answers the Skin as unreachable. Nor has one that
+   * arrives while more than MAX_WAITING_BYTES wait to be sent on its
+   * connection, as when a Skin asks for large Shots faster than its tablet
+   * takes them: it is not read, so what an instance holds for a connection
+   * is bounded, and its plugin answers the Skin as unreachable. Nor has one
+   * whose answer is longer than a plugin puts back together
+   * (MAX_MESSAGE_LENGTH), as a page of Shots whose names someone made
+   * enormous, which would have its plugin drop the connection each time.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
     if (!peerHasWireRevision(session.wireRevision!, REQUESTS_WIRE_REVISION)) {
       return this.refuse(session, "protocol_error", `A request needs a plugin at wire revision ${REQUESTS_WIRE_REVISION} or newer`);
     }
-    const answer = await this.skinRequests.answer({ sessionId: session.id, machineId: session.machine!.id, identity: session.identity! }, request);
+    const waiting = session.sender?.waitingBytes ?? 0;
+    if (waiting > MAX_WAITING_BYTES) {
+      if (!session.unanswering) this.logger.warn(`Leaving the requests of ${this.describe(session)} unanswered while ${waiting} bytes wait to be sent to its tablet`);
+      session.unanswering = true;
+      return;
+    }
+    session.unanswering = false;
+    const answer = await this.skinRequests.answer(
+      { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId, identity: session.identity! },
+      request,
+    );
     if (answer === null) return this.check([session.live!]);
-    this.sendCounted(session, answer);
+    const text = encode(answer);
+    if (text.length > MAX_MESSAGE_LENGTH) {
+      this.logger.warn(`Left a request of ${this.describe(session)} unanswered: its answer, of ${text.length} characters, is longer than its plugin takes`);
+      return;
+    }
+    this.sendCounted(session, answer, text);
   }
 
   /**
@@ -856,10 +890,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * large for one frame. That plugin is sent one write at a time and never
    * an answer, as it makes no request.
    */
-  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer): void {
+  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer, text = encode(message)): void {
     if (session.closing) return;
-    if (session.sender) return session.sender.send(encode(message));
-    for (const frame of frames(encode(message), message.id)) session.socket.send(frame.text);
+    if (session.sender) return session.sender.send(text);
+    for (const frame of frames(text, message.id)) session.socket.send(frame.text);
   }
 
   /**

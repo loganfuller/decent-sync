@@ -902,6 +902,77 @@ the tablet. The assistant tests check every number against the route,
 whole and by group, and within the budget with two groupings, on realistic
 data and with step names and grind settings of 3,000 characters.
 
+## On a tablet
+
+A Skin on a tablet lists the Shots at its Machine's Location and reads any
+of them whole, through the plugin's `shots` and `shot` endpoints (ticket
+[#509](https://github.com/loganfuller/decent-sync/issues/509), ADR-0030;
+`PLUGIN.md`, For a Skin's author, has the endpoints, a row's fields and the
+refusals). The plugin asks the server with a `request` over its connection
+(`AI_PROTOCOL_NOTES.md`, Requests for a Skin), and the server reads the
+answer in `server/src/shots/location-shots.ts`. Neither is a REST route or a
+tool: only a Skin calls them.
+
+- **Which Shots.** Those the Shots list lists for the Location the
+  connection's Machine is at now, as `GET /api/shots?locationId=` does:
+  stored with their full record, credited to that Location by Location
+  History (`shots.location_id`), whichever Machine pulled them, and not a
+  dismissed Pending Machine's (`shotListedSql`). A Pending Machine's Shots
+  are at no Location, so none is listed until it is adopted. A Shot credited
+  to another Location once its Machine's Location History is corrected
+  leaves the list and joins that Location's, wherever its tablet is now.
+- **Who is served.** A Machine that takes part in the Library, as its
+  status says. Whether it is served, which Location it is at and that
+  Location's Shots are read in one snapshot, so a Machine moved meanwhile is
+  never answered one Location's Shots as another's.
+- **Order and paging.** Newest first by when they were pulled, then by id,
+  as the Shots list orders them, a page of up to 50 (`MAX_SHOTS_PAGE`), with
+  no filters and no total. A page's `nextCursor` holds its last Shot's pull
+  time and id, and the next page starts just past them: a Shot credited to a
+  Location has a pull time, which never changes once its full record is
+  stored, so paging is by keyset on the index on the Location and
+  `pulled_at` (`shots_location_id_pulled_at_id_idx`), one index range
+  however many Shots the other Locations hold, and a Shot
+  pulled or dropped since the first page neither repeats a row nor skips
+  one. The server reads one Shot beyond the page to say whether another
+  follows. A cursor it never gave is refused, not read as the first page.
+- **A row.** Its columns as the Shots list reads them: the pull time, the
+  Machine, the Bean's roaster and name as recorded, the dose and yield
+  weighed and aimed for, the duration without its Preheat, the rating
+  (`enjoyment`) and the Barista. Whether it has a note is read from its
+  record as the Shot page reads the note. Whether it is an Unfinished Shot
+  is as a Shot Summary counts one (`UNFINISHED` and not `LEFT_OUT` in
+  `summary.ts`): nothing poured, and it is no cleaning or calibration Shot. Whether the
+  asking tablet holds it is whether that tablet last reported it
+  (`shots.tablet_id`).
+- **Its Recipe.** The Recipe it was pulled with (`shotRecipeSql`), whichever
+  Location that Recipe belongs to, by id and name, and by the id of the
+  asking tablet's record of it (`tablet_recipes.local_id`), null where that
+  tablet holds none.
+- **The Recipes it is the Reference Shot of** are those of the asking
+  tablet's Location that are not Archived, named as its Recipe is. The REST
+  read names every Recipe, at any Location and Archived or not; a tablet is
+  named only what its Location offers.
+- **A Shot whole.** Its record with its `measurements`, as stored, which is
+  as Decaid sent them, so a Skin draws it with the code that draws its
+  tablet's own; with its Recipe and the Recipes it is the Reference Shot of,
+  named as a row names them. The answer is sent in chunks the plugin
+  confirms (`AI_PROTOCOL_NOTES.md`, Chunked messages), so a Shot whose
+  record passes 1 MiB is read whole.
+- **What waits for a slow tablet is bounded.** A request that arrives
+  while more than 32 MiB wait to be sent on its connection has no answer,
+  as when something on the tablet's network asks for long Shots faster than
+  the tablet takes them. Nor is an answer sent that is longer than a plugin
+  puts back together, about 16.7 million characters, which would have it drop its
+  connection (`AI_PROTOCOL_NOTES.md`, Requests for a Skin).
+- **Only its own Location's.** A tablet reads whole only a Shot its list
+  would list. Any other, and an id that is no Shot's, is refused as no such
+  Shot, without saying whether the server holds it. (#510 adds the
+  Reference Shots of its Location's Recipes.)
+
+`server/test/skin-shots.test.ts` covers them through the built plugin in
+simulated tablets, two at one Location and one at another.
+
 ## Management interface
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
