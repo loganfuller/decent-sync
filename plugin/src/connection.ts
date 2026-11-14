@@ -1,6 +1,7 @@
 import {
   CHUNK_LIMITS,
   CLOSE_CODES,
+  CONFIRMED_CHUNKS_WIRE_REVISION,
   type ErrorCode,
   MISSED_HEARTBEATS,
   type MachineHardware,
@@ -12,6 +13,7 @@ import {
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
+  peerHasWireRevision,
   sameHardware,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -136,6 +138,8 @@ export class SyncConnection {
   private sender: Sender | undefined;
   /** Puts the open handle's chunked messages from the server back together. */
   private chunks = new Reassembly();
+  /** Whether the server that welcomed the open handle waits for its chunks to be confirmed (CONFIRMED_CHUNKS_WIRE_REVISION). */
+  private confirmsChunks = false;
   /** Bumped by every attempt and drop, so late results of an older one are ignored. */
   private attempt = 0;
   private connecting = false;
@@ -374,6 +378,7 @@ export class SyncConnection {
       this.handle = handle;
       this.sender = new Sender((frame) => this.host.transport.send(handle, { type: "text", data: frame }));
       this.chunks = new Reassembly();
+      this.confirmsChunks = false;
       this.welcomed = false;
       this.sentHardware = identity.machine;
       this.machineAway = false;
@@ -442,9 +447,17 @@ export class SyncConnection {
       return;
     }
     if (decoded.message.type !== "chunk") return this.onMessage(handle, decoded.message);
-    // A message too large for one frame, such as a large Library item to write.
+    // A message too large for one frame, such as a large Library item to write, or one the server counts until it
+    // is received.
     const added = this.chunks.add(decoded.message, CHUNK_LIMITS);
     if (added.status === "invalid") return this.drop(`the server sent chunks that do not fit together: ${added.problem}`);
+    // Decaid holds the chunk for the plugin no longer, so the server may send more (protocol/src/chunking.ts).
+    if (this.confirmsChunks) {
+      const { id, index } = decoded.message;
+      this.send(handle, { type: "chunkReceived", id, index }).catch((error: unknown) => {
+        this.sendFailed(handle, `could not confirm a chunk: ${describe(error)}`);
+      });
+    }
     if (added.status === "incomplete") return;
     const whole = decodeServerMessage(added.text);
     if (!whole.ok) return this.log(`Ignoring a message from the server: ${whole.problem}`);
@@ -467,6 +480,8 @@ export class SyncConnection {
             `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`,
           );
         }
+        // The previous release's server closes the connection on a confirmation, which it doesn't know.
+        this.confirmsChunks = peerHasWireRevision(wireRevisionOf(message), CONFIRMED_CHUNKS_WIRE_REVISION);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the

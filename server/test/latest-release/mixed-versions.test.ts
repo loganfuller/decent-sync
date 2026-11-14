@@ -1,6 +1,7 @@
 import path from "node:path";
-import { RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
+import { MAX_FRAME_BYTES, RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { MAX_UNCONFIRMED_BYTES } from "../../src/sync/sender.js";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
@@ -196,6 +197,26 @@ describe("the latest release beside the change", () => {
       await expect.poll(async () => (await api.get<{ grinder: { content: { notes?: unknown } } }>(`/grinders/${grinder.id}`)).grinder.content.notes).toBe(
         "Edited on the tablet",
       );
+    });
+
+    // The change's server holds back what a plugin that confirms its chunks has not confirmed (#508). The latest
+    // release's plugin confirms none, and its server knows no confirmation, so between the two a large write goes in
+    // chunks all at once, as in that release: more than the change's server sends unconfirmed, and less than Decaid
+    // holds for a plugin, past which a write sent all at once closes the tablet's transport.
+    it("writes a Library item too large for one frame to the tablet, in chunks, none of them confirmed", async () => {
+      const api = apis[server];
+      const location = await api.createLocation(`Large write, the ${plugin}'s plugin`, "America/Chicago");
+      const brought = await connected(`Large write from, the ${plugin}'s plugin`, plugin, server, { location });
+      const { tablet } = await connected(`Large write to, the ${plugin}'s plugin`, plugin, server, { location });
+      const line = "Stone fruit, jasmine and black tea. ";
+      const notes = line.repeat(Math.ceil((MAX_UNCONFIRMED_BYTES + MAX_FRAME_BYTES) / line.length));
+      const name = `Long notes, the ${plugin}'s plugin`;
+      await brought.tablet.addBean({ roaster: "Roux", name, notes });
+      await expect.poll(() => tablet.beans().find((bean) => bean.name === name)?.notes, { timeout: 20_000 }).toBe(notes);
+
+      const frames = (list: unknown[], type: string) => (list as { type?: unknown }[]).filter((frame) => frame.type === type);
+      expect(frames(tablet.received, "chunk").length).toBeGreaterThan(2);
+      expect(frames(tablet.sent, "chunkReceived")).toEqual([]);
     });
 
     it("writes a Settings Edit and confirms it", async () => {

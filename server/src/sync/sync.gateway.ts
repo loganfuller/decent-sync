@@ -11,7 +11,9 @@ import {
   SHOTS_STILL_TO_READ,
   CHUNK_LIMITS,
   CLOSE_CODES,
+  CONFIRMED_CHUNKS_WIRE_REVISION,
   type Chunk,
+  type ChunkReceived,
   type Decoded,
   type ErrorCode,
   type Hello,
@@ -36,6 +38,7 @@ import {
   type SettingsEdit,
   type SettingsEdited,
   type ShotDelivery,
+  type SkinAnswer,
   type SkinRequest,
   type SteamDelivery,
   WIRE_REVISION,
@@ -80,6 +83,7 @@ import { hashSecret } from "../secrets.js";
 import { clientAddress } from "./client-address.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
+import { Sender } from "./sender.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
@@ -126,6 +130,13 @@ interface Session {
   live?: LiveConnection;
   /** Writes the Library to its tablet, once welcomed, unless it is mismatched. */
   writer?: TabletWriter;
+  /**
+   * Sends its writes and answers, counting what its plugin has not confirmed,
+   * once its hello is accepted from a plugin that confirms the server's
+   * chunks. It belongs to this connection alone: what was in flight as it
+   * closes is lost with it.
+   */
+  sender?: Sender;
   /** Frames are handled one at a time, in the order they arrived. */
   queue: Promise<void>;
   /** Claims of its Settings Edits, made one at a time, so they are sent in the order they were made. */
@@ -170,9 +181,14 @@ interface Session {
  * taken in, a connection that is not mismatched writes the Library its
  * Machine's Location offers to its tablet (`TabletWriter`), one write at a
  * time, each answered by the plugin, which the server acknowledges once it
- * has recorded the answer. A write too large for one frame goes in chunks. When the
- * Machine's Location changes, the writer asks the plugin for its
- * collections afresh.
+ * has recorded the answer. When the Machine's Location changes, the writer
+ * asks the plugin for its collections afresh.
+ *
+ * A write or an answer past a small size goes in chunks, which the plugin
+ * confirms one by one, and the server sends a connection no more than
+ * Decaid holds for a plugin before they are (`Sender`). The previous
+ * release's plugin confirms none, and is sent a write too large for one
+ * frame in chunks, all at once, as before.
  *
  * Any number of server instances may run. Which connection holds a Machine is
  * stored on its row; a change that may end a connection (another accepted
@@ -345,6 +361,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       const text = isBinary ? undefined : rawToString(data);
       const decoded = text === undefined ? undefined : decodePluginFrame(text);
       if (decoded?.ok === true && decoded.message.type === "liveFrame" && this.liveFrame(session, decoded.message, text!)) return;
+      if (decoded?.ok === true && decoded.message.type === "chunkReceived" && this.chunkReceived(session, decoded.message)) return;
       const answered = decoded?.ok === true && decoded.message.type === "heartbeat" && this.answerHeartbeat(session);
       session.queue = this.track(
         session.queue
@@ -383,6 +400,19 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   private liveFrame(session: Session, live: LiveFrame, text: string): boolean {
     if (!session.welcomed || session.closing) return false;
     this.liveViews.frame(session.id, live, utf8Length(text));
+    return true;
+  }
+
+  /**
+   * Takes a welcomed connection's confirmation of a chunk as it arrives,
+   * ahead of the deliveries queued before it, as a heartbeat is answered:
+   * what waits to be sent then goes on, whatever the database is doing. Says
+   * whether it did: one arriving before the connection was welcomed waits
+   * its turn, and is refused there before a hello.
+   */
+  private chunkReceived(session: Session, confirmation: ChunkReceived): boolean {
+    if (!session.welcomed) return false;
+    session.sender?.received(confirmation.id, confirmation.index);
     return true;
   }
 
@@ -438,6 +468,9 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (message.type === "liveFrame") return;
     // No delivery: its id is its answer's alone, and is never looked up among the deliveries handled.
     if (message.type === "request") return this.request(session, message);
+    // No delivery either: its id names a chunk of the server's. One arriving before the welcome, when nothing was
+    // sent, or in chunks, or from a plugin the server counts nothing for, names no chunk in flight.
+    if (message.type === "chunkReceived") return void this.chunkReceived(session, message);
     if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
       const request = session.handled.get(message.id);
       if (request) this.send(session, request);
@@ -525,7 +558,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     const answer = await this.skinRequests.answer({ sessionId: session.id, machineId: session.machine!.id, identity: session.identity! }, request);
     if (answer === null) return this.check([session.live!]);
-    if (!session.closing) this.send(session, answer);
+    this.sendCounted(session, answer);
   }
 
   /**
@@ -786,7 +819,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       session.settingsEdits.then(async () => {
         if (session.closing) return;
         try {
-          for (const edit of await this.settingsEdits.claim(live)) this.sendWrite(session, edit);
+          for (const edit of await this.settingsEdits.claim(live)) this.sendCounted(session, edit);
         } catch (error) {
           this.logger.error(`Could not send the Settings Edits of ${this.describe(session)}: ${String(error)}`);
         }
@@ -815,10 +848,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.acknowledge(session, answer.id, null);
   }
 
-  /** Sends a write, delete, removal, leave-out or Settings Edit on the connection, in chunks if it is too large for one frame. */
-  private sendWrite(session: Session, write: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit): void {
+  /**
+   * Sends a write, delete, removal, leave-out or Settings Edit, or an answer
+   * to a request, on the connection: through its `Sender`, which keeps what
+   * the plugin has not confirmed within Decaid's limit, or, to the previous
+   * release's plugin, which confirms nothing, at once, in chunks if it is too
+   * large for one frame. That plugin is sent one write at a time and never
+   * an answer, as it makes no request.
+   */
+  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer): void {
     if (session.closing) return;
-    for (const frame of frames(encode(write), write.id)) session.socket.send(frame.text);
+    if (session.sender) return session.sender.send(encode(message));
+    for (const frame of frames(encode(message), message.id)) session.socket.send(frame.text);
   }
 
   /**
@@ -843,6 +884,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.awaitingHello.delete(session);
     session.machine = machine;
     session.wireRevision = wireRevisionOf(hello);
+    if (peerHasWireRevision(session.wireRevision, CONFIRMED_CHUNKS_WIRE_REVISION)) {
+      session.sender = new Sender((frame) => {
+        if (!session.closing) session.socket.send(frame);
+      });
+    }
     session.identity = identity;
     const live: LiveConnection = {
       sessionId: session.id,
@@ -877,7 +923,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       session.writer = new TabletWriter(
         { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId, wireRevision: session.wireRevision! },
         this.prisma,
-        (write) => this.sendWrite(session, write),
+        (write) => this.sendCounted(session, write),
         () => {
           if (!session.closing) this.send(session, { type: "requestCollections" });
         },
