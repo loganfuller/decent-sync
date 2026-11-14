@@ -74,7 +74,8 @@ describe("a server whose database goes away", () => {
     const quiet = sentAtLastPoll.get(tablet) === sent.length;
     sentAtLastPoll.set(tablet, sent.length);
     const acknowledged = new Set((tablet.received as Frame[]).filter((frame) => frame.type === "ack").map((frame) => frame.id));
-    return quiet && sent.every((frame) => ["hello", "heartbeat", "chunk"].includes(frame.type) || acknowledged.has(frame.id));
+    // What it holds of the Reference Shot copies is no delivery, and has no acknowledgment.
+    return quiet && sent.every((frame) => ["hello", "heartbeat", "chunk", "referencesHeld"].includes(frame.type) || acknowledged.has(frame.id));
   }
   const machineSettings = async (machine: CreatedMachine) =>
     (await api.get<{ collection: { value: Record<string, unknown> } | null }>(`/machines/${machine.machine.id}/collections/machineSettings`)).collection?.value;
