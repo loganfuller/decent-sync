@@ -39,10 +39,10 @@ interface Unconfirmed {
  * `chunkReceived`, and wait while sending them would take the count past
  * MAX_UNCONFIRMED_BYTES. Decaid writes a transport's frames in order, so a
  * confirmation also covers every frame sent before it. A message that is no
- * delivery and fits in one frame, a `hello`, a `heartbeat` or a request for
- * a Skin, is sent at once, ahead of anything waiting, and not counted, so a
- * large delivery never holds up the heartbeats that keep the connection
- * open.
+ * delivery and fits in one frame, a `hello`, a `heartbeat`, a request for a
+ * Skin or the confirmation of a chunk the server sent, is sent at once,
+ * ahead of anything waiting, and not counted, so a large delivery never
+ * holds up the heartbeats that keep the connection open.
  */
 export class Sender {
   private readonly queue: Queued[] = [];
@@ -59,8 +59,9 @@ export class Sender {
   /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
   async send(message: PluginMessage): Promise<void> {
     if (this.failure) throw this.failure;
-    // A request's id only matches its answer to it: the server confirms none, so it is no delivery.
-    const id = "id" in message && message.type !== "request" ? message.id : undefined;
+    // A request's id only matches its answer to it, and a confirmation's names the server's chunk: the server
+    // confirms neither, so they are no deliveries.
+    const id = "id" in message && message.type !== "request" && message.type !== "chunkReceived" ? message.id : undefined;
     const name = id ?? `message-${++this.unnamed}`;
     const encoded = frames(encode(message), name);
     if (encoded.length === 1 && id === undefined) return this.sendFrame(encoded[0]!.text);
