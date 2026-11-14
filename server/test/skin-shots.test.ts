@@ -616,6 +616,8 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
       expect(first.length).toBeLessThan(asked);
       // All but the last of them waited as it was read, but for the first chunks sent: within the limit.
       expect(first.slice(0, -1).reduce((sum, answer) => sum + answer.bytes, 0)).toBeLessThanOrEqual(2 * MAX_CHUNKED_LENGTH + 1024 * 1024);
+      // And no fewer than the limit lets wait: its chunks hold an answer's text escaped, so somewhat more bytes than these.
+      expect(first.reduce((sum, answer) => sum + answer.bytes, 0)).toBeGreaterThan(MAX_CHUNKED_LENGTH);
     });
 
     it("refuses a request from a Capture-only connection as not served", async () => {

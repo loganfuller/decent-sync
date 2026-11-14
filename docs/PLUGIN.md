@@ -327,7 +327,7 @@ were pulled, a page at a time, with no filters.
       "referenceOf": [{ "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a80", "name": "House espresso", "recordId": "05fd1e80-61e3-46ef-b202-2cbad5eb7983" }]
     }
   ],
-  "nextCursor": "WzE3OTQ2NjgxMzE0ODIsIjBmNmMxYzVlIl0"
+  "nextCursor": "WzE3OTQ2Njg1MzE0ODIsIjBmNmMxYzVlLTBmMGEtNGQ2ZS05ZDBiLTZmMWIxYTJjM2Q0ZSJd"
 }
 ```
 
@@ -337,7 +337,7 @@ were pulled, a page at a time, with no filters.
 | `pulledAt` | When it was pulled, in UTC. |
 | `machine` | The Machine that pulled it, by its id and name on the server. Compare its id with the [status](#status)'s to tell this Machine's Shots from the others'. |
 | `onThisTablet` | Whether this tablet holds the Shot, so Decaid's own API has it: it is the tablet that last reported it. |
-| `recipe` | The Recipe it was pulled with, or null: its id and name on the server, and `recordId`, the id of this tablet's DYE2 record of it, which the Workflow names in `context.extras.dye.recipeId`. `recordId` is null where this tablet holds no record of the Recipe. |
+| `recipe` | The Recipe it was pulled with, or null: its id and name on the server, and `recordId`, the id of this tablet's DYE2 record of it, which the Workflow names in `context.extras.dye.recipeId`. `recordId` is null where this tablet holds no record of the Recipe, as for another Location's Recipe, which a Shot names once its Machine's Location History is corrected. |
 | `bean` | The coffee's `roaster` and `name`, as the Shot recorded them. |
 | `dose`, `targetDose` | The dose weighed and the dose aimed for, in grams. |
 | `yield`, `targetYield` | The yield weighed and the yield aimed for, in grams. |
