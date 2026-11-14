@@ -387,8 +387,8 @@ A long Shot's record passes 1 MiB. It is read whole all the same, and takes
 longer to arrive. Answers reach the tablet in turn, so ask for a few Shots
 at a time: one still waiting behind the others after 10 seconds is refused
 as `unreachable`, and the server leaves requests unanswered while a tablet
-is far behind on what it asked for. An answer longer than 16 million
-characters is never sent, so a Shot or a page that long is refused as
+is far behind on what it asked for. An answer longer than about 16.7
+million characters is never sent, so a Shot or a page that long is refused as
 `unreachable` each time: no Shot Decaid records comes near it.
 
 ### Refusals

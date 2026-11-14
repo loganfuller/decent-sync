@@ -963,7 +963,7 @@ tool: only a Skin calls them.
   while more than 32 MiB wait to be sent on its connection has no answer,
   as when something on the tablet's network asks for long Shots faster than
   the tablet takes them. Nor is an answer sent that is longer than a plugin
-  puts back together, 16 million characters, which would have it drop its
+  puts back together, about 16.7 million characters, which would have it drop its
   connection (`AI_PROTOCOL_NOTES.md`, Requests for a Skin).
 - **Only its own Location's.** A tablet reads whole only a Shot its list
   would list. Any other, and an id that is no Shot's, is refused as no such
