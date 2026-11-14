@@ -632,10 +632,8 @@ Conflict names is kept, still refused, so history goes on naming it
   Tools. A Recipe
   created there gets a new record id, a UUID, as a copy does. Its slot is
   its Location's state, not its content: one of the Location's nine
-  (`RECIPE_SLOTS` in `protocol/`), any of which a request may name, from the
-  release after the one that first read 6 to 9, whose server keeps a Recipe
-  in the slot this one's puts it in (ticket
-  [#502](https://github.com/loganfuller/decent-sync/issues/502), ADR-0025).
+  (`RECIPE_SLOTS` in `protocol/`), any of which a request may name (ticket
+  [#502](https://github.com/loganfuller/decent-sync/issues/502)).
   Streamline's DYE strip shows slots 1 to 5 only, so a Recipe in 6 to 9 is a
   button on a Skin that shows nine, and is listed by DYE2; the server does
   not work out which Skin a Location's tablets run, so `next` gives the

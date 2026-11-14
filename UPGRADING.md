@@ -17,8 +17,7 @@ Releasing).
 
 ### Check every tablet runs the 1.9.0 plugin before deploying
 
-This release raises the wire revision, for Recipe Slots 6 to 9, which it reads
-and keeps but nothing assigns yet
+This release raises the wire revision, for Recipe Slots 6 to 9
 ([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
 Deploying). Before deploying, check on each Machine's page that it runs the
 1.9.0 plugin, the previous release's. A tablet still on the 1.4.0 plugin or
@@ -36,6 +35,9 @@ created, copied or moved to the next free slot goes in the lowest free of 6
 to 9, off Streamline's strip. Before, a new one or a copy was kept in no
 slot, and a move was refused. Choose no slot to keep a new Recipe or a copy
 as before.
+
+A tablet still on the 1.9.0 plugin holds a Recipe in slots 6 to 9 in no slot
+until Decaid updates its plugin, and the Recipe keeps its slot meanwhile.
 
 ## 1.9.0
 

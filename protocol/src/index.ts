@@ -632,9 +632,7 @@ export function dye2Records(value: unknown): Record<string, unknown>[] | null {
  * named, in a DYE2 record, the `recipes.slot` column, a request's `slot` and
  * what the server answers. DYE2 holds, shows and keeps a `stripSlot` of 6 to
  * 9, and places a recipe only in 1 to 5 itself; Streamline's DYE strip shows
- * 1 to 5 (#506). A request names any of the nine from the release after the
- * one that first read 6 to 9, whose server keeps a Recipe in the slot this
- * one's puts it in (#502).
+ * 1 to 5 (#506). A request names any of the nine (#502).
  */
 export const RECIPE_SLOTS = 9;
 

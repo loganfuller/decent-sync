@@ -355,13 +355,13 @@ describe("the latest release beside the change", () => {
     for (const tablet of [moved, updated, ahead.tablet]) await expect.poll(() => slotsOf(tablet)).toEqual([4, null]);
   });
 
-  // A request puts a Recipe in a slot of 6 to 9 from the release after the one
-  // that first read them (#502): that release's server and plugin read and
-  // keep a `stripSlot` of 6 to 9, so beside it the Recipe is in the slot the
-  // change's server put it in on every tablet, whichever release's plugin it
-  // runs and whichever release's instance holds it. A plugin from before
-  // them, on the change's server, is written the Recipe in no slot
-  // (`writtenRecipeSlot`, #506), and the Recipe keeps its slot all the same.
+  // A request puts a Recipe in a slot of 6 to 9 (#502). Beside a release
+  // whose server and plugin read and keep a `stripSlot` of 6 to 9, the Recipe
+  // is in the slot the change's server put it in on every tablet, whichever
+  // release's plugin it runs and whichever release's instance holds it. A
+  // plugin from before them, on the change's server, is written the Recipe
+  // in no slot (`writtenRecipeSlot`, #506), and the Recipe keeps its slot all
+  // the same.
   it("keeps a Recipe put in slot 7 through REST in slot 7, on each release's plugin and each release's instance, through their reports", async () => {
     const api = apis.change;
     const location = await api.createLocation("Slot 7 through REST", "America/Chicago");
