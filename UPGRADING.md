@@ -36,8 +36,9 @@ to 9, off Streamline's strip. Before, a new one or a copy was kept in no
 slot, and a move was refused. Choose no slot to keep a new Recipe or a copy
 as before.
 
-A tablet still on the 1.9.0 plugin holds a Recipe in slots 6 to 9 in no slot
-until Decaid updates its plugin, and the Recipe keeps its slot meanwhile.
+This release's server writes a tablet still on the 1.9.0 plugin a Recipe in
+slots 6 to 9 in no slot, until Decaid updates its plugin, and the Recipe
+keeps its slot meanwhile.
 
 ## 1.9.0
 
