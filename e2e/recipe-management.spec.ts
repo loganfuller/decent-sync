@@ -247,7 +247,7 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   const recipe = await createRecipe(page, lab, 1, { name: "House Espresso" });
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso");
 
-  // Both offline, each tablet's DYE2 editor saves a name of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
+  // Offline, each tablet's DYE2 editor saves a name of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
   // A save is timed when its tablet's plugin first reads it (ADR-0005), which may be before the plugin hears that its
   // connection is lost, so the later is saved once the earlier has reached the Library: it is then timed no earlier,
   // whenever it is read.

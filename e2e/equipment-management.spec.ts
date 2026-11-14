@@ -148,7 +148,7 @@ test("a Conflict over a Basket's notes, made on two tablets offline, is shown on
   const { id } = ((await created.json()) as { basket: { id: string } }).basket;
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("New");
 
-  // Both offline, each tablet's DYE2 page saves notes of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
+  // Offline, each tablet's DYE2 page saves notes of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
   // A save is timed when its tablet's plugin first reads it (ADR-0005), which may be before the plugin hears that its
   // connection is lost, so the later is saved once the earlier has reached the Library: it is then timed no earlier,
   // whenever it is read.
