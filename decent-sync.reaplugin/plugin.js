@@ -4941,7 +4941,7 @@ var __decentSync = (() => {
     }
     /** Keeps a copy the server sent in place of what its slot held, after those before it, and tells Skins of its Recipe. */
     apply({ slot, copy }) {
-      this.keeping = this.keeping.then(async () => {
+      const kept = this.keeping.then(async () => {
         await this.load();
         if (this.stopped || !isRecipeSlot(slot)) return;
         const head = copy && { version: copy.version, recipe: copy.recipe, ...copy.tooLarge === true && { tooLarge: true } };
@@ -4960,6 +4960,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           this.changed(head.recipe);
         }
       });
+      this.keeping = kept.catch((error) => this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`));
     }
     /**
      * The tablet's copy of the Recipe's reference, for a Recipe in a slot whose
@@ -5090,8 +5091,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   }
   async function recipeIdOf(recordId) {
     const reading = await readCollection(`/store/${DYE2_NAMESPACE}/recipes`, null, true);
-    if (reading.kind !== "value") return void 0;
-    return dye2GlobalIdOf(dye2Records(reading.value)?.find((record3) => record3.id === recordId));
+    const records = reading.kind === "value" ? dye2Records(reading.value) : null;
+    return records === null ? void 0 : dye2GlobalIdOf(records.find((record3) => record3.id === recordId));
   }
   function askable(value) {
     return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;

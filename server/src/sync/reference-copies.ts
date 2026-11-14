@@ -1,6 +1,21 @@
 import { randomUUID } from "node:crypto";
-import type { ReferenceCopy } from "@decent-sync/protocol";
+import { MAX_REFERENCE_COPY_BYTES, type ReferenceCopy } from "@decent-sync/protocol";
 import type { DueCopy } from "../shots/location-references.js";
+
+/**
+ * How many bytes may wait to be sent on a connection before a look for
+ * copies due is put off: one copy's worth. A copy may be a megabyte, each
+ * edit of a Reference Shot's rating or note sends every tablet at its
+ * Recipes' Locations another, and what a tablet has not taken waits in this
+ * instance's memory. A look sends only what differs from what the tablet
+ * holds, so the looks put off while a slow tablet catches up send it each
+ * slot's latest copy once, and what waits for it stays within this and one
+ * look's copies.
+ */
+export const MAX_WAITING_FOR_COPIES_BYTES = MAX_REFERENCE_COPY_BYTES;
+
+/** How long a look put off waits before it is tried again. */
+const LOOK_AGAIN_MS = 1_000;
 
 /**
  * Keeps the Reference Shot copies on the tablet of one connection this
@@ -22,6 +37,9 @@ import type { DueCopy } from "../shots/location-references.js";
  *
  * The plugin answers no copy. One it could not keep is missing from what it
  * says on its next connection, and is sent again then.
+ *
+ * While more than MAX_WAITING_FOR_COPIES_BYTES wait to be sent on the
+ * connection, it sends nothing more, and looks again a little later.
  */
 export class ReferenceCopies {
   /** The version of the copy the tablet holds for each slot; undefined until its plugin has said. */
@@ -30,6 +48,8 @@ export class ReferenceCopies {
   /** Woken while looking: look again once done. */
   private again = false;
   private stopped = false;
+  /** Set while a look put off waits to be tried again. */
+  private retry: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     /** The copies due to the tablet, given what it holds; null where the connection no longer holds its Machine. */
@@ -39,6 +59,8 @@ export class ReferenceCopies {
     private readonly log: { error(message: string): void },
     /** Keeps database work in the instance's work in flight, which shutdown waits for. */
     private readonly track: (work: Promise<void>) => Promise<void>,
+    /** How many bytes wait to be sent on the connection now. */
+    private readonly waiting: () => number = () => 0,
   ) {}
 
   /** The plugin said what it holds: the version of its copy for each slot, by the slot's number. */
@@ -67,11 +89,19 @@ export class ReferenceCopies {
   /** The connection closed: nothing more is sent on it. */
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.retry);
   }
 
   private async run(): Promise<void> {
     do {
       this.again = false;
+      if (this.waiting() > MAX_WAITING_FOR_COPIES_BYTES) {
+        this.retry ??= setTimeout(() => {
+          this.retry = undefined;
+          this.wake();
+        }, LOOK_AGAIN_MS);
+        return;
+      }
       const held = this.held!;
       const due = await this.due(held);
       if (this.stopped || due === null) return;

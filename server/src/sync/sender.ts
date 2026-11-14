@@ -51,9 +51,10 @@ interface Waiting {
 }
 
 /**
- * Sends one connection's writes and answers to a plugin that confirms the
- * chunks it receives (CONFIRMED_CHUNKS_WIRE_REVISION), so that what it has
- * not confirmed stays within MAX_UNCONFIRMED_BYTES of chunks and
+ * Sends one connection's writes, answers and Reference Shot copies to a
+ * plugin that confirms the chunks it receives
+ * (CONFIRMED_CHUNKS_WIRE_REVISION), so that what it has not confirmed stays
+ * within MAX_UNCONFIRMED_BYTES of chunks and
  * MAX_UNCONFIRMED_WHOLE_BYTES of messages sent whole, three quarters of
  * Decaid's limit, whatever is in flight together (protocol/src/chunking.ts).
  *

@@ -175,13 +175,14 @@ async function answerReference(request: HttpRequest, requests: SkinRequests | un
 /**
  * The Recipe's own id that the DYE2 recipe with this record id on the
  * tablet carries, null where no record has the id or it carries none, and
- * undefined where DYE2's recipes can't be read. A tablet without DYE2 has
- * no recipes.
+ * undefined where DYE2's recipes can't be read, or are in a shape that is
+ * not recognised. A tablet without DYE2 has no recipes.
  */
 async function recipeIdOf(recordId: string): Promise<string | null | undefined> {
   const reading = await readCollection(`/store/${DYE2_NAMESPACE}/recipes`, null, true);
-  if (reading.kind !== "value") return undefined;
-  return dye2GlobalIdOf(dye2Records(reading.value)?.find((record) => record.id === recordId));
+  // A list in a shape that is not recognised is never read as DYE2's recipes (ADR-0005).
+  const records = reading.kind === "value" ? dye2Records(reading.value) : null;
+  return records === null ? undefined : dye2GlobalIdOf(records.find((record) => record.id === recordId));
 }
 
 /** Whether a value of the query is text the server may be asked with. */

@@ -44,8 +44,10 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 //
 // A Recipe's Reference Shot (ADR-0029) is its own too, not its content: a
 // change of it is a version of its own, as a slot change is, so it makes no
-// Conflict, and nothing is written to tablets, so no `NOTIFY` is sent. A
-// copy starts with the Recipe's.
+// Conflict, and it is no part of the record written to tablets. Each tablet
+// at its Location keeps a copy of the Shot while the Recipe is in a slot
+// (ADR-0030, shots/location-references.ts), so a change of it commits with
+// the `NOTIFY` too. A copy of a Recipe starts with the Recipe's.
 //
 // Locks are taken as a tablet's report of its recipes takes them: the
 // Location's, then the Recipe's row; then the rows of the items it is set to

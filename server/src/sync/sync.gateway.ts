@@ -1029,6 +1029,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         (copy) => this.sendCounted(session, copy),
         this.logger,
         (work) => this.track(work),
+        () => session.sender?.waitingBytes ?? 0,
       );
     }
     // An edit made while this hello was being accepted was notified before the session could be found.

@@ -365,14 +365,21 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
     await choose(espresso, "ref-left-bloom");
   });
 
-  it("keeps none for a Reference Shot hidden with its Pending Machine, and for a Recipe once Archived", async () => {
+  it("keeps none for a Reference Shot hidden with its Pending Machine, keeps it again once that hardware is adopted, and keeps nothing for a Recipe once Archived", async () => {
     // A Pending Machine's Shot is listed, and may be chosen, until it is dismissed.
     await choose(decaf, "ref-pending");
     for (const tablet of [left, right]) await expect.poll(() => kept(tablet, 2)).toBe("ref-pending");
     const { pendingMachines } = await api.get<{ pendingMachines: { id: string; serial: string }[] }>("/pending-machines");
-    expect((await api.call("POST", `/pending-machines/${pendingMachines.find((pending) => pending.serial === UNKNOWN_SERIAL)!.id}/dismiss`)).status).toBe(200);
+    const pending = pendingMachines.find((each) => each.serial === UNKNOWN_SERIAL)!;
+    expect((await api.call("POST", `/pending-machines/${pending.id}/dismiss`)).status).toBe(200);
     for (const tablet of [left, right]) await expect.poll(() => kept(tablet, 2)).toBeNull();
     expect((await reference(left, decaf)).body).toMatchObject({ reference: null, source: "server" });
+    // A machine entry made for the hardware takes its Shots, which are listed again: the Recipe reads its Reference Shot again.
+    await api.send("POST", `/pending-machines/${pending.id}/machine`, { name: "Belmont adopted" }, 201);
+    for (const tablet of [left, right]) await expect.poll(() => kept(tablet, 2)).toBe("ref-pending");
+    expect((await reference(left, decaf)).body).toMatchObject({ reference: { shot: { id: "ref-pending" } }, source: "server" });
+    await choose(decaf, null);
+    for (const tablet of [left, right]) await expect.poll(() => kept(tablet, 2)).toBeNull();
 
     // Archived, a Recipe is in no slot: its copy goes, and comes back with it once restored and put in one.
     await api.send("PUT", `/recipes/${espresso}/archived`, { archived: true });
@@ -435,7 +442,7 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
       await expect.poll(() => kept(left, 1)).toBe("ref-left-unsaved");
       expect(of(raw, "referenceCopy")).toEqual([]);
 
-      // Holding slot 1 as it is, slot 2 at another version, and slot 9, which has no Recipe.
+      // Holding slots 1 and 2 at versions that are not theirs, and slot 9, which has no Recipe.
       raw.send({ type: "referencesHeld", held: { "1": copy(left, 1)!.version.replace(/./g, "0"), "2": "stale", "9": "stale" } });
       await expect.poll(() => of(raw, "referenceCopy").length).toBe(3);
       const copies = Object.fromEntries(of(raw, "referenceCopy").map((message) => [message.slot, message.copy as Copy | null]));

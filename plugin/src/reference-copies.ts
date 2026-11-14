@@ -95,7 +95,7 @@ export class ReferenceCopies {
 
   /** Keeps a copy the server sent in place of what its slot held, after those before it, and tells Skins of its Recipe. */
   apply({ slot, copy }: ReferenceCopy): void {
-    this.keeping = this.keeping.then(async () => {
+    const kept = this.keeping.then(async () => {
       await this.load();
       if (this.stopped || !isRecipeSlot(slot)) return;
       const head: Head | null = copy && { version: copy.version, recipe: copy.recipe, ...(copy.tooLarge === true && { tooLarge: true }) };
@@ -114,6 +114,8 @@ export class ReferenceCopies {
         this.changed(head.recipe);
       }
     });
+    // Whatever became of one, those after it are still kept.
+    this.keeping = kept.catch((error: unknown) => this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe(error)}`));
   }
 
   /**

@@ -501,7 +501,7 @@ show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
 | `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for. |
 | `noSuchRecipe` | 404 | No DYE2 recipe on the tablet has the record id asked for, or the one that has it is no Recipe of the Machine's Location. |
-| `recipesUnread` | 500 | Decaid didn't give the plugin DYE2's recipes, so it couldn't tell which Recipe was asked about. Ask again. |
+| `recipesUnread` | 500 | Decaid didn't give the plugin DYE2's recipes, or gave them in a shape it doesn't recognise, so it couldn't tell which Recipe was asked about. Ask again. |
 | `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id` or `recipe`, or one longer than 2,048 characters. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
