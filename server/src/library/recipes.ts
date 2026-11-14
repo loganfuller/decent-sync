@@ -386,8 +386,10 @@ function heldFeedRates(reported: readonly ReportedRecipe[], mapped: readonly Map
  * plugin is from before slots 6 to 9 (`wireRevision`) knew a Recipe in one
  * of them in no slot, as it was written (`writtenRecipeSlot`), or in its
  * slot where its record still holds it, as the previous release's server
- * wrote it, so its move of that Recipe is made either way, rather than only
- * the half of it that takes a slot from its holder. Each change is a
+ * wrote it, so its move of that Recipe into a slot is made either way,
+ * rather than only the half of it that takes the slot from its holder; a
+ * move out of that slot to none is not, as this server's write of none to
+ * it reads the same. Each change is a
  * version of its own, from the tablet, timed as the record moved. Slots
  * left are emptied first, so no two Recipes are ever in one.
  */
@@ -402,12 +404,16 @@ async function moveSlots(
   const rows = await tx.$queryRaw<{ id: string; slot: number | null }[]>`
     SELECT id::text AS id, slot FROM recipes WHERE id = ANY(${moves.map((move) => move.itemId)}::uuid[]) AND location_id = ${locationId}::uuid AND NOT archived`;
   const slots = new Map(rows.map((row) => [row.id, row.slot]));
-  // The slot the tablet knew: the Recipe's, or for a plugin behind the one it was written, whichever its record held; a
-  // move into the slot the Recipe is in changes nothing.
   const made = moves.filter((move) => {
     if (!slots.has(move.itemId)) return false;
     const slot = slots.get(move.itemId)!;
-    return (move.from === slot || move.from === writtenRecipeSlot(slot, wireRevision)) && move.to !== slot;
+    // A move into the slot the Recipe is in changes nothing.
+    if (move.to === slot) return false;
+    // The slot the tablet was written, which for a current plugin is the Recipe's.
+    if (move.from === writtenRecipeSlot(slot, wireRevision)) return true;
+    // A plugin behind whose record still held the Recipe's slot of 6 to 9: its move into a slot is the barista's. Its move
+    // to none is not taken, as the server's own write of none, its answer not recorded, reads the same.
+    return move.from === slot && move.to !== null;
   });
   for (const move of made) {
     if (slots.get(move.itemId) !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
