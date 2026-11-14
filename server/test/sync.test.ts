@@ -338,18 +338,23 @@ describe("Machines and the sync connection", () => {
       await waitForMachine("Slow database", (machine) => machine.online);
     });
 
-    it("welcome a hello without a wire revision, as a plugin of 1.3.1 or earlier sends, and one with the current revision", async () => {
+    it("welcome a hello with the previous wire revision or the current one, and refuse one without, as a plugin of 1.3.1 or earlier sends, as too old", async () => {
       const { token } = await createMachine("Wire revisions");
-      for (const wireRevision of [undefined, WIRE_REVISION]) {
+      for (const wireRevision of [WIRE_REVISION - 1, WIRE_REVISION]) {
         raw = await RawConnection.open(server.url);
-        const hello = helloWith(token, { wireRevision });
-        expect("wireRevision" in JSON.parse(JSON.stringify(hello))).toBe(wireRevision !== undefined);
-        raw.send(hello);
+        raw.send(helloWith(token, { wireRevision }));
         expect(await raw.message(0)).toMatchObject({ type: "welcome", wireRevision: WIRE_REVISION });
         await waitForMachine("Wire revisions", (machine) => machine.online);
         await raw.terminate();
         await waitForMachine("Wire revisions", (machine) => !machine.online);
       }
+      // None is revision 1, more than one behind since the wire reached 3 (ADR-0025).
+      raw = await RawConnection.open(server.url);
+      const hello = helloWith(token, { wireRevision: undefined });
+      expect("wireRevision" in JSON.parse(JSON.stringify(hello))).toBe(false);
+      raw.send(hello);
+      expect(await raw.message(0)).toMatchObject({ type: "error", code: "plugin_too_old" });
+      await waitForMachine("Wire revisions", (machine) => !machine.online && machine.lastRefusal !== null);
     });
 
     it("close a connection that sends no hello within the timeout with the protocol-error code", async () => {

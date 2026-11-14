@@ -142,9 +142,8 @@ interface Stream {
  *   Machine's leases is unexpired, and `liveStop` once not, only as that
  *   changes. Its decisions are made one at a time, when a lease of its
  *   Machine is announced, after its welcome, at the earliest lease's expiry,
- *   and for every connection once listening again. A mismatched connection,
- *   or a plugin below LIVE_VIEW_WIRE_REVISION, is never started: the gateway
- *   never hands one over.
+ *   and for every connection once listening again. A mismatched connection
+ *   is never started: the gateway never hands one over.
  * - **Relaying.** A live frame from a connection that was started, and still
  *   holds its Machine as it is relayed, goes to every instance by NOTIFY on
  *   `live_frames`, outside any transaction, one at a time for each connection,

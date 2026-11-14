@@ -11,6 +11,7 @@ import {
   plannedWrites,
   writeKey,
 } from "./holdings.js";
+import type { PlannedTablet } from "./intake.js";
 import { standing } from "./join-plan.js";
 import { workflowClearDue } from "./joining.js";
 import { KINDS } from "./kinds.js";
@@ -29,11 +30,12 @@ import { loadedRecipeDue } from "../machine-events/loaded-recipes.js";
 // written to one of DYE2's lists the tablet holds in a shape that is not
 // recognised (equipment.ts).
 
-/** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine and its tablet. */
+/** A connection whose tablet is written to: its session, which must still hold its Machine, the Machine, its tablet, and its plugin's wire revision. */
 export interface WrittenTablet {
   sessionId: string;
   machineId: string;
   tabletId: string;
+  wireRevision: number;
 }
 
 /** What a connection's tablet is due: where its Machine takes part now, and the writes due there. */
@@ -106,7 +108,7 @@ export interface ChangesDue {
  */
 export async function changesDue(
   tx: Prisma.TransactionClient,
-  tablet: { machineId: string; tabletId: string },
+  tablet: PlannedTablet,
   locationId: string,
   skipped: ReadonlySet<string>,
 ): Promise<ChangesDue> {

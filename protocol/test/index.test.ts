@@ -5,6 +5,7 @@ import {
   type ErrorMessage,
   GLOBAL_ID_KEY,
   GLOBAL_ITEM_ID,
+  HIGH_SLOTS_WIRE_REVISION,
   type Hello,
   type ItemDeleted,
   type ItemLeftOut,
@@ -30,6 +31,7 @@ import {
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
   RECIPE_SLOTS,
+  REQUESTABLE_RECIPE_SLOTS,
   RECIPE_SLOT_FIELD,
   SETTINGS_EDITED_REFUSALS,
   type SettingsEdit,
@@ -70,12 +72,14 @@ import {
   isLibraryList,
   isRecordId,
   isRecipeSlot,
+  isRequestableRecipeSlot,
   recordGlobalId,
   itemIdRule,
   listKind,
   parentKind,
   parentList,
   sameValue,
+  writtenRecipeSlot,
 } from "@decent-sync/protocol";
 
 const token = "8cTqXr0b2m6Yw1zH4kLpQeNvSa7uJdFg9oIiBhC3E5s";
@@ -254,9 +258,15 @@ describe("decodePluginMessage", () => {
   });
 
   it("reads a hello's wire revision, a whole number from 1, and takes a hello without one as revision 1", () => {
-    // A plugin of 1.3.1 or earlier sends none, accepted while the revision is 1 or 2.
+    // A plugin of 1.3.1 or earlier sends none: revision 1, accepted while the revision was 1 or 2, and too old since.
     const { wireRevision: _, ...none } = hello;
-    expect(decodePluginMessage(frame(none))).toEqual({ ok: true, message: none });
+    expect(decodePluginMessage(frame(none))).toEqual({
+      ok: false,
+      error: "plugin_too_old",
+      problem: `The plugin speaks wire revision 1, but this server needs ${WIRE_REVISION - 1} or newer: update the plugin`,
+      token,
+    });
+    expect(decodePluginMessage(frame({ ...hello, wireRevision: WIRE_REVISION - 1 }))).toMatchObject({ ok: true });
     for (const wireRevision of [WIRE_REVISION, WIRE_REVISION + 1, WIRE_REVISION + 20]) {
       expect(decodePluginMessage(frame({ ...hello, wireRevision }))).toEqual({ ok: true, message: { ...hello, wireRevision } });
     }
@@ -893,7 +903,7 @@ describe("Library writes", () => {
     }
   });
 
-  it("recognises DYE2's recipes under any record id, each in a Recipe Slot from 1 to 5 by its stripSlot while shown on the strip, or none", () => {
+  it("recognises DYE2's recipes under any record id, each in a Recipe Slot from 1 to 9 by its stripSlot while shown on the strip, or none", () => {
     expect(dye2Key("recipe")).toBe("recipes");
     expect(LIBRARY_ITEM_KINDS.recipe.list).toBe("dye2Recipes");
     // Recipes are written last, as they name the other kinds by the tablet's ids.
@@ -902,13 +912,34 @@ describe("Library writes", () => {
     const recipes = [{ id: "3f2b8c1e-5d7a-4e9b-8c2d-1a6f0e4b7c93", stripSlot: 1 }, { id: "recipe-mh2k9x1abc", stripSlot: null }, { id: "4" }];
     expect(dye2Records(recipes)).toBe(recipes);
     expect(recipes.map(recipeSlotOf)).toEqual([1, null, null]);
-    for (const slot of [0, 6, 1.5, "2", -1, null, undefined]) expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
-    for (const slot of [1, 2, 3, 4, 5]) expect(isRecipeSlot(slot)).toBe(true);
+    for (const slot of [0, 10, 1.5, 6.5, "2", "7", -1, null, undefined]) expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
+    // DYE2 holds, shows and keeps a stripSlot of 6 to 9, and places one only in 1 to 5 itself (#506).
+    for (const slot of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
+      expect(isRecipeSlot(slot)).toBe(true);
+      expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBe(slot);
+    }
     // Hidden from the strip, it is in none, whatever its stripSlot says, as Streamline's long-press Clear leaves one (DYE2 v0.1.32's stripTargetOf).
     expect(recipeSlotOf({ id: "a", stripSlot: 2, showOnStreamlineDashboard: false })).toBeNull();
     expect(recipeSlotOf({ id: "a", stripSlot: 2, showOnStreamlineDashboard: true })).toBe(2);
-    expect(RECIPE_SLOTS).toBe(5);
+    expect(recipeSlotOf({ id: "a", stripSlot: 7, showOnStreamlineDashboard: false })).toBeNull();
+    expect(RECIPE_SLOTS).toBe(9);
     expect(RECIPE_SLOT_FIELD).toBe("stripSlot");
+  });
+
+  it("lets a request name a Recipe Slot from 1 to 5 only", () => {
+    expect(REQUESTABLE_RECIPE_SLOTS).toBe(5);
+    for (const slot of [1, 2, 3, 4, 5]) expect(isRequestableRecipeSlot(slot)).toBe(true);
+    for (const slot of [0, 6, 7, 9, 10, 1.5, "2", null, undefined]) expect(isRequestableRecipeSlot(slot)).toBe(false);
+  });
+
+  it("writes a Recipe's slot of 6 to 9 only to a plugin at the wire revision that brought them, and none to one before it", () => {
+    expect(HIGH_SLOTS_WIRE_REVISION).toBe(3);
+    for (const slot of [null, 1, 5, 6, 7, 9]) {
+      expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION)).toBe(slot);
+      expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION + 1)).toBe(slot);
+    }
+    for (const slot of [null, 1, 5]) expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION - 1)).toBe(slot);
+    for (const slot of [6, 7, 9]) expect(writtenRecipeSlot(slot, HIGH_SLOTS_WIRE_REVISION - 1)).toBeNull();
   });
 
   it("keeps a grind setting as DYE2 v0.1.32 does: a number where it reads as one, otherwise the text as typed", () => {

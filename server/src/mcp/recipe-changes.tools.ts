@@ -1,4 +1,4 @@
-import { RECIPE_SLOTS } from "@decent-sync/protocol";
+import { REQUESTABLE_RECIPE_SLOTS } from "@decent-sync/protocol";
 import { Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
 import * as z from "zod";
@@ -28,7 +28,7 @@ const recipeId = id.describe("The Recipe's id, as find_library_items gives it.")
 
 /** A Recipe Slot as the REST API takes one (`readSlot`): its number, `next` for the lowest one free, or null for none. */
 const slot = z.union([z.number(), z.literal("next")]).nullable();
-const SLOTS = `A Recipe Slot at its Location, 1 to ${RECIPE_SLOTS}, each a button on its Machines' tablets; next for the lowest one free; or null for none.`;
+const SLOTS = `A Recipe Slot at its Location, 1 to ${REQUESTABLE_RECIPE_SLOTS}, each a button on its Machines' tablets; next for the lowest one free; or null for none.`;
 
 const newRecipeInput = z.strictObject({
   locationId: id.describe("The id of the Location it belongs to, which never changes, as list_locations gives it."),

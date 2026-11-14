@@ -1612,10 +1612,12 @@ model Recipe {
   /// Location's Recipes not Archived (a partial unique index in the
   /// migration).
   recordId   String    @map("record_id")
-  /// Its Recipe Slot at its Location, a button of Streamline's DYE strip,
-  /// 1 to 5 (RECIPE_SLOTS in `protocol/`), unique among the Location's
-  /// Recipes; null for none, as for one a tablet took off the strip or
-  /// removed from its list (ADR-0019).
+  /// Its Recipe Slot at its Location, 1 to 9 (RECIPE_SLOTS in `protocol/`,
+  /// `recipes_slot_check` in the migrations), of which 1 to 5 are the
+  /// buttons of Streamline's DYE strip and the ones a request may name
+  /// (REQUESTABLE_RECIPE_SLOTS), unique among the Location's Recipes; null
+  /// for none, as for one a tablet took off the strip or removed from its
+  /// list (ADR-0019).
   slot       Int?
   /// Its Reference Shot (ADR-0029), by the Shot's id: the one Shot chosen to
   /// show how its Shots should go, from any Machine or Location, kept outside

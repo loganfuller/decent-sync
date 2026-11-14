@@ -2,8 +2,6 @@ import {
   CHUNK_LIMITS,
   CLOSE_CODES,
   type ErrorCode,
-  FIRST_WIRE_REVISION,
-  LIVE_VIEW_WIRE_REVISION,
   MISSED_HEARTBEATS,
   type MachineHardware,
   PROTOCOL_VERSION,
@@ -14,7 +12,6 @@ import {
   acceptsWireRevision,
   decodeServerFrame,
   decodeServerMessage,
-  peerHasWireRevision,
   sameHardware,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -135,8 +132,6 @@ export class SyncConnection {
   private connecting = false;
   private stopped = false;
   private welcomed = false;
-  /** The wire revision of the server that welcomed the open handle (ADR-0025). */
-  private serverRevision = FIRST_WIRE_REVISION;
   /** How long a welcomed connection may go without hearing from the server, from its `welcome`. */
   private silenceMs = 0;
   private reconnectDelayMs = MIN_RECONNECT_MS;
@@ -460,7 +455,6 @@ export class SyncConnection {
             `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`,
           );
         }
-        this.serverRevision = wireRevisionOf(message);
         this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
         this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
         // What the last connection left unacknowledged goes first, then the
@@ -525,8 +519,8 @@ export class SyncConnection {
         void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
         break;
       case "liveStart":
-        // Streams on this connection until liveStop or its end. A server below the revision never asks.
-        if (this.welcomed && peerHasWireRevision(this.serverRevision, LIVE_VIEW_WIRE_REVISION)) {
+        // Streams on this connection until liveStop or its end.
+        if (this.welcomed) {
           // Only a Bengle has a milk probe. The hardware this connection's hello reported is its machine's: the plugin
           // reconnects once the machine reports other hardware, or reports its hardware at last.
           this.liveView.start((frame) => this.send(handle, frame), { bengle: this.sentHardware?.model === "Bengle" });
@@ -680,7 +674,6 @@ export class SyncConnection {
     const handle = this.handle;
     this.handle = undefined;
     this.welcomed = false;
-    this.serverRevision = FIRST_WIRE_REVISION;
     this.liveView.disconnected();
     // A message cut off here is sent again whole, from its first chunk, on the next connection.
     this.sender?.close();

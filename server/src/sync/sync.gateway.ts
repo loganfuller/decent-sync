@@ -19,7 +19,6 @@ import {
   type ItemLeftOut,
   type ItemRemoved,
   type ItemWritten,
-  LIVE_VIEW_WIRE_REVISION,
   type LeaveOut,
   type LibraryDelete,
   type LibraryRemove,
@@ -47,7 +46,6 @@ import {
   isLibraryKind,
   isLibraryList,
   isWrittenKind,
-  peerHasWireRevision,
   utf8Length,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -110,6 +108,8 @@ interface Session {
   remote: string;
   /** The token's Machine, once its `hello` is accepted. */
   machine?: { id: string; name: string };
+  /** The wire revision its plugin's `hello` gave, once that is accepted (ADR-0025). */
+  wireRevision?: number;
   /**
    * Who the tablet is, decided at `hello` and never changed for the session.
    * What a mismatched session sends belongs to the reported hardware: to the
@@ -717,7 +717,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (!isWrittenKind(kind)) return false;
     const description = writtenKind(kind);
     const { name } = description;
-    const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId };
+    const tablet = { sessionId: session.id, machineId: session.machine!.id, tabletId: session.live!.tabletId, wireRevision: session.wireRevision! };
     const { record, updatedAt } = answer;
     try {
       const written = new Set(answer.writtenFields);
@@ -810,6 +810,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     const { machine, identity, hardware, tookOverFrom } = outcome;
     this.awaitingHello.delete(session);
     session.machine = machine;
+    session.wireRevision = wireRevisionOf(hello);
     session.identity = identity;
     const live: LiveConnection = {
       sessionId: session.id,
@@ -842,7 +843,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // writer starts once the connection's reports of the tablet's Library lists, sent on every welcome, are taken in.
     if (identity.kind !== "mismatch") {
       session.writer = new TabletWriter(
-        { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId },
+        { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId, wireRevision: session.wireRevision! },
         this.prisma,
         (write) => this.sendWrite(session, write),
         () => {
@@ -859,9 +860,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     // An edit made while this hello was being accepted was notified before the session could be found.
     this.sendSettingsEdits(session);
-    // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's, or
-    // its plugin is from before the Live View's messages.
-    if (identity.kind !== "mismatch" && peerHasWireRevision(wireRevisionOf(hello), LIVE_VIEW_WIRE_REVISION)) {
+    // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's.
+    if (identity.kind !== "mismatch") {
       this.liveViews.welcomed({
         sessionId: session.id,
         machineId: machine.id,

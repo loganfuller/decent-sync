@@ -272,7 +272,7 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
   its record id (`record_id`), the id of its record in DYE2's recipes on
   every tablet at that Location, which never changes, unique among the
   Location's Recipes not Archived (a partial unique index); its Recipe Slot
-  there or none, 1 to 5 (a check constraint), unique among the Location's
+  there or none, 1 to 9 (a check constraint, `recipes_slot_check`), unique among the Location's
   Recipes; its content in the Library's terms (Taking in a tablet's recipes,
   below); whether it is Archived, when it has no slot; when it joined the
   Library; and its fields' latest edits.
@@ -629,7 +629,8 @@ Conflict names is kept, still refused, so history goes on naming it
   Tools. A Recipe
   created there gets a new record id, a UUID, as a copy does. Its slot is
   its Location's state, not its content: one of the Location's five, the
-  buttons of Streamline's DYE strip (`RECIPE_SLOTS` in `protocol/`). It is
+  buttons of Streamline's DYE strip (`REQUESTABLE_RECIPE_SLOTS` in
+  `protocol/`, the slots a request may name). It is
   created in a slot chosen, the lowest one free (`next`), no Recipe's, its
   own included, or none, as for `next` where every slot holds a Recipe; and
   moved to another, or taken out of its slot, each a version of its own
@@ -1274,7 +1275,11 @@ are never matched (ADR-0018).
   at the Location, under its own id as its record id, as one DYE2's editor
   or `save-recipe` made.
 - **Slots.** A record's `stripSlot` is its Recipe's slot at its Location, not
-  its content (`recipeSlotOf` in `protocol/`: a whole number from 1 to 5,
+  its content (`recipeSlotOf` in `protocol/`: a whole number from 1 to 9,
+  `RECIPE_SLOTS`, as DYE2 holds, shows and keeps a `stripSlot` of 6 to 9
+  though it places a recipe only in 1 to 5 itself and Streamline's strip
+  shows only those, ticket
+  [#506](https://github.com/loganfuller/decent-sync/issues/506);
   any other value none, and none for a record hidden from the strip,
   `showOnStreamlineDashboard` false, as a recipe is on the strip exactly
   while it is in a slot, DYE2 v0.1.32's `stripTargetOf`). A record the map
@@ -2233,7 +2238,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Staff read them as Admins do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
   Recipe at the Location under a new record id, in `slot`, a whole number
-  from 1 to 5 (`RECIPE_SLOTS`), `next` for the lowest free, or none where
+  from 1 to 5 (`REQUESTABLE_RECIPE_SLOTS`), `next` for the lowest free, or none where
   every slot holds a Recipe, or null (the default) for none, and returns `{
   recipe }` with 201. `PATCH /api/recipes/:id`, with `{ content }`, each
   field to change, null to clear it, edits one. `PUT /api/recipes/:id/slot`,

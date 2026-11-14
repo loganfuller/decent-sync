@@ -520,9 +520,13 @@ describe("DYE2's recipes as Recipes", () => {
     expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 1 }, at({ ...slot1, stripSlot: 4 }))).toEqual({ itemId: GLOBAL.recipe, from: 1, to: 4, at: new Date(READ) });
     expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 1 }, at({ ...slot1, stripSlot: null }))).toEqual({ itemId: GLOBAL.recipe, from: 1, to: null, at: new Date(READ) });
     expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 2 }, at({ ...slot1, stripSlot: 2, name: "Renamed" }))).toBeNull();
-    // A new record's slot is taken from none; a slot outside 1 to 5 is none.
+    // A new record's slot is taken from none; a slot outside 1 to 9 is none.
     expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 5 }))).toEqual({ itemId: GLOBAL.recipe, from: null, to: 5, at: new Date(READ) });
-    expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 7 }))).toBeNull();
+    expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 7 }))).toEqual({ itemId: GLOBAL.recipe, from: null, to: 7, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, null, at({ ...slot1, stripSlot: 10 }))).toBeNull();
+    // Between 1 to 5 and 6 to 9, and out of one of 6 to 9, as any move (#506).
+    expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 3 }, at({ ...slot1, stripSlot: 7 }))).toEqual({ itemId: GLOBAL.recipe, from: 3, to: 7, at: new Date(READ) });
+    expect(slotMove(GLOBAL.recipe, { ...slot1, stripSlot: 9 }, at({ ...slot1, stripSlot: null }))).toEqual({ itemId: GLOBAL.recipe, from: 9, to: null, at: new Date(READ) });
     // Hidden from the strip, it is in none: Streamline's long-press Clear keeps its stripSlot, DYE2 v0.1.32's switch clears it.
     const shown = { ...slot1, stripSlot: 2, showOnStreamlineDashboard: true };
     expect(slotMove(GLOBAL.recipe, shown, at({ ...shown, showOnStreamlineDashboard: false }))).toEqual({ itemId: GLOBAL.recipe, from: 2, to: null, at: new Date(READ) });

@@ -51,10 +51,13 @@ import { LIBRARY_KINDS } from "@/lib/library-kinds";
 // saving. A Recipe is copied to a Location as a new Recipe there, offering
 // there what it uses.
 
-/** How many Recipe Slots each Location has: the buttons of Streamline's DYE strip (`RECIPE_SLOTS` in protocol/src/index.ts). */
+/**
+ * How many Recipe Slots a request may name: the buttons of Streamline's DYE strip (`REQUESTABLE_RECIPE_SLOTS` in
+ * protocol/src/index.ts). A Recipe a tablet put in one of 6 to 9 is shown in its slot, and its Slot select offers these.
+ */
 const RECIPE_SLOTS = 5;
 
-/** Each Recipe Slot's number, 1 to RECIPE_SLOTS. */
+/** Each Recipe Slot offered, 1 to RECIPE_SLOTS. */
 const SLOTS = Array.from({ length: RECIPE_SLOTS }, (_, index) => index + 1);
 
 /** A Recipe's name as lists show it. */

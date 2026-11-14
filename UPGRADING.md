@@ -15,6 +15,16 @@ Releasing).
 
 ## Unreleased
 
+### Check every tablet runs the 1.9.0 plugin before deploying
+
+This release raises the wire revision, for Recipe Slots 6 to 9, which it reads
+and keeps but nothing assigns yet
+([ADR-0025](docs/adr/0025-each-release-runs-beside-the-previous-one.md),
+Deploying). Before deploying, check on each Machine's page that it runs the
+1.9.0 plugin, the previous release's. A tablet still on the 1.4.0 plugin or
+earlier is refused as too old until its plugin is updated, at the tablet or
+through Decaid's API from its network with `POST /api/v1/plugins/update`.
+
 ## 1.9.0
 
 ### Stored Shots get their new numbers in the background
