@@ -192,6 +192,40 @@ test("with every slot holding a Recipe, a new Recipe's next free slot says so an
   await expect(page.getByRole("option")).toHaveText(["A slot of my choosing"]);
 });
 
+test("a Recipe a tablet put in slot 7 is shown in its slot, its Slot select offers 1 to 5, and it is taken out of its slot", async ({ page }) => {
+  const lab = await createLocation(page, "Seven lab");
+  const tablet = await tabletAt(page, server, "Seven lab 1", lab, "45591", tabletApi);
+  await createRecipe(page, lab, 1, { name: "Seven Kenya" });
+  const recipe = await createRecipe(page, lab, 2, { name: "Seven Brazil" });
+  await expect.poll(() => slotOn(tablet, 2)?.[GLOBAL_ID_KEY]).toBe(recipe.id);
+  // Once the tablet is due nothing, so the post races none of the plugin's writes.
+  await expect.poll(async () => ((await (await page.request.get(`/api/machines/${await machineId(page, "Seven lab 1")}/sharing-status`)).json()) as { status: { waiting: number } }).status.waiting).toBe(0);
+  // Another app on the tablet puts its record in slot 7, which DYE2 and Streamline place none in (#506).
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) => (record[RECIPE_SLOT_FIELD] === 2 ? { ...record, [RECIPE_SLOT_FIELD]: 7 } : record));
+  expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  await expect.poll(async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { slot: number | null } }).recipe.slot).toBe(7);
+
+  // The Recipes card lists it in slot 7, after the one in slot 1.
+  await page.goto(`/locations/${lab.id}`);
+  await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Seven Kenya/, /^7Seven Brazil/]);
+  // Its page gives its slot, and its move offers the five a request may name.
+  await page.getByRole("link", { name: "Seven Brazil" }).click();
+  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
+  await page.getByRole("button", { name: "Move to a slot" }).click();
+  const move = page.getByRole("form", { name: "Move the Recipe" });
+  await move.getByLabel("Slot", { exact: true }).click();
+  await expect(page.getByRole("option")).toHaveText(["1", "2", "3", "4", "5"]);
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+
+  // Taken out of its slot, it is kept in none, and the tablet's record leaves slot 7.
+  await page.getByRole("button", { name: "Take out of its slot" }).click();
+  await expect(page.getByRole("alertdialog")).toContainText("Take Seven Brazil out of slot 7?");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
+  await expect(page.getByText("In no slot at Seven lab")).toBeVisible();
+  await expect.poll(() => slotOn(tablet, 7)).toBeUndefined();
+});
+
 test("a Recipe whose Bean Batch is finished at its Location is flagged", async ({ page }) => {
   const lab = await createLocation(page, "Finished lab");
   const batch = await createBatch(page, "Finished Kenya", lab);
@@ -482,6 +516,12 @@ async function staffAt(page: Page, browser: import("@playwright/test").Browser, 
   });
   expect(accepted.status()).toBe(201);
   return context;
+}
+
+/** The id of the Machine with that name. */
+async function machineId(page: Page, name: string): Promise<string> {
+  const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
+  return machines.find((machine) => machine.name === name)!.id;
 }
 
 /** The tablet's recipe in a slot, by its `stripSlot`, if it holds one there. */

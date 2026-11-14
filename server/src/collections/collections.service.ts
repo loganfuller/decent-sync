@@ -140,7 +140,7 @@ export class CollectionsService {
           utc_offset_minutes = CASE WHEN EXCLUDED.available THEN EXCLUDED.utc_offset_minutes ELSE reported_collections.utc_offset_minutes END`;
       if (list === null) return undefined;
       if (!takesIn) return { list, takenInAt: undefined };
-      const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId };
+      const tablet = { machineId: reporter.machineId, tabletId: reporter.tabletId, wireRevision: reporter.wireRevision };
       // Each list is taken in as its kind takes it in.
       return { list, takenInAt: await KINDS[listKind(list)].takeIn(tx, tablet, message.value, message.updatedAt) };
     }, takesIn ? INTAKE_TRANSACTION : undefined);

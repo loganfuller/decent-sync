@@ -1,4 +1,4 @@
-import { RECIPE_SLOTS, sameValue } from "@decent-sync/protocol";
+import { REQUESTABLE_RECIPE_SLOTS, sameValue } from "@decent-sync/protocol";
 import { BadRequestException, ConflictException, Injectable, NotFoundException } from "@nestjs/common";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
@@ -32,8 +32,10 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 // it is a version of its own at the Location, as a tablet taking it out of
 // its slot is (recipes.ts). Slots are decided under the Location's lock, as
 // a tablet's report decides them, so no two Recipes are put in one slot,
-// through any instance. A Location has five, the buttons of Streamline's DYE
-// strip (RECIPE_SLOTS). Each change commits with a `NOTIFY` on
+// through any instance. A request names one of five, the buttons of
+// Streamline's DYE strip (REQUESTABLE_RECIPE_SLOTS), and a Recipe a tablet
+// put in one of 6 to 9 (RECIPE_SLOTS) is moved, swapped with and taken out
+// as any other. Each change commits with a `NOTIFY` on
 // `library_changes` naming the Location, so its tablets are written: a
 // Recipe moved is written its new slot (`stripSlot`), the Recipe that was
 // there written its own, and each keeps its record id and history
@@ -178,7 +180,7 @@ export class RecipeEditsService {
         return true;
       }
       const taken = await freeSlot(tx, recipe.locationId, recipe, slot, source, at);
-      if (taken === null) throw new ConflictException(`All ${RECIPE_SLOTS} Recipe Slots here hold a Recipe: choose one to swap with, or take a Recipe out of its slot first`);
+      if (taken === null) throw new ConflictException(`All ${REQUESTABLE_RECIPE_SLOTS} Recipe Slots here hold a Recipe: choose one to swap with, or take a Recipe out of its slot first`);
       if (taken === recipe.slot) return false;
       await setSlot(tx, recipe, taken, source, at);
       return true;
@@ -515,10 +517,10 @@ async function freeSlot(
   return slot;
 }
 
-/** The lowest Recipe Slot, from 1, that none of these is, or null where they are all taken. */
+/** The lowest Recipe Slot a request may name (REQUESTABLE_RECIPE_SLOTS), from 1, that none of these is, or null where they are all taken. */
 function lowestFree(slots: readonly number[]): number | null {
   const taken = new Set(slots);
-  for (let slot = 1; slot <= RECIPE_SLOTS; slot++) if (!taken.has(slot)) return slot;
+  for (let slot = 1; slot <= REQUESTABLE_RECIPE_SLOTS; slot++) if (!taken.has(slot)) return slot;
   return null;
 }
 

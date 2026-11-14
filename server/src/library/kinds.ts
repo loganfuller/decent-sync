@@ -39,7 +39,7 @@ import {
   profileWrites,
   recipeWrites,
 } from "./holdings.js";
-import type { AnswerRecorded, AnsweringTablet, ReportingTablet, SeenDecision } from "./intake.js";
+import type { AnswerRecorded, AnsweringTablet, PlannedTablet, ReportingTablet, SeenDecision } from "./intake.js";
 import type { FieldType } from "./item-input.js";
 import { recordLoadedRecipeWritten } from "../machine-events/loaded-recipes.js";
 import { recordWorkflowCleared } from "./joining.js";
@@ -153,7 +153,7 @@ type HoldingsReader = {
     /** Its part of `LocationOffer` and `TabletHoldings`. */
     key: K;
     /** What the Location offers the tablet of that Machine, and its state of each item, in the order to write it: oldest first. */
-    offered(tx: Prisma.TransactionClient, tablet: ReportingTablet, locationId: string): Promise<LocationOffer[K]>;
+    offered(tx: Prisma.TransactionClient, tablet: PlannedTablet, locationId: string): Promise<LocationOffer[K]>;
     /** The tablet's records, with the content of their items, by its map. */
     held(tx: Prisma.TransactionClient, tabletId: string, locationId: string): Promise<HeldRecord[]>;
   };
@@ -220,7 +220,7 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   /** A Location's own state of its items, for a kind whose state differs by Location; absent for one that has none. */
   state?: LocationStateDescription;
   /** Takes a tablet's report of its list into the Library, in the transaction storing it, and says where (`standing`), or null where it was taken in nowhere. */
-  takeIn(tx: Prisma.TransactionClient, tablet: ReportingTablet, value: unknown, updatedAt: readonly (string | null)[] | undefined): Promise<string | null>;
+  takeIn(tx: Prisma.TransactionClient, tablet: PlannedTablet, value: unknown, updatedAt: readonly (string | null)[] | undefined): Promise<string | null>;
 }
 
 const BEAN_FIELDS: Readonly<Record<string, FieldType>> = {

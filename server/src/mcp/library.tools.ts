@@ -127,7 +127,7 @@ const recipe = z.object({
   id,
   name: z.string().nullable(),
   location: location.nullable().describe("The Location it belongs to."),
-  slot: z.number().int().nullable().describe("Its Recipe Slot at its Location, 1 to 5; null for none."),
+  slot: z.number().int().nullable().describe("Its Recipe Slot at its Location; null for none."),
   archived: z.boolean(),
   createdAt: joinedAt,
   content: content(

@@ -2422,9 +2422,14 @@ export class Dye2RecipeEditor {
     return this;
   }
 
-  /** What the form shows of the strip: the tab it targets, as its `data-slot`, null for none, and whether its "Show on Streamline Dashboard" switch is on. */
+  /**
+   * What the form shows of the strip: the tab it targets, as its `data-slot`, null for none, and whether its "Show on
+   * Streamline Dashboard" switch is on. It has five tabs, so none is active for a recipe in a slot of 6 to 9, which a
+   * save tapping none keeps (v0.1.36 on Decaid v0.9.1, run for #506).
+   */
   strip(): { activeTab: string | null; showOnStreamline: boolean } {
-    return { activeTab: this.stripSlot === null ? null : String(this.stripSlot), showOnStreamline: this.form.showOnStreamline };
+    const tabbed = this.stripSlot !== null && this.stripSlot >= 1 && this.stripSlot <= 5;
+    return { activeTab: tabbed ? String(this.stripSlot) : null, showOnStreamline: this.form.showOnStreamline };
   }
 
   /** Taps the tab of that strip slot (`setupSlots`): the recipe to that slot, shown on the strip, or out of its slot where the tab tapped is its own (`stripNextTarget`). */

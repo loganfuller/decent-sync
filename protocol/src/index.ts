@@ -47,7 +47,7 @@ export const OLDEST_SUPPORTED_PROTOCOL_VERSION = 1;
  * raises. A test reads a release's from the source at its tag, so it stays
  * declared as it is here.
  */
-export const WIRE_REVISION = 2;
+export const WIRE_REVISION = 3;
 
 /**
  * The wire revision of a peer that sends none: the wire of every release
@@ -626,12 +626,50 @@ export function dye2Records(value: unknown): Record<string, unknown>[] | null {
   return value as Record<string, unknown>[];
 }
 
-/** How many Recipe Slots each Location has: the buttons of Streamline's DYE strip, as DYE2's `stripSlot` numbers them. */
-export const RECIPE_SLOTS = 5;
+/**
+ * How many Recipe Slots each Location has, as DYE2's `stripSlot` numbers
+ * them: a whole number from 1 to this is a slot wherever one is read, in a
+ * DYE2 record, the `recipes.slot` column and what the server answers. DYE2
+ * holds, shows and keeps a `stripSlot` of 6 to 9, and places a recipe only in
+ * 1 to 5 itself; Streamline's DYE strip shows 1 to 5 (#506).
+ */
+export const RECIPE_SLOTS = 9;
+
+/**
+ * How many of them a request may name, 1 to this, and `next` gives: the
+ * buttons of Streamline's DYE strip. Slots above it are read and kept, but
+ * not assigned by a request, until the release after the one that first
+ * reads them (#502).
+ */
+export const REQUESTABLE_RECIPE_SLOTS = 5;
 
 /** Whether a value is a Recipe Slot's number: a whole number from 1 to RECIPE_SLOTS. */
 export function isRecipeSlot(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
+}
+
+/** Whether a value is a Recipe Slot a request may name: a whole number from 1 to REQUESTABLE_RECIPE_SLOTS. */
+export function isRequestableRecipeSlot(value: unknown): value is number {
+  return isRecipeSlot(value) && value <= REQUESTABLE_RECIPE_SLOTS;
+}
+
+/**
+ * The wire revision a `stripSlot` of 6 to 9 arrived in (#506): the plugin
+ * before it writes one as given without taking the slot from the record
+ * holding it, and reads one as no slot.
+ */
+export const HIGH_SLOTS_WIRE_REVISION = 3;
+
+/**
+ * The Recipe Slot a plugin at wire revision `peer` is written for a Recipe
+ * in that slot: the slot, but none for a slot of 6 to 9 to a plugin before
+ * HIGH_SLOTS_WIRE_REVISION, whose tablet holds the Recipe in no slot until
+ * its plugin connects at that revision.
+ */
+export function writtenRecipeSlot(slot: number | null, peer: number): number | null {
+  const high = peerHasWireRevision(peer, HIGH_SLOTS_WIRE_REVISION);
+  // 5 is the last slot the wire before that revision had.
+  return slot !== null && slot > 5 && !high ? null : slot;
 }
 
 /**
@@ -643,7 +681,9 @@ export function isRecipeSlot(value: unknown): value is number {
  * the strip (`showOnStreamlineDashboard` false) is in none, whatever its
  * `stripSlot` says, as Streamline's long-press Clear leaves one: a recipe is
  * on the strip exactly while it is in a slot (`stripTargetOf` in
- * dye2:dye2-plugin/src/utils/recipe-strip.ts at v0.1.32).
+ * dye2:dye2-plugin/src/utils/recipe-strip.ts at v0.1.32). A slot is a whole
+ * number from 1 to RECIPE_SLOTS: DYE2 holds, shows and keeps one of 6 to 9
+ * through its editor and its `record`, and Streamline's strip leaves it off.
  */
 export function recipeSlotOf(record: unknown): number | null {
   if (!isObject(record) || record[RECIPE_SHOWN_FIELD] === false) return null;
@@ -1764,13 +1804,6 @@ export interface ChunkReceived {
   /** The chunk's `index`. */
   index: number;
 }
-
-/**
- * The wire revision that brought the Live View's messages (ADR-0024): the
- * server sends `liveStart` and `liveStop` only to a plugin at it, and the
- * plugin sends `liveFrame` only to a server at it (`peerHasWireRevision`).
- */
-export const LIVE_VIEW_WIRE_REVISION = 2;
 
 /**
  * Asks the plugin to stream its live frames (`liveFrame`) until `liveStop`,

@@ -53,7 +53,7 @@ const loadedRecipe = z
     recipe: z.object({
       id: z.string(),
       name: z.string().nullable(),
-      slot: z.number().int().nullable().describe("Its Recipe Slot at its Location now, 1 to 5, or null for none."),
+      slot: z.number().int().nullable().describe("Its Recipe Slot at its Location now, or null for none."),
       locationId: z.string().nullable(),
       archived: z.boolean(),
     }),

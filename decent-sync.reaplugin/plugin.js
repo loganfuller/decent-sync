@@ -598,24 +598,13 @@ var __decentSync = (() => {
 
   // ../protocol/src/index.ts
   var PROTOCOL_VERSION = 1;
-  var WIRE_REVISION = 2;
+  var WIRE_REVISION = 3;
   var FIRST_WIRE_REVISION = 1;
   function wireRevisionOf(message) {
     return message.wireRevision ?? FIRST_WIRE_REVISION;
   }
   function acceptsWireRevision(peer, own = WIRE_REVISION) {
     return peer >= own - 1;
-  }
-  function peerHasWireRevision(peer, revision, own = WIRE_REVISION) {
-    if (revision > own) {
-      throw new Error(`Asked whether a peer has wire revision ${revision}, but this build speaks ${own}: raise WIRE_REVISION`);
-    }
-    if (revision <= Math.max(FIRST_WIRE_REVISION, own - 1)) {
-      throw new Error(
-        `Every peer that wire revision ${own} accepts has revision ${revision}: delete this check, or, if what it sends came after the latest release, ask for revision ${own}`
-      );
-    }
-    return peer >= revision;
   }
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
@@ -713,7 +702,7 @@ var __decentSync = (() => {
     }
     return value;
   }
-  var RECIPE_SLOTS = 5;
+  var RECIPE_SLOTS = 9;
   function isRecipeSlot(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
   }
@@ -896,7 +885,6 @@ var __decentSync = (() => {
   var SETTINGS_EDIT_WRITE_MARGIN_MS = 15e3;
   var SETTINGS_EDIT_STATES = ["idle", "schedIdle", "sleeping", "needsWater"];
   var MAX_REFUSAL_LENGTH = 1e3;
-  var LIVE_VIEW_WIRE_REVISION = 2;
   function liveSourceOf(live) {
     return live.source === "sensor" ? `sensor ${live.sensorId}` : live.source;
   }
@@ -5075,8 +5063,6 @@ var __decentSync = (() => {
       __publicField(this, "connecting", false);
       __publicField(this, "stopped", false);
       __publicField(this, "welcomed", false);
-      /** The wire revision of the server that welcomed the open handle (ADR-0025). */
-      __publicField(this, "serverRevision", FIRST_WIRE_REVISION);
       /** How long a welcomed connection may go without hearing from the server, from its `welcome`. */
       __publicField(this, "silenceMs", 0);
       __publicField(this, "reconnectDelayMs", MIN_RECONNECT_MS);
@@ -5379,7 +5365,6 @@ var __decentSync = (() => {
               `The server needs upgrading: it speaks wire revision ${wireRevisionOf(message)}, more than one behind this plugin's ${WIRE_REVISION}.`
             );
           }
-          this.serverRevision = wireRevisionOf(message);
           this.silenceMs = message.heartbeatIntervalMs * MISSED_HEARTBEATS;
           this.scheduleHeartbeat(handle, message.heartbeatIntervalMs);
           this.machineEvents.welcome();
@@ -5431,7 +5416,7 @@ var __decentSync = (() => {
           void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
           break;
         case "liveStart":
-          if (this.welcomed && peerHasWireRevision(this.serverRevision, LIVE_VIEW_WIRE_REVISION)) {
+          if (this.welcomed) {
             this.liveView.start((frame) => this.send(handle, frame), { bengle: this.sentHardware?.model === "Bengle" });
           }
           break;
@@ -5566,7 +5551,6 @@ var __decentSync = (() => {
       const handle = this.handle;
       this.handle = void 0;
       this.welcomed = false;
-      this.serverRevision = FIRST_WIRE_REVISION;
       this.liveView.disconnected();
       this.sender?.close();
       this.sender = void 0;

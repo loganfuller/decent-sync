@@ -96,9 +96,9 @@ test("a shot's curves end at a takeover by a Tablet that streams nothing, so the
   const curves = card.getByRole("region", { name: "Curves" });
   await expect(ticks(curves, "Pressure")).toHaveText(["-2 s", "0 s", "2 s", "4 s", "6 s", "8 s"]);
 
-  // A Tablet on the previous release, which the server never asks to stream, takes the Machine over, and the page's
-  // next poll finds it.
-  const silent = await RawConnection.welcomed(server.url(), helloWith(token, { wireRevision: 1, machine: { model: "DE1Pro", serial: "28007" } }));
+  // A Tablet that streams nothing, a raw connection, which sends no frame when the server asks it to stream, takes the
+  // Machine over, and the page's next poll finds it.
+  const silent = await RawConnection.welcomed(server.url(), helloWith(token, { machine: { model: "DE1Pro", serial: "28007" } }));
   await tablet.waitForLog(/^Another tablet connected with this Machine's token and took over\./);
   await expect(card).toContainText("Waiting for its Tablet to send what it is doing.");
   // Meanwhile the first Tablet's Decaid sees the shot end and the Machine go idle, which it doesn't stream.
