@@ -50,6 +50,17 @@ const RECORD_NAMES: Readonly<Record<RecordKind, string>> = { shot: "Shot", steam
  */
 export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery | null>;
 
+/**
+ * A wait for what the outbox held as it began (`whenDelivered`): the
+ * deliveries queued then, by id, and the records new on the tablet then that
+ * are still to be read, by their keys.
+ */
+interface Wait {
+  deliveries: Set<string>;
+  records: Set<string>;
+  done(delivered: boolean): void;
+}
+
 /** Index pages wait while this many deliveries are queued. */
 const SHORT_OUTBOX = 4;
 /** How long to wait before reading the deliveries kept again after Decaid first fails to answer, doubling each time to at most RESTORE_RETRY_MAX_MS. */
@@ -71,11 +82,20 @@ const RESTORE_RETRY_MAX_MS = 5 * 60_000;
  * records, those new on the tablet first, are read from Decaid's API one at
  * a time, when a connection is sending and nothing else is queued, so while
  * the server is unreachable only their ids are held.
+ *
+ * A request the plugin makes for a Skin is no delivery, and never waits
+ * here: `whenDelivered` tells one that follows the tablet's reports once the
+ * server has acknowledged what the outbox held as the Skin asked, so it
+ * goes out behind that (ADR-0030).
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
   private readonly watchers: ((delivery: Delivery) => void)[] = [];
   private readonly requested = new Map<string, { kind: RecordKind; id: string }>();
+  /** The requested records new on the tablet (`first`), by key, until each is read or its read fails. */
+  private readonly fresh = new Set<string>();
+  /** The waits for what the outbox held as each began, on this connection. */
+  private readonly waits = new Set<Wait>();
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
   private sendMessage?: (message: PluginMessage) => Promise<void>;
@@ -87,10 +107,10 @@ export class Outbox {
   private readonly handed = new Set<string>();
   private working = false;
   private stopped = false;
-  private retryTimer?: number;
+  private retryTimer?: ReturnType<typeof setTimeout>;
   /** Set until the deliveries kept by earlier loads are read back, and nothing is sent meanwhile. */
   private restoring = true;
-  private restoreTimer?: number;
+  private restoreTimer?: ReturnType<typeof setTimeout>;
   private restoreDelayMs = RESTORE_RETRY_MS;
   /** The Workflow and machine state deliveries queued while restoring, oldest first, with the length of their JSON. */
   private readonly whileRestoring = new Map<string, number>();
@@ -161,6 +181,33 @@ export class Outbox {
     this.sendMessage = undefined;
     this.connections++;
     this.sent = undefined;
+    const waits = [...this.waits];
+    this.waits.clear();
+    for (const wait of waits) wait.done(false);
+  }
+
+  /**
+   * Calls `done` with true once the server has acknowledged what the outbox
+   * holds now: every delivery queued, and every record new on the tablet
+   * still to be read, such as a Shot Decaid just stored. So what is sent
+   * then follows them, as a request about a Shot follows that Shot's
+   * delivery (ADR-0030). The records the server asked for to fill in its
+   * history are not waited for, as there may be thousands, nor is a new
+   * record once its read has failed, which is tried again after those. Calls it with
+   * false if the connection closes first, or at once while none is sending,
+   * or while the deliveries earlier loads kept are still to be read back,
+   * which are not yet known to wait for. Returns a function that gives the
+   * wait up, after which `done` is not called.
+   */
+  whenDelivered(done: (delivered: boolean) => void): () => void {
+    if (!this.sendMessage || this.restoring) {
+      done(false);
+      return () => {};
+    }
+    const wait: Wait = { deliveries: new Set(this.queued.keys()), records: new Set(this.fresh), done };
+    this.waits.add(wait);
+    this.settleWaits();
+    return () => void this.waits.delete(wait);
   }
 
   stop(): void {
@@ -220,6 +267,7 @@ export class Outbox {
     const records = ids.map((id) => [`${kind}:${id}`, { kind, id }] as const);
     if (options.first) {
       const keys = new Set<string>(records.map(([key]) => key));
+      for (const key of keys) this.fresh.add(key);
       const others = [...this.requested].filter(([key]) => !keys.has(key));
       this.requested.clear();
       for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
@@ -262,6 +310,8 @@ export class Outbox {
         // Retry it after the others, so one unreadable record cannot hold up the rest.
         this.requested.delete(key);
         this.requested.set(key, record);
+        // Nor what waits for the records new on the tablet: it now comes after those the server requested.
+        this.noLongerFresh(key, undefined);
         this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
         this.retry();
         return;
@@ -273,6 +323,7 @@ export class Outbox {
         this.queued.set(delivery.id, delivery);
         for (const watcher of this.watchers) watcher(delivery);
       }
+      this.noLongerFresh(key, delivery?.id);
     }
     if (generation !== this.connections || !this.sendMessage) return;
     const next = this.queued.entries().next().value;
@@ -296,6 +347,7 @@ export class Outbox {
       if (this.handed.has(id)) continue;
       this.queued.delete(id);
       this.unwritten.delete(id);
+      this.noLongerQueued(id);
     }
     if (dropped.length > 0) this.logDropping();
     void written.then(() => {
@@ -339,6 +391,35 @@ export class Outbox {
     this.handed.delete(id);
     this.unwritten.delete(id);
     this.kept.remove(id);
+    this.noLongerQueued(id);
+  }
+
+  /**
+   * A record new on the tablet is no longer one about to be read: it was
+   * read, as the delivery with this id or as gone from the tablet, or it
+   * could not be read, and is tried again after every other record
+   * requested. A wait for it is now one for its delivery, or for nothing
+   * more of it, so a record that can't be read holds back nothing.
+   */
+  private noLongerFresh(key: string, deliveryId: string | undefined): void {
+    this.fresh.delete(key);
+    for (const wait of this.waits) if (wait.records.delete(key) && deliveryId !== undefined) wait.deliveries.add(deliveryId);
+    this.settleWaits();
+  }
+
+  /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
+  private noLongerQueued(id: string): void {
+    for (const wait of this.waits) wait.deliveries.delete(id);
+    this.settleWaits();
+  }
+
+  /** Ends each wait left with nothing to wait for. */
+  private settleWaits(): void {
+    for (const wait of [...this.waits]) {
+      if (wait.deliveries.size > 0 || wait.records.size > 0) continue;
+      this.waits.delete(wait);
+      wait.done(true);
+    }
   }
 
   private retry(): void {

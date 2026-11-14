@@ -320,7 +320,8 @@ describe("Telling skins of each write of the server's into the Workflow", () => 
   async function pushesFor(request: ServerMessage & { id: string }): Promise<{ answer: Record_; pushes: unknown[]; held: Record_[] }> {
     const before = tablet.pushes("changed").length;
     const held: Record_[] = [];
-    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
+    // Only the pushes Streamline reads: the plugin tells a Skin of its connection on another endpoint (#507).
+    tablet.onEmit = (event) => void (event === "changed" && held.push(structuredClone(tablet.workflow())));
     try {
       const answer = await server.ask(request);
       return { answer, pushes: tablet.pushes("changed").slice(before), held };
@@ -506,7 +507,8 @@ describe("Telling skins of each load of a recipe the Workflow names", () => {
   async function pushesDuring(work: () => Promise<void>): Promise<{ pushes: unknown[]; held: Record_[] }> {
     const before = tablet.pushes("changed").length;
     const held: Record_[] = [];
-    tablet.onEmit = () => held.push(structuredClone(tablet.workflow()));
+    // Only the pushes Streamline reads: the plugin tells a Skin of its connection on another endpoint (#507).
+    tablet.onEmit = (event) => void (event === "changed" && held.push(structuredClone(tablet.workflow())));
     try {
       await work();
       return { pushes: tablet.pushes("changed").slice(before), held };

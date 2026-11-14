@@ -9,8 +9,10 @@ import { WebSocket, WebSocketServer } from "ws";
 // `leaveOut`) as it chooses, and reads the plugin's answers. It welcomes any
 // `hello`, answers each heartbeat, puts chunked messages back together,
 // telling the plugin of each chunk, and acknowledges every delivery, as the
-// server does once it has stored one. It checks nothing the plugin sends:
-// the real server's tests do that.
+// server does once it has stored one. A `request` the plugin makes for a
+// Skin is no delivery: it is neither acknowledged nor answered, so a test
+// answers it with `send`, late, or never. It checks nothing the plugin
+// sends: the real server's tests do that.
 
 /** A message the plugin sent, read as JSON. */
 type Received = Record<string, unknown> & { type: string };
@@ -20,11 +22,15 @@ export class StandInServer {
   readonly received: Received[] = [];
   private socket: WebSocket | undefined;
   private waiters: (() => void)[] = [];
+  /** The acknowledgments held back (`holdAcks`), or undefined while each is sent as its delivery arrives. */
+  private heldAcks: (() => void)[] | undefined;
 
   private constructor(
     private readonly server: WebSocketServer,
     /** Its public http:// URL, which a tablet's `ServerUrl` names. */
     readonly url: string,
+    /** The wire revision its welcome gives. */
+    private readonly wireRevision: number,
   ) {
     server.on("connection", (socket) => {
       this.socket?.terminate();
@@ -40,13 +46,14 @@ export class StandInServer {
     });
   }
 
-  static async start(): Promise<StandInServer> {
+  /** Starts one, which welcomes at this build's wire revision, or at `wireRevision`, as a server of another release would. */
+  static async start(options: { wireRevision?: number } = {}): Promise<StandInServer> {
     const server = new WebSocketServer({ host: "127.0.0.1", port: 0, path: SYNC_PATH });
     await new Promise<void>((resolve, reject) => {
       server.once("listening", resolve);
       server.once("error", reject);
     });
-    return new StandInServer(server, `http://127.0.0.1:${(server.address() as AddressInfo).port}`);
+    return new StandInServer(server, `http://127.0.0.1:${(server.address() as AddressInfo).port}`, options.wireRevision ?? WIRE_REVISION);
   }
 
   /** Resolves once the plugin has been welcomed. */
@@ -68,6 +75,31 @@ export class StandInServer {
     return answer()!;
   }
 
+  /** Resolves with the first message of that type the plugin has sent, from the `from`th received on, once it has. */
+  async next(type: string, from = 0): Promise<Received> {
+    const found = () => this.received.slice(from).find((message) => message.type === type);
+    await this.until(() => found() !== undefined, 15_000, `a ${type}`);
+    return found()!;
+  }
+
+  /**
+   * Holds the acknowledgment of each delivery from now on, as a server slow
+   * to store one does, until the function returned is called, which sends
+   * those held, in order.
+   */
+  holdAcks(): () => void {
+    const held: (() => void)[] = (this.heldAcks = []);
+    return () => {
+      if (this.heldAcks === held) this.heldAcks = undefined;
+      for (const acknowledge of held.splice(0)) acknowledge();
+    };
+  }
+
+  /** Ends the plugin's connection, as a server that went away does. */
+  drop(): void {
+    this.socket?.terminate();
+  }
+
   async stop(): Promise<void> {
     this.socket?.terminate();
     await new Promise<void>((resolve) => this.server.close(() => resolve()));
@@ -75,9 +107,13 @@ export class StandInServer {
 
   private take(socket: WebSocket, message: Received): void {
     this.received.push(message);
-    if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, wireRevision: WIRE_REVISION, heartbeatIntervalMs: 30_000 });
+    if (message.type === "hello") this.reply(socket, { type: "welcome", protocolVersion: PROTOCOL_VERSION, wireRevision: this.wireRevision, heartbeatIntervalMs: 30_000 });
     else if (message.type === "heartbeat") this.reply(socket, { type: "heartbeat" });
-    else if (typeof message.id === "string") this.reply(socket, { type: "ack", id: message.id });
+    else if (typeof message.id === "string" && message.type !== "request") {
+      const acknowledge = () => this.reply(socket, { type: "ack", id: String(message.id) });
+      if (this.heldAcks) this.heldAcks.push(acknowledge);
+      else acknowledge();
+    }
     for (const wake of this.waiters.splice(0)) wake();
   }
 

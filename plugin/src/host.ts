@@ -99,6 +99,10 @@ export interface Plugin {
   onLoad(settings: PluginSettings): void;
   onUnload(): void;
   onEvent(event: PluginEvent): void;
-  /** Answers the requests to the plugin's HTTP endpoints, as Decaid's loader finds it on the plugin. */
-  __httpRequestHandler(request: HttpRequest): HttpAnswer;
+  /**
+   * Answers the requests to the plugin's HTTP endpoints, as Decaid's loader
+   * finds it on the plugin. Decaid awaits a promise, for up to 30 s
+   * (`__dispatchPluginHttp` and `registerPendingHttp` in plugin_manager.dart).
+   */
+  __httpRequestHandler(request: HttpRequest): HttpAnswer | Promise<HttpAnswer>;
 }

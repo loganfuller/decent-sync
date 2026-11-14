@@ -1,8 +1,9 @@
 # The tablet plugin
 
 The Decent Sync plugin runs inside Decaid on each machine's tablet. It sends
-the server everything the tablet records, and writes the shared Library and
-Recipes back to the tablet.
+the server everything the tablet records, writes the shared Library and
+Recipes back to the tablet, and answers a Skin on the tablet about what the
+server holds.
 
 - [Requirements](#requirements)
 - [Installing](#installing)
@@ -12,6 +13,7 @@ Recipes back to the tablet.
 - [What it sends the server](#what-it-sends-the-server)
 - [What it writes to the tablet](#what-it-writes-to-the-tablet)
 - [Tablet identity and backups](#tablet-identity-and-backups)
+- [For a Skin's author](#for-a-skins-author)
 
 ## Requirements
 
@@ -85,6 +87,13 @@ its other update checks, every 12 hours while it runs, or when you press
   **Review**, then **Approve and update**. Or send
   `POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve`
   to the tablet. Each tablet needs its own approval.
+
+Only a new permission needs approval. A release that adds endpoints for a
+Skin, as the release after 1.9.0 adds `status` and `changes`, installs by
+itself: Decaid compares the permissions of the installed plugin and the
+update, and nothing else of their manifests (`_addedPermissions` in Decaid's
+`plugin_source_service.dart`, read at v0.9.1 and v0.9.2; not yet seen on a
+tablet).
 
 Until a tablet's update is approved, it keeps running the plugin it has, which
 a server more than one release newer may refuse. Each Machine's page shows the
@@ -193,3 +202,125 @@ these hold:
 
 Otherwise the tablet keeps the new id it was given, and shows up as a new
 tablet.
+
+## For a Skin's author
+
+A Skin runs on the tablet and knows only Decaid's API, so it can show nothing
+the server holds. The plugin serves it
+([ADR-0030](adr/0030-the-plugin-serves-a-skin-what-the-server-holds.md)): a
+Skin calls an HTTP endpoint of the plugin's on the tablet, the plugin asks
+the server over its own connection, and the answer comes back in the same
+call. So far there is one, the status. The Location's Shots, Reference Shots
+and a Shot's rating and note follow in later releases.
+
+### Calling the plugin
+
+Decaid serves a plugin's endpoints beside its own API, each by its name alone:
+
+| | Address |
+|---|---|
+| HTTP | `http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/<endpoint>` |
+| WebSocket | `ws://<tablet>:8080/ws/v1/plugins/decent-sync.reaplugin/<endpoint>` |
+
+- **Every answer is JSON.** A served request answers 200. A refusal answers
+  another status, with a `code` and a `message` (see [Refusals](#refusals)).
+- **Answers come quickly or not at all.** Decaid gives a plugin 30 seconds to
+  answer. The plugin gives the server 10: a request still unanswered then is
+  refused as `unreachable`. While the plugin isn't connected it refuses at
+  once, without asking.
+- **Nothing is queued.** A request refused as `unreachable` was not kept, and
+  is not sent later. Ask again.
+- **Decaid answers some requests itself.** It answers 404 while the plugin
+  isn't loaded, and for an endpoint the installed plugin doesn't have, such
+  as `status` on the 1.9.0 plugin or an earlier one.
+- **The status is asked at once.** It doesn't wait for what the tablet has
+  still to send the server, so it answers while a tablet catches up after an
+  outage.
+
+Anything on the tablet's network can call these endpoints, as it can Decaid's
+own API: Decaid checks no caller. That network can already change the
+Workflow and delete Shots through Decaid. The server holds each tablet to its
+own Machine's Location, whatever a caller asks for.
+
+### Status
+
+`GET /api/v1/plugins/decent-sync.reaplugin/status` says whether the plugin is
+connected to the server, whether its Machine is served, and which Machine and
+Location it is. Call it to decide which screens to show.
+
+A Machine is served while it takes part in the Library: at a Location, with
+its sharing on, connected as itself. Served, it answers 200:
+
+```json
+{
+  "connected": true,
+  "served": true,
+  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Belmont Left" },
+  "location": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", "name": "Belmont" }
+}
+```
+
+Otherwise it answers the refusal every other endpoint would give at that
+moment: that HTTP status, with the same fields and the refusal's `code` and
+`message`. So `served` alone decides, whatever the status:
+
+```json
+{
+  "connected": true,
+  "served": false,
+  "machine": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", "name": "Belmont Left" },
+  "location": null,
+  "code": "captureOnly",
+  "message": "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
+}
+```
+
+| Field | What it is |
+|---|---|
+| `connected` | Whether the plugin holds a connection the server has welcomed. |
+| `served` | Whether the other endpoints answer for this Machine now. |
+| `machine` | The Machine's id and name on the server. Null while the server wasn't asked or didn't answer, and for `hardwareMismatch`. |
+| `location` | The Location the Machine is at, by id and name, whether or not it shares there. Null where it is at none, and wherever `machine` is null. |
+| `code`, `message` | Why it isn't served. Absent while it is. |
+
+Each call asks the server afresh. Nothing is remembered from the last answer.
+
+### Refusals
+
+Every refusal is an HTTP status with a `code` to act on and a `message` to
+show. A Skin refused with any of these shows its tablet's own Shots.
+
+| Code | Status | When |
+|---|---|---|
+| `unreachable` | 503 | The plugin isn't connected to the server, its connection closed before the answer came, or the server didn't answer within 10 seconds. |
+| `serverTooOld` | 503 | The plugin is connected to a server of the release before these endpoints, as for a moment during an upgrade. Treat it as `unreachable`. |
+| `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
+| `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
+
+A request with a method an endpoint doesn't take answers 405, with an `error`
+in place of a `code`.
+
+### Changes
+
+A Skin listens on the WebSocket endpoint `changes` rather than polling. Each
+push is a JSON object whose `what` names what changed. So far there is one:
+
+```json
+{ "what": "connection", "connected": true }
+```
+
+It is sent when the server welcomes the plugin's connection, and when that
+connection is lost. Read the status again after it: the Machine may have
+moved, or its sharing changed, while the plugin was away.
+
+- Decaid sends a push only to the sockets open at that moment, and keeps none
+  for a socket opened later. Read the status once the socket opens.
+- A Skin can send nothing on this socket.
+- Ignore a `what` you don't know. Later releases add more.
+
+### Streamline's endpoints
+
+The plugin's `skin` endpoint and its `changed` WebSocket are the ones
+Streamline reads, and are unchanged. `changed` pushes only
+`{"what":"workflow"}`, which Streamline reads as a change to the Workflow or
+DYE2's recipes. Nothing above is pushed there.

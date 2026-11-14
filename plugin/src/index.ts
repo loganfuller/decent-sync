@@ -2,6 +2,7 @@ import { PROTOCOL_VERSION } from "@decent-sync/protocol";
 import { SyncConnection } from "./connection.js";
 import type { Plugin, PluginHost } from "./host.js";
 import { readSettings } from "./settings.js";
+import { STATUS_ENDPOINT, answerStatus } from "./skin-api.js";
 import { answerHttp } from "./skins.js";
 
 // Decaid calls onLoad synchronously and disables a plugin that takes too long
@@ -35,7 +36,8 @@ export function createPlugin(host: PluginHost): Plugin {
       if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
       if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
     },
-    // Answered whether or not the plugin connects: a skin asks every loaded plugin.
-    __httpRequestHandler: answerHttp,
+    // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking for the status
+    // is told the server can't be reached.
+    __httpRequestHandler: (request) => (request.endpoint === STATUS_ENDPOINT ? answerStatus(request, connection?.skinRequests) : answerHttp(request)),
   };
 }

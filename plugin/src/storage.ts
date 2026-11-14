@@ -39,7 +39,7 @@ export class PluginStorage {
   /** The writes among them, by key. */
   private readonly queuedWrites = new Map<string, Command>();
   /** The command sent and awaiting Decaid's answer. */
-  private waiting: { command: Command; timer: number } | undefined;
+  private waiting: { command: Command; timer: ReturnType<typeof setTimeout> } | undefined;
   /**
    * Set once Decaid leaves a write unanswered, until it answers anything:
    * meanwhile writes are sent without waiting for answers, as with a Decaid
@@ -159,7 +159,7 @@ export class PluginStorage {
   }
 
   /** Stops waiting for the answer to the command sent, returning what waited. */
-  private settle(): { command: Command; timer: number } | undefined {
+  private settle(): { command: Command; timer: ReturnType<typeof setTimeout> } | undefined {
     const waiting = this.waiting;
     if (waiting) clearTimeout(waiting.timer);
     this.waiting = undefined;

@@ -394,11 +394,11 @@ var __decentSync = (() => {
     }
     return refusals;
   }
-  function settingsRefusalText(collection, refusal) {
-    const field = refusal.field === void 0 || !isSettingsCollectionName(collection) ? void 0 : refusal.schedule ? wakeScheduleField(refusal.field) : settingsField(collection, refusal.field);
-    const name = field?.label ?? refusal.field ?? "";
+  function settingsRefusalText(collection, refusal2) {
+    const field = refusal2.field === void 0 || !isSettingsCollectionName(collection) ? void 0 : refusal2.schedule ? wakeScheduleField(refusal2.field) : settingsField(collection, refusal2.field);
+    const name = field?.label ?? refusal2.field ?? "";
     const editable = field && isEditable(field) ? field : void 0;
-    switch (refusal.reason) {
+    switch (refusal2.reason) {
       case "unknownCollection":
         return `There are no settings named ${collection}`;
       case "notSchedules":
@@ -605,6 +605,17 @@ var __decentSync = (() => {
   }
   function acceptsWireRevision(peer, own = WIRE_REVISION) {
     return peer >= own - 1;
+  }
+  function peerHasWireRevision(peer, revision, own = WIRE_REVISION) {
+    if (revision > own) {
+      throw new Error(`Asked whether a peer has wire revision ${revision}, but this build speaks ${own}: raise WIRE_REVISION`);
+    }
+    if (revision <= Math.max(FIRST_WIRE_REVISION, own - 1)) {
+      throw new Error(
+        `Every peer that wire revision ${own} accepts has revision ${revision}: delete this check, or, if what it sends came after the latest release, ask for revision ${own}`
+      );
+    }
+    return peer >= revision;
   }
   var SYNC_PATH = "/sync";
   var MISSED_HEARTBEATS = 3;
@@ -908,6 +919,9 @@ var __decentSync = (() => {
     const uuid = "00000000-0000-0000-0000-000000000000";
     return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
   }
+  var REQUESTS_WIRE_REVISION = 3;
+  var SKIN_ASKS = ["status"];
+  var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -1042,6 +1056,25 @@ var __decentSync = (() => {
         });
       case "liveReceived":
         return check(object3, "liveReceived", (fields) => fields.integer("bytes", { nonNegative: true }));
+      case "answer":
+        return check(object3, "answer", (fields) => {
+          fields.string("id", { nonEmpty: true });
+          fields.oneOf("ask", SKIN_ASKS);
+          fields.objectField("result");
+          if (object3.ask === "status") {
+            fields.optionalObject("result", (status) => {
+              status.boolean("served");
+              if (isObject(object3.result) && object3.result.served === false) status.oneOf("notServed", NOT_SERVED);
+              else status.absent("notServed");
+              for (const named of ["machine", "location"]) {
+                status.nullableObject(named, (entry) => {
+                  entry.string("id", { nonEmpty: true });
+                  entry.string("name");
+                });
+              }
+            });
+          }
+        });
       default:
         return invalid("Unknown message type");
     }
@@ -1139,6 +1172,11 @@ var __decentSync = (() => {
         return;
       }
       checkFields(new _FieldChecker(value, `${this.path}.${key}`, this.problems));
+    }
+    /** An object, checked by `checkFields`, or null, but not absent. */
+    nullableObject(key, checkFields) {
+      if (this.object[key] === void 0) this.problem(key, "must be an object or null");
+      else this.optionalObject(key, checkFields);
     }
     problem(key, what) {
       this.problems.push(`${this.path}.${key} ${what}`);
@@ -4046,6 +4084,10 @@ var __decentSync = (() => {
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "watchers", []);
       __publicField(this, "requested", /* @__PURE__ */ new Map());
+      /** The requested records new on the tablet (`first`), by key, until each is read or its read fails. */
+      __publicField(this, "fresh", /* @__PURE__ */ new Set());
+      /** The waits for what the outbox held as each began, on this connection. */
+      __publicField(this, "waits", /* @__PURE__ */ new Set());
       __publicField(this, "runtimeId", `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`);
       __publicField(this, "sequence", 0);
       __publicField(this, "sendMessage");
@@ -4123,6 +4165,33 @@ var __decentSync = (() => {
       this.sendMessage = void 0;
       this.connections++;
       this.sent = void 0;
+      const waits = [...this.waits];
+      this.waits.clear();
+      for (const wait of waits) wait.done(false);
+    }
+    /**
+     * Calls `done` with true once the server has acknowledged what the outbox
+     * holds now: every delivery queued, and every record new on the tablet
+     * still to be read, such as a Shot Decaid just stored. So what is sent
+     * then follows them, as a request about a Shot follows that Shot's
+     * delivery (ADR-0030). The records the server asked for to fill in its
+     * history are not waited for, as there may be thousands, nor is a new
+     * record once its read has failed, which is tried again after those. Calls it with
+     * false if the connection closes first, or at once while none is sending,
+     * or while the deliveries earlier loads kept are still to be read back,
+     * which are not yet known to wait for. Returns a function that gives the
+     * wait up, after which `done` is not called.
+     */
+    whenDelivered(done) {
+      if (!this.sendMessage || this.restoring) {
+        done(false);
+        return () => {
+        };
+      }
+      const wait = { deliveries: new Set(this.queued.keys()), records: new Set(this.fresh), done };
+      this.waits.add(wait);
+      this.settleWaits();
+      return () => void this.waits.delete(wait);
     }
     stop() {
       this.stopped = true;
@@ -4174,6 +4243,7 @@ var __decentSync = (() => {
       const records = ids.map((id) => [`${kind}:${id}`, { kind, id }]);
       if (options.first) {
         const keys = new Set(records.map(([key]) => key));
+        for (const key of keys) this.fresh.add(key);
         const others = [...this.requested].filter(([key]) => !keys.has(key));
         this.requested.clear();
         for (const [key, record3] of [...records, ...others]) this.requested.set(key, record3);
@@ -4212,6 +4282,7 @@ var __decentSync = (() => {
         } catch {
           this.requested.delete(key);
           this.requested.set(key, record3);
+          this.noLongerFresh(key, void 0);
           this.log(`Could not read ${RECORD_NAMES[record3.kind]} ${record3.id} from Decaid; retrying it after the other requested records.`);
           this.retry();
           return;
@@ -4222,6 +4293,7 @@ var __decentSync = (() => {
           this.queued.set(delivery.id, delivery);
           for (const watcher of this.watchers) watcher(delivery);
         }
+        this.noLongerFresh(key, delivery?.id);
       }
       if (generation !== this.connections || !this.sendMessage) return;
       const next = this.queued.entries().next().value;
@@ -4244,6 +4316,7 @@ var __decentSync = (() => {
         if (this.handed.has(id)) continue;
         this.queued.delete(id);
         this.unwritten.delete(id);
+        this.noLongerQueued(id);
       }
       if (dropped.length > 0) this.logDropping();
       void written2.then(() => {
@@ -4284,6 +4357,32 @@ var __decentSync = (() => {
       this.handed.delete(id);
       this.unwritten.delete(id);
       this.kept.remove(id);
+      this.noLongerQueued(id);
+    }
+    /**
+     * A record new on the tablet is no longer one about to be read: it was
+     * read, as the delivery with this id or as gone from the tablet, or it
+     * could not be read, and is tried again after every other record
+     * requested. A wait for it is now one for its delivery, or for nothing
+     * more of it, so a record that can't be read holds back nothing.
+     */
+    noLongerFresh(key, deliveryId) {
+      this.fresh.delete(key);
+      for (const wait of this.waits) if (wait.records.delete(key) && deliveryId !== void 0) wait.deliveries.add(deliveryId);
+      this.settleWaits();
+    }
+    /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
+    noLongerQueued(id) {
+      for (const wait of this.waits) wait.deliveries.delete(id);
+      this.settleWaits();
+    }
+    /** Ends each wait left with nothing to wait for. */
+    settleWaits() {
+      for (const wait of [...this.waits]) {
+        if (wait.deliveries.size > 0 || wait.records.size > 0) continue;
+        this.waits.delete(wait);
+        wait.done(true);
+      }
     }
     retry() {
       if (this.stopped || this.retryTimer !== void 0) return;
@@ -4311,7 +4410,7 @@ var __decentSync = (() => {
     /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
     async send(message) {
       if (this.failure) throw this.failure;
-      const id = "id" in message ? message.id : void 0;
+      const id = "id" in message && message.type !== "request" ? message.id : void 0;
       const name = id ?? `message-${++this.unnamed}`;
       const encoded = frames(encode(message), name);
       if (encoded.length === 1 && id === void 0) return this.sendFrame(encoded[0].text);
@@ -4434,7 +4533,7 @@ var __decentSync = (() => {
       if (tooLate()) return expired(edit);
       if (!isEditableSettingsCollection(edit.collection)) return refusedByDecaid(edit, null, `This plugin does not write ${edit.collection}`);
       const refusals = validateSettingsEdit(edit, "admin");
-      if (refusals.length > 0) return refusedByDecaid(edit, null, `${NOT_WRITTEN}${refusals.map((refusal) => settingsRefusalText(edit.collection, refusal)).join("; ")}`);
+      if (refusals.length > 0) return refusedByDecaid(edit, null, `${NOT_WRITTEN}${refusals.map((refusal2) => settingsRefusalText(edit.collection, refusal2)).join("; ")}`);
       const state = await request("GET", "/machine/state");
       if (state.ok) {
         const machineState = stateOf(state.text);
@@ -4737,17 +4836,116 @@ var __decentSync = (() => {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
+  // src/skin-api.ts
+  var STATUS_ENDPOINT = "status";
+  var CHANGES_ENDPOINT = "changes";
+  var REFUSALS = {
+    unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
+    serverTooOld: {
+      status: 503,
+      message: "The Decent Sync server this tablet is connected to is a release too old to ask. It can be asked once it is upgraded."
+    },
+    captureOnly: {
+      status: 409,
+      message: "This Machine is a Capture-only Machine: it is at no Location, or its sharing is off, so it takes no part in the Library."
+    },
+    hardwareMismatch: {
+      status: 409,
+      message: "The machine connected to this tablet is not the one this tablet's token was issued for, so the server serves it nothing until an Admin settles which Machine it is."
+    }
+  };
+  async function answerStatus(request2, requests) {
+    if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
+    const asked = requests ? await requests.ask("status") : { unanswered: "unreachable" };
+    if ("unanswered" in asked) {
+      return refusal(asked.unanswered, { connected: requests?.connected ?? false, served: false, machine: null, location: null });
+    }
+    const { served, notServed, machine, location } = asked.answer.result;
+    const status = { connected: true, served, machine, location };
+    return notServed === void 0 ? json(200, status) : refusal(notServed, status);
+  }
+  function refusal(code, body = {}) {
+    const { status, message } = REFUSALS[code];
+    return json(status, { ...body, code, message });
+  }
+  function json(status, body) {
+    return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+  }
+  function tellConnection(host, log, connected) {
+    try {
+      host.emit(CHANGES_ENDPOINT, { what: "connection", connected });
+    } catch (error) {
+      log(`Could not tell Skins that the connection to the server ${connected ? "came" : "went"}: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
+  // src/skin-requests.ts
+  var FOLLOWS_REPORTS = { status: false };
+  var SKIN_REQUEST_MS = 1e4;
+  var SkinRequests = class {
+    constructor(outbox, followsReports = FOLLOWS_REPORTS) {
+      __publicField(this, "outbox", outbox);
+      __publicField(this, "followsReports", followsReports);
+      /** The welcomed connection, with the wire revision its server's welcome gave. */
+      __publicField(this, "connection");
+      /** The requests awaiting an answer, by id, each with what settles it. */
+      __publicField(this, "pending", /* @__PURE__ */ new Map());
+    }
+    /** Whether the plugin holds a connection the server welcomed. */
+    get connected() {
+      return this.connection !== void 0;
+    }
+    /** The server welcomed a connection, whose `send` sends a request on it. */
+    welcomed(send, serverRevision) {
+      this.connection = { send, serverRevision };
+    }
+    /** The connection closed: its requests have no answer to come. */
+    disconnected() {
+      this.connection = void 0;
+      for (const settle of [...this.pending.values()]) settle({ unanswered: "unreachable" });
+    }
+    /** The server answered a request; an answer to none awaited, as one that came too late, is dropped. */
+    answered(answer) {
+      this.pending.get(answer.id)?.({ answer });
+    }
+    /** Asks the server, and resolves with its answer or why there is none. It never rejects. */
+    ask(ask) {
+      const connection = this.connection;
+      if (!connection) return Promise.resolve({ unanswered: "unreachable" });
+      if (!peerHasWireRevision(connection.serverRevision, REQUESTS_WIRE_REVISION)) return Promise.resolve({ unanswered: "serverTooOld" });
+      const id = this.outbox.nextId();
+      return new Promise((resolve) => {
+        let giveUp = () => {
+        };
+        const settle = (asked) => {
+          if (!this.pending.delete(id)) return;
+          clearTimeout(timer);
+          giveUp();
+          resolve(asked);
+        };
+        const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
+        this.pending.set(id, settle);
+        const send = () => void connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
+        if (!this.followsReports[ask]) return send();
+        giveUp = this.outbox.whenDelivered((delivered) => {
+          if (!delivered) return settle({ unanswered: "unreachable" });
+          if (this.pending.has(id)) send();
+        });
+      });
+    }
+  };
+
   // src/skins.ts
   var SKIN_ENDPOINT = "skin";
   var CHANGED_ENDPOINT = "changed";
   var SKIN_ANSWER = { version: 1, surfaces: [], live: { endpoint: CHANGED_ENDPOINT } };
   var WORKFLOW_CHANGED = { what: "workflow" };
   function answerHttp(request2) {
-    if (request2.endpoint !== SKIN_ENDPOINT) return json(404, { error: "Not found" });
-    if (request2.method !== "GET") return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
-    return json(200, SKIN_ANSWER);
+    if (request2.endpoint !== SKIN_ENDPOINT) return json2(404, { error: "Not found" });
+    if (request2.method !== "GET") return { ...json2(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
+    return json2(200, SKIN_ANSWER);
   }
-  function json(status, body) {
+  function json2(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   }
   function tellSkins(host, log) {
@@ -5106,6 +5304,8 @@ var __decentSync = (() => {
       __publicField(this, "liveView");
       /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
       __publicField(this, "tabletId");
+      /** What the plugin asks the server for a Skin, each request on the connection welcomed as it is made (ADR-0030). */
+      __publicField(this, "skinRequests");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.storage = new PluginStorage(host);
@@ -5184,6 +5384,7 @@ var __decentSync = (() => {
       );
       this.tabletId = new TabletId(this.storage, log);
       this.liveView = new LiveView(log, localTransports, findMilkProbe);
+      this.skinRequests = new SkinRequests(this.outbox);
     }
     /**
      * Reads back the outbox's deliveries kept by earlier loads, and connects,
@@ -5379,6 +5580,15 @@ var __decentSync = (() => {
           this.collections.sendAll();
           this.shots.welcome();
           this.steams.welcome();
+          this.skinRequests.welcomed(async (request2) => {
+            try {
+              await this.send(handle, request2);
+            } catch (error) {
+              this.sendFailed(handle, "could not send a request");
+              throw error;
+            }
+          }, wireRevisionOf(message));
+          tellConnection(this.host, this.log, true);
           break;
         case "ack":
           this.sender?.acknowledged(message.id);
@@ -5425,6 +5635,9 @@ var __decentSync = (() => {
           break;
         case "liveReceived":
           this.liveView.received(message.bytes);
+          break;
+        case "answer":
+          this.skinRequests.answered(message);
           break;
         case "heartbeat":
           break;
@@ -5549,12 +5762,15 @@ var __decentSync = (() => {
     }
     closeHandle() {
       const handle = this.handle;
+      const welcomed = this.welcomed;
       this.handle = void 0;
       this.welcomed = false;
       this.liveView.disconnected();
       this.sender?.close();
       this.sender = void 0;
       this.outbox.disconnected();
+      this.skinRequests.disconnected();
+      if (welcomed) tellConnection(this.host, this.log, false);
       this.clearTimer("heartbeat");
       this.clearTimer("silence");
       this.clearTimer("connect");
@@ -5650,8 +5866,9 @@ var __decentSync = (() => {
         if (event?.name === "stateUpdate") connection?.stateUpdate(event.payload);
         if (event?.name === "storageRead" || event?.name === "storageWrite") connection?.storageEvent(event.name, event.payload);
       },
-      // Answered whether or not the plugin connects: a skin asks every loaded plugin.
-      __httpRequestHandler: answerHttp
+      // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking for the status
+      // is told the server can't be reached.
+      __httpRequestHandler: (request2) => request2.endpoint === STATUS_ENDPOINT ? answerStatus(request2, connection?.skinRequests) : answerHttp(request2)
     };
   }
   return __toCommonJS(index_exports);
