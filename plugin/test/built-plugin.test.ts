@@ -23,10 +23,12 @@ describe("the built plugin", () => {
     expect(manifest.permissions).toEqual(["log", "api", "emit", "events.machine", "events.shots", "events.workflow", "network.websocket", "pluginStorage"]);
   });
 
-  it("declares the endpoints a skin uses, an HTTP skin and a WebSocket changed, each as Decaid reads one", () => {
+  it("declares the endpoints a skin uses, each as Decaid reads one: Streamline's HTTP skin and WebSocket changed, and a Skin's HTTP status and WebSocket changes", () => {
     expect(declaredEndpoints(manifest)).toEqual([
       { id: "skin", type: "http" },
       { id: "changed", type: "websocket" },
+      { id: "status", type: "http" },
+      { id: "changes", type: "websocket" },
     ]);
   });
 

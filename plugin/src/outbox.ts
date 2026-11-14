@@ -50,6 +50,18 @@ const RECORD_NAMES: Readonly<Record<RecordKind, string>> = { shot: "Shot", steam
  */
 export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery | null>;
 
+/**
+ * A wait for what the outbox held as it began (`whenDelivered`): the
+ * deliveries queued then, by id, unknown until those kept by earlier loads
+ * are read back, and the records new on the tablet then that are still to
+ * be read, by their keys.
+ */
+interface Wait {
+  deliveries: Set<string> | undefined;
+  records: Set<string>;
+  done(delivered: boolean): void;
+}
+
 /** Index pages wait while this many deliveries are queued. */
 const SHORT_OUTBOX = 4;
 /** How long to wait before reading the deliveries kept again after Decaid first fails to answer, doubling each time to at most RESTORE_RETRY_MAX_MS. */
@@ -71,11 +83,19 @@ const RESTORE_RETRY_MAX_MS = 5 * 60_000;
  * records, those new on the tablet first, are read from Decaid's API one at
  * a time, when a connection is sending and nothing else is queued, so while
  * the server is unreachable only their ids are held.
+ *
+ * A request the plugin makes for a Skin is no delivery, and never waits
+ * here: `whenDelivered` tells it once the server has acknowledged what the
+ * outbox held as the Skin asked, so it goes out behind that (ADR-0030).
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
   private readonly watchers: ((delivery: Delivery) => void)[] = [];
   private readonly requested = new Map<string, { kind: RecordKind; id: string }>();
+  /** The requested records new on the tablet (`first`), by key, until each is read. */
+  private readonly fresh = new Set<string>();
+  /** The waits for what the outbox held as each began, on this connection. */
+  private readonly waits = new Set<Wait>();
   private readonly runtimeId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
   private sequence = 0;
   private sendMessage?: (message: PluginMessage) => Promise<void>;
@@ -140,6 +160,9 @@ export class Outbox {
     for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
     this.restoring = false;
     for (const delivery of since) if (isKept(delivery)) this.keep(delivery);
+    // A wait begun meanwhile is for those read back too, as they were kept before it.
+    for (const wait of this.waits) wait.deliveries ??= new Set(this.queued.keys());
+    this.settleWaits();
     // Keeping those queued since may have dropped the oldest.
     const sending = restored.filter((delivery) => this.queued.has(delivery.id)).length;
     if (sending > 0) this.log(`Sending ${sending} Workflow and machine state ${sending === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
@@ -161,6 +184,31 @@ export class Outbox {
     this.sendMessage = undefined;
     this.connections++;
     this.sent = undefined;
+    const waits = [...this.waits];
+    this.waits.clear();
+    for (const wait of waits) wait.done(false);
+  }
+
+  /**
+   * Calls `done` with true once the server has acknowledged what the outbox
+   * holds now: every delivery queued, and every record new on the tablet
+   * still to be read, such as a Shot Decaid just stored. So what is sent
+   * then follows them, as a request about a Shot follows that Shot's
+   * delivery (ADR-0030). The records the server asked for to fill in its
+   * history are not waited for, as there may be thousands. Calls it with
+   * false if the connection closes first, or at once while none is sending.
+   * Returns a function that gives the wait up, after which `done` is not
+   * called.
+   */
+  whenDelivered(done: (delivered: boolean) => void): () => void {
+    if (!this.sendMessage) {
+      done(false);
+      return () => {};
+    }
+    const wait: Wait = { deliveries: this.restoring ? undefined : new Set(this.queued.keys()), records: new Set(this.fresh), done };
+    this.waits.add(wait);
+    this.settleWaits();
+    return () => void this.waits.delete(wait);
   }
 
   stop(): void {
@@ -220,6 +268,7 @@ export class Outbox {
     const records = ids.map((id) => [`${kind}:${id}`, { kind, id }] as const);
     if (options.first) {
       const keys = new Set<string>(records.map(([key]) => key));
+      for (const key of keys) this.fresh.add(key);
       const others = [...this.requested].filter(([key]) => !keys.has(key));
       this.requested.clear();
       for (const [key, record] of [...records, ...others]) this.requested.set(key, record);
@@ -268,11 +317,15 @@ export class Outbox {
       }
       if (this.stopped) return;
       this.requested.delete(key);
+      this.fresh.delete(key);
       // A record deleted on the tablet is absent; nothing deletes its server copy.
       if (delivery) {
         this.queued.set(delivery.id, delivery);
         for (const watcher of this.watchers) watcher(delivery);
       }
+      // A wait for the record is now one for its delivery, or for nothing more of it.
+      for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries?.add(delivery.id);
+      this.settleWaits();
     }
     if (generation !== this.connections || !this.sendMessage) return;
     const next = this.queued.entries().next().value;
@@ -296,6 +349,7 @@ export class Outbox {
       if (this.handed.has(id)) continue;
       this.queued.delete(id);
       this.unwritten.delete(id);
+      this.noLongerQueued(id);
     }
     if (dropped.length > 0) this.logDropping();
     void written.then(() => {
@@ -318,6 +372,7 @@ export class Outbox {
       this.whileRestoring.delete(oldest);
       this.whileRestoringCharacters -= size;
       this.queued.delete(oldest);
+      this.noLongerQueued(oldest);
       this.logDropping();
     }
   }
@@ -339,6 +394,22 @@ export class Outbox {
     this.handed.delete(id);
     this.unwritten.delete(id);
     this.kept.remove(id);
+    this.noLongerQueued(id);
+  }
+
+  /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
+  private noLongerQueued(id: string): void {
+    for (const wait of this.waits) wait.deliveries?.delete(id);
+    this.settleWaits();
+  }
+
+  /** Ends each wait left with nothing to wait for. */
+  private settleWaits(): void {
+    for (const wait of [...this.waits]) {
+      if (wait.deliveries === undefined || wait.deliveries.size > 0 || wait.records.size > 0) continue;
+      this.waits.delete(wait);
+      wait.done(true);
+    }
   }
 
   private retry(): void {

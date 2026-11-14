@@ -28,6 +28,7 @@ import {
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
+  REQUESTS_WIRE_REVISION,
   Reassembly,
   type ReassemblyLimits,
   SYNC_PATH,
@@ -35,6 +36,7 @@ import {
   type SettingsEdit,
   type SettingsEdited,
   type ShotDelivery,
+  type SkinRequest,
   type SteamDelivery,
   WIRE_REVISION,
   type WriteRefused,
@@ -46,6 +48,7 @@ import {
   isLibraryKind,
   isLibraryList,
   isWrittenKind,
+  peerHasWireRevision,
   utf8Length,
   wireRevisionOf,
 } from "@decent-sync/protocol";
@@ -71,6 +74,7 @@ import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js"
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { ShotsService } from "../shots/shots.service.js";
+import { SkinRequestsService } from "../skin-requests/skin-requests.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { hashSecret } from "../secrets.js";
 import { clientAddress } from "./client-address.js";
@@ -188,6 +192,12 @@ interface Session {
  * which starts and stops it, and so is each of its live frames as it arrives,
  * ahead of its deliveries (ADR-0024).
  *
+ * A `request` the plugin makes for a Skin on its tablet is answered in its
+ * turn among the connection's frames, so after the deliveries that arrived
+ * before it are stored, by one `answer` (`SkinRequestsService`, ADR-0030).
+ * It is no delivery: it is neither acknowledged nor remembered, so one whose
+ * id repeats an earlier request's, or a delivery's, is answered as any other.
+ *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
  * accepted or closes. Connections that hold a Machine are not counted. The
@@ -223,6 +233,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly settingsEdits: SettingsEditsService,
     private readonly prisma: PrismaService,
     private readonly liveViews: LiveViews,
+    private readonly skinRequests: SkinRequestsService,
     notifications: Notifications,
   ) {
     notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
@@ -424,6 +435,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     // Unrequested, as it came before the connection was welcomed, or in chunks, which live frames never are.
     if (message.type === "liveFrame") return;
+    // No delivery: its id is its answer's alone, and is never looked up among the deliveries handled.
+    if (message.type === "request") return this.request(session, message);
     if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
       const request = session.handled.get(message.id);
       if (request) this.send(session, request);
@@ -494,6 +507,20 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         }
         return;
     }
+  }
+
+  /**
+   * Answers a request the plugin makes for a Skin (ADR-0030), once. Requests
+   * came with a wire revision, so one from a plugin behind it, which no
+   * plugin sends, is a protocol error, and no answer goes to a plugin that
+   * could not read it.
+   */
+  private async request(session: Session, request: SkinRequest): Promise<void> {
+    if (!peerHasWireRevision(session.wireRevision!, REQUESTS_WIRE_REVISION)) {
+      return this.refuse(session, "protocol_error", `A request needs a plugin at wire revision ${REQUESTS_WIRE_REVISION} or newer`);
+    }
+    const answer = await this.skinRequests.answer({ machineId: session.machine!.id, identity: session.identity! }, request);
+    if (!session.closing) this.send(session, answer);
   }
 
   /**

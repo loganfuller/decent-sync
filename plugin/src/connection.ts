@@ -29,6 +29,8 @@ import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { SettingsAccess, SettingsEdits } from "./settings-edits.js";
 import { ShotCapture } from "./shots.js";
+import { tellConnection } from "./skin-api.js";
+import { SkinRequests } from "./skin-requests.js";
 import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
 import { SteamCapture } from "./steams.js";
@@ -119,6 +121,12 @@ type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" |
  * through the outbox (library-writes.ts). It carries out the Settings Edits
  * the server asks for the same way, in a queue of their own beside the reads
  * of the settings collections (settings-edits.ts).
+ *
+ * A Skin on the tablet asks the plugin what the server holds (ADR-0030): the
+ * plugin sends each request on the connection welcomed then, behind what the
+ * outbox held, and the server's answer settles it (skin-requests.ts). A Skin
+ * listening is told as a connection is welcomed and as a welcomed one is
+ * lost (skin-api.ts).
  */
 export class SyncConnection {
   /** The open handle, or undefined while disconnected. */
@@ -175,6 +183,8 @@ export class SyncConnection {
   private readonly liveView: LiveView;
   /** This tablet's id, read from Decaid's plugin storage before the first connection and sent in every `hello`. */
   private readonly tabletId: TabletId;
+  /** What the plugin asks the server for a Skin, each request on the connection welcomed as it is made (ADR-0030). */
+  readonly skinRequests: SkinRequests;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -256,6 +266,7 @@ export class SyncConnection {
     );
     this.tabletId = new TabletId(this.storage, log);
     this.liveView = new LiveView(log, localTransports, findMilkProbe);
+    this.skinRequests = new SkinRequests(this.outbox);
   }
 
   /**
@@ -473,6 +484,15 @@ export class SyncConnection {
         this.collections.sendAll();
         this.shots.welcome();
         this.steams.welcome();
+        // A Skin's requests go out on this connection from now on, and a Skin listening is told it may ask.
+        this.skinRequests.welcomed(async (request) => {
+          try { await this.send(handle, request); }
+          catch (error) {
+            this.sendFailed(handle, "could not send a request");
+            throw error;
+          }
+        }, wireRevisionOf(message));
+        tellConnection(this.host, this.log, true);
         break;
       case "ack":
         this.sender?.acknowledged(message.id);
@@ -531,6 +551,9 @@ export class SyncConnection {
         break;
       case "liveReceived":
         this.liveView.received(message.bytes);
+        break;
+      case "answer":
+        this.skinRequests.answered(message);
         break;
       case "heartbeat":
         // Its arrival is what counts.
@@ -672,6 +695,7 @@ export class SyncConnection {
 
   private closeHandle(): void {
     const handle = this.handle;
+    const welcomed = this.welcomed;
     this.handle = undefined;
     this.welcomed = false;
     this.liveView.disconnected();
@@ -679,6 +703,9 @@ export class SyncConnection {
     this.sender?.close();
     this.sender = undefined;
     this.outbox.disconnected();
+    // A Skin's requests still unanswered are answered as unreachable, never sent again, and a Skin listening is told.
+    this.skinRequests.disconnected();
+    if (welcomed) tellConnection(this.host, this.log, false);
     this.clearTimer("heartbeat");
     this.clearTimer("silence");
     this.clearTimer("connect");

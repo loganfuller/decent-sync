@@ -48,8 +48,13 @@ import {
   steamTimeOf,
   MAX_REFUSAL_LENGTH,
   MAX_WRITTEN_FIELDS,
+  NOT_SERVED,
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
+  REQUESTS_WIRE_REVISION,
+  SKIN_ASKS,
+  type SkinAnswer,
+  type SkinRequest,
   WIRE_REVISION,
   type WriteRefused,
   childKinds,
@@ -582,6 +587,65 @@ describe("Live View messages", () => {
     expect(liveFrameFits({ ...live, frame: { ...snapshot, padding: "x".repeat(room + 1) } })).toBe(false);
     // Measured in UTF-8, as PostgreSQL does.
     expect(liveFrameFits({ ...live, frame: { ...snapshot, padding: "é".repeat(Math.ceil((room + 1) / 2)) } })).toBe(false);
+  });
+});
+
+describe("Requests for a Skin", () => {
+  const request: SkinRequest = { type: "request", id: "1j2k3l-4m5n-17", ask: "status" };
+  const machine = { id: "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a70", name: "Belmont Left" };
+  const location = { id: "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a71", name: "Belmont" };
+  const served: SkinAnswer = { type: "answer", id: request.id, ask: "status", result: { served: true, machine, location } };
+  const refused = (message: unknown) => {
+    const result = decodeServerMessage(frame(message));
+    return result.ok ? null : result.problem;
+  };
+
+  it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
+    expect(REQUESTS_WIRE_REVISION).toBe(3);
+    expect(SKIN_ASKS).toEqual(["status"]);
+    expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
+  });
+
+  it("reads a request by its id and what it asks, which only the plugin sends", () => {
+    expect(decodePluginMessage(frame(request))).toEqual({ ok: true, message: request });
+    expect(decodePluginMessage(frame({ ...request, future: true }))).toMatchObject({ ok: true });
+    expect(decodeServerMessage(frame(request))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    const problem = (message: unknown) => {
+      const result = decodePluginMessage(frame(message));
+      return result.ok ? null : result.problem;
+    };
+    expect(problem({ ...request, ask: "shots" })).toBe("request.ask must be one of status");
+    expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
+    expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
+    expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
+    expect(problem({ ...request, ask: "secret" })).not.toContain("secret");
+  });
+
+  it("reads an answer to status: served, or not and why, with the Machine and Location or neither", () => {
+    const captureOnly = { ...served, result: { served: false, notServed: "captureOnly", machine, location: null } };
+    const mismatch = { ...served, result: { served: false, notServed: "hardwareMismatch", machine: null, location: null } };
+    for (const message of [served, captureOnly, mismatch, { ...served, future: true }, { ...served, result: { ...served.result, future: true } }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(decodePluginMessage(frame(served))).toMatchObject({ ok: false, problem: "Unknown message type" });
+  });
+
+  it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
+    expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
+    expect(refused({ ...served, ask: "shots" })).toBe("answer.ask must be one of status");
+    expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
+    expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
+    // Why it is not served goes with not being served, and only with it.
+    expect(refused({ ...served, result: { ...served.result, served: false } })).toBe(`answer.result.notServed must be one of ${NOT_SERVED.join(", ")}`);
+    expect(refused({ ...served, result: { ...served.result, served: false, notServed: "asleep" } })).toBe(`answer.result.notServed must be one of ${NOT_SERVED.join(", ")}`);
+    expect(refused({ ...served, result: { ...served.result, notServed: "captureOnly" } })).toBe("answer.result.notServed must be absent");
+    // The Machine and Location are each named whole, or null.
+    expect(refused({ ...served, result: { served: true, machine } })).toBe("answer.result.location must be an object or null");
+    expect(refused({ ...served, result: { ...served.result, machine: "Belmont Left" } })).toBe("answer.result.machine must be an object or null");
+    expect(refused({ ...served, result: { ...served.result, machine: { id: "", name: 7 } } })).toBe(
+      "answer.result.machine.id must not be empty; answer.result.machine.name must be a string",
+    );
+    expect(refused({ ...served, result: { ...served.result, location: { id: "secret" } } })).not.toContain("secret");
   });
 });
 

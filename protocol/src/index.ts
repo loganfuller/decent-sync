@@ -1917,6 +1917,83 @@ export function liveFrameFits(live: LiveFrame): boolean {
   return utf8Length(relayedLiveFrame(uuid, uuid, live)) <= MAX_NOTIFICATION_BYTES;
 }
 
+/**
+ * The wire revision the plugin's requests and the server's answers arrived
+ * in (ticket #507, ADR-0030): the plugin sends a request only to a server at
+ * it, and the server takes one only from a plugin at it.
+ */
+export const REQUESTS_WIRE_REVISION = 3;
+
+/**
+ * What a request may ask (`SkinRequest.ask`): `status`, whether the
+ * connection's Machine is served, and which Machine and Location it is.
+ */
+export const SKIN_ASKS = ["status"] as const;
+
+export type SkinAsk = (typeof SKIN_ASKS)[number];
+
+/**
+ * Something the plugin asks the server for a Skin on its tablet (ADR-0030),
+ * answered by an `answer` repeating its id. It is no delivery: the server
+ * neither stores nor acknowledges it, and remembers nothing of it, and the
+ * plugin never sends it again. One unanswered when its connection closes,
+ * or once its time is up, is answered to the Skin as unreachable. The plugin
+ * sends it once the server has acknowledged what its outbox held as the Skin
+ * asked, and the server answers it in its turn among the connection's
+ * frames, so an answer about a Shot follows that Shot's delivery.
+ */
+export interface SkinRequest {
+  type: "request";
+  /** Matches its answer to it. The plugin never repeats one. */
+  id: string;
+  /** What is asked, one of SKIN_ASKS. Whatever else one needs goes in fields of its own beside it. */
+  ask: SkinAsk;
+}
+
+/**
+ * Why a connection's Machine is not served (ADR-0030):
+ *
+ * - `captureOnly`: it is a Capture-only Machine, at no Location or with
+ *   sharing off;
+ * - `hardwareMismatch`: the hardware its tablet reports is not its token's
+ *   Machine's, but a Pending Machine's or another Machine's, so the
+ *   connection is not that Machine's own.
+ */
+export const NOT_SERVED = ["captureOnly", "hardwareMismatch"] as const;
+
+export type NotServed = (typeof NOT_SERVED)[number];
+
+/** A Machine or a Location, as an answer names it. */
+export interface Named {
+  id: string;
+  name: string;
+}
+
+/**
+ * What `status` is answered with. A Machine is served while it takes part in
+ * the Library: at a Location, with sharing on, connected as itself.
+ */
+export interface SkinStatus {
+  served: boolean;
+  /** Why it is not served; absent while it is. */
+  notServed?: NotServed;
+  /** The connection's Machine; null for a `hardwareMismatch`, whose tablet is not connected as a Machine of its own. */
+  machine: Named | null;
+  /** The Location the Machine is at now, whether or not it shares there; null where it is at none, and for a `hardwareMismatch`. */
+  location: Named | null;
+}
+
+/**
+ * The server's answer to a `request`, repeating its id and what it asked.
+ * Sent once for each request, and never again.
+ */
+export interface SkinAnswer {
+  type: "answer";
+  id: string;
+  ask: "status";
+  result: SkinStatus;
+}
+
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage =
   | Hello
@@ -1935,7 +2012,8 @@ export type PluginMessage =
   | ListUnrecognised
   | WriteRefused
   | SettingsEdited
-  | LiveFrame;
+  | LiveFrame
+  | SkinRequest;
 /** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
 export type ServerMessage =
   | Welcome
@@ -1954,7 +2032,8 @@ export type ServerMessage =
   | SettingsEdit
   | LiveStart
   | LiveStop
-  | LiveReceived;
+  | LiveReceived
+  | SkinAnswer;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -2215,6 +2294,11 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         if (object.source === "machine") fields.instant("stateSince");
         fields.objectField("frame");
       });
+    case "request":
+      return check<SkinRequest>(object, "request", (fields) => {
+        fields.id();
+        fields.oneOf("ask", SKIN_ASKS);
+      });
     default:
       return invalid("Unknown message type");
   }
@@ -2328,6 +2412,26 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       return check<LiveStop>(object, "liveStop", () => {});
     case "liveReceived":
       return check<LiveReceived>(object, "liveReceived", (fields) => fields.integer("bytes", { nonNegative: true }));
+    case "answer":
+      return check<SkinAnswer>(object, "answer", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.oneOf("ask", SKIN_ASKS);
+        fields.objectField("result");
+        // Each ask's result is checked as that ask's.
+        if (object.ask === "status") {
+          fields.optionalObject("result", (status) => {
+            status.boolean("served");
+            if (isObject(object.result) && object.result.served === false) status.oneOf("notServed", NOT_SERVED);
+            else status.absent("notServed");
+            for (const named of ["machine", "location"]) {
+              status.nullableObject(named, (entry) => {
+                entry.string("id", { nonEmpty: true });
+                entry.string("name");
+              });
+            }
+          });
+        }
+      });
     default:
       return invalid("Unknown message type");
   }
@@ -2469,6 +2573,12 @@ class FieldChecker {
       return;
     }
     checkFields(new FieldChecker(value, `${this.path}.${key}`, this.problems));
+  }
+
+  /** An object, checked by `checkFields`, or null, but not absent. */
+  nullableObject(key: string, checkFields: (fields: FieldChecker) => void): void {
+    if (this.object[key] === undefined) this.problem(key, "must be an object or null");
+    else this.optionalObject(key, checkFields);
   }
 
   private problem(key: string, what: string): void {

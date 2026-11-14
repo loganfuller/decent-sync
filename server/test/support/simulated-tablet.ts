@@ -148,6 +148,10 @@ import { opened } from "./test-scope.js";
 //   HTTP endpoints as a skin does through
 //   `/api/v1/plugins/{id}/{endpoint}`, answered only for an `http` endpoint
 //   the manifest declares, with `api` (`_handlePluginApiEndpoint`). The
+//   plugin's handler may answer with a promise, which Decaid awaits for
+//   30 s of the tablet's time (`__dispatchPluginHttp` and
+//   `registerPendingHttp` in plugin_manager.dart, the same at v0.9.1 and
+//   v0.9.2), answering 500 after that. The
 //   manifest's `api` entries must each be shaped as Decaid's
 //   `ApiEndpoint.fromJson` reads them, or the plugin does not load.
 // - Unloading calls onUnload, then cancels the generation's timers and closes
@@ -175,6 +179,8 @@ const fixturesDir = path.join(repoDir, "server/test/fixtures/decaid");
 
 const API_ORIGIN = "http://localhost:8080";
 const FETCH_TIMEOUT_MS = 30_000;
+/** How long Decaid gives a plugin to answer a request to one of its HTTP endpoints (pluginHttpTimeout in plugin_manager.dart). */
+const PLUGIN_HTTP_TIMEOUT_MS = 30_000;
 /** The largest response Decaid's plugin fetch answers (maxFetchResponseBytes in plugin_manager.dart). */
 const MAX_FETCH_RESPONSE_BYTES = 10 * 1024 * 1024;
 const MAX_LIVE_TRANSPORTS = 8;
@@ -1603,8 +1609,9 @@ export class SimulatedTablet {
    * Calls one of the plugin's HTTP endpoints as a skin does, through
    * `/api/v1/plugins/{id}/{endpoint}`: 404 for an endpoint the manifest does
    * not declare, 403 without `api`, 400 for a WebSocket endpoint, and 500 if
-   * the plugin's handler throws or rejects; otherwise its answer, status 200
-   * if it gives none.
+   * the plugin's handler throws or rejects, or its promise is not settled
+   * within 30 s of the tablet's time; otherwise its answer, status 200 if it
+   * gives none.
    */
   async callEndpoint(endpoint: string, options: { method?: string; body?: unknown } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
@@ -1624,10 +1631,16 @@ export class SimulatedTablet {
       query: {},
     };
     let answer: Record<string, unknown>;
+    let timer: number | undefined;
     try {
-      answer = (await handler.call(this.plugin, request)) as Record<string, unknown>;
+      const late = new Promise<never>((_, reject) => {
+        timer = this.setTimer(() => reject(new Error("Plugin did not respond in time")), PLUGIN_HTTP_TIMEOUT_MS);
+      });
+      answer = (await Promise.race([handler.call(this.plugin, request), late])) as Record<string, unknown>;
     } catch (error) {
       return json(500, { error: String(error) });
+    } finally {
+      if (timer !== undefined) this.clearTimer(timer);
     }
     const headers = Object.fromEntries(Object.entries((answer.headers ?? {}) as Record<string, unknown>).map(([name, value]) => [name, String(value)]));
     return { status: typeof answer.status === "number" ? answer.status : 200, headers, body: String(answer.body ?? "") };

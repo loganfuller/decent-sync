@@ -1,5 +1,5 @@
 import path from "node:path";
-import { RECIPE_SETTINGS, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
+import { RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
@@ -332,6 +332,51 @@ describe("the latest release beside the change", () => {
     const slotAt = async (id: string) => (await api.get<{ recipe: { slot: number | null } }>(`/recipes/${id}`)).recipe.slot;
     await expect.poll(async () => [await slotAt(recipe.id), await slotAt(holder.id)]).toEqual([4, null]);
     for (const tablet of [moved, updated, ahead.tablet]) await expect.poll(() => slotsOf(tablet)).toEqual([4, null]);
+  });
+
+  // A Skin's requests came with the change's wire revision (#507, ADR-0030).
+  // The latest release's plugin declares no `status` endpoint and sends no
+  // request, so its tablet carries on as before. A tablet with the change's
+  // plugin that the latest release's instance holds, as during a deploy,
+  // sends that server no request, and answers a Skin that the server is too
+  // old to ask, until its connection is to the change's. Once the latest
+  // release has requests itself, its server answers them.
+  it("answers a Skin as too old to ask while the latest release's server holds its tablet, and leaves a tablet on the latest release's plugin as it was", async () => {
+    const location = await apis.change.createLocation("Skin status, both releases", "America/Chicago");
+    const status = async (tablet: SimulatedTablet) => {
+      const answer = await tablet.callEndpoint("status");
+      return { status: answer.status, body: JSON.parse(answer.body) as Record<string, unknown> };
+    };
+    /** Once the plugin has been welcomed, as a Skin listening is told. */
+    const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
+    const requests = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "request");
+
+    const held = await connected("Skin status, held by the latest release", "change", "latest release", { location });
+    await welcomed(held.tablet);
+    const served = { connected: true, served: true, machine: { id: held.machine.machine.id, name: "Skin status, held by the latest release" }, location: { id: location.id, name: location.name } };
+    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
+      expect(await status(held.tablet)).toEqual({
+        status: 503,
+        body: { connected: true, served: false, machine: null, location: null, code: "serverTooOld", message: expect.stringContaining("too old") },
+      });
+      expect(requests(held.tablet)).toEqual([]);
+    } else {
+      expect(await status(held.tablet)).toEqual({ status: 200, body: served });
+    }
+    // Held by the change's instance, as once the deploy is done, it is answered.
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    await welcomed(moved);
+    expect(await status(moved)).toEqual({ status: 200, body: served });
+
+    // The latest release's plugin on the change's server: Decaid answers for an endpoint its manifest lacks, Streamline's
+    // answers as it did, and the server sends it no answer.
+    const behind = await connected("Skin status, the latest release's plugin", "latest release", "change", { location });
+    const declared = (readBuiltPlugin({ latestRelease: true }).manifest.api as { id: string }[]).some((endpoint) => endpoint.id === "status");
+    expect((await behind.tablet.callEndpoint("status")).status).toBe(declared ? 200 : 404);
+    const skin = await behind.tablet.callEndpoint("skin");
+    expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
+    if (!declared) expect(behind.tablet.received.filter((frame) => (frame as { type?: unknown }).type === "answer")).toEqual([]);
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy
