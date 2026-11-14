@@ -1520,7 +1520,8 @@ listening is found when it listens again, as every writer then looks.
 
 One write is outstanding per connection, and only the connection holding a
 Machine writes, so a tablet is written one item at a time. The server sends a
-`write`, in chunks if it is too large for one frame (`AI_PROTOCOL_NOTES.md`),
+`write`, in chunks the plugin confirms unless it is small
+(`AI_PROTOCOL_NOTES.md`, Chunked messages),
 and the plugin answers it with `written`, the record Decaid returned, or
 `writeRefused`, Decaid's refusal. The server records a written record as the
 tablet's record of the item, whatever the time of the record known, since

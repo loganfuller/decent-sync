@@ -1,7 +1,9 @@
 // Messages too large for one frame. Either end sends such a message as
 // ordered chunks, each a frame of its own, and the other puts it back
 // together before handling it like any other message: the plugin its
-// deliveries, and the server a Library item it writes to the tablet.
+// deliveries, and the server what it writes to the tablet and its answers
+// to a Skin's requests. Each end confirms the chunks it receives
+// (`chunkReceived`), and the sender counts a chunk as in flight until then.
 //
 // Decaid's transport holds at most 1 MiB of a plugin's frames awaiting the
 // network, one frame or all those queued together (`_reserveOutbound` in
@@ -112,7 +114,16 @@ export function frames(text: string, id: string, maxFrameBytes = MAX_FRAME_BYTES
     const bytes = utf8Length(text);
     if (bytes <= maxFrameBytes) return [{ text, bytes }];
   }
+  return chunks(text, id, maxFrameBytes);
+}
 
+/**
+ * A message's encoding as chunks, each a frame of at most `maxFrameBytes`,
+ * in order, whether or not it would fit in one frame whole: one that would
+ * may be a single chunk. The server sends a message this way where its
+ * receipt is to be confirmed, as only chunks are.
+ */
+export function chunks(text: string, id: string, maxFrameBytes = MAX_FRAME_BYTES): Frame[] {
   // The room left for a chunk's data, encoded as a JSON string, beside an
   // envelope whose index and count have as many digits as they can have.
   const room = maxFrameBytes - utf8Length(chunkFrame(id, text.length, text.length, ""));

@@ -1793,9 +1793,12 @@ export interface Ack {
 }
 
 /**
- * Sent by the server for every chunk it receives, so the plugin knows the
- * chunk has left the tablet and can send more. It says nothing about
- * storage: a chunked delivery is acknowledged once, by its `ack`.
+ * Sent by either end for a chunk it receives, so the sender knows the chunk
+ * is no longer in flight and can send more. The server confirms every chunk,
+ * which then has left the tablet; it says nothing about storage: a chunked
+ * delivery is acknowledged once, by its `ack`. The plugin confirms every
+ * chunk a server at CONFIRMED_CHUNKS_WIRE_REVISION sends it, which Decaid
+ * then no longer holds for it.
  */
 export interface ChunkReceived {
   type: "chunkReceived";
@@ -1918,6 +1921,14 @@ export function liveFrameFits(live: LiveFrame): boolean {
 }
 
 /**
+ * The wire revision the plugin's confirmations of the server's chunks
+ * arrived in (ticket #508): the plugin sends `chunkReceived` only to a
+ * server at it, which closes the connection on a message it doesn't know
+ * otherwise, and the server waits for one only from a plugin at it.
+ */
+export const CONFIRMED_CHUNKS_WIRE_REVISION = 3;
+
+/**
  * The wire revision the plugin's requests and the server's answers arrived
  * in (ticket #507, ADR-0030): the plugin sends a request only to a server at
  * it, and the server takes one only from a plugin at it.
@@ -2015,8 +2026,9 @@ export type PluginMessage =
   | WriteRefused
   | SettingsEdited
   | LiveFrame
-  | SkinRequest;
-/** Messages the server sends, each in a frame of its own or, a `write` too large for one, in chunks. */
+  | SkinRequest
+  | ChunkReceived;
+/** Messages the server sends, each in a frame of its own or, a `write` or an `answer`, in chunks. */
 export type ServerMessage =
   | Welcome
   | Heartbeat
@@ -2300,6 +2312,11 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       return check<SkinRequest>(object, "request", (fields) => {
         fields.id();
         fields.oneOf("ask", SKIN_ASKS);
+      });
+    case "chunkReceived":
+      return check<ChunkReceived>(object, "chunkReceived", (fields) => {
+        fields.id();
+        fields.integer("index", { nonNegative: true });
       });
     default:
       return invalid("Unknown message type");
