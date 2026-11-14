@@ -1945,7 +1945,7 @@ export const SKIN_ASKS = ["status", "shots", "shot"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
 
-/** The most Shots a page of a Location's Shots holds (`ask: "shots"`), and how many it holds where its request names no `limit`. */
+/** The most Shots a page of a Location's Shots holds (`ask: "shots"`), and how many the plugin asks for where a Skin names no `limit`. */
 export const MAX_SHOTS_PAGE = 50;
 
 /**
@@ -1971,8 +1971,8 @@ export type SkinQuestion =
   | { ask: "status" }
   | {
       ask: "shots";
-      /** How many Shots the page may hold, from 1 to MAX_SHOTS_PAGE, which it is where absent. */
-      limit?: number;
+      /** How many Shots the page may hold, from 1 to MAX_SHOTS_PAGE. */
+      limit: number;
       /** The `nextCursor` of the page before the one asked for, as the server gave it; absent for the first page. */
       cursor?: string;
     }
@@ -2415,7 +2415,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         fields.id();
         fields.oneOf("ask", SKIN_ASKS);
         if (object.ask === "shots") {
-          if (object.limit !== undefined) fields.integer("limit", { positive: true, within: MAX_SHOTS_PAGE });
+          fields.integer("limit", { positive: true, within: MAX_SHOTS_PAGE });
           // Whatever a Skin gave: the server says whether it is a cursor of its own.
           if (object.cursor !== undefined) fields.string("cursor");
         }

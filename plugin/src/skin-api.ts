@@ -30,6 +30,13 @@ const SHOT_ENDPOINT = "shot";
 /** The plugin's WebSocket endpoint a Skin listens on for what changed (manifest.json). */
 const CHANGES_ENDPOINT = "changes";
 
+/**
+ * The longest `cursor` or `id` the server is asked with: longer than any
+ * cursor it gives or any Shot's id, and short enough that a request never
+ * passes a frame, whatever a Skin sends.
+ */
+const MAX_ASKED_LENGTH = 2048;
+
 /** Why an endpoint refuses a request: one of these codes, each with its HTTP status and a sentence. */
 export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "invalidRequest";
 
@@ -106,7 +113,8 @@ async function answerShots(request: HttpRequest, requests: SkinRequests | undefi
   if (limit !== undefined && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
     return invalid(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
   }
-  return answered(await ask(requests, { ask: "shots", ...(limit !== undefined && { limit: Number(limit) }), ...(cursor !== undefined && { cursor }) }));
+  if (cursor !== undefined && !askable(cursor)) return refused("invalidCursor");
+  return answered(await ask(requests, { ask: "shots", limit: limit === undefined ? MAX_SHOTS_PAGE : Number(limit), ...(cursor !== undefined && { cursor }) }));
 }
 
 /**
@@ -119,8 +127,13 @@ async function answerShots(request: HttpRequest, requests: SkinRequests | undefi
 async function answerShot(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
   if (request.method !== "GET") return onlyGet();
   const { id } = request.query;
-  if (id === undefined || id === "") return invalid("Give the Shot's id as id.");
+  if (!askable(id) || id === "") return invalid("Give the Shot's id as id.");
   return answered(await ask(requests, { ask: "shot", shotId: id }));
+}
+
+/** Whether a value of the query is text the server may be asked with. */
+function askable(value: unknown): value is string {
+  return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
 }
 
 /** Asks the server, where the plugin has a connection to ask on. */

@@ -1,5 +1,5 @@
 import { Injectable } from "@nestjs/common";
-import { MAX_SHOTS_PAGE, type NotServed, type SkinAnswer, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
+import { type NotServed, type SkinAnswer, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
 import { type AskingTablet, locationShot, locationShots } from "../shots/location-shots.js";
@@ -54,7 +54,7 @@ export class SkinRequestsService {
       }
       case "shots": {
         const outcome = await this.served(connection, async (db, asking) => {
-          const result = await locationShots(db, asking, request.limit ?? MAX_SHOTS_PAGE, request.cursor);
+          const result = await locationShots(db, asking, request.limit, request.cursor);
           return result ? { result } : { refused: "invalidCursor" as const };
         });
         return outcome && { ...answer, ask: "shots", ...outcome };

@@ -242,8 +242,10 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   Skin asked, so a Shot pulled a moment ago on this tablet is in the answer.
   While a tablet catches up after an outage that can take longer than the 10
   seconds, and the request is refused as `unreachable`, whatever else would
-  have refused it. Ask the status, which doesn't wait, to learn whether the
-  Machine is served.
+  have refused it. For a moment after the plugin loads, while it reads back
+  what it kept for the server, they are refused as `unreachable` at once.
+  Ask the status, which doesn't wait, to learn whether the Machine is
+  served.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API: Decaid checks no caller. That network can already change the
@@ -336,7 +338,7 @@ were pulled, a page at a time, with no filters.
 | `id` | The Shot's id, which is Decaid's. Read it whole with [`shot`](#a-shot-whole). |
 | `pulledAt` | When it was pulled, in UTC. |
 | `machine` | The Machine that pulled it, by its id and name on the server. Compare its id with the [status](#status)'s to tell this Machine's Shots from the others'. |
-| `onThisTablet` | Whether this tablet holds the Shot, so Decaid's own API has it: it is the tablet that last reported it. |
+| `onThisTablet` | Whether this tablet is the one that last reported the Shot, so Decaid's own API has it unless it was deleted there since. |
 | `recipe` | The Recipe it was pulled with, or null: its id and name on the server, and `recordId`, the id of this tablet's DYE2 record of it, which the Workflow names in `context.extras.dye.recipeId`. `recordId` is null where this tablet holds no record of the Recipe, as for another Location's Recipe, which a Shot names once its Machine's Location History is corrected. |
 | `bean` | The coffee's `roaster` and `name`, as the Shot recorded them. |
 | `dose`, `targetDose` | The dose weighed and the dose aimed for, in grams. |
@@ -385,7 +387,9 @@ A long Shot's record passes 1 MiB. It is read whole all the same, and takes
 longer to arrive. Answers reach the tablet in turn, so ask for a few Shots
 at a time: one still waiting behind the others after 10 seconds is refused
 as `unreachable`, and the server leaves requests unanswered while a tablet
-is far behind on what it asked for.
+is far behind on what it asked for. An answer longer than 16 million
+characters is never sent, so a Shot or a page that long is refused as
+`unreachable` each time: no Shot Decaid records comes near it.
 
 ### Refusals
 
@@ -400,11 +404,12 @@ show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
 | `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for. |
-| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`. The `message` says which. |
+| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, or one longer than 2,048 characters. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
 `unreachable` while it isn't connected, `serverTooOld`, and `invalidRequest`
-for a `limit` or a missing `id`. The server answers the rest, and tells a
+for a `limit`, a missing `id`, or an `id` or `cursor` too long to be one.
+The server answers the rest, and tells a
 Machine that isn't served so whatever it asked for.
 
 A request with a method an endpoint doesn't take answers 405, with an `error`

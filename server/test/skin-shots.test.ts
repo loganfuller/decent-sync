@@ -221,9 +221,9 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     expect(await page(labTablet)).toMatchObject({ shots: [{ id: "skin-lab", machine: { id: labMachine.machine.id, name: "Lab 1" }, onThisTablet: true }], nextCursor: null });
     // The list is the management interface's for the Location.
     expect((await api.get<{ shots: { id: string }[] }>(`/shots?locationId=${belmont.id}`)).shots.map((shot) => shot.id)).toEqual(BELMONT);
-    // One request for each call, with nothing of its page named, which the server answered and never acknowledged.
+    // One request for each call, for a page of 50 where the Skin names no size, which the server answered and never acknowledged.
     const request = requestsSent(labTablet).at(-1)!;
-    expect(request).toEqual({ type: "request", id: expect.any(String), ask: "shots" });
+    expect(request).toEqual({ type: "request", id: expect.any(String), ask: "shots", limit: MAX_SHOTS_PAGE });
     expect(labTablet.acks(request.id)).toBe(0);
   });
 
@@ -374,6 +374,9 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     for (const limit of ["0", "51", "-1", "2.5", "ten", ""]) expect(await call(left, "shots", { limit }), limit).toEqual(invalidRequest("limit"));
     expect(await call(left, "shot")).toEqual(invalidRequest("id"));
     expect(await call(left, "shot", { id: "" })).toEqual(invalidRequest("id"));
+    // Longer than any Shot's id or any cursor the server gives: never sent, whatever its length.
+    expect(await call(left, "shot", { id: "x".repeat(2049) })).toEqual(invalidRequest("id"));
+    expect(await call(left, "shots", { cursor: "x".repeat(2049) })).toEqual(invalidRequest("cursor"));
     for (const endpoint of ["shots", "shot"] as const) {
       const posted = await left.callEndpoint(endpoint, { method: "POST", body: {}, query: { id: "skin-left-early" } });
       expect([posted.status, posted.headers.Allow]).toEqual([405, "GET"]);
@@ -555,7 +558,7 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
       expect(types).toEqual(["ack", "answer"]);
       expect(await ask(raw, { id: "whole", ask: "shot", shotId: "skin-raw-shot" })).toMatchObject({ type: "answer", id: "whole", ask: "shot", result: { shot: { id: "skin-raw-shot" }, recipe: null, referenceOf: [] } });
       expect(await ask(raw, { id: "none", ask: "shot", shotId: "skin-no-such-shot" })).toEqual({ type: "answer", id: "none", ask: "shot", refused: "noSuchShot" });
-      expect(await ask(raw, { id: "cursor", ask: "shots", cursor: "none of the server's" })).toEqual({ type: "answer", id: "cursor", ask: "shots", refused: "invalidCursor" });
+      expect(await ask(raw, { id: "cursor", ask: "shots", limit: 1, cursor: "none of the server's" })).toEqual({ type: "answer", id: "cursor", ask: "shots", refused: "invalidCursor" });
       expect(raw.acks("page") + raw.acks("whole") + raw.acks("none") + raw.acks("cursor")).toBe(0);
     });
 
@@ -620,16 +623,39 @@ describe("The plugin's shots and shot endpoints, for a Machine that is not serve
       expect(first.reduce((sum, answer) => sum + answer.bytes, 0)).toBeGreaterThan(MAX_CHUNKED_LENGTH);
     });
 
+    it("leaves a request unanswered whose answer is longer than a plugin puts back together, and answers the next", async () => {
+      const here = await api.createLocation("Skin shots, an answer too long", "America/Chicago");
+      const holder = await api.createMachine("Skin shots, holding Shots with long names", here.id);
+      const tablet = tablets.syncing(holder, server, { api: emptyLibrary(50_918) });
+      await welcomed(tablet);
+      // Two Shots whose coffee someone on the tablet's network named at more than half the longest message each.
+      const fixture = shotOf("", "", "50918");
+      const context = (fixture.workflow as Record_).context as Record_;
+      for (const id of ["skin-long-name-1", "skin-long-name-2"]) {
+        tablet.pullShot({ ...fixture, id, timestamp: new Date().toISOString(), workflow: { ...(fixture.workflow as Record_), context: { ...context, coffeeName: "n".repeat(MAX_CHUNKED_LENGTH / 2) } } });
+        await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status, { timeout: 60_000 }).toBe(200);
+      }
+
+      const raw = await RawConnection.welcomed(server.url, helloWith((await api.createMachine("Skin shots, asking for long names", here.id)).token));
+      raw.send({ type: "request", id: "both", ask: "shots", limit: 2 });
+      await expect.poll(() => server.output()).toMatch(/Left a request of Machine Skin shots, asking for long names .* unanswered: its answer, of \d+ characters, is longer than its plugin takes/);
+      // Nothing of it was sent, and the connection carries on: a page that fits is answered, the first of its chunks arriving.
+      expect((raw.messages as Record_[]).filter((message) => message.type === "chunk" || message.type === "answer")).toEqual([]);
+      raw.send({ type: "request", id: "one", ask: "shots", limit: 1 });
+      await expect.poll(() => (raw.messages as Record_[]).filter((message) => message.type === "chunk").length).toBeGreaterThan(0);
+      expect(await ask(raw, { id: "status", ask: "status" })).toMatchObject({ result: { served: true } });
+    });
+
     it("refuses a request from a Capture-only connection as not served", async () => {
       const machine = await api.createMachine("Skin shots, raw capture-only");
       const raw = await RawConnection.welcomed(server.url, helloWith(machine.token));
-      expect(await ask(raw, { id: "page", ask: "shots" })).toEqual({ type: "answer", id: "page", ask: "shots", refused: "captureOnly" });
+      expect(await ask(raw, { id: "page", ask: "shots", limit: 1 })).toEqual({ type: "answer", id: "page", ask: "shots", refused: "captureOnly" });
       expect(await ask(raw, { id: "whole", ask: "shot", shotId: "skin-any-shot" })).toEqual({ type: "answer", id: "whole", ask: "shot", refused: "captureOnly" });
     });
 
     it("ends a connection whose request names a page no plugin asks for, or no Shot", async () => {
       const machine = await api.createMachine("Skin shots, raw refusals", location.id);
-      for (const [request, field] of [[{ ask: "shots", limit: MAX_SHOTS_PAGE + 1 }, "request.limit"], [{ ask: "shots", cursor: 7 }, "request.cursor"], [{ ask: "shot" }, "request.shotId"]] as const) {
+      for (const [request, field] of [[{ ask: "shots", limit: MAX_SHOTS_PAGE + 1 }, "request.limit"], [{ ask: "shots" }, "request.limit"], [{ ask: "shots", limit: 1, cursor: 7 }, "request.cursor"], [{ ask: "shot" }, "request.shotId"]] as const) {
         const raw = await RawConnection.welcomed(server.url, helloWith(machine.token));
         raw.send({ type: "request", id: "refused", ...request });
         expect((await raw.closed).code).toBe(4000);

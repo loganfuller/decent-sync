@@ -118,6 +118,13 @@ const GOING_AWAY = 1001;
  */
 const MAX_WAITING_BYTES = 2 * MAX_CHUNKED_LENGTH;
 
+/**
+ * The longest answer sent, in code units of its encoding: what a plugin puts
+ * back together from chunks (CHUNK_LIMITS), less room for the name its
+ * chunks carry. A plugin given more drops its connection.
+ */
+const MAX_ANSWER_LENGTH = MAX_CHUNKED_LENGTH - 1024;
+
 interface Session {
   /** Written to its Machine's row once its hello is accepted, marking the connection that holds the Machine. */
   id: string;
@@ -566,7 +573,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * arrives while more than MAX_WAITING_BYTES wait to be sent on its
    * connection, as when a Skin asks for large Shots faster than its tablet
    * takes them: it is not read, so what an instance holds for a connection
-   * is bounded, and its plugin answers the Skin as unreachable.
+   * is bounded, and its plugin answers the Skin as unreachable. Nor has one
+   * whose answer is longer than a plugin puts back together
+   * (MAX_ANSWER_LENGTH), as a page of Shots whose names someone made
+   * enormous, which would have its plugin drop the connection each time.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
     if (!peerHasWireRevision(session.wireRevision!, REQUESTS_WIRE_REVISION)) {
@@ -584,7 +594,12 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       request,
     );
     if (answer === null) return this.check([session.live!]);
-    this.sendCounted(session, answer);
+    const text = encode(answer);
+    if (text.length > MAX_ANSWER_LENGTH) {
+      this.logger.warn(`Left a request of ${this.describe(session)} unanswered: its answer, of ${text.length} characters, is longer than its plugin takes`);
+      return;
+    }
+    this.sendCounted(session, answer, text);
   }
 
   /**
@@ -882,10 +897,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * large for one frame. That plugin is sent one write at a time and never
    * an answer, as it makes no request.
    */
-  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer): void {
+  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer, text = encode(message)): void {
     if (session.closing) return;
-    if (session.sender) return session.sender.send(encode(message));
-    for (const frame of frames(encode(message), message.id)) session.socket.send(frame.text);
+    if (session.sender) return session.sender.send(text);
+    for (const frame of frames(text, message.id)) session.socket.send(frame.text);
   }
 
   /**

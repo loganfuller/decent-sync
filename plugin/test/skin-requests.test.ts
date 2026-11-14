@@ -82,7 +82,7 @@ async function connected(options: { follows: boolean; restored?: boolean }) {
   /** Asks, and gives what became of it once it is settled. */
   const ask = () => {
     const asked: { settled?: Asked } = {};
-    void requests.ask(options.follows ? { ask: "shots" } : { ask: "status" }).then((settled) => (asked.settled = settled));
+    void requests.ask(options.follows ? { ask: "shots", limit: 50 } : { ask: "status" }).then((settled) => (asked.settled = settled));
     return asked;
   };
   /** The server's answer to the request sent last. */

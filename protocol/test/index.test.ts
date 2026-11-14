@@ -625,16 +625,17 @@ describe("Requests for a Skin", () => {
   });
 
   it("reads a request for a page of Shots by its size and cursor, and one for a Shot by its id, whatever a Skin gave for those", () => {
-    const page = { ...request, ask: "shots" };
+    const page = { ...request, ask: "shots", limit: MAX_SHOTS_PAGE };
     const whole = { ...request, ask: "shot", shotId: "a Shot's id" };
-    for (const message of [page, { ...page, limit: 1 }, { ...page, limit: MAX_SHOTS_PAGE, cursor: "anything a Skin gave" }, { ...page, cursor: "" }, whole, { ...whole, shotId: "" }]) {
+    for (const message of [page, { ...page, limit: 1 }, { ...page, cursor: "anything a Skin gave" }, { ...page, cursor: "" }, whole, { ...whole, shotId: "" }]) {
       expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
     }
     const problem = (message: unknown) => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    // The plugin checks a page's size before it asks, so one out of range is no plugin's.
+    // The plugin names a page's size, having checked it, so a request with none or one out of range is no plugin's.
+    expect(problem({ ...request, ask: "shots" })).toBe("request.limit must be a whole number");
     expect(problem({ ...page, limit: 0 })).toBe("request.limit must be positive");
     expect(problem({ ...page, limit: MAX_SHOTS_PAGE + 1 })).toBe(`request.limit must be from -${MAX_SHOTS_PAGE} to ${MAX_SHOTS_PAGE}`);
     expect(problem({ ...page, limit: 2.5 })).toBe("request.limit must be a whole number");

@@ -4858,6 +4858,7 @@ var __decentSync = (() => {
   var SHOTS_ENDPOINT = "shots";
   var SHOT_ENDPOINT = "shot";
   var CHANGES_ENDPOINT = "changes";
+  var MAX_ASKED_LENGTH = 2048;
   var REFUSALS = {
     unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
     serverTooOld: {
@@ -4904,13 +4905,17 @@ var __decentSync = (() => {
     if (limit !== void 0 && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
       return invalid2(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
     }
-    return answered2(await ask(requests, { ask: "shots", ...limit !== void 0 && { limit: Number(limit) }, ...cursor !== void 0 && { cursor } }));
+    if (cursor !== void 0 && !askable(cursor)) return refused2("invalidCursor");
+    return answered2(await ask(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
   }
   async function answerShot(request2, requests) {
     if (request2.method !== "GET") return onlyGet();
     const { id } = request2.query;
-    if (id === void 0 || id === "") return invalid2("Give the Shot's id as id.");
+    if (!askable(id) || id === "") return invalid2("Give the Shot's id as id.");
     return answered2(await ask(requests, { ask: "shot", shotId: id }));
+  }
+  function askable(value) {
+    return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
   }
   function ask(requests, question) {
     return requests ? requests.ask(question) : Promise.resolve({ unanswered: "unreachable" });
