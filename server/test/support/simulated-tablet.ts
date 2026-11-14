@@ -1621,7 +1621,11 @@ export class SimulatedTablet {
    * gives none. Until it answers, the tablet's clock runs at real time,
    * unless `atTabletPace` keeps it at `timeScale`: the server's work for an
    * answer takes real time however fast the tablet runs, so only a test of
-   * an answer that never comes, which the plugin gives up on, uses it.
+   * an answer that never comes, which the plugin gives up on, uses it. The
+   * plugin's heartbeats, timed for `timeScale`, slow with the clock
+   * meanwhile, so a server expecting one every second drops the connection
+   * of a call that takes about three: a test whose calls may take that long
+   * runs its server with a longer heartbeat interval.
    */
   async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; atTabletPace?: boolean } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });

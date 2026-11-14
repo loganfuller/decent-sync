@@ -235,7 +235,10 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   as `status` on the 1.9.0 plugin or an earlier one.
 - **A request follows what the tablet had still to send.** The plugin sends
   it once the server has taken what was waiting when the Skin asked, a Shot
-  just pulled included.
+  just pulled included. That wait counts toward the 10 seconds. After an
+  outage a tablet may have minutes of events to send, and until it has, its
+  requests are refused as `unreachable` though `connected` is true. Ask
+  again a little later.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API: Decaid checks no caller. That network can already change the
@@ -292,7 +295,7 @@ show. A Skin refused with any of these shows its tablet's own Shots.
 
 | Code | Status | When |
 |---|---|---|
-| `unreachable` | 503 | The plugin isn't connected to the server, its connection closed before the answer came, or the server didn't answer within 10 seconds. |
+| `unreachable` | 503 | The plugin isn't connected to the server, its connection closed before the answer came, or no answer came within 10 seconds of the Skin asking, the wait behind what the tablet had still to send included. |
 | `serverTooOld` | 503 | The plugin is connected to a server of the release before these endpoints, as for a moment during an upgrade. Treat it as `unreachable`. |
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
@@ -311,7 +314,9 @@ push is a JSON object whose `what` names what changed. So far there is one:
 
 It is sent when the server welcomes the plugin's connection, and when that
 connection is lost. Read the status again after it: the Machine may have
-moved, or its sharing changed, while the plugin was away.
+moved, or its sharing changed, while the plugin was away. Nothing is pushed
+once a tablet has caught up after an outage, so a status refused as
+`unreachable` with `connected` true is worth asking for again.
 
 - Decaid sends a push only to the sockets open at that moment, and keeps none
   for a socket opened later. Read the status once the socket opens.

@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { derivedShot } from "./support/shot-fixtures.js";
-import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, Refusal, type SimulatedTablet, derivedWorkflow, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -23,7 +23,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 
 type Record_ = Record<string, unknown>;
 
-const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
+// Heartbeats every 30 s, the default: while a call to the plugin's endpoint awaits its answer the tablet runs at real
+// time, its heartbeats with it, so a server expecting one a second would drop a call that took three.
+const env = { SYNC_HELLO_TIMEOUT_SECONDS: "10", SYNC_HEARTBEAT_SECONDS: "30" };
 
 /** The plugin's time for a request (SKIN_REQUEST_MS in plugin/src/skin-requests.ts), in the tablet's ms. */
 const REQUEST_MS = 10_000;
@@ -64,9 +66,9 @@ describe("The plugin's status endpoint, against a server", () => {
     await server?.stop();
   });
 
-  /** A Machine's tablet, connected to an instance, once the plugin has been welcomed there. */
-  async function connected(machine: CreatedMachine, instance: TestServer = server, hardware = serial++): Promise<SimulatedTablet> {
-    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(hardware) });
+  /** A Machine's tablet, connected to an instance, once the plugin has been welcomed there, its Decaid answering `routes` too. */
+  async function connected(machine: CreatedMachine, instance: TestServer = server, hardware = serial++, routes: Record_ = {}): Promise<SimulatedTablet> {
+    const tablet = tablets.syncing(machine, instance, { api: { ...emptyLibrary(hardware), ...routes } });
     await expect.poll(() => connectionPushes(tablet)).toEqual([true]);
     return tablet;
   }
@@ -239,6 +241,24 @@ describe("The plugin's status endpoint, against a server", () => {
     expect((tablet.sent as Record_[]).filter((frame) => frame.type === "shot")).toEqual([]);
   });
 
+  it("does not hold a request back for a Shot Decaid fails to read, then or afterwards", async () => {
+    const machine = await api.createMachine("Skin status, Shot unreadable", location.id);
+    const tablet = await connected(machine, server, serial++, { "/shots/skin-status-shot-unreadable": new Refusal(500, { error: "Internal server error" }) });
+    expect((await status(tablet)).status).toBe(200);
+
+    // The read is under way as the Skin asks, and then fails: the Shot is tried again later, after any other record.
+    const release = tablet.holdShotReads();
+    tablet.fire("shotStored", { id: "skin-status-shot-unreadable" });
+    await expect.poll(() => tablet.inFlightRequests.map((request) => request.route)).toContain("/shots/skin-status-shot-unreadable");
+    const answered = status(tablet);
+    release();
+    expect((await answered).status).toBe(200);
+    await tablet.waitForLog(/Could not read Shot skin-status-shot-unreadable/);
+    // Nor is a later request held back while the Shot still can't be read.
+    expect((await status(tablet)).status).toBe(200);
+    expect((tablet.sent as Record_[]).filter((frame) => frame.type === "shot")).toEqual([]);
+  });
+
   describe("requests and answers, with raw frames", () => {
     const answersTo = (raw: RawConnection, id: string) => (raw.messages as Record_[]).filter((message) => message.type === "answer" && message.id === id);
     /** Sends a request and resolves with its answer, the `count`th to that id. */
@@ -341,6 +361,8 @@ describe("A request the server does not answer", () => {
   it("is answered as unreachable once its time is up, well inside the time Decaid gives the plugin, and an answer after that is dropped", async () => {
     const { server, tablet } = await standIn("stand-in token 49611", 49_611);
     try {
+      // Nothing of the welcome's still waiting, so the request goes out at once, at the tablet's sped-up pace.
+      await settled(tablet);
       const before = tablet.readClock();
       const unanswered = await status(tablet, { atTabletPace: true });
       expect(unanswered).toEqual({

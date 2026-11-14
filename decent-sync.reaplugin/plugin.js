@@ -4084,7 +4084,7 @@ var __decentSync = (() => {
       __publicField(this, "queued", /* @__PURE__ */ new Map());
       __publicField(this, "watchers", []);
       __publicField(this, "requested", /* @__PURE__ */ new Map());
-      /** The requested records new on the tablet (`first`), by key, until each is read. */
+      /** The requested records new on the tablet (`first`), by key, until each is read or its read fails. */
       __publicField(this, "fresh", /* @__PURE__ */ new Set());
       /** The waits for what the outbox held as each began, on this connection. */
       __publicField(this, "waits", /* @__PURE__ */ new Set());
@@ -4175,7 +4175,8 @@ var __decentSync = (() => {
      * still to be read, such as a Shot Decaid just stored. So what is sent
      * then follows them, as a request about a Shot follows that Shot's
      * delivery (ADR-0030). The records the server asked for to fill in its
-     * history are not waited for, as there may be thousands. Calls it with
+     * history are not waited for, as there may be thousands, nor is a new
+     * record once its read has failed, which is tried again after those. Calls it with
      * false if the connection closes first, or at once while none is sending,
      * or while the deliveries earlier loads kept are still to be read back,
      * which are not yet known to wait for. Returns a function that gives the
@@ -4281,19 +4282,18 @@ var __decentSync = (() => {
         } catch {
           this.requested.delete(key);
           this.requested.set(key, record3);
+          this.noLongerFresh(key, void 0);
           this.log(`Could not read ${RECORD_NAMES[record3.kind]} ${record3.id} from Decaid; retrying it after the other requested records.`);
           this.retry();
           return;
         }
         if (this.stopped) return;
         this.requested.delete(key);
-        this.fresh.delete(key);
         if (delivery) {
           this.queued.set(delivery.id, delivery);
           for (const watcher of this.watchers) watcher(delivery);
         }
-        for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries.add(delivery.id);
-        this.settleWaits();
+        this.noLongerFresh(key, delivery?.id);
       }
       if (generation !== this.connections || !this.sendMessage) return;
       const next = this.queued.entries().next().value;
@@ -4358,6 +4358,18 @@ var __decentSync = (() => {
       this.unwritten.delete(id);
       this.kept.remove(id);
       this.noLongerQueued(id);
+    }
+    /**
+     * A record new on the tablet is no longer one about to be read: it was
+     * read, as the delivery with this id or as gone from the tablet, or it
+     * could not be read, and is tried again after every other record
+     * requested. A wait for it is now one for its delivery, or for nothing
+     * more of it, so a record that can't be read holds back nothing.
+     */
+    noLongerFresh(key, deliveryId) {
+      this.fresh.delete(key);
+      for (const wait of this.waits) if (wait.records.delete(key) && deliveryId !== void 0) wait.deliveries.add(deliveryId);
+      this.settleWaits();
     }
     /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
     noLongerQueued(id) {

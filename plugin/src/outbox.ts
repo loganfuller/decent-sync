@@ -91,7 +91,7 @@ export class Outbox {
   private readonly queued = new Map<string, Delivery>();
   private readonly watchers: ((delivery: Delivery) => void)[] = [];
   private readonly requested = new Map<string, { kind: RecordKind; id: string }>();
-  /** The requested records new on the tablet (`first`), by key, until each is read. */
+  /** The requested records new on the tablet (`first`), by key, until each is read or its read fails. */
   private readonly fresh = new Set<string>();
   /** The waits for what the outbox held as each began, on this connection. */
   private readonly waits = new Set<Wait>();
@@ -191,7 +191,8 @@ export class Outbox {
    * still to be read, such as a Shot Decaid just stored. So what is sent
    * then follows them, as a request about a Shot follows that Shot's
    * delivery (ADR-0030). The records the server asked for to fill in its
-   * history are not waited for, as there may be thousands. Calls it with
+   * history are not waited for, as there may be thousands, nor is a new
+   * record once its read has failed, which is tried again after those. Calls it with
    * false if the connection closes first, or at once while none is sending,
    * or while the deliveries earlier loads kept are still to be read back,
    * which are not yet known to wait for. Returns a function that gives the
@@ -308,21 +309,20 @@ export class Outbox {
         // Retry it after the others, so one unreadable record cannot hold up the rest.
         this.requested.delete(key);
         this.requested.set(key, record);
+        // Nor what waits for the records new on the tablet: it now comes after those the server requested.
+        this.noLongerFresh(key, undefined);
         this.log(`Could not read ${RECORD_NAMES[record.kind]} ${record.id} from Decaid; retrying it after the other requested records.`);
         this.retry();
         return;
       }
       if (this.stopped) return;
       this.requested.delete(key);
-      this.fresh.delete(key);
       // A record deleted on the tablet is absent; nothing deletes its server copy.
       if (delivery) {
         this.queued.set(delivery.id, delivery);
         for (const watcher of this.watchers) watcher(delivery);
       }
-      // A wait for the record is now one for its delivery, or for nothing more of it.
-      for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries.add(delivery.id);
-      this.settleWaits();
+      this.noLongerFresh(key, delivery?.id);
     }
     if (generation !== this.connections || !this.sendMessage) return;
     const next = this.queued.entries().next().value;
@@ -391,6 +391,19 @@ export class Outbox {
     this.unwritten.delete(id);
     this.kept.remove(id);
     this.noLongerQueued(id);
+  }
+
+  /**
+   * A record new on the tablet is no longer one about to be read: it was
+   * read, as the delivery with this id or as gone from the tablet, or it
+   * could not be read, and is tried again after every other record
+   * requested. A wait for it is now one for its delivery, or for nothing
+   * more of it, so a record that can't be read holds back nothing.
+   */
+  private noLongerFresh(key: string, deliveryId: string | undefined): void {
+    this.fresh.delete(key);
+    for (const wait of this.waits) if (wait.records.delete(key) && deliveryId !== undefined) wait.deliveries.add(deliveryId);
+    this.settleWaits();
   }
 
   /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
