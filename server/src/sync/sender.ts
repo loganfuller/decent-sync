@@ -51,8 +51,8 @@ interface Waiting {
  * sending it would take the count past the limit. Decaid hands a
  * transport's frames to the plugin in order, so a confirmation also covers
  * every frame sent before it. Larger messages go in the order given, each
- * one's chunks in order, with nothing between them but a small message's
- * single chunk.
+ * one's chunks in order, with nothing of another larger message between
+ * them.
  *
  * A message of at most MAX_WHOLE_BYTES goes whole, at once, ahead of anything
  * waiting. Nothing confirms it, so it counts, against
