@@ -32,9 +32,10 @@ and the MCP endpoint now put a Recipe in any of them. Streamline's strip
 shows slots 1 to 5 only: a Recipe in 6 to 9 is a button on a Skin that shows
 nine, and is listed by DYE2. Nothing is needed, but the next free slot is now
 the lowest free of the nine. Where slots 1 to 5 each hold a Recipe, a Recipe
-created, copied or moved to the next free slot goes in slot 6, off
-Streamline's strip. Before, a new one or a copy was kept in no slot, and a
-move was refused. Choose no slot to keep a new Recipe or a copy as before.
+created, copied or moved to the next free slot goes in the lowest free of 6
+to 9, off Streamline's strip. Before, a new one or a copy was kept in no
+slot, and a move was refused. Choose no slot to keep a new Recipe or a copy
+as before.
 
 ## 1.9.0
 
