@@ -65,8 +65,11 @@ written to its tablets, naming what they use by each tablet's own ids
 (Taking in a tablet's recipes, below), which ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) has written
 under one record id each, the same on every tablet there, with their slots
-as DYE2's `stripSlot`, five to a Location, every Recipe not Archived on
-every tablet there; ticket
+as DYE2's `stripSlot`, nine to a Location, of which Streamline's DYE strip
+shows 1 to 5 (tickets
+[#506](https://github.com/loganfuller/decent-sync/issues/506) and
+[#502](https://github.com/loganfuller/decent-sync/issues/502)), every Recipe
+not Archived on every tablet there; ticket
 [#143](https://github.com/loganfuller/decent-sync/issues/143) has the
 management interface create and edit them, move them between slots, and
 Archive and restore them, and ticket
@@ -628,9 +631,15 @@ Conflict names is kept, still refused, so history goes on naming it
   a Tool's attributes go with the Tool when an edit drops it, or clears the
   Tools. A Recipe
   created there gets a new record id, a UUID, as a copy does. Its slot is
-  its Location's state, not its content: one of the Location's five, the
-  buttons of Streamline's DYE strip (`REQUESTABLE_RECIPE_SLOTS` in
-  `protocol/`, the slots a request may name). It is
+  its Location's state, not its content: one of the Location's nine
+  (`RECIPE_SLOTS` in `protocol/`), any of which a request may name, from the
+  release after the one that first read 6 to 9, whose server keeps a Recipe
+  in the slot this one's puts it in (ticket
+  [#502](https://github.com/loganfuller/decent-sync/issues/502), ADR-0025).
+  Streamline's DYE strip shows slots 1 to 5 only, so a Recipe in 6 to 9 is a
+  button on a Skin that shows nine, and is listed by DYE2; the server does
+  not work out which Skin a Location's tablets run, so `next` gives the
+  lowest free of the nine wherever it is asked. It is
   created in a slot chosen, the lowest one free (`next`), no Recipe's, its
   own included, or none, as for `next` where every slot holds a Recipe; and
   moved to another, or taken out of its slot, each a version of its own
@@ -1170,9 +1179,9 @@ Location's tablets' lists.
 
 DYE2 keeps its recipes whole in one list under one key of Decaid's store,
 `recipes` under `dye2.reaplugin`, each under an opaque id, and its Recipe
-Slot in its `stripSlot`, 1 to 5 or null (ADR-0005). DYE2 keeps any number
+Slot in its `stripSlot`, 1 to 9 or null (ADR-0005). DYE2 keeps any number
 of recipes, its Select Recipe page listing and applying them all, up to
-five of them on Streamline's DYE strip. Its editor gives a new recipe a
+five of them on Streamline's DYE strip, those in slots 1 to 5. Its editor gives a new recipe a
 UUID, and its `save-recipe`, which Streamline's strip calls from its
 long-press menu, an id `recipe-…`; a recipe saved before DYE2 v0.1.25 has
 its slot's number. The plugin reports them as the `dye2Recipes`
@@ -2238,7 +2247,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Staff read them as Admins do.
 - `POST /api/recipes`, with `{ locationId, slot, content }`, creates a
   Recipe at the Location under a new record id, in `slot`, a whole number
-  from 1 to 5 (`REQUESTABLE_RECIPE_SLOTS`), `next` for the lowest free, or none where
+  from 1 to 9 (`RECIPE_SLOTS`), `next` for the lowest free of them, or none where
   every slot holds a Recipe, or null (the default) for none, and returns `{
   recipe }` with 201. `PATCH /api/recipes/:id`, with `{ content }`, each
   field to change, null to clear it, edits one. `PUT /api/recipes/:id/slot`,

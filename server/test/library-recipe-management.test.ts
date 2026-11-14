@@ -498,16 +498,24 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await onlySlotsMoved();
   });
 
-  it("offers no next free slot where all five hold a Recipe: a new Recipe goes in none, and a move there is refused", async () => {
+  it("gives slot 6 as the next free one where slots 1 to 5 hold a Recipe, and none where all nine do: a new Recipe goes in none, and a move there is refused", async () => {
     const lab = await api.createLocation("Full slots lab", "America/Chicago");
     const slotted = [];
     for (const slot of [1, 2, 3, 4, 5]) slotted.push(await create(lab, slot, { name: `Full ${slot}` }));
+    // The lowest free of the nine, whatever Streamline's strip shows (#502).
+    slotted.push(await create(lab, "next", { name: "Full 6" }));
+    expect(slotted[5]!.slot).toBe(6);
+    for (const slot of [9, 8]) slotted.push(await create(lab, slot, { name: `Full ${slot}` }));
+    const seventh = await create(lab, null, { name: "Full 7" });
+    expect((await move(seventh.id, "next")).slot).toBe(7);
     const kept = await create(lab, "next", { name: "Full kept" });
     expect(kept.slot).toBeNull();
     expect((await versions(kept.id)).map((version) => version.fields)).toEqual([expect.objectContaining({ name: "Full kept" })]);
     const refused = await api.call("PUT", `/recipes/${kept.id}/slot`, { slot: "next" });
     expect(refused.status).toBe(409);
-    expect(((await refused.json()) as { message: string }).message).toContain("All 5 Recipe Slots here hold a Recipe");
+    expect(((await refused.json()) as { message: string }).message).toBe(
+      "All 9 Recipe Slots here hold a Recipe: choose one to swap with, or take a Recipe out of its slot first",
+    );
     // A slot chosen still swaps, and a Recipe in a slot moved to the next free one stays where it is.
     expect((await move(kept.id, 3)).slot).toBe(3);
     expect((await recipe(slotted[2]!.id)).slot).toBeNull();
@@ -775,11 +783,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect(await refusal({ hotWaterMode: "temp" })).toBe(400);
     expect(await refusal({ steamMode: "time" })).toBe(400);
     expect(await refusal({ dose: -1 })).toBe(400);
-    // A slot that is none of the five buttons of Streamline's DYE strip.
-    for (const slot of [0, 6, 2.5]) expect((await api.call("POST", "/recipes", { locationId: lab.id, slot, content: {} })).status, String(slot)).toBe(400);
+    // A slot that is none of the Location's nine.
+    for (const slot of [0, 10, 2.5, "7"]) expect((await api.call("POST", "/recipes", { locationId: lab.id, slot, content: {} })).status, String(slot)).toBe(400);
     expect(await recipesAt(lab)).toEqual([]);
     const created = await create(lab, 5, { name: "Refused slot" });
-    expect((await api.call("PUT", `/recipes/${created.id}/slot`, { slot: 6 })).status).toBe(400);
+    for (const slot of [0, 10]) expect((await api.call("PUT", `/recipes/${created.id}/slot`, { slot })).status, String(slot)).toBe(400);
     expect((await recipe(created.id)).slot).toBe(5);
   });
 

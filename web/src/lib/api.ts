@@ -1063,7 +1063,7 @@ export interface Recipe {
   name: string | null;
   /** The Location it belongs to. */
   location: Location | null;
-  /** Its Recipe Slot there, 1 to 5, or null for none. */
+  /** Its Recipe Slot there, 1 to 9, or null for none. */
   slot: number | null;
   archived: boolean;
   createdAt: string;

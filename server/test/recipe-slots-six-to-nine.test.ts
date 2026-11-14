@@ -8,15 +8,16 @@ import { startStreamline } from "./support/simulated-streamline.js";
 import type { SimulatedTablet } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for ticket #506: a Recipe Slot is a whole number from 1 to 9
-// wherever one is read. A tablet's record whose `stripSlot` is 6 to 9 moves
-// its Recipe into that slot at its Location, by the rules a move into 1 to 5
-// follows, and the Recipe is written to the Location's other tablets with
-// its `stripSlot`, the plugin taking the slot from any other record holding
-// it in the same post. A request still names only 1 to 5 (#502 has the
-// rest): REST and the MCP endpoint refuse 6 to 9, and `next` gives the
-// lowest free of 1 to 5; a Recipe already in 6 to 9 is shown in its slot,
-// taken out of it, swapped with, Archived and restored as any other.
+// Seam 1 for tickets #506 and #502: a Recipe Slot is a whole number from 1
+// to 9 wherever one is read or named. A tablet's record whose `stripSlot` is
+// 6 to 9 moves its Recipe into that slot at its Location, by the rules a move
+// into 1 to 5 follows, and the Recipe is written to the Location's other
+// tablets with its `stripSlot`, the plugin taking the slot from any other
+// record holding it in the same post (#506). A request names any of the nine
+// through REST and the MCP endpoint, swapping with or displacing the Recipe
+// there as in 1 to 5, and `next` gives the lowest free of the nine (#502); a
+// Recipe in 6 to 9 is shown in its slot, taken out of it, Archived and
+// restored as any other.
 //
 // Nothing in DYE2 or Streamline places a recipe in 6 to 9, so a record is put
 // there as another app on the tablet may, such as a Skin with nine buttons
@@ -41,7 +42,7 @@ const env = { ...ASSISTANT_ENV, SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_
 /** The record id of the recording's recipe in no slot (fixtures/decaid/dye2-v0.1.26/recipes.json, `Fixture Library Recipe`). */
 const LIBRARY_RECIPE = "05fd1e80-61e3-46ef-b202-2cbad5eb7983";
 
-describe("Recipe Slots 6 to 9 are read and kept", { timeout: 90_000 }, () => {
+describe("Recipe Slots 6 to 9 are read, kept and assigned", { timeout: 90_000 }, () => {
   let server: TestServer;
   let other: TestServer;
   let api: AdminApi;
@@ -169,75 +170,120 @@ describe("Recipe Slots 6 to 9 are read and kept", { timeout: 90_000 }, () => {
     await expect.poll(() => slotOf(second.id)).toBeNull();
   });
 
-  it("refuses a request's slot of 6 to 9 through REST and the MCP endpoint, gives the lowest free of 1 to 5 for next, and shows a Recipe in 7 to 9 in its slot, swapped with, taken out, Archived and restored", async () => {
+  it("puts a Recipe in slot 7 through REST and through the MCP endpoint, written to each tablet at its Location with stripSlot 7, swapping with or displacing the Recipe there, and refuses a slot of 0 or 10", async () => {
     const here = await api.createLocation("Requests lab", "America/Chicago");
-    const machine = await api.createMachine("Requests lab 1", here.id);
-    const tablet = syncingTablet(machine, other, { api: dye2NeverUsed("50611") });
-    await api.waitForOnline(machine);
-    const seven = await create(here, null, "Requests seven");
-    const eight = await create(here, null, "Requests eight");
-    const nine = await create(here, null, "Requests nine");
-    await expect.poll(() => [seven, eight, nine].map(({ id }) => dye2GlobalIdOf(recordOf(tablet, id)))).toEqual([seven.id, eight.id, nine.id]);
-    await synced(machine);
-    for (const [placed, slot] of [[seven, 7], [eight, 8], [nine, 9]] as const) await placeOnTablet(tablet, placed.id, slot);
-    await expect.poll(async () => (await recipesAt(here)).map(({ name, slot }) => [name, slot])).toEqual([
-      ["Requests seven", 7],
-      ["Requests eight", 8],
-      ["Requests nine", 9],
-    ]);
+    const machines = [await api.createMachine("Requests lab 1", here.id), await api.createMachine("Requests lab 2", here.id)] as const;
+    const tablets = [syncingTablet(machines[0], server, { api: dye2NeverUsed("50611") }), syncingTablet(machines[1], other, { api: dye2NeverUsed("50612") })];
+    await api.waitForOnline(...machines);
+    /** Each tablet's record of each Recipe: its slot, and whether it is shown. */
+    const onEach = (...recipeIds: string[]) => expect.poll(() => tablets.map((tablet) => held(tablet, ...recipeIds)));
+    const twice = <T>(value: T) => [value, value];
+    type Changed = { recipe: { id: string; slot: number | null } };
 
-    // REST and the MCP endpoint show each in its slot.
-    expect((await recipe(seven.id)).slot).toBe(7);
-    expect((await assistant.call<{ recipe: { slot: number | null } }>("get_library_item", { kind: "recipe", id: nine.id })).recipe.slot).toBe(9);
-    const found = await assistant.call<{ recipes: { id: string; slot: number | null }[] }>("find_library_items", { kind: "recipe", locationId: here.id });
-    expect(found.recipes.map(({ id, slot }) => [id, slot])).toEqual([
-      [seven.id, 7],
-      [eight.id, 8],
-      [nine.id, 9],
-    ]);
+    // Created in slot 7 through REST, on the instance one tablet is connected to: each tablet's record holds stripSlot 7.
+    const first = await create(here, 7, "Requests first");
+    expect(first.slot).toBe(7);
+    await onEach(first.id).toEqual(twice([[7, true]]));
+    expect((await versions(first.id))[0]!.fields).toEqual({ slot: 7 });
 
-    // A request names only 1 to 5, refused alike through both.
-    const message = "slot must be a whole number from 1 to 5, next for the lowest one free, or null for none";
-    for (const slot of [6, 7, 9, 10]) {
-      expect(await restRefusal("PUT", `/recipes/${eight.id}/slot`, { slot }, 400)).toBe(message);
+    // Moved to slot 7 through REST, a Recipe in slot 2 swaps with the one there, which takes 2, each a version of its own.
+    const second = await create(here, 2, "Requests second");
+    await onEach(first.id, second.id).toEqual(twice([[7, true], [2, true]]));
+    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${second.id}/slot`, { slot: 7 })).recipe.slot).toBe(7);
+    expect(await slotOf(first.id)).toBe(2);
+    expect([(await versions(second.id))[0]!.fields, (await versions(first.id))[0]!.fields]).toEqual([{ slot: 7 }, { slot: 2 }]);
+    await onEach(first.id, second.id).toEqual(twice([[2, true], [7, true]]));
+
+    // Created in slot 7 through the MCP endpoint, a Recipe displaces the one there, kept at the Location in no slot.
+    const third = (await assistant.call<Changed>("create_recipe", { locationId: here.id, name: "Requests third", slot: 7 })).recipe;
+    expect(third.slot).toBe(7);
+    expect(await slotOf(second.id)).toBeNull();
+    await onEach(third.id, second.id).toEqual(twice([[7, true], [null, false]]));
+
+    // Moved to slot 9 and then 7 through the MCP endpoint, from none: into an empty slot, and displacing the one there.
+    expect((await assistant.call<Changed>("set_recipe_slot", { id: second.id, slot: 9 })).recipe.slot).toBe(9);
+    await onEach(second.id).toEqual(twice([[9, true]]));
+    expect((await assistant.call<Changed>("set_recipe_slot", { id: second.id, slot: 7 })).recipe.slot).toBe(7);
+    expect(await slotOf(third.id)).toBe(9);
+    await onEach(first.id, second.id, third.id).toEqual(twice([[2, true], [7, true], [9, true]]));
+    // REST and the MCP endpoint list each in its slot.
+    const listed = [
+      ["Requests first", 2],
+      ["Requests second", 7],
+      ["Requests third", 9],
+    ];
+    expect((await recipesAt(here)).map(({ name, slot }) => [name, slot])).toEqual(listed);
+    const found = await assistant.call<{ recipes: { name: string | null; slot: number | null }[] }>("find_library_items", { kind: "recipe", locationId: here.id });
+    expect(found.recipes.map(({ name, slot }) => [name, slot])).toEqual(listed);
+
+    // A slot is a whole number from 1 to 9, refused alike through both otherwise.
+    const message = "slot must be a whole number from 1 to 9, next for the lowest one free, or null for none";
+    for (const slot of [0, 10, 7.5]) {
+      expect(await restRefusal("PUT", `/recipes/${first.id}/slot`, { slot }, 400)).toBe(message);
       expect(await restRefusal("POST", "/recipes", { locationId: here.id, slot, content: { name: "Refused" } }, 400)).toBe(message);
-      expect(await toolError("set_recipe_slot", { id: eight.id, slot })).toBe(message);
+      expect(await toolError("set_recipe_slot", { id: first.id, slot })).toBe(message);
       expect(await toolError("create_recipe", { locationId: here.id, name: "Refused", slot })).toBe(message);
     }
-    expect((await recipesAt(here)).map(({ slot }) => slot)).toEqual([7, 8, 9]);
+    expect((await recipesAt(here)).map(({ name, slot }) => [name, slot])).toEqual(listed);
 
-    // `next` gives the lowest free of 1 to 5, and with those full answers as it does with five slots: none for a new
-    // Recipe, 409 for a move.
+    // Taken out of slot 7 through REST and of slot 9 through the MCP endpoint, and the tablets' records follow.
+    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${second.id}/slot`, { slot: null })).recipe.slot).toBeNull();
+    expect((await assistant.call<Changed>("set_recipe_slot", { id: third.id, slot: null })).recipe.slot).toBeNull();
+    await onEach(second.id, third.id).toEqual(twice([[null, false], [null, false]]));
+    // Put back in slot 9 and Archived, a Recipe leaves its slot and the tablets, and is restored in none.
+    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${third.id}/slot`, { slot: 9 })).recipe.slot).toBe(9);
+    await onEach(third.id).toEqual(twice([[9, true]]));
+    await api.send("PUT", `/recipes/${third.id}/archived`, { archived: true });
+    expect(await recipe(third.id)).toMatchObject({ archived: true, slot: null });
+    await expect.poll(() => tablets.map((tablet) => recordOf(tablet, third.id))).toEqual([undefined, undefined]);
+    await api.send("PUT", `/recipes/${third.id}/archived`, { archived: false });
+    expect(await recipe(third.id)).toMatchObject({ archived: false, slot: null });
+    await onEach(third.id).toEqual(twice([[null, false]]));
+  });
+
+  it("gives the lowest free of the nine slots for next, 6 where 1 to 5 hold a Recipe, and refuses a move there where all nine do, naming nine", async () => {
+    const here = await api.createLocation("Next lab", "America/Chicago");
+    const machine = await api.createMachine("Next lab 1", here.id);
+    const tablet = syncingTablet(machine, other, { api: dye2NeverUsed("50613") });
+    await api.waitForOnline(machine);
     const filling: RecipeView[] = [];
-    for (const number of [1, 2, 3, 4, 5]) filling.push(await create(here, "next", `Requests ${number}`));
+    for (const number of [1, 2, 3, 4, 5]) filling.push(await create(here, "next", `Next ${number}`));
     expect(filling.map(({ slot }) => slot)).toEqual([1, 2, 3, 4, 5]);
-    expect((await create(here, "next", "Requests full")).slot).toBeNull();
-    expect(await restRefusal("PUT", `/recipes/${eight.id}/slot`, { slot: "next" }, 409)).toContain("All 5 Recipe Slots here hold a Recipe");
-    expect(await toolError("set_recipe_slot", { id: eight.id, slot: "next" })).toContain("All 5 Recipe Slots here hold a Recipe");
-    expect(await slotOf(eight.id)).toBe(8);
 
-    // Moved to slot 3, the Recipe in 7 swaps with the one there, which takes 7; that one is taken out of its slot through
-    // REST, and the tablet's records follow.
-    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${seven.id}/slot`, { slot: 3 })).recipe.slot).toBe(3);
-    expect(await slotOf(filling[2]!.id)).toBe(7);
-    await expect.poll(() => held(tablet, seven.id, filling[2]!.id)).toEqual([
-      [3, true],
+    // With 1 to 5 full, next gives 6: a new Recipe's through REST, a move's through the MCP endpoint, then a copy's.
+    const six = await create(here, "next", "Next 6");
+    expect(six.slot).toBe(6);
+    const seven = await create(here, null, "Next 7");
+    expect((await assistant.call<{ recipe: { slot: number | null } }>("set_recipe_slot", { id: seven.id, slot: "next" })).recipe.slot).toBe(7);
+    const elsewhere = await api.createLocation("Next cafe", "America/Chicago");
+    const original = await create(elsewhere, 1, "Next 8");
+    const copied = await api.send<{ recipe: RecipeView }>("POST", `/recipes/${original.id}/copies`, { locationId: here.id, slot: "next", grinderId: null }, 201);
+    expect(copied.recipe.slot).toBe(8);
+    const nine = (await assistant.call<{ recipe: { id: string; slot: number | null } }>("create_recipe", { locationId: here.id, name: "Next 9", slot: "next" })).recipe;
+    expect(nine.slot).toBe(9);
+    // The tablet holds each in its slot.
+    await expect.poll(() => held(tablet, six.id, seven.id, copied.recipe.id, nine.id)).toEqual([
+      [6, true],
       [7, true],
+      [8, true],
+      [9, true],
     ]);
-    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${filling[2]!.id}/slot`, { slot: null })).recipe.slot).toBeNull();
-    // The one in 8 is taken out of its slot through the MCP endpoint.
-    expect((await assistant.call<{ recipe: { slot: number | null } }>("set_recipe_slot", { id: eight.id, slot: null })).recipe.slot).toBeNull();
-    await expect.poll(() => held(tablet, filling[2]!.id, eight.id)).toEqual([
-      [null, false],
+
+    // With all nine full, a new Recipe's next is none, and a move's is refused, naming nine, alike through both.
+    const full = "All 9 Recipe Slots here hold a Recipe: choose one to swap with, or take a Recipe out of its slot first";
+    const kept = await create(here, "next", "Next kept");
+    expect(kept.slot).toBeNull();
+    expect((await assistant.call<{ recipe: { slot: number | null } }>("create_recipe", { locationId: here.id, name: "Next kept too", slot: "next" })).recipe.slot).toBeNull();
+    expect(await restRefusal("PUT", `/recipes/${kept.id}/slot`, { slot: "next" }, 409)).toBe(full);
+    expect(await toolError("set_recipe_slot", { id: kept.id, slot: "next" })).toBe(full);
+    expect(await slotOf(kept.id)).toBeNull();
+    // One taken out of slot 8, next gives 8.
+    await api.send("PUT", `/recipes/${copied.recipe.id}/slot`, { slot: null });
+    expect((await api.send<{ recipe: RecipeView }>("PUT", `/recipes/${kept.id}/slot`, { slot: "next" })).recipe.slot).toBe(8);
+    await expect.poll(() => held(tablet, kept.id, copied.recipe.id)).toEqual([
+      [8, true],
       [null, false],
     ]);
-    // The one in 9 is Archived, which takes it out of its slot and off the tablet, and restored in none.
-    await api.send("PUT", `/recipes/${nine.id}/archived`, { archived: true });
-    expect(await recipe(nine.id)).toMatchObject({ archived: true, slot: null });
-    await expect.poll(() => recordOf(tablet, nine.id)).toBeUndefined();
-    await api.send("PUT", `/recipes/${nine.id}/archived`, { archived: false });
-    expect(await recipe(nine.id)).toMatchObject({ archived: false, slot: null });
-    await expect.poll(() => held(tablet, nine.id)).toEqual([[null, false]]);
   });
 
   it("keeps a Recipe in slot 7 through a save of DYE2's editor that taps no tab and through DYE2's record, off Streamline's strip, and moves it to the tab tapped", async () => {

@@ -31,7 +31,6 @@ import {
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
   RECIPE_SLOTS,
-  REQUESTABLE_RECIPE_SLOTS,
   RECIPE_SLOT_FIELD,
   SETTINGS_EDITED_REFUSALS,
   type SettingsEdit,
@@ -77,7 +76,6 @@ import {
   isLibraryList,
   isRecordId,
   isRecipeSlot,
-  isRequestableRecipeSlot,
   recordGlobalId,
   itemIdRule,
   listKind,
@@ -976,7 +974,10 @@ describe("Library writes", () => {
     const recipes = [{ id: "3f2b8c1e-5d7a-4e9b-8c2d-1a6f0e4b7c93", stripSlot: 1 }, { id: "recipe-mh2k9x1abc", stripSlot: null }, { id: "4" }];
     expect(dye2Records(recipes)).toBe(recipes);
     expect(recipes.map(recipeSlotOf)).toEqual([1, null, null]);
-    for (const slot of [0, 10, 1.5, 6.5, "2", "7", -1, null, undefined]) expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
+    for (const slot of [0, 10, 1.5, 6.5, "2", "7", -1, null, undefined]) {
+      expect(isRecipeSlot(slot)).toBe(false);
+      expect(recipeSlotOf({ id: "a", stripSlot: slot })).toBeNull();
+    }
     // DYE2 holds, shows and keeps a stripSlot of 6 to 9, and places one only in 1 to 5 itself (#506).
     for (const slot of [1, 2, 3, 4, 5, 6, 7, 8, 9]) {
       expect(isRecipeSlot(slot)).toBe(true);
@@ -988,12 +989,6 @@ describe("Library writes", () => {
     expect(recipeSlotOf({ id: "a", stripSlot: 7, showOnStreamlineDashboard: false })).toBeNull();
     expect(RECIPE_SLOTS).toBe(9);
     expect(RECIPE_SLOT_FIELD).toBe("stripSlot");
-  });
-
-  it("lets a request name a Recipe Slot from 1 to 5 only", () => {
-    expect(REQUESTABLE_RECIPE_SLOTS).toBe(5);
-    for (const slot of [1, 2, 3, 4, 5]) expect(isRequestableRecipeSlot(slot)).toBe(true);
-    for (const slot of [0, 6, 7, 9, 10, 1.5, "2", null, undefined]) expect(isRequestableRecipeSlot(slot)).toBe(false);
   });
 
   it("writes a Recipe's slot of 6 to 9 only to a plugin at the wire revision that brought them, and none to one before it", () => {

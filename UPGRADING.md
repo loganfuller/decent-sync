@@ -25,6 +25,17 @@ Deploying). Before deploying, check on each Machine's page that it runs the
 earlier is refused as too old until its plugin is updated, at the tablet or
 through Decaid's API from its network with `POST /api/v1/plugins/update`.
 
+### The next free Recipe Slot may be one of 6 to 9
+
+A Location has nine Recipe Slots, and the management interface, the REST API
+and the MCP endpoint now put a Recipe in any of them. Streamline's strip
+shows slots 1 to 5 only: a Recipe in 6 to 9 is a button on a Skin that shows
+nine, and is listed by DYE2. Nothing is needed, but the next free slot is now
+the lowest free of the nine. Where slots 1 to 5 each hold a Recipe, a new
+Recipe given the next free slot goes in slot 6, off Streamline's strip, where
+it was kept in no slot before. Choose no slot for it, or one of 1 to 5 to
+swap with the Recipe there, to keep it as before.
+
 ## 1.9.0
 
 ### Stored Shots get their new numbers in the background

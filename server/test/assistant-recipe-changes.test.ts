@@ -390,7 +390,7 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
       ["edit_basket", { id: made.basket, size: "huge" }, "PATCH", `/baskets/${made.basket}`, { content: { size: "huge" } }, 400],
       ["edit_recipe", { id: made.recipe, steamTemperature: 171, steamStopTemperature: 20, hotWaterFlow: 9, flushDuration: 2.5 }, "PATCH", `/recipes/${made.recipe}`, { content: { steamTemperature: 171, steamStopTemperature: 20, hotWaterFlow: 9, flushDuration: 2.5 } }, 400],
       ["create_recipe", { locationId: uptown.id, grindSetting: -1 }, "POST", "/recipes", { locationId: uptown.id, content: { grindSetting: -1 } }, 400],
-      ["create_recipe", { locationId: uptown.id, slot: 6 }, "POST", "/recipes", { locationId: uptown.id, slot: 6, content: {} }, 400],
+      ["create_recipe", { locationId: uptown.id, slot: 10 }, "POST", "/recipes", { locationId: uptown.id, slot: 10, content: {} }, 400],
       ["edit_recipe", { id: made.recipe, toolIds: ["not-an-id"] }, "PATCH", `/recipes/${made.recipe}`, { content: { toolIds: ["not-an-id"] } }, 400],
       // What a Recipe may use at its Location: another's Grinder, attributes of a Tool it doesn't use.
       ["edit_recipe", { id: made.recipe, grinderId: harborGrinder }, "PATCH", `/recipes/${made.recipe}`, { content: { grinderId: harborGrinder } }, 409],

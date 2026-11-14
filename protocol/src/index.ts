@@ -628,29 +628,19 @@ export function dye2Records(value: unknown): Record<string, unknown>[] | null {
 
 /**
  * How many Recipe Slots each Location has, as DYE2's `stripSlot` numbers
- * them: a whole number from 1 to this is a slot wherever one is read, in a
- * DYE2 record, the `recipes.slot` column and what the server answers. DYE2
- * holds, shows and keeps a `stripSlot` of 6 to 9, and places a recipe only in
- * 1 to 5 itself; Streamline's DYE strip shows 1 to 5 (#506).
+ * them: a whole number from 1 to this is a slot wherever one is read or
+ * named, in a DYE2 record, the `recipes.slot` column, a request's `slot` and
+ * what the server answers. DYE2 holds, shows and keeps a `stripSlot` of 6 to
+ * 9, and places a recipe only in 1 to 5 itself; Streamline's DYE strip shows
+ * 1 to 5 (#506). A request names any of the nine from the release after the
+ * one that first read 6 to 9, whose server keeps a Recipe in the slot this
+ * one's puts it in (#502).
  */
 export const RECIPE_SLOTS = 9;
-
-/**
- * How many of them a request may name, 1 to this, and `next` gives: the
- * buttons of Streamline's DYE strip. Slots above it are read and kept, but
- * not assigned by a request, until the release after the one that first
- * reads them (#502).
- */
-export const REQUESTABLE_RECIPE_SLOTS = 5;
 
 /** Whether a value is a Recipe Slot's number: a whole number from 1 to RECIPE_SLOTS. */
 export function isRecipeSlot(value: unknown): value is number {
   return typeof value === "number" && Number.isInteger(value) && value >= 1 && value <= RECIPE_SLOTS;
-}
-
-/** Whether a value is a Recipe Slot a request may name: a whole number from 1 to REQUESTABLE_RECIPE_SLOTS. */
-export function isRequestableRecipeSlot(value: unknown): value is number {
-  return isRecipeSlot(value) && value <= REQUESTABLE_RECIPE_SLOTS;
 }
 
 /**
