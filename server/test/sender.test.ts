@@ -165,6 +165,40 @@ describe("The server's sender", () => {
     expect(names.lastIndexOf(names[0]!)).toBeLessThan(names.indexOf(names.at(-1)!));
   });
 
+  it("sends a small message that must go as a chunk ahead of a larger message's waiting chunks, and no later small one before it", () => {
+    const { sender, frames, chunks } = connection();
+    const small = message("answer", MAX_WHOLE_BYTES);
+    const fit = MAX_UNCONFIRMED_WHOLE_BYTES / MAX_WHOLE_BYTES;
+    for (let sent = 0; sent < fit; sent++) sender.send(small);
+    const write = message("write", 2 * DECAID_INBOUND_LIMIT);
+    sender.send(write);
+    const large = chunks();
+    expect(large.length).toBeLessThan(large[0]!.count);
+
+    // The whole messages' count is full and the chunks' has no room for these: both wait, the second behind the first.
+    const edit = message("settingsEdit", MAX_WHOLE_BYTES);
+    const answer = message("answer", 200);
+    const sent = frames.length;
+    sender.send(edit);
+    sender.send(answer);
+    expect(frames).toHaveLength(sent);
+
+    // The first chunk's confirmation frees both counts. The two go next, in the order given, as chunks, ahead of the
+    // write's next chunk, which no longer fits beside them.
+    sender.received(large[0]!.id, 0);
+    expect(chunks().slice(large.length)).toMatchObject([
+      { id: "message-2", index: 0, count: 1, data: edit },
+      { id: "message-3", index: 0, count: 1, data: answer },
+    ]);
+    // With none waiting as a chunk, the next small message goes whole again.
+    sender.send(answer);
+    expect(frames.at(-1)).toBe(answer);
+
+    // The write still arrives whole, its chunks in order around them.
+    expect(confirmAll(sender, frames, fit)).toEqual([edit, answer, answer, write]);
+    expect(chunks().filter((chunk) => chunk.id === large[0]!.id).map((chunk) => chunk.index)).toEqual(Array.from({ length: large[0]!.count }, (_, index) => index));
+  });
+
   it("names each chunked message apart, whatever ids the messages carry", () => {
     const { sender, chunks } = connection();
     const text = message("answer", MAX_WHOLE_BYTES + 1);

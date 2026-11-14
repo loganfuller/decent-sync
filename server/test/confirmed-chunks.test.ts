@@ -210,15 +210,25 @@ describe("The server's chunks to the plugin", () => {
     expect(chunksOn(raw)).toHaveLength(3);
   });
 
-  it("sends a write again whole on the next connection after one dropped with chunks in flight, and no answer again", async () => {
+  it("sends a write again whole on the next connection after one dropped with chunks in flight, and no answer that waited there", async () => {
     const { second, beanId, notes } = await largeBean("Dropped");
     const tabletId = randomUUID();
     const hardware = { model: "DE1Pro", serial: String(serial++) };
     const first = await rawTablet(second, { tabletId, machine: hardware });
     await expect.poll(() => chunksOn(first).length).toBeGreaterThan(0);
-    await settled(first);
+    const answerBytes = Buffer.byteLength(JSON.stringify(await settled(first)));
     const inFlight = chunksOn(first);
     expect(inFlight.length).toBeLessThan(inFlight[0]!.count);
+
+    // More requests than answers can go: whole until those pass their limit, then as chunks in the room the write's
+    // chunks leave, the rest waiting behind them. A delivery sent after them is acknowledged once all were handled.
+    const asked = Math.floor(MAX_UNCONFIRMED_WHOLE_BYTES / answerBytes) + Math.ceil((MAX_UNCONFIRMED_BYTES - bytesOf(inFlight)) / answerBytes) + 2;
+    for (let sent = 0; sent < asked; sent++) first.send({ type: "request", id: randomUUID(), ask: "status" });
+    await first.deliver({ type: "collection", id: randomUUID(), name: "scale", available: false });
+    const answered = (raw: RawConnection) =>
+      (raw.messages as Frame[]).filter((frame) => frame.type === "answer").length + chunksOn(raw).filter((chunk) => chunk.count === 1 && whole([chunk]).type === "answer").length;
+    // One for settled(), and fewer than were asked for since.
+    expect(answered(first)).toBeLessThan(1 + asked);
     await first.terminate();
 
     const back = await rawTablet(second, { tabletId, machine: hardware });
@@ -226,7 +236,9 @@ describe("The server's chunks to the plugin", () => {
     const write = await confirmEach(back);
     expect(write).toMatchObject({ type: "write", kind: "bean", globalId: beanId, localId: null, fields: { notes } });
     expect(chunksOn(back)[0]).toMatchObject({ index: 0, count: inFlight[0]!.count });
-    // The dropped connection's request was answered there or not at all.
+    // The answers that waited went with the connection they were for.
+    await back.deliver({ type: "collection", id: randomUUID(), name: "scale", available: false });
+    expect(new Set(chunksOn(back).map((chunk) => chunk.id)).size).toBe(1);
     expect((back.messages as Frame[]).filter((frame) => frame.type === "answer")).toEqual([]);
   });
 
@@ -277,6 +289,16 @@ describe("The server's chunks to the plugin", () => {
       expect(confirmations(two)).toEqual(chunks.map(({ id, index }) => ({ type: "chunkReceived", id, index })));
       // The transport never passed Decaid's limit on what it holds for the plugin, which closes it.
       expect(two.logs.filter((line) => line.includes("transport_resource_limit"))).toEqual([]);
+    });
+
+    it("writes an item past the small size that fits one frame as a single chunk, which the plugin confirms", async () => {
+      const { second, beanId, notes } = await largeBean("Single chunk", 4 * MAX_WHOLE_BYTES);
+      const two = syncingTablet(second, server, { api: emptyLibrary(serial++) });
+      const held = () => two.beans().filter((bean) => globalIdOf(bean) === beanId);
+      await expect.poll(() => held().length, { timeout: 20_000 }).toBe(1);
+      expect(held()[0]).toMatchObject({ roaster: "Roux", name: "Single chunk", notes });
+      expect(received(two)).toMatchObject([{ index: 0, count: 1 }]);
+      await expect.poll(() => confirmations(two)).toEqual([{ type: "chunkReceived", id: received(two)[0]!.id, index: 0 }]);
     });
   });
 });

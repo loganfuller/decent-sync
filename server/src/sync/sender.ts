@@ -57,8 +57,10 @@ interface Waiting {
  * waiting. Nothing confirms it, so it counts, against
  * MAX_UNCONFIRMED_WHOLE_BYTES of its own, until the plugin confirms a chunk
  * sent after it. While that count is full, as after many small messages
- * with no chunk among them, a small message goes as a chunk as well, in its
- * turn, and its confirmation covers the whole ones before it.
+ * with no chunk among them, a small message goes as a single chunk, ahead
+ * of the chunks of larger messages still waiting, and its confirmation
+ * covers the whole ones before it. Small messages go in the order given,
+ * so one goes whole only once none waits as a chunk.
  *
  * It belongs to its connection: what it holds goes with it, and nothing is
  * sent again from it. The connection's other messages, such as its
@@ -66,7 +68,10 @@ interface Waiting {
  * holds none of them up.
  */
 export class Sender {
+  /** The chunks of larger messages still to send. */
   private readonly waiting: Waiting[] = [];
+  /** Small messages still to send, each a single chunk, which go first. */
+  private readonly waitingSmall: Waiting[] = [];
   /** In the order sent. */
   private readonly unconfirmed: Unconfirmed[] = [];
   /** The bytes of the chunks unconfirmed. */
@@ -83,7 +88,8 @@ export class Sender {
   send(text: string): void {
     // Every code unit takes at least a byte, so a longer encoding is not measured.
     const bytes = text.length <= MAX_WHOLE_BYTES ? utf8Length(text) : Infinity;
-    if (bytes <= MAX_WHOLE_BYTES && this.unconfirmedWholeBytes + bytes <= MAX_UNCONFIRMED_WHOLE_BYTES) {
+    const small = bytes <= MAX_WHOLE_BYTES;
+    if (small && this.waitingSmall.length === 0 && this.unconfirmedWholeBytes + bytes <= MAX_UNCONFIRMED_WHOLE_BYTES) {
       // Those sent since the latest chunk are confirmed together, so they are counted together.
       const latest = this.unconfirmed.at(-1);
       if (latest && !latest.chunk) latest.bytes += bytes;
@@ -94,7 +100,8 @@ export class Sender {
     // Named by the connection's own count, not by the message's id: a request's id is its plugin's to choose, and
     // two messages put back together at once must not share a name.
     const id = `message-${++this.named}`;
-    chunks(text, id).forEach((frame: Frame, index) => this.waiting.push({ id, index, bytes: frame.bytes, text: frame.text }));
+    const queue = small ? this.waitingSmall : this.waiting;
+    chunks(text, id).forEach((frame: Frame, index) => queue.push({ id, index, bytes: frame.bytes, text: frame.text }));
     this.pump();
   }
 
@@ -110,8 +117,11 @@ export class Sender {
   }
 
   private pump(): void {
-    while (this.waiting.length > 0 && this.unconfirmedBytes + this.waiting[0]!.bytes <= MAX_UNCONFIRMED_BYTES) {
-      const { id, index, bytes, text } = this.waiting.shift()!;
+    for (;;) {
+      // A small message's chunk is whole by itself, so it may go between two chunks of a larger message.
+      const queue = this.waitingSmall.length > 0 ? this.waitingSmall : this.waiting;
+      if (queue.length === 0 || this.unconfirmedBytes + queue[0]!.bytes > MAX_UNCONFIRMED_BYTES) return;
+      const { id, index, bytes, text } = queue.shift()!;
       this.unconfirmed.push({ chunk: { id, index }, bytes });
       this.unconfirmedBytes += bytes;
       this.sendFrame(text);
