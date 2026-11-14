@@ -336,7 +336,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
     // Offline, one tablet's DYE2 editor picks the Brazil and the other, later, the Kenya: the Kenya and its batch win, and
-    // the Brazil and its batch, replaced without being seen, are kept as Conflicts.
+    // the Brazil and its batch, replaced without being seen, are kept as Conflicts. A pick is timed when its tablet's
+    // plugin first reads it (ADR-0005), which may be before the plugin hears that its connection is lost, so the Kenya
+    // is picked once the Brazil has reached the Library: it is then timed no earlier, whenever it is read.
     const pick = async (tablet: SimulatedTablet, beanId: unknown) => {
       const list = recordsOn(tablet).map((record) => (record[GLOBAL_ID_KEY] === created.id ? { ...record, beanId } : record));
       expect((await tablet.callApi("POST", "/store/dye2.reaplugin/recipes", list)).status).toBe(200);
@@ -344,10 +346,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     one.loseNetwork();
     two.loseNetwork();
     await pick(one, localId(one.beans(), brazil.bean.id));
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await pick(two, localId(two.beans(), kenya.bean.id));
     one.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    await pick(two, localId(two.beans(), kenya.bean.id));
     two.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
     type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };
@@ -373,7 +374,8 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     await expect.poll(() => localId(one.beans(), brazil.bean.id)).toBeDefined();
     await expect.poll(() => localId(two.beans(), kenya.bean.id)).toBeDefined();
 
-    // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5.
+    // Offline, one tablet's DYE2 editor picks the Brazil and a 1:3 ratio, the other, later, the Kenya and 1:2.5: once
+    // the Brazil has reached the Library, so that it is timed no earlier whenever its plugin reads it, as above.
     const save = async (tablet: SimulatedTablet, beanId: unknown, ratio: number) => {
       const list = recordsOn(tablet).map((record) =>
         record[GLOBAL_ID_KEY] === created.id ? { ...record, beanId, dashboardVariables: { ...(record.dashboardVariables as Record_), ratio } } : record,
@@ -383,10 +385,9 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     one.loseNetwork();
     two.loseNetwork();
     await save(one, localId(one.beans(), brazil.bean.id), 3);
-    await new Promise((resolve) => setTimeout(resolve, 20));
-    await save(two, localId(two.beans(), kenya.bean.id), 2.5);
     one.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(brazil.batch.id);
+    await save(two, localId(two.beans(), kenya.bean.id), 2.5);
     two.restoreNetwork();
     await expect.poll(async () => (await recipe(created.id)).content.beanBatchId).toBe(kenya.batch.id);
     type Open = { id: string; field: string; value: unknown; current: { versionId: string | null } };

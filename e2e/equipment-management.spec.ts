@@ -149,13 +149,15 @@ test("a Conflict over a Basket's notes, made on two tablets offline, is shown on
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("New");
 
   // Both offline, each tablet's DYE2 page saves notes of its own: the later wins on reconnecting, the earlier is kept as a Conflict.
+  // A save is timed when its tablet's plugin first reads it (ADR-0005), which may be before the plugin hears that its
+  // connection is lost, so the later is saved once the earlier has reached the Library: it is then timed no earlier,
+  // whenever it is read.
   one.loseNetwork();
   two.loseNetwork();
   await saveNotes(one, id, "Tight puck");
-  await new Promise((resolve) => setTimeout(resolve, 20));
-  await saveNotes(two, id, "Fast flow");
   one.restoreNetwork();
   await expect.poll(async () => (await view(page, id)).content.notes).toBe("Tight puck");
+  await saveNotes(two, id, "Fast flow");
   two.restoreNetwork();
   for (const tablet of [one, two]) await expect.poll(() => recordOf(tablet, "baskets", id)?.notes).toBe("Fast flow");
   await expect.poll(async () => ((await (await page.request.get(`/api/baskets/${id}/conflicts`)).json()) as { conflicts: unknown[] }).conflicts.length).toBe(1);
