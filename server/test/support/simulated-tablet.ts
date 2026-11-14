@@ -2253,11 +2253,18 @@ export class SimulatedTablet {
     this.timers.delete(id);
   }
 
-  /** (Re)schedules a timer for its due time at the clock's current rate; call `now()` first. */
+  /**
+   * (Re)schedules a timer for its due time at the clock's current rate; call
+   * `now()` first. Node may run a timeout up to a millisecond early by
+   * `performance.now()`, which the clock reads, and that is `timeScale` ms of
+   * the tablet's: a timer run before the clock reaches its due time waits
+   * out the rest, so that no wait reads shorter than it was set for.
+   */
   private arm(id: number, timer: Timer): void {
     clearTimeout(timer.timeout);
     timer.timeout = setTimeout(
       () => {
+        if (this.now() < timer.due) return this.arm(id, timer);
         this.timers.delete(id);
         if (!this.unloaded) timer.callback();
       },
