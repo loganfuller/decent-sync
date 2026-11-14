@@ -9,7 +9,7 @@ import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
-import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin } from "../support/simulated-tablet.js";
+import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "../support/test-server.js";
 
@@ -255,17 +255,21 @@ describe("the latest release beside the change", () => {
   // taking the slot from the record holding it, and its server reads one as no
   // slot. So the change's server writes that plugin the Recipe's record in no
   // slot, and its slot once the tablet's plugin is the change's.
+  // A tablet the latest release's server holds meanwhile is written the slot
+  // as it is, by that server, and the Recipe keeps it once that tablet connects
+  // to the change's server holding 7, its plugin still the latest release's.
   it("writes a Recipe in slot 7 to the latest release's plugin in no slot, keeps it in slot 7 through that tablet's reports, and writes its slot once the tablet's plugin is the change's", async () => {
     const api = apis.change;
     const location = await api.createLocation("Slot 7, both plugins", "America/Chicago");
     const ahead = await connected("Slot 7, the change's plugin", "change", "change", { location });
     const behind = await connected("Slot 7, the latest release's plugin", "latest release", "change", { location });
+    const onRelease = await connected("Slot 7, on the latest release", "latest release", "latest release", { location });
     type Record_ = Record<string, unknown>;
     const { recipe } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Slot 7", dose: 18, yield: 36 } }, 201);
     const record = (tablet: SimulatedTablet) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === recipe.id);
     const held = (tablet: SimulatedTablet) => [record(tablet)?.stripSlot, record(tablet)?.showOnStreamlineDashboard];
     const read = async () => (await api.get<{ recipe: { slot: number | null; name: string | null } }>(`/recipes/${recipe.id}`)).recipe;
-    for (const { tablet } of [ahead, behind]) await expect.poll(() => held(tablet)).toEqual([1, true]);
+    for (const { tablet } of [ahead, behind, onRelease]) await expect.poll(() => held(tablet)).toEqual([1, true]);
 
     // Put in slot 7 on the tablet with the change's plugin, as another app there may, once its writer is due nothing.
     await expect
@@ -292,6 +296,19 @@ describe("the latest release beside the change", () => {
     expect(held(behind.tablet)).toEqual([null, false]);
     expect(held(ahead.tablet)).toEqual([7, true]);
     expect(slotsSent().filter((slot) => typeof slot === "number" && slot > 5)).toEqual([]);
+
+    // The latest release's server wrote its tablet the slot as it is. Connected to the change's server with that record,
+    // the tablet is written it in no slot, and neither that write nor its reports take the Recipe out of slot 7.
+    await expect.poll(() => held(onRelease.tablet)).toEqual([7, true]);
+    const moved = await onRelease.tablet.reload({ settings: { ...settingsFor({ token: onRelease.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    expect(moved.pluginDir).toBe(pluginDirs()["latest release"]);
+    await expect.poll(() => held(moved)).toEqual([null, false]);
+    await post(moved, (entry) => ({ ...entry, name: "Slot 7, renamed again", title: "Slot 7, renamed again" }));
+    await expect.poll(async () => (await read()).name).toBe("Slot 7, renamed again");
+    await expect.poll(() => record(ahead.tablet)?.name).toBe("Slot 7, renamed again");
+    expect((await read()).slot).toBe(7);
+    expect([held(moved), held(ahead.tablet)]).toEqual([[null, false], [7, true]]);
 
     // Once Decaid installs the change's plugin there, the tablet's record holds 7.
     const updated = await behind.tablet.reload({ latestRelease: false });
