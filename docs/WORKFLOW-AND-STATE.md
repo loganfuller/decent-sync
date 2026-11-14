@@ -1012,7 +1012,7 @@ offset of the Location the Machine was at then.
   connected to its tablet or Decaid isn't running, so the Machine counts as
   in its last state until its tablet reports again: one put to sleep while
   its tablet is off reads as idle, or whatever it did last. Monitoring's
-  connection history (milestone 8) will correct this; the tool's
+  connection history (milestone 9) will correct this; the tool's
   description and the Machine page's Use card say so.
 
 The Machine page's Use card (`web/src/components/machine-use.tsx`) charts
