@@ -688,8 +688,9 @@ Conflict names is kept, still refused, so history goes on naming it
   or not (`PUT /api/recipes/:id/reference-shot`, `set_reference_shot`).
   It is held on the Recipe beside its slot (`reference_shot_id`), by the
   Shot's id with no foreign key, as Shots are never deleted, and is not its
-  content: it is never written to tablets, sends no `NOTIFY`, and makes no
-  Conflict. Each change of it is a version of its own, `referenceShotId`
+  content: it is no part of DYE2's recipe record, and makes no Conflict.
+  It reaches tablets as a copy of the Shot, below, so choosing or clearing
+  one announces the Recipe's Location (`library_changes`). Each change of it is a version of its own, `referenceShotId`
   set to the Shot's id or null, with no Location, as Archiving is, timed
   and attributed as every edit is. It stays through edits to the Recipe's
   content and slot until someone chooses another or clears it, so a
@@ -703,6 +704,46 @@ Conflict names is kept, still refused, so history goes on naming it
   The Recipe's other Shots are read against it in a Shot Summary grouped by
   Recipe, in the Overview's cells and on a Shot's page (`SHOTS.md`, Shot
   Summaries and Management interface; #473).
+- **A Recipe's Reference Shot on its Location's tablets** (#510, ADR-0030,
+  amending ADR-0029). Each served tablet keeps a copy of the Reference Shot
+  of each Recipe in a slot at its Location, whole, with its measurements,
+  whichever Machine or Location pulled it, in any of the nine slots, so a
+  Skin draws it through the plugin's `reference` endpoint while the server
+  can't be reached (`PLUGIN.md`, A Recipe's Reference Shot). It is a copy in
+  the plugin's own storage, not a field of DYE2's recipe record or a Shot in
+  Decaid.
+  - **Kept current.** A tablet's copy is sent again, or the slot emptied,
+    when the Recipe's Reference Shot is chosen, replaced or cleared; when
+    that Shot's record is stored anew, as its rating or note changes; when
+    the Recipe enters or leaves a slot, or is Archived, which takes it out
+    of its slot; and when the Shot is hidden with its Pending Machine, or
+    shown again as that hardware is adopted. Each of those announces the
+    Location (`library_changes`), and every instance then reads what its
+    tablets are due.
+  - **Worked out from the database,** as a tablet's writes are, on each
+    connection and at each announcement: the plugin says which copies it
+    holds, by a version for each slot, and the server sends those that
+    differ. Nothing is stored of what a tablet holds. So a tablet that was
+    off catches up when it reconnects, on any instance, and a tablet whose
+    Machine is made Capture-only, or moved, has its copies emptied or
+    replaced (`AI_PROTOCOL_NOTES.md`, Reference Shot copies).
+  - **A copy is what the tablet would be answered:** the Recipe as that
+    tablet names it, the Shot with its rating and note, the Recipe it was
+    pulled with, the Location's Recipes it is the reference of, and whether
+    its Profile differs from the Recipe's, as the Recipe's REST read says
+    (`referenceProfileDiffers` in `server/src/shots/links.ts`). A Recipe with
+    no Reference Shot, or one the Shots list doesn't list, is kept as having
+    none.
+  - **Too large to keep.** A copy whose JSON passes 1 MiB is not sent: the
+    tablet keeps only that the Recipe has one, and reads it from the server
+    each time. A long Shot's record passes that.
+  - **A tablet reads the Reference Shot of any Recipe of its Location,** in
+    a slot or not, from the server, a Shot pulled at another Location
+    included. A Recipe of another Location is refused as no such Recipe.
+  - `server/test/skin-references.test.ts` covers them through the built
+    plugin in simulated tablets, with two instances on one database, and
+    `server/test/latest-release/mixed-versions.test.ts` with the latest
+    release's plugin, which is sent none.
 - **Archive and restore.** An Archived Bean or batch is offered nowhere, with
   the Bean's batches, and is archived on every tablet that holds it, but kept,
   with each Location's state of it, so restoring it offers it again where it

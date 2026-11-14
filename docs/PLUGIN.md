@@ -89,8 +89,8 @@ its other update checks, every 12 hours while it runs, or when you press
   to the tablet. Each tablet needs its own approval.
 
 Only a new permission needs approval. A release that adds endpoints for a
-Skin, as the release after 1.9.0 adds `status`, `changes`, `shots` and
-`shot`, installs by itself: Decaid compares the permissions of the installed plugin and the
+Skin, as the release after 1.9.0 adds `status`, `changes`, `shots`, `shot`
+and `reference`, installs by itself: Decaid compares the permissions of the installed plugin and the
 update, and nothing else of their manifests (`_addedPermissions` in Decaid's
 `plugin_source_service.dart`, read at v0.9.1 and v0.9.2; not yet seen on a
 tablet).
@@ -164,7 +164,39 @@ unless the Location had none of that kind yet.
 A Machine with no Location, or whose sharing an Admin has turned off, is
 capture-only. The server still collects its records, but its library stays out
 of the Library, and nothing from the Library is written to its tablet.
-Settings Edits still reach it.
+Settings Edits still reach it. The [Reference Shot copies](#reference-shot-copies)
+its tablet kept are emptied.
+
+### Reference Shot copies
+
+The plugin keeps a copy of the Reference Shot of each Recipe in a Recipe Slot
+at its Machine's Location, so a Skin still draws it while the server can't be
+reached ([A Recipe's Reference Shot](#a-recipes-reference-shot)). The server
+sends the copies and keeps them current. They are the only thing of the
+Reference Shot on the tablet: nothing is added to DYE2's recipes or to
+Decaid's Shots.
+
+- **Where.** In the plugin's own storage in Decaid, beside the tablet's id:
+  nine values, `reference.1` to `reference.9`, one for each Recipe Slot. Each
+  holds its slot's Recipe and that Recipe's Reference Shot whole, with its
+  measurements, or that the Recipe has none.
+- **When.** Each time the plugin connects it tells the server which copies it
+  holds, and the server sends those that differ. While it stays connected, a
+  copy is sent again within seconds when the Recipe's Reference Shot is
+  chosen, replaced or cleared, when that Shot's rating or note changes, when
+  the Recipe enters or leaves a slot or is Archived, and when the Shot is
+  hidden because its Pending Machine was dismissed.
+- **Removed.** A slot with no Recipe in it holds an empty value. Decaid's
+  plugin storage can delete nothing, so the nine values stay, and each is
+  written over as its slot changes.
+- **Size.** A copy is tens of kilobytes. A Reference Shot whose copy would
+  pass 1 MiB is not kept: that is the largest value Decaid's store takes
+  through its own API (`largeRequestBodyBytes` in Decaid's
+  `bounded_request_body.dart`, read at v0.9.1 and v0.9.2), and Decaid holds a
+  plugin's whole storage in memory. Such a Shot is read from the server each
+  time, and can't be read while the server can't be reached.
+- **Older releases.** A server of 1.9.0 sends no copies, and a 1.9.0 plugin
+  is sent none.
 
 ### Refused writes
 
@@ -211,8 +243,9 @@ the server holds. The plugin serves it
 Skin calls an HTTP endpoint of the plugin's on the tablet, the plugin asks
 the server over its own connection, and the answer comes back in the same
 call. So far a Skin reads the [status](#status), [the Shots at its Machine's
-Location](#the-locations-shots) and [any one of them whole](#a-shot-whole).
-Reference Shots and a Shot's rating and note follow in later releases.
+Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
+[a Recipe's Reference Shot](#a-recipes-reference-shot). Choosing a Reference
+Shot and a Shot's rating and note follow in later releases.
 
 ### Calling the plugin
 
@@ -237,15 +270,17 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
 - **The status is asked at once.** It doesn't wait for what the tablet has
   still to send the server, so it answers while a tablet catches up after an
   outage.
-- **Shots are asked once the tablet has caught up.** A request to `shots` or
-  `shot` goes to the server behind what the tablet had still to send as the
-  Skin asked, so a Shot pulled a moment ago on this tablet is in the answer.
+- **Shots are asked once the tablet has caught up.** A request to `shots`,
+  `shot` or `reference` goes to the server behind what the tablet had still
+  to send as the Skin asked, so a Shot pulled a moment ago on this tablet is
+  in the answer.
   While a tablet catches up after an outage that can take longer than the 10
   seconds, and the request is refused as `unreachable`, whatever else would
   have refused it. For a moment after the plugin loads, while it reads back
   what it kept for the server, they are refused as `unreachable` at once.
   Ask the status, which doesn't wait, to learn whether the Machine is
-  served.
+  served. A `reference` refused so is answered from the tablet's copy where
+  it has one.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API: Decaid checks no caller. That network can already change the
@@ -391,6 +426,67 @@ is far behind on what it asked for. An answer longer than about 16.7
 million characters is never sent, so a Shot or a page that long is refused as
 `unreachable` each time: no Shot Decaid records comes near it.
 
+### A Recipe's Reference Shot
+
+`GET /api/v1/plugins/decent-sync.reaplugin/reference?recipe=<record id>`
+gives a Recipe's Reference Shot: the one Shot chosen to show how the
+Recipe's Shots should go. Every tablet at a Location is given the same one,
+whichever Machine or Location pulled it.
+
+Name the Recipe by the id of its DYE2 record on this tablet: the id the
+Workflow names in `context.extras.dye.recipeId`, which each of the tablet's
+Shots records, and the `recordId` the other endpoints give. The plugin
+turns it into the Recipe's own id, which the record carries.
+
+```json
+{
+  "recipe": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a80", "name": "House espresso", "recordId": "05fd1e80-61e3-46ef-b202-2cbad5eb7983" },
+  "reference": {
+    "shot": { "id": "0f6c1c5e-0f0a-4d6e-9d0b-6f1b1a2c3d4e", "timestamp": "…", "workflow": { }, "annotations": { }, "measurements": [ ] },
+    "recipe": null,
+    "referenceOf": [{ "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a80", "name": "House espresso", "recordId": "05fd1e80-61e3-46ef-b202-2cbad5eb7983" }],
+    "rating": 8,
+    "note": "Sweet, a little thin",
+    "profileDiffers": false
+  },
+  "source": "server"
+}
+```
+
+| Field | What it is |
+|---|---|
+| `recipe` | The Recipe asked about, named as a row's `recipe` is. |
+| `reference` | Its Reference Shot, or null where it has none. |
+| `reference.shot`, `.recipe`, `.referenceOf` | The Shot whole, as [`shot`](#a-shot-whole) gives one: its record with its `measurements`, the Recipe it was pulled with, and the Recipes of this Location it is the Reference Shot of. |
+| `reference.rating` | Its rating on Decaid's scale of 0 to 10, where 0 is unrated. Null where it recorded none. |
+| `reference.note` | Its note, or null. |
+| `reference.profileDiffers` | Whether it was pulled on another Profile than the Recipe's: the Recipe names a Profile, and the Shot's is another, or none in the Library. Its curves then describe another program. False for a Recipe that names no Profile. |
+| `source` | `"server"` where the server answered just now. `"tablet"` where it couldn't be asked and this is the tablet's copy, which may be older. |
+
+- **The server is asked first.** While it answers, the answer is the
+  server's, for a Recipe in a slot or in none.
+- **The tablet's copy stands in while the server can't be asked.** The
+  plugin keeps a copy for each Recipe in a Recipe Slot at its Location
+  ([Reference Shot copies](#reference-shot-copies)). Where the request would
+  be refused as `unreachable` or `serverTooOld`, it answers 200 from that
+  copy instead, with `source` `"tablet"`. That includes a copy saying the
+  Recipe has none.
+- **No copy, no answer.** A Recipe in no slot has no copy, and neither has
+  one whose Reference Shot is too large to keep (1 MiB). Those are refused as
+  `unreachable` or `serverTooOld` while the server can't be asked.
+- **A Reference Shot may be another Location's.** A tablet reads it whole
+  through this endpoint all the same. Through [`shot`](#a-shot-whole) that
+  Shot is still refused as `noSuchShot`.
+- **A hidden Shot reads as none.** A Reference Shot whose Pending Machine was
+  dismissed is `null` until that hardware is given a machine entry.
+- **A record must be a Recipe of the Library's.** A `recipe` no record on the
+  tablet has, or whose record carries no Recipe's id, as one a barista saved
+  moments ago, is refused as `noSuchRecipe`. So is a Recipe of another
+  Location.
+
+Listen on [`changes`](#changes) for the push that says a Recipe's Reference
+Shot changed, and read it again then.
+
 ### Refusals
 
 Every refusal is an HTTP status with a `code` to act on and a `message` to
@@ -404,12 +500,15 @@ show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
 | `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for. |
-| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, or one longer than 2,048 characters. The `message` says which. |
+| `noSuchRecipe` | 404 | No DYE2 recipe on the tablet has the record id asked for, or the one that has it is no Recipe of the Machine's Location. |
+| `recipesUnread` | 500 | Decaid didn't give the plugin DYE2's recipes, so it couldn't tell which Recipe was asked about. Ask again. |
+| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id` or `recipe`, or one longer than 2,048 characters. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
-`unreachable` while it isn't connected, `serverTooOld`, and `invalidRequest`
-for a `limit`, a missing `id`, or an `id` or `cursor` too long to be one.
-The server answers the rest, and tells a
+`unreachable` while it isn't connected, `serverTooOld`, `recipesUnread`,
+`noSuchRecipe` for a record that carries no Recipe's id, and `invalidRequest`
+for a `limit`, a missing `id` or `recipe`, or an `id`, `recipe` or `cursor`
+too long to be one. The server answers the rest, and tells a
 Machine that isn't served so whatever it asked for.
 
 A request with a method an endpoint doesn't take answers 405, with an `error`
@@ -418,7 +517,7 @@ in place of a `code`.
 ### Changes
 
 A Skin listens on the WebSocket endpoint `changes` rather than polling. Each
-push is a JSON object whose `what` names what changed. So far there is one:
+push is a JSON object whose `what` names what changed. So far there are two.
 
 ```json
 { "what": "connection", "connected": true }
@@ -427,6 +526,25 @@ push is a JSON object whose `what` names what changed. So far there is one:
 It is sent when the server welcomes the plugin's connection, and when that
 connection is lost. Read the status again after it: the Machine may have
 moved, or its sharing changed, while the plugin was away.
+
+```json
+{ "what": "reference", "recipe": { "id": "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a80", "name": "House espresso", "recordId": "05fd1e80-61e3-46ef-b202-2cbad5eb7983" } }
+```
+
+It is sent when the tablet's copy of a Recipe's Reference Shot changes:
+another Shot was chosen or it was cleared, the Shot's rating or note
+changed, or the Recipe entered a slot. It names the Recipe as an answer
+does, `recordId` being the id of this tablet's DYE2 record of it. Read
+[`reference`](#a-recipes-reference-shot) again for that Recipe if it is the
+one on screen.
+
+- **Only Recipes in a slot are pushed.** A Recipe in no slot has no copy, so
+  nothing is pushed when its Reference Shot changes. Read it again when the
+  Skin shows it.
+- **A tablet that was off is pushed what changed when it reconnects**, once
+  the server has sent the copies it missed.
+- **A push may repeat.** One is also sent when the Recipe is renamed, so
+  compare what `reference` gives with what is drawn.
 
 - Decaid sends a push only to the sockets open at that moment, and keeps none
   for a socket opened later. Read the status once the socket opens.

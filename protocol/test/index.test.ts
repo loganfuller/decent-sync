@@ -30,7 +30,10 @@ import {
   MAX_HARDWARE_LENGTH,
   MAX_ID_LENGTH,
   MAX_RECORD_ID_LENGTH,
+  MAX_REFERENCE_COPY_BYTES,
+  MAX_REFERENCE_VERSION_LENGTH,
   RECIPE_SLOTS,
+  REFERENCE_COPIES_WIRE_REVISION,
   RECIPE_SLOT_FIELD,
   SETTINGS_EDITED_REFUSALS,
   type SettingsEdit,
@@ -602,9 +605,9 @@ describe("Requests for a Skin", () => {
 
   it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
     expect(REQUESTS_WIRE_REVISION).toBe(3);
-    expect(SKIN_ASKS).toEqual(["status", "shots", "shot"]);
+    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
-    expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor"]);
+    expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe"]);
   });
 
   it("reads a request by its id and what it asks, which only the plugin sends", () => {
@@ -615,7 +618,7 @@ describe("Requests for a Skin", () => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot");
+    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference");
     expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
     expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
     expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
@@ -676,7 +679,7 @@ describe("Requests for a Skin", () => {
 
   it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
     expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
-    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot");
+    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference");
     expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
     expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
     // Why it is not served goes with not being served, and only with it.
@@ -690,6 +693,77 @@ describe("Requests for a Skin", () => {
       "answer.result.machine.id must not be empty; answer.result.machine.name must be a string",
     );
     expect(refused({ ...served, result: { ...served.result, location: { id: "secret" } } })).not.toContain("secret");
+  });
+});
+
+describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", () => {
+  const recipe = { id: "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72", name: "Belmont espresso", recordId: "2" };
+  const reference = { shot: { id: "a Shot's id", measurements: [] }, recipe: null, referenceOf: [recipe], rating: 8, note: null, profileDiffers: false };
+  const problem = (decoded: { ok: boolean; problem?: string }) => (decoded.ok ? null : decoded.problem);
+  const fromPlugin = (message: unknown) => problem(decodePluginMessage(frame(message)));
+  const fromServer = (message: unknown) => problem(decodeServerMessage(frame(message)));
+
+  it("came in the release's wire revision, a copy no larger than Decaid's store takes as one value", () => {
+    expect(REFERENCE_COPIES_WIRE_REVISION).toBe(3);
+    expect(MAX_REFERENCE_COPY_BYTES).toBe(1024 * 1024);
+  });
+
+  it("reads a request for a Recipe's reference by the Recipe's own id, and its answer with the Reference Shot, none, or a refusal", () => {
+    const request = { type: "request", id: "1j2k3l-4m5n-18", ask: "reference", recipeId: recipe.id };
+    expect(decodePluginMessage(frame(request))).toEqual({ ok: true, message: request });
+    expect(fromPlugin({ ...request, recipeId: "2" })).toBe("request.recipeId must be a UUID");
+    expect(fromPlugin({ type: "request", id: request.id, ask: "reference" })).toBe("request.recipeId must be a UUID");
+
+    const answer = { type: "answer", id: request.id, ask: "reference" };
+    for (const message of [{ ...answer, result: { recipe, reference } }, { ...answer, result: { recipe, reference: null } }, { ...answer, refused: "noSuchRecipe" }, { ...answer, refused: "captureOnly" }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    expect(fromServer(answer)).toBe("answer.result must be an object");
+    expect(fromServer({ ...answer, result: { reference } })).toBe("answer.result.recipe must be an object");
+    expect(fromServer({ ...answer, result: { recipe: { name: "Belmont espresso" }, reference } })).toBe("answer.result.recipe.id must be a string");
+    expect(fromServer({ ...answer, result: { recipe } })).toBe("answer.result.reference must be an object or null");
+    expect(fromServer({ ...answer, result: { recipe, reference: { ...reference, shot: "a Shot's id" } } })).toBe("answer.result.reference.shot must be an object");
+    expect(fromServer({ ...answer, result: { recipe, reference: { shot: reference.shot } } })).toBe("answer.result.reference.profileDiffers must be true or false");
+  });
+
+  it("reads what the plugin holds, a version for each of some Recipe Slots, which only the plugin sends", () => {
+    for (const held of [{}, { "1": "a version" }, { "1": "a version", [String(RECIPE_SLOTS)]: "x".repeat(MAX_REFERENCE_VERSION_LENGTH) }]) {
+      const message = { type: "referencesHeld", held };
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodeServerMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    const invalid = "referencesHeld.held must be an object of versions by Recipe Slot";
+    for (const held of [undefined, null, [], "1", { "0": "v" }, { [String(RECIPE_SLOTS + 1)]: "v" }, { "01": "v" }, { one: "v" }, { "1": "" }, { "1": 7 }, { "1": null }, { "1": "x".repeat(MAX_REFERENCE_VERSION_LENGTH + 1) }]) {
+      expect(fromPlugin({ type: "referencesHeld", held })).toBe(invalid);
+    }
+    expect(fromPlugin({ type: "referencesHeld", held: { "1": "secret", "0": "v" } })).not.toContain("secret");
+  });
+
+  it("reads a copy for a slot: a Recipe's reference, that it has none, that it is too large to keep, or nothing for the slot, which only the server sends", () => {
+    const copy = { type: "referenceCopy", id: "copy-1", slot: 7 };
+    const kept = { version: "a version", recipe };
+    const accepted = [
+      { ...copy, copy: { ...kept, reference } },
+      { ...copy, copy: { ...kept, reference: null } },
+      { ...copy, copy: { ...kept, tooLarge: true } },
+      { ...copy, copy: null },
+      { ...copy, copy: { ...kept, reference, future: true }, future: true },
+    ];
+    for (const message of accepted) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodePluginMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    expect(fromServer({ ...copy, id: "", copy: null })).toBe("referenceCopy.id must not be empty");
+    for (const slot of [0, RECIPE_SLOTS + 1, 1.5, "1", undefined]) expect(fromServer({ ...copy, slot, copy: null })).toBe(`referenceCopy.slot must be a Recipe Slot, 1 to ${RECIPE_SLOTS}`);
+    expect(fromServer(copy)).toBe("referenceCopy.copy must be an object or null");
+    expect(fromServer({ ...copy, copy: { recipe, reference } })).toBe("referenceCopy.copy.version must be a string");
+    expect(fromServer({ ...copy, copy: { ...kept, version: "", reference } })).toBe("referenceCopy.copy.version must not be empty");
+    expect(fromServer({ ...copy, copy: { version: "a version", reference } })).toBe("referenceCopy.copy.recipe must be an object");
+    // One too large to keep carries no Reference Shot, and any other carries one or null.
+    expect(fromServer({ ...copy, copy: kept })).toBe("referenceCopy.copy.reference must be an object or null");
+    expect(fromServer({ ...copy, copy: { ...kept, tooLarge: true, reference } })).toBe("referenceCopy.copy.reference must be absent");
+    expect(fromServer({ ...copy, copy: { ...kept, tooLarge: "yes", reference } })).toBe("referenceCopy.copy.tooLarge must be true or false");
+    expect(fromServer({ ...copy, copy: { ...kept, reference: { ...reference, shot: "secret" } } })).not.toContain("secret");
   });
 });
 

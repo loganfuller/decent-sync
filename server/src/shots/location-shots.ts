@@ -173,7 +173,7 @@ export async function locationShot(db: Prisma.TransactionClient, asking: AskingT
  * which are the ones its tablets hold, by name, ignoring case. Another
  * Location's Recipe is not named to this one's tablets.
  */
-async function referencesOf(db: Prisma.TransactionClient, asking: AskingTablet, shotIds: string[]): Promise<Map<string, SkinRecipe[]>> {
+export async function referencesOf(db: Prisma.TransactionClient, asking: AskingTablet, shotIds: string[]): Promise<Map<string, SkinRecipe[]>> {
   const references = new Map<string, SkinRecipe[]>();
   if (shotIds.length === 0) return references;
   const recipes = await db.$queryRaw<(SkinRecipe & { shotId: string })[]>`

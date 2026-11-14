@@ -266,6 +266,16 @@ export function shotProfileSql(alias: string): Prisma.Sql {
 }
 
 /**
+ * Whether a Recipe's Reference Shot was pulled on another Profile than the
+ * Recipe's (ADR-0029): the Recipe's content names a Profile, and the Shot's
+ * (`shotProfileSql`) is another, or none. False for a Recipe naming none.
+ */
+export function referenceProfileDiffers(recipeContent: unknown, shotProfileId: string | null): boolean {
+  const named = typeof recipeContent === "object" && recipeContent !== null ? (recipeContent as { profileId?: unknown }).profileId : undefined;
+  return typeof named === "string" && shotProfileId !== named;
+}
+
+/**
  * The id of the Library Profile a profile, as a Workflow holds one, is, or
  * null, chosen as a Shot's is (`shotProfileSql`): as a DYE2 recipe names the
  * profile it read from the Workflow by that profile alone (recipes.ts).

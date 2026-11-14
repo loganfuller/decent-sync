@@ -9,6 +9,7 @@ import type { Reporter } from "../sync/identity.js";
 import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedDetails, recordingSeconds, shownDuration, object, shotHardware, shotVersion, string } from "./extraction.js";
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
+import { announceReferenceShots } from "./reference-announcements.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -83,6 +84,8 @@ export class ShotsService {
           update: { data: value },
         });
       }
+      // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
+      await announceReferenceShots(tx, Prisma.sql`s.id = ${message.shotId}`);
     });
     return null;
   }

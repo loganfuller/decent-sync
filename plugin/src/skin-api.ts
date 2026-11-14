@@ -1,5 +1,7 @@
-import { MAX_SHOTS_PAGE, type NotServed, type SkinQuestion, type SkinRefusal } from "@decent-sync/protocol";
+import { DYE2_NAMESPACE, MAX_SHOTS_PAGE, type NotServed, type SkinQuestion, type SkinRecipe, type SkinRefusal, dye2GlobalIdOf, dye2Records } from "@decent-sync/protocol";
+import { readCollection } from "./decaid.js";
 import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
+import type { ReferenceCopies } from "./reference-copies.js";
 import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 
 // What the plugin serves a Skin of what the server holds (ADR-0030,
@@ -27,6 +29,9 @@ const SHOTS_ENDPOINT = "shots";
 /** The plugin's HTTP endpoint a Skin reads one of those Shots whole from (manifest.json). */
 const SHOT_ENDPOINT = "shot";
 
+/** The plugin's HTTP endpoint a Skin reads a Recipe's Reference Shot from (manifest.json). */
+const REFERENCE_ENDPOINT = "reference";
+
 /** The plugin's WebSocket endpoint a Skin listens on for what changed (manifest.json). */
 const CHANGES_ENDPOINT = "changes";
 
@@ -38,7 +43,7 @@ const CHANGES_ENDPOINT = "changes";
 const MAX_ASKED_LENGTH = 2048;
 
 /** Why an endpoint refuses a request: one of these codes, each with its HTTP status and a sentence. */
-export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "invalidRequest";
+export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe" | "recipesUnread" | "invalidRequest";
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
@@ -55,6 +60,8 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
     message: "The machine connected to this tablet is not the one this tablet's token was issued for, so the server serves it nothing until an Admin settles which Machine it is.",
   },
   noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
+  noSuchRecipe: { status: 404, message: "No DYE2 recipe on this tablet with that id is a Recipe of this Machine's Location." },
+  recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
   // Each says what is wrong with it in a sentence of its own (`invalid`).
   invalidRequest: { status: 400, message: "The request is not one this endpoint answers." },
 };
@@ -63,9 +70,10 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
  * Answers a request to one of the endpoints a Skin reads what the server
  * holds from, or undefined for any other endpoint, as those Streamline reads
  * (skins.ts). Each is answered whether or not the plugin connects: a Skin
- * is then told the server can't be reached.
+ * is then told the server can't be reached, or, of a Recipe's Reference
+ * Shot, answered from the tablet's copy (`references`) where it holds one.
  */
-export function answerSkin(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> | undefined {
+export function answerSkin(request: HttpRequest, requests: SkinRequests | undefined, references: ReferenceCopies | undefined): Promise<HttpAnswer> | undefined {
   switch (request.endpoint) {
     case STATUS_ENDPOINT:
       return answerStatus(request, requests);
@@ -73,6 +81,8 @@ export function answerSkin(request: HttpRequest, requests: SkinRequests | undefi
       return answerShots(request, requests);
     case SHOT_ENDPOINT:
       return answerShot(request, requests);
+    case REFERENCE_ENDPOINT:
+      return answerReference(request, requests, references);
     default:
       return undefined;
   }
@@ -131,6 +141,49 @@ async function answerShot(request: HttpRequest, requests: SkinRequests | undefin
   return answered(await ask(requests, { ask: "shot", shotId: id }));
 }
 
+/**
+ * Answers a request to `reference`: the Reference Shot of the Recipe the
+ * query's `recipe` names, by the id of its DYE2 record on this tablet, which
+ * the Workflow names and each of the tablet's Shots records
+ * (`context.extras.dye.recipeId`). The plugin turns it into the Recipe's own
+ * id, which the record carries (ADR-0006): a record that carries none is no
+ * Recipe of the Library's, and is refused as no such Recipe, as an id no
+ * record has is.
+ *
+ * The answer is the server's (`SkinReference` in protocol/): the Recipe,
+ * and its Reference Shot whole, as `shot` gives one, with its rating and
+ * note and whether its Profile differs from the Recipe's, or null where it
+ * has none; with `source`, "server". While the server can't be asked, it is
+ * the tablet's copy, which it keeps for each Recipe in a slot
+ * (reference-copies.ts), with `source`, "tablet"; a Recipe it keeps no copy
+ * for, as one in no slot, is then refused as the server is: unreachable, or
+ * too old to ask.
+ */
+async function answerReference(request: HttpRequest, requests: SkinRequests | undefined, references: ReferenceCopies | undefined): Promise<HttpAnswer> {
+  if (request.method !== "GET") return onlyGet();
+  const { recipe } = request.query;
+  if (!askable(recipe) || recipe === "") return invalid("Give the id of the Recipe's DYE2 record on this tablet as recipe.");
+  const recipeId = await recipeIdOf(recipe);
+  if (recipeId === undefined) return refusal("recipesUnread");
+  if (recipeId === null) return refusal("noSuchRecipe");
+  const asked = await ask(requests, { ask: "reference", recipeId });
+  if (!("unanswered" in asked)) return "refused" in asked.answer ? refused(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+  const copy = await references?.read(recipeId);
+  return copy ? json(200, { ...copy, source: "tablet" }) : refusal(asked.unanswered);
+}
+
+/**
+ * The Recipe's own id that the DYE2 recipe with this record id on the
+ * tablet carries, null where no record has the id or it carries none, and
+ * undefined where DYE2's recipes can't be read. A tablet without DYE2 has
+ * no recipes.
+ */
+async function recipeIdOf(recordId: string): Promise<string | null | undefined> {
+  const reading = await readCollection(`/store/${DYE2_NAMESPACE}/recipes`, null, true);
+  if (reading.kind !== "value") return undefined;
+  return dye2GlobalIdOf(dye2Records(reading.value)?.find((record) => record.id === recordId));
+}
+
 /** Whether a value of the query is text the server may be asked with. */
 function askable(value: unknown): value is string {
   return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
@@ -168,6 +221,21 @@ function onlyGet(): HttpAnswer {
 
 function json(status: number, body: unknown): HttpAnswer {
   return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
+}
+
+/**
+ * Tells the Skins listening on `changes` that the tablet's copy of a
+ * Recipe's Reference Shot changed, naming the Recipe as an answer does: by
+ * its id and name, and by the id of this tablet's DYE2 record of it, as the
+ * server knew it. A Skin drawing that Recipe's reference reads it again. It
+ * never throws: a push Decaid refuses is logged.
+ */
+export function tellReference(host: PluginHost, log: (message: string) => void, recipe: SkinRecipe): void {
+  try {
+    host.emit(CHANGES_ENDPOINT, { what: "reference", recipe });
+  } catch (error) {
+    log(`Could not tell Skins that a Recipe's Reference Shot changed: ${error instanceof Error ? error.message : String(error)}`);
+  }
 }
 
 /**

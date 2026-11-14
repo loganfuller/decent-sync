@@ -88,7 +88,8 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
         <CardTitleWithInfo title="Reference Shot">
           <p>
             The one Shot chosen to show how this Recipe's Shots should go. It can be any Shot, from any Machine or Location, and stays through
-            edits to the Recipe until someone chooses another or clears it. Choose one from a Shot's page. Nothing of it reaches a tablet.
+            edits to the Recipe until someone chooses another or clears it. Choose one from a Shot's page. Each tablet at the Recipe's Location
+            keeps a copy of it for its Skin to draw, while the Recipe is in a Recipe Slot.
           </p>
         </CardTitleWithInfo>
       </CardHeader>

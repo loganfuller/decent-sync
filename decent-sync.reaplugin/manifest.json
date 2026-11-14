@@ -64,6 +64,11 @@
       "id": "shot",
       "type": "http",
       "data": {}
+    },
+    {
+      "id": "reference",
+      "type": "http",
+      "data": {}
     }
   ]
 }

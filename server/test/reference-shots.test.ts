@@ -15,8 +15,10 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // server. Shots are stored through simulated tablets running the built
 // plugin, each derived from a Shot Decaid recorded, changing only its id,
 // time, recorded hardware and the profile its Workflow holds. Belmont's
-// tablet runs DYE2, so it holds Belmont's Recipes, and is written nothing
-// when a Reference Shot changes. Serials are made up, from 47201.
+// tablet runs DYE2, so it holds Belmont's Recipes, and nothing is written
+// into them, or its Workflow, when a Reference Shot changes: its plugin
+// keeps a copy of the Shot in its own storage (#510,
+// skin-references.test.ts). Serials are made up, from 47201.
 
 type Record_ = Record<string, unknown>;
 
@@ -185,7 +187,7 @@ describe("Choosing a Recipe's Reference Shot", { timeout: 120_000 }, () => {
     return { api: AdminApi.signedInAs(server.url, cookie), cookie };
   }
 
-  it("makes a Shot from another Location the Recipe's Reference Shot, replaces it and clears it, each a version naming the account, and writes nothing to the tablets", async () => {
+  it("makes a Shot from another Location the Recipe's Reference Shot, replaces it and clears it, each a version naming the account, and writes nothing into the tablets' recipes or Workflow", async () => {
     const before = { writes: belmontTablet.storeWrites.length, records: recordsOn(belmontTablet), workflow: belmontTablet.workflow() };
     expect((await recipe(espresso.id)).referenceShot).toBeNull();
 
@@ -221,7 +223,7 @@ describe("Choosing a Recipe's Reference Shot", { timeout: 120_000 }, () => {
     expect(kept.map((version) => version.fields)).toEqual([{ referenceShotId: null }, { referenceShotId: "lab-unsaved" }, { referenceShotId: "lab-bloom" }]);
     for (const version of kept) expect(version).toMatchObject({ location: null, source: { account: { id: adminId }, connectedApp: null } });
 
-    // Nothing reached Belmont's tablet: not its Recipes, not its Workflow.
+    // Nothing reached Belmont's tablet's Decaid: not its Recipes, not its Workflow. The copy its plugin keeps is in the plugin's own storage.
     await quiesced(api, { tablets: { belmontTablet } });
     expect(belmontTablet.storeWrites.length).toBe(before.writes);
     expect(recordsOn(belmontTablet)).toEqual(before.records);

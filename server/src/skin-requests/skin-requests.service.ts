@@ -2,6 +2,7 @@ import { Injectable } from "@nestjs/common";
 import { type NotServed, type SkinAnswer, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { PrismaService } from "../prisma.service.js";
+import { type DueCopy, recipeReference, referenceCopiesDue } from "../shots/location-references.js";
 import { type AskingTablet, locationShot, locationShots } from "../shots/location-shots.js";
 import type { Identity } from "../sync/identity.js";
 
@@ -26,6 +27,12 @@ import type { Identity } from "../sync/identity.js";
 // Machine that is not served is refused each with why `status` says it is
 // not, and a served one a Shot its list does not list as no such Shot,
 // whether or not the server holds it.
+//
+// It reads the Reference Shot of any Recipe of its Location too (ticket
+// #510, shots/location-references.ts), whichever Location pulled it, and
+// any other Recipe is refused as no such Recipe. And it keeps a copy of the
+// Reference Shot of each Recipe in a slot there, which the connection's
+// `ReferenceCopies` sends as `referenceCopiesDue` here finds them due.
 
 /** The connection a request arrived on: its session, its token's Machine, its tablet, and who that tablet is, as its hello settled it. */
 export interface AskingConnection {
@@ -66,7 +73,33 @@ export class SkinRequestsService {
         });
         return outcome && { ...answer, ask: "shot", ...outcome };
       }
+      case "reference": {
+        const outcome = await this.served(connection, async (db, asking) => {
+          const result = await recipeReference(db, asking, request.recipeId);
+          return result ? { result } : { refused: "noSuchRecipe" as const };
+        });
+        return outcome && { ...answer, ask: "reference", ...outcome };
+      }
     }
+  }
+
+  /**
+   * The Reference Shot copies the connection's tablet is due, given the
+   * version it holds for each slot: those of the Location its Machine is
+   * served at now, and nothing for every slot of a Machine that is not
+   * served, as once it is made capture-only, read in one snapshot. Null
+   * where the connection no longer holds its Machine.
+   */
+  referenceCopiesDue(connection: AskingConnection, held: ReadonlyMap<number, string>): Promise<DueCopy[] | null> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        const status = await this.status(tx, connection);
+        if (status === null) return null;
+        const servedAt = status.notServed === undefined ? status.location : null;
+        return referenceCopiesDue(tx, servedAt && { locationId: servedAt.id, tabletId: connection.tabletId }, held);
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
   }
 
   /**

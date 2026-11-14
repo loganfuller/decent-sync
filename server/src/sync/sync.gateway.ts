@@ -31,8 +31,11 @@ import {
   MISSED_HEARTBEATS,
   PROTOCOL_VERSION,
   type PluginMessage,
+  REFERENCE_COPIES_WIRE_REVISION,
   REQUESTS_WIRE_REVISION,
   Reassembly,
+  type ReferenceCopy,
+  type ReferencesHeld,
   type ReassemblyLimits,
   SYNC_PATH,
   type ServerMessage,
@@ -84,6 +87,7 @@ import { hashSecret } from "../secrets.js";
 import { clientAddress } from "./client-address.js";
 import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
+import { ReferenceCopies } from "./reference-copies.js";
 import { MAX_MESSAGE_LENGTH, Sender } from "./sender.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
@@ -140,6 +144,12 @@ interface Session {
   live?: LiveConnection;
   /** Writes the Library to its tablet, once welcomed, unless it is mismatched. */
   writer?: TabletWriter;
+  /**
+   * Keeps the Reference Shot copies on its tablet current, once welcomed,
+   * unless it is mismatched, or its plugin is behind the wire revision they
+   * came in (REFERENCE_COPIES_WIRE_REVISION).
+   */
+  references?: ReferenceCopies;
   /**
    * Sends its writes and answers, counting what its plugin has not confirmed,
    * once its hello is accepted from a plugin that confirms the server's
@@ -227,6 +237,12 @@ interface Session {
  * id repeats an earlier request's, or a delivery's, is answered as any other.
  * Only the connection holding its Machine is answered.
  *
+ * A welcomed connection that is not mismatched, from a plugin at their wire
+ * revision, is sent the Reference Shot copies its tablet is due
+ * (`ReferenceCopies`, ticket #510), once its plugin has said which it holds
+ * (`referencesHeld`), and again whenever a change to the Library, or a move
+ * of its Machine, is notified.
+ *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
  * accepted or closes. Connections that hold a Machine are not counted. The
@@ -268,13 +284,20 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
     // Each writer reads what its tablet is due, so every one looks, whichever Location changed.
     notifications.subscribe("library_changes", () => {
-      for (const session of this.connections) session.writer?.wake();
+      for (const session of this.connections) {
+        session.writer?.wake();
+        session.references?.wake();
+      }
     });
     // A moved Machine's writers find it at another Location than its tablet's report, and ask for the tablet's
     // collections afresh, as do those of one whose sharing was turned back on; one turned off, they write nothing more.
     // After listening anew, every writer looks, through the Library changes listener.
     notifications.subscribe("machine_locations", (machineId) => {
-      for (const session of this.connections) if (machineId !== null && session.machine?.id === machineId) session.writer?.wake();
+      for (const session of this.connections) {
+        if (machineId === null || session.machine?.id !== machineId) continue;
+        session.writer?.wake();
+        session.references?.wake();
+      }
     });
     // After listening anew, every connection looks for edits made meanwhile.
     notifications.subscribe("settings_edits", (machineId) => {
@@ -309,6 +332,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     for (const session of sessions) {
       // A write awaiting its answer is abandoned; the tablet's next connection is written what it lacks.
       session.writer?.stop();
+      session.references?.stop();
       this.clearTimers(session);
       session.closing = true;
       session.socket.close(GOING_AWAY, "Server shutting down");
@@ -480,6 +504,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     if (message.type === "liveFrame") return;
     // No delivery: its id is its answer's alone, and is never looked up among the deliveries handled.
     if (message.type === "request") return this.request(session, message);
+    // No delivery either: it says what the connection's tablet holds, and is neither stored nor acknowledged.
+    if (message.type === "referencesHeld") return this.referencesHeld(session, message);
     // No delivery either: its id names a chunk of the server's. One arriving before the welcome, when nothing was
     // sent, or in chunks, or from a plugin the server counts nothing for, names no chunk in flight.
     if (message.type === "chunkReceived") return void this.chunkReceived(session, message);
@@ -519,6 +545,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
           const intake = await this.collections.store(message, reporter);
           if (intake) session.writer?.reported(intake.list, intake.takenInAt);
         });
+        // A copy names each Recipe by the tablet's record of it, which this report may have changed.
+        if (message.name === "dye2Recipes") session.references?.wake();
         // One set aside ends that wait all the same, as it does a wait for the list asked for again (`awaitReport`).
         if (isLibraryList(message.name)) session.writer?.reported(message.name, undefined);
         return;
@@ -596,6 +624,21 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
+   * The plugin said which Reference Shot copies its tablet holds (ticket
+   * #510), which it does once on each connection: the connection is sent
+   * those it is due from now on. The statement came with a wire revision, so
+   * one from a plugin behind it, which no plugin sends, is a protocol error.
+   * One from a mismatched connection is ignored, as nothing is written to
+   * its tablet.
+   */
+  private referencesHeld(session: Session, message: ReferencesHeld): void {
+    if (!peerHasWireRevision(session.wireRevision!, REFERENCE_COPIES_WIRE_REVISION)) {
+      return this.refuse(session, "protocol_error", `referencesHeld needs a plugin at wire revision ${REFERENCE_COPIES_WIRE_REVISION} or newer`);
+    }
+    session.references?.stated(message.held);
+  }
+
+  /**
    * Stores a delivery of what the tablet captured, then acknowledges it. If
    * storing fails in a way that would repeat whenever the delivery was sent
    * again, it is set aside, its text kept as received, and acknowledged as
@@ -658,6 +701,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
+    // A copy names each Recipe by the tablet's record of it, which this answer may have brought.
+    if (answer.kind === "recipe") session.references?.wake();
   }
 
   /**
@@ -791,6 +836,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     this.acknowledge(session, answer.id, null);
     session.writer?.answered(answer.id, outcome);
+    // A copy names each Recipe by the tablet's record of it, which this answer may have brought.
+    if (answer.kind === "recipe") session.references?.wake();
   }
 
   /**
@@ -883,14 +930,18 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
   }
 
   /**
-   * Sends a write, delete, removal, leave-out or Settings Edit, or an answer
-   * to a request, on the connection: through its `Sender`, which keeps what
+   * Sends a write, delete, removal, leave-out or Settings Edit, an answer
+   * to a request, or a Reference Shot copy, on the connection: through its `Sender`, which keeps what
    * the plugin has not confirmed within Decaid's limit, or, to the previous
    * release's plugin, which confirms nothing, at once, in chunks if it is too
    * large for one frame. That plugin is sent one write at a time and never
-   * an answer, as it makes no request.
+   * an answer, as it makes no request, nor a copy.
    */
-  private sendCounted(session: Session, message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer, text = encode(message)): void {
+  private sendCounted(
+    session: Session,
+    message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer | ReferenceCopy,
+    text = encode(message),
+  ): void {
     if (session.closing) return;
     if (session.sender) return session.sender.send(text);
     for (const frame of frames(text, message.id)) session.socket.send(frame.text);
@@ -970,6 +1021,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         },
       );
     }
+    // Its tablet keeps the Reference Shot copies it is due, once its plugin has said which it holds.
+    if (identity.kind !== "mismatch" && peerHasWireRevision(session.wireRevision, REFERENCE_COPIES_WIRE_REVISION)) {
+      const asking = { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId, identity };
+      session.references = new ReferenceCopies(
+        (held) => this.skinRequests.referenceCopiesDue(asking, held),
+        (copy) => this.sendCounted(session, copy),
+        this.logger,
+        (work) => this.track(work),
+      );
+    }
     // An edit made while this hello was being accepted was notified before the session could be found.
     this.sendSettingsEdits(session);
     // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's.
@@ -1036,6 +1097,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     this.clearTimers(session);
     session.closing = true;
     session.writer?.stop();
+    session.references?.stop();
     this.liveViews.closed(session.id);
     if (!session.live) return;
     this.live.delete(session.live);

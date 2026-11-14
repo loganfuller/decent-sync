@@ -1926,10 +1926,11 @@ export const REQUESTS_WIRE_REVISION = 3;
 /**
  * What a request may ask (`SkinRequest.ask`): `status`, whether the
  * connection's Machine is served, and which Machine and Location it is;
- * `shots`, a page of the Shots at its Machine's Location; and `shot`, one of
- * those Shots whole (ticket #509).
+ * `shots`, a page of the Shots at its Machine's Location; `shot`, one of
+ * those Shots whole (ticket #509); and `reference`, the Reference Shot of
+ * one of that Location's Recipes, whole (ticket #510).
  */
-export const SKIN_ASKS = ["status", "shots", "shot"] as const;
+export const SKIN_ASKS = ["status", "shots", "shot", "reference"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
 
@@ -1968,6 +1969,11 @@ export type SkinQuestion =
       ask: "shot";
       /** The Shot's id, which is Decaid's. */
       shotId: string;
+    }
+  | {
+      ask: "reference";
+      /** The Recipe's own id, which its DYE2 record on the tablet carries (GLOBAL_ID_KEY). */
+      recipeId: string;
     };
 
 /**
@@ -2072,6 +2078,33 @@ export interface SkinShot {
 }
 
 /**
+ * A Recipe's Reference Shot (ADR-0029) as a tablet at the Recipe's Location
+ * reads it (ticket #510): whole, as one of its Location's Shots is
+ * (`SkinShot`), whichever Machine or Location pulled it, with its rating and
+ * note, and whether its Profile is another than the Recipe's.
+ */
+export interface SkinReferenceShot extends SkinShot {
+  /** Its rating on Decaid's scale of 0 to 10, where 0 is unrated; null where it recorded none. */
+  rating: number | null;
+  /** Its note; null where it has none. */
+  note: string | null;
+  /**
+   * Whether it was pulled on another Profile than the Recipe's, as the
+   * Recipe's REST read says: the Recipe names a Profile, and the Shot's is
+   * another, or matches none in the Library. False for a Recipe naming none.
+   */
+  profileDiffers: boolean;
+}
+
+/** What `reference` is answered with, and what a tablet keeps a copy of for each Recipe in a slot (`ReferenceCopy`). */
+export interface SkinReference {
+  /** The Recipe asked about, as an answer names one for the asking tablet. */
+  recipe: SkinRecipe;
+  /** Its Reference Shot; null where it has none, as for one the Shots list doesn't list. */
+  reference: SkinReferenceShot | null;
+}
+
+/**
  * Why the server refuses what a request asks, in place of a result. `status`
  * is never refused: it says why its Machine is not served.
  *
@@ -2079,9 +2112,11 @@ export interface SkinShot {
  *   served (NOT_SERVED);
  * - `noSuchShot`: the Shot asked for is none its Machine's Location lists,
  *   whether or not the server holds it;
- * - `invalidCursor`: the cursor is none the server gave.
+ * - `invalidCursor`: the cursor is none the server gave;
+ * - `noSuchRecipe`: the Recipe asked about is none of its Machine's
+ *   Location's, whether or not the Library holds it.
  */
-export const SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor"] as const;
+export const SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe"] as const;
 
 export type SkinRefusal = (typeof SKIN_REFUSALS)[number];
 
@@ -2094,8 +2129,85 @@ export type SkinAnswer = { type: "answer"; id: string } & (
   | { ask: "status"; result: SkinStatus }
   | { ask: "shots"; result: SkinShots }
   | { ask: "shot"; result: SkinShot }
-  | { ask: "shots" | "shot"; refused: SkinRefusal }
+  | { ask: "reference"; result: SkinReference }
+  | { ask: "shots" | "shot" | "reference"; refused: SkinRefusal }
 );
+
+/**
+ * The wire revision the Reference Shot copies arrived in (ticket #510,
+ * ADR-0030): the plugin says what copies it holds (`referencesHeld`) only to
+ * a server at it, which closes the connection on a message it doesn't know
+ * otherwise, and the server sends a copy (`referenceCopy`) only to a plugin
+ * at it.
+ */
+export const REFERENCE_COPIES_WIRE_REVISION = 3;
+
+/**
+ * The largest copy of a Reference Shot a tablet keeps: 1 MiB of its JSON
+ * (`SkinReference`), in UTF-8. It is the largest value Decaid's store takes
+ * through its own API (`largeRequestBodyBytes` in
+ * decaid:lib/src/services/webserver/bounded_request_body.dart, which
+ * `POST /api/v1/store/{namespace}/{key}` reads its body within, the same at
+ * v0.9.1 and v0.9.2). Decaid keeps a plugin's whole storage in memory, and
+ * each value crosses to the plugin as JSON, so the copies are kept small.
+ * The server judges it: a larger one is never sent, and its Recipe's
+ * reference is read from the server each time (`ReferenceCopy.tooLarge`).
+ */
+export const MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
+
+/**
+ * What the plugin holds of the Reference Shot copies, sent once on each
+ * connection, after its `welcome`, to a server at
+ * REFERENCE_COPIES_WIRE_REVISION: the version of the copy it keeps for each
+ * Recipe Slot, as the server gave it (`ReferenceCopy.version`), by the
+ * slot's number; a slot it keeps nothing for is left out. The server then
+ * sends each slot's copy where it differs, and no copy before this arrives.
+ * It is no delivery: it is neither stored nor acknowledged, and what it
+ * says holds for its connection alone.
+ */
+export interface ReferencesHeld {
+  type: "referencesHeld";
+  held: Record<string, string>;
+}
+
+/** The longest `ReferenceCopy.version`, and so the longest value of `ReferencesHeld.held`. */
+export const MAX_REFERENCE_VERSION_LENGTH = 128;
+
+/**
+ * What a tablet is to keep for one Recipe Slot (ticket #510, ADR-0030), so
+ * a Skin still reads the Reference Shot of the Recipe in it while the server
+ * can't be reached: sent to each served tablet at
+ * REFERENCE_COPIES_WIRE_REVISION, for each slot whose copy differs from the
+ * one its plugin said it holds, on each connection and whenever it changes
+ * since. The plugin keeps it in its storage in place of what the slot held,
+ * and never answers it: what it holds is what it says on its next
+ * connection.
+ */
+export interface ReferenceCopy {
+  type: "referenceCopy";
+  /** Names its chunks, as it may be too large for one frame. */
+  id: string;
+  /** The Recipe Slot, 1 to RECIPE_SLOTS. */
+  slot: number;
+  /**
+   * What the slot is to hold: null for nothing, as when no Recipe is in the
+   * slot, or the tablet's Machine is no longer served at the Location.
+   */
+  copy: {
+    /** Names what is kept: another once anything of it changes. */
+    version: string;
+    /** The Recipe in the slot. */
+    recipe: SkinRecipe;
+    /** Its Reference Shot, or null where it has none; absent where it is `tooLarge`. */
+    reference?: SkinReferenceShot | null;
+    /**
+     * True where its Reference Shot is longer than MAX_REFERENCE_COPY_BYTES,
+     * so it is not sent or kept: the tablet reads it from the server each
+     * time, and can't while the server can't be reached.
+     */
+    tooLarge?: boolean;
+  } | null;
+}
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage =
@@ -2117,8 +2229,9 @@ export type PluginMessage =
   | SettingsEdited
   | LiveFrame
   | SkinRequest
+  | ReferencesHeld
   | ChunkReceived;
-/** Messages the server sends, each in a frame of its own or, a `write` or an `answer`, in chunks. */
+/** Messages the server sends, each in a frame of its own or, a `write`, an `answer` or a `referenceCopy`, in chunks. */
 export type ServerMessage =
   | Welcome
   | Heartbeat
@@ -2137,7 +2250,8 @@ export type ServerMessage =
   | LiveStart
   | LiveStop
   | LiveReceived
-  | SkinAnswer;
+  | SkinAnswer
+  | ReferenceCopy;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -2409,7 +2523,11 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         }
         // Whatever a Skin gave, too: one that is no Shot's id names no Shot.
         if (object.ask === "shot") fields.string("shotId");
+        // The id the tablet's record carries, which the plugin reads as a global id.
+        if (object.ask === "reference") fields.uuid("recipeId");
       });
+    case "referencesHeld":
+      return check<ReferencesHeld>(object, "referencesHeld", (fields) => fields.versionsBySlot("held"));
     case "chunkReceived":
       return check<ChunkReceived>(object, "chunkReceived", (fields) => {
         fields.id();
@@ -2545,6 +2663,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           });
         }
         if (object.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
+        if (object.ask === "reference") fields.optionalObject("result", referenceFields);
         if (object.ask === "status") {
           fields.optionalObject("result", (status) => {
             status.boolean("served");
@@ -2559,9 +2678,37 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           });
         }
       });
+    case "referenceCopy":
+      return check<ReferenceCopy>(object, "referenceCopy", (fields) => {
+        fields.string("id", { nonEmpty: true });
+        fields.recipeSlot("slot");
+        fields.nullableObject("copy", (copy) => {
+          copy.string("version", { nonEmpty: true, maxLength: MAX_REFERENCE_VERSION_LENGTH });
+          copy.optionalBoolean("tooLarge");
+          if (isObject(object.copy) && object.copy.tooLarge === true) {
+            recipeField(copy);
+            copy.absent("reference");
+          } else referenceFields(copy);
+        });
+      });
     default:
       return invalid("Unknown message type");
   }
+}
+
+/** Checks the Recipe an answer or a copy names (`SkinRecipe`). */
+function recipeField(fields: FieldChecker): void {
+  fields.objectField("recipe");
+  fields.optionalObject("recipe", (recipe) => recipe.string("id", { nonEmpty: true }));
+}
+
+/** Checks a `SkinReference`: its Recipe, and its Reference Shot or null. A Shot's own fields are the plugin's to pass on as they are. */
+function referenceFields(fields: FieldChecker): void {
+  recipeField(fields);
+  fields.nullableObject("reference", (reference) => {
+    reference.objectField("shot");
+    reference.boolean("profileDiffers");
+  });
 }
 
 interface DecaidRelease {
@@ -2647,6 +2794,20 @@ class FieldChecker {
 
   boolean(key: string): void {
     if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+  }
+
+  /** A Recipe Slot's number. */
+  recipeSlot(key: string): void {
+    if (!isRecipeSlot(this.object[key])) this.problem(key, `must be a Recipe Slot, 1 to ${RECIPE_SLOTS}`);
+  }
+
+  /** The version of a Reference Shot copy for each of some Recipe Slots, by the slot's number (`ReferencesHeld.held`). */
+  versionsBySlot(key: string): void {
+    const value = this.object[key];
+    const held = isObject(value) ? Object.entries(value) : null;
+    const valid = ([slot, version]: [string, unknown]) =>
+      /^[1-9]\d*$/.test(slot) && isRecipeSlot(Number(slot)) && typeof version === "string" && version !== "" && version.length <= MAX_REFERENCE_VERSION_LENGTH;
+    if (!held?.every(valid)) this.problem(key, "must be an object of versions by Recipe Slot");
   }
 
   optionalBoolean(key: string): void {

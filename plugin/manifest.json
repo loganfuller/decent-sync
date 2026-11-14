@@ -39,6 +39,7 @@
     { "id": "status", "type": "http", "data": {} },
     { "id": "changes", "type": "websocket", "data": {} },
     { "id": "shots", "type": "http", "data": {} },
-    { "id": "shot", "type": "http", "data": {} }
+    { "id": "shot", "type": "http", "data": {} },
+    { "id": "reference", "type": "http", "data": {} }
   ]
 }
