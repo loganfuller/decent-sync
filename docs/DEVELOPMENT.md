@@ -117,9 +117,17 @@ Replace `X.Y.Z` with the new version.
    their own. If the release added any other, wait for its run on `main` to
    pass and rebuild again.
 
-2. Tag the resulting commit on `main` as `vX.Y.Z`, and push the tag. A tag on
-   any other commit fails the release, because pull request CI tests a merge
-   with `main` rather than the tagged commit.
+   In the same change, remove any test under `server/test/latest-release/`
+   that checks the latest release lacks something this release adds. Once the
+   tag exists this release is the latest one, and such a test then fails on
+   every pull request.
+
+2. Once CI has passed on the resulting commit as a push to `main`, tag it as
+   `vX.Y.Z` and push the tag. The latest release is the newest tag on `main`,
+   so a tag pushed while that run is under way changes it partway through the
+   jobs that test against it, and can fail them. A tag on any other commit
+   fails the release, because pull request CI tests a merge with `main`
+   rather than the tagged commit.
 3. Once the release is published, deploy it to every server you run before
    tagging the next. Decaid installs the new plugin on every tablet within 12
    hours, and a plugin two releases ahead of its server falls outside what the
