@@ -1937,11 +1937,16 @@ export const REQUESTS_WIRE_REVISION = 3;
 
 /**
  * What a request may ask (`SkinRequest.ask`): `status`, whether the
- * connection's Machine is served, and which Machine and Location it is.
+ * connection's Machine is served, and which Machine and Location it is;
+ * `shots`, a page of the Shots at its Machine's Location; and `shot`, one of
+ * those Shots whole (ticket #509).
  */
-export const SKIN_ASKS = ["status"] as const;
+export const SKIN_ASKS = ["status", "shots", "shot"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
+
+/** The most Shots a page of a Location's Shots holds (`ask: "shots"`), and how many it holds where its request names no `limit`. */
+export const MAX_SHOTS_PAGE = 50;
 
 /**
  * Something the plugin asks the server for a Skin on its tablet (ADR-0030),
@@ -1955,13 +1960,27 @@ export type SkinAsk = (typeof SKIN_ASKS)[number];
  * about a Shot follows that Shot's delivery. `status` depends on none, and
  * goes at once.
  */
-export interface SkinRequest {
+export type SkinRequest = {
   type: "request";
   /** Matches its answer to it. The plugin never repeats one. */
   id: string;
-  /** What is asked, one of SKIN_ASKS. Whatever else one needs goes in fields of its own beside it. */
-  ask: SkinAsk;
-}
+} & SkinQuestion;
+
+/** What a request asks, one of SKIN_ASKS, with whatever else that ask needs in fields of its own beside it. */
+export type SkinQuestion =
+  | { ask: "status" }
+  | {
+      ask: "shots";
+      /** How many Shots the page may hold, from 1 to MAX_SHOTS_PAGE, which it is where absent. */
+      limit?: number;
+      /** The `nextCursor` of the page before the one asked for, as the server gave it; absent for the first page. */
+      cursor?: string;
+    }
+  | {
+      ask: "shot";
+      /** The Shot's id, which is Decaid's. */
+      shotId: string;
+    };
 
 /**
  * Why a connection's Machine is not served (ADR-0030):
@@ -1997,15 +2016,98 @@ export interface SkinStatus {
 }
 
 /**
- * The server's answer to a `request`, repeating its id and what it asked.
- * Sent once for each request, and never again.
+ * A Recipe as an answer names it for a tablet: by its id and name, and by
+ * the id of that tablet's DYE2 record of it, which its Workflow names
+ * (`context.extras.dye.recipeId`, ADR-0022); null where the tablet holds no
+ * record of it.
  */
-export interface SkinAnswer {
-  type: "answer";
+export interface SkinRecipe {
   id: string;
-  ask: "status";
-  result: SkinStatus;
+  name: string | null;
+  recordId: string | null;
 }
+
+/**
+ * A Shot at the asking Machine's Location, as a page of them lists it
+ * (ticket #509). Each value is as the Shot recorded it, null where it
+ * recorded none.
+ */
+export interface SkinShotRow {
+  /** The Shot's id, which is Decaid's. */
+  id: string;
+  /** When it was pulled, a UTC instant. */
+  pulledAt: string;
+  /** The Machine it is credited to. */
+  machine: Named;
+  /** Whether the asking tablet holds the Shot: it is the one that last reported it. */
+  onThisTablet: boolean;
+  /** The Recipe it was pulled with, whichever Location that Recipe belongs to; null where it was pulled with none. */
+  recipe: SkinRecipe | null;
+  /** The coffee's roaster and name, as its Workflow recorded them. */
+  bean: { roaster: string | null; name: string | null };
+  /** The dose weighed, and the dose its Workflow aimed for, in grams. */
+  dose: number | null;
+  targetDose: number | null;
+  /** The yield weighed, and the yield it aimed for, in grams. */
+  yield: number | null;
+  targetYield: number | null;
+  /** How long it ran, in seconds, its Preheat left out. */
+  duration: number | null;
+  /** Its rating on Decaid's scale of 0 to 10, where 0 is unrated. */
+  rating: number | null;
+  barista: string | null;
+  hasNote: boolean;
+  /** Whether it is an Unfinished Shot, as a Shot Summary counts one: nothing poured. */
+  unfinished: boolean;
+  /** The Recipes of the asking Machine's Location, Archived ones left out, that it is the Reference Shot of (ADR-0029), by name. */
+  referenceOf: SkinRecipe[];
+}
+
+/** A page of the Shots at the asking Machine's Location, newest first by when they were pulled. */
+export interface SkinShots {
+  shots: SkinShotRow[];
+  /** What a request for the next page carries as its `cursor`; null where this page is the last. */
+  nextCursor: string | null;
+}
+
+/** One of those Shots whole. */
+export interface SkinShot {
+  /**
+   * Its record with its `measurements`, as the server stores them, which is
+   * as Decaid sent them: the shape Decaid gives a tablet's own Shot.
+   */
+  shot: Record<string, unknown>;
+  /** The Recipe it was pulled with, as a row names it. */
+  recipe: SkinRecipe | null;
+  /** The Recipes it is the Reference Shot of, as a row names them. */
+  referenceOf: SkinRecipe[];
+}
+
+/**
+ * Why the server refuses what a request asks, in place of a result. `status`
+ * is never refused: it says why its Machine is not served.
+ *
+ * - `captureOnly` and `hardwareMismatch`: the connection's Machine is not
+ *   served (NOT_SERVED);
+ * - `noSuchShot`: the Shot asked for is none its Machine's Location lists,
+ *   whether or not the server holds it;
+ * - `invalidCursor`: the cursor is none the server gave.
+ */
+export const SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor"] as const;
+
+export type SkinRefusal = (typeof SKIN_REFUSALS)[number];
+
+/**
+ * The server's answer to a `request`, repeating its id and what it asked,
+ * with its `result` or, in its place, why it is `refused`. Sent once for
+ * each request, and never again.
+ */
+export type SkinAnswer = { type: "answer"; id: string } & (
+  | { ask: "status"; result: SkinStatus }
+  | { ask: "shots"; result: SkinShots }
+  | { ask: "shot"; result: SkinShot }
+  | { ask: "shots" | "shot"; refused: SkinRefusal }
+);
 
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage =
@@ -2312,6 +2414,13 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       return check<SkinRequest>(object, "request", (fields) => {
         fields.id();
         fields.oneOf("ask", SKIN_ASKS);
+        if (object.ask === "shots") {
+          if (object.limit !== undefined) fields.integer("limit", { positive: true, within: MAX_SHOTS_PAGE });
+          // Whatever a Skin gave: the server says whether it is a cursor of its own.
+          if (object.cursor !== undefined) fields.string("cursor");
+        }
+        // Whatever a Skin gave, too: one that is no Shot's id names no Shot.
+        if (object.ask === "shot") fields.string("shotId");
       });
     case "chunkReceived":
       return check<ChunkReceived>(object, "chunkReceived", (fields) => {
@@ -2435,8 +2544,19 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       return check<SkinAnswer>(object, "answer", (fields) => {
         fields.string("id", { nonEmpty: true });
         fields.oneOf("ask", SKIN_ASKS);
+        if (object.ask !== "status" && object.refused !== undefined) {
+          fields.oneOf("refused", SKIN_REFUSALS);
+          return fields.absent("result");
+        }
         fields.objectField("result");
-        // Each ask's result is checked as that ask's.
+        // Each ask's result is checked as that ask's. A Shot's own fields are the plugin's to pass on as they are.
+        if (object.ask === "shots") {
+          fields.optionalObject("result", (page) => {
+            page.array("shots", (shot) => isObject(shot) && typeof shot.id === "string", MAX_SHOTS_PAGE);
+            page.optionalString("nextCursor");
+          });
+        }
+        if (object.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
         if (object.ask === "status") {
           fields.optionalObject("result", (status) => {
             status.boolean("served");

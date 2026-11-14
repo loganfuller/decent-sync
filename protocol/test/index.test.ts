@@ -47,12 +47,14 @@ import {
   steamOff,
   steamTimeOf,
   MAX_REFUSAL_LENGTH,
+  MAX_SHOTS_PAGE,
   MAX_WRITTEN_FIELDS,
   NOT_SERVED,
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
   REQUESTS_WIRE_REVISION,
   SKIN_ASKS,
+  SKIN_REFUSALS,
   type SkinAnswer,
   type SkinRequest,
   WIRE_REVISION,
@@ -602,8 +604,9 @@ describe("Requests for a Skin", () => {
 
   it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
     expect(REQUESTS_WIRE_REVISION).toBe(3);
-    expect(SKIN_ASKS).toEqual(["status"]);
+    expect(SKIN_ASKS).toEqual(["status", "shots", "shot"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
+    expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor"]);
   });
 
   it("reads a request by its id and what it asks, which only the plugin sends", () => {
@@ -614,11 +617,53 @@ describe("Requests for a Skin", () => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    expect(problem({ ...request, ask: "shots" })).toBe("request.ask must be one of status");
+    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot");
     expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
     expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
     expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
     expect(problem({ ...request, ask: "secret" })).not.toContain("secret");
+  });
+
+  it("reads a request for a page of Shots by its size and cursor, and one for a Shot by its id, whatever a Skin gave for those", () => {
+    const page = { ...request, ask: "shots" };
+    const whole = { ...request, ask: "shot", shotId: "a Shot's id" };
+    for (const message of [page, { ...page, limit: 1 }, { ...page, limit: MAX_SHOTS_PAGE, cursor: "anything a Skin gave" }, { ...page, cursor: "" }, whole, { ...whole, shotId: "" }]) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    }
+    const problem = (message: unknown) => {
+      const result = decodePluginMessage(frame(message));
+      return result.ok ? null : result.problem;
+    };
+    // The plugin checks a page's size before it asks, so one out of range is no plugin's.
+    expect(problem({ ...page, limit: 0 })).toBe("request.limit must be positive");
+    expect(problem({ ...page, limit: MAX_SHOTS_PAGE + 1 })).toBe(`request.limit must be from -${MAX_SHOTS_PAGE} to ${MAX_SHOTS_PAGE}`);
+    expect(problem({ ...page, limit: 2.5 })).toBe("request.limit must be a whole number");
+    expect(problem({ ...page, cursor: 7 })).toBe("request.cursor must be a string");
+    expect(problem({ ...request, ask: "shot" })).toBe("request.shotId must be a string");
+    // The status takes neither, and ignores them as any field it doesn't know.
+    expect(decodePluginMessage(frame({ ...request, limit: 0, shotId: 7 }))).toMatchObject({ ok: true });
+  });
+
+  it("reads an answer with a page of Shots or a Shot whole, or the refusal in its place", () => {
+    const answer = { type: "answer", id: request.id };
+    const row = { id: "a Shot's id", pulledAt: "2026-11-14T12:00:00.000Z", future: true };
+    const page = { ...answer, ask: "shots", result: { shots: [row], nextCursor: "next" } };
+    const whole = { ...answer, ask: "shot", result: { shot: { id: "a Shot's id", measurements: [] }, recipe: null, referenceOf: [] } };
+    const accepted = [page, { ...page, result: { shots: [], nextCursor: null } }, whole];
+    for (const refusal of SKIN_REFUSALS) accepted.push({ ...answer, ask: "shots", refused: refusal } as never, { ...answer, ask: "shot", refused: refusal } as never);
+    for (const message of accepted) expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+
+    expect(refused({ ...answer, ask: "shots" })).toBe("answer.result must be an object");
+    expect(refused({ ...page, result: { shots: "none", nextCursor: null } })).toBe(`answer.result.shots must be an array of at most ${MAX_SHOTS_PAGE} valid entries`);
+    expect(refused({ ...page, result: { shots: [{ pulledAt: row.pulledAt }], nextCursor: null } })).toBe(`answer.result.shots must be an array of at most ${MAX_SHOTS_PAGE} valid entries`);
+    expect(refused({ ...page, result: { shots: Array.from({ length: MAX_SHOTS_PAGE + 1 }, () => row), nextCursor: null } })).toContain("answer.result.shots");
+    expect(refused({ ...page, result: { shots: [], nextCursor: 7 } })).toBe("answer.result.nextCursor must be a string or null");
+    expect(refused({ ...whole, result: { shot: "a Shot's id" } })).toBe("answer.result.shot must be an object");
+    // A refusal stands in place of a result, is one the plugin knows, and is never the status's.
+    expect(refused({ ...page, refused: "noSuchShot" })).toBe("answer.result must be absent");
+    expect(refused({ ...answer, ask: "shot", refused: "secret" })).toBe(`answer.refused must be one of ${SKIN_REFUSALS.join(", ")}`);
+    expect(refused({ ...served, refused: "captureOnly" })).toBeNull();
+    expect(refused({ ...answer, ask: "status", refused: "captureOnly" })).toBe("answer.result must be an object");
   });
 
   it("reads an answer to status: served, or not and why, with the Machine and Location or neither", () => {
@@ -632,7 +677,7 @@ describe("Requests for a Skin", () => {
 
   it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
     expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
-    expect(refused({ ...served, ask: "shots" })).toBe("answer.ask must be one of status");
+    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot");
     expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
     expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
     // Why it is not served goes with not being served, and only with it.

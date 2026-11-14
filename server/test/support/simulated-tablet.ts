@@ -146,7 +146,8 @@ import { opened } from "./test-scope.js";
 //   declares heard (`_handlePluginSocketEndpoint` in plugins_handler.dart);
 //   `failEmits` makes it throw. `callEndpoint` calls one of the plugin's
 //   HTTP endpoints as a skin does through
-//   `/api/v1/plugins/{id}/{endpoint}`, answered only for an `http` endpoint
+//   `/api/v1/plugins/{id}/{endpoint}`, with the `query` its address
+//   carries, answered only for an `http` endpoint
 //   the manifest declares, with `api` (`_handlePluginApiEndpoint`). The
 //   plugin's handler may answer with a promise, which Decaid awaits for
 //   30 s of the tablet's time (`__dispatchPluginHttp` and
@@ -1634,7 +1635,7 @@ export class SimulatedTablet {
    * of a call that takes about three: a test whose calls may take that long
    * runs its server with a longer heartbeat interval.
    */
-  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; atTabletPace?: boolean } = {}): Promise<EndpointAnswer> {
+  async callEndpoint(endpoint: string, options: { method?: string; body?: unknown; query?: Record<string, string>; atTabletPace?: boolean } = {}): Promise<EndpointAnswer> {
     const json = (status: number, body: unknown): EndpointAnswer => ({ status, headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
     const declared = this.endpoints.find((candidate) => candidate.id === endpoint);
     if (this.unloaded) return json(404, { error: `plugin with ${this.pluginId} not loaded` });
@@ -1649,7 +1650,7 @@ export class SimulatedTablet {
       method: options.method ?? "GET",
       headers: {},
       body: options.body === undefined ? null : JSON.parse(JSON.stringify(options.body)),
-      query: {},
+      query: { ...options.query },
     };
     let answer: Record<string, unknown>;
     let timer: number | undefined;

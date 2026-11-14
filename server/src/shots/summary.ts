@@ -271,7 +271,7 @@ const LEFT_OUT = Prisma.sql`coalesce(lower(s.record -> 'workflow' -> 'profile' -
  * nothing poured. A Shot whose stored values aren't worked out yet
  * (`AWAITING`) counts as poured.
  */
-const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
+export const UNFINISHED = Prisma.sql`coalesce(NOT s.poured AND s.time_to_first_drip IS NULL, false)`;
 
 /**
  * Whether the Shot of `shots` aliased `s` awaits its stored values: stored

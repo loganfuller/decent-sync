@@ -75,6 +75,8 @@ export class Sender {
   private readonly waitingSmall: Waiting[] = [];
   /** In the order sent. */
   private readonly unconfirmed: Unconfirmed[] = [];
+  /** The bytes of the chunks still to send, in both queues. */
+  private waitingFrameBytes = 0;
   /** The bytes of the chunks unconfirmed. */
   private unconfirmedBytes = 0;
   /** The bytes of the messages sent whole that no confirmation covers yet. */
@@ -102,8 +104,20 @@ export class Sender {
     // two messages put back together at once must not share a name.
     const id = `message-${++this.named}`;
     const queue = small ? this.waitingSmall : this.waiting;
-    chunks(text, id).forEach((frame: Frame, index) => queue.push({ id, index, bytes: frame.bytes, text: frame.text }));
+    chunks(text, id).forEach((frame: Frame, index) => {
+      queue.push({ id, index, bytes: frame.bytes, text: frame.text });
+      this.waitingFrameBytes += frame.bytes;
+    });
     this.pump();
+  }
+
+  /**
+   * The bytes it holds still to send, until the plugin confirms what was
+   * sent before them: the server's memory, for as long as the plugin is slow
+   * to take them. The gateway asks before it answers a request.
+   */
+  get waitingBytes(): number {
+    return this.waitingFrameBytes;
   }
 
   /** The plugin received a chunk, and so every frame sent before it. One naming no chunk in flight changes nothing. */
@@ -123,6 +137,7 @@ export class Sender {
       const queue = this.waitingSmall.length > 0 ? this.waitingSmall : this.waiting;
       if (queue.length === 0 || this.unconfirmedBytes + queue[0]!.bytes > MAX_UNCONFIRMED_BYTES) return;
       const { id, index, bytes, text } = queue.shift()!;
+      this.waitingFrameBytes -= bytes;
       this.unconfirmed.push({ chunk: { id, index }, bytes });
       this.unconfirmedBytes += bytes;
       this.sendFrame(text);

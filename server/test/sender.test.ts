@@ -5,8 +5,9 @@ import { MAX_UNCONFIRMED_BYTES, MAX_UNCONFIRMED_WHOLE_BYTES, MAX_WHOLE_BYTES, Se
 // A connection's sender of the server's writes and answers (ticket #508),
 // through its own interface: what it hands the connection, and when, as the
 // plugin confirms chunks. The gateway's use of it is tested with hand-made
-// frames in confirmed-chunks.test.ts. The messages are made up: only their
-// sizes matter here, and no answer the server gives yet is large.
+// frames in confirmed-chunks.test.ts, and with a Shot larger than 1 MiB read
+// whole in skin-shots.test.ts. The messages are made up: only their sizes
+// matter here.
 
 /** Decaid's limit on the frames it holds for a plugin. */
 const DECAID_INBOUND_LIMIT = 1 << 20;
@@ -96,6 +97,27 @@ describe("The server's sender", () => {
     sender.send(text);
     expect(chunks()).toMatchObject([{ type: "chunk", index: 0, count: 1 }]);
     expect(confirmAll(sender, frames)).toEqual([text]);
+  });
+
+  it("says how many bytes it holds still to send, which the gateway bounds its answers by", () => {
+    const { sender, frames, bytes } = connection();
+    // Sent whole, or as chunks within the limit: nothing waits.
+    sender.send(message("answer", 200));
+    sender.send(message("answer", MAX_UNCONFIRMED_BYTES / 2));
+    expect(sender.waitingBytes).toBe(0);
+    // All of a second message waits behind the first's unconfirmed chunks, and all the first's that the limit holds back.
+    sender.send(message("answer", 3 * DECAID_INBOUND_LIMIT));
+    sender.send(message("answer", 2 * DECAID_INBOUND_LIMIT));
+    const waiting = sender.waitingBytes;
+    expect(waiting).toBeGreaterThan(5 * DECAID_INBOUND_LIMIT - MAX_UNCONFIRMED_BYTES);
+    expect(waiting).toBeLessThan(5.1 * DECAID_INBOUND_LIMIT);
+    // What is handed over as chunks are confirmed waits no longer, down to nothing.
+    const before = bytes();
+    const confirmed = JSON.parse(frames.at(-1)!) as Chunk;
+    sender.received(confirmed.id, confirmed.index);
+    expect(sender.waitingBytes).toBe(waiting - (bytes() - before));
+    confirmAll(sender, frames);
+    expect(sender.waitingBytes).toBe(0);
   });
 
   it("holds back once the chunks unconfirmed would pass the limit, and carries on as they are confirmed", () => {

@@ -360,7 +360,8 @@ describe("the latest release beside the change", () => {
   // request, so its tablet carries on as before. A tablet with the change's
   // plugin that the latest release's instance holds, as during a deploy,
   // sends that server no request, and answers a Skin that the server is too
-  // old to ask, until its connection is to the change's. Once the latest
+  // old to ask, on each of the endpoints that ask it (#509: `shots` and
+  // `shot`), until its connection is to the change's. Once the latest
   // release has requests itself, its server answers them.
   it("answers a Skin as too old to ask while the latest release's server holds its tablet, and leaves a tablet on the latest release's plugin as it was", async () => {
     const location = await apis.change.createLocation("Skin status, both releases", "America/Chicago");
@@ -380,6 +381,10 @@ describe("the latest release beside the change", () => {
         status: 503,
         body: { connected: true, served: false, machine: null, location: null, code: "serverTooOld", message: expect.stringContaining("too old") },
       });
+      const tooOld = { code: "serverTooOld", message: expect.stringContaining("too old") };
+      const shots = await held.tablet.callEndpoint("shots");
+      const shot = await held.tablet.callEndpoint("shot", { query: { id: "any-shot" } });
+      expect([shots.status, JSON.parse(shots.body), shot.status, JSON.parse(shot.body)]).toEqual([503, tooOld, 503, tooOld]);
       expect(requests(held.tablet)).toEqual([]);
     } else {
       expect(await status(held.tablet)).toEqual({ status: 200, body: served });
@@ -389,12 +394,15 @@ describe("the latest release beside the change", () => {
     loaded.push(moved);
     await welcomed(moved);
     expect(await status(moved)).toEqual({ status: 200, body: served });
+    const listed = await moved.callEndpoint("shots");
+    expect([listed.status, JSON.parse(listed.body)]).toEqual([200, { shots: [], nextCursor: null }]);
 
     // The latest release's plugin on the change's server: Decaid answers for an endpoint its manifest lacks, Streamline's
     // answers as it did, and the server sends it no answer.
     const behind = await connected("Skin status, the latest release's plugin", "latest release", "change", { location });
     const declared = (readBuiltPlugin({ latestRelease: true }).manifest.api as { id: string }[]).some((endpoint) => endpoint.id === "status");
     expect((await behind.tablet.callEndpoint("status")).status).toBe(declared ? 200 : 404);
+    if (!declared) expect((await behind.tablet.callEndpoint("shots")).status).toBe(404);
     const skin = await behind.tablet.callEndpoint("skin");
     expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
     if (!declared) expect(behind.tablet.received.filter((frame) => (frame as { type?: unknown }).type === "answer")).toEqual([]);
