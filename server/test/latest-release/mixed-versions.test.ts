@@ -1,5 +1,5 @@
 import path from "node:path";
-import { RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt } from "@decent-sync/protocol";
+import { RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt, writtenRecipeSlot } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
@@ -335,35 +335,45 @@ describe("the latest release beside the change", () => {
   });
 
   // A request puts a Recipe in a slot of 6 to 9 from the release after the one
-  // that first read them (#502): the latest release's server and plugin read
-  // and keep a `stripSlot` of 6 to 9, so the Recipe stays in the slot the
-  // change's server put it in, whichever release's plugin a tablet runs and
-  // whichever release's instance holds it. Beside a release from before them
-  // this fails, as that release's plugin is written the Recipe in no slot.
+  // that first read them (#502): that release's server and plugin read and
+  // keep a `stripSlot` of 6 to 9, so beside it the Recipe is in the slot the
+  // change's server put it in on every tablet, whichever release's plugin it
+  // runs and whichever release's instance holds it. A plugin from before
+  // them, on the change's server, is written the Recipe in no slot
+  // (`writtenRecipeSlot`, #506), and the Recipe keeps its slot all the same.
   it("keeps a Recipe put in slot 7 through REST in slot 7, on each release's plugin and each release's instance, through their reports", async () => {
     const api = apis.change;
     const location = await api.createLocation("Slot 7 through REST", "America/Chicago");
-    const tablets = [
-      (await connected("Slot 7 through REST, the change's plugin", "change", "change", { location })).tablet,
-      (await connected("Slot 7 through REST, the latest release's plugin", "latest release", "change", { location })).tablet,
-      (await connected("Slot 7 through REST, on the latest release", "latest release", "latest release", { location })).tablet,
-      (await connected("Slot 7 through REST, the change's plugin on the latest release", "change", "latest release", { location })).tablet,
-    ];
+    const pairings = [
+      { name: "the change's plugin", plugin: "change", server: "change" },
+      { name: "the latest release's plugin", plugin: "latest release", server: "change" },
+      { name: "on the latest release", plugin: "latest release", server: "latest release" },
+      { name: "the change's plugin on the latest release", plugin: "change", server: "latest release" },
+    ] as const;
+    const tablets: SimulatedTablet[] = [];
+    for (const { name, plugin, server } of pairings) tablets.push((await connected(`Slot 7 through REST, ${name}`, plugin, server, { location })).tablet);
     type Record_ = Record<string, unknown>;
     type Slotted = { recipe: { id: string; slot: number | null; name: string | null } };
     const record = (tablet: SimulatedTablet, id: string) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === id);
     /** Each tablet's record of each Recipe: its slot, and whether it is shown. */
     const held = (...ids: string[]) => tablets.map((tablet) => ids.map((id) => [record(tablet, id)?.stripSlot, record(tablet, id)?.showOnStreamlineDashboard]));
     const onEach = <T>(value: T) => tablets.map(() => value);
+    // What each tablet holds of a Recipe in slot 7: the slot, shown, but none where the change's server writes a plugin
+    // from before slots 6 to 9. The latest release's server writes the slot as it is.
+    const revisions = wireRevisions();
+    const inSeven = pairings.map(({ plugin, server }) => {
+      const slot = server === "change" ? writtenRecipeSlot(7, revisions[plugin]) : 7;
+      return [slot, slot !== null];
+    });
     /** The Recipe as each release's server reads it. */
     const read = async (id: string) => [(await api.get<Slotted>(`/recipes/${id}`)).recipe, (await apis["latest release"].get<Slotted>(`/recipes/${id}`)).recipe];
 
     const { recipe } = await api.send<Slotted>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Seven", dose: 18, yield: 36 } }, 201);
     await expect.poll(() => held(recipe.id)).toEqual(onEach([[1, true]]));
 
-    // Moved to slot 7 through the change's server: every tablet's record holds stripSlot 7, shown.
+    // Moved to slot 7 through the change's server: each tablet's record holds stripSlot 7, shown.
     expect((await api.send<Slotted>("PUT", `/recipes/${recipe.id}/slot`, { slot: 7 })).recipe.slot).toBe(7);
-    await expect.poll(() => held(recipe.id)).toEqual(onEach([[7, true]]));
+    await expect.poll(() => held(recipe.id)).toEqual(inSeven.map((slot) => [slot]));
     expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
 
     // A report from each tablet, of an edit there, keeps the Recipe in slot 7 and reaches the others.
@@ -375,12 +385,12 @@ describe("the latest release beside the change", () => {
       await expect.poll(async () => (await read(recipe.id)).map((seen) => seen.name)).toEqual([name, name]);
       await expect.poll(() => tablets.map((other) => record(other, recipe.id)?.name)).toEqual(onEach(name));
       expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
-      expect(held(recipe.id)).toEqual(onEach([[7, true]]));
+      expect(held(recipe.id)).toEqual(inSeven.map((slot) => [slot]));
     }
 
     // Another created in slot 7 through the change's server takes the slot, and the first is kept in none, on every tablet.
     const { recipe: taking } = await api.send<Slotted>("POST", "/recipes", { locationId: location.id, slot: 7, content: { name: "Seven too", dose: 18, yield: 36 } }, 201);
-    await expect.poll(() => held(taking.id, recipe.id)).toEqual(onEach([[7, true], [null, false]]));
+    await expect.poll(() => held(taking.id, recipe.id)).toEqual(inSeven.map((slot) => [slot, [null, false]]));
     expect([(await read(taking.id)).map(({ slot }) => slot), (await read(recipe.id)).map(({ slot }) => slot)]).toEqual([[7, 7], [null, null]]);
   });
 
