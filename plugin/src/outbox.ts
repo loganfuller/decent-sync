@@ -52,12 +52,11 @@ export type RecordReader = (id: string, deliveryId: string) => Promise<Delivery 
 
 /**
  * A wait for what the outbox held as it began (`whenDelivered`): the
- * deliveries queued then, by id, unknown until those kept by earlier loads
- * are read back, and the records new on the tablet then that are still to
- * be read, by their keys.
+ * deliveries queued then, by id, and the records new on the tablet then that
+ * are still to be read, by their keys.
  */
 interface Wait {
-  deliveries: Set<string> | undefined;
+  deliveries: Set<string>;
   records: Set<string>;
   done(delivered: boolean): void;
 }
@@ -160,9 +159,6 @@ export class Outbox {
     for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
     this.restoring = false;
     for (const delivery of since) if (isKept(delivery)) this.keep(delivery);
-    // A wait begun meanwhile is for those read back too, as they were kept before it.
-    for (const wait of this.waits) wait.deliveries ??= new Set(this.queued.keys());
-    this.settleWaits();
     // Keeping those queued since may have dropped the oldest.
     const sending = restored.filter((delivery) => this.queued.has(delivery.id)).length;
     if (sending > 0) this.log(`Sending ${sending} Workflow and machine state ${sending === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
@@ -196,16 +192,17 @@ export class Outbox {
    * then follows them, as a request about a Shot follows that Shot's
    * delivery (ADR-0030). The records the server asked for to fill in its
    * history are not waited for, as there may be thousands. Calls it with
-   * false if the connection closes first, or at once while none is sending.
-   * Returns a function that gives the wait up, after which `done` is not
-   * called.
+   * false if the connection closes first, or at once while none is sending,
+   * or while the deliveries earlier loads kept are still to be read back,
+   * which are not yet known to wait for. Returns a function that gives the
+   * wait up, after which `done` is not called.
    */
   whenDelivered(done: (delivered: boolean) => void): () => void {
-    if (!this.sendMessage) {
+    if (!this.sendMessage || this.restoring) {
       done(false);
       return () => {};
     }
-    const wait: Wait = { deliveries: this.restoring ? undefined : new Set(this.queued.keys()), records: new Set(this.fresh), done };
+    const wait: Wait = { deliveries: new Set(this.queued.keys()), records: new Set(this.fresh), done };
     this.waits.add(wait);
     this.settleWaits();
     return () => void this.waits.delete(wait);
@@ -324,7 +321,7 @@ export class Outbox {
         for (const watcher of this.watchers) watcher(delivery);
       }
       // A wait for the record is now one for its delivery, or for nothing more of it.
-      for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries?.add(delivery.id);
+      for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries.add(delivery.id);
       this.settleWaits();
     }
     if (generation !== this.connections || !this.sendMessage) return;
@@ -372,7 +369,6 @@ export class Outbox {
       this.whileRestoring.delete(oldest);
       this.whileRestoringCharacters -= size;
       this.queued.delete(oldest);
-      this.noLongerQueued(oldest);
       this.logDropping();
     }
   }
@@ -399,14 +395,14 @@ export class Outbox {
 
   /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
   private noLongerQueued(id: string): void {
-    for (const wait of this.waits) wait.deliveries?.delete(id);
+    for (const wait of this.waits) wait.deliveries.delete(id);
     this.settleWaits();
   }
 
   /** Ends each wait left with nothing to wait for. */
   private settleWaits(): void {
     for (const wait of [...this.waits]) {
-      if (wait.deliveries === undefined || wait.deliveries.size > 0 || wait.records.size > 0) continue;
+      if (wait.deliveries.size > 0 || wait.records.size > 0) continue;
       this.waits.delete(wait);
       wait.done(true);
     }

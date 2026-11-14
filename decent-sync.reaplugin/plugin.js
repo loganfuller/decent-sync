@@ -4146,8 +4146,6 @@ var __decentSync = (() => {
       for (const delivery of [...restored, ...since]) this.queued.set(delivery.id, delivery);
       this.restoring = false;
       for (const delivery of since) if (isKept(delivery)) this.keep(delivery);
-      for (const wait of this.waits) wait.deliveries ?? (wait.deliveries = new Set(this.queued.keys()));
-      this.settleWaits();
       const sending = restored.filter((delivery) => this.queued.has(delivery.id)).length;
       if (sending > 0) this.log(`Sending ${sending} Workflow and machine state ${sending === 1 ? "event" : "events"} kept from before the plugin last unloaded.`);
       this.pump();
@@ -4178,17 +4176,18 @@ var __decentSync = (() => {
      * then follows them, as a request about a Shot follows that Shot's
      * delivery (ADR-0030). The records the server asked for to fill in its
      * history are not waited for, as there may be thousands. Calls it with
-     * false if the connection closes first, or at once while none is sending.
-     * Returns a function that gives the wait up, after which `done` is not
-     * called.
+     * false if the connection closes first, or at once while none is sending,
+     * or while the deliveries earlier loads kept are still to be read back,
+     * which are not yet known to wait for. Returns a function that gives the
+     * wait up, after which `done` is not called.
      */
     whenDelivered(done) {
-      if (!this.sendMessage) {
+      if (!this.sendMessage || this.restoring) {
         done(false);
         return () => {
         };
       }
-      const wait = { deliveries: this.restoring ? void 0 : new Set(this.queued.keys()), records: new Set(this.fresh), done };
+      const wait = { deliveries: new Set(this.queued.keys()), records: new Set(this.fresh), done };
       this.waits.add(wait);
       this.settleWaits();
       return () => void this.waits.delete(wait);
@@ -4293,7 +4292,7 @@ var __decentSync = (() => {
           this.queued.set(delivery.id, delivery);
           for (const watcher of this.watchers) watcher(delivery);
         }
-        for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries?.add(delivery.id);
+        for (const wait of this.waits) if (wait.records.delete(key) && delivery) wait.deliveries.add(delivery.id);
         this.settleWaits();
       }
       if (generation !== this.connections || !this.sendMessage) return;
@@ -4339,7 +4338,6 @@ var __decentSync = (() => {
         this.whileRestoring.delete(oldest);
         this.whileRestoringCharacters -= size;
         this.queued.delete(oldest);
-        this.noLongerQueued(oldest);
         this.logDropping();
       }
     }
@@ -4363,13 +4361,13 @@ var __decentSync = (() => {
     }
     /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
     noLongerQueued(id) {
-      for (const wait of this.waits) wait.deliveries?.delete(id);
+      for (const wait of this.waits) wait.deliveries.delete(id);
       this.settleWaits();
     }
     /** Ends each wait left with nothing to wait for. */
     settleWaits() {
       for (const wait of [...this.waits]) {
-        if (wait.deliveries === void 0 || wait.deliveries.size > 0 || wait.records.size > 0) continue;
+        if (wait.deliveries.size > 0 || wait.records.size > 0) continue;
         this.waits.delete(wait);
         wait.done(true);
       }

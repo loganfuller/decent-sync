@@ -197,6 +197,7 @@ interface Session {
  * before it are stored, by one `answer` (`SkinRequestsService`, ADR-0030).
  * It is no delivery: it is neither acknowledged nor remembered, so one whose
  * id repeats an earlier request's, or a delivery's, is answered as any other.
+ * Only the connection holding its Machine is answered.
  *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
@@ -513,13 +514,17 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * Answers a request the plugin makes for a Skin (ADR-0030), once. Requests
    * came with a wire revision, so one from a plugin behind it, which no
    * plugin sends, is a protocol error, and no answer goes to a plugin that
-   * could not read it.
+   * could not read it. One from a connection that no longer holds its
+   * Machine, as once another hello took it and before this instance was
+   * told, has no answer: the connection is ended as that notification ends
+   * it, and its plugin answers the Skin as unreachable.
    */
   private async request(session: Session, request: SkinRequest): Promise<void> {
     if (!peerHasWireRevision(session.wireRevision!, REQUESTS_WIRE_REVISION)) {
       return this.refuse(session, "protocol_error", `A request needs a plugin at wire revision ${REQUESTS_WIRE_REVISION} or newer`);
     }
-    const answer = await this.skinRequests.answer({ machineId: session.machine!.id, identity: session.identity! }, request);
+    const answer = await this.skinRequests.answer({ sessionId: session.id, machineId: session.machine!.id, identity: session.identity! }, request);
+    if (answer === null) return this.check([session.live!]);
     if (!session.closing) this.send(session, answer);
   }
 
