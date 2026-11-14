@@ -2,11 +2,22 @@ import { REQUESTS_WIRE_REVISION, type SkinAnswer, type SkinAsk, type SkinRequest
 import type { Outbox } from "./outbox.js";
 
 /**
+ * Whether each ask goes out behind what the outbox held as the Skin asked
+ * (`Outbox.whenDelivered`), so that an answer about a record follows that
+ * record's delivery, as one about a Shot just pulled must (ADR-0030), or at
+ * once. `status` reads only where the Machine takes part, which nothing the
+ * tablet reports changes, so it goes at once: behind a tablet's backlog
+ * after an outage it would run out of time for nothing. An ask that reads
+ * or names what the tablet delivers follows it.
+ */
+export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false };
+
+/**
  * How long a request has to be answered, from when the Skin asked: its wait
- * behind the outbox, its way to the server and the answer's way back. One
- * unanswered by then is answered to the Skin as unreachable, well inside the
- * 30 s Decaid gives a plugin to answer an HTTP request (`pluginHttpTimeout`
- * in decaid:lib/src/plugins/plugin_manager.dart).
+ * behind the outbox, where it has one, its way to the server and the
+ * answer's way back. One unanswered by then is answered to the Skin as
+ * unreachable, well inside the 30 s Decaid gives a plugin to answer an HTTP
+ * request (`pluginHttpTimeout` in decaid:lib/src/plugins/plugin_manager.dart).
  */
 export const SKIN_REQUEST_MS = 10_000;
 
@@ -23,7 +34,8 @@ export type Asked = { answer: SkinAnswer } | { unanswered: Unanswered };
 
 /**
  * What the plugin asks the server for a Skin on its tablet (ADR-0030): each
- * request goes out on the connection welcomed as the Skin asked, once the
+ * request goes out on the connection welcomed as the Skin asked, at once or,
+ * for an ask that follows the tablet's reports (FOLLOWS_REPORTS), once the
  * server has acknowledged what the outbox held then (`Outbox.whenDelivered`),
  * and is matched to its answer by its id. A request is never kept, and never
  * sent again: it is answered as unreachable at once while the plugin is not
@@ -37,7 +49,11 @@ export class SkinRequests {
   /** The requests awaiting an answer, by id, each with what settles it. */
   private readonly pending = new Map<string, (asked: Asked) => void>();
 
-  constructor(private readonly outbox: Pick<Outbox, "nextId" | "whenDelivered">) {}
+  constructor(
+    private readonly outbox: Pick<Outbox, "nextId" | "whenDelivered">,
+    /** Which asks follow the tablet's reports: FOLLOWS_REPORTS, but in a test of one that does while none yet does. */
+    private readonly followsReports: Readonly<Record<SkinAsk, boolean>> = FOLLOWS_REPORTS,
+  ) {}
 
   /** Whether the plugin holds a connection the server welcomed. */
   get connected(): boolean {
@@ -76,11 +92,12 @@ export class SkinRequests {
       };
       const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
       this.pending.set(id, settle);
+      const send = () => void connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
+      if (!this.followsReports[ask]) return send();
       giveUp = this.outbox.whenDelivered((delivered) => {
         if (!delivered) return settle({ unanswered: "unreachable" });
         // Settled already, as by its time running out while it waited.
-        if (!this.pending.has(id)) return;
-        connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
+        if (this.pending.has(id)) send();
       });
     });
   }

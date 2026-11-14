@@ -1938,9 +1938,11 @@ export type SkinAsk = (typeof SKIN_ASKS)[number];
  * neither stores nor acknowledges it, and remembers nothing of it, and the
  * plugin never sends it again. One unanswered when its connection closes,
  * or once its time is up, is answered to the Skin as unreachable. The plugin
- * sends it once the server has acknowledged what its outbox held as the Skin
- * asked, and the server answers it in its turn among the connection's
- * frames, so an answer about a Shot follows that Shot's delivery.
+ * sends one whose answer depends on what the tablet reports once the server
+ * has acknowledged what its outbox held as the Skin asked, and the server
+ * answers each in its turn among the connection's frames, so an answer
+ * about a Shot follows that Shot's delivery. `status` depends on none, and
+ * goes at once.
  */
 export interface SkinRequest {
   type: "request";

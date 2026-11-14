@@ -4880,10 +4880,12 @@ var __decentSync = (() => {
   }
 
   // src/skin-requests.ts
+  var FOLLOWS_REPORTS = { status: false };
   var SKIN_REQUEST_MS = 1e4;
   var SkinRequests = class {
-    constructor(outbox) {
+    constructor(outbox, followsReports = FOLLOWS_REPORTS) {
       __publicField(this, "outbox", outbox);
+      __publicField(this, "followsReports", followsReports);
       /** The welcomed connection, with the wire revision its server's welcome gave. */
       __publicField(this, "connection");
       /** The requests awaiting an answer, by id, each with what settles it. */
@@ -4923,10 +4925,11 @@ var __decentSync = (() => {
         };
         const timer = setTimeout(() => settle({ unanswered: "unreachable" }), SKIN_REQUEST_MS);
         this.pending.set(id, settle);
+        const send = () => void connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
+        if (!this.followsReports[ask]) return send();
         giveUp = this.outbox.whenDelivered((delivered) => {
           if (!delivered) return settle({ unanswered: "unreachable" });
-          if (!this.pending.has(id)) return;
-          connection.send({ type: "request", id, ask }).catch(() => settle({ unanswered: "unreachable" }));
+          if (this.pending.has(id)) send();
         });
       });
     }

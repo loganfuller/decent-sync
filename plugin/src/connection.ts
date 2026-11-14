@@ -124,7 +124,8 @@ type TimerName = "restore" | "reconnect" | "heartbeat" | "silence" | "connect" |
  *
  * A Skin on the tablet asks the plugin what the server holds (ADR-0030): the
  * plugin sends each request on the connection welcomed then, behind what the
- * outbox held, and the server's answer settles it (skin-requests.ts). A Skin
+ * outbox held where its answer depends on that, and the server's answer
+ * settles it (skin-requests.ts). A Skin
  * listening is told as a connection is welcomed and as a welcomed one is
  * lost (skin-api.ts).
  */

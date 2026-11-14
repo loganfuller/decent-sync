@@ -84,8 +84,9 @@ const RESTORE_RETRY_MAX_MS = 5 * 60_000;
  * the server is unreachable only their ids are held.
  *
  * A request the plugin makes for a Skin is no delivery, and never waits
- * here: `whenDelivered` tells it once the server has acknowledged what the
- * outbox held as the Skin asked, so it goes out behind that (ADR-0030).
+ * here: `whenDelivered` tells one that follows the tablet's reports once the
+ * server has acknowledged what the outbox held as the Skin asked, so it
+ * goes out behind that (ADR-0030).
  */
 export class Outbox {
   private readonly queued = new Map<string, Delivery>();
@@ -106,10 +107,10 @@ export class Outbox {
   private readonly handed = new Set<string>();
   private working = false;
   private stopped = false;
-  private retryTimer?: number;
+  private retryTimer?: ReturnType<typeof setTimeout>;
   /** Set until the deliveries kept by earlier loads are read back, and nothing is sent meanwhile. */
   private restoring = true;
-  private restoreTimer?: number;
+  private restoreTimer?: ReturnType<typeof setTimeout>;
   private restoreDelayMs = RESTORE_RETRY_MS;
   /** The Workflow and machine state deliveries queued while restoring, oldest first, with the length of their JSON. */
   private readonly whileRestoring = new Map<string, number>();

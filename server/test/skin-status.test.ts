@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { derivedShot } from "./support/shot-fixtures.js";
-import { RawConnection, Refusal, type SimulatedTablet, derivedWorkflow, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -17,7 +17,9 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // against a real server, for the status of each kind of Machine and the
 // pushes; against a stand-in server for what the real one never does, an
 // answer that comes late or not at all; and with raw frames for the request
-// and answer themselves. The endpoint and push Streamline reads are covered
+// and answer themselves. The status is asked at once; the wait a later ask
+// about records makes behind the tablet's reports is tested on the plugin's
+// outbox (plugin/test/skin-requests.test.ts). The endpoint and push Streamline reads are covered
 // by skin-notices.test.ts, which this ticket leaves as it was. Serials are
 // made up, from 49601.
 
@@ -66,9 +68,9 @@ describe("The plugin's status endpoint, against a server", () => {
     await server?.stop();
   });
 
-  /** A Machine's tablet, connected to an instance, once the plugin has been welcomed there, its Decaid answering `routes` too. */
-  async function connected(machine: CreatedMachine, instance: TestServer = server, hardware = serial++, routes: Record_ = {}): Promise<SimulatedTablet> {
-    const tablet = tablets.syncing(machine, instance, { api: { ...emptyLibrary(hardware), ...routes } });
+  /** A Machine's tablet, connected to an instance, once the plugin has been welcomed there. */
+  async function connected(machine: CreatedMachine, instance: TestServer = server, hardware = serial++): Promise<SimulatedTablet> {
+    const tablet = tablets.syncing(machine, instance, { api: emptyLibrary(hardware) });
     await expect.poll(() => connectionPushes(tablet)).toEqual([true]);
     return tablet;
   }
@@ -198,65 +200,22 @@ describe("The plugin's status endpoint, against a server", () => {
     ]);
   });
 
-  it("sends a request behind the reports that were waiting as the Skin asked: a Shot just pulled is delivered first", async () => {
-    const machine = await api.createMachine("Skin status, behind a Shot", location.id);
+  it("asks for the status at once, with a Shot just pulled still to be delivered", async () => {
+    const machine = await api.createMachine("Skin status, ahead of a Shot", location.id);
     const tablet = await connected(machine);
     expect((await status(tablet)).status).toBe(200);
-    const asked = requestsSent(tablet).length;
 
     // Decaid is slow to read the Shot, so its delivery is still to come as the Skin asks.
     const release = tablet.holdShotReads();
-    const shot = derivedShot("skin-status-behind-a-shot");
+    const shot = derivedShot("skin-status-ahead-of-a-shot");
     tablet.pullShot(shot);
     await expect.poll(() => tablet.inFlightRequests.map((request) => request.route)).toContain(`/shots/${shot.id}`);
-    const answered = status(tablet);
-    // Nothing of the request has left the tablet while the Shot is still to be delivered.
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(requestsSent(tablet)).toHaveLength(asked);
-
-    release();
-    expect((await answered).status).toBe(200);
-    const sent = tablet.sent as Record_[];
-    const delivered = sent.findIndex((frame) => frame.type === "shot" && frame.shotId === shot.id);
-    const requested = sent.findIndex((frame, index) => frame.type === "request" && index > delivered);
-    expect(delivered).toBeGreaterThanOrEqual(0);
-    expect(requestsSent(tablet)).toHaveLength(asked + 1);
-    expect(requested).toBeGreaterThan(delivered);
-    // The server had stored the Shot by the time it answered.
-    expect((await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
-  });
-
-  it("does not hold a request back for a Shot the tablet no longer holds once it comes to read it", async () => {
-    const machine = await api.createMachine("Skin status, Shot gone", location.id);
-    const tablet = await connected(machine);
-    expect((await status(tablet)).status).toBe(200);
-
-    // Decaid reports a Shot stored, and holds it no more by the time the plugin reads it: nothing is delivered.
-    const release = tablet.holdShotReads();
-    tablet.fire("shotStored", { id: "skin-status-shot-gone" });
-    await expect.poll(() => tablet.inFlightRequests.map((request) => request.route)).toContain("/shots/skin-status-shot-gone");
-    const answered = status(tablet);
-    release();
-    expect((await answered).status).toBe(200);
-    expect((tablet.sent as Record_[]).filter((frame) => frame.type === "shot")).toEqual([]);
-  });
-
-  it("does not hold a request back for a Shot Decaid fails to read, then or afterwards", async () => {
-    const machine = await api.createMachine("Skin status, Shot unreadable", location.id);
-    const tablet = await connected(machine, server, serial++, { "/shots/skin-status-shot-unreadable": new Refusal(500, { error: "Internal server error" }) });
-    expect((await status(tablet)).status).toBe(200);
-
-    // The read is under way as the Skin asks, and then fails: the Shot is tried again later, after any other record.
-    const release = tablet.holdShotReads();
-    tablet.fire("shotStored", { id: "skin-status-shot-unreadable" });
-    await expect.poll(() => tablet.inFlightRequests.map((request) => request.route)).toContain("/shots/skin-status-shot-unreadable");
-    const answered = status(tablet);
-    release();
-    expect((await answered).status).toBe(200);
-    await tablet.waitForLog(/Could not read Shot skin-status-shot-unreadable/);
-    // Nor is a later request held back while the Shot still can't be read.
+    // Nothing in the status depends on the Shot, so it is answered with the Shot still on the tablet.
     expect((await status(tablet)).status).toBe(200);
     expect((tablet.sent as Record_[]).filter((frame) => frame.type === "shot")).toEqual([]);
+
+    release();
+    await expect.poll(async () => (await api.call("GET", `/shots/${shot.id}`)).status).toBe(200);
   });
 
   describe("requests and answers, with raw frames", () => {
@@ -361,8 +320,6 @@ describe("A request the server does not answer", () => {
   it("is answered as unreachable once its time is up, well inside the time Decaid gives the plugin, and an answer after that is dropped", async () => {
     const { server, tablet } = await standIn("stand-in token 49611", 49_611);
     try {
-      // Nothing of the welcome's still waiting, so the request goes out at once, at the tablet's sped-up pace.
-      await settled(tablet);
       const before = tablet.readClock();
       const unanswered = await status(tablet, { atTabletPace: true });
       expect(unanswered).toEqual({
@@ -412,10 +369,10 @@ describe("A request the server does not answer", () => {
   const settled = (tablet: SimulatedTablet) =>
     expect.poll(() => tablet.acknowledgedEvery((frame: Record_) => typeof frame.id === "string" && frame.type !== "request") && tablet.inFlightRequests.length === 0).toBe(true);
 
-  it("waits for the server to acknowledge the deliveries queued as the Skin asked, and no later ones", async () => {
+  it("is sent at once, with a delivery the server has yet to acknowledge", async () => {
     const { server, tablet } = await standIn("stand-in token 49615", 49_615);
     try {
-      // The server is slow to store what comes next.
+      // The server is slow to store what comes next, as while a tablet catches up after an outage.
       await settled(tablet);
       const release = server.holdAcks();
       const sentBefore = server.received.length;
@@ -423,53 +380,12 @@ describe("A request the server does not answer", () => {
       const waiting = await server.next("workflow", sentBefore);
 
       const asked = status(tablet);
-      await new Promise((resolve) => setImmediate(resolve));
-      expect(server.received.filter((message) => message.type === "request")).toEqual([]);
-
-      // A delivery queued after the Skin asked, which the server is slower still to store.
-      tablet.setWorkflow(derivedWorkflow({ targetYield: 42 }));
-      const releaseLater = server.holdAcks();
-      release();
       const request = await server.next("request", sentBefore);
-      expect(server.received.indexOf(request)).toBeGreaterThan(server.received.indexOf(waiting));
-      expect(tablet.acks(waiting.id)).toBe(1);
+      expect(tablet.acks(waiting.id)).toBe(0);
       server.send(answer(request.id));
       expect((await asked).status).toBe(200);
-      // Answered with the later delivery sent and still unacknowledged.
-      const later = await server.next("workflow", server.received.indexOf(waiting) + 1);
-      expect(tablet.acks(later.id)).toBe(0);
-      releaseLater();
-    } finally {
-      await server.stop();
-    }
-  });
-
-  it("gives up a request still waiting behind the outbox when its time is up, or its connection closes, and never sends it", async () => {
-    const { server, tablet } = await standIn("stand-in token 49616", 49_616);
-    try {
-      await settled(tablet);
-      const release = server.holdAcks();
-      const sentBefore = server.received.length;
-      tablet.setWorkflow(derivedWorkflow({ targetYield: 43 }));
-      await server.next("workflow", sentBefore);
-
-      // Its time runs out behind a delivery the server has not acknowledged.
-      const before = tablet.readClock();
-      expect(await status(tablet, { atTabletPace: true })).toMatchObject({ status: 503, body: { connected: true, code: "unreachable" } });
-      expect(tablet.readClock() - before).toBeGreaterThanOrEqual(REQUEST_MS);
-      // Another is still waiting there as the connection closes.
-      const asked = status(tablet);
-      await new Promise((resolve) => setImmediate(resolve));
-      const received = server.received.length;
-      server.drop();
-      expect(await asked).toMatchObject({ status: 503, body: { connected: false, code: "unreachable" } });
-
-      // Neither goes out once the server takes the delivery after all, on the next connection.
+      expect(tablet.acks(waiting.id)).toBe(0);
       release();
-      await expect.poll(() => connectionPushes(tablet)).toEqual([true, false, true]);
-      await server.next("collection", received);
-      await settled(tablet);
-      expect(server.received.filter((message) => message.type === "request")).toEqual([]);
     } finally {
       await server.stop();
     }
