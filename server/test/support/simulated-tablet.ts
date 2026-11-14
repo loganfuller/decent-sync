@@ -1451,6 +1451,13 @@ export class SimulatedTablet {
    * `dropConnections`, and every connection opened meanwhile fails, as
    * while the Wi-Fi is down or the server cannot be reached. Decaid's own
    * API still answers.
+   *
+   * The plugin hears of it in a later turn, and a read it has under way goes
+   * on, so it may read a change made on the tablet right after this before it
+   * reconnects, and time one of DYE2's records then (`FirstReads` in
+   * plugin/src/change-detection.ts) rather than on reconnecting. A test that
+   * needs one tablet's edit of such a record timed after another's makes it
+   * once the other's has reached the server (#518).
    */
   loseNetwork(): void {
     this.networkLost = true;
