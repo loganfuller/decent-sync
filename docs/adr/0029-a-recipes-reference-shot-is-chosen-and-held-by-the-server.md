@@ -16,8 +16,8 @@ A chosen reference lets a Location pull against a Shot dialled somewhere else, s
 
 ## Consequences
 
-- **Tablets neither show nor set it yet.** A skin needs the Reference Shot's curves on a tablet that didn't pull it, which waits for the plugin to serve a skin the server's Shots: a later milestone. Until then a skin can only compare with its own tablet's Shots.
-- **A rating never moves it.** Ratings still come only from the tablet that pulled a Shot, and rating a Shot changes no Recipe.
+- **Tablets neither show nor set it until milestone 8.** A skin needs the Reference Shot's curves on a tablet that didn't pull it, which waits for the plugin to serve a skin the server's Shots (ADR-0030). Until then a skin can only compare with its own tablet's Shots.
+- **A rating never moves it.** Until milestone 8 ratings come only from the tablet that pulled a Shot (ADR-0031), and rating a Shot changes no Recipe, wherever it is rated.
 - **It may not match the Recipe.** A Reference Shot can be on another Profile, Machine, Grinder or Location than the Recipe's, by choice or because the Recipe changed since. Nothing clears it; the management interface says where its Profile differs from the Recipe's.
 - **A copy of a Recipe starts with the same Reference Shot,** and chooses its own from then on.
 - **Only a person clears it.** The server never deletes a Shot, so a Recipe keeps its Reference Shot until someone chooses another or clears it. A Shot hidden after it was chosen, because its Pending Machine was dismissed, leaves the Recipe reading as having none until that hardware is adopted.

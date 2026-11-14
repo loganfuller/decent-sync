@@ -23,5 +23,6 @@ A tablet may also choose a Recipe's Reference Shot, which ADR-0029 left to the m
 - **A choice is never queued.** One made while the server can't be reached is refused at once, so nothing changes later behind a barista's back.
 - **Choosing a Reference Shot now reaches tablets.** ADR-0029 had nothing sent to them. A change is announced to the Recipe's Location and each tablet's copy is replaced. It is still not a content edit: it makes no Conflict (ADR-0020) and is no part of DYE2's recipe record.
 - **The wire gains a request and an answer.** It is the first thing the plugin asks of the server. A request is never stored or retried: one unanswered when the connection closes is answered to the Skin as unreachable.
+- **ADR-0009 is amended.** It had the tablet's location view use the REST API. A Skin reads through the plugin instead, and the plugin still speaks to the server only over its WebSocket.
 - **Only a Machine that takes part is served.** A Capture-only Machine's Skin is told so, and shows its tablet's own Shots.
 - **Streamline is unchanged.** The endpoint and push it reads stay as they are, and the new pushes go out on an endpoint of their own.
