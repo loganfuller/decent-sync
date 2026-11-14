@@ -220,7 +220,7 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   /** A Location's own state of its items, for a kind whose state differs by Location; absent for one that has none. */
   state?: LocationStateDescription;
   /** Takes a tablet's report of its list into the Library, in the transaction storing it, and says where (`standing`), or null where it was taken in nowhere. */
-  takeIn(tx: Prisma.TransactionClient, tablet: ReportingTablet, value: unknown, updatedAt: readonly (string | null)[] | undefined): Promise<string | null>;
+  takeIn(tx: Prisma.TransactionClient, tablet: PlannedTablet, value: unknown, updatedAt: readonly (string | null)[] | undefined): Promise<string | null>;
 }
 
 const BEAN_FIELDS: Readonly<Record<string, FieldType>> = {

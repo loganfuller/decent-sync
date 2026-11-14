@@ -54,6 +54,8 @@ export interface Reporter {
   machineId: string;
   identity: Identity;
   tabletId: string;
+  /** The wire revision its plugin's `hello` gave (ADR-0025). */
+  wireRevision: number;
 }
 
 export interface Reported {

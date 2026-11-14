@@ -430,7 +430,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       this.send(session, { type: "ack", id: message.id });
       return;
     }
-    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity!, tabletId: session.live!.tabletId };
+    const reporter: Reporter = { machineId: session.machine.id, identity: session.identity!, tabletId: session.live!.tabletId, wireRevision: session.wireRevision! };
     switch (message.type) {
       case "hello":
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");

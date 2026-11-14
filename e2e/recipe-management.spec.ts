@@ -194,7 +194,7 @@ test("with every slot holding a Recipe, a new Recipe's next free slot says so an
 
 test("a Recipe a tablet put in slot 7 is shown in its slot, its Slot select offers 1 to 5, and it is taken out of its slot", async ({ page }) => {
   const lab = await createLocation(page, "Seven lab");
-  const tablet = await tabletAt(page, server, "Seven lab 1", lab, "45531", tabletApi);
+  const tablet = await tabletAt(page, server, "Seven lab 1", lab, "45591", tabletApi);
   await createRecipe(page, lab, 1, { name: "Seven Kenya" });
   const recipe = await createRecipe(page, lab, 2, { name: "Seven Brazil" });
   await expect.poll(() => slotOn(tablet, 2)?.[GLOBAL_ID_KEY]).toBe(recipe.id);

@@ -20,11 +20,12 @@ export interface ReportingTablet {
 }
 
 /**
- * A tablet whose writes are planned, with the wire revision its plugin's
- * `hello` gave where its connection is at hand, as its writer's is: what a
- * later revision added is left out of what one behind it is written
- * (`writtenRecipeSlot`). The sharing status, which any instance reads, has
- * none, and plans as for a plugin at this build's revision.
+ * A tablet whose writes are planned or whose report is taken in, with the
+ * wire revision its plugin's `hello` gave where its connection is at hand,
+ * as its writer's and its reports' is: what a later revision added is left
+ * out of what one behind it is written (`writtenRecipeSlot`), and its
+ * records are read as so written. The sharing status, which any instance
+ * reads, has none, and plans as for a plugin at this build's revision.
  */
 export interface PlannedTablet extends ReportingTablet {
   wireRevision?: number;

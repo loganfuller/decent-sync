@@ -316,6 +316,22 @@ describe("the latest release beside the change", () => {
     expect(updated.pluginDir).toBe(pluginDirs().change);
     await expect.poll(() => held(updated)).toEqual([7, true]);
     expect((await read()).slot).toBe(7);
+
+    // On the tablet still running the latest release's plugin, DYE2's editor puts the Recipe on tab 4, which another
+    // holds, taking the slot from it: the move is made whole, from the slot 7 that tablet was written as none, rather
+    // than only emptying slot 4.
+    const { recipe: holder } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 4, content: { name: "Slot 4", dose: 18, yield: 36 } }, 201);
+    const slotsOf = (tablet: SimulatedTablet) =>
+      [recipe.id, holder.id].map((id) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === id)?.stripSlot);
+    await expect.poll(() => slotsOf(moved)).toEqual([null, 4]);
+    const list = (await moved.callApi("GET", route)).body as Record_[];
+    const tapped = list.map((entry) =>
+      dye2GlobalIdOf(entry) === recipe.id ? { ...entry, stripSlot: 4, showOnStreamlineDashboard: true } : dye2GlobalIdOf(entry) === holder.id ? { ...entry, stripSlot: null } : entry,
+    );
+    expect((await moved.callApi("POST", route, tapped)).status).toBe(200);
+    const slotAt = async (id: string) => (await api.get<{ recipe: { slot: number | null } }>(`/recipes/${id}`)).recipe.slot;
+    await expect.poll(async () => [await slotAt(recipe.id), await slotAt(holder.id)]).toEqual([4, null]);
+    for (const tablet of [moved, updated, ahead.tablet]) await expect.poll(() => slotsOf(tablet)).toEqual([4, null]);
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

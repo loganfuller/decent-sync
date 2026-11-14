@@ -223,7 +223,7 @@ async function readRecipes(
  */
 export async function takeInRecipes(
   tx: Prisma.TransactionClient,
-  tablet: ReportingTablet,
+  tablet: PlannedTablet,
   value: unknown,
   updatedAt: readonly (string | null)[] | undefined,
 ): Promise<string | null> {
@@ -352,7 +352,7 @@ export async function takeInRecipes(
     if (step.kind !== "update") await recordMapped(tx, tablet, itemId, record.localId);
   }
   writesDue = (await takeInUnseen(tx, "recipe", "feedRate", unseen, source)) || writesDue;
-  await moveSlots(tx, locationId, moves, source);
+  await moveSlots(tx, locationId, moves, source, tablet.wireRevision ?? WIRE_REVISION);
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
 }
@@ -382,18 +382,28 @@ function heldFeedRates(reported: readonly ReportedRecipe[], mapped: readonly Map
  * takes it from the Recipe there, which leaves it. A move is made only
  * where the Recipe is still in the slot the tablet knew it in (`from`), so
  * one made over a move the tablet had not seen, as in the management
- * interface, is not, and the Recipe's slot is written back. Each change is a
+ * interface, is not, and the Recipe's slot is written back. A tablet whose
+ * plugin is from before slots 6 to 9 (`wireRevision`) knew a Recipe in one
+ * of them in no slot, as it was written (`writtenRecipeSlot`), so its move
+ * of that Recipe into a slot is made, rather than only the half of it that
+ * takes the slot from its holder. Each change is a
  * version of its own, from the tablet, timed as the record moved. Slots
  * left are emptied first, so no two Recipes are ever in one.
  */
-async function moveSlots(tx: Prisma.TransactionClient, locationId: string, moves: readonly SlotMove[], source: ReturnType<typeof tabletSource>): Promise<void> {
+async function moveSlots(
+  tx: Prisma.TransactionClient,
+  locationId: string,
+  moves: readonly SlotMove[],
+  source: ReturnType<typeof tabletSource>,
+  wireRevision: number,
+): Promise<void> {
   if (moves.length === 0) return;
   const rows = await tx.$queryRaw<{ id: string; slot: number | null }[]>`
     SELECT id::text AS id, slot FROM recipes WHERE id = ANY(${moves.map((move) => move.itemId)}::uuid[]) AND location_id = ${locationId}::uuid AND NOT archived`;
   const slots = new Map(rows.map((row) => [row.id, row.slot]));
-  const made = moves.filter((move) => slots.has(move.itemId) && slots.get(move.itemId) === move.from);
+  const made = moves.filter((move) => slots.has(move.itemId) && writtenRecipeSlot(slots.get(move.itemId)!, wireRevision) === move.from);
   for (const move of made) {
-    if (move.from !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
+    if (slots.get(move.itemId) !== null) await tx.$executeRaw`UPDATE recipes SET slot = NULL WHERE id = ${move.itemId}::uuid`;
   }
   for (const move of made) {
     if (move.to === null) {
@@ -507,7 +517,7 @@ export async function recordRecipeWritten(
       const moved = !written.has(RECIPE_SLOT_FIELD) && !written.has(RECIPE_SHOWN_FIELD);
       const move = here && moved ? slotMove(itemId, known.record, { localId, globalId: itemId, updatedAt: at, record }) : null;
       if (move && locationId !== null) {
-        await moveSlots(tx, locationId, [move], source);
+        await moveSlots(tx, locationId, [move], source, tablet.wireRevision);
         stale = true;
       }
     } else if (!linked) {
