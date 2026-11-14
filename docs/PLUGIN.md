@@ -235,7 +235,8 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   as `status` on the 1.9.0 plugin or an earlier one.
 - **A request follows what the tablet had still to send.** The plugin sends
   it once the server has taken what was waiting when the Skin asked, a Shot
-  just pulled included. That wait counts toward the 10 seconds. After an
+  just pulled included, unless Decaid fails to read that Shot, which is then
+  sent later. That wait counts toward the 10 seconds. After an
   outage a tablet may have minutes of events to send, and until it has, its
   requests are refused as `unreachable` though `connected` is true. Ask
   again a little later.
