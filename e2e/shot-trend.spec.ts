@@ -118,12 +118,16 @@ test("the trend follows the filters and the summary's numbers stay, a number few
   await chooseNumber(trend, "Rating");
   await expect(page).toHaveURL(/\/shots\?numbers=ratio&barista=Ann&trend=rating$/);
   const rating = trend.getByRole("figure", { name: "Rating by day" });
-  await expect(rating.locator("figcaption")).toHaveText("Rating");
+  // In stars (#532): rated 8 of Decaid's 10, four stars, on an axis from none to five.
+  await expect(rating.locator("figcaption")).toHaveText("Rating (stars)");
   await expect(rating.locator(".recharts-line-dot")).toHaveCount(1);
-  await expect(await numbers(trend, "Rating by day")).toHaveText(["Wed, Feb 11, 202618.08.0–8.0"]);
+  await expect(rating.locator(".recharts-yAxis-tick-labels .recharts-cartesian-axis-tick-value")).toHaveText(["0", "1", "2", "3", "4", "5"]);
+  await expect(await numbers(trend, "Rating by day")).toHaveText(["Wed, Feb 11, 202614 stars4–4"]);
+  await rating.locator(".recharts-line-dot").hover();
+  await expect(rating.locator(".recharts-tooltip-wrapper")).toHaveText("Wed, Feb 11, 2026Rating4 starsMiddle half4–4Shots1");
   // By week, it rests on one of that week's three.
   await trend.getByRole("tab", { name: "By week" }).click();
-  await expect(await numbers(trend, "Rating by week")).toHaveText(["Mon, Feb 9, 20261 of 38.08.0–8.0"]);
+  await expect(await numbers(trend, "Rating by week")).toHaveText(["Mon, Feb 9, 20261 of 34 stars4–4"]);
 
   // None recorded a TDS.
   await chooseNumber(trend, "TDS");

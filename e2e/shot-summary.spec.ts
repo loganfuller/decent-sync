@@ -161,7 +161,9 @@ test("other numbers chosen show beside the count, which says how many Unfinished
   await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
   // 35.9 g from 18 g, and the step the real Shot ended in. Not the Unfinished Shot's: it is in no number.
   await expect(field(summary, "Ratio")).toHaveText("1:1.99 (1.99–1.99)");
-  await expect(field(summary, "Rating")).toHaveText("8.0 (8.0–8.0)");
+  // Rated 8 of Decaid's 10: four stars (#532).
+  await expect(field(summary, "Rating")).toHaveText("4 stars (4–4)");
+  await expectTip(summary, "Summary", /A rating reads in stars, up to 5, as DYE2 shows it on a tablet: a star is two points of the rating from 0 to 10 that Decaid keeps\. A rating of 0 is no rating/);
   await expect(field(summary, "Last step")).toHaveText("Pressure Decline (1)");
   await expect(page).toHaveURL(/numbers=yieldAgainstTarget%2Cduration%2Cratio%2Crating%2ClastStep/);
 
@@ -174,7 +176,7 @@ test("other numbers chosen show beside the count, which says how many Unfinished
   await expect(field(summary, "Shots")).toHaveText("71 Unfinished Shot left out1 cleaning or calibration Shot left out");
   await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
   // Of the seven Shots covered, one is rated.
-  await expect(field(summary, "Rating")).toHaveText("8.0 (8.0–8.0)1 of 7 Shots rated");
+  await expect(field(summary, "Rating")).toHaveText("4 stars (4–4)1 of 7 Shots rated");
 });
 
 /** What a test changes of a fixture's record. */

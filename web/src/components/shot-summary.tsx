@@ -6,8 +6,10 @@ import { Button } from "@/components/ui/button";
 import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card";
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type LastSteps, api, type ShotSummary, type SummaryGroup } from "@/lib/api";
+import { MAX_STARS } from "@/lib/rating";
 import { MEDIAN_TEXT, type MedianText, NUMBERS, NUMBER_NAMES, type NumberName, countNotes, settingText, shareText, shotsText } from "@/lib/shot-summary";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
+import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
 /** What each number shown as a median rests on, for the note under it where some Shots had no value: "12 of 40 Shots …". */
 const RESTS_ON: Record<keyof typeof MEDIAN_TEXT, string> = {
@@ -59,7 +61,11 @@ export function ShotSummaryCard({ filterQuery, numbers, onNumbers }: { filterQue
           <p>Each number is a median, with the range the middle half of the Shots fall in. Choose which to show with Numbers.</p>
           <p>Yield against target is the yield weighed less the Shot's own target, for Shots with both. The ratio is the yield weighed over the dose weighed.</p>
           <p>Stopped on weight is the share, of the Shots that recorded what stopped them, that stopped at their target weight.</p>
-          <p>A rating of 0 is no rating, as DYE2 records one with no stars. A grind setting counts where it is a number, such as 8.8.</p>
+          <p>
+            A rating reads in stars, up to {MAX_STARS}, as DYE2 shows it on a tablet: a star is two points of the rating from 0 to {MAX_SHOT_RATING}{" "}
+            that Decaid keeps. A rating of 0 is no rating, as DYE2 records one with no stars.
+          </p>
+          <p>A grind setting counts where it is a number, such as 8.8.</p>
           <p>
             Time to first drip and the last step are worked out from each Shot's measurements. For Shots stored before they were, that happens in
             the background, and the count says how many are still waiting.

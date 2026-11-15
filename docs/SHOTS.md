@@ -1294,7 +1294,11 @@ last 30 days' by day, a line for each Machine, from this route alone.
   - `rating`: the Shot's enjoyment (`enjoyment`), on Decaid's scale of 0 to
     10, where above 0: DYE2 writes 0 for no stars, so 0 is unrated. It also
     gives `rated`, the part of the group's Shots rated, from 0 to 1, null
-    where its numbers cover none.
+    where its numbers cover none. The REST API and the tool give it on that
+    scale, as they are released (ADR-0025) and a Skin and DYE2 read it; the
+    management interface shows it in stars, two points each (#532,
+    Management interface), and `summarise_shots`' description says a star
+    is two points.
   - `grindSetting`: the setting its Workflow recorded
     (`workflow.context.grinderSetting`), where its whole text is a decimal
     number, such as `8.8`, `2.00` or `-.5`, with only spaces, tabs and line
@@ -1554,9 +1558,10 @@ median with the middle half's range, such as "26.0 s (25.6–26.6)" and
 "−0.1 g (−0.8 to +0.4)" (`web/src/lib/shot-summary.ts`), and the share that
 stopped on weight. Its Numbers menu chooses others, at least one, in the
 order the REST API gives them: the ratio, as "1:2.10", peak pressure and
-flow, the rating, the grind setting, with its lowest and highest where they
-differ, TDS, extraction yield, time to first drip, and the steps most Shots
-ended in, each with how many. The choice is kept in the page's address as
+flow, the rating (in stars), the grind setting, with its lowest and highest
+where they differ, TDS, extraction yield, time to first drip, and the steps
+most Shots ended in, each with how many. The choice is kept in the page's
+address as
 `numbers`, apart from the filters, so it survives a reload and a shared
 address, and Clear filters leaves it; the default is kept as none, and a
 name the page doesn't know, as from a later release, is left out. A
@@ -1575,7 +1580,14 @@ It reads a name as the server does but for case beyond A to Z, which the
 server folds as its database's collation does, unlike JavaScript for some
 letters, such as a final sigma or a dotted I; so for such a name an address
 spelled another way shows no choice, never another Barista's.
-`e2e/shot-summary.spec.ts` covers both.
+`e2e/shot-summary.spec.ts` covers both. The rating reads in stars (#532),
+as a single Shot's does: the summary gives its median and the middle
+half's range on Decaid's scale of 0 to 10, and the card halves each
+(`ratingMedianText`, with `starsOf` of `web/src/lib/rating.ts`), to at most
+two places without trailing zeros, such as "4 stars (3.5–4.5)", "3.75
+stars" for a median between two stars, and "1 star". The share rated
+beside it is as the summary gives it. The card's info text says a star is
+two points of Decaid's rating, and that a rating of 0 is no rating.
 
 Under the Summary card, the Trend card (`web/src/components/shot-trend.tsx`)
 charts one number of the same Shots by day or by week, from the summary
@@ -1583,7 +1595,11 @@ asked for by `bucket` with that number alone: its median as a line, each
 day or week marked while there are no more than 31 of them, with a band
 for the range the middle half of its Shots fall in, on the chart
 components the Shot page's curves use. A share, stopped on weight, is a
-line alone, from 0 to 100%. Any number the summary gives but the last
+line alone, from 0 to 100%. A rating is charted in stars (#532): its line
+and band, on an axis from 0 to 5 marked at each star, its tooltip and its
+table, under the title "Rating (stars)". `trendPoints` halves the
+summary's median and range, so a point holds stars, and `pointText` reads
+them as the Summary card does. Any number the summary gives but the last
 step can be charted; duration by day is the default. The number and the
 bucket are kept in the page's address as `trend` and `bucket`, apart from
 the filters, each default as none, so the view survives a reload and a
@@ -1657,7 +1673,9 @@ Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
 an address names, the Shots list's address for a Machine), with
 `web/test/recipe-numbers.test.ts`, and `e2e/recipe-numbers.spec.ts` covers
 the cards with a Recipe's Shots stored through simulated tablets on two
-Machines over a month.
+Machines over a month. Neither card gives a rating. One charted there
+would read in stars, as its chart is the Shots list's (`TrendChart`), and
+one added to Today would read through `ratingMedianText` (#532).
 
 `/shots/:id` shows a Shot's curves (pressure,
 flow, weight, weight flow and group temperature, as Streamline draws them,
@@ -1721,9 +1739,9 @@ instance, which has no such route, is answered 404, which the form shows
 (`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
 rating Rating, where they said Enjoyment, and give it in stars too, such
 as "4 stars", with none for a Shot rated 0, as its card says Unrated.
-Shot Summaries, the trends and the REST API and tools still give ratings
-from 0 to 10. Each Bean's, Bean Batch's, Grinder's,
-Profile's, Recipe's and Basket's page lists its Shots, ten at a time
+The Summary and Trend cards give it in stars too (#532, above). The REST
+API and the tools still give ratings from 0 to 10. Each Bean's, Bean Batch's,
+Grinder's, Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's

@@ -27,6 +27,17 @@ export function ratingOf(stars: number): number {
   return stars * POINTS_A_STAR;
 }
 
+/** A count of stars as it reads, to at most two places without trailing zeros: "4", "4.5" or "3.75". */
+export function starCountText(stars: number): string {
+  return String(Number(stars.toFixed(2)));
+}
+
+/** Stars with their word, such as "4 stars", "1 star" or "3.75 stars". */
+export function starsText(stars: number): string {
+  const count = starCountText(stars);
+  return `${count} ${count === "1" ? "star" : "stars"}`;
+}
+
 /**
  * A Shot's rating as its stars, to at most two places, such as "4 stars",
  * "1 star" or "4.5 stars"; nothing for one unrated, which is a rating of
@@ -35,6 +46,5 @@ export function ratingOf(stars: number): number {
  */
 export function ratingText(rating: number | null): string | undefined {
   if (rating === null || rating === 0) return undefined;
-  const stars = Number(starsOf(rating).toFixed(2));
-  return `${stars} ${stars === 1 ? "star" : "stars"}`;
+  return starsText(starsOf(rating));
 }

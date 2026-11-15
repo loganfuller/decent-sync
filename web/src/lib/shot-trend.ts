@@ -1,6 +1,7 @@
 import type { SummaryBucket, SummaryNumber } from "@/lib/api";
 import { bucketTitle } from "./machine-use";
-import { MEDIAN_TEXT, NUMBERS, type NumberName, shareText } from "./shot-summary";
+import { starsOf } from "./rating";
+import { MEDIAN_TEXT, NUMBERS, type NumberName, shareText, starsMedianText } from "./shot-summary";
 
 // A Shot Summary's trend (#470) as the Shots list charts it, and the Recipe
 // page a line for each Machine (#474): the pure parts, which read the
@@ -38,7 +39,7 @@ export function bucketParam(bucket: Bucket): string | null {
   return bucket === "day" ? null : bucket;
 }
 
-/** Each number's unit, as the chart's title gives it: none for a ratio, a rating or a grind setting. */
+/** Each number's unit, as the chart's title gives it: none for a ratio or a grind setting. A rating is charted in stars (#532). */
 export const TREND_UNITS: Record<TrendNumber, string | undefined> = {
   yieldAgainstTarget: "g",
   duration: "s",
@@ -46,7 +47,7 @@ export const TREND_UNITS: Record<TrendNumber, string | undefined> = {
   ratio: undefined,
   peakPressure: "bar",
   peakFlow: "ml/s",
-  rating: undefined,
+  rating: "stars",
   grindSetting: undefined,
   tds: "%",
   extractionYield: "%",
@@ -60,7 +61,8 @@ export const TREND_UNITS: Record<TrendNumber, string | undefined> = {
  * median of its Shots, or, of a share, the share, as a percentage; `band`,
  * the range the middle half of them fall in, which a share has none of; and
  * `shots`, how many Shots the value rests on, of the `covered` its bucket's
- * numbers cover.
+ * numbers cover. A rating's value and band are in stars, each two points of
+ * the rating the summary gives (#532).
  */
 export interface TrendPoint {
   start: string;
@@ -97,7 +99,9 @@ export function trendPoints(buckets: readonly SummaryBucket[], number: TrendNumb
       return share && share.share !== null ? [{ ...point, value: share.share * 100, shots: share.shots }] : [];
     }
     const { shots, median, p25, p75 } = bucket.numbers[number] ?? ({ shots: 0, median: null, p25: null, p75: null } satisfies SummaryNumber);
-    return median === null || p25 === null || p75 === null ? [] : [{ ...point, value: median, band: [p25, p75], shots }];
+    if (median === null || p25 === null || p75 === null) return [];
+    if (number === "rating") return [{ ...point, value: starsOf(median), band: [starsOf(p25), starsOf(p75)], shots }];
+    return [{ ...point, value: median, band: [p25, p75], shots }];
   });
 }
 
@@ -167,11 +171,11 @@ export function pointTitle(start: string, bucket: Bucket): string {
 
 /**
  * A point's value as it reads: a median with its unit and the middle half's
- * range, as the Shots list's summary shows one, or a share as a whole
- * percentage, which has no range.
+ * range, as the Shots list's summary shows one, a rating's in stars, as its
+ * point holds it, or a share as a whole percentage, which has no range.
  */
 export function pointText(point: Pick<TrendPoint, "value" | "band">, number: TrendNumber): { value: string; range?: string } {
   if (number === "stoppedOnWeight" || !point.band) return { value: shareText(point.value / 100)! };
-  const text = MEDIAN_TEXT[number]({ shots: 1, median: point.value, p25: point.band[0], p75: point.band[1] })!;
+  const text = number === "rating" ? starsMedianText(point.value, point.band) : MEDIAN_TEXT[number]({ shots: 1, median: point.value, p25: point.band[0], p75: point.band[1] })!;
   return { value: text.median, range: text.range };
 }
