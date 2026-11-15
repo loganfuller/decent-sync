@@ -1,14 +1,17 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
+import { machineDisconnects } from "./support/live-fixtures.js";
 import { emptyLibrary, syncingTablet } from "./support/loaded-tablets.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { quiesced } from "./support/quiet.js";
+import type { DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #227: Settings Edits of a Machine's advanced heater
 // settings, its refill kit and its flow multiplier, an Admin's to change,
 // made through the REST API and carried out by the built plugin in a
 // simulated tablet, which writes them to the machine's registers as Decaid
-// v0.9.0 does, scaled, truncated and one field at a time (decaid-settings.ts).
+// v0.9.2 does, scaled, truncated and one field at a time, and keeps the flow
+// multiplier written (decaid-settings.ts).
 // Assertions are made through the REST API and what the tablet's Decaid
 // holds. Serials are made up.
 
@@ -40,10 +43,10 @@ describe("Settings Edits of the advanced settings and flow multiplier", () => {
     await server?.stop();
   });
 
-  /** A Machine at the cafe whose tablet is connected, with a Library of its own that is empty. */
-  async function connected(name: string): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet }> {
+  /** A Machine at the cafe whose tablet is connected, with a Library of its own that is empty, serving `served`. */
+  async function connected(name: string, served: DecaidApi = emptyLibrary(serial++)): Promise<{ machine: CreatedMachine; tablet: SimulatedTablet }> {
     const machine = await api.createMachine(name, cafe.id);
-    const tablet = syncingTablet(machine, server, { api: emptyLibrary(serial++) });
+    const tablet = syncingTablet(machine, server, { api: served });
     await api.waitForOnline(machine);
     return { machine, tablet };
   }
@@ -124,6 +127,45 @@ describe("Settings Edits of the advanced settings and flow multiplier", () => {
     const edit = await answered(machine, exact.id);
     expect(edit).toMatchObject({ outcome: "applied", adjusted: [] });
     expect(edit.readBack!.flowMultiplier).toBeCloseTo(1.002, 9);
+  });
+
+  it("keeps an applied edit of the flow multiplier as the Machine goes away and comes back, over one set elsewhere meanwhile, and as the Machine's settings are reset", async () => {
+    const served = emptyLibrary(serial++);
+    const { machine, tablet } = await connected("Flow multiplier kept", served);
+    await expect.poll(() => reported(machine, "machineCalibration")).toEqual({ flowMultiplier: FLOW_MULTIPLIER });
+    const made = await make(machine, { collection: "machineCalibration", fields: { flowMultiplier: 1.2 }, expected: { flowMultiplier: FLOW_MULTIPLIER } });
+    expect(await answered(machine, made.id)).toMatchObject({ outcome: "applied", readBack: { flowMultiplier: 1.2 } });
+
+    // The Machine goes away, until the plugin's hardware poll has read no machine, which marks it away, and is set
+    // another flow multiplier meanwhile, as another Tablet or de1app sets one.
+    const { disconnected, reconnected } = machineDisconnects();
+    const elsewhere = { ...served, "/machine/calibration": { flowMultiplier: 0.9 } };
+    const hardwareReads = () => tablet.requests.filter((request) => request === "/machine/info").length;
+    const readsBefore = hardwareReads();
+    tablet.disconnectMachine(disconnected);
+    await expect.poll(hardwareReads).toBeGreaterThan(readsBefore);
+    tablet.serve(elsewhere);
+
+    // It comes back: Decaid v0.9.2 writes the flow multiplier it keeps for it as it connects, where v0.9.1 wrote none.
+    const welcomes = () => tablet.logs.filter((log) => log.startsWith("Connected to ")).length;
+    const welcomed = welcomes();
+    tablet.connectMachine(reconnected);
+    expect((await held(tablet, "/machine/calibration")).flowMultiplier).toBe(1.2);
+    // The plugin reconnects to the server, which welcomes it, and sends every collection again, read as the Machine is back.
+    await tablet.waitForLog(/^The machine is connected again\. Reconnecting/);
+    await expect.poll(welcomes).toBeGreaterThan(welcomed);
+    await quiesced(api, { tablets: { tablet } });
+    expect(await reported(machine, "machineCalibration")).toEqual({ flowMultiplier: 1.2 });
+
+    // Decaid's reset of the Machine's settings, as Streamline's settings page asks for one, writes its defaults for the
+    // advanced settings and leaves the flow multiplier, where v0.9.1 wrote 1.0; and Decaid still keeps it.
+    expect((await tablet.callApi("DELETE", "/machine/settings/reset")).status).toBe(202);
+    expect(await held(tablet, "/machine/settings/advanced")).toMatchObject({ heaterIdleTemp: 95, refillKitSetting: 2 });
+    expect((await held(tablet, "/machine/calibration")).flowMultiplier).toBe(1.2);
+    tablet.machineConnected = false;
+    tablet.serve(elsewhere);
+    tablet.connectMachine();
+    expect((await held(tablet, "/machine/calibration")).flowMultiplier).toBe(1.2);
   });
 
   it("refuses an advanced settings write Decaid refuses part-way with its status and message, naming the fields changed before it", async () => {

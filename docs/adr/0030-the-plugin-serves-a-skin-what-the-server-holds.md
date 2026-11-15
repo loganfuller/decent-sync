@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: accepted (amended in place on 2026-11-15, for ticket #549: Decaid v0.9.2 asks a token for managing plugins and Skins, and still checks no caller of a plugin's endpoints or of the rest of its API)
 ---
 
 # The plugin serves a Skin what the server holds, and a tablet may choose a Reference Shot
@@ -18,7 +18,7 @@ A tablet may also choose a Recipe's Reference Shot, which ADR-0029 left to the m
 
 ## Consequences
 
-- **Anything on a tablet's network can call the endpoints.** Decaid's web server checks no caller, for its own API or a plugin's. The same network can already change the Workflow and delete Shots, so this is accepted. The server holds a tablet to its own Location: its Shots, its Recipes and their Reference Shots.
+- **Anything on a tablet's network can call the endpoints.** Decaid's web server checks no caller of a plugin's endpoints, nor of its own API but for the routes that manage plugins and Skins, which from v0.9.2 need a token (`extensionManagementRoutes` in `decaid:lib/src/services/webserver/extension_management_auth.dart`). The same network can already change the Workflow and delete Shots, so this is accepted. The server holds a tablet to its own Location: its Shots, its Recipes and their Reference Shots.
 - **A choice made on a tablet names no person.** The Recipe's history names the Machine and tablet. Anyone at the tablet may replace a lead's choice; the history is what shows it.
 - **A choice is never queued.** One made while the server can't be reached is refused at once, so nothing changes later behind a barista's back.
 - **Choosing a Reference Shot now reaches tablets.** ADR-0029 had nothing sent to them. A change is announced to the Recipe's Location and each tablet's copy is replaced. It is still not a content edit: it makes no Conflict (ADR-0020) and is no part of DYE2's recipe record.

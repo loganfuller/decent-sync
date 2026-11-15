@@ -9,9 +9,67 @@ here stops the server or recreates the database
 Earlier releases' notes may still ask that. A server that skipped a release
 takes each release in turn (docs/SELF-HOSTING.md, Upgrading).
 
+Where a note has a tablet's plugin updated or approved through Decaid's API
+from its network (`POST /api/v1/plugins/update`,
+`POST /api/v1/plugins/decent-sync.reaplugin/update/approve`), Decaid v0.9.2
+and later take the request only with a token: send it as
+`Authorization: Bearer <token>`. Make one on the tablet in Decaid, on its
+Decent Account page under API access tokens, with "Manage plugins and skins"
+turned on. It is shown once, and needs no Decent Account sign-in
+(docs/PLUGIN.md, A token for managing plugins).
+
 Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
+
+## Unreleased
+
+### Tablets need Decaid v0.9.2
+
+This release follows Decaid v0.9.2
+([ADR-0017](docs/adr/0017-supported-versions.md)). Update Decaid on each
+tablet to v0.9.2 or later before deploying: this release's server refuses a
+tablet on v0.9.1 or older, and its Machine's page says why, though 1.10.0
+still accepts one while it serves beside this release.
+
+Move a tablet's Streamline to v0.2.25 or later before updating its Decaid.
+Decaid v0.9.2 bundles DYE2 v0.1.37 and puts it over a lower DYE2 as it
+starts, a pinned one included, and every recipe DYE2 saves from v0.1.37 holds
+a feed rate that the strip of Streamline v0.2.24 or earlier refuses to apply.
+
+### Automatic update checks are shown, and changed on the tablet
+
+Decaid v0.9.2 turns its automatic update checks on only for a request
+carrying a token that may manage its plugins and Skins, which the plugin has
+none of. While they are off, Decaid installs no update of a plugin or Skin by
+itself, this plugin's included. So a Machine's Settings card now shows
+Automatic update checks without an edit, as managed in Decaid on the Tablet,
+and the MCP endpoint's `edit_machine_settings` no longer takes it. Check on
+each Machine's page that they are on. Where they are off, turn them on in
+Decaid's settings on the tablet: until then its plugin updates only when
+someone there presses Check for updates.
+
+During the deploy, an edit of them made through 1.10.0's server is refused:
+by this release's plugin as not written, and by Decaid on a tablet still
+running 1.10.0's plugin where it turns them on.
+
+### A flow multiplier edit lasts, over one set elsewhere
+
+With Decaid v0.9.2 the Tablet keeps a Machine's flow multiplier once it is
+written through it, by a Settings Edit or on Streamline's calibration page,
+and writes it again each time the Machine connects. Decaid's reset of the
+Machine's settings now leaves it, where v0.9.1 set it to 1. So an edit lasts,
+and a flow multiplier set from elsewhere afterwards, such as on another
+Tablet or in de1app, lasts only until that Tablet next connects to the
+Machine. The Settings card says so beside the field. Nothing is needed.
+
+### Managing a tablet's plugins from the network needs a token
+
+Decaid v0.9.2 answers 401 to a request from the network that installs,
+updates or approves a plugin, unless it carries a token made on the tablet
+(docs/PLUGIN.md, A token for managing plugins). Nothing is needed where the
+plugin is installed from Decaid's Plugins screen and updates by itself, which
+need none.
 
 ## 1.10.0
 

@@ -2,7 +2,7 @@ import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { type DecaidApi, de1ProOnDecaid091, derivedDe1Pro, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
+import { type DecaidApi, de1ProOnDecaid092, derivedDe1Pro, Refusal, SimulatedTablet } from "./support/simulated-tablet.js";
 
 // The simulated tablet's settings writes against those recorded on Decaid
 // v0.9.0's Linux release (fixtures/decaid/settings-writes-v0.9.0/): a tablet
@@ -13,15 +13,19 @@ import { type DecaidApi, de1ProOnDecaid091, derivedDe1Pro, Refusal, SimulatedTab
 // registers' scales, truncation and bounds, and a write failing part-way, are
 // checked here from Decaid's source, as the README says, and the flow
 // multiplier and pressure calibration against the test DE1Pro's reads
-// (fixtures/decaid/de1pro-v0.9.0/calibration-writes.json). Decaid v0.9.1
-// answers the recorded steps the same, and keeps the fan threshold and
-// refill kit setting written, writing them again as the machine reconnects,
-// which the reconnects recorded on its Linux release show
-// (fixtures/decaid/simulated-devices-v0.9.1/settings-reconnects.json).
+// (fixtures/decaid/de1pro-v0.9.0/calibration-writes.json). Decaid v0.9.2
+// answers the recorded steps the same, and keeps the fan threshold, refill
+// kit setting and flow multiplier written, writing them again as the machine
+// reconnects, its reset of the machine's settings leaving the flow
+// multiplier, which the reconnects recorded on its Linux release show
+// (fixtures/decaid/simulated-devices-v0.9.2/settings-reconnects.json), and
+// takes a change of the Skin served, or its automatic update checks turned
+// on, only with a token (settings-gate.json there).
 
 type Method = "GET" | "POST" | "PUT" | "DELETE";
 interface Exchange {
-  request: { method: Method; path: string; body?: unknown; rawBody?: string };
+  /** `token` names the bearer token a request of settings-gate.json carried, if any. */
+  request: { method: Method; path: string; body?: unknown; rawBody?: string; token?: string };
   response: { status: number; body: unknown };
 }
 interface Step {
@@ -32,8 +36,10 @@ interface Step {
 const fixtures = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "fixtures/decaid");
 const readFixture = (file: string, folder = "de1pro-v0.9.0") => JSON.parse(fs.readFileSync(path.join(fixtures, folder, file), "utf8")) as unknown;
 const recorded = readFixture("settings-writes.json", "settings-writes-v0.9.0") as Record<string, Step>;
-/** Decaid v0.9.1's machine settings as its simulated machine was disconnected and connected again, and as Decaid restarted, each step's reads whole. */
-const reconnects = readFixture("settings-reconnects.json", "simulated-devices-v0.9.1") as Record<string, Step>;
+/** Decaid v0.9.2's machine settings and flow calibration as its simulated machine was disconnected and connected again, as Decaid restarted, and as it reset them, each step's reads whole. */
+const reconnects = readFixture("settings-reconnects.json", "simulated-devices-v0.9.2") as Record<string, Step>;
+/** Decaid v0.9.2's answers to `POST /settings` changing what needs a token, without one and with one, each step's reads whole. */
+const gate = readFixture("settings-gate.json", "simulated-devices-v0.9.2") as Record<string, Step>;
 /** The test DE1Pro's calibration writes in #232's supervised run, each with what Decaid read back after it. */
 const calibrationWrites = readFixture("calibration-writes.json") as Record<string, { wanted: number; route: string; sent?: unknown; read: unknown }[]>;
 
@@ -94,7 +100,7 @@ describe("The simulated tablet's settings writes", () => {
 
   it("hold each flow multiplier and pressure calibration the test DE1Pro was written in #232's run as it held it", async () => {
     // The calibrations start as the test DE1Pro's were before the run; each pressure write's correction is from it.
-    const api = { ...de1ProOnDecaid091(), "/machine/calibration": readFixture("machine-calibration.json"), "/machine/calibration/pressure": readFixture("machine-calibration-pressure.json") };
+    const api = { ...de1ProOnDecaid092(), "/machine/calibration": readFixture("machine-calibration.json"), "/machine/calibration/pressure": readFixture("machine-calibration-pressure.json") };
     const tablet = SimulatedTablet.load({ settings: {}, api });
     for (const [target, writes] of Object.entries(calibrationWrites)) {
       for (const { wanted, route, sent, read } of writes) {
@@ -246,22 +252,27 @@ describe("The simulated tablet's settings writes", () => {
     expect((await tablet.callApi("GET", "/presence/settings")).body).toMatchObject({ schedules: [] });
   });
 
-  it("put back the fan threshold and refill kit last written as the machine reconnects, as Decaid v0.9.1 did, and after Decaid restarts", async () => {
+  it("put back the fan threshold, refill kit and flow multiplier last written as the machine reconnects, as Decaid v0.9.2 did, and after Decaid restarts, and leave the flow multiplier as the machine's settings are reset", async () => {
     const started = Object.fromEntries(Object.entries(reconnects.started!.reads).map(([route, read]) => [route, read.body]));
-    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid091(), ...started } });
-    const read = async () => Object.fromEntries(await Promise.all(Object.keys(reconnects.started!.reads).map(async (route) => [route, await tablet.callApi("GET", route)])));
+    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid092(), ...started } });
+    const read = async () =>
+      Object.fromEntries(await Promise.all(Object.keys(reconnects.started!.reads).map(async (route) => [route, await tablet.callApi("GET", route)]))) as Step["reads"];
+    /** The three values Decaid keeps for a machine, as a step's reads hold them. */
+    const kept = (reads: Step["reads"]) => [
+      (reads["/machine/settings"]!.body as { fan: unknown }).fan,
+      (reads["/machine/settings/advanced"]!.body as { refillKitSetting: unknown }).refillKitSetting,
+      (reads["/machine/calibration"]!.body as { flowMultiplier: unknown }).flowMultiplier,
+    ];
     for (const [step, { exchanges, reads }] of Object.entries(reconnects)) {
-      // Decaid's machine settings reset (`DELETE /machine/settings/reset`) is nothing the plugin sends: the replay ends before it.
-      if (step === "reset") break;
       // A restarted Decaid connects the machine again. Its new simulated machine starts with its own values but for
-      // those Decaid writes as it connects, where a DE1 keeps its registers, so only those two are compared.
-      if (step === "restarted") {
+      // those Decaid writes as it connects, where a DE1 keeps its registers, so only what Decaid keeps is compared: a
+      // flow multiplier of 1.2 over the new machine's 1, the first time, and again after the reset, which wrote Decaid's
+      // default fan threshold, 55, the most a DE1's register holds being 50.
+      if (step === "restarted" || step === "restartedAfterReset") {
         tablet.machineConnected = false;
         tablet.connectMachine();
-        const fan = (answer: { body?: unknown }) => (answer.body as { fan: unknown }).fan;
-        const refillKit = (answer: { body?: unknown }) => (answer.body as { refillKitSetting: unknown }).refillKitSetting;
-        const now = await read();
-        expect([fan(now["/machine/settings"]), refillKit(now["/machine/settings/advanced"])], step).toEqual([fan(reads["/machine/settings"]!), refillKit(reads["/machine/settings/advanced"]!)]);
+        const [fan, ...rest] = kept(reads);
+        expect(kept(await read()), step).toEqual([fan === 55 ? 50 : fan, ...rest]);
         continue;
       }
       for (const { request, response } of exchanges) {
@@ -270,16 +281,43 @@ describe("The simulated tablet's settings writes", () => {
         else if (request.path === "/devices/connect") tablet.connectMachine();
         else expect(await tablet.callApi(request.method, request.path, request.body), step).toEqual(response);
       }
-      expect(await read(), `the reads after ${step}`).toEqual(reads);
+      // The reset writes a fan threshold of 55, which Decaid's simulated machine holds as sent and a DE1's register as 50.
+      const expected = step === "reset" ? { ...reads, "/machine/settings": { ...reads["/machine/settings"]!, body: { ...(reads["/machine/settings"]!.body as object), fan: 50 } } } : reads;
+      expect(await read(), `the reads after ${step}`).toEqual(expected);
     }
+    // The steps wrote a flow multiplier and reset the machine's settings, so what they show of each was compared.
+    expect(kept(reconnects.restartedAfterReset!.reads)).toEqual([55, 2, 1.2]);
   });
 
-  it("keep the fan threshold and refill kit setting written to each machine, by its serial, and a machine never written takes Decaid's defaults as it connects", async () => {
+  it("refuse a change of the Skin served, or the automatic update checks turned on, with nothing applied, as Decaid v0.9.2 did a request with no token", async () => {
+    const started = Object.fromEntries(Object.entries(gate.started!.reads).map(([route, read]) => [route, read.body]));
+    const tablet = SimulatedTablet.load({ settings: {}, api: { ...de1ProOnDecaid092(), ...started } });
+    const refused: string[] = [];
+    for (const [step, { exchanges, reads }] of Object.entries(gate)) {
+      // The simulated tablet knows no token, as the plugin's `fetch` carries none: the replay ends at the first request Decaid took one with.
+      if (exchanges.some(({ request }) => request.token === "launch")) break;
+      for (const { request, response } of exchanges) {
+        // A token Decaid does not know is refused as none is, with another message, which the simulated tablet does not model.
+        if (request.token !== undefined) continue;
+        expect(await tablet.callApi(request.method, request.path, request.body), step).toEqual(response);
+        if (response.status === 401) refused.push(step);
+      }
+      expect(await tablet.callApi("GET", "/settings"), `the settings after ${step}`).toEqual(reads["/settings"]);
+    }
+    expect(refused).toEqual(["updateChecksOnRefused", "skinRefused", "webUiPathRefused"]);
+    // Turned off, the update checks stay off: only a request with a token turned them on again.
+    expect((await tablet.callApi("GET", "/settings")).body).toMatchObject({ automaticUpdateCheck: false });
+    expect((gate.updateChecksOnWithToken!.reads["/settings"]!.body as { automaticUpdateCheck: unknown }).automaticUpdateCheck).toBe(true);
+  });
+
+  it("keep the fan threshold, refill kit setting and flow multiplier written to each machine, by its serial, and a machine never written takes Decaid's defaults as it connects, keeping its own flow multiplier", async () => {
     const tablet = SimulatedTablet.load({ settings: {} });
     const held = async () => [
       ((await tablet.callApi("GET", "/machine/settings")).body as { fan: number }).fan,
       ((await tablet.callApi("GET", "/machine/settings/advanced")).body as { refillKitSetting: number }).refillKitSetting,
     ];
+    // To the thousandth, as Decaid reads the register times 0.001, which gives 1.0030000000000001 for 1003.
+    const flowMultiplier = async () => Math.round(((await tablet.callApi("GET", "/machine/calibration")).body as { flowMultiplier: number }).flowMultiplier * 1000) / 1000;
     const reconnect = () => {
       tablet.machineConnected = false;
       tablet.connectMachine();
@@ -306,7 +344,7 @@ describe("The simulated tablet's settings writes", () => {
     tablet.serve(derivedDe1Pro({ serial: "10002" }));
     reconnect();
     expect(await held()).toEqual([45, 2]);
-    tablet.serve(de1ProOnDecaid091());
+    tablet.serve(de1ProOnDecaid092());
     reconnect();
     expect(await held()).toEqual([30, 1]);
 
@@ -315,5 +353,33 @@ describe("The simulated tablet's settings writes", () => {
     replacement.machineConnected = false;
     replacement.connectMachine();
     expect(((await replacement.callApi("GET", "/machine/settings")).body as { fan: number }).fan).toBe(50);
+
+    // No flow multiplier was written through the tablet, so it writes none as the machine connects: one set from
+    // elsewhere stays.
+    tablet.serve({ ...de1ProOnDecaid092(), "/machine/calibration": { flowMultiplier: 0.9 } });
+    reconnect();
+    expect(await flowMultiplier()).toBe(0.9);
+    // Once one is written through it, it is written again as the machine connects, over one set from elsewhere
+    // meanwhile, as the register holds it: 1.005 as 1.003. A write that fails keeps none.
+    expect((await tablet.callApi("POST", "/machine/calibration", { flowMultiplier: 1.005 })).status).toBe(202);
+    tablet.failSettingWrites = ({ field }) => (field === "flowMultiplier" ? { status: 500, body: { error: "TimeoutException: the machine did not answer" } } : undefined);
+    expect((await tablet.callApi("POST", "/machine/calibration", { flowMultiplier: 1.5 })).status).toBe(500);
+    tablet.failSettingWrites = undefined;
+    tablet.serve({ ...de1ProOnDecaid092(), "/machine/calibration": { flowMultiplier: 0.9 } });
+    reconnect();
+    expect(await flowMultiplier()).toBe(1.003);
+    // Decaid's reset of the machine's settings puts back its defaults for the rest, and keeps the fan threshold and
+    // refill kit no longer, but leaves the flow multiplier, on the machine and kept.
+    expect(await tablet.callApi("DELETE", "/machine/settings/reset")).toEqual({ status: 202, body: null });
+    expect(await held()).toEqual([50, 2]);
+    expect((await tablet.callApi("GET", "/machine/settings/advanced")).body).toMatchObject({ heaterPh1Flow: 2, heaterPh2Flow: 4, heaterIdleTemp: 95, heaterPh2Timeout: 4 });
+    expect(await flowMultiplier()).toBe(1.003);
+    tablet.serve({ ...de1ProOnDecaid092(), "/machine/calibration": { flowMultiplier: 0.9 } });
+    reconnect();
+    expect(await flowMultiplier()).toBe(1.003);
+    // Another machine has none kept.
+    tablet.serve({ ...derivedDe1Pro({ serial: "10002" }), "/machine/calibration": { flowMultiplier: 0.9 } });
+    reconnect();
+    expect(await flowMultiplier()).toBe(0.9);
   });
 });

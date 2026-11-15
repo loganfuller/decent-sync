@@ -21,10 +21,10 @@ tablet's app settings as they are now: the default skin
 `streamline.js-dist` while it serves the release's folder (`webUiPath`,
 `.../app_flutter/web-ui/streamline.js`, which Decaid answers with the folder
 it serves, `settings_handler.dart`), charging mode `longevity`, scale power mode `displayOff`, and a battery at
-51% and not charging. The simulated tablet (`de1ProOnDecaid091` in
+51% and not charging. The simulated tablet (`de1ProOnDecaid092` in
 `server/test/support/simulated-tablet.ts`) answers `/settings` from here,
-which Decaid v0.9.1 answers the same, `/info` from
-`../simulated-devices-v0.9.1/`, as v0.9.0 is no longer supported, and
+whose fields Decaid v0.9.2 answers too, `/info` from
+`../simulated-devices-v0.9.2/`, as v0.9.0 is no longer supported, and
 everything else from `../de1pro-v0.8.7/`, but for
 `/machine/calibration` and `/machine/calibration/{target}`, which were not
 recorded, and Decaid's Skins routes (`/webui/...`), which it answers as

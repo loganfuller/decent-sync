@@ -11,7 +11,7 @@ import { type DecaidAnswer, createBean, decaidNow, listedBeans, updateBean, with
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
 import { updateShot } from "./decaid-shots.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
-import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
+import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, resetMachineSettings, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
 import { latestReleaseDir } from "./latest-release.mjs";
 import { type DecaidSocket, type DecaidSocketState, type LiveFixtureFrame, milkProbeListing, openingFrames } from "./live-fixtures.js";
@@ -287,9 +287,9 @@ export class Refusal {
  * The test tablet's DE1Pro, with its hardware ids replaced (see the
  * fixtures' READMEs): its library, settings and paired devices included, as
  * Decaid 0.8.7 answered them (de1pro-v0.8.7/), and unchanged in 0.9.0, but
- * its app settings as Decaid 0.9.0 answers them (de1pro-v0.9.0/), unchanged
- * in 0.9.1, and its version as Decaid 0.9.1's release reports it
- * (simulated-devices-v0.9.1/), the oldest the server accepts. Its scale is
+ * its app settings as Decaid 0.9.0 answers them (de1pro-v0.9.0/), with the
+ * same fields in 0.9.2, and its version as Decaid 0.9.2's release reports it
+ * (simulated-devices-v0.9.2/), the oldest the server accepts. Its scale is
  * off, so `/scale/info` answers 503, and DYE2 has never written its
  * equipment, which therefore answers `null`. Its DYE2
  * recipes and baskets are in an older DYE2's shape than simulated-dye2.ts
@@ -302,9 +302,9 @@ export class Refusal {
  * (`defaultSkinId` and `webUiPath`; `skinsAt("defaultSwitched")`). Its
  * presence settings are a new install's (`newPresenceSettings`).
  */
-export function de1ProOnDecaid091(): DecaidApi {
+export function de1ProOnDecaid092(): DecaidApi {
   return {
-    "/info": readFixture("info.json", "simulated-devices-v0.9.1"),
+    "/info": readFixture("info.json", "simulated-devices-v0.9.2"),
     "/machine/info": readFixture("machine-info.json"),
     "/settings": readFixture("settings.json", "de1pro-v0.9.0"),
     "/workflow": readFixture("workflow.json"),
@@ -524,14 +524,14 @@ function machineSnapshot(state: string, substate: string): Record<string, unknow
 export const NO_DYE2_LISTS: DecaidApi = { "/store/dye2.reaplugin/recipes": [], "/store/dye2.reaplugin/baskets": [], "/store/dye2.reaplugin/equipment": [] };
 
 /**
- * Derived from de1ProOnDecaid091(): the same responses, with the machine's
+ * Derived from de1ProOnDecaid092(): the same responses, with the machine's
  * reported model and serial, the preferred machine's connection id, or
  * Decaid's version (such as 0.8.8+2900, split into its version and build
  * number as Decaid reports them too) changed. Every other field is as Decaid
  * sent it.
  */
 export function derivedDe1Pro(changes: { model?: string; serial?: string; connectionId?: string; decaidVersion?: string }): DecaidApi {
-  const api = de1ProOnDecaid091();
+  const api = de1ProOnDecaid092();
   const info = api["/info"] as Record<string, unknown>;
   const machineInfo = api["/machine/info"] as Record<string, unknown>;
   const settings = api["/settings"] as Record<string, unknown>;
@@ -566,7 +566,7 @@ export function helloWith(token: string, extra: Record<string, unknown> = {}): R
     wireRevision: WIRE_REVISION,
     token,
     pluginVersion: "0.1.0",
-    decaidVersion: "0.9.1+3027",
+    decaidVersion: "0.9.2+3191",
     tabletId: randomUUID(),
     connectionId: "00:00:5E:00:53:01",
     ...extra,
@@ -678,7 +678,7 @@ export interface SimulatedTabletOptions {
    * empty one, as on a new tablet.
    */
   storage?: PluginStorage;
-  /** Decaid's API responses; defaults to de1ProOnDecaid091(). */
+  /** Decaid's API responses; defaults to de1ProOnDecaid092(). */
   api?: DecaidApi;
   /** Whether a machine is connected to the tablet; while not, /machine/info, /machine/state and the machine's settings fail. Defaults to true. */
   machineConnected?: boolean;
@@ -962,7 +962,7 @@ export class SimulatedTablet {
   }
 
   private constructor(private readonly options: SimulatedTabletOptions) {
-    this.api = options.api ?? de1ProOnDecaid091();
+    this.api = options.api ?? de1ProOnDecaid092();
     this.machineConnected = options.machineConnected ?? true;
     this.socketState = { ...(options.sockets ?? openingFrames()) };
     this.keepsFlushSettings = options.keepsFlushSettings ?? true;
@@ -1022,8 +1022,8 @@ export class SimulatedTablet {
   /**
    * Answers Decaid's API with these responses from now on, as when another
    * machine is connected, the values in Decaid's store included. The fan
-   * threshold and refill kit setting Decaid keeps for each machine stay
-   * (`connectMachine`).
+   * threshold, refill kit setting and flow multiplier Decaid keeps for each
+   * machine stay (`connectMachine`).
    */
   serve(api: DecaidApi): void {
     this.api = api;
@@ -1047,8 +1047,10 @@ export class SimulatedTablet {
    * Connects the machine to the tablet, as when it reconnects: /machine/info
    * answers from now on, the fan threshold and refill kit setting are those
    * last written to that machine through `POST /machine/settings` and
-   * `/machine/settings/advanced`, or 50 and auto where none was, as Decaid
-   * v0.9.1 sets them on every connect, and Decaid starts sending machine
+   * `/machine/settings/advanced`, or 50 and auto where none was, and the flow
+   * multiplier the one last written through `POST /machine/calibration`, or
+   * as the machine holds it where none was, as Decaid v0.9.2 sets them on
+   * every connect, and Decaid starts sending machine
    * state updates, of which this delivers one, with the state /machine/state
    * answers. Given `devices`, the device list saying it is connected, such as
    * Decaid's recorded one (`machineDisconnects` in live-fixtures.ts),
@@ -1064,11 +1066,16 @@ export class SimulatedTablet {
   connectMachine(devices?: Record<string, unknown>): void {
     this.machineConnected = true;
     if (devices) this.reportOnSocket("devices", devices);
-    // A machine connecting to Decaid has the fan threshold and refill kit Decaid keeps for it written, or its defaults (decaid-settings.ts).
+    // A machine connecting to Decaid has the fan threshold and refill kit Decaid keeps for it written, or its defaults, and
+    // the flow multiplier it keeps for it, if any (decaid-settings.ts).
     const kept = this.keptMachineSettings.get(this.machineSerial()) ?? {};
-    const { settings, advanced } = reconnected(this.api["/machine/settings"], this.api["/machine/settings/advanced"], kept);
+    const { settings, advanced, calibration } = reconnected(
+      { settings: this.api["/machine/settings"], advanced: this.api["/machine/settings/advanced"], calibration: this.api["/machine/calibration"] },
+      kept,
+    );
     if ("/machine/settings" in this.api) this.api = { ...this.api, "/machine/settings": settings };
     if ("/machine/settings/advanced" in this.api) this.api = { ...this.api, "/machine/settings/advanced": advanced };
+    if ("/machine/calibration" in this.api) this.api = { ...this.api, "/machine/calibration": calibration };
     this.fire("stateUpdate", this.api["/machine/state"]);
     // Decaid's sockets of the machine bind to it as it connects, and send its latest.
     for (const source of ["waterLevels", "shotSettings"] as const) this.sendOnSocket(source, this.socketState[source]);
@@ -1076,7 +1083,7 @@ export class SimulatedTablet {
 
   /**
    * The serial `/machine/info` reports, by which Decaid keeps a machine's fan
-   * threshold and refill kit setting; empty where it reports none. Decaid
+   * threshold, refill kit setting and flow multiplier; empty where it reports none. Decaid
    * keys a machine reporting none, or `0`, by its device id instead
    * (`_captureMachineSettingsIdentity`), which isn't modelled.
    */
@@ -2053,11 +2060,12 @@ export class SimulatedTablet {
   }
 
   /**
-   * Carries out a settings write as Decaid v0.9.0 and v0.9.1 do
+   * Carries out a settings write as Decaid v0.9.2 does
    * (decaid-settings.ts), to the machine's settings, Decaid's own or its
    * presence settings and wake schedules, keeping what it changed where `api`
-   * serves the matching `GET`, and the fan threshold and refill kit setting
-   * written for the machine, as v0.9.1 does (`connectMachine`), or reads the
+   * serves the matching `GET`, and the fan threshold, refill kit setting and
+   * flow multiplier written for the machine (`connectMachine`), or resets
+   * the machine's settings, or reads the
    * presence settings, without `keepAwakeUntil` while no
    * machine is connected, or the wake schedules; undefined for any other
    * request, the machine's settings' reads included.
@@ -2087,6 +2095,18 @@ export class SimulatedTablet {
     if (method === "POST" && route === "/machine/settings") return keep(route, writeMachineSettings({ ...machine, current: held(route) }));
     if (method === "POST" && route === "/machine/settings/advanced") return keep(route, writeAdvancedSettings({ ...machine, current: held(route) }));
     if (method === "POST" && route === "/machine/calibration") return keep(route, writeCalibration({ ...machine, current: held(route) }));
+    if (method === "DELETE" && route === "/machine/settings/reset") {
+      const serial = this.machineSerial();
+      const reset = resetMachineSettings({
+        settings: held("/machine/settings"),
+        advanced: held("/machine/settings/advanced"),
+        machineConnected: this.machineConnected,
+        kept: this.keptMachineSettings.get(serial) ?? {},
+      });
+      this.api = { ...this.api, "/machine/settings": reset.settings, "/machine/settings/advanced": reset.advanced };
+      this.keptMachineSettings.set(serial, reset.kept);
+      return reset.answer;
+    }
     const target = /^\/machine\/calibration\/([^/]+)$/.exec(route)?.[1];
     if (method === "PUT" && target !== undefined) {
       const served = `/machine/calibration/${decodeURIComponent(target)}`;

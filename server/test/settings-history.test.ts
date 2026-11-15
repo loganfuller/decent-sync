@@ -9,7 +9,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #432: each Machine's Settings History, recorded from the
 // collections its tablet reports, through the built plugin in a simulated
-// tablet, which carries out Settings Edits as Decaid v0.9.1 takes them
+// tablet, which carries out Settings Edits as Decaid v0.9.2 takes them
 // (decaid-settings.ts), and through raw frames, for an edit's read-back
 // holding a change made outside it, against real servers sharing one
 // PostgreSQL database. The history is read from the database here, as

@@ -1,0 +1,860 @@
+{
+  "started": {
+    "exchanges": [],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "updateChecksOnWhileOn": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "automaticUpdateCheck": true
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "updateChecksOff": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "automaticUpdateCheck": false
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "updateChecksOnRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "themeMode": "dark",
+            "automaticUpdateCheck": true
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "updateChecksOnUnknownToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "themeMode": "dark",
+            "automaticUpdateCheck": true
+          },
+          "token": "unknown"
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Invalid token"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "sameSkin": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "defaultSkinId": "streamline.js"
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "skinRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "keepAwake": false,
+            "defaultSkinId": "insight"
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "webUiPathRefused": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "keepAwake": false,
+            "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js"
+          }
+        },
+        "response": {
+          "status": 401,
+          "body": {
+            "error": "Missing or malformed bearer token"
+          }
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": false,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "system"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "updateChecksOnWithToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "themeMode": "dark",
+            "automaticUpdateCheck": true
+          },
+          "token": "launch"
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "skinWithToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "defaultSkinId": "insight"
+          },
+          "token": "launch"
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "insight",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "insight",
+          "name": "Insight",
+          "path": "/root/.local/share/decaid/web-ui/insight",
+          "description": "Faithful web port of the classic de1app Insight skin for Decent.app",
+          "version": "0.2.7",
+          "isBundled": false,
+          "reaMetadata": null
+        }
+      }
+    }
+  },
+  "skinBackWithToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "defaultSkinId": "streamline.js"
+          },
+          "token": "launch"
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  },
+  "webUiPathWithToken": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/settings",
+          "body": {
+            "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js"
+          },
+          "token": "launch"
+        },
+        "response": {
+          "status": 200,
+          "body": null
+        }
+      }
+    ],
+    "reads": {
+      "/settings": {
+        "status": 200,
+        "body": {
+          "gatewayMode": "disabled",
+          "webUiPath": "/root/.local/share/decaid/web-ui/streamline.js",
+          "logLevel": "INFO",
+          "weightFlowMultiplier": 1,
+          "volumeFlowMultiplier": 0.3,
+          "hotWaterFlowMultiplier": 0.3,
+          "scalePowerMode": "disconnect",
+          "blockOnNoScale": false,
+          "blockTareDuringShot": false,
+          "stopHotWaterAtWeight": true,
+          "preferredMachineId": "MockDe1",
+          "preferredScaleId": "MockScale",
+          "preferredGrinderDeviceId": null,
+          "defaultSkinId": "streamline.js",
+          "automaticUpdateCheck": true,
+          "chargingMode": "disabled",
+          "nightModeEnabled": false,
+          "nightModeSleepTime": 1320,
+          "nightModeMorningTime": 420,
+          "lowBatteryBrightnessLimit": true,
+          "keepAwake": true,
+          "simulatedDevices": [
+            "machine",
+            "scale"
+          ],
+          "themeMode": "dark"
+        }
+      },
+      "/webui/skins/default": {
+        "status": 200,
+        "body": {
+          "id": "streamline.js",
+          "name": "Streamline.js",
+          "path": "/root/.local/share/decaid/web-ui/streamline.js",
+          "description": "Modern, feature-complete WebUI skin for Streamline-Bridge",
+          "version": "0.2.27",
+          "isBundled": true,
+          "reaMetadata": {
+            "skinId": "streamline.js",
+            "sourceUrl": "github_release:allofmeng/streamline_project@v0.2.27",
+            "lastModified": "2026-11-13T09:24:30Z",
+            "etag": null,
+            "commitHash": "v0.2.27",
+            "releaseAssetName": null,
+            "includePrerelease": false,
+            "installedAt": "2026-11-15T14:11:41.302801",
+            "lastChecked": "2026-11-15T14:11:41.302801"
+          }
+        }
+      }
+    }
+  }
+}

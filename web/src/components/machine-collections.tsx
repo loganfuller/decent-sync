@@ -52,6 +52,8 @@ const SENSOR_CALIBRATION_WARNING = {
 /** What each note on a field says. */
 const NOTES: Record<SettingsNote, string> = {
   keptByTablet: "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.",
+  writtenAgainByTablet:
+    "The Tablet writes the value last set through it again each time the Machine connects, so a value set from elsewhere, such as another Tablet or de1app, lasts only until then.",
   restartAfterChange: "Restart the Machine after changing it for the change to take effect.",
 };
 

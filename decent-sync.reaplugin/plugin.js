@@ -246,7 +246,7 @@ var __decentSync = (() => {
     ],
     machineCalibration: [
       // The range Decaid clamps to (`calFlowEst`), in the thousandths the Machine keeps.
-      { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 1e-3, editableBy: "admin" }
+      { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 1e-3, editableBy: "admin", notes: ["writtenAgainByTablet"] }
     ],
     sensorCalibration: [
       // The band Streamline accepts for one correction (`SENSOR_CAL_RATIO_MIN` and `SENSOR_CAL_RATIO_MAX` in
@@ -288,7 +288,6 @@ var __decentSync = (() => {
       { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
       { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
       { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
-      { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "staff" },
       {
         path: "chargingMode",
         label: "Charging mode",
@@ -339,6 +338,10 @@ var __decentSync = (() => {
       // Reported only while Decaid reads the Tablet's battery.
       { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
       { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
+      // Decaid v0.9.2 turns it on only for a request carrying a token that may manage its plugins and Skins, which the
+      // plugin has none of, and while it is off Decaid installs no update of a plugin or Skin by itself, this plugin's included
+      // (`UpdateCheckService`). So an edit could turn it off and never back on, and there is none (ADR-0023; #542).
+      { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", setBy: "Managed in Decaid on the Tablet" },
       { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
       { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },
       { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },

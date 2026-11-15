@@ -8,7 +8,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #224: the first Settings Edit, of a Machine's fan
 // threshold and steam purge mode, made through the REST API, sent to the
-// built plugin in a simulated tablet, which takes Decaid v0.9.1's settings
+// built plugin in a simulated tablet, which takes Decaid v0.9.2's settings
 // writes as Decaid does (decaid-settings.ts), and answered, against real
 // servers sharing one PostgreSQL database. Assertions are made through the
 // REST API and what the tablet's Decaid holds. Serials are made up.
