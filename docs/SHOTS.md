@@ -815,6 +815,13 @@ Shot's rating and note). It is one call for any Shot, and two paths.
   whole: the Reference Shot of one of its Location's Recipes that was
   pulled at another Location is read, and not edited. A Machine that is
   not served is refused as every request is, with why.
+- **A Shot the server believes the asking tablet holds** is edited the
+  same way, where that tablet's Decaid answers that it doesn't, as once
+  the Shot is deleted there. The server makes the edit, as the asking
+  Machine's, and sends it to that same tablet, which answers that it no
+  longer holds the Shot: the edit stays on the server, with no tablet to
+  reach. So an edit made on a tablet is nearly always of another
+  Machine's Shot, and not always.
 - **Who made it.** The edit's row names the connection's Machine and its
   tablet and no account, which the Shot's read gives as `machine` and
   `tabletId`, `get_shot` as `machine`, and the Shot page's card as the

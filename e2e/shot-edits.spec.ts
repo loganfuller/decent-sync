@@ -171,7 +171,7 @@ test("the card of edits, closed until opened, lists each with who made it, the C
   await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("3 stars");
   const card = page.getByRole("region", { name: "Rating and note edits" });
   await expect(card.getByRole("table")).toHaveCount(0);
-  await expectTip(card, "Rating and note edits", /^Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, through a Connected App, such as an assistant, or on another Machine's tablet at its Location, which names that Machine and no person\./);
+  await expectTip(card, "Rating and note edits", /^Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, through a Connected App, such as an assistant, or on a tablet at its Location that doesn't hold it, which names that tablet's Machine and no person\./);
   await openCard(page, "Rating and note edits");
   const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
   await expect(listed).toHaveCount(4);

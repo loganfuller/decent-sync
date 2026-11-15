@@ -82,7 +82,7 @@ const shotEdit = z.object({
   machine: z
     .object({ id, name: z.string() })
     .nullable()
-    .describe("The Machine whose tablet it was made on, for a Shot another tablet holds, which names no person; null for an account's, and once the Machine is gone."),
+    .describe("The Machine whose tablet it was made on, for a Shot that tablet doesn't hold, which names no person; null for an account's, and once the Machine is gone."),
   connectedApp: z
     .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host of its client id, which the app can't choose.") })
     .nullable()
