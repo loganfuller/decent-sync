@@ -1,4 +1,5 @@
 import { type FormEvent, useId, useState } from "react";
+import { Link } from "react-router";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
@@ -21,7 +22,8 @@ import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 // Location they work at. An edit is applied on the server at once and
 // written to the tablet that holds the Shot, now or when it next connects,
 // so the card says where the edits stand with that tablet, and a card of
-// its own, closed until opened, lists each edit with who made it.
+// its own, closed until opened, lists each edit with who made it: an
+// account, or the Machine whose tablet it was made on (#515).
 
 /** A rating as the card and its form say it: 0, or none, is unrated. */
 function ratingOrUnrated(rating: number | null): string {
@@ -56,7 +58,8 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
         <CardTitleWithInfo title="Rating and note">
           <p>
             How the Shot was judged. The rating runs from 1 to {MAX_SHOT_RATING}: DYE2 on a tablet shows it as five stars, two points a star. Both
-            are set on the tablet that holds the Shot, or edited away from it: here, or through a Connected App, such as an assistant.
+            are set on the tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on
+            another Machine's tablet at its Location.
           </p>
           <p>
             An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
@@ -186,8 +189,9 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
       info={
         <>
           <p>
-            Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, or through a Connected App,
-            such as an assistant. A change made on that tablet is not listed: it arrives with no person.
+            Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, through a Connected App,
+            such as an assistant, or on another Machine's tablet at its Location, which names that Machine and no person. A change made on
+            the tablet that holds it is not listed: it arrives with no person.
           </p>
           <p>
             An edit awaits its tablet until it is written there. It is dropped where its rating or note was changed on that tablet later than
@@ -214,7 +218,7 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
                 <TableRow key={edit.id}>
                   <TableCell>{recordTime(edit.madeAt, shot)}</TableCell>
                   <TableCell>
-                    <MadeBy account={edit.account} connectedApp={edit.connectedApp} />
+                    <EditMadeBy edit={edit} />
                   </TableCell>
                   <TableCell className="min-w-48 whitespace-normal">
                     <ul className="grid gap-0.5">
@@ -233,6 +237,23 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
       </CardContent>
     </CollapsibleCard>
   );
+}
+
+/**
+ * Who made an edit: the Machine whose tablet it was made on, as a Library
+ * item's history names one, or the account, with any Connected App
+ * (`MadeBy`). An edit made on a tablet names no account.
+ */
+function EditMadeBy({ edit }: { edit: ShotEdit }) {
+  if (edit.machine) {
+    return (
+      <Link to={`/machines/${edit.machine.id}`} className="underline-offset-4 hover:underline">
+        {edit.machine.name}
+      </Link>
+    );
+  }
+  if (edit.account === null && edit.tabletId) return <span className="text-muted-foreground">A Machine since removed</span>;
+  return <MadeBy account={edit.account} connectedApp={edit.connectedApp} />;
 }
 
 const STATES = {

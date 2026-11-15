@@ -1,5 +1,19 @@
-import { DYE2_NAMESPACE, MAX_SHOTS_PAGE, type NotServed, type SkinQuestion, type SkinRecipe, type SkinRefusal, dye2GlobalIdOf, dye2Records } from "@decent-sync/protocol";
-import { readCollection } from "./decaid.js";
+import {
+  DYE2_NAMESPACE,
+  MAX_SHOTS_PAGE,
+  MAX_SHOT_RATING,
+  MAX_SKIN_NOTE_LENGTH,
+  type NotServed,
+  type SkinQuestion,
+  type SkinRecipe,
+  type SkinRefusal,
+  dye2GlobalIdOf,
+  dye2Records,
+  isShotNote,
+  isShotRating,
+  shotRatingAndNote,
+} from "@decent-sync/protocol";
+import { readCollection, request as askDecaid } from "./decaid.js";
 import type { HttpAnswer, HttpRequest, PluginHost } from "./host.js";
 import type { ReferenceCopies } from "./reference-copies.js";
 import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
@@ -13,9 +27,11 @@ import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 // in decaid:lib/src/plugins/plugin_manager.dart, the same at v0.9.1 and
 // v0.9.2). Decaid checks no caller, so anything on the tablet's network can
 // call these, as it can Decaid's own API. docs/PLUGIN.md describes them for
-// a Skin's author. All read but one: a PUT to `reference` chooses a Recipe's
+// a Skin's author. All read but two. A PUT to `reference` chooses a Recipe's
 // Reference Shot (ticket #511), which the server does or refuses, never the
-// plugin later.
+// plugin later. A PUT to `shot` edits a Shot's rating and note (ticket #515,
+// ADR-0031): the tablet's own Shot through Decaid, with or without the
+// server, and any other through the server, now or not at all.
 //
 // They are apart from the `skin` endpoint and the `changed` push Streamline
 // reads (skins.ts), which stay as they were: Streamline reads any push on
@@ -28,7 +44,7 @@ const STATUS_ENDPOINT = "status";
 /** The plugin's HTTP endpoint a Skin reads a page of its Location's Shots from (manifest.json). */
 const SHOTS_ENDPOINT = "shots";
 
-/** The plugin's HTTP endpoint a Skin reads one of those Shots whole from (manifest.json). */
+/** The plugin's HTTP endpoint a Skin reads one of those Shots whole from, and edits a Shot's rating and note through (manifest.json). */
 const SHOT_ENDPOINT = "shot";
 
 /** The plugin's HTTP endpoint a Skin reads a Recipe's Reference Shot from, and chooses it through (manifest.json). */
@@ -45,7 +61,7 @@ const CHANGES_ENDPOINT = "changes";
 const MAX_ASKED_LENGTH = 2048;
 
 /** Why an endpoint refuses a request: one of these codes, each with its HTTP status and a sentence. */
-export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe" | "notAtThisLocation" | "archived" | "recipesUnread" | "invalidRequest";
+export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe" | "notAtThisLocation" | "archived" | "recipesUnread" | "shotUnwritten" | "invalidRequest";
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
@@ -66,17 +82,21 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
   notAtThisLocation: { status: 403, message: "That Recipe belongs to another Location than this Machine's, so its Reference Shot can't be chosen on this tablet." },
   archived: { status: 409, message: "That Recipe is Archived. Its Reference Shot can be chosen once it is restored." },
   recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
+  // Each says what Decaid answered in a sentence of its own (`editShot`).
+  shotUnwritten: { status: 500, message: "Decaid didn't take the edit of this tablet's own Shot." },
   // Each says what is wrong with it in a sentence of its own (`invalid`).
   invalidRequest: { status: 400, message: "The request is not one this endpoint answers." },
 };
 
 /**
  * Answers a request to one of the endpoints a Skin reads what the server
- * holds from, and chooses a Recipe's Reference Shot through, or undefined
- * for any other endpoint, as those Streamline reads (skins.ts). Each is
- * answered whether or not the plugin connects: a Skin is then told the
- * server can't be reached, or, reading a Recipe's Reference Shot, answered
- * from the tablet's copy (`references`) where it holds one.
+ * holds from, and chooses a Recipe's Reference Shot and edits a Shot's
+ * rating and note through, or undefined for any other endpoint, as those
+ * Streamline reads (skins.ts). Each is answered whether or not the plugin
+ * connects: a Skin is then told the server can't be reached, or, reading a
+ * Recipe's Reference Shot, answered from the tablet's copy (`references`)
+ * where it holds one, or, editing its tablet's own Shot, answered by
+ * Decaid.
  */
 export function answerSkin(request: HttpRequest, requests: SkinRequests | undefined, references: ReferenceCopies | undefined): Promise<HttpAnswer> | undefined {
   switch (request.endpoint) {
@@ -138,12 +158,90 @@ async function answerShots(request: HttpRequest, requests: SkinRequests | undefi
  * (`SkinShot` in protocol/), where it is one of the Shots at the Machine's
  * Location. Any other is refused as no such Shot, whether or not the server
  * holds it.
+ *
+ * A PUT edits the Shot's rating and note (`editShot`).
  */
 async function answerShot(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return methodNotAllowed("GET");
+  if (request.method === "PUT") return editShot(request, requests);
+  if (request.method !== "GET") return methodNotAllowed("GET", "PUT");
   const { id } = request.query;
-  if (!askable(id) || id === "") return invalid("Give the Shot's id as id.");
+  if (!askable(id) || id === "") return invalid(NAME_THE_SHOT);
   return answered(await ask(requests, { ask: "shot", shotId: id }));
+}
+
+/** What a request to `shot` that names no Shot is told. */
+const NAME_THE_SHOT = "Give the Shot's id as id.";
+
+/**
+ * Answers a PUT to `shot` (ticket #515, ADR-0031): sets the rating, the
+ * note or both of the Shot the query's `id` names, as the body's `rating`
+ * and `note` give them, leaving alone whichever it doesn't carry, and
+ * answers with the Shot's rating and note as they then are
+ * (`SkinShotEdited` in protocol/). A Skin edits every Shot this one way,
+ * and needn't know where a Shot is held:
+ *
+ * - **A Shot this tablet holds** is written through Decaid's own Shot
+ *   update, at once, whether or not the plugin is connected, or its Machine
+ *   served. Decaid then reports the Shot as updated, which reaches the
+ *   server as any edit made on the tablet does (shots.ts): with no person,
+ *   and no edit kept. It is the update the plugin sends for an edit made
+ *   through the server (shot-edits.ts): only the fields given, in the
+ *   Shot's annotations.
+ * - **Any other,** which Decaid answers it doesn't hold, the server is
+ *   asked to edit (`ask: "editShot"`): one of the Shots at the Machine's
+ *   Location, which it applies at once, keeps with the Machine and tablet
+ *   it was made on, and writes to the tablet that holds the Shot. It is
+ *   made as the server is asked or not at all: while the server can't be
+ *   asked it is refused, as unreachable or too old to ask, and nothing is
+ *   kept to send later. It goes at once, behind nothing the tablet has
+ *   still to report (FOLLOWS_REPORTS in skin-requests.ts).
+ *
+ * The update is sent to Decaid without reading the Shot first, so nothing
+ * changes there between a read and the write: Decaid says whether it holds
+ * the Shot as it writes it.
+ */
+async function editShot(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  const { id } = request.query;
+  if (!askable(id) || id === "") return invalid(NAME_THE_SHOT);
+  const fields = readEdit(request.body);
+  if (typeof fields === "string") return invalid(fields);
+  const annotations = { ...(fields.rating !== undefined && { enjoyment: fields.rating }), ...(fields.note !== undefined && { espressoNotes: fields.note }) };
+  let held;
+  try {
+    held = await askDecaid("PUT", `/shots/${encodeURIComponent(id)}`, { annotations });
+  } catch (error) {
+    return refusal("shotUnwritten", {}, `Decaid didn't answer the edit of this tablet's own Shot: ${error instanceof Error ? error.message : String(error)}`);
+  }
+  if (held.status === 404) return answered(await ask(requests, { ask: "editShot", shotId: id, ...fields }));
+  if (!held.ok) return refusal("shotUnwritten", {}, `Decaid refused the edit of this tablet's own Shot (${held.status}).`);
+  try {
+    // Decaid answers with the Shot as it now holds it.
+    return json(200, shotRatingAndNote(JSON.parse(held.text)));
+  } catch {
+    return refusal("shotUnwritten", {}, "Decaid took the edit of this tablet's own Shot, and answered with no Shot to read it from.");
+  }
+}
+
+/**
+ * The fields an edit sets, from a request's body, as the REST API's route
+ * reads them (`readShotEdit` in server/src/shots/shot-edits.ts): `rating`,
+ * `note` or both; or, as text, what is wrong with it. Checked here whichever
+ * holds the Shot, so one call is refused one way: Decaid itself would take
+ * a null, and a longer note.
+ */
+function readEdit(body: unknown): { rating?: number; note?: string } | string {
+  const NOTHING_TO_SET = "Give the Shot's rating, its note or both in a JSON body.";
+  if (typeof body !== "object" || body === null || Array.isArray(body)) return NOTHING_TO_SET;
+  const { rating, note, ...others } = body as Record<string, unknown>;
+  const other = Object.keys(others)[0];
+  // The name is a Skin's, so no more of it is repeated than a field's name is long.
+  if (other !== undefined) return `Only a Shot's rating and note can be set: ${JSON.stringify(other.slice(0, 40))} is neither.`;
+  if (rating !== undefined && !isShotRating(rating)) return `Give rating as a number from 0 to ${MAX_SHOT_RATING}, where 0 is unrated.`;
+  if (note !== undefined && !(isShotNote(note) && note.length <= MAX_SKIN_NOTE_LENGTH)) {
+    return `Give note as text of at most ${MAX_SKIN_NOTE_LENGTH} characters, where empty is none, without a NUL or an unpaired surrogate.`;
+  }
+  if (rating === undefined && note === undefined) return NOTHING_TO_SET;
+  return { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) };
 }
 
 /**

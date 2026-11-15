@@ -57,6 +57,9 @@ import {
   REQUESTS_WIRE_REVISION,
   SHOT_EDITS_WIRE_REVISION,
   MAX_SHOT_RATING,
+  MAX_SKIN_NOTE_LENGTH,
+  type PluginMessage,
+  shotRatingAndNote,
   isLaterRecordTime,
   isRecordTime,
   isShotNote,
@@ -611,7 +614,7 @@ describe("Requests for a Skin", () => {
 
   it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
     expect(REQUESTS_WIRE_REVISION).toBe(3);
-    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference"]);
+    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference", "editShot"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
     expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"]);
   });
@@ -624,7 +627,7 @@ describe("Requests for a Skin", () => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference, chooseReference");
+    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference, chooseReference, editShot");
     expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
     expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
     expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
@@ -685,7 +688,7 @@ describe("Requests for a Skin", () => {
 
   it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
     expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
-    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference, chooseReference");
+    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference, chooseReference, editShot");
     expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
     expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
     // Why it is not served goes with not being served, and only with it.
@@ -747,6 +750,35 @@ describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", 
     expect(fromServer(answer)).toBe("answer.result must be an object");
     expect(fromServer({ ...answer, result: { recipe } })).toBe("answer.result.reference must be an object or null");
     expect(fromServer({ ...answer, result: { recipe, reference: { ...reference, shot: "a Shot's id" } } })).toBe("answer.result.reference.shot must be an object");
+  });
+
+  it("reads a request editing a Shot's rating, its note or both, never neither, and its answer as the Shot's rating and note or a refusal", () => {
+    const request = { type: "request", id: "1j2k3l-4m5n-20", ask: "editShot", shotId: "a Shot's id" };
+    for (const fields of [{ rating: 0 }, { rating: 7.5 }, { note: "" }, { note: "Sweet, a little thin" }, { rating: MAX_SHOT_RATING, note: "x".repeat(MAX_SKIN_NOTE_LENGTH) }]) {
+      expect(decodePluginMessage(frame({ ...request, ...fields }))).toEqual({ ok: true, message: { ...request, ...fields } });
+    }
+    expect(fromPlugin(request)).toBe("request must have rating or note");
+    expect(fromPlugin({ type: "request", id: request.id, ask: "editShot", rating: 5 })).toBe("request.shotId must be a string");
+    // Unrated is 0 and no note is empty text: null says neither.
+    for (const rating of [null, "8", -1, MAX_SHOT_RATING + 1]) expect(fromPlugin({ ...request, rating })).toBe(`request.rating must be a number from 0 to ${MAX_SHOT_RATING}`);
+    for (const note of [null, 5, "a\u0000b", "\ud800"]) expect(fromPlugin({ ...request, note })).toBe("request.note must be text PostgreSQL stores");
+    // The longest note a Skin's edit sets fits one frame however its JSON escapes it.
+    expect(frames(encode({ ...request, shotId: "\u0001".repeat(2048), rating: 5, note: "\u0001".repeat(MAX_SKIN_NOTE_LENGTH) } as PluginMessage), "name")).toHaveLength(1);
+
+    const answer = { type: "answer", id: request.id, ask: "editShot" };
+    const accepted: unknown[] = [{ ...answer, result: { rating: 8, note: "Sweet" } }, { ...answer, result: { rating: null, note: null } }];
+    for (const refusal of ["noSuchShot", "captureOnly", "hardwareMismatch"]) accepted.push({ ...answer, refused: refusal });
+    for (const message of accepted) expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    expect(fromServer(answer)).toBe("answer.result must be an object");
+  });
+
+  it("reads a Shot's rating and note from its record's annotations, none where it has none and a blank note as none", () => {
+    expect(shotRatingAndNote({ annotations: { enjoyment: 7.5, espressoNotes: "Syrupy" } })).toEqual({ rating: 7.5, note: "Syrupy" });
+    expect(shotRatingAndNote({ annotations: { enjoyment: 0, espressoNotes: "" } })).toEqual({ rating: 0, note: null });
+    expect(shotRatingAndNote({ annotations: { espressoNotes: "  \n" }, shotNotes: "an older name" })).toEqual({ rating: null, note: null });
+    for (const record of [undefined, null, [], "a Shot", {}, { annotations: null }, { annotations: { enjoyment: "8", espressoNotes: 5 } }]) {
+      expect(shotRatingAndNote(record)).toEqual({ rating: null, note: null });
+    }
   });
 
   it("reads what the plugin holds, a version for each of some Recipe Slots, which only the plugin sends", () => {

@@ -398,6 +398,7 @@ model Machine {
   loadedRecipes      LoadedRecipe[]
   settingsEdits      SettingsEdit[]
   liveViewLeases     LiveViewLease[]
+  shotEdits          ShotEdit[]
 
   /// One Machine per piece of hardware. Unbound Machines (nulls) never clash.
   @@unique([model, serial])
@@ -506,6 +507,7 @@ model Tablet {
   lastApplied    TabletLastApplied?
   shots          Shot[]
   workflowEvents WorkflowEvent[]
+  shotEdits      ShotEdit[]
 
   @@map("tablets")
 }
@@ -756,12 +758,18 @@ model ShotEdit {
   rating         Float?
   note           String?
   /// Who made it: an account, and the Connected App it made it through, if
-  /// one (ADR-0026). An edit made on a Machine's tablet (#515) names
-  /// neither.
+  /// one (ADR-0026). An edit made on a Machine's tablet names neither.
   accountId      String?       @map("account_id") @db.Uuid
   account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
   connectedAppId String?       @map("connected_app_id") @db.Uuid
   connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  /// The Machine whose tablet made it, for a Skin (ticket #515), and that
+  /// tablet, as a version of a Library item names them (`ItemVersion`);
+  /// each null for an account's.
+  machineId      String?       @map("machine_id") @db.Uuid
+  machine        Machine?      @relation(fields: [machineId], references: [id], onDelete: SetNull)
+  tabletId       String?       @map("tablet_id") @db.Uuid
+  tablet         Tablet?       @relation(fields: [tabletId], references: [id], onDelete: SetNull)
   /// By PostgreSQL's clock, as its row is inserted, under its Shot's lock
   /// (`clock_timestamp()`): when the edit was applied, not when its
   /// transaction began, which may have waited for that lock.
@@ -782,6 +790,8 @@ model ShotEdit {
 
   @@index([shotId, number])
   @@index([connectedAppId])
+  @@index([machineId])
+  @@index([tabletId])
   /// The migration also indexes the edits still to be written, by their
   /// number, partially; Prisma cannot express that.
   @@map("shot_edits")

@@ -924,7 +924,7 @@ var __decentSync = (() => {
   }
   var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
   var REQUESTS_WIRE_REVISION = 3;
-  var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference"];
+  var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot"];
   var MAX_SHOTS_PAGE = 50;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
   var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"];
@@ -945,6 +945,15 @@ var __decentSync = (() => {
       index++;
     }
     return true;
+  }
+  var MAX_SKIN_NOTE_LENGTH = 4e4;
+  function shotRatingAndNote(record3) {
+    const annotations = isObject(record3) && isObject(record3.annotations) ? record3.annotations : {};
+    const { enjoyment, espressoNotes } = annotations;
+    return {
+      rating: typeof enjoyment === "number" && Number.isFinite(enjoyment) ? enjoyment : null,
+      note: typeof espressoNotes === "string" && espressoNotes.trim() !== "" ? espressoNotes : null
+    };
   }
   var RECORD_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/;
   function isRecordTime(value) {
@@ -5151,6 +5160,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     notAtThisLocation: { status: 403, message: "That Recipe belongs to another Location than this Machine's, so its Reference Shot can't be chosen on this tablet." },
     archived: { status: 409, message: "That Recipe is Archived. Its Reference Shot can be chosen once it is restored." },
     recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
+    // Each says what Decaid answered in a sentence of its own (`editShot`).
+    shotUnwritten: { status: 500, message: "Decaid didn't take the edit of this tablet's own Shot." },
     // Each says what is wrong with it in a sentence of its own (`invalid`).
     invalidRequest: { status: 400, message: "The request is not one this endpoint answers." }
   };
@@ -5188,10 +5199,45 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     return answered2(await ask(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
   }
   async function answerShot(request2, requests) {
-    if (request2.method !== "GET") return methodNotAllowed("GET");
+    if (request2.method === "PUT") return editShot(request2, requests);
+    if (request2.method !== "GET") return methodNotAllowed("GET", "PUT");
     const { id } = request2.query;
-    if (!askable(id) || id === "") return invalid2("Give the Shot's id as id.");
+    if (!askable(id) || id === "") return invalid2(NAME_THE_SHOT);
     return answered2(await ask(requests, { ask: "shot", shotId: id }));
+  }
+  var NAME_THE_SHOT = "Give the Shot's id as id.";
+  async function editShot(request2, requests) {
+    const { id } = request2.query;
+    if (!askable(id) || id === "") return invalid2(NAME_THE_SHOT);
+    const fields = readEdit(request2.body);
+    if (typeof fields === "string") return invalid2(fields);
+    const annotations = { ...fields.rating !== void 0 && { enjoyment: fields.rating }, ...fields.note !== void 0 && { espressoNotes: fields.note } };
+    let held;
+    try {
+      held = await request("PUT", `/shots/${encodeURIComponent(id)}`, { annotations });
+    } catch (error) {
+      return refusal("shotUnwritten", {}, `Decaid didn't answer the edit of this tablet's own Shot: ${error instanceof Error ? error.message : String(error)}`);
+    }
+    if (held.status === 404) return answered2(await ask(requests, { ask: "editShot", shotId: id, ...fields }));
+    if (!held.ok) return refusal("shotUnwritten", {}, `Decaid refused the edit of this tablet's own Shot (${held.status}).`);
+    try {
+      return json(200, shotRatingAndNote(JSON.parse(held.text)));
+    } catch {
+      return refusal("shotUnwritten", {}, "Decaid took the edit of this tablet's own Shot, and answered with no Shot to read it from.");
+    }
+  }
+  function readEdit(body) {
+    const NOTHING_TO_SET = "Give the Shot's rating, its note or both in a JSON body.";
+    if (typeof body !== "object" || body === null || Array.isArray(body)) return NOTHING_TO_SET;
+    const { rating, note, ...others } = body;
+    const other = Object.keys(others)[0];
+    if (other !== void 0) return `Only a Shot's rating and note can be set: ${JSON.stringify(other.slice(0, 40))} is neither.`;
+    if (rating !== void 0 && !isShotRating(rating)) return `Give rating as a number from 0 to ${MAX_SHOT_RATING}, where 0 is unrated.`;
+    if (note !== void 0 && !(isShotNote(note) && note.length <= MAX_SKIN_NOTE_LENGTH)) {
+      return `Give note as text of at most ${MAX_SKIN_NOTE_LENGTH} characters, where empty is none, without a NUL or an unpaired surrogate.`;
+    }
+    if (rating === void 0 && note === void 0) return NOTHING_TO_SET;
+    return { ...rating !== void 0 && { rating }, ...note !== void 0 && { note } };
   }
   async function answerReference(request2, requests, references) {
     if (request2.method === "PUT") return chooseReference(request2, requests);
@@ -5267,7 +5313,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   }
 
   // src/skin-requests.ts
-  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true, chooseReference: true };
+  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false };
   var SKIN_REQUEST_MS = 1e4;
   var SkinRequests = class {
     constructor(outbox) {

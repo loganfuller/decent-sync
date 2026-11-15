@@ -223,12 +223,12 @@ describe("A Shot's rating and note edited through an assistant", { timeout: 120_
     expect(text).toMatch(/"edits":\{"total":5,"offset":0,"more":false,"entries":\[/);
     const listed = (await rest("app-belmont")).edits;
     expect(result.edits!.entries).toEqual(
-      listed.map((made) => ({ madeAt: expect.stringMatching(/-0[56]:00$/), account: made.account, connectedApp: made.connectedApp, ...made.fields, state: made.state, dropped: made.dropped })),
+      listed.map((made) => ({ madeAt: expect.stringMatching(/-0[56]:00$/), account: made.account, machine: null, connectedApp: made.connectedApp, ...made.fields, state: made.state, dropped: made.dropped })),
     );
     expect(result.edits!.entries.map((made) => Date.parse(made.madeAt))).toEqual(listed.map((made) => Date.parse(made.madeAt)));
     expect(result.edits!.entries.slice(0, 2)).toEqual([
-      { madeAt: expect.any(String), account: { id: adminId, name: admin.name }, connectedApp: throughApp, rating: 7, state: "awaitingTablet", dropped: [] },
-      { madeAt: expect.any(String), account: { id: adminId, name: admin.name }, connectedApp: null, note: "Rested a week", state: "awaitingTablet", dropped: [] },
+      { madeAt: expect.any(String), account: { id: adminId, name: admin.name }, machine: null, connectedApp: throughApp, rating: 7, state: "awaitingTablet", dropped: [] },
+      { madeAt: expect.any(String), account: { id: adminId, name: admin.name }, machine: null, connectedApp: null, note: "Rested a week", state: "awaitingTablet", dropped: [] },
     ]);
     expect(result.edits!.entries.slice(2).map((made) => made.state)).toEqual(["written", "written", "written"]);
 
@@ -247,7 +247,7 @@ describe("A Shot's rating and note edited through an assistant", { timeout: 120_
     const { edits, enjoyment } = await assistant.call<ShotResult>("get_shot", { id: "app-belmont-gone", edits: true });
     // The edit stays in Decent Sync, as the Shot reads.
     expect(enjoyment).toBe(5);
-    expect(edits!.entries).toEqual([{ madeAt: expect.any(String), account: { id: adminId, name: admin.name }, connectedApp: throughApp, rating: 5, state: "noTablet", dropped: [] }]);
+    expect(edits!.entries).toEqual([{ madeAt: expect.any(String), account: { id: adminId, name: admin.name }, machine: null, connectedApp: throughApp, rating: 5, state: "noTablet", dropped: [] }]);
     expect((await rest("app-belmont-gone")).editStanding).toBe("noTablet");
   });
 

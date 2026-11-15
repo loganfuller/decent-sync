@@ -168,6 +168,17 @@ export async function locationShot(db: Prisma.TransactionClient, asking: AskingT
 }
 
 /**
+ * Whether the Shot is one the asking tablet's list lists: those it reads
+ * whole (`locationShot`), and those a Skin on it may edit the rating and
+ * note of (ticket #515).
+ */
+export async function locationLists(db: Prisma.TransactionClient, asking: AskingTablet, shotId: string): Promise<boolean> {
+  if (!isRecordId(shotId)) return false;
+  const found = await db.$queryRaw<unknown[]>`SELECT 1 FROM shots AS s WHERE s.id = ${shotId} AND ${listedAt(asking)}`;
+  return found.length > 0;
+}
+
+/**
  * The Recipes each of the Shots is the Reference Shot of (ADR-0029), by the
  * Shot's id: those of the asking tablet's Location that are not Archived,
  * which are the ones its tablets hold, by name, ignoring case. Another

@@ -1928,11 +1928,13 @@ export const REQUESTS_WIRE_REVISION = 3;
  * connection's Machine is served, and which Machine and Location it is;
  * `shots`, a page of the Shots at its Machine's Location; `shot`, one of
  * those Shots whole (ticket #509); `reference`, the Reference Shot of one of
- * that Location's Recipes, whole (ticket #510); and `chooseReference`, which
+ * that Location's Recipes, whole (ticket #510); `chooseReference`, which
  * makes a Shot the tablet may read whole the Reference Shot of one of those
- * Recipes (ticket #511), the one ask that changes anything.
+ * Recipes (ticket #511); and `editShot`, which sets the rating, the note or
+ * both of one of that Location's Shots that the asking tablet doesn't hold
+ * (ticket #515, ADR-0031). The last two are the asks that change anything.
  */
-export const SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference"] as const;
+export const SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference", "editShot"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
 
@@ -1983,6 +1985,15 @@ export type SkinQuestion =
       recipeId: string;
       /** The id of the Shot to make its Reference Shot. A request names one: a tablet can't clear a Reference Shot (ADR-0030). */
       shotId: string;
+    }
+  | {
+      ask: "editShot";
+      /** The Shot's id, which is Decaid's. */
+      shotId: string;
+      /** The rating to set (`isShotRating`); absent to leave the Shot's as it is. One of the two is given. */
+      rating?: number;
+      /** The note to set (`isShotNote`); absent to leave the Shot's as it is. */
+      note?: string;
     };
 
 /**
@@ -2119,9 +2130,9 @@ export interface SkinReference {
  *
  * - `captureOnly` and `hardwareMismatch`: the connection's Machine is not
  *   served (NOT_SERVED);
- * - `noSuchShot`: the Shot asked for is none its Machine's Location lists,
- *   whether or not the server holds it; or, for `chooseReference`, none
- *   the tablet may read whole;
+ * - `noSuchShot`: the Shot asked for, or to be edited, is none its
+ *   Machine's Location lists, whether or not the server holds it; or, for
+ *   `chooseReference`, none the tablet may read whole;
  * - `invalidCursor`: the cursor is none the server gave;
  * - `noSuchRecipe`: the Recipe asked about is none of its Machine's
  *   Location's, whether or not the Library holds it; or, for
@@ -2144,7 +2155,8 @@ export type SkinAnswer = { type: "answer"; id: string } & (
   | { ask: "shots"; result: SkinShots }
   | { ask: "shot"; result: SkinShot }
   | { ask: "reference" | "chooseReference"; result: SkinReference }
-  | { ask: "shots" | "shot" | "reference" | "chooseReference"; refused: SkinRefusal }
+  | { ask: "editShot"; result: SkinShotEdited }
+  | { ask: "shots" | "shot" | "reference" | "chooseReference" | "editShot"; refused: SkinRefusal }
 );
 
 /**
@@ -2270,6 +2282,41 @@ export function isShotNote(value: unknown): value is string {
     index++;
   }
   return true;
+}
+
+/**
+ * The longest note a Skin's edit of a Shot sets through the plugin (ticket
+ * #515), in UTF-16 units: far longer than any typed, and short enough that
+ * the plugin's request for it (`ask: "editShot"`) fits one frame, however
+ * its JSON escapes it, at up to six bytes a unit, and is no longer than the
+ * REST API's route takes.
+ */
+export const MAX_SKIN_NOTE_LENGTH = 40_000;
+
+/**
+ * A Shot's rating and note as they are, as a Skin is answered an edit of
+ * them (ticket #515) and reads them of a Recipe's Reference Shot
+ * (`SkinReferenceShot`).
+ */
+export interface SkinShotEdited {
+  /** Its rating on Decaid's scale of 0 to 10, where 0 is unrated; null where it has none. */
+  rating: number | null;
+  /** Its note; null where it has none. */
+  note: string | null;
+}
+
+/**
+ * What a Shot's record holds of its rating and note (`SkinShotEdited`), as
+ * Decaid keeps them in its annotations: `enjoyment`, and `espressoNotes`,
+ * where blank is none.
+ */
+export function shotRatingAndNote(record: unknown): SkinShotEdited {
+  const annotations = isObject(record) && isObject(record.annotations) ? record.annotations : {};
+  const { enjoyment, espressoNotes } = annotations;
+  return {
+    rating: typeof enjoyment === "number" && Number.isFinite(enjoyment) ? enjoyment : null,
+    note: typeof espressoNotes === "string" && espressoNotes.trim() !== "" ? espressoNotes : null,
+  };
 }
 
 /**
@@ -2685,6 +2732,13 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         if (object.ask === "reference" || object.ask === "chooseReference") fields.uuid("recipeId");
         // Whatever a Skin gave, as a `shot` request's is.
         if (object.ask === "chooseReference") fields.string("shotId");
+        // The Shot as a Skin named it, and the values as the plugin checked them before it asked.
+        if (object.ask === "editShot") {
+          fields.string("shotId");
+          if (object.rating !== undefined) fields.shotRating("rating");
+          if (object.note !== undefined) fields.shotNote("note");
+          fields.some(["rating", "note"]);
+        }
       });
     case "referencesHeld":
       return check<ReferencesHeld>(object, "referencesHeld", (fields) => fields.versionsBySlot("held"));
@@ -2827,7 +2881,8 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           return fields.absent("result");
         }
         fields.objectField("result");
-        // Each ask's result is checked as that ask's. A Shot's own fields are the plugin's to pass on as they are.
+        // Each ask's result is checked as that ask's. A Shot's own fields are the plugin's to pass on as they are, as
+        // are its rating and note after an edit (`editShot`).
         if (object.ask === "shots") {
           fields.optionalObject("result", (page) => {
             page.array("shots", (shot) => isObject(shot) && typeof shot.id === "string", MAX_SHOTS_PAGE);
