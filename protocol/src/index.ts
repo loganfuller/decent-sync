@@ -2982,12 +2982,12 @@ class FieldChecker {
     if (!isRecordId(this.object[key])) this.problem(key, `must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
   }
 
-  /** A rating a Shot's edit sets (`isShotRating`). */
   /** A record's time as Decaid writes one in UTC (`isRecordTime`). */
   recordTime(key: string): void {
     if (!isRecordTime(this.object[key])) this.problem(key, "must be a UTC time such as 2026-11-10T09:00:00.123456Z");
   }
 
+  /** A rating a Shot's edit sets (`isShotRating`). */
   shotRating(key: string): void {
     if (!isShotRating(this.object[key])) this.problem(key, `must be a number from 0 to ${MAX_SHOT_RATING}`);
   }

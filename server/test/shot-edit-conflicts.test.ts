@@ -402,6 +402,62 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       await raw.close();
     });
 
+    it("leaves an edit made while a write was under way standing, where the plugin's answer comes before the tablet's report of that write", async () => {
+      const held = await api.createMachine("Raw conflicts 5", belmont.id);
+      const raw = await connect(held, "51315", randomUUID());
+      const shot = shotOf("conflict-raw-answered", "2026-11-12T14:00:00.000Z", "51315", { enjoyment: 4 });
+      await report(raw, shot);
+      await edit("conflict-raw-answered", { rating: 1 });
+      const first = await next(raw, (message) => message.type === "shotEdit");
+      await edit("conflict-raw-answered", { rating: 2 });
+      const second = (await read("conflict-raw-answered")).edits[0]!.id;
+      // The answer first: the tablet then holds what the write carried. The second edit goes out for the version before.
+      raw.send({ type: "shotEdited", id: first.id, outcome: "written" });
+      expect(await next(raw, (message) => message.type === "shotEdit" && message.id === second)).toMatchObject({ version: shot.updatedAt, rating: 2 });
+      // Then Decaid's report of the first write, later than the second edit by the tablet's clock: it reads as the
+      // tablet holds it, so it is no change of the tablet's, and the second edit stands.
+      const written = tabletTime(60);
+      await reportUpdate(raw, shot, written, { enjoyment: 1 });
+      expect(await view("conflict-raw-answered")).toEqual({ enjoyment: 2, notes: null, edits: [[{ rating: 2 }, "awaitingTablet", []], [{ rating: 1 }, "written", []]] });
+      // The plugin found the Shot later than the second write was sent for: it goes again, for the version reported.
+      raw.send({ type: "shotEdited", id: second, outcome: "changed" });
+      expect(await next(raw, (message) => message.type === "shotEdit" && message.version === written)).toEqual({ type: "shotEdit", id: second, shotId: "conflict-raw-answered", version: written, rating: 2 });
+      raw.send({ type: "shotEdited", id: second, outcome: "written" });
+      await expect.poll(() => states("conflict-raw-answered")).toEqual(["written", "written"]);
+      await raw.close();
+    });
+
+    it("reads each report against what the tablet held after the one before: a rating the tablet changed before the edit is not a change in its next report", async () => {
+      const held = await api.createMachine("Raw conflicts 6", belmont.id);
+      const tabletId = randomUUID();
+      const raw = await connect(held, "51316", tabletId);
+      const shot = shotOf("conflict-raw-twice", "2026-11-12T15:00:00.000Z", "51316", { enjoyment: 4 });
+      await report(raw, shot);
+      await raw.close();
+      await api.waitForMachine("Raw conflicts 6", (viewed) => !viewed.online);
+      // The tablet, off, changed the rating a minute before the edit made through the server, and its note a minute after.
+      const [before, after] = [tabletTime(-60), tabletTime(60)];
+      await edit("conflict-raw-twice", { rating: 8 });
+
+      const again = await connect(held, "51316", tabletId);
+      const first = await next(again, (message) => message.type === "shotEdit");
+      again.send({ type: "shotEdited", id: first.id, outcome: "changed" });
+      // Its earlier change of the rating loses to the edit, which stands.
+      await reportUpdate(again, shot, before, { enjoyment: 6 });
+      expect(await view("conflict-raw-twice")).toEqual({ enjoyment: 8, notes: null, edits: [[{ rating: 8 }, "awaitingTablet", []]] });
+      // It goes out again for that version, which the tablet has since moved past.
+      const second = await next(again, (message) => message.type === "shotEdit" && message.version === before);
+      // Its later report repeats that rating, with the note changed: the rating is no change since, so the edit still stands.
+      await reportUpdate(again, shot, after, { enjoyment: 6, espressoNotes: "Said at the tablet" });
+      expect(await view("conflict-raw-twice")).toEqual({ enjoyment: 8, notes: "Said at the tablet", edits: [[{ rating: 8 }, "awaitingTablet", []]] });
+      again.send({ type: "shotEdited", id: second.id, outcome: "changed" });
+      const last = await next(again, (message) => message.type === "shotEdit" && message.version === after);
+      expect(last).toEqual({ type: "shotEdit", id: first.id, shotId: "conflict-raw-twice", version: after, rating: 8 });
+      again.send({ type: "shotEdited", id: last.id, outcome: "written" });
+      await expect.poll(() => states("conflict-raw-twice")).toEqual(["written"]);
+      await again.close();
+    });
+
     it("writes again an edit whose answer was lost with its connection, though the tablet's report of the write came in first", async () => {
       const held = await api.createMachine("Raw conflicts 3", belmont.id);
       const tabletId = randomUUID();

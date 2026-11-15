@@ -208,9 +208,10 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     expect(await annotationsOf(belmontTablet, "edit-belmont-plain")).toMatchObject({ enjoyment: made[0] });
     // And so does the server, throughout: the tablet's report of an earlier write leaves the later edits standing (#513).
     expect((await read("edit-belmont-plain")).enjoyment).toBe(made[0]);
+    // Decaid reported each write, and none of those reports puts the Shot back.
+    await expect.poll(() => reportsOf(belmontTablet, "edit-belmont-plain").length).toBe(reportedBefore + sent.length);
     await expect.poll(() => belmontTablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
     expect((await read("edit-belmont-plain")).enjoyment).toBe(made[0]);
-    expect(reportsOf(belmontTablet, "edit-belmont-plain").length).toBeGreaterThanOrEqual(reportedBefore + 1);
   });
 
   it("keeps an edit made while the tablet is off awaiting it, and writes it when the tablet reconnects", async () => {

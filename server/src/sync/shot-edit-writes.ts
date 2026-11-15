@@ -42,8 +42,8 @@ type Outcome = ShotEditedOutcome | "timedOut" | "stopped";
  * #513): the tablet changed the Shot, and its report of that is on its way.
  * The Shot is sent nothing more until this connection reports it
  * (`reported`), when its edits have been decided against that version and
- * what still stands is due for it; or, had it reported it since the write
- * was sent, at once. A report that never comes leaves the Shot for the same
+ * what still stands is due for it; or, had it reported it since the look
+ * for that write began, at once. A report that never comes leaves the Shot for the same
  * timer. A tablet that no longer holds the Shot (`notHeld`) has its edits
  * marked, so they are due no more, and the next Shot goes on.
  *
@@ -60,7 +60,7 @@ export class ShotEditWrites {
   private waiting: { id: string; settle: (outcome: Outcome) => void } | undefined;
   /** The edits sent on this connection that the plugin has not answered, by their ids: the one awaited, and those whose time ran out. */
   private readonly unanswered = new Map<string, ShotEdit>();
-  /** The Shots this connection has reported since a write was last sent for them. */
+  /** The Shots this connection has reported since the last look for what is due began, which read them as they then stood. */
   private readonly reportedSince = new Set<string>();
   /** The Shots whose edit was refused, or not answered in time, on this connection, until they are tried again. */
   private readonly skipped = new Set<string>();
@@ -151,6 +151,8 @@ export class ShotEditWrites {
   private async run(): Promise<void> {
     for (;;) {
       this.again = false;
+      // What was reported before now, this look reads; what is reported from now on, a write it sends may be too early for.
+      this.reportedSince.clear();
       const edit = await this.due([...this.skipped]);
       if (this.stopped) return;
       if (edit === null) {
@@ -169,8 +171,8 @@ export class ShotEditWrites {
    * Whether the Shot's edits go on after an answer: once written, or marked
    * as having no tablet to reach, there is no more of that write to send;
    * and where the Shot had changed on the tablet, once this connection has
-   * reported it since the write was sent, as what is due is then for the
-   * version it reported.
+   * reported it since the look that sent the write began, as what is due
+   * is then for the version it reported.
    */
   private goesOn(shotId: string, outcome: ShotEditedOutcome): boolean {
     return outcome === "written" || outcome === "notHeld" || (outcome === "changed" && this.reportedSince.has(shotId));
@@ -203,7 +205,6 @@ export class ShotEditWrites {
       };
       this.waiting = { id: edit.id, settle };
       this.unanswered.set(edit.id, edit);
-      this.reportedSince.delete(edit.shotId);
       this.send(edit);
     });
   }

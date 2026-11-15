@@ -789,8 +789,8 @@ decides them (ADR-0031).
   sends that Shot nothing more on the connection until the connection
   reports it (`ShotEditWrites.reported`), when the edits have been decided
   against the version reported and what still stands is due for it; had
-  the report come in after the write was sent and before its answer, the
-  Shot is looked at again at once. A report that never comes leaves the
+  the report come in since the look that sent the write began, and before
+  the write's answer, the Shot is looked at again at once. A report that never comes leaves the
   Shot to the retry every ten heartbeat intervals.
 - **Two edits through the server** of one field are applied in the order
   they are made, under the Shot's lock, so the later is what the Shot
@@ -863,13 +863,15 @@ decides them (ADR-0031).
   no release has, and the migration adds nullable columns to `shot_edits`
   and `shots`, which the previous release neither reads nor writes. The
   previous release's instance stores a version a tablet reports to it
-  whole, without deciding it: where an edit made through an instance of
-  this release awaits that tablet during a deploy, the Shot reads as the
-  tablet reported it until the edit is written, and a later change of the
-  edit's field in that version is overwritten by the edit when the tablet
-  next connects to an instance of this release. What the tablet holds is
-  set afresh by the next edit made while none awaits, so nothing of that
-  outlasts the edits awaiting then.
+  whole, and decides nothing. Where an edit made through an instance of
+  this release awaits that tablet during a deploy, the Shot then reads as
+  the tablet reported it, and that version may hold a later change of the
+  edit's field. So `ShotEditsService.due` leaves out a Shot whose record
+  no longer holds what its awaiting edits set, which only such a store
+  leaves: the edit is not written over that version, and waits for the
+  tablet's next report of the Shot, which an instance of this release
+  decides it against, with what the tablet held before. A tablet that
+  never reports the Shot again leaves the edit awaiting it.
 - **Verified** through Seam 1 with the built plugin in a simulated tablet
   (`server/test/shot-edit-conflicts.test.ts`): a rating edited through the
   server while the tablet is off and changed on the tablet later, the
@@ -885,10 +887,14 @@ decides them (ADR-0031).
   not sent on its next connection, whether Decaid refuses the read or the
   update. With raw frames: an edit of both fields of which the tablet
   changed one later, and both; the tablet's report of a write under way
-  arriving before its answer, with an edit made meanwhile; an answer lost
-  with its connection; and a Shot no longer held, with an edit made since
-  the write was sent. `server/test/shot-edit-writes.test.ts` covers the
-  connection's writer holding a Shot back until it is reported.
+  arriving before its answer, and after it, with an edit made meanwhile;
+  a rating the tablet changed before the edit, repeated in its next
+  report; an answer lost with its connection; and a Shot no longer held,
+  with an edit made since the write was sent.
+  `server/test/shot-edit-writes.test.ts` covers the connection's writer
+  holding a Shot back until it is reported. The mixed-versions suite has a
+  tablet's later change stored by the previous release's instance, and the
+  edit not written over it once this release's instance holds the tablet.
   `isLaterRecordTime` is tested in `protocol/`. Decaid's answers were read
   in its source, as for #512, not run on a tablet.
 

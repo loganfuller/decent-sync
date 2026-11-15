@@ -175,6 +175,18 @@ describe("A connection's writer of the edits of Shots", () => {
     expect(sent).toEqual(["a1", "a1", "a1", "a1"]);
   });
 
+  it("looks again at once where the Shot was reported while the look for its write was reading what is due", async () => {
+    const { writes, sent, make, answer } = connection();
+    make("a1", "shot-a");
+    // The look has read what is due, for the version before, and has yet to send it.
+    writes.reported("shot-a");
+    await settled();
+    expect(sent).toEqual(["a1"]);
+    answer("a1", false, "changed");
+    await settled();
+    expect(sent).toEqual(["a1", "a1"]);
+  });
+
   it("goes on to the next once a Shot's tablet no longer holds it, and says what it has written a Shot without an answer", async () => {
     const { writes, sent, make, answer } = connection();
     make("a1", "shot-a");

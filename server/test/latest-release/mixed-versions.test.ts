@@ -614,6 +614,45 @@ describe("the latest release beside the change", () => {
     }
   });
 
+  // An edit of a Shot made through the change's server while the latest
+  // release's instance holds the Shot's tablet, and a later change of the
+  // same field on that tablet (#513). The latest release stores the version
+  // the tablet reports whole and, until it has #513 itself, decides nothing:
+  // the edit is then not written over the tablet's change once the change's
+  // instance holds the tablet, and is decided by the tablet's next report.
+  it("never writes an edit of a Shot over a later change on its tablet that the latest release's instance stored", async () => {
+    const api = apis.change;
+    type Record_ = Record<string, unknown>;
+    const id = "mixed-edit-crossed";
+    const held = await connected("Shot edits, crossed on the latest release", "change", "latest release");
+    held.tablet.pullShot(derivedShot(id));
+    await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    const read = async () => (await api.get<{ shot: { enjoyment: number | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
+    const ratingOn = async (tablet: SimulatedTablet) => (((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_ | undefined)?.enjoyment;
+    const change = async (tablet: SimulatedTablet, annotations: Record_) => expect((await tablet.callApi("PUT", `/shots/${id}`, { annotations })).status).toBe(200);
+
+    expect((await api.send<{ shot: { enjoyment: number } }>("PATCH", `/shots/${id}`, { rating: 8 })).shot.enjoyment).toBe(8);
+    // A second later, as the two are timed by different clocks, the barista rates it on the tablet.
+    await new Promise((resolve) => setTimeout(resolve, 1100));
+    await change(held.tablet, { enjoyment: 6 });
+    await expect.poll(async () => (await read()).enjoyment).toBe(6);
+
+    // Once the change's instance holds the tablet, as once a deploy is done, the tablet keeps its rating.
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    await api.waitForOnline(held.machine);
+    await quiesced(api, { tablets: { moved } });
+    expect(await ratingOn(moved)).toBe(6);
+    expect(moved.writes.filter((write) => write.startsWith("PUT /shots/"))).toEqual([]);
+
+    // Its next report of the Shot decides the edit: the tablet changed the rating later, so the edit is dropped.
+    await change(moved, { espressoNotes: "Rated at the tablet" });
+    await expect.poll(async () => (await read()).edits.map((edit) => edit.state)).toEqual(["dropped"]);
+    await quiesced(api, { tablets: { moved } });
+    expect([(await read()).enjoyment, await ratingOn(moved)]).toEqual([6, 6]);
+    expect(moved.writes.filter((write) => write.startsWith("PUT /shots/"))).toEqual([]);
+  });
+
   // A tablet with the latest release's plugin on each instance, as a deploy
   // finds them before Decaid installs the change's.
   describe("both releases' servers on one database the change migrated, a tablet on each", () => {
