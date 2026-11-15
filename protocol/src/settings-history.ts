@@ -74,7 +74,7 @@ const PLUGIN_CHECK_FIELDS = ["lastChecked", "lastError"];
 /**
  * A plugin's `pendingUpdate` field that each update check writes again
  * while an update waits for its new permissions to be approved:
- * `detectedAt` (`PluginSourceService` in Decaid v0.9.1).
+ * `detectedAt` (`PluginSourceService` in Decaid v0.9.2).
  */
 const PENDING_UPDATE_CHECK_FIELDS = ["detectedAt"];
 

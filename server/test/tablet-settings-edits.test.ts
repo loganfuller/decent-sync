@@ -8,7 +8,7 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // Decaid's own settings (`appSettings`), Staff's to change but for gateway
 // mode, an Admin's, made through the REST API and carried out by the built
 // plugin in a simulated tablet, whose Decaid applies `POST /settings` one
-// field at a time, with or without a machine, as v0.9.0 does
+// field at a time, with or without a machine, as v0.9.2 does
 // (decaid-settings.ts). Assertions are made through the REST API and what
 // the tablet's Decaid holds. Serials are made up.
 
@@ -125,6 +125,21 @@ describe("Settings Edits of the Tablet Settings", () => {
     expect(await answered(machine, made.id)).toMatchObject({ outcome: "applied", readBack: { gatewayMode: "full" } });
     expect((await held(tablet)).gatewayMode).toBe("full");
     expect(writes(tablet)).toEqual(["POST /settings"]);
+  });
+
+  it("refuses an edit of the automatic update checks, an Admin's too, saying where they are managed, and writes nothing", async () => {
+    const { machine, tablet } = await connected("Tablet update checks");
+    expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: true });
+    for (const [as, automaticUpdateCheck] of [[staff, false], [api, false], [api, true]] as const) {
+      const response = await as.call("POST", path(machine), { collection: "appSettings", fields: { automaticUpdateCheck }, expected: { automaticUpdateCheck: true } });
+      const text = await response.text();
+      expect(response.status, text).toBe(400);
+      expect(text).toMatch(/Automatic update checks can't be changed here: managed in Decaid on the Tablet/);
+    }
+    expect(writes(tablet)).toEqual([]);
+    expect(await held(tablet)).toMatchObject({ automaticUpdateCheck: true });
+    // It is still reported, to be shown.
+    expect((await reported(machine))?.value).toMatchObject({ automaticUpdateCheck: true });
   });
 
   it("applies an edit while no machine is connected to the Tablet, whose state Decaid can't read then", async () => {

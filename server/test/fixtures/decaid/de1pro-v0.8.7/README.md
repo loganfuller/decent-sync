@@ -32,8 +32,8 @@ range, IP from `192.0.2.0/24`). Everything else is as Decaid sent it.
 Decaid v0.9.0 answers these endpoints as v0.8.7 did, but for `/info`, which
 reports its version, and `/settings`, which gains `preferredGrinderDeviceId`.
 Those two are superseded by `../de1pro-v0.9.0/`: the simulated tablet
-(`de1ProOnDecaid091` in `server/test/support/simulated-tablet.ts`) answers
-`/settings` from there, `/info` from `../simulated-devices-v0.9.1/`, and
+(`de1ProOnDecaid092` in `server/test/support/simulated-tablet.ts`) answers
+`/settings` from there, `/info` from `../simulated-devices-v0.9.2/`, and
 everything else from here.
 
 `workflow.json` is what Decaid's `workflowUpdated` event carries, and

@@ -2,7 +2,7 @@
 // once for the server, the plugin and the management interface (milestone 4,
 // #220; ADR-0023), and the validation of a Settings Edit against them.
 //
-// Each field is named as Decaid v0.9.0's API names it. Labels, units, ranges,
+// Each field is named as Decaid v0.9.2's API names it. Labels, units, ranges,
 // steps and choices follow Streamline's settings page
 // (streamline-js:src/settings/settings.js at v0.2.24) where it has them, and
 // Decaid's own limits otherwise. A reported value outside a field's range is
@@ -91,9 +91,16 @@ export interface SettingsChoice {
  *   backups leave it out, so a replacement Tablet, or a reset of Decaid's
  *   data, puts Decaid's default back (`MachineSettingsStore`;
  *   decentespresso/decaid#1043);
+ * - `writtenAgainByTablet`: the Tablet keeps the value last written through
+ *   it for that Machine, as it keeps a `keptByTablet` one, and writes it
+ *   again each time it connects to the Machine, but writes none where none
+ *   was written through it, the Machine then keeping its own. So a value set
+ *   from elsewhere, such as another Tablet or de1app, lasts only until a
+ *   Tablet holding an older one next connects (`_setDe1DefaultsFor` in
+ *   decaid:lib/src/controllers/de1_controller.defaults.dart, from v0.9.2);
  * - `restartAfterChange`: the Machine takes the new value once restarted.
  */
-export type SettingsNote = "keptByTablet" | "restartAfterChange";
+export type SettingsNote = "keptByTablet" | "writtenAgainByTablet" | "restartAfterChange";
 
 interface SettingsFieldBase {
   /** Decaid's name for the field, its key in the collection; for `sensorCalibration`, the sensor target. */
@@ -199,7 +206,7 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
   ],
   machineCalibration: [
     // The range Decaid clamps to (`calFlowEst`), in the thousandths the Machine keeps.
-    { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 0.001, editableBy: "admin" },
+    { path: "flowMultiplier", label: "Flow multiplier", kind: "number", min: 0.13, max: 2, step: 0.001, editableBy: "admin", notes: ["writtenAgainByTablet"] },
   ],
   sensorCalibration: [
     // The band Streamline accepts for one correction (`SENSOR_CAL_RATIO_MIN` and `SENSOR_CAL_RATIO_MAX` in
@@ -241,7 +248,6 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     { path: "weightFlowMultiplier", label: "Weight flow multiplier", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
     { path: "volumeFlowMultiplier", label: "Volume flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
     { path: "hotWaterFlowMultiplier", label: "Hot water flow multiplier", unit: "s", kind: "number", min: 0, step: 0.01, editableBy: "staff" },
-    { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", editableBy: "staff" },
     {
       path: "chargingMode",
       label: "Charging mode",
@@ -292,6 +298,10 @@ export const SETTINGS_FIELDS: Record<SettingsCollectionName, readonly SettingsFi
     // Reported only while Decaid reads the Tablet's battery.
     { path: "chargingState", label: "Charging state", setBy: "A reading of the Tablet's battery" },
     { path: "simulatedDevices", label: "Simulated devices", setBy: "For development" },
+    // Decaid v0.9.2 turns it on only for a request carrying a token that may manage its plugins and Skins, which the
+    // plugin has none of, and while it is off Decaid installs no update of a plugin or Skin by itself, this plugin's included
+    // (`UpdateCheckService`). So an edit could turn it off and never back on, and there is none (ADR-0023; #542).
+    { path: "automaticUpdateCheck", label: "Automatic update checks", kind: "onOff", setBy: "Managed in Decaid on the Tablet" },
     { path: "webUiPath", label: "Web UI path", setBy: "Follows the default skin" },
     { path: "defaultSkinId", label: "Default skin", setBy: "Managed with the Tablet's skins" },
     { path: "preferredMachineId", label: "Preferred machine", setBy: "Managed with the preferred devices" },

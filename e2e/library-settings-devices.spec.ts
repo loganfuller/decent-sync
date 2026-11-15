@@ -2,7 +2,7 @@ import { COLLECTION_NAMES } from "@decent-sync/protocol";
 import { expect, type Locator, test } from "@playwright/test";
 import {
   SimulatedTablet,
-  de1ProOnDecaid091,
+  de1ProOnDecaid092,
   derivedDe1Pro,
   sensorCalibration,
   settingsFor,
@@ -33,7 +33,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   // Derived: a flow calibration in thousandths, as the machine keeps it (calFlowEst), and the test DE1Pro's sensor
   // calibrations (#232), signed Q16.16 values off their fields' steps.
   const served = {
-    ...de1ProOnDecaid091(),
+    ...de1ProOnDecaid092(),
     ...simulatedLibrary(),
     ...simulatedDevices(),
     "/machine/calibration": { flowMultiplier: 0.596 },
@@ -92,7 +92,7 @@ test("the Machine page shows paired devices, settings and the library, and follo
   ]);
   const calibration = machineSettings.getByRole("region", { name: "Flow calibration" });
   await expectTip(calibration, "Flow calibration", /^Reported at \w{3} \d+, \d{4}/);
-  await expectShown(calibration, [["Flow multiplier", "0.596"]]);
+  await expectShown(calibration, [["Flow multiplier", "0.596", WRITTEN_AGAIN]]);
   // Its sensors' calibrations show rounded to their fields' steps, as Streamline shows them (#272).
   const sensors = machineSettings.getByRole("region", { name: "Sensor calibration" });
   await expectTip(sensors, "Sensor calibration", /^Reported at \w{3} \d+, \d{4}/);
@@ -112,6 +112,8 @@ test("the Machine page shows paired devices, settings and the library, and follo
     ["Night mode sleep time", "22:00 (UTC\u22124)"],
     ["Volume flow multiplier", "0.3 s"],
     ["Simulated devices", "machine, bengle, scale, sensor", "For development"],
+    // Shown, with where it is managed: Decaid turns it on only with a token, which the plugin has none of (#549).
+    ["Automatic update checks", "On", "Managed in Decaid on the Tablet"],
     ["Default skin", "streamline.js", "Managed with the Tablet's skins"],
     ["Preferred machine", "MockDe1", "Managed with the preferred devices"],
     ["updateChannel", "beta", "Not known to Decent Sync, so shown as Decaid names it, read-only"],
@@ -244,6 +246,8 @@ test("a Machine whose tablet has reported nothing says so", async ({ page }) => 
 });
 
 const KEPT = "The Tablet keeps the value, so a replacement Tablet or a reset of Decaid's data puts Decaid's default back.";
+const WRITTEN_AGAIN =
+  "The Tablet writes the value last set through it again each time the Machine connects, so a value set from elsewhere, such as another Tablet or de1app, lasts only until then.";
 
 /** That each field is shown by its label with its value, and its tooltip has each line saying what sets it or noting what may become of it, or that it has none. */
 async function expectShown(scope: Locator, shown: [term: string, value: string, ...about: string[]][]) {

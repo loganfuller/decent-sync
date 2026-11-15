@@ -20,7 +20,7 @@ what the server holds.
 
 | App | Minimum | Needed for |
 |---|---|---|
-| Decaid | v0.9.1 | Everything |
+| Decaid | v0.9.2 | Everything |
 | DYE2 | v0.1.36 | Following Recipes |
 | Streamline | v0.2.24 | Following Recipes, where Streamline is the skin |
 
@@ -36,12 +36,36 @@ tablet:
 2. Choose **Install Plugin**, then **GitHub Release**.
 3. Enter `loganfuller/decent-sync` as the repository.
 
-Or, from a computer on the same network:
+Or, from a computer on the same network, with a
+[token for managing plugins](#a-token-for-managing-plugins):
 
 ```bash
 curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
+  -H "Authorization: Bearer $TOKEN" \
   -H 'content-type: application/json' -d '{"repo": "loganfuller/decent-sync"}'
 ```
+
+### A token for managing plugins
+
+Decaid answers 401 to a request from the network that installs, updates,
+approves, enables, disables or removes a plugin or Skin, or saves a plugin's
+settings, unless it carries a token made on the tablet, and 403 to one made
+without **Manage plugins and skins** turned on. Decaid's own
+screens and its own update checks need none, so the plugin installs and
+updates as this page says without one.
+
+To make a token, on the tablet:
+
+1. Open Decaid's **Decent Account** page. No Decent Account sign-in is
+   needed.
+2. Under **API access tokens**, choose **Create**.
+3. Name the token and turn on **Manage plugins and skins**.
+4. Copy the token. It is shown only once.
+
+Send it with each such request as `Authorization: Bearer <token>`, as the
+commands on this page do with `$TOKEN`. Whoever holds it can install code on
+the tablet, and it crosses the network unencrypted, so use it only on a
+network you trust, and revoke it on the same page when done.
 
 ## Connecting to the server
 
@@ -79,15 +103,32 @@ connects and once a day, also only while the machine is idle.
 
 Decaid remembers where the plugin came from. It checks for a new release with
 its other update checks, every 12 hours while it runs, or when you press
-**Check for updates** under **Plugins**. Sending
-`POST http://<tablet>:8080/api/v1/plugins/update` does the same.
+**Check for updates** under **Plugins**. So does this, with a
+[token for managing plugins](#a-token-for-managing-plugins):
+
+```bash
+curl -X POST http://<tablet>:8080/api/v1/plugins/update \
+  -H "Authorization: Bearer $TOKEN"
+```
+
+Decaid checks by itself only while its **Automatic update checks** setting is
+on. A Machine's page shows that setting under Tablet Settings, and it is
+changed in Decaid on the tablet: Decaid turns it on only for a request
+carrying such a token, which the plugin has none of
+([ADR-0023](adr/0023-decaid-and-the-machine-keep-their-settings.md)).
 
 - **An update that asks for no new permissions** installs by itself.
 - **An update that adds permissions** waits under **Plugins**, saying it needs
   approval and which permissions it adds. Someone at the tablet presses
-  **Review**, then **Approve and update**. Or send
-  `POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve`
-  to the tablet. Each tablet needs its own approval.
+  **Review**, then **Approve and update**. Or send the tablet, with a
+  [token for managing plugins](#a-token-for-managing-plugins):
+
+  ```bash
+  curl -X POST http://<tablet>:8080/api/v1/plugins/decent-sync.reaplugin/update/approve \
+    -H "Authorization: Bearer $TOKEN"
+  ```
+
+  Each tablet needs its own approval.
 
 Only a new permission needs approval. A release that adds endpoints for a
 Skin, as 1.10.0 adds `status`, `changes`, `shots`, `shot` and `reference`, installs by itself: Decaid compares the permissions of the installed plugin and the
@@ -341,8 +382,8 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   be rated while a tablet catches up.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
-own API: Decaid checks no caller. That network can already change the
-Workflow and delete Shots through Decaid. The server holds each tablet to its
+own API but for managing plugins and Skins: Decaid checks no caller of them.
+That network can already change the Workflow and delete Shots through Decaid. The server holds each tablet to its
 own Machine's Location, whatever a caller asks for.
 
 ### Status

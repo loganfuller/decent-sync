@@ -117,7 +117,13 @@ schedules), its range and its step or choices, whether none is a value too,
 who may change it (Staff or Admin),
 or what sets it for a read-only field, and its notes: kept by the Tablet, so
 a replacement Tablet or a reset of Decaid's data puts Decaid's default back
-(ADR-0023); or to restart the Machine after a change. Streamline's settings
+(ADR-0023); written again by the Tablet as the Machine connects, where it
+was last written through that Tablet, so a value set from elsewhere lasts
+only until then, the flow multiplier's (ADR-0023); or to restart the Machine
+after a change. Decaid's automatic update checks are read-only, managed in
+Decaid on the Tablet: Decaid v0.9.2 turns them on only with a token, which
+the plugin has none of, so an edit could turn them off and not back on
+(ADR-0023, #542). Streamline's settings
 page no longer puts back a fan threshold of 50 or a refill kit of
 Auto-Detect from v0.2.22 on Decaid v0.9.1, so no note says it does.
 Labels, units, ranges, steps and choices follow Streamline's settings page at
@@ -179,7 +185,9 @@ multiplier), all an Admin's, and
 [#228](https://github.com/loganfuller/decent-sync/issues/228) sets a
 sensor's calibration (`sensorCalibration`), an Admin's too, and
 [#230](https://github.com/loganfuller/decent-sync/issues/230) the Tablet
-Settings (`appSettings`), Staff's but for gateway mode, an Admin's, and
+Settings (`appSettings`), Staff's but for gateway mode, an Admin's, and the
+automatic update checks, shown only (ticket
+[#549](https://github.com/loganfuller/decent-sync/issues/549)), and
 [#231](https://github.com/loganfuller/decent-sync/issues/231) the presence
 settings (`presenceSettings`), Staff's: presence and the sleep timeout, and
 each wake schedule added, changed or deleted on its own. That is every
@@ -525,15 +533,18 @@ Decaid's plugin `fetch` passes request headers and gives response headers
 through `headers.get` (`PluginManager` in
 `decaid:lib/src/plugins/plugin_manager.dart`). Decaid answers the machine and
 advanced settings and the flow calibration by reading them from the machine's
-memory over its Bluetooth or USB connection (`UnifiedDe1`), fourteen reads
-each time, on the link the scale also uses, which is why the plugin reads them
+memory over its Bluetooth or USB connection (`UnifiedDe1`), eight requests
+each time for a DE1 on Decaid v0.9.2, which reads its values in groups
+(`getCoalescedMachineSettings`), where v0.9.1 made fourteen, one for each
+value, on the link the scale also uses, which is why the plugin reads them
 less often than the rest, and only while the machine runs nothing. Only the
 advanced settings' `heaterVoltage` and
 `refillKitSetting` are what Decaid holds rather than reads: the voltage it read
 as the machine connected, and the refill kit setting it last wrote, each until
 written through Decaid. As the machine connects, Decaid writes the refill kit
 setting last written through its API for that Machine, which it keeps, or
-`auto` where none was (ADR-0023).
+`auto` where none was, and the flow multiplier last written through its API
+for that Machine, or none where none was (ADR-0023).
 
 `machineCalibration` is the machine's flow estimation multiplier, Decaid's
 `flowMultiplier` (the DE1's `calFlowEst`, read and written in thousandths),
@@ -553,6 +564,13 @@ holds it, which holds eight more of those thousandths a thousandth lower
 (0.251, 0.253, 0.502, 0.506, 0.511, 1.004, 1.012 and 1.022) and three of
 Decaid's 12 two lower (1.005, 1.013 and 1.023). An edit to one the Machine
 holds lower is answered Stored otherwise.
+Decaid keeps a flow multiplier written through `POST
+/api/v1/machine/calibration` for that Machine, as it was asked for, and
+writes it again each time the Machine connects; its reset of the Machine's
+settings leaves it (ADR-0023;
+`server/test/fixtures/decaid/simulated-devices-v0.9.2/`). So an edit lasts,
+and one set from elsewhere since, such as on another Tablet or in de1app,
+lasts only until this Tablet next connects, which the field's note says.
 Something other than a person may change it, such as an auto flow calibration
 plugin rewriting it per profile; a change reaches the server by the
 collection's next interval. Streamline's calibration page edits it too, from

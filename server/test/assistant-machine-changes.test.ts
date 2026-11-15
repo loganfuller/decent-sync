@@ -246,6 +246,8 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
     for (const [args, status] of [
       [{ collection: "machineSettings", fields: { fan: 70 }, expected: { fan: 40 } }, 400],
       [{ collection: "machineSettings", fields: { steamFlow: 1.5 }, expected: { steamFlow: 1 } }, 400],
+      // Shown, not edited: Decaid turns them back on only with a token (#549).
+      [{ collection: "appSettings", fields: { automaticUpdateCheck: false }, expected: { automaticUpdateCheck: true } }, 400],
       [{ collection: "machineSettings", fields: { fan: 45 }, expected: {} }, 400],
       [{ collection: "presenceSettings", schedule: { action: "change" }, fields: { enabled: false }, expected: {} }, 400],
       [{ collection: "presenceSettings", schedule: { action: "add", id: "x" }, fields: { enabled: false }, expected: {} }, 400],
@@ -396,6 +398,10 @@ describe("Changing Machines and Locations through an assistant", { timeout: 120_
       ["edit_location", { locationId: uptown.id, name: "Refused 413" }],
     ];
     const { tools } = await reader.client.listTools();
+    // The settings it offers are the editable ones: no automatic update checks, and the flow multiplier with its note.
+    const offered = tools.find((tool) => tool.name === "edit_machine_settings")!.description!;
+    expect(offered).not.toContain("automaticUpdateCheck");
+    expect(offered).toContain("flowMultiplier (Flow multiplier: a number, 0.13 to 2, a multiple of 0.001; its tablet writes it again as the Machine connects; Admins only)");
     for (const [name] of calls) {
       expect(tools.find((tool) => tool.name === name)?.annotations, name).toMatchObject({ readOnlyHint: false, destructiveHint: name === "edit_machine_settings", openWorldHint: false });
     }

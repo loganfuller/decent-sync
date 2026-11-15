@@ -1,10 +1,11 @@
 import { randomUUID } from "node:crypto";
 import type { DecaidAnswer } from "./decaid-beans.js";
 
-// Decaid's settings writes, as v0.9.0 carries them out, and v0.9.1 the same
-// (fixtures/decaid/simulated-devices-v0.9.1/), learned from
-// fixtures/decaid/settings-writes-v0.9.0/ and Decaid's source, for the
-// writes its simulated machine (`MockDe1`) can't show: the machine's
+// Decaid's settings writes, as v0.9.2 carries them out
+// (fixtures/decaid/simulated-devices-v0.9.2/), learned from
+// fixtures/decaid/settings-writes-v0.9.0/, whose steps v0.9.2 answers the
+// same, and Decaid's source, for the writes its simulated machine
+// (`MockDe1`) can't show: the machine's
 // settings, advanced settings and flow calibration (de1handler.dart in
 // decaid:lib/src/services/webserver/) are written to a DE1's registers one
 // field at a time, in the handler's order, with each register's write scale
@@ -12,12 +13,16 @@ import type { DecaidAnswer } from "./decaid-beans.js";
 // `_writeMMRScaled` and `_writeMMRInt` in unified_de1.mmr.dart), so a value
 // is stored truncated, the flow multiplier then as a real DE1's firmware
 // holds it (fixtures/decaid/de1pro-v0.9.0/), and a field whose write fails
-// leaves the ones before it written, and v0.9.1 keeps the fan threshold and
-// refill kit setting for the machine once written, writing them again each
-// time it connects (`reconnected`); a sensor's calibration is a correction
+// leaves the ones before it written, and Decaid keeps the fan threshold,
+// refill kit setting and flow multiplier for the machine once written,
+// writing them again each time it connects (`reconnected`), and its reset of
+// the machine's settings leaves the flow multiplier, on the machine and
+// kept (`resetMachineSettings`); a sensor's calibration is a correction
 // of the value it holds (`De1Calibration` and `De1CalibrationCodec`);
 // Decaid's own settings (settings_handler.dart) are applied one field at a
-// time too, refusing the first invalid value with the earlier ones applied;
+// time too, refusing the first invalid value with the earlier ones applied,
+// but a body that changes the Skin served or turns the automatic update
+// checks on is refused whole, as it carries no token (`needsToken`);
 // and the presence settings and wake schedules (presence_handler.dart,
 // `WakeSchedule` in decaid:lib/src/models/wake_schedule.dart) need no
 // machine. A request Decaid fails on, as when a field's value is not a
@@ -138,7 +143,7 @@ interface MachineField {
   name: string;
   parse(value: unknown): number | boolean;
   register?: Register;
-  /** Decaid v0.9.1 keeps the value read, by the field's name, once it is written to the machine (`_saveMachineSettings`). */
+  /** Decaid keeps the value read, by the field's name, once it is written to the machine (`_saveMachineSettings`). */
   kept?: true;
 }
 
@@ -200,15 +205,18 @@ export interface Written {
 }
 
 /**
- * The fan threshold and refill kit setting Decaid v0.9.1 keeps for a machine:
- * each as last written through `POST /machine/settings` or
- * `/machine/settings/advanced`, as read from the request, before the
- * register holds it (`MachineSettingsStore` in
- * decaid:lib/src/settings/machine_settings_store.dart).
+ * The fan threshold, refill kit setting and flow multiplier Decaid v0.9.2
+ * keeps for a machine: each as last written through `POST /machine/settings`,
+ * `/machine/settings/advanced` or `/machine/calibration`, as read from the
+ * request, before the register holds it (`MachineSettingsStore` in
+ * decaid:lib/src/settings/machine_settings_store.dart). It keeps the water
+ * refill level written through `POST /machine/waterLevels` too, which the
+ * simulated tablet does not model.
  */
 export interface KeptMachineSettings {
   fan?: number;
   refillKitSetting?: number;
+  flowMultiplier?: number;
 }
 
 /**
@@ -238,9 +246,42 @@ export function writeAdvancedSettings(write: MachineWrite): Written {
   );
 }
 
-/** Carries out `POST /machine/calibration` as Decaid does: the flow multiplier, truncated to the thousandth and clamped to 0.13 to 2.0, held as the DE1's firmware holds it. */
+/**
+ * Carries out `POST /machine/calibration` as Decaid does: the flow multiplier, truncated to the thousandth and
+ * clamped to 0.13 to 2.0, held as the DE1's firmware holds it, and kept for the machine as it was asked for
+ * (`updateMachineCalibration` in decaid:lib/src/controllers/de1_controller.dart).
+ */
 export function writeCalibration(write: MachineWrite): Written {
-  return writeFields(write, [{ name: "flowMultiplier", parse: parseDouble, register: FLOW_MULTIPLIER }], () => undefined);
+  return writeFields(write, [{ name: "flowMultiplier", parse: parseDouble, register: FLOW_MULTIPLIER, kept: true }], () => undefined);
+}
+
+/**
+ * Carries out `DELETE /machine/settings/reset` as Decaid v0.9.2 does
+ * (`applySettingsDefaults` in decaid:lib/src/controllers/de1_controller.defaults.dart,
+ * fixtures/decaid/simulated-devices-v0.9.2/): it writes a fan threshold of
+ * 55, which the register holds as its most, 50, an idle temperature of 95, a
+ * warmup flow of 2, a test flow of 4, a test time-out of 4, the refill kit
+ * on auto and steam purge mode 0, and keeps the fan threshold and refill kit
+ * setting for the machine no longer. It writes no flow multiplier, where
+ * v0.9.1 wrote 1.0, and what Decaid keeps of one stays
+ * (`clearResetOverrides`). Decaid's answer with no machine connected was not
+ * recorded, so that throws.
+ */
+export function resetMachineSettings(current: { settings: unknown; advanced: unknown; machineConnected: boolean; kept: KeptMachineSettings }): {
+  answer: SettingsAnswer;
+  settings: Json;
+  advanced: Json;
+  kept: KeptMachineSettings;
+} {
+  if (!current.machineConnected) throw new Error("Decaid's answer to a reset of the machine's settings with no machine connected was not recorded; the simulated tablet does not model it");
+  if (!isObject(current.settings) || !isObject(current.advanced)) throw new Error("The simulated tablet holds no machine settings to reset");
+  const { fan: _fan, refillKitSetting: _refillKitSetting, ...kept } = current.kept;
+  return {
+    answer: ACCEPTED,
+    settings: { ...current.settings, fan: registerHolds(FAN, 55), steamPurgeMode: 0 },
+    advanced: { ...current.advanced, heaterIdleTemp: 95, heaterPh1Flow: 2, heaterPh2Flow: 4, heaterPh2Timeout: 4, refillKitSetting: 2 },
+    kept,
+  };
 }
 
 /** Reads every field given, as Decaid does before writing any, skipping one sent as null, then writes each in turn. */
@@ -359,13 +400,14 @@ const exactly = (...names: string[]) => Object.fromEntries(names.map((name) => [
 const LOG_LEVELS = ["ALL", "FINEST", "FINER", "FINE", "CONFIG", "INFO", "WARNING", "SEVERE", "SHOUT", "OFF"];
 
 /**
- * `POST /settings`'s fields, in the order settings_handler.dart takes them.
- * `webUiPath`, `defaultSkinId` and `simulatedDevices` change what Decaid
- * serves and connects, which the simulated tablet does not model.
+ * `POST /settings`'s fields, in the order settings_handler.dart takes them,
+ * once the body is known to need no token (`needsToken`): so `webUiPath` is
+ * never among them, and `defaultSkinId` only as the default Skin's own id,
+ * which Decaid skips for a request with no token. `simulatedDevices`
+ * changes what Decaid connects, which the simulated tablet does not model.
  */
 const APP_SETTINGS: ReadonlyArray<[string, AppField]> = [
   ["gatewayMode", choice(exactly("full", "tracking", "disabled"), (value) => `${value} is not a gateway mode`)],
-  ["webUiPath", notModelled("webUiPath")],
   // `updateLogLevel` takes a String, and ignores a level it does not know.
   [
     "logLevel",
@@ -392,7 +434,8 @@ const APP_SETTINGS: ReadonlyArray<[string, AppField]> = [
   ["preferredMachineId", stringOrNull("preferredMachineId")],
   ["preferredScaleId", stringOrNull("preferredScaleId")],
   ["preferredGrinderDeviceId", stringOrNull("preferredGrinderDeviceId")],
-  ["defaultSkinId", notModelled("defaultSkinId")],
+  ["defaultSkinId", () => "ignored"],
+  // Turned on while off, it needs a token (`needsToken`); on while on, Decaid sets nothing, which holds the same.
   ["automaticUpdateCheck", boolean("automaticUpdateCheck")],
   ["chargingMode", choice(exactly("disabled", "longevity", "balanced", "highAvailability"), (value) => `${value} is not a valid charging mode`)],
   ["nightModeEnabled", boolean("nightModeEnabled")],
@@ -417,10 +460,27 @@ function notModelled(name: string): AppField {
 }
 
 /**
+ * Whether Decaid v0.9.2 takes a body of `POST /settings` only with a bearer
+ * token scoped `extensions:manage` (settings_handler.dart;
+ * fixtures/decaid/simulated-devices-v0.9.2/settings-gate.json): one that
+ * holds `webUiPath`, whatever its value, changes `defaultSkinId`, or turns
+ * `automaticUpdateCheck` on while it is off. Turning it off needs none.
+ */
+function needsToken(body: Json, current: Json): boolean {
+  const changesSkin = "webUiPath" in body || ("defaultSkinId" in body && body.defaultSkinId !== current.defaultSkinId);
+  return changesSkin || (body.automaticUpdateCheck === true && current.automaticUpdateCheck === false);
+}
+
+/** Decaid's answer to a request that needs a token and carries none (`extension_management_auth.dart`). */
+const NO_TOKEN: SettingsAnswer = { status: 401, body: { error: "Missing or malformed bearer token" } };
+
+/**
  * Carries out `POST /settings` as Decaid does, with or without a machine:
  * each field given taken in turn, the first it refuses answered 400 with its
  * `message`, the ones before it applied. A body that is not a JSON object
- * fails it. It answers `null`.
+ * fails it. One that needs a token (`needsToken`) is answered 401 with
+ * nothing applied: the simulated tablet knows no token, as the plugin's
+ * `fetch` carries none, so every request is one without. It answers `null`.
  */
 export function writeAppSettings(write: { current: unknown; body: string | undefined; failWrite?: FieldWriteFailure | undefined }): Written {
   let json: unknown;
@@ -431,6 +491,7 @@ export function writeAppSettings(write: { current: unknown; body: string | undef
   }
   if (!isObject(json)) return { answer: UNHANDLED };
   if (!isObject(write.current)) throw new Error("The simulated tablet holds no app settings to write to");
+  if (needsToken(json, write.current)) return { answer: NO_TOKEN };
   const value: Json = { ...write.current };
   try {
     for (const [name, take] of APP_SETTINGS) {
@@ -614,20 +675,28 @@ function notCast(field: string): never {
 
 /**
  * The machine's settings once it connects to Decaid again, given what Decaid
- * keeps for it (fixtures/decaid/simulated-devices-v0.9.1/): Decaid sets the
+ * keeps for it (fixtures/decaid/simulated-devices-v0.9.2/): Decaid sets the
  * refill kit to auto (`UnifiedDe1.onConnect`), then writes the fan threshold
  * it keeps, or its default, 55, which the register holds as its most, 50,
- * and the refill kit setting it keeps, if any (`_setDe1DefaultsFor` in
- * decaid:lib/src/controllers/de1_controller.defaults.dart). Decaid also
+ * the refill kit setting it keeps, if any, and the flow multiplier it keeps,
+ * if any, which the register holds as it does one written through the route
+ * (`_setDe1DefaultsFor` in
+ * decaid:lib/src/controllers/de1_controller.defaults.dart). With no flow
+ * multiplier kept it writes none, and the machine keeps its own. Decaid also
  * writes the Workflow's steam, hot water and flush settings back to the
  * machine then, which leaves them as the simulated tablet already holds
  * them after its Workflow writes, so only a test that changed them some
  * other way would see a difference.
  */
-export function reconnected(settings: unknown, advanced: unknown, kept: KeptMachineSettings): { settings: unknown; advanced: unknown } {
+export function reconnected(
+  held: { settings: unknown; advanced: unknown; calibration: unknown },
+  kept: KeptMachineSettings,
+): { settings: unknown; advanced: unknown; calibration: unknown } {
+  const { settings, advanced, calibration } = held;
   return {
     settings: isObject(settings) ? { ...settings, fan: registerHolds(FAN, kept.fan ?? 55) } : settings,
     advanced: isObject(advanced) ? { ...advanced, refillKitSetting: kept.refillKitSetting ?? 2 } : advanced,
+    calibration: isObject(calibration) && kept.flowMultiplier !== undefined ? { ...calibration, flowMultiplier: registerHolds(FLOW_MULTIPLIER, kept.flowMultiplier) } : calibration,
   };
 }
 

@@ -94,10 +94,12 @@ export function peerHasWireRevision(peer: number, revision: number, own = WIRE_R
 /**
  * The oldest Decaid release the server accepts, always a release rather than
  * a pre-release. A release that relies on a newer Decaid raises it
- * (ADR-0017): 0.9.1 keeps the fan threshold and refill kit a Settings Edit
- * writes, and writes them again as it reconnects to the Machine (ADR-0023).
+ * (ADR-0017): 0.9.2 keeps the flow multiplier a Settings Edit writes, as it
+ * keeps the fan threshold and refill kit, and writes each again as it
+ * reconnects to the Machine; and it takes its automatic update checks being
+ * turned on only with a token, which the plugin has none of (ADR-0023).
  */
-export const OLDEST_SUPPORTED_DECAID = "0.9.1";
+export const OLDEST_SUPPORTED_DECAID = "0.9.2";
 
 /** The path of the server's sync endpoint, under its public URL's host. */
 export const SYNC_PATH = "/sync";
@@ -306,7 +308,7 @@ export interface Hello {
   wireRevision?: number;
   token: string;
   pluginVersion: string;
-  /** Decaid's full version, such as 0.9.1+3027. */
+  /** Decaid's full version, such as 0.9.2+3191. */
   decaidVersion: string;
   /**
    * The tablet's id (ADR-0006): a random UUID the plugin made on its first

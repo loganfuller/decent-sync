@@ -19,7 +19,7 @@ import { expectTip } from "./support/tooltips.js";
 // presence settings' form and each wake schedule added, changed and deleted
 // on its own, with the time zone warning and, on a Bengle, the wake window
 // warning (#231). A simulated
-// tablet running the built plugin takes the writes as Decaid v0.9.1 does;
+// tablet running the built plugin takes the writes as Decaid v0.9.2 does;
 // hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
@@ -348,6 +348,11 @@ test("an Admin changes a Machine's heater voltage and warmup flow, offered only 
   await calibration.getByRole("button", { name: "Edit Flow calibration" }).click();
   const multiplier = calibration.getByRole("form", { name: "Edit Flow calibration" }).getByLabel("Flow multiplier");
   await expect(multiplier).toHaveValue("1.1");
+  await expect(
+    calibration.getByText(
+      "The Tablet writes the value last set through it again each time the Machine connects, so a value set from elsewhere, such as another Tablet or de1app, lasts only until then.",
+    ),
+  ).toBeVisible();
   await multiplier.fill("1.005");
   await calibration.getByRole("button", { name: "Save" }).click();
   await expect(calibration.getByRole("status")).toContainText("Stored otherwise");
@@ -461,6 +466,10 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     const readOnly = form.getByLabel("Tablet Settings, read-only");
     await expect(readOnly.getByRole("term").first()).toHaveText("Gateway mode");
     await expectTip(readOnly, "Gateway mode", "Only an Admin can change it");
+    // The automatic update checks have no switch: they are shown, with where they are managed. An Admin's edit of them is
+    // refused too (server/test/tablet-settings-edits.test.ts).
+    await expect(form.getByRole("switch", { name: "Automatic update checks" })).toHaveCount(0);
+    await expectTip(readOnly, "Automatic update checks", "Managed in Decaid on the Tablet");
     await expect(form.getByRole("switch", { name: "Keep the Tablet's screen on" })).toBeChecked();
     // Night mode's times in the Tablet's own time, labelled with its offset, which is its Location's: no warning.
     const sleep = form.getByLabel("Night mode sleep time (UTC+5:30)");

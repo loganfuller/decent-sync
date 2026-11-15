@@ -79,8 +79,9 @@ It waited until `GET /machine/settings` answered 200, then 5 s more for
 Decaid to write its defaults to the machine. It now waits 10 ms before each
 request, which a fast host needs to stay under Decaid's limit of 256
 requests a second from one client (`AdmissionGate`); the recording was made
-without that wait. Decaid v0.9.1 answers every step and read the same
-(`../simulated-devices-v0.9.1/README.md`). The wake schedules' times were
+without that wait. Decaid v0.9.2 answers every step and read the same
+(`../simulated-devices-v0.9.2/README.md`), its `appSettings` step turning
+the automatic update checks off, which needs no token. The wake schedules' times were
 chosen away from the time of the recording, so no keep-awake time was
 running, and `keepAwakeUntil` is null throughout.
 

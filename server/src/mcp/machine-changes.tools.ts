@@ -91,7 +91,12 @@ function valueGuide(field: EditableSettingsField): string {
 
 /** A field as the description names it: its name, label and unit, what it takes, and who may change it. */
 function fieldGuide(field: EditableSettingsField): string {
-  const notes = [valueGuide(field), field.notes?.includes("restartAfterChange") ? "taken once the Machine restarts" : undefined, field.editableBy === "admin" ? "Admins only" : undefined];
+  const notes = [
+    valueGuide(field),
+    field.notes?.includes("restartAfterChange") ? "taken once the Machine restarts" : undefined,
+    field.notes?.includes("writtenAgainByTablet") ? "its tablet writes it again as the Machine connects" : undefined,
+    field.editableBy === "admin" ? "Admins only" : undefined,
+  ];
   return `${field.path} (${field.label}${field.unit ? `, ${field.unit}` : ""}: ${notes.filter((note) => note !== undefined).join("; ")})`;
 }
 

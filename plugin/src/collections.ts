@@ -76,10 +76,11 @@ const WRITTEN_LISTS: ReadonlySet<CollectionName> = new Set(LIBRARY_LISTS);
 const SETTINGS: ReadonlySet<CollectionName> = new Set(SETTINGS_COLLECTION_NAMES);
 
 /**
- * The machine's own settings, which Decaid v0.9.0 answers on each request by
- * reading the machine's values one at a time over its Bluetooth or USB
- * connection, 14 reads for the three, on the link the scale also uses
- * (`de1handler.dart`). Only the advanced settings' `heaterVoltage` and
+ * The machine's own settings, which Decaid v0.9.2 answers on each request by
+ * reading the machine's values over its Bluetooth or USB connection, a DE1's
+ * in grouped requests, eight for the three where v0.9.1 made 14, one for
+ * each value, on the link the scale also uses (`de1handler.dart`,
+ * `getCoalescedMachineSettings`). Only the advanced settings' `heaterVoltage` and
  * `refillKitSetting` are what Decaid holds rather than reads (`UnifiedDe1`).
  * Decaid also keeps the flow calibration it reads, which each Shot records
  * (`UnifiedDe1.cachedFlowEstimation`).

@@ -111,6 +111,8 @@ describe("Machine State names", () => {
 
   it("names a Machine that needs water, and an error by its substate in words", () => {
     expect(name("needsWater", "idle")).toBe("Needs water");
+    // A refill kit that gave up, as Decaid v0.9.2 reports it (`refillStopped` in decaid:assets/api/websocket_v1.yml).
+    expect(name("needsWater", "refillStopped")).toBe("Needs water · Refill stopped");
     expect(passesThrough("needs-water.json")).toEqual(["Idle · Heating up", "Idle", "Needs water", "Idle"]);
     expect(name("error", "errorWLevel")).toBe("Error · W level");
     expect(name("error", "errorNoAC")).toBe("Error · No AC");

@@ -8,7 +8,7 @@ import { preheatShotFixture, shotFixture } from "./support/shot-fixtures.js";
 import {
   RawConnection,
   type SimulatedTablet,
-  de1ProOnDecaid091,
+  de1ProOnDecaid092,
   derivedProfile,
   derivedWorkflow,
   helloWith,
@@ -84,7 +84,7 @@ function pluginListing(): Fields {
   return (JSON.parse(fs.readFileSync(new URL("./fixtures/decaid/dye2-v0.1.26/plugins.json", import.meta.url), "utf8")) as { listed: Fields[] }).listed[0]!;
 }
 
-/** The serial the bar's tablet reports, which the Shots it pulls record (de1ProOnDecaid091). */
+/** The serial the bar's tablet reports, which the Shots it pulls record (de1ProOnDecaid092). */
 const BAR_SERIAL = "10001";
 
 /** Resolves once `holds` does, as expect.poll, which a hook can't call, waits. */
@@ -210,7 +210,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       // 55 Profiles, its own five eleven times over, each copy with ids of its own, which join the Library at the Lab.
       bar = await machineAt("Lab bar", lab);
       const five = JSON.stringify(manyProfiles(1).slice(0, 5)).length;
-      tablet = tablets.syncing(bar, server, { api: { ...de1ProOnDecaid091(), "/profiles": manyProfiles(10 * five) } });
+      tablet = tablets.syncing(bar, server, { api: { ...de1ProOnDecaid092(), "/profiles": manyProfiles(10 * five) } });
       await api.waitForOnline(bar);
       roastery = await machineAt("Lab roastery", lab);
       raw = await connectionOf(roastery, "43101");
@@ -1023,7 +1023,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       const profile: Fields = { ...(workflow.profile as Fields), notes: hostile(60_000), title: hostile(5_000) };
       await raw.deliver({ type: "workflow", id: randomUUID(), observedAt: "2026-11-04T06:00:00.000Z", workflow: { ...workflow, profile, description: hostile(10_000) } });
       // A long string in its Tablet Settings, which are structured, and never cut.
-      const appSettings = { ...(de1ProOnDecaid091()["/settings"] as Fields), webUiPath: hostile(15_000) };
+      const appSettings = { ...(de1ProOnDecaid092()["/settings"] as Fields), webUiPath: hostile(15_000) };
       await raw.deliver({ type: "collection", id: randomUUID(), name: "appSettings", available: true, value: appSettings, utcOffsetMinutes: -360 });
       await expect.poll(async () => (await assistant.call<{ tabletSettings: { appSettings: unknown } }>("get_machine", { machineId: haunted.machine.id })).tabletSettings.appSettings).toBeTruthy();
       type Read = { cut: string; workflow: { workflow: Fields; raw: Fields }; tabletSettings: { appSettings: { value: unknown } } };

@@ -44,6 +44,15 @@ describe("validateSettingsEdit", () => {
     ]);
   });
 
+  it("refuses the automatic update checks turned off or on, saying where they are managed", () => {
+    // Decaid v0.9.2 turns them on only with a token, which the plugin has none of, so an edit could only turn them off for good.
+    for (const automaticUpdateCheck of [false, true]) {
+      const refusals = validateSettingsEdit({ collection: "appSettings", fields: { automaticUpdateCheck } }, "admin");
+      expect(refusals).toEqual([{ reason: "readOnly", field: "automaticUpdateCheck" }]);
+      expect(settingsRefusalText("appSettings", refusals[0]!)).toBe("Automatic update checks can't be changed here: managed in Decaid on the Tablet");
+    }
+  });
+
   it("refuses a value out of range", () => {
     expect(validateSettingsEdit({ collection: "machineSettings", fields: { fan: 51 } }, "staff")).toEqual([{ reason: "outOfRange", field: "fan" }]);
     expect(validateSettingsEdit({ collection: "machineCalibration", fields: { flowMultiplier: 0.129 } }, "admin")).toEqual([
@@ -270,5 +279,12 @@ describe("SETTINGS_FIELDS", () => {
         if (field.min !== undefined && field.max !== undefined) expect(field.min).toBeLessThan(field.max);
       }
     }
+  });
+
+  it("notes each value the Tablet writes again as the Machine connects: the fan threshold and refill kit, or Decaid's default, and the flow multiplier, only where one was written through it", () => {
+    const noted = (note: string) =>
+      SETTINGS_COLLECTION_NAMES.flatMap((collection) => SETTINGS_FIELDS[collection].filter((field) => field.notes?.some((given) => given === note)).map((field) => `${collection}.${field.path}`));
+    expect(noted("keptByTablet")).toEqual(["machineSettings.fan", "advancedSettings.refillKitSetting"]);
+    expect(noted("writtenAgainByTablet")).toEqual(["machineCalibration.flowMultiplier"]);
   });
 });
