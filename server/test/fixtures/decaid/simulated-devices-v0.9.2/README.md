@@ -150,8 +150,10 @@ What they show (`SettingsHandler` in
 
 - **Three changes need a token.** A body that turns `automaticUpdateCheck`
   on while it is off, changes `defaultSkinId`, or holds `webUiPath`,
-  whatever its value, is answered 401 unless the request carries a bearer
-  token scoped `extensions:manage`. Turning the checks off, turning them on
+  whatever its value, is answered 401 where the request carries no bearer
+  token, or one Decaid does not know, and taken with one scoped
+  `extensions:manage`. A token Decaid knows that lacks the scope is answered
+  403 in its source, which is not recorded. Turning the checks off, turning them on
   while they are on, and naming the default Skin as it is need none.
 - **Nothing of a refused body is applied.** The theme and keep awake sent
   beside the refused keys stayed as they were: the reads after each 401 are
