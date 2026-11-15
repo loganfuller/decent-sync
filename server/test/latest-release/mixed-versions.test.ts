@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   MAX_FRAME_BYTES,
@@ -21,7 +22,7 @@ import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
-import { type SimulatedTablet, derivedWorkflow, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
+import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "../support/test-server.js";
 
@@ -675,6 +676,9 @@ describe("the latest release beside the change", () => {
       // Seeing that, an Admin edits the note: later than the tablet's change, so it wins, and the rating's edit stands.
       await edit(id, { note: "Said at the office, later" });
       expect(await read(id)).toMatchObject({ enjoyment: 8, notes: "Said at the office, later" });
+      // The tablet changes something else, which the latest release's instance stores too: neither edit's field moved in it.
+      await changeOn(connection.tablet, id, { actualYield: 36.2 });
+      await expect.poll(() => connection.tablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
 
       const tablet = await moved(connection);
       await expect.poll(() => states(id)).toEqual(["written", "written"]);
@@ -684,6 +688,38 @@ describe("the latest release beside the change", () => {
       await quiesced(apis.change, { tablets: { tablet } });
       expect(await read(id)).toMatchObject({ enjoyment: 8, notes: "Said at the office, later" });
       expect(await states(id)).toEqual(["written", "written"]);
+    });
+
+    it("decides a version the latest release's instance stored before a newer one, reported by a tablet that is written no edits", async () => {
+      const id = "mixed-edit-stored";
+      const machine = await apis.change.createMachine("Shot edits, stored by the latest release");
+      // A tablet on the latest release's plugin, with hand-made frames, so that nothing but its reports decides the Shot.
+      const hello = helloWith(machine.token, { machine: { model: "DE1Pro", serial: String(serial++) }, tabletId: randomUUID(), wireRevision: wireRevisions()["latest release"] });
+      const shot = derivedShot(id);
+      const { measurements: _measurements, ...metadata } = shot;
+      /** The Shot's metadata as Decaid reports an update of it, that many seconds from now by the tablet's clock. */
+      const version = (seconds: number, annotations: Record_) => ({
+        type: "shotUpdated",
+        id: randomUUID(),
+        shotId: id,
+        shot: { ...metadata, updatedAt: new Date(Date.now() + seconds * 1000).toISOString(), annotations: { ...(shot.annotations as Record_), ...annotations } },
+      });
+
+      const onRelease = await RawConnection.welcomed(servers["latest release"].url, hello);
+      await onRelease.deliver({ type: "shot", id: randomUUID(), shotId: id, shot });
+      await edit(id, { rating: 8 });
+      // The tablet had changed the rating a minute before that edit, which the latest release's instance now stores.
+      await onRelease.deliver(version(-60, { enjoyment: 6 }));
+      await onRelease.close();
+      await apis.change.waitForMachine("Shot edits, stored by the latest release", (viewed) => !viewed.online);
+
+      // Its next version, later than the edit, repeats that rating with its note changed. The change's instance decides
+      // the version before it first: the rating was changed before the edit, not in this version, so the edit stands.
+      const onChange = await RawConnection.welcomed(servers.change.url, hello);
+      await onChange.deliver(version(60, { enjoyment: 6, espressoNotes: "Said at the tablet" }));
+      expect(await read(id)).toMatchObject({ enjoyment: 8, notes: "Said at the tablet" });
+      expect(await states(id)).toEqual(["awaitingTablet"]);
+      await onChange.close();
     });
   });
 

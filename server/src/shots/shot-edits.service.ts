@@ -6,7 +6,7 @@ import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import { type ShotEditFields, awaitingSql, settleStoredVersion, standingSql } from "./shot-edits.js";
+import { type ShotEditFields, awaitingSql, settleStoredVersion, standingSql, undecidedSql } from "./shot-edits.js";
 import { lockShot, shotNotFound } from "./shots.service.js";
 
 /**
@@ -149,7 +149,7 @@ export class ShotEditsService {
       (SELECT ${standingSql("e", field)} ${awaiting(Prisma.sql`next.shot_id`)} AND ${standingSql("e", field)} IS NOT NULL ORDER BY e.number DESC LIMIT 1)`;
     const [due] = await this.prisma.$queryRaw<{ id: string; shotId: string; version: string; undecided: boolean; rating: number | null; note: string | null }[]>`
       WITH next AS (
-        SELECT e.shot_id, s.record ->> 'updatedAt' AS version, s.held_rating IS NOT NULL AND s.held_version_at IS DISTINCT FROM s.version_at AS undecided
+        SELECT e.shot_id, s.record ->> 'updatedAt' AS version, ${undecidedSql("s")} AS undecided
         FROM shot_edits AS e JOIN shots AS s ON s.id = e.shot_id
         WHERE ${awaitingSql("e")} AND s.tablet_id = ${tablet.tabletId}::uuid AND NOT (e.shot_id = ANY(${[...skipped]}::text[]))
           AND EXISTS (SELECT 1 FROM machines AS m WHERE m.id = ${tablet.machineId}::uuid AND m.connected_session_id = ${tablet.sessionId}::uuid)
@@ -179,8 +179,9 @@ export class ShotEditsService {
    * nothing, nor does one repeated. The tablet then holds the latest value
    * of each field those edits set, which the Shot keeps as held
    * (`held_rating`, `held_note`), so the tablet's report of the write
-   * reads as no change of its own. Under the Shot's lock, as that report
-   * is decided under it. Says whether it marked any.
+   * reads as no change of its own: where the Shot has held values, as
+   * every Shot edited by this release has. Under the Shot's lock, as that
+   * report is decided under it. Says whether it marked any.
    */
   async written(tabletId: string, editId: string): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
@@ -197,7 +198,9 @@ export class ShotEditsService {
       const latestFirst = marked.sort((a, b) => (a.number < b.number ? 1 : -1));
       const rating = latestFirst.find((made) => made.rating !== null)?.rating ?? null;
       const note = latestFirst.find((made) => made.note !== null)?.note ?? null;
-      await tx.$executeRaw`UPDATE shots SET held_rating = COALESCE(${rating}::double precision, held_rating), held_note = COALESCE(${note}::text, held_note) WHERE id = ${edit.shotId}`;
+      await tx.$executeRaw`
+        UPDATE shots SET held_rating = COALESCE(${rating}::double precision, held_rating), held_note = COALESCE(${note}::text, held_note)
+        WHERE id = ${edit.shotId} AND held_rating IS NOT NULL AND held_note IS NOT NULL`;
       return true;
     });
   }

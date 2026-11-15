@@ -864,6 +864,11 @@ decides them (ADR-0031).
     and for any later version of that Shot whose report is lost with a
     reload of the plugin, as a Shot with a delivery set aside is not
     requested again.
+  - A change made on the tablet in the moment between Decaid making the
+    plugin's write and the server taking the plugin's answer reads, in the
+    tablet's report, as a change of a field an edit still awaits. The
+    tablet's value stands, as it is the later, but the edit is listed as
+    dropped though it was written for that moment.
   - A write that goes unanswered for 60 s is sent again under the same
     id, so a late answer to the first is taken as the second's. A refusal
     so taken leaves the edit to the next retry, though the second write

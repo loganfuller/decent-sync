@@ -11,7 +11,7 @@ import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedD
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import { type ShotEditFields, listShotEdits, settleShotEdits, settleStoredVersion } from "./shot-edits.js";
+import { type ShotEditFields, listShotEdits, settleShotEdits, settleStoredVersion, undecidedSql } from "./shot-edits.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -61,7 +61,7 @@ export class ShotsService {
       await lockShot(tx, message.shotId);
       const read = () => tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; newer: boolean; heldRating: number | null; heldNote: string | null; undecided: boolean }[]>`
         SELECT record, has_full_record AS "hasFullRecord", ${version}::timestamptz > version_at AS newer, held_rating AS "heldRating", held_note AS "heldNote",
-          held_rating IS NOT NULL AND held_version_at IS DISTINCT FROM version_at AS undecided
+          ${undecidedSql("shots")} AS undecided
         FROM shots WHERE id = ${message.shotId}`;
       let [found] = await read();
       // The version stored was the previous release's to store, which decided nothing: it is decided before a newer one is.

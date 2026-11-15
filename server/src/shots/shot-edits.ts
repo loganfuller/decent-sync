@@ -74,6 +74,17 @@ export function standingSql(alias: string, field: ShotEditField): Prisma.Sql {
   return Prisma.raw(`CASE WHEN ${alias}.${field}_dropped_at IS NULL THEN ${alias}.${field} END`);
 }
 
+/**
+ * In SQL, whether the version stored of a Shot, a row of `shots` under that
+ * alias, is one the previous release stored (ADR-0025), still to be
+ * decided (`settleStoredVersion`): the Shot has held values, set at
+ * another version than its own.
+ */
+export function undecidedSql(alias: string): Prisma.Sql {
+  const s = Prisma.raw(alias);
+  return Prisma.sql`(${s}.held_rating IS NOT NULL AND ${s}.held_note IS NOT NULL AND ${s}.held_version_at IS DISTINCT FROM ${s}.version_at)`;
+}
+
 /** What a Shot's record holds of its rating and note, as an edit says them: 0 where it has no rating, and empty where it has no note. */
 export function ratingAndNote(record: unknown): Required<ShotEditFields> {
   const annotations = object(object(record).annotations);
@@ -162,8 +173,7 @@ export async function settleShotEdits(
  */
 export async function settleStoredVersion(tx: Prisma.TransactionClient, shotId: string): Promise<void> {
   const [shot] = await tx.$queryRaw<{ record: Prisma.JsonObject; heldRating: number; heldNote: string }[]>`
-    SELECT record, held_rating AS "heldRating", held_note AS "heldNote" FROM shots
-    WHERE id = ${shotId} AND held_rating IS NOT NULL AND held_note IS NOT NULL AND held_version_at IS DISTINCT FROM version_at`;
+    SELECT record, held_rating AS "heldRating", held_note AS "heldNote" FROM shots WHERE id = ${shotId} AND ${undecidedSql("shots")}`;
   if (!shot) return;
   const { record, stands, held } = await settleShotEdits(tx, shotId, shot.record, String(shot.record.updatedAt), { rating: shot.heldRating, note: shot.heldNote }, []);
   await tx.$executeRaw`
