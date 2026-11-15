@@ -1,7 +1,7 @@
 import { Injectable } from "@nestjs/common";
 import { type NotServed, type SkinAnswer, type SkinReference, type SkinRefusal, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
-import { INTAKE_TRANSACTION } from "../library/intake.js";
+import { INTAKE_TRANSACTION, lockHeldMachine } from "../library/intake.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type DueCopy, recipeReference, referenceCopiesDue } from "../shots/location-references.js";
@@ -40,7 +40,10 @@ import type { Identity } from "../sync/identity.js";
 // read whole the Reference Shot of one of its Location's Recipes (ticket
 // #511, amending ADR-0029), through the service the management interface
 // and an assistant's tool choose one through (`RecipeEditsService`). It is
-// made as its request is answered or not at all: nothing of it is kept.
+// made while its request is handled or not at all: nothing of it is kept to
+// make later. Its answer may still be lost on the way, as when the
+// connection closes meanwhile, so a plugin that sent the request and has no
+// answer can't tell its Skin whether the choice was made.
 
 /** The connection a request arrived on: its session, its token's Machine, its tablet, and who that tablet is, as its hello settled it. */
 export interface AskingConnection {
@@ -107,10 +110,15 @@ export class SkinRequestsService {
    * read after it are of one transaction, which takes the locks every
    * change of a Recipe takes, so it reads each as committed then, where a
    * read's snapshot would fail the choice whenever another change came
-   * first. A Machine moved meanwhile chose as of before.
+   * first. It holds the Machine's row first, as a tablet's report does
+   * (`lockHeldMachine`): a hello taking the Machine, a move and a sharing
+   * switch each take that lock, so each waits for the choice or came before
+   * it, and a choice is made only by the connection holding a Machine that
+   * is served at the Recipe's Location as it commits.
    */
   private chooseReference(connection: AskingConnection, recipeId: string, shotId: string): Promise<{ result: SkinReference } | { refused: SkinRefusal } | null> {
     return this.prisma.$transaction(async (tx) => {
+      if (!(await lockHeldMachine(tx, connection))) return null;
       const status = await this.status(tx, connection);
       if (status === null) return null;
       if (status.notServed !== undefined || status.location === null) return { refused: status.notServed ?? "captureOnly" };
@@ -118,8 +126,10 @@ export class SkinRequestsService {
       const refused = await this.recipeEdits.chooseReferenceShotOnTablet(tx, recipeId, shotId, { ...asking, machineId: connection.machineId });
       if (refused) return { refused };
       const result = await recipeReference(tx, asking, recipeId);
-      // The Recipe was found, and is locked.
-      return result ? { result } : { refused: "noSuchRecipe" };
+      // The Recipe was found at this Location and is locked, so it is read; were its Location deleted meanwhile, the
+      // choice is not kept.
+      if (!result) throw new Error("A Recipe whose Reference Shot was chosen is no longer its Location's");
+      return { result };
     }, INTAKE_TRANSACTION);
   }
 

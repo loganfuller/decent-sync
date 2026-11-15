@@ -717,6 +717,10 @@ Conflict names is kept, still refused, so history goes on naming it
     same transaction: the Location's lock and then the Recipe's row, the
     update, the version and the `library_changes` announcement are those of
     `setReferenceShot`, which the REST route and `set_reference_shot` call.
+    The transaction holds the Machine's row first, as a tablet's report
+    does (`lockHeldMachine`), which a hello, a move and a sharing switch
+    take too: a choice is made only by the connection holding a Machine
+    that is served at the Recipe's Location as it commits.
     So the other tablets' copies are replaced and their Skins pushed, and
     the Recipe's REST read, `get_library_item` and the management interface
     show it at once.
@@ -738,10 +742,12 @@ Conflict names is kept, still refused, so history goes on naming it
   - **Never queued.** The plugin refuses at once while it isn't connected,
     and keeps nothing to send later; the request follows the tablet's
     reports, so a Shot pulled seconds ago is chosen once the server has
-    stored it. A request the plugin sent and gave up on after 10 s is
-    answered to the Skin as unreachable, though the server may have made
-    the choice by then: the transaction is the REST route's, with no
-    deadline of its own.
+    stored it. A request the plugin sent and has no answer to, as its
+    connection closed or 10 s passed, is answered to the Skin as
+    unreachable too, though the server may have made the choice, or make
+    it once its transaction has its locks, within that transaction's 60 s:
+    a request carries no deadline, and one the gateway has begun is
+    finished whether or not its connection still stands.
   - **Releases (ADR-0025).** The request came with requests' wire revision,
     so a tablet the previous release's instance holds refuses the choice as
     too old to ask, and nothing changes.

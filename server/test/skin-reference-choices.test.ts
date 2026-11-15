@@ -3,6 +3,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "./support/admin-api.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { shotFixture } from "./support/shot-fixtures.js";
+import { waitForLockWaits } from "./support/lock-waits.js";
 import { dye2List } from "./support/simulated-dye2.js";
 import { RawConnection, type SimulatedTablet, helloWith } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
@@ -322,6 +323,43 @@ describe("Choosing a Recipe's Reference Shot from a tablet", { timeout: 180_000 
       await captureOnly.close();
       expect(await chosen(espresso)).toBe("choice-lab");
     });
+  });
+
+  // The choice holds its Machine's row from before it reads where the Machine is served until it commits, as a tablet's
+  // report does, and a sharing switch, a move and a hello take that row too. A Location of its own, with no tablet, so
+  // nothing else waits for a lock there.
+  it("makes a choice only while its Machine is served there: a sharing switch waits for a choice under way, and the next choice is refused", async () => {
+    const annex = await api.createLocation("Annex", "America/Chicago");
+    const create = async (name: string) => (await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: annex.id, slot: null, content: { name } }, 201)).recipe.id;
+    const [house, guest] = [await create("Annex house"), await create("Annex guest")];
+    // A Shot pulled elsewhere, which an Annex tablet may read whole, and so choose, as an Annex Recipe's Reference Shot.
+    await api.send("PUT", `/recipes/${house}/reference-shot`, { shotId: "choice-left" });
+    const machine = await api.createMachine("Annex raw", annex.id);
+    const raw = await RawConnection.welcomed(server.url, helloWith(machine.token));
+    const answers = () => (raw.messages as Record_[]).filter((message) => message.type === "answer");
+    const database = await server.connectDatabase();
+    let switched = false;
+    try {
+      // The Annex's lock is held, as by a tablet's report of its recipes, so the choice waits for it, holding its Machine's row.
+      await database.query("BEGIN");
+      await database.query("SELECT pg_advisory_xact_lock(4000007, hashtext($1::text))", [annex.id]);
+      raw.send({ type: "request", id: "under way", ask: "chooseReference", recipeId: guest, shotId: "choice-left" });
+      await waitForLockWaits(server, { advisory: true });
+      // An Admin turns the Machine's sharing off meanwhile: the switch waits for the choice.
+      const switching = api.send("PUT", `/machines/${machine.machine.id}/sharing`, { sharing: false }).then(() => (switched = true));
+      await waitForLockWaits(server, { count: 2 });
+      expect([switched, await chosen(guest)]).toEqual([false, null]);
+      await database.query("COMMIT");
+      await switching;
+    } finally {
+      await database.end();
+    }
+    // The choice was made first, by a Machine served at the Annex then, and the one after the switch is refused.
+    expect(await chosen(guest)).toBe("choice-left");
+    expect((await choices(guest)).map((version) => version.source.machine?.name)).toEqual(["Annex raw"]);
+    raw.send({ type: "request", id: "after", ask: "chooseReference", recipeId: house, shotId: "choice-left" });
+    await expect.poll(() => answers().at(-1)).toEqual({ type: "answer", id: "after", ask: "chooseReference", refused: "captureOnly" });
+    await raw.close();
   });
 
   it("tells a Skin that a Recipe is Archived, or another Location's, while the tablet still holds a record of it", async () => {

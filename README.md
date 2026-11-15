@@ -77,8 +77,8 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile is another than the Recipe's, and keeps who chose it, or the
   Machine it was chosen on, in its history. It stays until someone chooses
   another or clears it, and the Shots list marks it. Each tablet at the
-  Recipe's Location keeps a copy for a Skin to draw, and a Skin may choose
-  it there. The Recipe's other
+  Recipe's Location keeps a copy for a Skin to draw, while the Recipe is in
+  a Recipe Slot, and a Skin may choose it there. The Recipe's other
   Shots are read against it in four places: a Shot's page draws its curves
   behind the Shot's own, the Overview gives its duration beside each
   Machine's median, the Recipe's page gives its duration and yield against

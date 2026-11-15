@@ -93,7 +93,7 @@ export type AnswerRecorded =
  * instance slow to see its connection close cannot land after the newer
  * connection's reports.
  */
-export async function lockHeldMachine(tx: Prisma.TransactionClient, tablet: AnsweringTablet): Promise<boolean> {
+export async function lockHeldMachine(tx: Prisma.TransactionClient, tablet: Pick<AnsweringTablet, "machineId" | "sessionId">): Promise<boolean> {
   const rows = await tx.$queryRaw<unknown[]>`
     SELECT 1 FROM machines WHERE id = ${tablet.machineId}::uuid AND connected_session_id = ${tablet.sessionId}::uuid FOR NO KEY UPDATE`;
   return rows.length > 0;

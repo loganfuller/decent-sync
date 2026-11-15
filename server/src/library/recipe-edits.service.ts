@@ -232,8 +232,10 @@ export class RecipeEditsService {
    * Makes the Shot the Recipe's Reference Shot as a tablet at the Recipe's
    * Location chose it, for a Skin (ticket #511, ADR-0030, amending
    * ADR-0029), in the transaction that found the tablet's Machine served
-   * there (`SkinRequestsService`). It is the change `setReferenceShot` makes
-   * for an account, under the same locks, announced the same way, as a
+   * there, holding the Machine's row (`SkinRequestsService`). It is the
+   * change `setReferenceShot` makes for an account, under the same locks,
+   * taken after the Machine's as a tablet's report takes them, announced
+   * the same way, as a
    * version naming the Machine and tablet and no account. A tablet chooses
    * only for a Recipe of its Machine's Location, and only a Shot it may read
    * whole (`readableWhole`): one of its Location's Shots, or the Reference

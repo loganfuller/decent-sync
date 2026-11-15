@@ -524,12 +524,16 @@ interface at once.
   tablet has still to send, so the server has the Shot by the time it is
   asked.
 - **It is made now or not at all.** While the plugin isn't connected the
-  request is refused as `unreachable` at once, or as `serverTooOld`, and
-  nothing is kept to send later. The tablet's copy is no answer to a choice.
-  A request the plugin did send, and gave up on after 10 seconds, is refused
-  as `unreachable` too, and the server may still have made that choice:
-  read the reference again, or wait for the push, before showing it as
-  failed.
+  request is refused as `unreachable` at once, or as `serverTooOld`, without
+  being sent, and nothing is kept to send later. The tablet's copy is no
+  answer to a choice.
+- **A choice the plugin sent may have been made, whatever it answers.** The
+  plugin also answers `unreachable` when it sent the request and has no
+  answer: its connection closed first, or 10 seconds passed. The server may
+  have made that choice already, or make it within the next minute if it
+  was still waiting its turn. The answer doesn't say which `unreachable` it
+  is. So after one, read the reference again once the plugin is connected,
+  or wait for the push, before showing the choice as failed.
 - **No person is named.** The Recipe's history in the management interface
   names the Machine the Reference Shot was chosen on, and no account. Anyone
   at the tablet may choose.
