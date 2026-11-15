@@ -27,15 +27,18 @@ Releasing).
 ### Tablets need Decaid v0.9.2
 
 This release follows Decaid v0.9.2
-([ADR-0017](docs/adr/0017-supported-versions.md)). Update Decaid on each
-tablet to v0.9.2 or later before deploying: this release's server refuses a
-tablet on v0.9.1 or older, and its Machine's page says why, though 1.10.0
-still accepts one while it serves beside this release.
+([ADR-0017](docs/adr/0017-supported-versions.md)). Before deploying, on each
+tablet, in this order:
 
-Move a tablet's Streamline to v0.2.25 or later before updating its Decaid.
-Decaid v0.9.2 bundles DYE2 v0.1.37 and puts it over a lower DYE2 as it
-starts, a pinned one included, and every recipe DYE2 saves from v0.1.37 holds
-a feed rate that the strip of Streamline v0.2.24 or earlier refuses to apply.
+1. Move its Streamline to v0.2.25 or later. Decaid v0.9.2 bundles DYE2
+   v0.1.37 and puts it over a lower DYE2 as it starts, a pinned one included,
+   and every recipe DYE2 saves from v0.1.37 holds a feed rate that the strip
+   of Streamline v0.2.24 or earlier refuses to apply.
+2. Update its Decaid to v0.9.2 or later.
+
+Then deploy. This release's server refuses a tablet on v0.9.1 or older, and
+its Machine's page says why, though 1.10.0 still accepts one while it serves
+beside this release.
 
 ### Automatic update checks are shown, and changed on the tablet
 

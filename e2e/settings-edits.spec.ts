@@ -466,7 +466,8 @@ test("Staff at the Machine's Location change its Tablet Settings, night mode's t
     const readOnly = form.getByLabel("Tablet Settings, read-only");
     await expect(readOnly.getByRole("term").first()).toHaveText("Gateway mode");
     await expectTip(readOnly, "Gateway mode", "Only an Admin can change it");
-    // The automatic update checks have no switch, for an Admin either: they are shown, with where they are managed.
+    // The automatic update checks have no switch: they are shown, with where they are managed. An Admin's edit of them is
+    // refused too (server/test/tablet-settings-edits.test.ts).
     await expect(form.getByRole("switch", { name: "Automatic update checks" })).toHaveCount(0);
     await expectTip(readOnly, "Automatic update checks", "Managed in Decaid on the Tablet");
     await expect(form.getByRole("switch", { name: "Keep the Tablet's screen on" })).toBeChecked();
