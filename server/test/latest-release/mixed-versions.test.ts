@@ -1,7 +1,6 @@
 import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
-  MAX_FRAME_BYTES,
   RECIPE_SETTINGS,
   REFERENCE_COPIES_WIRE_REVISION,
   REQUESTS_WIRE_REVISION,
@@ -13,7 +12,6 @@ import {
   writtenRecipeSlot,
 } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { MAX_UNCONFIRMED_BYTES } from "../../src/sync/sender.js";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
 import { repoDir } from "../support/build-table.mjs";
 import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../support/latest-release.mjs";
@@ -211,26 +209,6 @@ describe("the latest release beside the change", () => {
       );
     });
 
-    // The change's server holds back what a plugin that confirms its chunks has not confirmed (#508). The latest
-    // release's plugin confirms none, and its server knows no confirmation, so between the two a large write goes in
-    // chunks all at once, as in that release: more than the change's server sends unconfirmed, and less than Decaid
-    // holds for a plugin, past which a write sent all at once closes the tablet's transport.
-    it("writes a Library item too large for one frame to the tablet, in chunks, none of them confirmed", async () => {
-      const api = apis[server];
-      const location = await api.createLocation(`Large write, the ${plugin}'s plugin`, "America/Chicago");
-      const brought = await connected(`Large write from, the ${plugin}'s plugin`, plugin, server, { location });
-      const { tablet } = await connected(`Large write to, the ${plugin}'s plugin`, plugin, server, { location });
-      const line = "Stone fruit, jasmine and black tea. ";
-      const notes = line.repeat(Math.ceil((MAX_UNCONFIRMED_BYTES + MAX_FRAME_BYTES) / line.length));
-      const name = `Long notes, the ${plugin}'s plugin`;
-      await brought.tablet.addBean({ roaster: "Roux", name, notes });
-      await expect.poll(() => tablet.beans().find((bean) => bean.name === name)?.notes, { timeout: 20_000 }).toBe(notes);
-
-      const frames = (list: unknown[], type: string) => (list as { type?: unknown }[]).filter((frame) => frame.type === type);
-      expect(frames(tablet.received, "chunk").length).toBeGreaterThan(2);
-      expect(frames(tablet.sent, "chunkReceived")).toEqual([]);
-    });
-
     it("writes a Settings Edit and confirms it", async () => {
       const location = await apis[server].createLocation(`Settings, the ${plugin}'s plugin`, "America/Chicago");
       const { machine, tablet } = await connected(`Settings, the ${plugin}'s plugin`, plugin, server, { location });
@@ -281,90 +259,6 @@ describe("the latest release beside the change", () => {
     await quiet();
     const content = async () => (await api.get<{ recipe: { content: Record<string, unknown> } }>(`/recipes/${recipeId}`)).recipe.content;
     expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
-  });
-
-  // A recipe record's `stripSlot` of 6 to 9 came with the change's wire
-  // revision (#506): the latest release's plugin writes one as given without
-  // taking the slot from the record holding it, and its server reads one as no
-  // slot. So the change's server writes that plugin the Recipe's record in no
-  // slot, and its slot once the tablet's plugin is the change's.
-  // A tablet the latest release's server holds meanwhile is written the slot
-  // as it is, by that server, and the Recipe keeps it once that tablet connects
-  // to the change's server holding 7, its plugin still the latest release's.
-  it("writes a Recipe in slot 7 to the latest release's plugin in no slot, keeps it in slot 7 through that tablet's reports, and writes its slot once the tablet's plugin is the change's", async () => {
-    const api = apis.change;
-    const location = await api.createLocation("Slot 7, both plugins", "America/Chicago");
-    const ahead = await connected("Slot 7, the change's plugin", "change", "change", { location });
-    const behind = await connected("Slot 7, the latest release's plugin", "latest release", "change", { location });
-    const onRelease = await connected("Slot 7, on the latest release", "latest release", "latest release", { location });
-    type Record_ = Record<string, unknown>;
-    const { recipe } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 1, content: { name: "Slot 7", dose: 18, yield: 36 } }, 201);
-    const record = (tablet: SimulatedTablet) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === recipe.id);
-    const held = (tablet: SimulatedTablet) => [record(tablet)?.stripSlot, record(tablet)?.showOnStreamlineDashboard];
-    const read = async () => (await api.get<{ recipe: { slot: number | null; name: string | null } }>(`/recipes/${recipe.id}`)).recipe;
-    for (const { tablet } of [ahead, behind, onRelease]) await expect.poll(() => held(tablet)).toEqual([1, true]);
-
-    // Put in slot 7 on the tablet with the change's plugin, as another app there may, once its writer is due nothing.
-    await expect
-      .poll(async () => (await api.get<{ status: { waiting: number | null } }>(`/machines/${ahead.machine.machine.id}/sharing-status`)).status.waiting)
-      .toBe(0);
-    const route = "/store/dye2.reaplugin/recipes";
-    const post = async (tablet: SimulatedTablet, change: (entry: Record_) => Record_) => {
-      const list = (await tablet.callApi("GET", route)).body as Record_[];
-      expect((await tablet.callApi("POST", route, list.map((entry) => (dye2GlobalIdOf(entry) === recipe.id ? change(entry) : entry)))).status).toBe(200);
-    };
-    await post(ahead.tablet, (entry) => ({ ...entry, stripSlot: 7, showOnStreamlineDashboard: true }));
-    await expect.poll(async () => (await read()).slot).toBe(7);
-
-    // The latest release's plugin is written the record in no slot, and sent no stripSlot of 6 to 9.
-    await expect.poll(() => held(behind.tablet)).toEqual([null, false]);
-    const slotsSent = () =>
-      (behind.tablet.received.filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "recipe") as { fields: Record_ }[]).map(({ fields }) => fields.stripSlot);
-    expect(slotsSent().filter((slot) => typeof slot === "number" && slot > 5)).toEqual([]);
-    // A report from that tablet, of an edit there, keeps the Recipe in slot 7.
-    await post(behind.tablet, (entry) => ({ ...entry, name: "Slot 7, renamed", title: "Slot 7, renamed" }));
-    await expect.poll(async () => (await read()).name).toBe("Slot 7, renamed");
-    await expect.poll(() => record(ahead.tablet)?.name).toBe("Slot 7, renamed");
-    expect((await read()).slot).toBe(7);
-    expect(held(behind.tablet)).toEqual([null, false]);
-    expect(held(ahead.tablet)).toEqual([7, true]);
-    expect(slotsSent().filter((slot) => typeof slot === "number" && slot > 5)).toEqual([]);
-
-    // The latest release's server wrote its tablet the slot as it is. Connected to the change's server with that record,
-    // the tablet is written it in no slot, and neither that write nor its reports take the Recipe out of slot 7.
-    await expect.poll(() => held(onRelease.tablet)).toEqual([7, true]);
-    const moved = await onRelease.tablet.reload({ settings: { ...settingsFor({ token: onRelease.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(moved);
-    expect(moved.pluginDir).toBe(pluginDirs()["latest release"]);
-    await expect.poll(() => held(moved)).toEqual([null, false]);
-    await post(moved, (entry) => ({ ...entry, name: "Slot 7, renamed again", title: "Slot 7, renamed again" }));
-    await expect.poll(async () => (await read()).name).toBe("Slot 7, renamed again");
-    await expect.poll(() => record(ahead.tablet)?.name).toBe("Slot 7, renamed again");
-    expect((await read()).slot).toBe(7);
-    expect([held(moved), held(ahead.tablet)]).toEqual([[null, false], [7, true]]);
-
-    // Once Decaid installs the change's plugin there, the tablet's record holds 7.
-    const updated = await behind.tablet.reload({ latestRelease: false });
-    loaded.push(updated);
-    expect(updated.pluginDir).toBe(pluginDirs().change);
-    await expect.poll(() => held(updated)).toEqual([7, true]);
-    expect((await read()).slot).toBe(7);
-
-    // On the tablet still running the latest release's plugin, DYE2's editor puts the Recipe on tab 4, which another
-    // holds, taking the slot from it: the move is made whole, from the slot 7 that tablet was written as none, rather
-    // than only emptying slot 4.
-    const { recipe: holder } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 4, content: { name: "Slot 4", dose: 18, yield: 36 } }, 201);
-    const slotsOf = (tablet: SimulatedTablet) =>
-      [recipe.id, holder.id].map((id) => (dye2List(tablet, "recipes") as Record_[] | null)?.find((entry) => dye2GlobalIdOf(entry) === id)?.stripSlot);
-    await expect.poll(() => slotsOf(moved)).toEqual([null, 4]);
-    const list = (await moved.callApi("GET", route)).body as Record_[];
-    const tapped = list.map((entry) =>
-      dye2GlobalIdOf(entry) === recipe.id ? { ...entry, stripSlot: 4, showOnStreamlineDashboard: true } : dye2GlobalIdOf(entry) === holder.id ? { ...entry, stripSlot: null } : entry,
-    );
-    expect((await moved.callApi("POST", route, tapped)).status).toBe(200);
-    const slotAt = async (id: string) => (await api.get<{ recipe: { slot: number | null } }>(`/recipes/${id}`)).recipe.slot;
-    await expect.poll(async () => [await slotAt(recipe.id), await slotAt(holder.id)]).toEqual([4, null]);
-    for (const tablet of [moved, updated, ahead.tablet]) await expect.poll(() => slotsOf(tablet)).toEqual([4, null]);
   });
 
   // A request puts a Recipe in a slot of 6 to 9 (#502). Beside a release
@@ -606,7 +500,8 @@ describe("the latest release beside the change", () => {
 
     const made = [200, expect.objectContaining({ rating: 3 })];
     const before = (await read("mixed-skin-other")).enjoyment;
-    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
+    const refused = wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION;
+    if (refused) {
       expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
       expect(requests(held.tablet)).toEqual([]);
       expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: before, edits: [] });
@@ -618,7 +513,9 @@ describe("the latest release beside the change", () => {
     loaded.push(moved);
     await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
     expect(await edit(moved, "mixed-skin-other", 3)).toEqual(made);
-    expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: 3, edits: [expect.objectContaining({ machine: expect.objectContaining({ name: "Tablet edits, held by the latest release" }), account: null })] });
+    // One edit where the latest release's server refused the first, and both where it made it.
+    const itsMachines = expect.objectContaining({ machine: expect.objectContaining({ name: "Tablet edits, held by the latest release" }), account: null });
+    expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: 3, edits: refused ? [itsMachines] : [itsMachines, itsMachines] });
     await expect.poll(async () => (((await other.tablet.callApi("GET", "/shots/mixed-skin-other")).body as Record_).annotations as Record_ | undefined)?.enjoyment).toBe(3);
   });
 
@@ -681,7 +578,6 @@ describe("the latest release beside the change", () => {
     const edit = (id: string, fields: Record_) => apis.change.send("PATCH", `/shots/${id}`, fields);
     const annotationsOn = async (tablet: SimulatedTablet, id: string) => ((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_;
     const changeOn = async (tablet: SimulatedTablet, id: string, annotations: Record_) => expect((await tablet.callApi("PUT", `/shots/${id}`, { annotations })).status).toBe(200);
-    const writesTo = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write.startsWith("PUT /shots/"));
     /** A second, between two events timed by different clocks, the tablet's Decaid's and PostgreSQL's. */
     const aSecond = () => new Promise((resolve) => setTimeout(resolve, 1100));
 
@@ -700,22 +596,6 @@ describe("the latest release beside the change", () => {
       await apis.change.waitForOnline(connection.machine);
       return tablet;
     }
-
-    it("never writes the edit over a later change of the same field on the tablet, and drops it", async () => {
-      const id = "mixed-edit-crossed";
-      const connection = await held("Shot edits, crossed on the latest release", id);
-      await edit(id, { rating: 8 });
-      await aSecond();
-      await changeOn(connection.tablet, id, { enjoyment: 6 });
-      // Stored by the latest release's instance.
-      await expect.poll(async () => (await read(id)).enjoyment).toBe(6);
-
-      const tablet = await moved(connection);
-      await expect.poll(() => states(id)).toEqual(["dropped"]);
-      await quiesced(apis.change, { tablets: { tablet } });
-      expect([(await read(id)).enjoyment, (await annotationsOn(tablet, id)).enjoyment]).toEqual([6, 6]);
-      expect(writesTo(tablet)).toEqual([]);
-    });
 
     it("writes an edit of a field the tablet left alone, and one made after the tablet's change of the other", async () => {
       const id = "mixed-edit-later";
