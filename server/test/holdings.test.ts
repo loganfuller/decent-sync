@@ -532,6 +532,41 @@ describe("The Recipes a Location has", () => {
     expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [holdingNulls] }))).toEqual([]);
   });
 
+  it("leaves a record holding a dose, grind setting or RPM of 0, in its fields or its embedded Workflow, as it is: a 0 there is none, and no reason to write it again (#550)", () => {
+    // What the server is to write of a Recipe holding none of them: no value, and the embedded Workflow as DYE2 v0.1.40 builds
+    // one, a null for each and a yield of 0.
+    const built = { context: { targetDoseWeight: null, grinderSetting: null, targetYield: 0, grinderId: "g1", extras: { rpm: null, feedRate: null, basketId: null, basketName: null } } };
+    const due = { ...offered(UPTOWN[0], "2", "Uptown Zero", 2), record: { name: "Uptown Zero", stripSlot: 2, "dashboardVariables.dose": null, "dashboardVariables.grind": null, "dashboardVariables.rpm": null, workflow: built } };
+    const held = heldRecipe(UPTOWN[0], "2", "Uptown Zero", 2);
+    // As DYE2's editor saves an RPM left blank, and as a record saved before v0.1.37 embeds it: the 0s, no yield, and no `extras` but the RPM.
+    const zeros = {
+      ...held,
+      record: { ...held.record, dashboardVariables: { dose: 0, grind: 0, rpm: 0 }, workflow: { context: { targetDoseWeight: 0, grinderSetting: "0", grinderId: "g1", extras: { rpm: 0 } } } },
+    };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [zeros] }))).toEqual([]);
+    // One the server wrote before, holding no key for any, is left too.
+    const bare = { ...held, record: { ...held.record, dashboardVariables: {}, workflow: { context: { grinderId: "g1" } } } };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [due] }), holding([], [], [], [], { recipes: [bare] }))).toEqual([]);
+
+    // A Recipe given an RPM is written over the 0, expecting the 0 the record holds, as the plugin sets a field only while
+    // the record holds what the write expects; its embedded Workflow is written whole, as built, expecting the record's own.
+    const edited = { ...due, record: { ...due.record, "dashboardVariables.rpm": 900, workflow: { context: { ...built.context, extras: { ...built.context.extras, rpm: 900 } } } } };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [edited] }), holding([], [], [], [], { recipes: [zeros] }))).toEqual([
+      {
+        kind: "recipe",
+        globalId: UPTOWN[0],
+        localId: "2",
+        fields: { "dashboardVariables.rpm": 900, workflow: edited.record.workflow },
+        expected: { "dashboardVariables.rpm": 0, workflow: zeros.record.workflow },
+        decidedAt: null,
+        contentDecidedAt: EDITED,
+      },
+    ]);
+    // An embedded Workflow that differs in anything else is written, as a Grinder changed.
+    const regrouped = { ...due, record: { ...due.record, workflow: { context: { ...built.context, grinderId: "g2" } } } };
+    expect(plannedWrites(offer([], [], [], [], { recipes: [regrouped] }), holding([], [], [], [], { recipes: [zeros] }))).toMatchObject([{ fields: { workflow: regrouped.record.workflow }, expected: { workflow: zeros.record.workflow } }]);
+  });
+
   it("keeps a Recipe the tablet holds under its record id, writing only its slot where it moved", () => {
     const writes = plannedWrites(
       offer([], [], [], [], { recipes: [offered(UPTOWN[0], "2", "Uptown Brazil", 2), offered(UPTOWN[1], "recipe-mh2k9x1abc", "Uptown Kenya", 3)] }),

@@ -26,6 +26,23 @@ describe("Shot extraction", () => {
     expect(shotHardware({ ...shot, workflow: { ...workflow, machine: { model: "DE1Pro", serialNumber: longest } } })).toEqual({ model: "DE1Pro", serial: longest });
   });
 
+  it("extracts no target yield from a Workflow whose yield is 0, which is stop-at-weight off, as DYE2 v0.1.37 applies a recipe naming none (#550)", () => {
+    const shot = shotFixture();
+    const workflow = shot.workflow as Record<string, unknown>;
+    const withYield = (targetYield: unknown, weight: unknown = 36) => ({
+      ...shot,
+      workflow: { ...workflow, context: { ...(workflow.context as Record<string, unknown>), targetYield }, profile: { ...(workflow.profile as Record<string, unknown>), target_weight: weight } },
+    });
+    // Decaid stops a Shot at its weight only for a yield above 0, whatever its profile's target weight.
+    expect(extractShot(withYield(0)).targetYield).toBeNull();
+    expect(extractShot(withYield(0, 0)).targetYield).toBeNull();
+    expect(extractShot(withYield(40)).targetYield).toBe(40);
+    // A Workflow holding no yield at all takes its profile's target weight, where above 0, as before.
+    expect(extractShot(withYield(undefined)).targetYield).toBe(36);
+    expect(extractShot(withYield(undefined, 0)).targetYield).toBeNull();
+    expect(extractShot(withYield(undefined, null)).targetYield).toBeNull();
+  });
+
   it("extracts the burrs Decaid copied onto the Shot from its Grinder's record, over those its Workflow held", () => {
     // Its Workflow held "Inherited burrs", as one a repeated Shot brought would (shot-grinder-burrs-setup.json).
     expect(extractShot(burrsShotFixture())).toMatchObject({ grinderId: "1629e825-59e0-46b6-a3db-2346fcfd90b5", grinderBurrs: "Fixture 64mm flat" });

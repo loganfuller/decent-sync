@@ -21,6 +21,7 @@ import {
   openDye2RecipeEditor,
   pickBasketInDye2,
   pickFavouriteInDye2,
+  pickGrinderInDye2,
   saveFavouriteInDye2,
   recordedDye2MainTablet,
   selectRecipeInDye2,
@@ -29,6 +30,7 @@ import {
 } from "./support/simulated-dye2.js";
 import { STREAMLINE_NAMESPACE, type SimulatedStreamline, type StreamlineKey, recipeStripCells, startStreamline } from "./support/simulated-streamline.js";
 import { type DecaidApi, SimulatedTablet } from "./support/simulated-tablet.js";
+import { sinceV0137 } from "./support/since-v0137.js";
 import { runAsSteps } from "./support/steps.js";
 
 // The simulated DYE2 v0.1.36 and Streamline v0.2.24 against what they were
@@ -180,6 +182,19 @@ function withoutRecipeMachineSettings(value: unknown): unknown {
   return { ...record, dashboardVariables: variables, ...(record.workflow === undefined ? {} : { workflow }) };
 }
 
+/**
+ * A value without the Basket of each recipe it holds, in its `dashboardVariables`: v0.1.26's `record` saved the Basket the
+ * Workflow had inherited from the recipe applied before, where from v0.1.37 the dashboard applies the recipe's own, or
+ * none, so `record` finds no other to save.
+ */
+function withoutRecipeBasket(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(withoutRecipeBasket);
+  if (!value || typeof value !== "object") return value;
+  const record = Object.fromEntries(Object.entries(value as Record_).map(([key, field]) => [key, withoutRecipeBasket(field)]));
+  if (!record.dashboardVariables || typeof record.dashboardVariables !== "object") return record;
+  return { ...record, dashboardVariables: Object.fromEntries(Object.entries(record.dashboardVariables as Record_).filter(([key]) => key !== "basketId" && key !== "basketName")) };
+}
+
 /** The writes of a step, and the reads DYE2 answers but `selection` (which pages make on timers): those compared with the recording. */
 const compared = ({ request }: Dye2Exchange) =>
   (request.method !== "GET" && !/^\/store\/(streamline-app|streamlineProfileOverrides)\//.test(request.path) && !/\/plugins\/dye2\.reaplugin\/(disable|enable)$/.test(request.path)) || request.path === "/plugins/dye2.reaplugin/record";
@@ -302,12 +317,15 @@ function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unname
     const from = { made: made.length, pushes: dye2.pushes.length, events: events.length };
     await act();
     await settled();
-    expect(view(made.slice(from.made).filter(compared)), `${name}: writes`).toEqual(view(step.exchanges.filter(compared)));
+    const [writes, recordedWrites] = sinceV0137(made.slice(from.made).filter(compared), step.exchanges.filter(compared));
+    expect(view(writes), `${name}: writes`).toEqual(view(recordedWrites));
     const after: DecaidAnswer[] = [];
     for (const { request } of step.after) after.push(await tablet.callApi(request.method, request.path));
-    expect(view(after), `${name}: after`).toEqual(view(step.after.map(({ response }) => response)));
+    const [afterAgain, recordedAfter] = sinceV0137(after, step.after.map(({ response }) => response));
+    expect(view(afterAgain), `${name}: after`).toEqual(view(recordedAfter));
     if (restarts) return;
-    expect(events.slice(from.events), `${name}: events`).toEqual(step.events);
+    const [changes, recordedChanges] = sinceV0137(events.slice(from.events), step.events, true);
+    expect(changes, `${name}: events`).toEqual(recordedChanges);
     if (!STARRED_ALREADY.has(name)) expect(dye2.pushes.length > from.pushes, `${name}: pushed`).toBe(step.pushes.length > 0);
   }
 
@@ -324,7 +342,7 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
    * of 0, which DYE2 v0.1.35 applies as steam off whole (decentespresso/dye2#46,
    * `recipeMachineSettings`), where v0.1.26 left the heater on.
    */
-  let compare = (value: unknown) => withoutModified(unnamed(value));
+  let compare = (value: unknown) => withoutRecipeBasket(withoutModified(unnamed(value)));
   const { dye2, tablet, proxy, pages, script, settled, again } = replaying(recordedDye2MainTablet("10001", undefined, { asRecorded: true }), (value) => compare(value));
   const generated = { ...dye2Generated };
   afterEach(() => Object.assign(dye2Generated, generated));
@@ -387,7 +405,16 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
 
   it("records into the recipe what the Workflow holds otherwise, as recorded (recording.json)", async () => {
     const steps = savedWhileSteamOff(dye2Recording<Record<string, Dye2Step>>("recording"));
-    for (const [name, step] of Object.entries(steps)) await again(step, name === "select" ? pill() : () => script(step, ({ request }) => request.method !== "GET"), name);
+    for (const [name, step] of Object.entries(steps)) {
+      const act = name === "select" ? pill() : () => script(step, ({ request }) => request.method !== "GET");
+      // The Basket step is made, not compared: v0.1.26's `record` found the recipe holding the Basket it had saved from the
+      // one the Workflow inherited, and saved nothing, where the apply now set the recipe's own, which this one moves off.
+      // What `record` saves of a Basket is made again from dye2-v0.1.33/baskets.json.
+      if (name === "basket") {
+        await act();
+        await settled();
+      } else await again(step, act, name);
+    }
   });
 
   it("clears recipeId on a profile change and keeps it otherwise, as recorded (unloads.json)", async () => {
@@ -439,7 +466,8 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
     const inFive = (dye2List(tablet, "recipes") as Record_[]).find((recipe) => recipe.stripSlot === 5)!;
     dye2Generated.now = () => new Date(String(freeing.find((recipe) => recipe.id === inFive.id)!.capturedAt));
     await (await openDye2RecipeEditor(proxy, { id: String(inFive.id) })).tapSlot(5).save();
-    expect(compare(dye2List(tablet, "recipes"))).toEqual(compare(freeing));
+    const [freed, recordedFreeing] = sinceV0137(dye2List(tablet, "recipes"), freeing);
+    expect(compare(freed)).toEqual(compare(recordedFreeing));
     const cell = (name: string) => pages.streamline!.cells().find(({ recipe }) => recipe?.name === name)!.slot as 1 | 2 | 3 | 4 | 5;
     await again(steps.started!, async () => (pages.streamline = await startStreamline(proxy)), "started");
     await again(steps.applyFromStrip!, () => pages.streamline!.applyRecipe("2"), "applyFromStrip");
@@ -513,7 +541,9 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
   it("applies a recipe naming no Bean, clearing the batch, and keeps one applied again on its own profile, in Decaid's key order and, since v0.1.33, in jsonb's (applies.json)", async () => {
     await settled();
     const steps = dye2V032Recording<Record<string, Dye2Step> & { pillsShown: string[] }>("applies");
-    expect(await pills()).toEqual(steps.pillsShown);
+    // From v0.1.39 the rail shows every recipe, those in a slot first, where v0.1.32's showed those on the strip (`99080d4`).
+    expect((await pills()).slice(0, steps.pillsShown.length)).toEqual(steps.pillsShown);
+    expect((await pills()).sort()).toEqual(named(dye2List(tablet, "recipes") as Record_[]).sort());
     for (const [name, step] of Object.entries(steps)) {
       if (Array.isArray(step)) continue;
       const act = name === "selectNoBean" ? () => selectRecipeInDye2(proxy, "3") : name.startsWith("apply") || name === "reapplyEdited" ? pill(name === "applyNoBean" ? "2" : "1") : () => script(step, ({ request }) => request.method !== "GET");
@@ -531,7 +561,9 @@ describe("The simulated DYE2 v0.1.36 and Streamline v0.2.24, made again as v0.1.
     await again(steps.applyWithBeanFromStrip!, () => pages.streamline!.applyRecipe("1"), "applyWithBeanFromStrip");
     await again(steps.clearButton!, () => pages.streamline!.clearButton(1), "clearButton");
     expect(named(pages.streamline!.cells().map(({ recipe }) => recipe))).toEqual(steps.cellsAfterClear);
-    expect(await pills()).toEqual(steps.dashboardPillsAfterClear);
+    // The button cleared is off Streamline's strip, and still on DYE2's rail from v0.1.40, with every other recipe (`7836cc0`).
+    expect(await pills()).toEqual(expect.arrayContaining(steps.dashboardPillsAfterClear));
+    expect((await pills()).sort()).toEqual(named(dye2List(tablet, "recipes") as Record_[]).sort());
   });
 
   it("records a grind setting as typed, a number where it reads as one, and no batch (recording.json)", async () => {
@@ -660,7 +692,8 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
       await act(name, step, replay);
       await replay.settled();
       const recorded = [...step.exchanges, ...Object.values(step.alsoSent ?? {}).flat()];
-      expect(workflowWrites(replay.made.slice(start)), `${name}: Workflow writes`).toEqual(workflowWrites(recorded));
+      const [written, recordedWrites] = sinceV0137(replay.made.slice(start), recorded);
+      expect(workflowWrites(written), `${name}: Workflow writes`).toEqual(workflowWrites(recordedWrites));
       expect(settingsOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's settings after`).toEqual(settingsOf(afterRead(step, "/workflow")));
       expect(steamOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: DYE2's recipes after`).toEqual(steamOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)));
       const remembered = Object.fromEntries(REMEMBERED.map((key) => [key, replay.tablet.storeValue(STREAMLINE_NAMESPACE, key)]));
@@ -753,9 +786,19 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
    * Makes the file's steps again as `made` does, checking the dial each left in the Workflow, and the grinder each of
    * DYE2's recipes names, too. With `carried`, the
    * tablet first holds what Streamline saved for a profile in profile-switch.json, the recording's group before, as
-   * Decaid's store kept it from one group to the next.
+   * Decaid's store kept it from one group to the next. With `grinderPicked`, the dial is compared but for its grind
+   * setting: from v0.1.37 a grinder picked brings its default grind setting and RPM, none for the recording's grinders,
+   * which declare neither, where v0.1.36's pick left the Workflow's (fixtures/decaid/dye2-v0.1.40/ records the pick).
    */
-  async function madeWithDial(file: StepFile, act: (name: string, step: SteamStep, replay: ReturnType<typeof from>) => Promise<unknown>, { carried = false }: { carried?: boolean } = {}) {
+  async function madeWithDial(
+    file: StepFile,
+    act: (name: string, step: SteamStep, replay: ReturnType<typeof from>) => Promise<unknown>,
+    { carried = false, grinderPicked = false }: { carried?: boolean; grinderPicked?: boolean } = {},
+  ) {
+    const dial = (workflow: unknown) => {
+      const { grinderSetting, ...rest } = dialOf(workflow) as Record_;
+      return grinderPicked ? rest : { ...rest, grinderSetting };
+    };
     let seeded = !carried;
     await made(file, file.reseeded as SteamStep, async (name, step, replay) => {
       if (!seeded) {
@@ -766,7 +809,7 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
       }
       await act(name, step, replay);
       await replay.settled();
-      expect(dialOf((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's dial after`).toEqual(dialOf(afterRead(step, "/workflow")));
+      expect(dial((await replay.tablet.callApi("GET", "/workflow")).body), `${name}: the Workflow's dial after`).toEqual(dial(afterRead(step, "/workflow")));
       expect(grindersOf((await replay.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`)).body), `${name}: the grinder each of DYE2's recipes names after`).toEqual(
         grindersOf(afterRead(step, `/store/${DYE2_NAMESPACE}/recipes`)),
       );
@@ -800,7 +843,7 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
       // The page opened, and a card held for its form, then closed: nothing is written.
       if (name.startsWith("opened") || name === "holdCard") return undefined;
       return onMainPage(name, step, replay);
-    }, { carried: true });
+    }, { carried: true, grinderPicked: true });
     const held = grindersPage.holdCard as SteamStep;
     expect(workflowWrites(held.exchanges)).toEqual([]);
     expect(held.exchanges).toContainEqual({ editorOpen: true });
@@ -812,11 +855,11 @@ describe("The simulated Streamline v0.2.24 and DYE2 v0.1.36, made again as they 
 
   it("writes the grinder from DYE2's grinder picker's Confirm as the Grinders page's tap does, and nothing from the Grind label's taps, which the recording has open DYE2's recipe editor where the Workflow names a recipe, its grinder picker where it names none, and Streamline's own grinder page with its DYE2 switch off (grind-label.json, 7871fa6)", async () => {
     await madeWithDial(grindLabel, async (name, step, replay) => {
-      if (name === "pickerConfirm") return tapGrinderInDye2(replay.proxy, grinderId("Fixture Grinder 83"));
+      if (name === "pickerConfirm") return pickGrinderInDye2(replay.proxy, grinderId("Fixture Grinder 83"));
       // The label's taps, and the way back from DYE2's editor, write nothing into the Workflow.
       if (name.startsWith("label") || name === "backWithoutSaving") return undefined;
       return onMainPage(name, step, replay);
-    }, { carried: true });
+    }, { carried: true, grinderPicked: true });
     // Where each tap of the label went is the recording's alone: the simulated Streamline has no Grind label.
     const navigated = (name: string) => ((grindLabel[name] as SteamStep).exchanges as unknown as Record_[]).find((exchange) => "navigated" in exchange)!.navigated as string[];
     expect(navigated("labelWithRecipe")[0]).toMatch(/^\/api\/v1\/plugins\/dye2\.reaplugin\/recipe-edit\?/);
@@ -877,16 +920,13 @@ describe("The simulated DYE2 v0.1.35, made again as it was recorded doing otherw
     ]);
   });
 
-  it("saves a favourite, holding the Workflow's feed rate, from the Auto Favourites edit page into no recipe, and applies it from the Auto Favourites page, clearing recipeId (favourites.json)", async () => {
+  it("applies a favourite the Auto Favourites edit page saved, holding the Workflow's feed rate, from the Auto Favourites page, clearing recipeId (favourites.json)", async () => {
     const file = dye2V035Recording<Record_>("favourites");
     await made(file, {
       applied: pill("1"),
-      saved: async (step) => {
-        const favourite = (step.exchanges.find(({ request }) => request.method === "POST")!.request.body as Record_[]).at(-1)!;
-        dye2Generated.uuid = () => String(favourite.id);
-        dye2Generated.now = () => new Date(String(favourite.capturedAt));
-        return saveFavouriteInDye2(proxy, { title: "Fixture Saved Favourite", favSlot: 1 });
-      },
+      // The favourite as v0.1.35's page saved it, from the recording: from v0.1.38 its SAVE TO RECIPE makes a recipe as
+      // well, which is made again from fixtures/decaid/dye2-v0.1.40/.
+      saved: (step) => sent(step)(),
       picked: async () => {
         const [favourite] = proxy.storeValue(DYE2_NAMESPACE, "autoFavourites") as Record_[];
         return pickFavouriteInDye2(proxy, String(favourite!.id));

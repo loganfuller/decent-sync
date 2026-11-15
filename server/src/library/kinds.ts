@@ -293,8 +293,10 @@ const TOOL_FIELDS: Readonly<Record<string, FieldType>> = {
  * its ratio, kept while its yield is its dose times it
  * (recipe-edits.service.ts). Its Bean is its Bean Batch's. Its grind
  * setting is a number, or text as typed, as DYE2 v0.1.32 keeps one
- * (`grindSettingOf`). Its feed rate is text as typed, as DYE2 v0.1.34
- * keeps one. Each steam, hot water and flush setting is held or
+ * (`grindSettingOf`). Its dose, grind setting and RPM are above 0 or
+ * none, as DYE2 from v0.1.37 applies a recipe holding 0 for one as naming
+ * none (RECIPE_NONE_AT_ZERO); its yield may be 0, which is stop-at-weight
+ * off. Its feed rate is text as typed, as DYE2 v0.1.34 keeps one. Each steam, hot water and flush setting is held or
  * not, null for the Machine's own, and is checked against the range DYE2's
  * editor offers, a whole number where Decaid's field is an int: a steam
  * temperature with no "Off", a steam time from 1 s to 255 s, as a steam time
@@ -309,11 +311,11 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   beverage: "text",
   beanBatchId: "id",
   profileId: "profileId",
-  dose: "number",
+  dose: "aboveZero",
   yield: "number",
   grinderId: "id",
   grindSetting: "grindSetting",
-  rpm: "number",
+  rpm: "aboveZero",
   feedRate: "text",
   brewTemperature: "number",
   basketId: "id",

@@ -23,14 +23,18 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * its Profile by Decaid's id (`profileId`), and each Tool's attributes for it
  * by the Tool's global id (`toolAttributes`), as DYE2's `equipmentCustom`
  * holds them by its own, and its grind setting as a number or text
- * (`grindSetting`, as `grindSettingOf` keeps one). A number DYE2's recipe
- * editor takes only within a range is read against it (`NumberRange`).
+ * (`grindSetting`, as `grindSettingOf` keeps one). Its dose and RPM are
+ * numbers above 0 (`aboveZero`), and its grind setting is no 0 either, as a
+ * Recipe holds none of one at 0 (RECIPE_NONE_AT_ZERO in protocol/): clearing
+ * the field says so. A number DYE2's recipe editor takes only within a
+ * range is read against it (`NumberRange`).
  */
 export type FieldType =
   | "text"
   | "name"
   | "flag"
   | "number"
+  | "aboveZero"
   | "date"
   | "texts"
   | "wholeNumbers"
@@ -136,6 +140,8 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return typeof value === "boolean" ? { value } : "must be true or false";
     case "number":
       return typeof value === "number" && Number.isFinite(value) && value >= 0 ? { value } : "must be a number of 0 or more";
+    case "aboveZero":
+      return typeof value === "number" && Number.isFinite(value) && value > 0 ? { value } : "must be a number above 0: clear it for none";
     case "date":
       return typeof value === "string" && isDay(value) ? { value: `${value}T00:00:00.000` } : "must be a day, such as 2026-10-01";
     case "texts":
@@ -162,7 +168,7 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       // As typed, or the number it reads as, as DYE2 v0.1.32 keeps one: a setting all blanks is none.
       const setting = grindSettingOf(value);
       if (typeof value === "string" && setting === null) return { value: null };
-      return (typeof setting === "number" && setting >= 0) || typeof setting === "string" ? { value: setting } : "must be a number of 0 or more, or text";
+      return (typeof setting === "number" && setting > 0) || typeof setting === "string" ? { value: setting } : "must be a number above 0, or text: clear it for none";
     }
   }
 }

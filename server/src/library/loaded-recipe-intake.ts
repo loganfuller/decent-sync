@@ -4,8 +4,11 @@ import {
   type LoadedRecipePart,
   RECIPE_SETTING_NAMES,
   type RecipeSetting,
+  WHOLE_SHOT_PARTS,
+  WORKFLOW_YIELD_OFF,
   dye2Fingerprint,
   grindSettingOf,
+  isZero,
   sameGrindSetting,
   sameValue,
   steamTimeOf,
@@ -20,7 +23,9 @@ import { isObject } from "./listed.js";
 // none (`valuesFromWorkflow`), but of the Profile, which unloads it
 // instead (DYE2 clears the Workflow's recipe); and a field of the Recipe's
 // that changed since the Workflow last took it, and that the Workflow holds
-// otherwise, is written into it (`dueParts`). A Workflow names its Grinder,
+// otherwise, is written into it (`dueParts`), one the Recipe holds none of
+// cleared from it where the Recipe is the whole Shot in it
+// (WHOLE_SHOT_PARTS). A Workflow names its Grinder,
 // Basket and Bean Batch by the tablet's ids, holds its Profile whole, its
 // brew temperature as its first step's, and keeps its grind setting as text,
 // as Decaid does; a Recipe names them by their global ids, its Profile by
@@ -100,10 +105,34 @@ export function partValue(part: LoadedRecipePart, value: unknown): PartValue {
   return ITEM_PARTS[part] !== undefined || part === "profile" || part === "feedRate" ? textOf(value) : numberOf(value);
 }
 
-/** Whether two values of a part are the same: grind settings as numbers where both read as one, as Decaid keeps DYE2's 3 as "3" and a barista may type `.5` for 0.5 (`sameGrindSetting`). */
+/**
+ * The parts of which 0 is none: a dose, grind setting and RPM, as a Recipe
+ * holds none of one at 0 (RECIPE_NONE_AT_ZERO in protocol/), and a yield, as
+ * 0 is stop-at-weight off, which a Workflow holding none has too
+ * (WORKFLOW_YIELD_OFF).
+ */
+const NONE_AT_ZERO: ReadonlySet<LoadedRecipePart> = new Set(["dose", "yield", "grind", "rpm"]);
+
+/** Whether 0 is none of a part: a dose, yield, grind setting or RPM (`NONE_AT_ZERO`). */
+export function noneAtZeroPart(part: LoadedRecipePart): boolean {
+  return NONE_AT_ZERO.has(part);
+}
+
+/** Whether a part's value is none: null, or 0 for a dose, yield, grind setting or RPM (`NONE_AT_ZERO`). */
+export function nonePart(part: LoadedRecipePart, value: unknown): boolean {
+  return value === null || value === undefined || (NONE_AT_ZERO.has(part) && isZero(value));
+}
+
+/**
+ * Whether two values of a part are the same: none both (`nonePart`), or
+ * grind settings as numbers where both read as one, as Decaid keeps DYE2's 3
+ * as "3" and a barista may type `.5` for 0.5 (`sameGrindSetting`).
+ */
 export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolean {
+  const [none, other] = [nonePart(part, a), nonePart(part, b)];
+  if (none || other) return none && other;
   if (part === "grind") return sameGrindSetting(a, b);
-  return sameValue(a ?? null, b ?? null);
+  return sameValue(a, b);
 }
 
 /**
@@ -123,11 +152,13 @@ export function readBase(value: unknown): BaseParts {
 
 /**
  * The parts of a Recipe (`target`, as `recipeParts` reads it) a tablet's
- * Workflow is due: each the Recipe holds that the Workflow holds otherwise
+ * Workflow is due: each the Workflow holds otherwise than the Recipe
  * (`held`), but one the Workflow took as the Recipe holds it now (`base`),
  * which a change on the Machine since left as the Machine's own, as a batch
- * of another Bean, a value cleared or steam turned off (ADR-0022). The rest
- * are left out (undefined).
+ * of another Bean, a value cleared or steam turned off (ADR-0022). One the
+ * Recipe holds none of is due cleared (null) where the Recipe is the whole
+ * Shot in it (WHOLE_SHOT_PARTS), as a Grinder or a dose, and never where the
+ * Machine keeps its own, as a steam time. The rest are left out (undefined).
  */
 export function dueParts(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -137,8 +168,10 @@ export function dueParts(
   const due = {} as Record<LoadedRecipePart, PartValue | undefined>;
   for (const part of PARTS) {
     const value = target[part];
+    const none = nonePart(part, value);
     const taken = Object.prototype.hasOwnProperty.call(base, part) && samePart(part, base[part], value);
-    due[part] = value === null || value === undefined || samePart(part, held[part], value) || taken ? undefined : value;
+    const left = value === undefined || (none && !WHOLE_SHOT_PARTS.has(part));
+    due[part] = left || samePart(part, held[part], value) || taken ? undefined : none ? null : value;
   }
   // A Profile written whole holds its own step temperatures, which are moved to the Recipe's brew temperature with it.
   if (due.profile !== undefined && typeof target.brewTemperature === "number") due.brewTemperature = target.brewTemperature;
@@ -146,9 +179,10 @@ export function dueParts(
 }
 
 /**
- * The parts of a Recipe a Workflow holds already as the Recipe does: on a
- * load, the base the Workflow starts from (`BaseParts`), so every other
- * part the Recipe holds is written into it once.
+ * The parts of a Recipe a Workflow holds already as the Recipe does, none
+ * of one included: on a load, the base the Workflow starts from
+ * (`BaseParts`), so every other part is written into it once, or cleared
+ * from it (`dueParts`).
  */
 export function heldAlready(target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>, held: WorkflowParts): BaseParts {
   const base: BaseParts = {};
@@ -169,63 +203,72 @@ export interface WorkflowValuesContext {
   batchBeans: ReadonlyMap<string, string>;
 }
 
-/** The parts Decent Sync takes into a Recipe from its Machine's Workflow, but where the Recipe holds a value already: its dial but the brew temperature. */
-const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: "rpm", feedRate: "feedRate", basket: "basketId" } as const satisfies Partial<Record<LoadedRecipePart, string>>;
+/** The parts Decent Sync takes into a Recipe from its Machine's Workflow, but where the Recipe holds a value already: its dial but the brew temperature and the Basket, which are DYE2's to save. */
+const DIAL_FIELDS = { dose: "dose", yield: "yield", grind: "grindSetting", rpm: "rpm", feedRate: "feedRate" } as const satisfies Partial<Record<LoadedRecipePart, string>>;
+
+/** The parts a pick of a Grinder brings with it, each with the Recipe's field it follows: its grind setting and RPM. */
+const PICKED_WITH_GRINDER = { grind: "grindSetting", rpm: "rpm" } as const satisfies Partial<Record<LoadedRecipePart, string>>;
 
 /**
  * The values of a Recipe (`content`, its parts `target` as `recipeParts`
  * reads them) that its Machine's Workflow sets, which Decent Sync records
  * itself as the tablet's edit, as DYE2 saves none of them (ADR-0022), each
  * where the Workflow changed it from `held`, the parts as it last held them,
- * or, on a load (`held` null), where the Recipe holds none, from the Workflow
- * as it stands (`now`): a dose, yield, grind setting (a number, or text as
- * typed, as DYE2 v0.1.32 saves one), RPM or feed rate (text as typed, which
- * DYE2 adopts into no recipe holding none) the Recipe holds none of; a Basket
- * the Recipe holds none of, but only on a load, as DYE2 takes the Machine's
- * as the recipe is applied as its starting point and never saves it, while
- * from v0.1.33 it saves one picked after (`RECORDED_PARTS`); a Grinder, one
- * of the Location's; and a Bean Batch of the Recipe's own Bean, or with its
- * Bean for a Recipe naming no Bean, but not on a load: a Recipe naming no
- * Bean means no bean as it is loaded, as DYE2 v0.1.32 applies one
- * (`ce38984`), and a batch picked while it is loaded is a change like any
- * other. A batch of another Bean, a value cleared, and anything the map does
- * not hold stay the Machine's own. With the parts they record.
+ * to the one it holds now (`now`): a dose, yield, grind setting (a number, or
+ * text as typed, as DYE2 v0.1.32 saves one), RPM or feed rate (text as typed,
+ * which DYE2 adopts into no recipe holding none) the Recipe holds none of,
+ * but one of 0, which is none (`nonePart`), so a Recipe holding no yield
+ * takes none from a Workflow whose yield is 0; a Grinder, one of the
+ * Location's, with the grind setting and RPM the Workflow holds after it,
+ * none included, as DYE2 from v0.1.37 writes the picked grinder's defaults
+ * with it, or none where it declares neither (`grinderDefaultsPatch` in
+ * dye2:dye2-plugin/src/utils/grinder-form.ts), a dial position belonging to
+ * the grinder it was read off; and a Bean Batch of the Recipe's own Bean, or
+ * with its Bean for a Recipe naming no Bean. Nothing is taken on a load:
+ * this reads only a Workflow that goes on naming the Recipe. A batch of
+ * another Bean, a value cleared, and anything the map does not hold stay the
+ * Machine's own. With the parts they record.
  */
 export function valuesFromWorkflow(
   content: Readonly<Record<string, unknown>>,
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
-  held: WorkflowParts | null,
+  held: WorkflowParts,
   now: WorkflowParts,
   context: WorkflowValuesContext,
 ): { values: Record<string, unknown>; parts: LoadedRecipePart[] } {
   const values: Record<string, unknown> = {};
-  const parts: LoadedRecipePart[] = [];
-  const changed = (part: LoadedRecipePart) => now[part] !== null && (held === null ? target[part] === null : !samePart(part, held[part], now[part]));
+  const parts = new Set<LoadedRecipePart>();
+  const changed = (part: LoadedRecipePart) => !nonePart(part, now[part]) && !samePart(part, held[part], now[part]);
+  const valueOf = (part: LoadedRecipePart) => (nonePart(part, now[part]) ? null : part === "grind" ? grindSettingOf(now.grind) : now[part]);
   for (const [part, field] of Object.entries(DIAL_FIELDS) as [keyof typeof DIAL_FIELDS, string][]) {
-    if (target[part] !== null || !changed(part) || (part === "basket" && held !== null)) continue;
-    const value = part === "basket" ? context.item("basket", now.basket as string) : part === "grind" ? grindSettingOf(now.grind) : now[part];
-    if (value === undefined || value === null) continue;
-    values[field] = value;
-    parts.push(part);
+    if (!nonePart(part, target[part]) || !changed(part)) continue;
+    values[field] = valueOf(part);
+    parts.add(part);
   }
   if (changed("grinder")) {
     const grinderId = context.item("grinder", now.grinder as string);
     if (grinderId !== undefined && context.grinders.has(grinderId) && grinderId !== textOf(content.grinderId)?.toLowerCase()) {
       values.grinderId = grinderId;
-      parts.push("grinder");
+      parts.add("grinder");
+      // The pick's own grind setting and RPM, or none, come with it: the ones the Recipe held were the other Grinder's.
+      for (const [part, field] of Object.entries(PICKED_WITH_GRINDER) as [keyof typeof PICKED_WITH_GRINDER, string][]) {
+        if (samePart(part, target[part], now[part])) continue;
+        values[field] = valueOf(part);
+        parts.add(part);
+      }
     }
   }
   const recipeBean = textOf(content.beanId)?.toLowerCase() ?? null;
-  if (changed("batch") && (recipeBean !== null || held !== null)) {
+  if (changed("batch")) {
     const batchId = context.item("beanBatch", now.batch as string);
     const beanId = batchId === undefined ? undefined : context.batchBeans.get(batchId);
     if (batchId !== undefined && beanId !== undefined && (recipeBean === null || recipeBean === beanId)) {
       values.beanBatchId = batchId;
       if (recipeBean === null) values.beanId = beanId;
-      parts.push("batch");
+      parts.add("batch");
     }
   }
-  return { values, parts };
+  return { values, parts: [...parts] };
 }
 
 /**
@@ -237,7 +280,8 @@ export function valuesFromWorkflow(
  * dose times its ratio where it holds none, as DYE2 applies one, and its
  * brew temperature its Profile's first step's (`profileTemperature`) where
  * it holds none, as its records hold one (`recipeRecord`). A steam time of
- * 0, as 1.6.2 may have taken one in, is none (`steamTimeOf`).
+ * 0, as 1.6.2 may have taken one in, is none (`steamTimeOf`), and so is a
+ * dose, grind setting or RPM of 0, as 1.10.0 may take one in (`nonePart`).
  */
 export function recipeParts(
   content: Readonly<Record<string, unknown>>,
@@ -251,9 +295,10 @@ export function recipeParts(
     parts[part] = kind !== undefined ? (typeof value === "string" ? local(kind, value) : null) : partValue(part, value);
     if (part === "profile") parts[part] = textOf(value);
     if (part === "steamDuration") parts[part] = steamTimeOf(value);
+    if (part !== "yield" && nonePart(part, parts[part]) && parts[part] !== undefined) parts[part] = null;
   }
-  const [dose, ratio] = [numberOf(content.dose), numberOf(content.ratio)];
-  if (parts.yield === null && dose !== null && ratio !== null) parts.yield = Math.round(dose * ratio * 10) / 10;
+  const [dose, ratio] = [parts.dose, numberOf(content.ratio)];
+  if (parts.yield === null && typeof dose === "number" && ratio !== null) parts.yield = Math.round(dose * ratio * 10) / 10;
   parts.brewTemperature ??= profileTemperature;
   return parts;
 }
@@ -272,9 +317,11 @@ export function recipeParts(
  * dye2:dye2-plugin/src/utils/workflow-record.ts): so the Profile waits until
  * the record names it and holds it as the write carries it (`profile`, the
  * Library's), not as before an edit of its title, which keeps its id
- * (ADR-0006). Each that waits is undefined, as one the tablet holds no record
- * of yet is; the rest of the write goes ahead, its Grinder and Bean Batch
- * included, which DYE2 records none of.
+ * (ADR-0006). One the Recipe holds none of waits the same way, until the
+ * record holds none, or a 0 for it, which is none. Each that waits is
+ * undefined, as one the tablet holds no record of yet is; the rest of the
+ * write goes ahead, its Grinder and Bean Batch included, which DYE2 records
+ * none of.
  */
 export function heldByRecord(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -282,7 +329,7 @@ export function heldByRecord(
   profile: unknown,
 ): Record<LoadedRecipePart, PartValue | undefined> {
   const variables = isObject(record?.dashboardVariables) ? record.dashboardVariables : {};
-  const [dose, ratio] = [numberOf(variables.dose), numberOf(variables.ratio)];
+  const [dose, ratio] = [nonePart("dose", variables.dose) ? null : numberOf(variables.dose), numberOf(variables.ratio)];
   const holds: Partial<Record<LoadedRecipePart, unknown>> = {
     profile: record?.profileId ?? null,
     dose,
@@ -295,7 +342,9 @@ export function heldByRecord(
   };
   const parts = { ...target };
   for (const part of ["profile", "dose", "yield", "grind", "rpm", "feedRate", "basket", "brewTemperature"] as const) {
-    if (parts[part] !== null && parts[part] !== undefined && (record === null || !samePart(part, holds[part], parts[part]))) parts[part] = undefined;
+    if (parts[part] === undefined) continue;
+    // With no record known there is none to wait for to hold none.
+    if (record === null ? !nonePart(part, parts[part]) : !samePart(part, holds[part], parts[part])) parts[part] = undefined;
   }
   const held = dye2Fingerprint(recordProfile(record));
   if (parts.profile !== null && parts.profile !== undefined && held !== null && held !== dye2Fingerprint(profile)) parts.profile = undefined;
@@ -324,12 +373,17 @@ export interface PartNames {
 /**
  * The fields of a write of LOADED_RECIPE_KIND that bring the Workflow, as
  * it last held its parts (`held`), to its Loaded Recipe's (`target`, as
- * `recipeParts` reads it), and the value it expects of each part's first
+ * `dueParts` leaves it), and the value it expects of each part's first
  * field: each part the Recipe holds a value of that the Workflow holds
  * otherwise, with the names DYE2 copies beside a Grinder, a Basket and a
- * batch, where known. One the tablet holds no record of yet waits. A Profile
- * is written whole, expecting nothing, as a skin overrides parts of the one
- * it loads, and only where the Library holds it. Null if none differs.
+ * batch, where known; and each it holds none of, of those it is the whole
+ * Shot in (WHOLE_SHOT_PARTS), cleared, every field of it null, as DYE2's
+ * apply clears one, but its yield, set to WORKFLOW_YIELD_OFF, as Decaid
+ * refuses a null there, and a batch's coffee and roaster, which are the
+ * Recipe's Bean's where it names one (`names`). One the tablet holds no
+ * record of yet waits. A Profile is written whole, expecting nothing, as a
+ * skin overrides parts of the one it loads, and only where the Library
+ * holds it. Null if none differs.
  */
 export function partsWrite(
   target: Readonly<Record<LoadedRecipePart, PartValue | undefined>>,
@@ -340,13 +394,14 @@ export function partsWrite(
   const expected: Record<string, unknown> = {};
   for (const part of PARTS) {
     const value = target[part];
-    if (value === null || value === undefined || samePart(part, held[part], value)) continue;
+    const none = nonePart(part, value);
+    if (value === undefined || (none && !WHOLE_SHOT_PARTS.has(part)) || samePart(part, held[part], value)) continue;
     const [first, ...rest] = LOADED_RECIPE_PARTS[part] as readonly [string, ...string[]];
     if (part === "profile") {
       if (names.profile !== null) fields[first] = names.profile;
       continue;
     }
-    fields[first] = value;
+    fields[first] = !none ? value : part === "yield" ? WORKFLOW_YIELD_OFF : null;
     expected[first] = held[part];
     const copied: Record<string, string | null> = {
       "context.grinderModel": names.grinderModel,
@@ -354,7 +409,11 @@ export function partsWrite(
       "context.coffeeName": names.coffeeName,
       "context.coffeeRoaster": names.coffeeRoaster,
     };
-    for (const field of rest) if (copied[field] !== null && copied[field] !== undefined) fields[field] = copied[field];
+    for (const field of rest) {
+      // Cleared with it, but a batch's coffee and roaster, which name the Recipe's Bean where it names one.
+      if (none) fields[field] = part === "batch" ? (copied[field] ?? null) : null;
+      else if (copied[field] !== null && copied[field] !== undefined) fields[field] = copied[field];
+    }
   }
   // A Profile written whole holds its own step temperatures: its brew temperature is moved to the Recipe's after it.
   const temperature = target.brewTemperature;

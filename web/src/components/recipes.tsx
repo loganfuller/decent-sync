@@ -381,6 +381,9 @@ const NUMBERS = [
 
 type NumberField = (typeof NUMBERS)[number][0];
 
+/** The numbers a Recipe holds none of at 0, as its grind setting: an empty field says none. Its yield may be 0, which is stop-at-weight off. */
+const ABOVE_ZERO: ReadonlySet<NumberField> = new Set(["dose", "rpm"]);
+
 const LABELS: Readonly<Record<NumberField, string>> = Object.fromEntries(NUMBERS) as Record<NumberField, string>;
 
 /** The form's values for a Recipe's content, or a new one's. */
@@ -420,13 +423,15 @@ function toolDefaults(tool: EquipmentSummary | undefined): Attribute[] {
  * The content the form's values set, each field as the server takes it, null
  * to clear it, as an empty setting is: a number entered that is not one is
  * refused, so nothing typed is lost unseen, and a setting outside its range
- * is the server's to refuse. The grind setting is a number where it reads as
+ * is the server's to refuse. A dose, grind setting or RPM of 0 is refused
+ * too, as a Recipe holds none of one at 0. The grind setting is a number where it reads as
  * one, and otherwise the text as typed, as DYE2 keeps one, and the feed rate
  * the text, trimmed as DYE2's editor trims it. A Tool's attributes are kept
  * only where they differ from the Tool's own, as DYE2's editor keeps those
  * changed for a recipe.
  */
 function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string, unknown> {
+  if (grindSettingOf(values.grindSetting) === 0) throw new Error("Grind setting must be above 0, or text: leave it empty for none");
   const content: Record<string, unknown> = {
     name: values.name.trim() === "" ? null : values.name.trim(),
     beverage: values.beverage.trim() === "" ? null : values.beverage.trim(),
@@ -454,6 +459,7 @@ function contentOf(values: FormValues, tools: EquipmentSummary[]): Record<string
     }
     const value = Number(text);
     if (!Number.isFinite(value) || value < 0) throw new Error(`${label} must be a number of 0 or more`);
+    if (value === 0 && ABOVE_ZERO.has(field)) throw new Error(`${label} must be above 0: leave it empty for none`);
     content[field] = value;
   }
   for (const setting of SETTINGS) {
@@ -1466,7 +1472,7 @@ export function RecipeDetails({ id }: { id: string }) {
         <CardHeader>
           <CardTitleWithInfo title="Recipe">
             <p>
-              Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.
+              Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.
             </p>
           </CardTitleWithInfo>
         </CardHeader>

@@ -274,7 +274,10 @@ keeps only the newest 2,000 events, up to 2 Mi characters (above).
 Ticket [#145](https://github.com/loganfuller/decent-sync/issues/145) keeps
 each Machine's Loaded Recipe (ADR-0022), and ticket
 [#216](https://github.com/loganfuller/decent-sync/issues/216) makes it the
-recipe its Workflow names. DYE2 v0.1.36 and Streamline v0.2.24, the
+recipe its Workflow names. Ticket
+[#550](https://github.com/loganfuller/decent-sync/issues/550) makes a Recipe
+the whole Shot: a Machine that loads one is left with none of what it names
+none of. DYE2 v0.1.40 and Streamline v0.2.27, the
 supported floor (ADR-0017), keep no selection of their own:
 DYE2's dashboard, its Select Recipe page and Streamline's DYE strip set
 `context.extras.dye.recipeId` in the Workflow to the id of DYE2's record of
@@ -318,8 +321,9 @@ through `plugin/src/dye2.ts`, and writes what the pure
   is done.
 - **A load.** In its turn among the reads and writes of the tablet's lists
   (`LibraryAccess.run`), the plugin reads the Workflow, and where it still
-  names the record, writes into it, in one `PUT /workflow`, which Decaid
-  merges into it, what it holds otherwise of the recipe's current dose,
+  names the record, brings it to the recipe whole, whatever applied it, in
+  one `PUT /workflow`, which Decaid merges into it (`loadWrite`). It writes
+  what the Workflow holds otherwise of the recipe's current dose,
   yield (its dose times its ratio where it holds none), grind setting,
   grinder, RPM, feed rate (text as typed, as DYE2 v0.1.34 applies one),
   Basket and Profile (whole, at the recipe's brew temperature,
@@ -340,12 +344,23 @@ through `plugin/src/dye2.ts`, and writes what the pure
   editor saves until the server writes the Recipe's back, is none
   (`steamTimeOf`, `loadWrite`); DYE2 v0.1.35 applies such a record as steam
   off whole, a steam temperature and time of 0 (`recipeMachineSettings`,
-  decentespresso/dye2#46). A value the record
-  holds none of is left as the Machine has it, which the server takes into
-  the Recipe (Following the Recipe, below), but a Bean: for a record naming
-  none it clears the Workflow's batch, coffee and roaster where it holds
-  any, as DYE2 v0.1.32 applies such a recipe and a stale copy without its
-  nulls does not. It writes no brew temperature:
+  decentespresso/dye2#46). A recipe is the whole shot, so of its dose,
+  grind setting, grinder, RPM, feed rate, Basket and Bean Batch
+  (`WHOLE_SHOT_PARTS` in `protocol/`), each the record names none of that
+  the Workflow still holds is cleared, every field of it null, as DYE2's
+  dashboard from v0.1.37 and Streamline's strip from v0.2.25 clear them as
+  they apply one (`applyRecipe` in `dye2:dye2-plugin/src/pages/dashboard.ts`,
+  `clearInheritedFields` in `streamline-js:src/modules/workflow-fields.js`)
+  and a Skin that clears nothing does not; a record naming neither a yield
+  nor a dose and ratio has the Workflow's yield set to 0, stop-at-weight
+  off, as Decaid refuses a null there (`WORKFLOW_YIELD_OFF`); and one naming
+  a Bean and no batch has the Workflow's batch cleared, its coffee and
+  roaster the Bean's. A dose, grind setting or RPM of 0 in the record names
+  none, and one of 0 in the Workflow is none held (`noneAtZero`), so a
+  record whose RPM DYE2's editor saved as 0 is written nothing once DYE2's
+  apply cleared the Workflow's. A steam, hot water or flush setting the
+  record holds none of is left as the Machine has it, and so is the
+  Workflow's profile where the record names none. It writes no brew temperature:
   DYE2's dashboard applies a recipe's, moving its profile as Streamline's
   Brew tile does (`shiftedTemperatures` in
   `streamline-js:src/modules/brew-temp.js`), the first step to it and every
@@ -655,14 +670,20 @@ parts to the Recipe's content both ways.
   the Recipe has seen (ADR-0020, `editContent`), each change from `held` of
   what DYE2 saves none of (`valuesFromWorkflow` in
   `loaded-recipe-intake.ts`, `recordFromWorkflow`): a dose, yield, grind
-  setting, RPM or feed rate the Recipe holds none of, but no Basket, which DYE2 v0.1.33
-  saves once picked after the load, reaching the Recipe as the tablet's
+  setting, RPM or feed rate the Recipe holds none of, but never a 0, which
+  is none (`nonePart`), so a Recipe holding no yield takes none from a
+  Workflow whose yield is 0, and takes 40 once a barista sets it; no Basket, which DYE2 v0.1.33
+  saves once picked, reaching the Recipe as the tablet's
   change of its record (ADR-0022, #389); a Grinder, one of the Location's
-  not Archived, as DYE2's grinder picker's Confirm writes one into the
-  Workflow, and from v0.1.36 a tap of its card on DYE2's Grinders page, with
-  no confirm (`fa1d93f`, #461); and a Bean Batch of the Recipe's own Bean, or any
-  batch, with its Bean, for a Recipe naming no Bean, but not on a load, as it
-  means no bean as DYE2 v0.1.32 applies it. A grind setting is taken as typed, a number where it reads as one
+  not Archived, as a tap on DYE2's dashboard's grinder tabs, its grinder
+  picker's Confirm and, from v0.1.36, a tap of its card on DYE2's Grinders
+  page write one into the Workflow (`fa1d93f`, #461), with the grind setting
+  and RPM the Workflow holds after it, none included, as from DYE2 v0.1.37
+  the pick brings the grinder's defaults, or none where it declares neither
+  (`grinderDefaultsPatch` in `dye2:dye2-plugin/src/utils/grinder-form.ts`,
+  #550), so every Machine with the Recipe loaded ends on the same Grinder
+  and numbers; and a Bean Batch of the Recipe's own Bean, or any
+  batch, with its Bean, for a Recipe naming no Bean. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment
@@ -671,21 +692,22 @@ parts to the Recipe's content both ways.
   back. The Recipe's tablets are written the edit, and the Workflows of the
   other Machines that have it loaded.
 - **What stays the Machine's own.** A batch of another Bean, which keeps
-  the Recipe loaded, its Shots linked to it; a value cleared; steam turned
+  the Recipe loaded, its Shots linked to it; a value cleared, but the grind
+  setting and RPM a Grinder's pick left; steam turned
   off; and a steam setting changed while steam is off, which DYE2 does not
   save. None is an edit, and `held` takes it while `base` still holds the
   Recipe's, so no write of the Recipe's value is planned over it.
-- **A load.** On a Workflow that loads the Recipe, the Recipe gains, from
-  the Workflow as it stands, each of the values Decent Sync records itself
-  that it holds none of (`valuesFromWorkflow` with no `held`), and the
-  Machine's Basket, which DYE2 takes as the recipe is applied as its
-  starting point and never saves: so a Recipe made without a grinder,
-  Basket, RPM, feed rate or dial takes those the Machine is using. A value it holds
-  is never taken from a load, which may be a stale copy's. Its `base` starts as the parts the Workflow holds already as the
-  Recipe does (`heldAlready`), so every other part the Recipe holds is
-  written into it once (To every Machine that has it loaded, below), the
-  load write's answer holding most of them already. A Workflow naming the
-  Recipe again as the tablet joins its Location gains it nothing; one naming
+- **A load.** A Recipe is the whole Shot (#550), so the server takes
+  nothing into it from a Workflow that loads it: until #550 a load gained it
+  each value it held none of that the Machine had. Its `base` starts as the
+  parts the Workflow holds already as the Recipe does, none of one included
+  (`heldAlready`), so every other part is written into it once, or cleared
+  from it where the Recipe holds none of a part it is the whole Shot in (To
+  every Machine that has it loaded, below), the load write's answer holding
+  most of them already: so a tablet whose plugin is the previous release's,
+  whose load write clears nothing but the Bean, is cleared too. A Workflow
+  naming the Recipe again as the tablet joins its Location is treated the
+  same; one naming
   it while its Machine still has it loaded, the tablet's record of what it
   named forgotten, is taken as having taken the Recipe's parts as they
   stand, so nothing is written for them until they change.
@@ -722,7 +744,13 @@ parts to the Recipe's content both ways.
   its tablet's Workflow took it (`base`) and that the Workflow holds
   otherwise (`held`, `dueParts`), by the tablet's ids, with the names DYE2
   copies beside a Grinder, a Basket and a batch, each expecting the value
-  the Workflow last held, its Profile whole, expecting nothing, as a skin
+  the Workflow last held; each part the Recipe holds none of, of those it is
+  the whole Shot in (`WHOLE_SHOT_PARTS`), cleared, every field of it null,
+  its yield 0, and a batch's coffee and roaster the Recipe's Bean's where it
+  names one, so a Basket cleared from a Recipe is cleared in the Workflow of
+  each Machine that has it loaded, while a steam time cleared from it is
+  not, staying each Machine's own; a dose, grind setting, RPM or yield of 0
+  in a Workflow being none held (`nonePart`); its Profile whole, expecting nothing, as a skin
   overrides parts of the one it loads, and its brew temperature
   (`profile.steps.0.temperature`, its Profile's first step's where the
   Recipe holds none), with any Profile written, and each steam, hot water
@@ -732,7 +760,7 @@ parts to the Recipe's content both ways.
   Workflow's dial, RPM, feed rate and Basket into the record, and keeps the recipe
   named through a change of profile only onto the one that record holds,
   so they and the Profile wait until the tablet's record of the Recipe,
-  written first, holds them, the Profile by its id and, where the record
+  written first, holds them, or holds none where they are to be cleared, the Profile by its id and, where the record
   holds a profile at all, as DYE2 compares none otherwise, by DYE2's
   fingerprint, as an edit of a Profile's title keeps its id
   (`heldByRecord`); the rest of the write goes ahead, its Grinder and batch

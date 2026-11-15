@@ -2,7 +2,7 @@ import { LIBRARY_KINDS, RECIPE_SHOWN_FIELD, RECIPE_SLOT_FIELD, recordGlobalId, s
 import type { DeletedKind, LibraryKind, WrittenKind } from "@decent-sync/protocol";
 import { weightOf } from "./batch-intake.js";
 import { KINDS } from "./kinds.js";
-import { lacksBeanNulls, withHeldFieldFlags } from "./recipe-intake.js";
+import { lacksBeanNulls, recordValueAt, withHeldFieldFlags, withoutZeros } from "./recipe-intake.js";
 import { isObject } from "./listed.js";
 
 // What a tablet should hold for its Location (ADR-0008), and the writes that
@@ -370,7 +370,12 @@ export function equipmentWrites(kind: "basket" | "tool", offer: LocationOffer, h
  * it holds written where its record differs from what it is to hold
  * (`OfferedRecipe.record`), its slot included, and its embedded Workflow
  * where the Recipe names no Bean and it lacks the explicit nulls for one
- * (`lacksBeanNulls`), which comparing records takes for none held. Whether a
+ * (`lacksBeanNulls`), which comparing records takes for none held. An
+ * embedded Workflow that differs from the one it is to hold only in how it
+ * holds none of a dose, grind setting, RPM or yield, a 0 for a null or
+ * none for a 0, as one saved before DYE2 v0.1.37 does, is left as it is
+ * (`withoutZeros`): no pass rewrites the records tablets hold (ADR-0022).
+ * Whether a
  * record is shown follows its slot, so a write of it expects the record's
  * slot too, written or not: one a barista has put in another slot since
  * keeps whether it is shown, and its move reaches the server in the answer.
@@ -387,8 +392,10 @@ export function recipeWrites(offer: LocationOffer, held: TabletHoldings): (Plann
   for (const recipe of offer.recipes) {
     const record = holds.get(recipe.id);
     if (record) {
-      const content = withHeldFieldFlags(recipe.record, record.record);
-      const nulls = lacksBeanNulls(content, record.record) ? { workflow: content.workflow } : {};
+      const built = withHeldFieldFlags(recipe.record, record.record);
+      const nulls = lacksBeanNulls(built, record.record) ? { workflow: built.workflow } : {};
+      // Compared as the record's is read (`recipeView`), and written whole, as built, where it differs otherwise.
+      const content = sameValue(withoutZeros(built.workflow), withoutZeros(record.record.workflow)) ? { ...built, workflow: withoutZeros(record.record.workflow) } : built;
       const planned = writes.length;
       pushUpdate(writes, "recipe", recipe.id, { ...record, content, contentDecidedAt: recipe.contentDecidedAt }, nulls, null);
       const write = writes[planned];
@@ -472,13 +479,17 @@ function contentToWrite(kind: LibraryKind, held: HeldRecord): Record<string, unk
  * The value a tablet's record holds for a field a write sets, as Decaid
  * names it: a field edits merge is in the record's field that holds them
  * (`editedIn`), as a Profile's title, author and notes are in its `profile`,
- * and a Recipe's at its path (`recordValues`).
+ * and a Recipe's at its path (`recordValues`), as the record itself holds
+ * it (`recordValueAt`): a dose, grind setting or RPM of 0 there is read as
+ * none when records are compared, but the plugin sets a field only while the
+ * record holds exactly what the write expects.
  */
 function heldValue(kind: LibraryKind, record: Record<string, unknown>, field: string): unknown {
   const { editedIn, recordValues } = KINDS[kind];
   const values = recordValues(record);
   if (!(field in values)) return record[field] ?? null;
   // A Recipe's fields are named by their paths in its record (`recipeView`).
+  if (kind === "recipe") return recordValueAt(record, field) ?? null;
   if (editedIn === null) return values[field] ?? null;
   const edited = record[editedIn];
   return (isObject(edited) ? edited[field] : undefined) ?? null;

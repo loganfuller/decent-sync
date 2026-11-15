@@ -4,7 +4,9 @@ import {
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   STEAM_ON_FROM,
+  WORKFLOW_YIELD_OFF,
   dye2GlobalIdOf,
+  noneAtZero,
   sameGrindSetting,
   steamOff,
   steamTimeOf,
@@ -106,28 +108,37 @@ export interface LoadContext {
 
 /**
  * What a load of the recipe writes into the Workflow, through `PUT
- * /workflow`, which Decaid merges into it: what the Workflow holds otherwise
- * of the recipe's current dose, yield, grind setting, grinder, RPM, feed rate
- * (text as typed, from DYE2 v0.1.34), Basket, Bean Batch with its Bean's name
- * and roaster, and Profile, as DYE2 applies them, a stale copy having applied
- * others; and of each steam, hot water and flush setting it holds
- * (RECIPE_SETTINGS), as DYE2's dashboard applies them, where Streamline's
- * strip at v0.2.23 applies its milk stop, hot water settings and flush time,
- * and its steam time or flow by its steam mode, but no steam temperature,
- * flush temperature or flush flow (`mergeRecipeLiveSettings`,
+ * /workflow`, which Decaid merges into it: what brings the Workflow to the
+ * recipe whole, whatever applied it (ADR-0022). A recipe is the whole shot
+ * (dye2:docs/KV_CONTRACT.md), so of its dose, yield, grind setting, grinder,
+ * RPM, feed rate (text as typed), Basket and Bean Batch with its Bean's name
+ * and roaster (WHOLE_SHOT_PARTS), the load writes each the Workflow holds
+ * otherwise, a stale copy having applied others, and clears each the recipe
+ * names none of that the Workflow still holds, as DYE2's dashboard from
+ * v0.1.37 and Streamline's strip from v0.2.25 clear them as they apply one
+ * (`applyRecipe` in dye2:dye2-plugin/src/pages/dashboard.ts,
+ * `clearInheritedFields` in streamline-js:src/modules/workflow-fields.js),
+ * and a Skin that clears nothing leaves them: each field null, but the
+ * yield, set to WORKFLOW_YIELD_OFF where the recipe names neither a yield
+ * nor a dose and ratio, as Decaid refuses a null there, and the coffee and
+ * roaster of a recipe naming a Bean and no batch, which stay its Bean's. A
+ * dose, grind setting or RPM of 0 in the record names none (`noneAtZero`),
+ * and one of 0 in the Workflow is none held, as a yield of 0 is. It also
+ * writes the recipe's Profile, and each steam, hot water and flush setting
+ * it holds (RECIPE_SETTINGS), as DYE2's dashboard applies them, where
+ * Streamline's strip applies its milk stop, hot water settings and flush
+ * time, and its steam time or flow by its steam mode, but no steam
+ * temperature, flush temperature or flush flow (`mergeRecipeLiveSettings`,
  * decentespresso/streamline-js#154); but a steam temperature or steam time
  * into a Workflow whose steam is off (`steamOff`): the temperature would turn
- * steam on, and Streamline v0.2.23 would show the time with the heater off. A
+ * steam on, and Streamline would show the time with the heater off. A
  * steam time below STEAM_TIME_FROM, as DYE2's editor saves until the server
  * writes the Recipe's back, is none (`steamTimeOf`). Its brew temperature is
  * DYE2's and Streamline's to apply, and so is the Profile at it, which is
- * written only where the Workflow holds another. A value the recipe holds
- * none of is left as the Workflow has it, which the server takes as the
- * Recipe's (ADR-0022), but the Bean: a recipe naming none means no bean, as
- * DYE2 v0.1.32 applies one (`ce38984`), so the Workflow's batch, coffee and
- * roaster are cleared, as a copy holding none of DYE2's nulls for them leaves
- * them. One `omit` names is left too. Null if the Workflow holds all of it
- * already.
+ * written only where the Workflow holds another. A setting the recipe holds
+ * none of is left as the Machine has it, and so is the Workflow's profile
+ * where the recipe names none, as DYE2's apply leaves it. One `omit` names
+ * is left too. Null if the Workflow holds all of it already.
  */
 export function loadWrite(
   workflow: Record<string, unknown>,
@@ -140,24 +151,30 @@ export function loadWrite(
   const variables = isObject(record.dashboardVariables) ? record.dashboardVariables : {};
   const contextWrite: Record<string, unknown> = {};
   const extrasWrite: Record<string, unknown> = {};
-  const dose = numberOf(variables.dose);
-  if (dose !== null && !sameNumber(dose, numberOf(context.targetDoseWeight)) && !omit.has("dose")) contextWrite.targetDoseWeight = dose;
+  const dose = noneAtZero(numberOf(variables.dose));
+  if (!sameNumber(dose, noneAtZero(numberOf(context.targetDoseWeight))) && !omit.has("dose")) contextWrite.targetDoseWeight = dose;
   const ratio = numberOf(variables.ratio);
-  const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : null);
-  if (yieldValue !== null && !sameNumber(yieldValue, numberOf(context.targetYield)) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
-  const grind = grindOf(variables.grind);
-  if (grind !== null && !sameGrind(grind, grindOf(context.grinderSetting)) && !omit.has("grind")) contextWrite.grinderSetting = grind;
+  const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : WORKFLOW_YIELD_OFF);
+  // A Workflow holding no yield has stop-at-weight off, as one holding 0.
+  if (!sameNumber(yieldValue, numberOf(context.targetYield) ?? WORKFLOW_YIELD_OFF) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
+  const grind = noneAtZero(grindOf(variables.grind));
+  if (!sameGrind(grind, noneAtZero(grindOf(context.grinderSetting))) && !omit.has("grind")) contextWrite.grinderSetting = grind;
   const grinder = textOf(variables.grinderId);
-  if (grinder !== null && grinder !== textOf(context.grinderId) && !omit.has("grinder")) {
+  if (grinder === null) {
+    // Cleared with its model, as DYE2's apply clears both.
+    if ((textOf(context.grinderId) !== null || textOf(context.grinderModel) !== null) && !omit.has("grinder")) Object.assign(contextWrite, { grinderId: null, grinderModel: null });
+  } else if (grinder !== textOf(context.grinderId) && !omit.has("grinder")) {
     contextWrite.grinderId = grinder;
     if (textOf(variables.grinderModel) !== null) contextWrite.grinderModel = variables.grinderModel;
   }
-  const rpm = numberOf(variables.rpm);
-  if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm)) && !omit.has("rpm")) extrasWrite.rpm = rpm;
+  const rpm = noneAtZero(numberOf(variables.rpm));
+  if (!sameNumber(rpm, noneAtZero(numberOf(extras.rpm))) && !omit.has("rpm")) extrasWrite.rpm = rpm;
   const feedRate = textOf(variables.feedRate);
-  if (feedRate !== null && feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
+  if (feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
   const basket = textOf(variables.basketId);
-  if (basket !== null && basket !== textOf(extras.basketId) && !omit.has("basket")) {
+  if (basket === null) {
+    if ((textOf(extras.basketId) !== null || textOf(extras.basketName) !== null) && !omit.has("basket")) Object.assign(extrasWrite, { basketId: null, basketName: null });
+  } else if (basket !== textOf(extras.basketId) && !omit.has("basket")) {
     extrasWrite.basketId = basket;
     if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
   }
@@ -167,6 +184,11 @@ export function loadWrite(
     contextWrite.beanBatchId = batch;
     if (textOf(record.beanName) !== null) contextWrite.coffeeName = record.beanName;
     if (textOf(record.beanRoaster) !== null) contextWrite.coffeeRoaster = record.beanRoaster;
+  } else if (batch === null && namesBean && textOf(context.beanBatchId) !== null && !omit.has("batch")) {
+    // A Bean and no batch: the batch a recipe applied before left is cleared, the coffee and roaster the Bean's, as DYE2 applies one.
+    contextWrite.beanBatchId = null;
+    contextWrite.coffeeName = textOf(record.beanName);
+    contextWrite.coffeeRoaster = textOf(record.beanRoaster);
   } else if (!namesBean && !omit.has("batch") && WORKFLOW_BEAN.some((field) => context[field] !== null && context[field] !== undefined)) {
     for (const field of WORKFLOW_BEAN) contextWrite[field] = null;
   }

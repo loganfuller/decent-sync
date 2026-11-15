@@ -1114,7 +1114,9 @@ export function shiftedTemperatures(base: readonly unknown[], first: number): nu
  * sets a part's fields together: a Grinder with its model, a Basket with its
  * name, and a Bean Batch with its Bean's name and roaster, as DYE2 and a
  * load write them, a Profile whole, and a brew temperature as
- * BREW_TEMPERATURE_FIELD says.
+ * BREW_TEMPERATURE_FIELD says. It clears a part the Recipe holds none of
+ * (WHOLE_SHOT_PARTS), each of its fields null, but a yield, which it sets to
+ * 0, and a batch's coffee and roaster where the Recipe names a Bean.
  */
 export const LOADED_RECIPE_PARTS = {
   profile: ["profile"],
@@ -1142,6 +1144,28 @@ export const LOADED_RECIPE_PARTS = {
 
 /** A part of a Workflow that follows its Loaded Recipe (LOADED_RECIPE_PARTS). */
 export type LoadedRecipePart = keyof typeof LOADED_RECIPE_PARTS;
+
+/**
+ * The parts a Recipe is the whole Shot in (ADR-0022): a Machine that has it
+ * loaded is left with none of each the Recipe holds none of, as DYE2 from
+ * v0.1.37 and Streamline's strip from v0.2.25 apply a recipe. The load write
+ * and a write of LOADED_RECIPE_KIND clear such a part where the Workflow
+ * holds one, a yield to WORKFLOW_YIELD_OFF. The rest are left as the Machine
+ * has them where the Recipe holds none: its steam, hot water and flush
+ * settings, and its Profile with its brew temperature.
+ */
+export const WHOLE_SHOT_PARTS: ReadonlySet<LoadedRecipePart> = new Set(["grinder", "dose", "yield", "grind", "rpm", "feedRate", "basket", "batch"]);
+
+/**
+ * A Workflow's yield for stop-at-weight off: Decaid stops a Shot at its
+ * weight only for a yield above 0 (`ShotSequencer` in
+ * decaid:lib/src/controllers/shot_sequencer.dart), and refuses a null for
+ * `context.targetYield` (`rejectExplicitNulls` in
+ * decaid:lib/src/services/webserver/workflow_handler.dart), so a Workflow is
+ * cleared of its yield by setting it to 0, as DYE2 from v0.1.37 applies a
+ * recipe naming none. A Workflow holding none reads the same.
+ */
+export const WORKFLOW_YIELD_OFF = 0;
 
 /** The value a Workflow holds at a path, such as `context.extras.rpm`, a number naming an item of a list; undefined where it holds none. */
 export function workflowValueAt(workflow: unknown, path: string): unknown {
@@ -1218,6 +1242,34 @@ export const STEAM_TIME_TO = 255;
  */
 export function steamTimeOf(value: unknown): number | null {
   return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
+}
+
+/**
+ * The fields of a Recipe's content of which 0 is none (ADR-0022): its dose,
+ * grind setting and RPM. From v0.1.37 DYE2 applies a recipe holding 0 for one
+ * as naming none, clearing the Workflow's (`applyRecipe` in
+ * dye2:dye2-plugin/src/pages/dashboard.ts, `buildRecipeWorkflow` in
+ * dye2:dye2-plugin/src/utils/dev-api.ts), and so does Streamline's strip
+ * from v0.2.25 (`clearInheritedFields` in
+ * streamline-js:src/modules/workflow-fields.js), while DYE2's editor saves an
+ * RPM left blank as 0. A yield of 0 is not among them: it is stop-at-weight
+ * off, which a Recipe may hold.
+ */
+export const RECIPE_NONE_AT_ZERO = ["dose", "grindSetting", "rpm"] as const;
+
+/**
+ * Whether a dose, grind setting or RPM is 0, which a Recipe holds none of
+ * (RECIPE_NONE_AT_ZERO): the number, or text that reads as it, as Decaid
+ * keeps a Workflow's grind setting as text.
+ */
+export function isZero(value: unknown): boolean {
+  if (typeof value === "number") return value === 0;
+  return typeof value === "string" && value.trim() !== "" && Number(value) === 0;
+}
+
+/** A dose, grind setting or RPM as a Recipe holds one: 0 is none (`isZero`), and so is null or nothing; anything else is as it is. */
+export function noneAtZero<T>(value: T): T | null {
+  return value === undefined || isZero(value) ? null : value;
 }
 
 /**
@@ -1322,8 +1374,11 @@ export function steamTimeOf(value: unknown): number | null {
  * the fields of LOADED_RECIPE_PARTS to set, each part's fields together,
  * with `expected` the value the Workflow held of each part's first field as
  * the tablet last reported it, null for none, but for a Profile, which
- * carries none, as a skin overrides parts of the one it loads; or it names
- * DYE2_RECIPE_FIELD alone, null, as the server unloads the Recipe. Either
+ * carries none, as a skin overrides parts of the one it loads; a part the
+ * Recipe holds none of, of those it is the whole Shot in (WHOLE_SHOT_PARTS),
+ * is cleared, each of its fields null, its yield WORKFLOW_YIELD_OFF, which
+ * the plugin writes as any other value, as the previous release's does; or
+ * it names DYE2_RECIPE_FIELD alone, null, as the server unloads the Recipe. Either
  * way `expected` names the id of the tablet's record of the Recipe at
  * DYE2_RECIPE_FIELD, and the plugin writes nothing unless the Workflow it
  * reads first still names it there, so a write never lands in a recipe a

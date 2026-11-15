@@ -6,7 +6,7 @@ import { isDeepStrictEqual } from "node:util";
 import type { DecaidAnswer } from "./decaid-beans.js";
 import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt } from "./simulated-tablet.js";
 
-// DYE2 v0.1.36 and Streamline v0.2.24 on a simulated tablet, built from
+// DYE2 v0.1.40 and Streamline v0.2.27 on a simulated tablet, built from
 // their source at those releases (dye2:dye2-plugin/src/,
 // streamline-js:src/modules/). The plugin is not told of them, as of
 // anything else on the tablet (`SimulatedTablet.callApi`).
@@ -25,7 +25,7 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // The recorded data (fixtures/decaid/dye2-v0.1.26/, whose README lists the
 // steps and says what they show) names the recording's beans, batches,
 // grinders, baskets and profiles by their ids: load the tablet with
-// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.36 does what
+// `dye2Library()` for those ids to be the tablet's. DYE2 v0.1.40 does what
 // that recording shows but where fixtures/decaid/dye2-v0.1.32/ records it
 // otherwise (`dye2V032Recording`, its README says which): a recipe naming
 // no Bean clears the Workflow's, a recipe hidden from Streamline's strip is
@@ -43,17 +43,30 @@ import { type DecaidApi, type SimulatedTablet, derivedDe1Pro, pluginsAndSkinsAt 
 // saving a favourite, no recipe; and the dashboard's rail showing recipes
 // only; and where fixtures/decaid/streamline-v0.2.24/ records v0.1.36: a tap
 // on a grinder's card on its Grinders page writes the grinder into the
-// Workflow, where it opened the grinder's form (`tapGrinderInDye2`). DYE2's
+// Workflow, where it opened the grinder's form (`tapGrinderInDye2`); and
+// where fixtures/decaid/dye2-v0.1.40/ records v0.1.37 to v0.1.40: a recipe
+// is the whole shot, so applying one, and the Workflow it embeds, clears the
+// dose, grind setting, RPM, feed rate, Grinder, Basket, barista and drinker
+// it names none of, a dose, grind setting or RPM of 0 naming none, and sets a
+// yield of 0 where it names none; a grinder picked on the dashboard's tabs,
+// the Grinders page or the grinder picker brings its default grind setting
+// and RPM, or none (`grinderDefaultsPatch`); the profile picker writes the
+// profile's yield and the dose at the ratio the Workflow held
+// (`pickProfileInDye2`); the recipe editor's Grinder and Basket rows lead
+// with None, which a recipe naming one the tablet no longer holds shows; the
+// dashboard's rail shows every recipe; and SAVE TO RECIPE on Edit Auto
+// Favourite makes a recipe, in no slot. DYE2's
 // equipment and baskets pages were recorded at 2cf631c
-// (fixtures/decaid/dye2-2cf631c/), and save as v0.1.36's do
+// (fixtures/decaid/dye2-2cf631c/), and save as v0.1.40's do
 // (`dye2PagesRecording`).
 //
 // DYE2 itself, the recipe id it reads from the Workflow and clears on a
 // profile change, its derived selection, its `record` and `save-recipe`, its
 // migrations and pushes, is `SimulatedDye2` below; its pages are
 // `openDye2Dashboard`, `selectRecipeInDye2`, `assignRecipeInDye2`,
-// `pickBasketInDye2`, `tapGrinderInDye2`, `openDye2RecipeEditor`,
-// `saveFavouriteInDye2` and `pickFavouriteInDye2`. Streamline's DYE strip, tiles, wake and
+// `pickBasketInDye2`, `tapGrinderInDye2`, `pickGrinderInDye2`,
+// `pickProfileInDye2`, `openDye2RecipeEditor`, `saveFavouriteInDye2` and
+// `pickFavouriteInDye2`. Streamline's DYE strip, tiles, wake and
 // remembered values are simulated-streamline.ts.
 
 /** DYE2's namespace in Decaid's store. */
@@ -1553,8 +1566,9 @@ export class SimulatedDye2 {
   }
 }
 
-// ---- DYE2's pages (dye2:dye2-plugin/src/pages/dashboard.ts, select-recipe.ts, basket-picker.ts and recipe-edit.ts,
-// and their utils/dev-api.ts and utils/recipe-strip.ts, at v0.1.35).
+// ---- DYE2's pages (dye2:dye2-plugin/src/pages/dashboard.ts, select-recipe.ts, basket-picker.ts, grinder-picker.ts,
+// profile-picker.ts and recipe-edit.ts, and their utils/dev-api.ts, utils/grinder-form.ts and utils/recipe-strip.ts, at
+// v0.1.40).
 
 /** The context fields DYE2 flags for Streamline (`DYE_TOP_KEYS`, `DYE_EXTRAS_KEYS` in dev-api.ts). */
 const DYE_TOP_KEYS = ["beanBatchId", "coffeeName", "coffeeRoaster", "grinderId", "grinderModel", "baristaName", "drinkerName"];
@@ -1626,33 +1640,37 @@ async function resolveFullProfileById(tablet: SimulatedTablet, id: unknown): Pro
 
 /**
  * The ready-to-PUT Workflow a recipe embeds (`buildRecipeWorkflow` in
- * dev-api.ts): its dose, yield, grind, RPM, feed rate, Grinder, Basket, Bean (its
- * coffee, roaster and batch, null for those it lacks, and all three null for
- * a recipe naming no Bean, so applying it clears one), barista and drinker,
- * flagged (`markDye`), its Profile, from its snapshot where that has steps
- * and otherwise the tablet's record of its id, at its brew temperature, and
- * the machine settings it holds.
+ * dev-api.ts at v0.1.40). A recipe is the whole shot, not an overlay on the
+ * last one, and `PUT /workflow` merges, so it holds each of these whether
+ * the recipe names one or not: its dose, grind setting, RPM and feed rate,
+ * null where it names none or names 0; its yield, or its dose times its
+ * ratio, 0 where it names neither, as Decaid refuses a null there; its
+ * Grinder with its model and its Basket with its name, null for none; its
+ * Bean (its coffee, roaster and batch, null for those it lacks, and all
+ * three null for a recipe naming no Bean); and its barista and drinker, null
+ * for none; flagged (`markDye`). With them its Profile, from its snapshot
+ * where that has steps and otherwise the tablet's record of its id, at its
+ * brew temperature, and the machine settings it holds.
  */
 async function buildRecipeWorkflow(tablet: SimulatedTablet, recipe: Record_): Promise<Record_> {
   const dv = (recipe.dashboardVariables ?? {}) as Record_;
   const context: Record_ = {};
   const workflow: Record_ = { context };
-  if (dv.dose != null) context.targetDoseWeight = dv.dose;
+  context.targetDoseWeight = dv.dose || null;
+  context.grinderSetting = dv.grind ? String(dv.grind) : null;
+  context.extras = { rpm: dv.rpm || null, feedRate: dv.feedRate || null };
   if (dv.drink != null) context.targetYield = dv.drink;
   else if (dv.ratio != null && dv.dose != null) context.targetYield = Math.round((dv.dose as number) * (dv.ratio as number) * 10) / 10;
-  if (dv.grind != null) context.grinderSetting = String(dv.grind);
-  if (dv.rpm != null) context.extras = { ...((context.extras ?? {}) as Record_), rpm: dv.rpm };
-  if (dv.feedRate != null) context.extras = { ...((context.extras ?? {}) as Record_), feedRate: dv.feedRate };
-  if (dv.grinderId) context.grinderId = dv.grinderId;
-  if (dv.grinderModel) context.grinderModel = dv.grinderModel;
-  if (dv.basketId) context.extras = { ...((context.extras ?? {}) as Record_), basketId: dv.basketId };
-  if (dv.basketName) context.extras = { ...((context.extras ?? {}) as Record_), basketName: dv.basketName };
+  else context.targetYield = 0;
+  context.grinderId = dv.grinderId || null;
+  context.grinderModel = dv.grinderModel || null;
+  context.extras = { ...(context.extras as Record_), basketId: dv.basketId || null, basketName: dv.basketName || null };
   const named = Boolean(recipe.beanId || recipe.beanName);
   context.coffeeName = (named && recipe.beanName) || null;
   context.coffeeRoaster = (named && recipe.beanRoaster) || null;
   context.beanBatchId = (named && recipe.beanBatchId) || null;
-  if (recipe.barista) context.baristaName = recipe.barista;
-  if (recipe.drinker) context.drinkerName = recipe.drinker;
+  context.baristaName = recipe.barista || null;
+  context.drinkerName = recipe.drinker || null;
   if (recipe.profileId || recipe.profileTitle) {
     if (usableProfileSnapshot(recipe.profileSnapshot)) workflow.profile = recipe.profileSnapshot;
     else {
@@ -1664,6 +1682,59 @@ async function buildRecipeWorkflow(tablet: SimulatedTablet, recipe: Record_): Pr
   Object.assign(workflow, recipeMachineSettings(dv));
   markDye(context);
   return workflow;
+}
+
+/** A grinder's declared range and defaults, each a number or null for none declared, never 0 for none (`grinderLimits` in utils/grinder-form.ts, from v0.1.37): DYE2 keeps them in the grinder's `extras`. */
+function grinderLimits(grinder: Record_): Record<"settingMin" | "settingMax" | "settingDefault" | "rpmMin" | "rpmMax" | "rpmDefault", number | null> {
+  const extras = (grinder.extras ?? {}) as Record_;
+  const number = (value: unknown) => (typeof value === "number" && Number.isFinite(value) ? value : null);
+  return {
+    settingMin: number(extras.settingMin),
+    settingMax: number(extras.settingMax),
+    settingDefault: number(extras.settingDefault),
+    rpmMin: number(extras.rpmMin),
+    rpmMax: number(extras.rpmMax),
+    rpmDefault: number(extras.rpmDefault),
+  };
+}
+
+/** `clampToRange` in utils/grinder-form.ts, for a number: held within the bounds declared. */
+function clampToRange(value: number, min: number | null, max: number | null): number {
+  if (min != null && value < min) return min;
+  if (max != null && value > max) return max;
+  return value;
+}
+
+/** `midOfRange` in utils/grinder-form.ts: the middle of a range with both bounds, on the grinder's small step measured from its lower bound where it declares one; null with either bound open. */
+function midOfRange(min: number | null, max: number | null, step: unknown): number | null {
+  if (min == null || max == null) return null;
+  let mid = (min + max) / 2;
+  if (typeof step === "number" && Number.isFinite(step) && step > 0) mid = min + Math.round((mid - min) / step) * step;
+  return clampToRange(Math.round(mid * 1000) / 1000, min, max);
+}
+
+/**
+ * What a manual change of grinder writes beside it (`grinderDefaultsPatch`
+ * in utils/grinder-form.ts, from v0.1.37, `d992296`): the grinder's default
+ * grind setting and RPM, each held within its range, or the middle of its
+ * range where it names no default, and left out where it declares neither,
+ * which the page then writes as null: a dial position belongs to the grinder
+ * it was read off. A recipe's apply never comes through here.
+ */
+export function grinderDefaultsPatch(grinder: Record_): { grinderSetting?: number; rpm?: number } {
+  const limits = grinderLimits(grinder);
+  const out: { grinderSetting?: number; rpm?: number } = {};
+  const setting = limits.settingDefault != null ? clampToRange(limits.settingDefault, limits.settingMin, limits.settingMax) : midOfRange(limits.settingMin, limits.settingMax, grinder.settingSmallStep);
+  if (setting != null) out.grinderSetting = setting;
+  const rpm = limits.rpmDefault != null ? clampToRange(limits.rpmDefault, limits.rpmMin, limits.rpmMax) : midOfRange(limits.rpmMin, limits.rpmMax, grinder.rpmSmallStep);
+  if (rpm != null) out.rpm = rpm;
+  return out;
+}
+
+/** The context a manual pick of a grinder writes: the grinder, by `name`, with its defaults, null for each it declares none of (`grinderDefaultsPatch`), flagged (`markDye`). */
+function pickedGrinderContext(grinder: Record_, name: unknown): Record_ {
+  const defaults = grinderDefaultsPatch(grinder);
+  return markDye({ grinderId: grinder.id, grinderModel: name, grinderSetting: defaults.grinderSetting ?? null, extras: { rpm: defaults.rpm ?? null } });
 }
 
 /** `kvUpsert` in dev-api.ts: the item laid over the list's item with its id, or appended. Changes the list. */
@@ -1843,15 +1914,65 @@ export async function pickBasketInDye2(tablet: SimulatedTablet, basketId: string
 /**
  * A tap on a grinder's card on DYE2's Grinders page (`renderGrinderCards` in grinders.ts, from v0.1.36, fa1d93f): it
  * writes the grinder with that id into the Workflow at once, with no confirm, its id and name flagged (`markDye`), as
- * its grinder picker's CONFIRM does, and stays on the page. Before v0.1.36 the tap opened the grinder's form, which a
- * 500 ms hold now opens (`editGrinderInDye2`). Resolves with Decaid's answer
- * (fixtures/decaid/streamline-v0.2.24/grinders-page.json).
+ * its grinder picker's CONFIRM does, and stays on the page; from v0.1.37 with the grinder's default grind setting and
+ * RPM, null for each it declares none of (`pickedGrinderContext`, `d992296`). Before v0.1.36 the tap opened the
+ * grinder's form, which a 500 ms hold now opens (`editGrinderInDye2`). Resolves with Decaid's answer
+ * (fixtures/decaid/dye2-v0.1.40/).
  */
 export async function tapGrinderInDye2(tablet: SimulatedTablet, grinderId: string): Promise<DecaidAnswer> {
   const { status, body } = await tablet.callApi("GET", "/grinders");
   const grinder = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === grinderId);
   if (!grinder) throw new Error(`DYE2's grinders page lists no grinder ${grinderId}`);
-  return tablet.callApi("PUT", "/workflow", { context: markDye({ grinderId, grinderModel: grinder.model || grinder.name || "Unnamed" }) });
+  return tablet.callApi("PUT", "/workflow", { context: pickedGrinderContext(grinder, grinder.model || grinder.name || "Unnamed") });
+}
+
+/**
+ * DYE2's grinder picker (grinder-picker.ts), as its dashboard's Grinder field and Streamline's Grind label open it: it
+ * reads the grinders, and on CONFIRM of the one with that id writes it into the Workflow with its default grind
+ * setting and RPM, null for each it declares none of, as a tap of its card on the Grinders page does, then goes back.
+ * Resolves with Decaid's answer.
+ */
+export async function pickGrinderInDye2(tablet: SimulatedTablet, grinderId: string): Promise<DecaidAnswer> {
+  const { status, body } = await tablet.callApi("GET", "/grinders");
+  const grinder = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === grinderId);
+  if (!grinder) throw new Error(`DYE2's grinder picker lists no grinder ${grinderId}`);
+  return tablet.callApi("PUT", "/workflow", { context: pickedGrinderContext(grinder, grinder.model || grinder.name || "Unnamed") });
+}
+
+/** A profile's yield, its target weight or else its target volume, where above 0: a yield of 0 means not set (`profileYieldOf` in profile-picker.ts). */
+function profileYieldOf(profile: Record_ | undefined): number | null {
+  const positive = (value: unknown) => {
+    const parsed = parseFloat(String(value));
+    return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+  };
+  return profile ? (positive(profile.target_weight) ?? positive(profile.target_volume)) : null;
+}
+
+/**
+ * DYE2's profile picker (profile-picker.ts), as its dashboard's Profile field opens it: it reads the profiles, and on
+ * CONFIRM of the one with that id writes its profile whole into the Workflow and, from v0.1.37 (`ef248bc`,
+ * `profileTargetsPatch`), where the profile names a yield, that yield and the dose at the ratio the Workflow held,
+ * to the dashboard's half gram, the dose left where the Workflow held no dose or yield above 0; then goes back. It
+ * names no recipe: DYE2 clears the one the Workflow names where the profile is another than it held. Resolves with
+ * Decaid's answer.
+ */
+export async function pickProfileInDye2(tablet: SimulatedTablet, profileId: string): Promise<DecaidAnswer> {
+  const { status, body } = await tablet.callApi("GET", "/profiles");
+  const record = (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === profileId);
+  if (!record) throw new Error(`DYE2's profile picker lists no profile ${profileId}`);
+  const profile = record.profile as Record_ | undefined;
+  const full = usableProfileSnapshot(profile);
+  const sent: Record_ = { profile: full ? profile : { id: profileId, title: (profile as Record_ | undefined)?.title ?? "" } };
+  const yieldG = profileYieldOf(profile ?? record);
+  if (yieldG !== null) {
+    const drink = Math.round(yieldG * 10) / 10;
+    const context: Record_ = { targetYield: drink };
+    const live = (((await tablet.callApi("GET", "/workflow")).body as Record_ | null)?.context ?? {}) as Record_;
+    const [dose, held] = [parseFloat(String(live.targetDoseWeight)), parseFloat(String(live.targetYield))];
+    if (dose > 0 && held > 0) context.targetDoseWeight = Math.round((drink / (held / dose)) * 2) / 2;
+    sent.context = context;
+  }
+  return tablet.callApi("PUT", "/workflow", sent);
 }
 
 export class Dye2Dashboard {
@@ -1880,17 +2001,38 @@ export class Dye2Dashboard {
   }
 
   /**
-   * The recipes the page shows as pills, in order (`renderRecipePills`): the
-   * recipe DYE2's derived selection names where it is in no slot, then the
-   * recipes in a slot and shown on Streamline's dashboard, by slot. From
-   * v0.1.35 the rail shows recipes only (`c969adb`): a favourite is applied
-   * from the Auto Favourites page (`pickFavouriteInDye2`).
+   * The recipes the page shows as pills, in order (`renderRecipePills`): from
+   * v0.1.39 every recipe, those holding a `stripSlot` first, by slot, then
+   * the rest as stored, whether Streamline's strip shows it or not
+   * (`99080d4`, `7836cc0`), where v0.1.36 showed only those on the strip.
+   * From v0.1.35 the rail shows recipes only (`c969adb`): a favourite is
+   * applied from the Auto Favourites page (`pickFavouriteInDye2`).
    */
   recipePills(): Record_[] {
-    const selected = this.derived && this.derived.kind === "recipe" ? String(this.derived.id) : null;
-    const slotless = selected ? this.recipes.find((recipe) => recipe && String(recipe.id) === selected && recipe.stripSlot == null) : undefined;
-    const slotted = this.recipes.filter((recipe) => recipe && recipe.stripSlot != null && recipe.showOnStreamlineDashboard !== false).sort((a, b) => Number(a.stripSlot) - Number(b.stripSlot));
-    return [...(slotless ? [slotless] : []), ...slotted];
+    const slotOf = (recipe: Record_) => (recipe.stripSlot != null ? Number(recipe.stripSlot) : Infinity);
+    return this.recipes
+      .filter((recipe) => recipe)
+      .map((recipe, index) => [recipe, index] as const)
+      .sort((a, b) => slotOf(a[0]) - slotOf(b[0]) || a[1] - b[1])
+      .map(([recipe]) => recipe);
+  }
+
+  /**
+   * Taps a grinder's tab (`renderGrinderTabs`): the grinder with that id, of
+   * those the page read, put into the copy with its default grind setting
+   * and RPM, null for each it declares none of (`grinderDefaultsPatch`, from
+   * v0.1.37), flagged, and what changed sent.
+   */
+  async pickGrinder(grinderId: string): Promise<DecaidAnswer | undefined> {
+    if (!this.workflow) throw new Error("The dashboard read no Workflow");
+    const grinder = this.grinders.find((candidate) => candidate.id === grinderId);
+    if (!grinder) throw new Error(`DYE2's dashboard shows no tab of grinder ${grinderId}`);
+    const context = (this.workflow.context ??= {}) as Record_;
+    const defaults = grinderDefaultsPatch(grinder);
+    Object.assign(context, { grinderId: grinder.id, grinderModel: grinder.model || grinder.name, grinderSetting: defaults.grinderSetting ?? null });
+    context.extras = { ...((context.extras ?? {}) as Record_), rpm: defaults.rpm ?? null };
+    markDye(context, ["grinderId", "grinderModel", "rpm"]);
+    return (await this.pushWorkflow()).workflow;
   }
 
   /**
@@ -1898,12 +2040,11 @@ export class Dye2Dashboard {
    * click): the page reads the Workflow again unless it holds a change not
    * sent (`refreshWorkflow`), reads the recipe again, falling back on the one
    * it read (dye2#28), applies it to its copy (`applyRecipeToCopy`) and sends
-   * what changed. Throws where the page shows no such pill: apply one in no
-   * slot through `selectRecipeInDye2`.
+   * what changed. Throws where the page read no such recipe as it opened.
    */
   async applyRecipe(recordId: string): Promise<Dye2Applied> {
     const item = this.recipePills().find((recipe) => recipe.id === recordId);
-    if (!item) throw new Error(`DYE2's dashboard shows no pill of recipe ${recordId}: apply it through selectRecipeInDye2`);
+    if (!item) throw new Error(`DYE2's dashboard shows no pill of recipe ${recordId}`);
     await this.refreshWorkflow();
     const reread = await this.tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/recipes`);
     const fresh = (reread.status === 200 ? asList(reread.body).find((candidate) => candidate && candidate.id === item.id) : undefined) ?? item;
@@ -1965,53 +2106,41 @@ export class Dye2Dashboard {
   }
 
   /**
-   * `applyRecipe` in dashboard.ts, on the page's copy: its dose, yield (or
-   * its dose times its ratio), grind setting, RPM, feed rate, Grinder where the page's
-   * grinders hold it, its Bean's coffee, roaster and batch where it names a
-   * Bean, null for those it lacks, and all three null where it names none
-   * (DYE2 v0.1.32), its barista and drinker where it names
-   * one, flagging each in `extras.dye` (`markDye`), its record id as
-   * `recipeId` (`setRecipeId`), its Profile, whole from its
-   * `profileSnapshot` where that has steps and otherwise from the tablet's
-   * profiles, left as it is where neither has it, at its brew temperature,
-   * and every machine setting it holds, laid over the copy's parts, steam
-   * off whole where they hold half of it (`recipeMachineSettings`).
+   * `applyRecipe` in dashboard.ts at v0.1.40, on the page's copy. A recipe is
+   * the whole shot, so each of these is written whether it names one or not:
+   * its dose, grind setting, RPM and feed rate, null where it names none or
+   * names 0; its yield, or its dose times its ratio, 0 where it names
+   * neither; its Grinder with its model where the page's grinders hold it,
+   * both null where it names none or one they no longer hold; its Basket with
+   * its name, null for none; its Bean's coffee, roaster and batch, null for
+   * those it lacks, and all three null where it names no Bean; and its
+   * barista and drinker, null for none; flagging each identity, the RPM and
+   * the feed rate in `extras.dye` (`markDye`). With them its record id as
+   * `recipeId` (`setRecipeId`), its Profile, whole from its `profileSnapshot`
+   * where that has steps and otherwise from the tablet's profiles, left as
+   * it is where neither has it or the recipe names none, at its brew
+   * temperature, and every machine setting it holds, laid over the copy's
+   * parts, steam off whole where they hold half of it
+   * (`recipeMachineSettings`).
    */
   async applyRecipeToCopy(recipe: Record_): Promise<void> {
     const live = (this.workflow ??= {});
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
     const context: Record_ = { ...((live.context ?? {}) as Record_) };
-    const wrote: string[] = [];
-    if (dv.dose != null) context.targetDoseWeight = dv.dose;
+    context.targetDoseWeight = dv.dose || null;
+    context.grinderSetting = dv.grind || null;
+    context.extras = { ...((context.extras ?? {}) as Record_), rpm: dv.rpm || null, feedRate: dv.feedRate || null };
     if (dv.drink != null) context.targetYield = dv.drink;
     else if (dv.ratio != null && dv.dose != null) context.targetYield = Math.round((dv.dose as number) * (dv.ratio as number) * 10) / 10;
-    if (dv.grind != null) context.grinderSetting = dv.grind;
-    if (dv.rpm != null) {
-      context.extras = { ...((context.extras ?? {}) as Record_), rpm: dv.rpm };
-      wrote.push("rpm");
-    }
-    if (dv.feedRate != null) {
-      context.extras = { ...((context.extras ?? {}) as Record_), feedRate: dv.feedRate };
-      wrote.push("feedRate");
-    }
+    else context.targetYield = 0;
     const grinder = dv.grinderId ? this.grinders.find((candidate) => candidate.id === dv.grinderId) : undefined;
-    if (grinder) {
-      Object.assign(context, { grinderId: grinder.id, grinderModel: grinder.model || grinder.name });
-      wrote.push("grinderId", "grinderModel");
-    }
+    Object.assign(context, grinder ? { grinderId: grinder.id, grinderModel: grinder.model || grinder.name } : { grinderId: null, grinderModel: null });
+    context.extras = { ...(context.extras as Record_), basketId: dv.basketId || null, basketName: dv.basketName || null };
     if (recipe.beanId || recipe.beanName) {
       Object.assign(context, { coffeeName: recipe.beanName || null, coffeeRoaster: recipe.beanRoaster || null, beanBatchId: recipe.beanBatchId || null });
     } else Object.assign(context, { coffeeName: null, coffeeRoaster: null, beanBatchId: null });
-    wrote.push("coffeeName", "coffeeRoaster", "beanBatchId");
-    if (recipe.barista) {
-      context.baristaName = recipe.barista;
-      wrote.push("baristaName");
-    }
-    if (recipe.drinker) {
-      context.drinkerName = recipe.drinker;
-      wrote.push("drinkerName");
-    }
-    markDye(context, wrote);
+    Object.assign(context, { baristaName: recipe.barista || null, drinkerName: recipe.drinker || null });
+    markDye(context, ["rpm", "feedRate", "grinderId", "grinderModel", "basketId", "basketName", "coffeeName", "coffeeRoaster", "beanBatchId", "baristaName", "drinkerName"]);
     setRecipeId(context, recipe.id);
     live.context = context;
     if (recipe.profileId || recipe.profileTitle) {
@@ -2197,10 +2326,10 @@ export interface Dye2RecipeEdit {
   hotWaterFlowMls?: number | null;
   flushTempC?: number | null;
   flushFlowMls?: number | null;
-  /** A Grinder's chip, by id. */
-  grinderId?: string;
-  /** A Basket's chip, by id. */
-  basketId?: string;
+  /** A Grinder's chip, by id, or its row's None chip (null, from v0.1.37). */
+  grinderId?: string | null;
+  /** A Basket's chip, by id, or its row's None chip (null, from v0.1.37). */
+  basketId?: string | null;
   /** A Bean picked, with its batch and roaster, `batchId` "" for none. */
   bean?: { id: string; name: string; batchId?: string | null; roaster?: string | null };
   /** "Show on Streamline Dashboard": switched off, it releases the slot the tabs target (`setupStreamlineToggle`). */
@@ -2216,7 +2345,12 @@ export interface Dye2RecipeEdit {
  * against (`recipeBaseline`, dye2#28), and shows it in its form
  * (`renderRecipe`), its tabs targeting the slot it is on the strip in, none
  * for one hidden from the strip whatever its `stripSlot` (`stripTargetOf`).
- * A new recipe gets a UUID (`newId('recipe')`).
+ * From v0.1.37 its Grinder and Basket rows lead with a None chip
+ * (`renderPickerChips`), which is the one lit for a recipe naming a grinder
+ * the tablet no longer holds, archived ones counting as held
+ * (`knownGrinderIds`, read with the archived included), or a Basket DYE2's
+ * list no longer holds: a save then writes none. A new recipe gets a UUID
+ * (`newId('recipe')`).
  */
 export async function openDye2RecipeEditor(tablet: SimulatedTablet, target: { id?: string; slot?: number } = {}): Promise<Dye2RecipeEditor> {
   const read = async (route: string) => {
@@ -2228,7 +2362,10 @@ export async function openDye2RecipeEditor(tablet: SimulatedTablet, target: { id
   const baskets = await read(`/store/${DYE2_NAMESPACE}/baskets`);
   await read("/beans");
   const profiles = await read("/profiles");
-  return new Dye2RecipeEditor(tablet, recipes, grinders, baskets, profiles, target);
+  // Read again with the archived included, to tell a grinder deleted from one only off the row; a read that fails leaves the recipe's selected.
+  const everyGrinder = await tablet.callApi("GET", "/grinders?includeArchived=true");
+  const known = everyGrinder.status === 200 ? new Set(asList(everyGrinder.body).map((grinder) => grinder?.id)) : null;
+  return new Dye2RecipeEditor(tablet, recipes, grinders, baskets, profiles, target, known);
 }
 
 export class Dye2RecipeEditor {
@@ -2280,6 +2417,8 @@ export class Dye2RecipeEditor {
     private readonly baskets: Record_[],
     private readonly profiles: Record_[],
     target: { id?: string; slot?: number },
+    /** Every grinder id the tablet holds, archived ones included (`knownGrinderIds`); null where they could not be read. */
+    knownGrinderIds: ReadonlySet<unknown> | null = null,
   ) {
     const stored = target.id ? recipes.find((recipe) => recipe && recipe.id === target.id) : undefined;
     this.baselineRecord = structuredClone(stored ?? {});
@@ -2319,8 +2458,9 @@ export class Dye2RecipeEditor {
       grind: editorGrind(dv.grind),
       rpm: stepperValue(dv.rpm),
       feedRate: dv.feedRate != null ? String(dv.feedRate) : "",
-      grinderId: dv.grinderId || null,
-      basketId: dv.basketId || null,
+      // One the tablet no longer holds shows None (`renderGrinderChips`, `renderBasketChips`).
+      grinderId: dv.grinderId && (knownGrinderIds === null || knownGrinderIds.has(dv.grinderId)) ? dv.grinderId : null,
+      basketId: dv.basketId && baskets.some((basket) => basket && basket.id === dv.basketId) ? dv.basketId : null,
       equipmentIds: Array.isArray(dv.equipmentIds) ? [...(dv.equipmentIds as unknown[])] : [],
       equipmentNames: Array.isArray(dv.equipmentNames) ? [...(dv.equipmentNames as unknown[])] : [],
       equipmentCustom: dv.equipmentCustom && typeof dv.equipmentCustom === "object" ? { ...(dv.equipmentCustom as Record_) } : {},
@@ -2615,29 +2755,67 @@ function favouriteWorkflow(snapshot: Record_, mask: Record_): Record_ {
 const NEW_FAVOURITE_COPY_MASK = { profile: true, beans: true, roastDate: false, grinder: true, basket: true, equipment: true, grindSetting: true, dose: true, drink: true, barista: false, drinker: false, note: false };
 
 /**
- * SAVE on DYE2's Auto Favourites edit page opened from its add card
- * (dye2:dye2-plugin/src/pages/auto-fav-edit.ts at v0.1.35, `fac6106`), its
- * title typed and a number picked on "Assign Fav Number" (1 to 4, or none):
- * the page takes the Workflow as its snapshot (`favouriteSnapshot`) and
- * saves the favourite itself into `autoFavourites` under a new id
- * (`createAutoFavourite`), taking its `favSlot` from the favourite that
- * held it (`takeSlot`). It writes nothing into `recipes`, where v0.1.33
- * saved a recipe. Resolves with the favourite saved
- * (fixtures/decaid/dye2-v0.1.35/favourites.json, `saved`).
+ * SAVE TO RECIPE on DYE2's Edit Auto Favourite page opened from its add card
+ * (dye2:dye2-plugin/src/pages/auto-fav-edit.ts at v0.1.40, `0854828`, from
+ * v0.1.38), its title typed: the page takes the Workflow as its snapshot
+ * (`favouriteSnapshot`) and saves it as a new recipe into `recipes`, under a
+ * new UUID, in no slot (`updateRecipe`), its Bean the tablet's of the
+ * snapshot's coffee name; v0.1.34 to v0.1.37 saved a favourite and no
+ * recipe. With "Always display on Dashboard" on, as it starts, it also saves
+ * the favourite into `autoFavourites` under a new id (`createAutoFavourite`),
+ * pinned to the Fav Number picked, or else the lowest of 1 to 4 no saved
+ * favourite holds, or 1 (`nextFreeFavSlot`), taken from the favourite that
+ * held it (`takeSlot`); with it off, it writes no favourite. It writes
+ * nothing into the Workflow. Resolves with the recipe saved and the
+ * favourite, null where none was (fixtures/decaid/dye2-v0.1.40/).
  */
-export async function saveFavouriteInDye2(tablet: SimulatedTablet, { title = "", favSlot = null }: { title?: string; favSlot?: 1 | 2 | 3 | 4 | null } = {}): Promise<Record_> {
+export async function saveFavouriteInDye2(
+  tablet: SimulatedTablet,
+  { title = "", favSlot = null, alwaysOnDashboard = true }: { title?: string; favSlot?: 1 | 2 | 3 | 4 | null; alwaysOnDashboard?: boolean } = {},
+): Promise<{ recipe: Record_; favourite: Record_ | null }> {
   const { body } = await tablet.callApi("GET", "/workflow");
   const workflow = (body ?? {}) as Record_;
   const { body: profiles } = await tablet.callApi("GET", "/profiles?includeHidden=true");
   const snapshot = favouriteSnapshot(workflow, asList(profiles));
+  const beans = snapshot.coffeeName ? asList((await tablet.callApi("GET", "/beans")).body) : [];
+  const bean = beans.find((candidate) => candidate && candidate.name === snapshot.coffeeName);
+  const recipe = await updateRecipe(tablet, dye2Generated.uuid(), {
+    name: title || snapshot.coffeeName || "Recipe",
+    beverage: "",
+    beanId: bean ? bean.id : null,
+    beanName: snapshot.coffeeName,
+    beanRoaster: snapshot.coffeeRoaster,
+    beanBatchId: snapshot.beanBatchId,
+    profileId: snapshot.profileId,
+    profileTitle: snapshot.profileTitle,
+    profileSnapshot: snapshot.profileSnapshot,
+    barista: snapshot.barista,
+    drinker: snapshot.drinker,
+    dashboardVariables: {
+      dose: snapshot.dose,
+      drink: snapshot.drink,
+      grind: snapshot.grindSetting,
+      rpm: snapshot.rpm,
+      feedRate: snapshot.feedRate,
+      grinderId: snapshot.grinderId,
+      grinderModel: snapshot.grinderModel,
+      basketId: snapshot.basketId,
+      basketName: snapshot.basketName,
+      equipmentIds: snapshot.equipmentIds,
+      equipmentNames: snapshot.equipmentNames,
+      equipmentCustom: snapshot.equipmentCustom,
+    },
+  });
+  if (!alwaysOnDashboard) return { recipe, favourite: null };
   const { status, body: listed } = await tablet.callApi("GET", `/store/${DYE2_NAMESPACE}/autoFavourites`);
   const favourites = status === 200 ? asList(listed) : [];
+  const held = new Set(favourites.filter((kept) => kept && !kept.auto).map((kept) => kept.favSlot));
   const favourite: Record_ = {
     snapshot,
     alwaysOnDashboard: true,
     title,
     beverage: "",
-    favSlot,
+    favSlot: favSlot ?? [1, 2, 3, 4].find((slot) => !held.has(slot)) ?? 1,
     copyMask: { ...NEW_FAVOURITE_COPY_MASK },
     id: dye2Generated.uuid(),
     capturedAt: dye2Generated.now().toISOString(),
@@ -2647,7 +2825,7 @@ export async function saveFavouriteInDye2(tablet: SimulatedTablet, { title = "",
   favourites.push(favourite);
   takeSlot(favourites, "favSlot", favourite);
   await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/autoFavourites`, favourites);
-  return favourite;
+  return { recipe, favourite };
 }
 
 /**

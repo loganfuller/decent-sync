@@ -28,6 +28,8 @@ import {
   dueParts,
   heldAlready,
   heldByRecord,
+  noneAtZeroPart,
+  nonePart,
   partsWrite,
   readBase,
   readParts,
@@ -58,16 +60,18 @@ import { profileOfSql } from "../shots/links.js";
 // each change of the Workflow into the Recipe's record, which reaches the
 // server as the tablet's change of the record (`recordedByDye2`, recipes.ts),
 // and the server records itself what DYE2 saves none of
-// (`valuesFromWorkflow`): a Grinder, a Bean Batch of the Recipe's Bean, and
-// a dose, yield, grind setting, RPM or feed rate the Recipe holds none of. A
-// load gains the Recipe each of those it holds none of, and the Machine's
-// Basket where it holds none, which DYE2 takes as the recipe is applied as
-// its starting point and never saves, though it saves one picked after it. An edit of
+// (`valuesFromWorkflow`): a Grinder, with the grind setting and RPM its pick
+// left, a Bean Batch of the Recipe's Bean, and a dose, yield, grind setting,
+// RPM or feed rate the Recipe holds none of. A Recipe is the whole Shot, so a
+// load takes nothing into it: the Workflow is brought to it instead, what
+// the Recipe holds none of cleared from it, but for its steam, hot water and
+// flush settings, which the Machine keeps its own of. An edit of
 // the Recipe from anywhere is written into the Workflow of every Machine
 // that has it loaded (`loadedRecipeDue`), each part that changed since the
-// Workflow took it, so the plugin's own write is never read as the tablet's
-// edit, and what stays the Machine's own, as a batch of another Bean, a
-// value cleared or steam turned off, is never written back. A Workflow
+// Workflow took it, one cleared from the Recipe cleared there, so the
+// plugin's own write is never read as the tablet's edit, and what stays the
+// Machine's own, as a batch of another Bean, a value cleared or steam turned
+// off, is never written back. A Workflow
 // naming a Recipe its Machine does not have loaded, as one Archived, or of
 // a Location it left, or the one the server last had as its Loaded Recipe
 // as it was made capture-only, has the recipe cleared from it; one loaded
@@ -220,9 +224,10 @@ async function forgetNamed(tx: Prisma.TransactionClient, tabletId: string): Prom
  * one, which DYE2 clears the recipe on a moment later; and the parts are
  * held as the Workflow holds them, each it holds, or held before, as the
  * Recipe does taken as the Recipe's (`base`). Any other, as a load, is held as it is:
- * the Recipe gains from it each value it holds none of (`valuesFromWorkflow`
- * on a load), and its fields that differ from it are written into the
- * Workflow, as a load from a stale copy needs (`loadedRecipeDue`). One
+ * the Recipe takes nothing from it, as it is the whole Shot, and its parts
+ * that differ from it are written into the Workflow, or cleared from it, as
+ * a load from a stale copy, or by a Skin that clears nothing, needs
+ * (`loadedRecipeDue`). One
  * naming a record the map does not hold yet, or a Recipe its Machine may not
  * have, as one Archived, is kept so: the first is loaded once the map gains
  * it (`recipeMapped`), and the second cleared from the Workflow.
@@ -265,8 +270,7 @@ async function followMachine(
     return;
   }
   // Loaded now, or named again as the tablet joins its Location, or for the first time since the server last forgot what it
-  // named: a load gains the Recipe what it holds none of, and the parts it holds that the Workflow does not are written.
-  if (!joining && !continued) await recordFromWorkflow(tx, tablet, recipe, null, now, observedAt);
+  // named: the Recipe takes nothing from the Workflow, and each part the Workflow holds otherwise is written, or cleared.
   const target = await targetParts(tx, tablet.tabletId, recipe.id);
   // Named again with its Machine still having it loaded, as after an upgrade forgot it: taken as it stood.
   const base = continued && target !== null && known === null ? { ...target } as BaseParts : target === null ? {} : heldAlready(target, now);
@@ -292,8 +296,7 @@ async function profileChanged(tx: Prisma.TransactionClient, machineId: string, w
 /**
  * Records into the Recipe what Decent Sync takes into it from its
  * Machine's Workflow (`valuesFromWorkflow`), from `held`, as the Workflow
- * last held its parts, or on a load (`held` null), as the Workflow stands,
- * as the tablet's edit, timed as the plugin observed the Workflow, merged
+ * last held its parts, as the tablet's edit, timed as the plugin observed the Workflow, merged
  * per field with Conflicts (ADR-0020), judged by what the tablet's record of
  * the Recipe has seen. Returns the parts recorded. The Recipe's tablets are
  * written the edit, and so are the Workflows of the Machines that have it
@@ -303,7 +306,7 @@ async function recordFromWorkflow(
   tx: Prisma.TransactionClient,
   tablet: ReportingTablet,
   recipe: FollowedRecipe,
-  held: WorkflowParts | null,
+  held: WorkflowParts,
   now: WorkflowParts,
   observedAt: string,
 ): Promise<LoadedRecipePart[]> {
@@ -383,8 +386,8 @@ export async function recipeMapped(tx: Prisma.TransactionClient, tablet: Reporti
  * Location given (null while it takes part nowhere, as when capture-only):
  * where its Workflow last named a Recipe that is its Machine's Loaded Recipe,
  * of that Location and not Archived, the Recipe's parts that changed since
- * the Workflow took them and that it holds otherwise (`dueParts`,
- * `partsWrite`), those naming a Grinder, Basket or batch its tablet holds no
+ * the Workflow took them and that it holds otherwise, one the Recipe holds
+ * none of cleared (`dueParts`, `partsWrite`), those naming a Grinder, Basket or batch its tablet holds no
  * record of yet waiting until it is written one, as it is before this, and
  * its dial until its record of the Recipe holds it (`heldByRecord`), as
  * when the tablet refused it; where it named any other, as one Archived, or
@@ -413,7 +416,8 @@ export async function loadedRecipeDue(tx: Prisma.TransactionClient, tablet: { ma
       bean.content -> 'name' AS "coffeeName", bean.content -> 'roaster' AS "coffeeRoaster"
     FROM (SELECT 1) AS one
     LEFT JOIN bean_batches AS batch ON batch.id::text = lower(${String(content.beanBatchId ?? "")})
-    LEFT JOIN beans AS bean ON bean.id = batch.bean_id`;
+    -- The batch's Bean, or the Recipe's where it names no batch, whose name and roaster a cleared batch leaves, as DYE2's apply does.
+    LEFT JOIN beans AS bean ON bean.id::text = COALESCE(batch.bean_id::text, lower(${String(content.beanId ?? "")}))`;
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
   const due = partsWrite(dueParts(target, known.held, known.base), known.held, {
     profile: isObject(names?.profile) ? names.profile : null,
@@ -462,7 +466,11 @@ const RECORDED_PATHS: Readonly<Record<string, LoadedRecipePart>> = {
  * the Recipe holds another, as DYE2 then saves the Workflow left behind the
  * record: the Recipe's value is written back into the record and the
  * Workflow. Each is held as the Workflow holding the value saved, and one
- * that is an edit as the Workflow having taken the Recipe's new value.
+ * that is an edit as the Workflow having taken the Recipe's new value. A
+ * dose, grind setting, RPM or yield DYE2 saved as none is a 0 it saved from
+ * a Workflow holding 0, as it saves no clear: an edit, as a 0 from a tablet
+ * is none of a Recipe's (ADR-0022), but where the Workflow held that 0
+ * before, with a write of the Recipe's value still to land.
  */
 export async function recordedByDye2(
   tx: Prisma.TransactionClient,
@@ -484,15 +492,18 @@ export async function recordedByDye2(
     const part = RECORDED_PATHS[path];
     if (part === undefined) continue;
     const savedValue = readParts({ [part]: value })[part];
-    if (savedValue === null) continue;
+    // None saved: a 0 from the Workflow where 0 is none of the part, and otherwise a field cleared, which is none of DYE2's saves.
+    const savedZero = nonePart(part, savedValue);
+    if (savedZero && !noneAtZeroPart(part)) continue;
     // The Recipe names its Basket by its global id, the record by the tablet's.
     const basket = content[RECIPE_FIELDS.basket];
     const recipeValue = part === "basket" ? (typeof basket === "string" ? (locals?.local("basket", basket) ?? null) : null) : readParts({ [part]: content[RECIPE_FIELDS[part]] })[part];
-    held[part] = savedValue;
+    // A 0 saved is left as the Workflow last held it, the 0 itself, which a write then expects.
+    if (!savedZero) held[part] = savedValue;
     // A write of the server's still to land: never of a part the Recipe holds none of, which it writes none of, nor of one
     // the Workflow took the Recipe's value of already, as a change DYE2 could not save at once, saved at a later one.
     const pending = !(part in known.base) || !samePart(part, known.base[part], recipeValue);
-    const unwritten = recipeValue !== null && pending && known.held[part] !== null && samePart(part, known.held[part], savedValue) && !samePart(part, recipeValue, savedValue);
+    const unwritten = !nonePart(part, recipeValue) && pending && known.held[part] !== null && samePart(part, known.held[part], savedValue) && !samePart(part, recipeValue, savedValue);
     if (samePart(part, recipeValue, savedValue) || unwritten) stale.add(path);
     else base[part] = savedValue;
   }

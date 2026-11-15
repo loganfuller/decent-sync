@@ -138,7 +138,7 @@ A program the machine follows while pulling a shot, such as a pressure or flow c
 _Avoid_: Recipe (a recipe is more than a profile)
 
 **Recipe**:
-A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds (a machine loading it keeps its own for the rest). A recipe naming no bean leaves a machine that loads it with no bean batch. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
+A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds. It is the whole shot: a machine that loads it is left with none of what the recipe names none of, such as a bean batch, grinder, grind setting, basket, dose or yield. Only for the steam, hot water and flush settings it holds none of does the machine keep its own. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
 
 **Recipe Slot**:

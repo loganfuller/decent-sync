@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, profileAtBrewTemperature } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, profileAtBrewTemperature, sameValue } from "@decent-sync/protocol";
 import { describe, expect, it } from "vitest";
 import { editedContent } from "../src/library/equipment-intake.js";
 import {
@@ -334,6 +334,9 @@ describe("DYE2's recipes as Recipes", () => {
           coffeeName: "Fixture Ethiopia",
           coffeeRoaster: "Fixture Roasters",
           beanBatchId: null,
+          // A Recipe carries neither, so applying it clears the Workflow's, as DYE2 v0.1.37 builds one.
+          baristaName: null,
+          drinkerName: null,
         },
         // Streamline's strip applies it as it is.
         profile: adaptiveAt92,
@@ -359,14 +362,34 @@ describe("DYE2's recipes as Recipes", () => {
     const view = recipeView(slot1);
     const { context } = keptWorkflow as { context: Record_ };
     const { dye: _flags, ...extras } = context.extras as Record_;
-    expect(recipeWorkflow({ ...view, profileSnapshot: adaptive })).toEqual({ ...keptWorkflow, context: { ...context, extras } });
+    // Recorded at v0.1.26, it holds no key for what it names none of, where v0.1.40's holds a null, which reads the same.
+    expect(sameValue(recipeWorkflow({ ...view, profileSnapshot: adaptive }), { ...keptWorkflow, context: { ...context, extras } })).toBe(true);
     const ratio = recipeWorkflow({ ...view, "dashboardVariables.drink": null, "dashboardVariables.ratio": 2.2, profileSnapshot: null });
     expect(ratio).toMatchObject({ context: { targetDoseWeight: 18, targetYield: 39.6 } });
     // A stub of its id and title would merge into the Workflow's profile, renaming its steps (`buildRecipeWorkflow` at v0.1.26).
     expect(ratio).not.toHaveProperty("profile");
     expect(recipeWorkflow(recipeView(blank))).not.toHaveProperty("profile");
-    // A recipe naming no Bean holds explicit nulls for one, so applying it leaves no bean batch, as DYE2 v0.1.32 builds it (ce38984).
-    expect((recipeWorkflow(recipeView(blank)).context as Record_)).toEqual({ coffeeName: null, coffeeRoaster: null, beanBatchId: null });
+    // A recipe is the whole shot: its embedded Workflow holds an explicit null for each of these it names none of, so
+    // applying it leaves none a recipe applied before set, and a yield of 0, as Decaid refuses a null there
+    // (`buildRecipeWorkflow` at v0.1.40; the Bean's from v0.1.32, ce38984).
+    const NONE = {
+      targetDoseWeight: null,
+      grinderSetting: null,
+      targetYield: 0,
+      grinderId: null,
+      grinderModel: null,
+      extras: { rpm: null, feedRate: null, basketId: null, basketName: null },
+      coffeeName: null,
+      coffeeRoaster: null,
+      beanBatchId: null,
+      baristaName: null,
+      drinkerName: null,
+    };
+    expect((recipeWorkflow(recipeView(blank)).context as Record_)).toEqual(NONE);
+    // A dose, grind setting or RPM of 0 names none, as DYE2 reads one, and its editor saves an RPM left blank.
+    const zeros = { ...slot1, dashboardVariables: { dose: 0, grind: 0, rpm: 0, drink: 0 } };
+    expect([recipeView(zeros)["dashboardVariables.dose"], recipeView(zeros)["dashboardVariables.grind"], recipeView(zeros)["dashboardVariables.rpm"]]).toEqual([null, null, null]);
+    expect(recipeWorkflow(recipeView(zeros)).context).toMatchObject({ targetDoseWeight: null, grinderSetting: null, targetYield: 0, extras: { rpm: null } });
     const beanless = recipeRecord({ ...slot1Content, beanId: undefined, beanBatchId: undefined }, 1, writing(recordedIds), GLOBAL.recipe);
     expect([beanless.beanId, beanless.beanName, beanless.beanBatchId]).toEqual([null, null, null]);
     expect(beanless.workflow).toMatchObject({ context: { coffeeName: null, coffeeRoaster: null, beanBatchId: null, targetDoseWeight: 18 } });

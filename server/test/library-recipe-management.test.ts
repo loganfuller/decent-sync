@@ -276,10 +276,11 @@ describe("Recipes in the management interface", { timeout: 90_000 }, () => {
     expect((await edit(created.id, { grindSetting: "2.50" })).content.grindSetting).toBe(2.5);
     expect((await edit(created.id, { grindSetting: 3 })).content.grindSetting).toBe(3);
     expect((await edit(created.id, { grindSetting: "  " })).content).not.toHaveProperty("grindSetting");
-    for (const refused of [-1, "-2", true, { setting: 3 }]) {
+    // A setting of 0 is none, as DYE2 from v0.1.37 applies one: clearing the field says so.
+    for (const refused of [-1, "-2", 0, "0", true, { setting: 3 }]) {
       const answer = await api.call("PATCH", `/recipes/${created.id}`, { content: { grindSetting: refused } });
       expect(answer.status, JSON.stringify(refused)).toBe(400);
-      expect(((await answer.json()) as { message: string[] }).message).toEqual(["grindSetting must be a number of 0 or more, or text"]);
+      expect(((await answer.json()) as { message: string[] }).message).toEqual(["grindSetting must be a number above 0, or text: clear it for none"]);
     }
   });
 

@@ -301,10 +301,13 @@ describe("Recipe Slots 6 to 9 are read, kept and assigned", { timeout: 90_000 },
     await expect.poll(() => slotOf(recipeId)).toBe(7);
     await synced(machine);
 
-    // DYE2's dashboard lists it among the recipes in a slot, in slot order; Streamline's strip, of five cells, leaves it off.
+    // DYE2's dashboard lists it among the recipes in a slot, in slot order, ahead of those in none, as its rail shows every
+    // recipe from v0.1.39; Streamline's strip, of five cells, leaves it off.
     const pills = (await openDye2Dashboard(tablet)).recipePills();
-    expect(pills.map((pill) => pill[RECIPE_SLOT_FIELD])).toEqual([...pills.map((pill) => pill[RECIPE_SLOT_FIELD] as number)].sort((a, b) => a - b));
-    expect(pills.at(-1)).toMatchObject({ id: LIBRARY_RECIPE, [RECIPE_SLOT_FIELD]: 7 });
+    const slotted = pills.filter((pill) => pill[RECIPE_SLOT_FIELD] != null);
+    expect(pills.slice(0, slotted.length)).toEqual(slotted);
+    expect(slotted.map((pill) => pill[RECIPE_SLOT_FIELD])).toEqual([...slotted.map((pill) => pill[RECIPE_SLOT_FIELD] as number)].sort((a, b) => a - b));
+    expect(slotted.at(-1)).toMatchObject({ id: LIBRARY_RECIPE, [RECIPE_SLOT_FIELD]: 7 });
     const streamline = await startStreamline(tablet);
     expect(streamline.cells().map(({ slot }) => slot)).toEqual([1, 2, 3, 4, 5]);
     expect(streamline.cells().map((cell) => cell.recipe?.id)).not.toContain(LIBRARY_RECIPE);

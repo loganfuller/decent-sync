@@ -69,8 +69,11 @@ Each server has one owner: a household, or a business with all of its sites.
   5, and use the Baskets and Tools it shows.
   A change made on a
   Machine is saved into the Recipe it has loaded. An edit to a Recipe, from a
-  tablet or the web, reaches every Machine with it loaded. Each Recipe holds
-  its steam, hot water and flush settings too.
+  tablet or the web, reaches every Machine with it loaded. A Recipe is the
+  whole Shot: a Machine that loads it is left with none of what it names
+  none of, such as a Grinder or Basket. Each Recipe holds
+  its steam, hot water and flush settings too, and a Machine keeps its own
+  for those it holds none of.
 - **A Reference Shot for each Recipe.** Make the Shot you just dialled in,
   or one from another Location, such as the lab's, the Shot a Recipe's
   Shots should go like. Its page shows the Shot's numbers, says where its
@@ -311,7 +314,7 @@ the internet, fly.io, and upgrading.
 ## Installing the plugin
 
 The plugin needs Decaid v0.9.2 or newer. For a Machine to follow Recipes, its
-tablet also needs DYE2 v0.1.36 or newer, and Streamline v0.2.24 or newer if
+tablet also needs DYE2 v0.1.40 or newer, and Streamline v0.2.27 or newer if
 Streamline is its skin.
 
 1. On the tablet, open Decaid's **Settings**, then **Plugins**.

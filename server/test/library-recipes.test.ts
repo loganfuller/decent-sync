@@ -265,20 +265,25 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     expect(cafeTablet.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "recipes")).toEqual([]);
   });
 
-  it("takes no Recipe from DYE2's Auto Favourites edit page, which saves a favourite from v0.1.34, not a recipe (dye2-v0.1.35/favourites.json)", async () => {
+  it("takes the recipe SAVE TO RECIPE on DYE2's Edit Auto Favourite page makes, from v0.1.38, as a Recipe in no slot at the Location, on every tablet there (dye2-v0.1.40/)", async () => {
     const { here, one, two } = await lab("Favourite", 42121);
     // The Workflow the page reads: Decaid's default dial, with the tablet's Grinder at 3, 1100 RPM and a feed rate.
     const dialled = { context: { grinderId: RECORDED.grinder, grinderModel: "Fixture Grinder 64", grinderSetting: "3", extras: { rpm: 1100, feedRate: "MF" } } };
     expect((await one.callApi("PUT", "/workflow", dialled)).status).toBe(200);
-    const held = dye2List(one, "recipes");
-    const favourite = await saveFavouriteInDye2(one, { title: "Fixture Favourite", favSlot: 1 });
-    expect(favourite.snapshot).toMatchObject({ grinderId: RECORDED.grinder, grindSetting: 3, rpm: 1100, feedRate: "MF" });
-    expect(dye2List(one, "recipes")).toEqual(held);
-    // A recipe the editor saves after it reaches the Location alone: the favourite made none.
-    const { saved } = await (await openDye2RecipeEditor(one)).set({ name: "Fixture Editor Recipe", dose: 18, drink: 36 }).save();
-    await expect.poll(async () => (await recipesAt(here)).map(({ name }) => name)).toEqual(["Fixture Editor Recipe"]);
-    await expect.poll(() => byId(two, String(saved.id))?.[GLOBAL_ID_KEY]).toBe((await recipesAt(here))[0]!.id);
-    expect(records(two)).toHaveLength(1);
+    expect(dye2List(one, "recipes")).toBeNull();
+    const { recipe: made, favourite } = await saveFavouriteInDye2(one, { title: "Fixture Favourite", favSlot: 1 });
+    expect(favourite!.snapshot).toMatchObject({ grinderId: RECORDED.grinder, grindSetting: 3, rpm: 1100, feedRate: "MF" });
+    // A new record under a UUID, in no slot, which the Workflow does not name.
+    expect(made).toMatchObject({ name: "Fixture Favourite", [RECIPE_SLOT_FIELD]: null });
+    expect(String(made.id)).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-/);
+    expect(recipeIdInWorkflow(one)).toBeNull();
+    await expect.poll(async () => (await recipesAt(here)).map(({ name, slot }) => [name, slot])).toEqual([["Fixture Favourite", null]]);
+    const [saved] = await recipesAt(here);
+    expect(saved!.content).toMatchObject({ grindSetting: 3, rpm: 1100, feedRate: "MF", dose: 18, yield: 36 });
+    await expect.poll(() => byId(two, String(made.id))?.[GLOBAL_ID_KEY]).toBe(saved!.id);
+    expect(records(two).map((record) => record[RECIPE_SLOT_FIELD] ?? null)).toEqual([null]);
+    // The favourite itself is no Recipe: its list reaches no other tablet.
+    expect(two.storeValue(DYE2_NAMESPACE, "autoFavourites") ?? null).toBeNull();
   });
 
   it("keeps edits of different fields on two tablets, keeps two edits of one field made without seeing each other as a Conflict, and never shares a barista", async () => {
@@ -294,7 +299,8 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     // The barista and drinker saved with it are written back blank, and reach no other tablet nor the Recipe.
     await expect.poll(() => [byId(one, id)?.barista, byId(one, id)?.drinker]).toEqual(["", ""]);
     expect([byId(two, id)!.barista, byId(two, id)!.drinker]).toEqual(["", ""]);
-    expect((byId(two, id)!.workflow as { context: Record_ }).context).not.toHaveProperty("baristaName");
+    // Its embedded Workflow holds a null for each, so applying it clears the Workflow's, as DYE2 v0.1.37 builds one.
+    expect((byId(two, id)!.workflow as { context: Record_ }).context).toMatchObject({ baristaName: null, drinkerName: null });
     expect(saved!.content).not.toHaveProperty("barista");
     expect(saved!.content).not.toHaveProperty("drinker");
 
@@ -454,16 +460,34 @@ describe("Recipes reach every tablet at their Location", { timeout: 90_000 }, ()
     await expect.poll(() => byId(two, SLOT_RECIPE)?.beanBatchId).toBe(await localId(two, "/bean-batches", earlier));
   });
 
-  it("takes a field DYE2's editor saves as 0 as 0, not as blank (decentespresso/dye2#29)", async () => {
+  it("takes a dose, grind setting or RPM DYE2's editor saves as 0 as none, leaving the 0 in that tablet's record, and a yield of 0 as 0 (#550)", async () => {
     const { here, machines, one, two } = await lab("Zero", 42111);
     await saveInDye2(one, recipes.newInEmptySlot!);
     await expect.poll(() => byId(two, SLOT_RECIPE)?.[GLOBAL_ID_KEY]).toEqual(expect.any(String));
     await expect.poll(() => byId(one, SLOT_RECIPE)?.[GLOBAL_ID_KEY]).toEqual(expect.any(String));
     const [saved] = await recipesAt(here);
+    expect(saved!.content).toMatchObject({ rpm: 900, grindSetting: 2.5, dose: 18, yield: 36 });
     await synced(machines[0]);
-    await editInDye2(one, SLOT_RECIPE, { rpm: 0, grind: 0 });
-    await expect.poll(async () => (await recipe(saved!.id)).content).toMatchObject({ rpm: 0, grindSetting: 0 });
-    await expect.poll(() => variables(byId(two, SLOT_RECIPE))).toMatchObject({ rpm: 0, grind: 0 });
+    // As DYE2's editor saves an RPM left blank, and a barista a dial turned down to 0.
+    await editInDye2(one, SLOT_RECIPE, { rpm: 0, grind: 0, dose: 0, drink: 0 });
+    await expect.poll(async () => (await recipe(saved!.id)).content.yield).toBe(0);
+    const content = (await recipe(saved!.id)).content;
+    for (const field of ["rpm", "grindSetting", "dose"]) expect(content, field).not.toHaveProperty(field);
+    // The other tablet's record holds none of them, and the yield of 0.
+    await expect.poll(() => [variables(byId(two, SLOT_RECIPE)).rpm ?? null, variables(byId(two, SLOT_RECIPE)).grind ?? null, variables(byId(two, SLOT_RECIPE)).dose ?? null, variables(byId(two, SLOT_RECIPE)).drink]).toEqual([null, null, null, 0]);
+    // The record that saved the 0s keeps them: a 0 there reads as none, so it is neither an edit nor written again.
+    const posts = () => one.storeWrites.filter((write) => write.namespace === DYE2_NAMESPACE && write.key === "recipes").length;
+    const before = posts();
+    await synced(machines[0]);
+    expect(variables(byId(one, SLOT_RECIPE))).toMatchObject({ rpm: 0, grind: 0, dose: 0, drink: 0 });
+    expect(posts()).toBe(before);
+    // Saved again with the 0s still there, it is no edit: the Recipe has no version of it.
+    const versions = async () => (await api.get<{ versions: unknown[] }>(`/recipes/${saved!.id}/history`)).versions.length;
+    const edits = await versions();
+    await editInDye2(one, SLOT_RECIPE, { name: String(saved!.content.name) });
+    await synced(machines[0]);
+    expect(await versions()).toBe(edits);
+    expect(variables(byId(one, SLOT_RECIPE))).toMatchObject({ rpm: 0, grind: 0 });
   });
 
   it("writes a recipe's full Profile where the Profile is hidden, which applying it the DYE2 way and the Streamline way loads", async () => {

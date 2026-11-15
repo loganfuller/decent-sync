@@ -21,8 +21,8 @@ what the server holds.
 | App | Minimum | Needed for |
 |---|---|---|
 | Decaid | v0.9.2 | Everything |
-| DYE2 | v0.1.36 | Following Recipes |
-| Streamline | v0.2.24 | Following Recipes, where Streamline is the skin |
+| DYE2 | v0.1.40 | Following Recipes |
+| Streamline | v0.2.27 | Following Recipes, where Streamline is the skin |
 
 The server refuses a tablet running an older Decaid, and the Machine's page
 says why ([ADR-0017](adr/0017-supported-versions.md)).
@@ -295,8 +295,17 @@ Recipes are shared through DYE2's storage. A Machine's Loaded Recipe is the
 recipe that DYE2 and Streamline name in its Workflow when a barista applies
 one. The plugin has DYE2 save each change made on the Machine into that
 recipe ([ADR-0022](adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
-That is why a Machine that follows Recipes needs DYE2 v0.1.36 or newer, and
-Streamline v0.2.24 or newer where Streamline is its skin.
+That is why a Machine that follows Recipes needs DYE2 v0.1.40 or newer, and
+Streamline v0.2.27 or newer where Streamline is its skin.
+
+A Recipe is the whole Shot. As a Machine loads one, the plugin brings its
+Workflow to the Recipe: it writes what the Recipe names, and clears the dose,
+grind setting, RPM, feed rate, Grinder, Basket and Bean Batch it names none
+of, with stop-at-weight off (a yield of 0) where it names no yield. DYE2 and
+Streamline clear them as they apply a recipe, so the plugin then finds
+nothing to write, and a Skin that applies a recipe by naming it in the
+Workflow needs no clearing of its own. The steam, hot water and flush
+settings the Recipe holds none of are left as the Machine has them.
 
 ## Tablet identity and backups
 

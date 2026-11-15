@@ -1,12 +1,16 @@
 import {
+  RECIPE_NONE_AT_ZERO,
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   RECIPE_SHOWN_FIELD,
   RECIPE_SLOT_FIELD,
   STEAM_ON_FROM,
   STEAM_TIME_FROM,
+  WORKFLOW_YIELD_OFF,
   dye2GlobalIdOf,
   dye2Records,
+  isZero,
+  noneAtZero,
   profileAtBrewTemperature,
   recipeSlotOf,
   sameValue,
@@ -34,6 +38,9 @@ import { type FieldEdits, changedFields } from "./merge.js";
 // and `profileSnapshot`), and the barista and drinker, which a Recipe never
 // carries, are written but never taken in. A setting the Recipe holds none
 // of is written blank, so applying the record leaves the Machine's own. A
+// dose, grind setting or RPM of 0 in a record is none, as DYE2 applies one
+// from v0.1.37 and its editor saves an RPM left blank, so it is read as none
+// (`recipeView`): neither an edit nor a reason to write the record again. A
 // record's Recipe Slot (`stripSlot`) is its Location's state, not its
 // content, and so is whether Streamline's strip shows it
 // (`showOnStreamlineDashboard`): a recipe is on the strip exactly while it
@@ -150,16 +157,63 @@ export function readReportedRecipes(value: unknown, updatedAt: readonly (string 
   });
 }
 
-/** The value at a path of a record: a field of its own, or of its `dashboardVariables`; undefined for none. */
-function valueAt(record: Readonly<Record<string, unknown>>, path: string): unknown {
+/**
+ * The value at a path of a record, as the record holds it: a field of its
+ * own, or of its `dashboardVariables`; undefined for none. What a write of
+ * that path expects the record to hold still (`heldValue` in holdings.ts),
+ * which the plugin compares with the record itself, so a 0 stays a 0 there.
+ */
+export function recordValueAt(record: Readonly<Record<string, unknown>>, path: string): unknown {
   if (!path.startsWith(`${DV}.`)) return record[path];
   const variables = record[DV];
   return isObject(variables) ? variables[path.slice(DV.length + 1)] : undefined;
 }
 
-/** A recipe record's fields the server writes, by their paths; a field it does not hold is null. */
+/** The paths of a recipe record holding its dose, grind setting and RPM, of which 0 is none (RECIPE_NONE_AT_ZERO). */
+const NONE_AT_ZERO_PATHS: ReadonlySet<string> = new Set([`${DV}.dose`, `${DV}.grind`, `${DV}.rpm`]);
+
+/**
+ * A recipe record's fields the server writes, by their paths; a field it
+ * does not hold is null, and so is a dose, grind setting or RPM of 0
+ * (`noneAtZero`), which DYE2 from v0.1.37 applies as naming none while its
+ * editor saves an RPM left blank as 0: a 0 a tablet saves is taken in as
+ * none, and a record holding one is not written again for it. Its embedded
+ * Workflow is read the same way (`withoutZeros`), as one saved before
+ * v0.1.37, by DYE2 or by this server, holds the 0 where one saved since
+ * holds null, and holds no yield where one saved since holds 0, which
+ * Streamline's strip from v0.2.25 clears as it applies either
+ * (`clearInheritedFields` in streamline-js:src/modules/workflow-fields.js)
+ * and the load write clears for any other Skin (ADR-0022): no record is
+ * written again for that alone.
+ */
 export function recipeView(record: Readonly<Record<string, unknown>>): RecipeView {
-  return Object.fromEntries(RECIPE_PATHS.map((path) => [path, valueAt(record, path) ?? null]));
+  return Object.fromEntries(
+    RECIPE_PATHS.map((path) => {
+      const value = recordValueAt(record, path) ?? null;
+      if (path === "workflow") return [path, withoutZeros(value)];
+      return [path, NONE_AT_ZERO_PATHS.has(path) ? noneAtZero(value) : value];
+    }),
+  );
+}
+
+/**
+ * A recipe's embedded Workflow as records are compared by it: each field of
+ * its context whose 0 is none holding null, its dose, grind setting and RPM,
+ * as a Recipe holds none of one at 0, and its yield, as 0 is stop-at-weight
+ * off, which one holding none has too (WORKFLOW_YIELD_OFF); and its `extras`
+ * null where they hold nothing, as one built before v0.1.37 has none where
+ * one built since holds a null for each. Anything but a Workflow with a
+ * context is as it is.
+ */
+export function withoutZeros(workflow: unknown): unknown {
+  if (!isObject(workflow) || !isObject(workflow.context)) return workflow;
+  const context: Record<string, unknown> = { ...workflow.context };
+  for (const field of ["targetDoseWeight", "grinderSetting", "targetYield"]) if (isZero(context[field])) context[field] = null;
+  if (isObject(context.extras)) {
+    const extras = isZero(context.extras.rpm) ? { ...context.extras, rpm: null } : context.extras;
+    context.extras = Object.values(extras).every((value) => value === null || value === undefined) ? null : extras;
+  }
+  return { ...workflow, context };
 }
 
 /** A record holding a view's fields at their paths: what a create writes, a null field left out. */
@@ -235,7 +289,8 @@ export interface IntakeContext {
  *   Workflow whose steam is off; a steam time above STEAM_TIME_TO, which
  *   DYE2's editor also saves, is STEAM_TIME_TO (`steamTimeOf`);
  * - and the rest of its dial and settings as they are, one the record holds
- *   none of holding none.
+ *   none of holding none, and so a dose, grind setting or RPM of 0, as
+ *   `recipeView` reads one (RECIPE_NONE_AT_ZERO).
  *
  * A record the map does not hold, or one of the tablet's own, names none.
  */
@@ -422,7 +477,8 @@ export interface WriteContext {
  * holding one, and applies (ADR-0022); a blank barista and drinker; each
  * steam, hot water and flush setting it holds, blank where it holds none, a
  * steam time of 0, as 1.6.2 may have taken one in, being none
- * (`steamTimeOf`);
+ * (`steamTimeOf`), and a dose, grind setting or RPM of 0, as 1.10.0 may take
+ * one in, being none too (RECIPE_NONE_AT_ZERO);
  * and `title`, `subtitle` and the embedded `workflow` as DYE2 derives them
  * (`recipeWorkflow`).
  */
@@ -446,7 +502,7 @@ export function recipeRecord(content: Readonly<Record<string, unknown>>, slot: n
       return localTool === undefined ? [] : [[localTool, value]];
     }),
   );
-  const value = (key: string) => content[key] ?? null;
+  const value = (key: string) => ((RECIPE_NONE_AT_ZERO as readonly string[]).includes(key) ? noneAtZero(content[key]) : content[key]) ?? null;
   const view: RecipeView = {
     name: value("name"),
     beverage: value("beverage"),
@@ -500,46 +556,48 @@ function firstStepTemperature(profile: unknown): number | null {
 /**
  * The Workflow DYE2 embeds in a recipe, which Streamline applies, built as
  * DYE2's `buildRecipeWorkflow` builds it
- * (dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.35) from the record's
- * fields: its dose, yield (or its dose times its ratio), grind setting, RPM,
- * feed rate, Grinder and Basket by the tablet's ids, barista and drinker,
- * each only where the record holds one; its coffee, roaster and Bean Batch
- * together, each null where it holds none, so applying it clears a batch the
- * Workflow held, and all three null where it names no Bean, so a recipe
- * naming none leaves no bean batch (DYE2 `ce38984`); and its full Profile
- * where it names one with steps, at its brew temperature, as Streamline
- * applies the profile as it is (`profileAtBrewTemperature`,
- * decentespresso/dye2#26), none where it holds no full Profile, as a stub of
- * its id and title would merge into the Workflow's profile and rename its
- * steps; and each steam, hot water and flush setting the record holds, in
- * partial `steamSettings`, `hotWaterData` and `rinseData`, none where it
- * holds none of them (`recipeMachineSettings`), which DYE2 writes as steam
- * off where a steam time of 0 or a steam temperature below 135 °C is among
- * them, as no Recipe holds. DYE2's flags of the fields it sets are left out.
+ * (dye2:dye2-plugin/src/utils/dev-api.ts at v0.1.40) from the record's
+ * fields. A recipe is the whole shot there, not an overlay on the last one
+ * (dye2:docs/KV_CONTRACT.md), and `PUT /workflow` merges, so it holds an
+ * explicit null for each of these the record names none of, which clears
+ * the one a recipe applied before left: its dose, grind setting, RPM and
+ * feed rate, a dose, grind setting or RPM of 0 naming none; its Grinder and
+ * Basket by the tablet's ids, each with its name; its barista and drinker;
+ * and its coffee, roaster and Bean Batch together, each null where it holds
+ * none, and all three null where it names no Bean (DYE2 `ce38984`). Its
+ * yield, or its dose times its ratio, is WORKFLOW_YIELD_OFF where it names
+ * neither, as Decaid refuses a null there. It holds its full Profile where
+ * it names one with steps, at its brew temperature, as Streamline applies
+ * the profile as it is (`profileAtBrewTemperature`, decentespresso/dye2#26),
+ * none where it holds no full Profile, as a stub of its id and title would
+ * merge into the Workflow's profile and rename its steps; and each steam,
+ * hot water and flush setting the record holds, in partial `steamSettings`,
+ * `hotWaterData` and `rinseData`, none where it holds none of them
+ * (`recipeMachineSettings`), which DYE2 writes as steam off where a steam
+ * time of 0 or a steam temperature below 135 °C is among them, as no Recipe
+ * holds. DYE2's flags of the fields it sets are left out.
  */
 export function recipeWorkflow(view: Readonly<RecipeView>): Record<string, unknown> {
   const at = (field: string) => view[`${DV}.${field}`];
   const present = (value: unknown) => value !== null && value !== undefined;
-  const context: Record<string, unknown> = {};
-  const extras: Record<string, unknown> = {};
-  if (present(at("dose"))) context.targetDoseWeight = at("dose");
+  const [dose, grind, rpm] = [noneAtZero(at("dose")), noneAtZero(at("grind")), noneAtZero(at("rpm"))];
+  const context: Record<string, unknown> = {
+    targetDoseWeight: dose ?? null,
+    grinderSetting: present(grind) ? String(grind) : null,
+    extras: { rpm: rpm ?? null, feedRate: at("feedRate") || null, basketId: at("basketId") || null, basketName: at("basketName") || null },
+    grinderId: at("grinderId") || null,
+    grinderModel: at("grinderModel") || null,
+  };
   if (present(at("drink"))) context.targetYield = at("drink");
-  else if (typeof at("ratio") === "number" && typeof at("dose") === "number") context.targetYield = Math.round((at("dose") as number) * (at("ratio") as number) * 10) / 10;
-  if (present(at("grind"))) context.grinderSetting = String(at("grind"));
-  if (present(at("rpm"))) extras.rpm = at("rpm");
-  if (present(at("feedRate"))) extras.feedRate = at("feedRate");
-  if (at("grinderId")) context.grinderId = at("grinderId");
-  if (at("grinderModel")) context.grinderModel = at("grinderModel");
-  if (at("basketId")) extras.basketId = at("basketId");
-  if (at("basketName")) extras.basketName = at("basketName");
-  if (Object.keys(extras).length > 0) context.extras = extras;
+  else if (typeof at("ratio") === "number" && typeof dose === "number") context.targetYield = Math.round(dose * (at("ratio") as number) * 10) / 10;
+  else context.targetYield = WORKFLOW_YIELD_OFF;
   // PUT /workflow merges, so a recipe naming no Bean holds explicit nulls, which clear the Bean a recipe applied before left.
   const named = Boolean(view.beanId || view.beanName);
   context.coffeeName = (named && view.beanName) || null;
   context.coffeeRoaster = (named && view.beanRoaster) || null;
   context.beanBatchId = (named && view.beanBatchId) || null;
-  if (view.barista) context.baristaName = view.barista;
-  if (view.drinker) context.drinkerName = view.drinker;
+  context.baristaName = view.barista || null;
+  context.drinkerName = view.drinker || null;
   const workflow: Record<string, unknown> = { context };
   if (view.profileId || view.profileTitle) {
     const snapshot = view.profileSnapshot;

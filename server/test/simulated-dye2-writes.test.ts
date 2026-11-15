@@ -16,6 +16,7 @@ import {
   recordedDye2Tablet,
   saveInDye2,
 } from "./support/simulated-dye2.js";
+import { sinceV0137 } from "./support/since-v0137.js";
 import { type DecaidApi, SimulatedTablet, de1ProOnDecaid092, derivedDe1Pro } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 
@@ -151,8 +152,11 @@ describe("DYE2's recipe editor made again as recorded", () => {
     dye2Generated.uuid = () => String(saved.id);
   }
 
-  /** Checks the step's post was what the editor saved. */
-  const expectPosted = (step: Dye2Exchange[]) => expect(dye2List(tablet, "recipes")).toEqual(posted(step));
+  /** Checks the step's post was what the editor saved, but for what a recipe's embedded Workflow clears since v0.1.37 (`sinceV0137`). */
+  const expectPosted = (step: Dye2Exchange[]) => {
+    const [saved, recorded] = sinceV0137(dye2List(tablet, "recipes"), posted(step));
+    expect(saved).toEqual(recorded);
+  };
 
   it("saves a new recipe under a UUID in the empty slot targeted, a mode switch keeping the value its form showed for the mode left", async () => {
     const step = steps.newInEmptySlot!;
@@ -182,7 +186,8 @@ describe("DYE2's recipe editor made again as recorded", () => {
 
   it("saves the recipe read from the Workflow in no slot (replayed: Read From is not simulated)", async () => {
     const step = steps.newInNoSlot!;
-    expect(await saveInDye2(tablet, step)).toEqual(posted(step));
+    const [saved, recorded] = sinceV0137(await saveInDye2(tablet, step), posted(step));
+    expect(saved).toEqual(recorded);
   });
 
   it("moves a recipe onto a held slot, taking it from its holder, and takes one off the strip", async () => {
@@ -203,7 +208,8 @@ describe("DYE2's recipe editor made again as recorded", () => {
     await (await openDye2RecipeEditor(tablet, { id: libraryRecipe })).set({ dose: 19.5, grind: 3.2 }).save();
     expectPosted(steps.editFields!);
     // Replayed: DYE2 v0.1.32 takes a recipe it saves hidden out of its slot, as below (dye2-v0.1.32/editor.json).
-    expect(await saveInDye2(tablet, steps.hideFromStreamline!)).toEqual(posted(steps.hideFromStreamline!));
+    const [hidden, recordedHidden] = sinceV0137(await saveInDye2(tablet, steps.hideFromStreamline!), posted(steps.hideFromStreamline!));
+    expect(hidden).toEqual(recordedHidden);
     asRecorded(steps.saveMachineSettings!, slotRecipe);
     await (await openDye2RecipeEditor(tablet, { id: slotRecipe })).set({ steamTempC: 150, steamStopAtTempC: 60, hotWaterTimeS: 30, hotWaterFlowMls: 4, flushTempC: 90, flushFlowMls: 6 }).save();
     expectPosted(steps.saveMachineSettings!);
@@ -220,7 +226,8 @@ describe("DYE2's recipe editor made again as recorded", () => {
         workflow: { ...workflow, steamSettings: { ...(workflow.steamSettings as Record_), duration: 0 } },
       };
     });
-    expect(dye2List(tablet, "recipes")).toEqual(offWhole);
+    const [off, recordedOff] = sinceV0137(dye2List(tablet, "recipes"), offWhole);
+    expect(off).toEqual(recordedOff);
   });
 
 });
@@ -272,7 +279,8 @@ describe("DYE2 v0.1.32's recipe editor made again as recorded", () => {
     await change(editor);
     expect(editor.strip(), `${name}: form`).toEqual(step.form);
     await editor.save();
-    expect(dye2List(tablet, "recipes"), name).toEqual(posted(step.exchanges));
+    const [list, recorded] = sinceV0137(dye2List(tablet, "recipes"), posted(step.exchanges));
+    expect(list, name).toEqual(recorded);
   }
 
   it("opens a recipe hidden in a slot on no tab, and saves it in none", async () => {
