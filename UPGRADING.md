@@ -52,13 +52,12 @@ Workflow and delete the tablet's Shots through Decaid, so nothing is needed
 where it is trusted with that. A Capture-only Machine's tablet is served
 nothing from the server.
 
-### The plugin's update should need no approval
+### The plugin's update needs no approval
 
 This release's plugin adds those endpoints and no permission, and Decaid
-asks for approval only of a new permission, so each tablet should install it
-by itself. That is read from Decaid's code and not yet seen on a tablet. If a
-tablet's Plugins page says the update needs approval, approve it there
-(docs/PLUGIN.md, Updates).
+asks for approval only of a new permission, so each tablet installs it by
+itself, as a tablet on Decaid v0.9.1 did on its update check (docs/PLUGIN.md,
+Updates).
 
 ### A rating reads in stars
 

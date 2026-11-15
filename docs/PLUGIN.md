@@ -92,8 +92,9 @@ its other update checks, every 12 hours while it runs, or when you press
 Only a new permission needs approval. A release that adds endpoints for a
 Skin, as 1.10.0 adds `status`, `changes`, `shots`, `shot` and `reference`, installs by itself: Decaid compares the permissions of the installed plugin and the
 update, and nothing else of their manifests (`_addedPermissions` in Decaid's
-`plugin_source_service.dart`, read at v0.9.1 and v0.9.2; not yet seen on a
-tablet).
+`plugin_source_service.dart`, read at v0.9.1 and v0.9.2). A tablet on Decaid
+v0.9.1 updated from 1.9.0 to 1.10.0 on its update check, with nothing to
+approve.
 
 Until a tablet's update is approved, it keeps running the plugin it has, which
 a server more than one release newer may refuse. Each Machine's page shows the
