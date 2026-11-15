@@ -32,11 +32,11 @@ function ratingOrUnrated(rating: number | null): string {
 const STANDING = {
   awaitingTablet: {
     label: "Awaiting its tablet",
-    tip: "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands.",
+    tip: "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off or its plugin is older than this release. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands. An edit whose tablet was replaced or reset waits for good.",
   },
   noTablet: {
     label: "No tablet to reach",
-    tip: "The tablet that held this Shot no longer holds it, as when the Shot is deleted there. Its latest edit is kept here, and written to no tablet.",
+    tip: "The tablet that held this Shot answered that it no longer holds it, as when the Shot is deleted there. Its latest edit is kept here, and written to no tablet.",
   },
 } as const;
 
@@ -220,7 +220,7 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
                     <ul className="grid gap-0.5">
                       {edit.fields.rating !== undefined && <li>Rating: {ratingOrUnrated(edit.fields.rating)}</li>}
                       {edit.fields.note !== undefined && (
-                        <li className="wrap-anywhere whitespace-pre-wrap">Note: {edit.fields.note === "" ? "None" : edit.fields.note}</li>
+                        <li className="wrap-anywhere whitespace-pre-wrap">Note: {edit.fields.note.trim() === "" ? "None" : edit.fields.note}</li>
                       )}
                     </ul>
                   </TableCell>

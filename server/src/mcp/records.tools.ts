@@ -106,7 +106,7 @@ export const shotDetails = shotBasics.extend({
   edits: z
     .object({ ...pageOutput, entries: z.array(shotEdit) })
     .optional()
-    .describe(`Only when asked for: the edits of its rating and note made through Decent Sync, newest first, the newest ${MAX_LISTED_EDITS} of them.`),
+    .describe(`Only when asked for: the edits of its rating and note made through Decent Sync, newest first, the newest ${MAX_LISTED_EDITS} at most: total is how many there are, and more whether older ones are left out, which no offset reaches.`),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
   lastStep: step.nullable().describe("The step of its Profile it ended in; null when it stopped in its Preheat, or its samples name no step."),
   timeToFirstDrip: z
@@ -241,7 +241,7 @@ const SHOT_UNITS =
 
 /** Where a Shot's edits stand with its tablet, for the descriptions of the tools that give a Shot whole. */
 const EDIT_STANDING =
-  "editStanding: awaitingTablet, an edit of its rating or note (edit_shot) isn't yet on its tablet; noTablet, its tablet no longer holds it; else null. edits true lists them.";
+  "editStanding: awaitingTablet, an edit of its rating or note (edit_shot) isn't yet on its tablet; noTablet, its tablet no longer holds it; or null. edits true lists them, as edit_shot describes.";
 
 /** What each stop reason Decaid records means. */
 const STOP_REASONS =
@@ -298,7 +298,7 @@ const findShotsInput = z.object({ ...shotFilters, ...page });
 const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
-const getShotBudget: Budget = { rest: "Asked for without curves or edits, it has more of its text." };
+const getShotBudget: Budget = { rest: "Asked for without curves, it has more of its text and of its edits." };
 
 /** What a find_shots row's fields mean, for its description. */
 const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, and notes its note, each as set on its tablet or edited since; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
@@ -587,7 +587,7 @@ export class RecordsTools {
     if (window?.from !== undefined && window.until !== undefined && window.until < window.from) throw new BadRequestException("Choose a window's until at or after its from");
     // One read of its measurements, for its steps, last weight and curves.
     const { shot, samples } = await this.shots.read(id);
-    const edits = await this.shots.edits(id, scope);
+    const { edits, total } = await this.shots.edits(id, scope);
     const timeZone = shot.location?.timeZone;
     const details = {
       ...shotBasicsOf(shot),
@@ -598,8 +598,9 @@ export class RecordsTools {
       tds: shot.tds,
       extractionYield: shot.extractionYield,
       notes: shot.notes,
-      editStanding: editStanding(edits),
-      ...(listed && { edits: { ...pageOf(edits.length, 0, edits.length), entries: edits.map((edit) => shotEditOf(edit, timeZone)) } }),
+      editStanding: editStanding(edits, shot.record),
+      // The newest of them: more says older ones follow, which no offset reaches.
+      ...(listed && { edits: { ...pageOf(total, 0, edits.length), entries: edits.map((edit) => shotEditOf(edit, timeZone)) } }),
       stopReason: shot.stopReason,
       lastStep: shot.lastStep,
       timeToFirstDrip: shot.timeToFirstDrip,

@@ -539,10 +539,13 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       const again = await connect(held, "51314", tabletId);
       await handled(again);
       expect(editsTo(again)).toEqual([]);
+      expect(await read("conflict-raw-gone")).toMatchObject({ notes: "Made since", editStanding: "noTablet" });
       // The Shot back on a tablet, as one restored from a backup made before the edits, at a later version: with no
       // edit awaiting it, the version is stored whole, as any tablet's is.
       await reportUpdate(again, shot, tabletTime(60), { enjoyment: 4 });
       expect(await view("conflict-raw-gone")).toMatchObject({ enjoyment: 4, notes: null, edits: [[{ note: "Made since" }, "noTablet", []], [{ rating: 5 }, "noTablet", []]] });
+      // A tablet holds the Shot again, and it no longer reads as its latest edit set it: it says nothing of a tablet to reach (#514).
+      expect(await read("conflict-raw-gone")).toMatchObject({ editStanding: null });
       await again.close();
     });
   });

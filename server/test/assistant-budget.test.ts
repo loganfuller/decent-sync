@@ -965,10 +965,10 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       await deliverShots(raw, [shotAt("haunted-edits", 350, "43102")]);
       for (let n = 0; n < 105; n++) await api.send("PATCH", "/shots/haunted-edits", { rating: n % 11, note: `${n} ${hostile(3_000)}` });
       const { result, text } = await assistant.callWithinBudget<Fields & { cut: string; edits: Page & { entries: Fields[] } }>("get_shot", { id: "haunted-edits", edits: true, curves: true });
-      expect(result.cut).toContain("without curves or edits");
+      expect(result.cut).toContain("without curves, it has more of its text and of its edits");
       pagingFirst(text.slice(text.indexOf('"edits":')), "entries");
-      // The newest first, fewer than the hundred listed, saying more follow.
-      expect(result.edits).toMatchObject({ total: 100, offset: 0, more: true });
+      // The newest first, fewer than the hundred listed, of the 105 there are, saying more follow.
+      expect(result.edits).toMatchObject({ total: 105, offset: 0, more: true });
       expect(result.edits.entries.length).toBeGreaterThan(20);
       expect(result.edits.entries.length).toBeLessThan(100);
       expect(result.edits.entries.every((edit) => cut(edit.note))).toBe(true);
@@ -982,6 +982,11 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(plain.result).toMatchObject({ editStanding: "awaitingTablet" });
       expect(plain.result).not.toHaveProperty("edits");
       expect(plain.text.length).toBeLessThan(5_000);
+      // Short edits, every one of the hundred listed fits: more still says older ones are left out.
+      for (let n = 0; n < 100; n++) await api.send("PATCH", "/shots/haunted-edits", { rating: n % 11 });
+      const short = await assistant.callWithinBudget<Fields & { edits: Page & { entries: Fields[] } }>("get_shot", { id: "haunted-edits", edits: true });
+      expect(short.result.edits).toMatchObject({ total: 205, offset: 0, more: true });
+      expect(short.result.edits.entries).toHaveLength(100);
     });
 
     it("reads a Shot whose Profile's step names run long with its steps whole, as a Profile's steps are", async () => {

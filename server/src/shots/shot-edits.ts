@@ -63,15 +63,27 @@ export type ShotEditState = "awaitingTablet" | "written" | "dropped" | "noTablet
  * and get_shot say it (ticket #514): `awaitingTablet` while any of them
  * awaits that tablet, so the Shot there doesn't show it yet; `noTablet`
  * where the latest of them found that tablet no longer holding the Shot,
- * so the Shot reads as edited on the server alone; null otherwise, as for
- * a Shot never edited through the server.
+ * and the Shot still reads as it set it, on the server alone; null
+ * otherwise, as for a Shot never edited through the server.
  */
 export type ShotEditStanding = "awaitingTablet" | "noTablet" | null;
 
-/** Where a Shot's edits stand with its tablet (`ShotEditStanding`), from them as its read lists them, newest first. */
-export function editStanding(edits: readonly Pick<ShotEditView, "state">[]): ShotEditStanding {
+/**
+ * Where a Shot's edits stand with its tablet (`ShotEditStanding`), from
+ * them as its read lists them, newest first, and the Shot's record. An
+ * edit with no tablet to reach stays so marked for good, but its Shot may
+ * come back to a tablet, as one restored from a backup, and be changed
+ * there: the version that tablet then reports is stored whole, over the
+ * edit. So the Shot has no tablet to reach only while it still reads as
+ * its latest edit set it, which needs no clock to tell.
+ */
+export function editStanding(edits: readonly Pick<ShotEditView, "state" | "fields">[], record: unknown): ShotEditStanding {
   if (edits.some((edit) => edit.state === "awaitingTablet")) return "awaitingTablet";
-  return edits[0]?.state === "noTablet" ? "noTablet" : null;
+  const [latest] = edits;
+  if (latest?.state !== "noTablet") return null;
+  const now = ratingAndNote(record);
+  const stands = (latest.fields.rating === undefined || latest.fields.rating === now.rating) && (latest.fields.note === undefined || latest.fields.note === now.note);
+  return stands ? "noTablet" : null;
 }
 
 /**
@@ -229,16 +241,25 @@ export const MAX_LISTED_EDITS = 100;
 /**
  * The edits of a Shot's rating and note made through the server, newest
  * first, the newest MAX_LISTED_EDITS of them, with who made each, as
- * `scope` sees them, and where each stands with the Shot's tablet.
+ * `scope` sees them, and where each stands with the Shot's tablet; and how
+ * many there are in all.
  */
-export async function listShotEdits(db: Prisma.TransactionClient, shotId: string, scope: Scope): Promise<ShotEditView[]> {
-  const edits = await db.shotEdit.findMany({
-    where: { shotId },
-    include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
-    orderBy: { number: "desc" },
-    take: MAX_LISTED_EDITS,
-  });
-  return edits.map((edit) => {
+export async function listShotEdits(db: Prisma.TransactionClient, shotId: string, scope: Scope): Promise<{ edits: ShotEditView[]; total: number }> {
+  const [edits, total] = await Promise.all([
+    db.shotEdit.findMany({
+      where: { shotId },
+      include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
+      orderBy: { number: "desc" },
+      take: MAX_LISTED_EDITS,
+    }),
+    db.shotEdit.count({ where: { shotId } }),
+  ]);
+  return { edits: edits.map(viewShotEdit(scope)), total };
+}
+
+/** An edit as a Shot's read lists it, as `scope` sees who made it. */
+function viewShotEdit(scope: Scope) {
+  return (edit: Prisma.ShotEditGetPayload<{ include: { account: { select: { name: true } }; connectedApp: { select: { id: true; name: true; clientHost: true } } } }>): ShotEditView => {
     const dropped: ShotEditField[] = [];
     if (edit.rating !== null && edit.ratingDroppedAt !== null) dropped.push("rating");
     if (edit.note !== null && edit.noteDroppedAt !== null) dropped.push("note");
@@ -255,5 +276,5 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
       dropped,
       writtenAt: state === "written" ? edit.writtenAt!.toISOString() : null,
     };
-  });
+  };
 }

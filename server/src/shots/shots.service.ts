@@ -275,12 +275,12 @@ export class ShotsService {
    */
   async get(id: string, scope: Scope) {
     const { shot } = await this.read(id);
-    const edits = await this.edits(id, scope);
-    return { ...shot, editStanding: editStanding(edits), edits };
+    const { edits } = await this.edits(id, scope);
+    return { ...shot, editStanding: editStanding(edits, shot.record), edits };
   }
 
-  /** The edits of a Shot's rating and note made through the server, as its read lists them (`listShotEdits`); none for a Shot the list doesn't list. */
-  edits(id: string, scope: Scope): Promise<ShotEditView[]> {
+  /** The edits of a Shot's rating and note made through the server, as its read lists them, and how many there are in all (`listShotEdits`). */
+  edits(id: string, scope: Scope): Promise<{ edits: ShotEditView[]; total: number }> {
     return listShotEdits(this.prisma, id, scope);
   }
 

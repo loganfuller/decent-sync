@@ -85,26 +85,37 @@ function ShotDetails({ id }: { id: string }) {
   const shotReads = useRef(0);
   /** The Shot as the server read it just now, its curves kept, unless a later read or edit has been asked for since `read`. */
   const show = useCallback((shot: Shot, read: number) => {
-    if (shotReads.current === read) setData((loaded) => loaded && { ...loaded, shot });
+    // An answer without its edits is the previous release's, as during a deploy (ADR-0025): what is shown stays.
+    if (shotReads.current === read && shot.edits !== undefined) setData((loaded) => loaded && { ...loaded, shot });
   }, []);
-  const reread = useCallback(
-    (failed: (caught: unknown) => void) => {
-      const read = ++shotReads.current;
-      api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`).then(({ shot }) => show(shot, read), failed);
-    },
-    [id, show],
-  );
+  const reread = useCallback(async () => {
+    const read = ++shotReads.current;
+    const { shot } = await api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`);
+    show(shot, read);
+  }, [id, show]);
   // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
-  const changed = useCallback(() => reread((caught) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded")), [reread]);
-  // While an edit awaits its tablet, the Shot is read again, as a Machine's status is, until the tablet has it: a read
-  // that fails is left to the next.
+  const changed = useCallback(() => {
+    reread().catch((caught: unknown) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded"));
+  }, [reread]);
+  // While an edit awaits its tablet, the Shot is read again, as often as a Machine's status is, until the tablet has
+  // it: each read once the last was answered, and a read that fails is left to the next.
   const awaitingTablet = data?.shot.editStanding === "awaitingTablet";
   useEffect(() => {
     if (!awaitingTablet) return;
-    const timer = setInterval(() => {
-      if (!document.hidden) reread(() => undefined);
-    }, STATUS_POLL_MS);
-    return () => clearInterval(timer);
+    let timer: ReturnType<typeof setTimeout>;
+    let stopped = false;
+    const wait = () => {
+      timer = setTimeout(() => {
+        void (document.hidden ? Promise.resolve() : reread().catch(() => undefined)).then(() => {
+          if (!stopped) wait();
+        });
+      }, STATUS_POLL_MS);
+    };
+    wait();
+    return () => {
+      stopped = true;
+      clearTimeout(timer);
+    };
   }, [awaitingTablet, reread]);
 
   useEffect(() => {

@@ -535,12 +535,23 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   where those edits stand with that tablet as a whole (`editStanding` in
   `server/src/shots/shot-edits.ts`): `awaitingTablet` while any of them
   awaits it; `noTablet` where the latest of them found that tablet no
-  longer holding the Shot; null otherwise, as for a Shot never edited
-  through the server. The MCP endpoint's `get_shot` gives `editStanding`
-  always, and with `edits: true` the edits, as a page (`{ total, offset,
-  more, entries }`) the response's budget may end sooner (ADR-0028): each
-  with its time on the Shot's Location's clock, `account`,
-  `connectedApp`, the `rating` or `note` it set, `state` and `dropped`.
+  longer holding the Shot, while the Shot still reads as that edit set
+  it; null otherwise, as for a Shot never edited through the server. A
+  Shot that came back to its tablet, as one restored from a backup, and
+  was changed there is stored whole over an edit that had no tablet to
+  reach (When two edits cross, below), so it no longer reads as that edit
+  set it, and `editStanding` is null again, though the edit stays listed
+  as `noTablet`. An edit whose tablet was replaced or reset, and so
+  never answers, awaits it for good, and reads `awaitingTablet`: ADR-0031
+  has such an edit marked as having no tablet to reach, which the server
+  can't tell from a tablet that is off. The MCP endpoint's `get_shot`
+  gives `editStanding` always, and with `edits: true` the edits, as a
+  page (`{ total, offset, more, entries }`) of the newest 100 at most,
+  which the response's budget may end sooner (ADR-0028): `total` is how
+  many the Shot has, and `more` whether older ones are left out, which no
+  offset reaches. Each has its time on the Shot's Location's clock,
+  `account`, `connectedApp`, the `rating` or `note` it set, `state` and
+  `dropped`.
 - `PATCH /api/shots/:id` edits the Shot's rating, its note or both, with
   `{ rating?, note? }`, and returns `{ shot }` as `GET /api/shots/:id`
   then gives it. An Admin edits any Shot the list lists, and Staff those
@@ -1552,7 +1563,8 @@ leaves the note alone, and shows the Shot as the answer gives it. Where
 the read's `editStanding` is not null the card says so in plain sight,
 Awaiting its tablet or No tablet to reach, with what that means behind
 its info icon, and while an edit awaits its tablet the page reads the
-Shot again every 5 s, so the note goes once the tablet has the edit. A
+Shot again 5 s after each answer, so the note goes once the tablet has
+the edit. A
 Viewer and Staff elsewhere see the rating, note and that state, and no
 button. The Annotations card leaves the two to it. Its Rating and note
 edits card, closed until opened, lists the read's `edits`, newest first:
@@ -1561,8 +1573,9 @@ one's own, by name to an Admin and An account to anyone else, with the
 Connected App it was made through, what it set, and where it stands with
 the tablet, one dropped for a later change there marked so, with the
 field where only one of two was. During a deploy the previous release's
-instance gives neither `edits` nor `editStanding`, so the page shows no
-state and an empty card until its next read, and a save that reaches that
+instance gives neither `edits` nor `editStanding`: a page loaded from it
+shows no state and an empty card until it is loaded again, a read of a
+page already showing them changes nothing, and a save that reaches that
 instance, which has no such route, is answered 404, which the form shows
 (`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
 rating Rating, where they said Enjoyment, and show none for a Shot rated
