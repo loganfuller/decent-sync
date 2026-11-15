@@ -1,7 +1,8 @@
 import { BadRequestException } from "@nestjs/common";
 import { MAX_SHOT_RATING, isShotNote, isShotRating } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
-import type { Prisma } from "../generated/prisma/client.js";
+import { Prisma } from "../generated/prisma/client.js";
+import { object } from "./extraction.js";
 
 // The edits of a Shot's rating and note made through the server (ADR-0031,
 // ticket #512), as a request gives one and as a Shot's read lists them.
@@ -30,15 +31,114 @@ export interface ShotEditView {
   /** When it was made, by PostgreSQL's clock. */
   madeAt: string;
   /**
-   * Where it stands with the tablet that holds the Shot: `awaitingTablet`
-   * until that tablet's plugin answers that it wrote it into the Shot
-   * there, as while the tablet is off, and `written` from then on. One a
-   * later edit of the same field overtook before either was written is
-   * `written` with that one, as the Shot there holds what came of both.
+   * Where it stands with the tablet that holds the Shot:
+   * - `awaitingTablet` until that tablet's plugin answers, as while the
+   *   tablet is off;
+   * - `written` once the plugin answered that it wrote it into the Shot
+   *   there. One a later edit of the same field overtook before either was
+   *   written is `written` with that one, as the Shot there holds what came
+   *   of both;
+   * - `dropped` where it was never written, as the tablet changed every
+   *   field it set later than it was made, so the tablet's values stand;
+   * - `noTablet` where the tablet answered that it no longer holds the
+   *   Shot, as one reset or replaced: the edit stays on the server, and is
+   *   sent no more.
+   *
+   * An edit of both fields of which the tablet changed one later is where
+   * the other stands, with the one in `dropped`.
    */
-  state: "awaitingTablet" | "written";
-  /** When the plugin's answer that it wrote it was recorded, by PostgreSQL's clock; null while it awaits its tablet. */
+  state: ShotEditState;
+  /** The fields it set that were not written, as the tablet changed them later than it was made; empty for most. */
+  dropped: ShotEditField[];
+  /** When the plugin's answer that it wrote it was recorded, by PostgreSQL's clock; null unless it is `written`. */
   writtenAt: string | null;
+}
+
+export type ShotEditField = "rating" | "note";
+export type ShotEditState = "awaitingTablet" | "written" | "dropped" | "noTablet";
+
+/**
+ * In SQL, whether an edit, a row of `shot_edits` under that alias, still
+ * awaits its tablet: not written, not found to have no tablet to reach, and
+ * setting a field its tablet has not changed later.
+ */
+export function awaitingSql(alias: string): Prisma.Sql {
+  const e = Prisma.raw(alias);
+  return Prisma.sql`(${e}.written_at IS NULL AND ${e}.unreachable_at IS NULL
+    AND ((${e}.rating IS NOT NULL AND ${e}.rating_dropped_at IS NULL) OR (${e}.note IS NOT NULL AND ${e}.note_dropped_at IS NULL)))`;
+}
+
+/** In SQL, the value an edit under that alias set for a field, null where it left the field alone or the tablet changed it later. */
+export function standingSql(alias: string, field: ShotEditField): Prisma.Sql {
+  return Prisma.raw(`CASE WHEN ${alias}.${field}_dropped_at IS NULL THEN ${alias}.${field} END`);
+}
+
+/** What a Shot's record holds of its rating and note, as an edit says them: 0 where it has no rating, and empty where it has no note. */
+export function ratingAndNote(record: unknown): Required<ShotEditFields> {
+  const annotations = object(object(record).annotations);
+  return { rating: typeof annotations.enjoyment === "number" ? annotations.enjoyment : 0, note: typeof annotations.espressoNotes === "string" ? annotations.espressoNotes : "" };
+}
+
+/**
+ * A Shot's record with an edit's fields set in it, as Decaid's own Shot
+ * update leaves them, and as `ShotEditsService.make` sets them in the
+ * stored record: the rating and note in its annotations, and `shotNotes`,
+ * Decaid's older name for the note.
+ */
+function withShotEdit(record: Prisma.JsonObject, fields: ShotEditFields): Prisma.JsonObject {
+  if (fields.rating === undefined && fields.note === undefined) return record;
+  const annotations = { ...object(record.annotations), ...(fields.rating !== undefined && { enjoyment: fields.rating }), ...(fields.note !== undefined && { espressoNotes: fields.note }) };
+  return { ...record, annotations: annotations as Prisma.JsonObject, ...(fields.note !== undefined && { shotNotes: fields.note }) };
+}
+
+/**
+ * Decides a Shot's edits still awaiting their tablet against a later
+ * version of the Shot that a tablet reports (ticket #513, ADR-0031), under
+ * the Shot's lock, as that version is stored. The later edit of a field
+ * wins, and nothing is kept of the other:
+ *
+ * - **A field the tablet changed** reads otherwise than the tablet held it
+ *   (`held`). Where the version is later than the latest edit of that
+ *   field, by the tablet's update time against the edit's `made_at`, the
+ *   tablet's value stands and every awaiting edit of the field is dropped.
+ *   Where the edit is the later, it stands, and is still written.
+ * - **A field the tablet didn't change** keeps the server's edit, which is
+ *   still written: the report repeats what the tablet held before it.
+ * - **A field that reads as the server wrote it** is no change of the
+ *   tablet's: as the latest edit set it, or as a write this connection sent
+ *   and has had no answer to carried it (`sent`), since Decaid reports the
+ *   Shot as the plugin writes it, which may reach the server before the
+ *   plugin's answer does.
+ *
+ * Returns the record to store, the reported one with the edits that stand
+ * set in it, so the Shot goes on reading as edited until its tablet is
+ * written, and what the tablet holds from now on.
+ */
+export async function settleShotEdits(
+  tx: Prisma.TransactionClient,
+  shotId: string,
+  reported: Prisma.JsonObject,
+  version: string,
+  held: Required<ShotEditFields>,
+  sent: readonly ShotEditFields[],
+): Promise<{ record: Prisma.JsonObject; held: Required<ShotEditFields> }> {
+  const awaiting = await tx.$queryRaw<{ id: string; rating: number | null; note: string | null; earlier: boolean }[]>`
+    SELECT e.id::text AS id, ${standingSql("e", "rating")} AS rating, ${standingSql("e", "note")} AS note, e.made_at < ${version}::timestamptz AS earlier
+    FROM shot_edits AS e WHERE e.shot_id = ${shotId} AND ${awaitingSql("e")} ORDER BY e.number`;
+  const now = ratingAndNote(reported);
+  /** The value of the field that stands, or undefined where no edit of it awaits or the tablet's later change stands. */
+  async function decide<Field extends ShotEditField>(field: Field): Promise<Required<ShotEditFields>[Field] | undefined> {
+    const edits = awaiting.filter((edit) => edit[field] !== null);
+    const latest = edits.at(-1);
+    if (!latest) return undefined;
+    const value = latest[field] as Required<ShotEditFields>[Field];
+    const changed = now[field] !== held[field] && now[field] !== value && !sent.some((write) => write[field] === now[field]);
+    if (!changed || !latest.earlier) return value;
+    await tx.$executeRaw`UPDATE shot_edits SET ${Prisma.raw(`${field}_dropped_at`)} = now() WHERE id = ANY(${edits.map((edit) => edit.id)}::uuid[])`;
+    return undefined;
+  }
+  const [rating, note] = [await decide("rating"), await decide("note")];
+  return { record: withShotEdit(reported, { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) }), held: now };
 }
 
 /**
@@ -79,14 +179,22 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
     orderBy: { number: "desc" },
     take: MAX_LISTED_EDITS,
   });
-  return edits.map((edit) => ({
-    id: edit.id,
-    fields: { ...(edit.rating !== null && { rating: edit.rating }), ...(edit.note !== null && { note: edit.note }) },
-    // Other accounts' names are personal information that only an Admin sees.
-    account: edit.accountId === null ? null : { id: edit.accountId, name: scope.kind === "everything" ? (edit.account?.name ?? null) : null },
-    connectedApp: edit.connectedApp && { id: edit.connectedApp.id, name: edit.connectedApp.name, host: edit.connectedApp.clientHost },
-    madeAt: edit.madeAt.toISOString(),
-    state: edit.writtenAt === null ? "awaitingTablet" : "written",
-    writtenAt: edit.writtenAt?.toISOString() ?? null,
-  }));
+  return edits.map((edit) => {
+    const dropped: ShotEditField[] = [];
+    if (edit.rating !== null && edit.ratingDroppedAt !== null) dropped.push("rating");
+    if (edit.note !== null && edit.noteDroppedAt !== null) dropped.push("note");
+    const set = Number(edit.rating !== null) + Number(edit.note !== null);
+    const state: ShotEditState = dropped.length === set ? "dropped" : edit.writtenAt !== null ? "written" : edit.unreachableAt !== null ? "noTablet" : "awaitingTablet";
+    return {
+      id: edit.id,
+      fields: { ...(edit.rating !== null && { rating: edit.rating }), ...(edit.note !== null && { note: edit.note }) },
+      // Other accounts' names are personal information that only an Admin sees.
+      account: edit.accountId === null ? null : { id: edit.accountId, name: scope.kind === "everything" ? (edit.account?.name ?? null) : null },
+      connectedApp: edit.connectedApp && { id: edit.connectedApp.id, name: edit.connectedApp.name, host: edit.connectedApp.clientHost },
+      madeAt: edit.madeAt.toISOString(),
+      state,
+      dropped,
+      writtenAt: state === "written" ? edit.writtenAt!.toISOString() : null,
+    };
+  });
 }

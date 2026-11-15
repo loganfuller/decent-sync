@@ -6,7 +6,7 @@ import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import type { ShotEditFields } from "./shot-edits.js";
+import { type ShotEditFields, awaitingSql, standingSql } from "./shot-edits.js";
 import { lockShot, shotNotFound } from "./shots.service.js";
 
 /**
@@ -41,10 +41,13 @@ export interface EditedTablet {
  * the instance holding that tablet's connection is told of each
  * (`shot_edits`), so an edit goes out at once while the tablet is
  * connected, and otherwise once it next connects. An edit stays due until
- * the plugin answers that it wrote it (`written`). A Shot's edits still to
- * be written go as one write, of the latest value of each field they set,
- * so a tablet that was off is written where the Shot stands, not each
- * step that led there.
+ * the plugin answers that it wrote it (`written`), or that its tablet no
+ * longer holds the Shot (`unreachable`), or until that tablet reports a
+ * later change of every field it set, for which it is dropped
+ * (`settleShotEdits` in shot-edits.ts, ticket #513). A Shot's edits still
+ * awaiting their tablet go as one write, of the latest value of each field
+ * they set, so a tablet that was off is written where the Shot stands, not
+ * each step that led there.
  *
  * An Admin edits any Shot the Shots list lists. Staff edit those at a
  * Location they work at, so a Shot at no Location is an Admin's alone. A
@@ -67,6 +70,13 @@ export class ShotEditsService {
    * it. Nothing else of the record is touched, its edit time included,
    * which stays the tablet's, so that report is taken as the newer.
    *
+   * The Shot keeps what its tablet holds of the two (`held_rating`,
+   * `held_note`), which a later report from that tablet is read against
+   * (`settleShotEdits`). It is what the record held before the edit, where
+   * no other edit awaits the tablet: the two then read the same, as every
+   * edit before was written, dropped for the tablet's own value, or has no
+   * tablet to reach. While one awaits, it is kept as it is.
+   *
    * It holds the Shot's lock, as storing a delivery of the Shot does, so
    * the two are decided one at a time, and edits of one Shot are numbered
    * in the order they were applied. The tablet to tell is read from the
@@ -86,9 +96,14 @@ export class ShotEditsService {
         SELECT s.location_id::text AS "locationId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
       if (!shot) throw shotNotFound();
       if (!includesLocation(editor.scope, shot.locationId)) throw new ForbiddenException("You can edit only the Shots at a Location you work at");
-      // Set in place, so the rest of the record stays as Decaid sent it.
+      // Set in place, so the rest of the record stays as Decaid sent it. Each expression reads the row as it was before the edit.
+      const awaited = Prisma.sql`EXISTS (SELECT 1 FROM shot_edits AS e WHERE e.shot_id = shots.id AND ${awaitingSql("e")})`;
       const [{ tabletId }] = await tx.$queryRaw<[{ tabletId: string | null }]>`
         UPDATE shots SET
+          held_rating = CASE WHEN ${awaited} THEN held_rating
+            WHEN jsonb_typeof(record #> '{annotations,enjoyment}') = 'number' THEN (record #>> '{annotations,enjoyment}')::double precision ELSE 0 END,
+          held_note = CASE WHEN ${awaited} THEN held_note
+            WHEN jsonb_typeof(record #> '{annotations,espressoNotes}') = 'string' THEN record #>> '{annotations,espressoNotes}' ELSE '' END,
           record = jsonb_set(
             record, '{annotations}',
             (CASE WHEN jsonb_typeof(record -> 'annotations') = 'object' THEN record -> 'annotations' ELSE '{}'::jsonb END) || ${JSON.stringify(annotations)}::jsonb
@@ -110,42 +125,77 @@ export class ShotEditsService {
    * The write the connection's tablet is due next, as a `shotEdit` to send
    * it: for the Shot it holds whose edit has waited longest, leaving out
    * the Shots in `skipped`, the latest rating and the latest note its
-   * edits not yet written set, under the id of the last of them, which
-   * `written` marks them by. Null where none is due, or the connection no
-   * longer holds its Machine. One statement, so one snapshot: an edit made
-   * meanwhile is either carried whole or left for the next look.
+   * edits still awaiting their tablet set, under the id of the last of
+   * them, which `written` marks them by, for the version of the Shot the
+   * server holds, which is the tablet's as it last reported it. Null where
+   * none is due, or the connection no longer holds its Machine. One
+   * statement, so one snapshot: an edit made meanwhile is either carried
+   * whole or left for the next look.
    */
   async due(tablet: EditedTablet, skipped: readonly string[]): Promise<ShotEdit | null> {
-    const unwritten = (shot: Prisma.Sql) => Prisma.sql`FROM shot_edits AS e WHERE e.shot_id = ${shot} AND e.written_at IS NULL`;
-    const [due] = await this.prisma.$queryRaw<{ id: string; shotId: string; rating: number | null; note: string | null }[]>`
+    const awaiting = (shot: Prisma.Sql) => Prisma.sql`FROM shot_edits AS e WHERE e.shot_id = ${shot} AND ${awaitingSql("e")}`;
+    const latest = (field: "rating" | "note") => Prisma.sql`
+      (SELECT ${standingSql("e", field)} ${awaiting(Prisma.sql`next.shot_id`)} AND ${standingSql("e", field)} IS NOT NULL ORDER BY e.number DESC LIMIT 1)`;
+    const [due] = await this.prisma.$queryRaw<{ id: string; shotId: string; version: string; rating: number | null; note: string | null }[]>`
       WITH next AS (
-        SELECT e.shot_id FROM shot_edits AS e JOIN shots AS s ON s.id = e.shot_id
-        WHERE e.written_at IS NULL AND s.tablet_id = ${tablet.tabletId}::uuid AND NOT (e.shot_id = ANY(${[...skipped]}::text[]))
+        SELECT e.shot_id, s.record ->> 'updatedAt' AS version FROM shot_edits AS e JOIN shots AS s ON s.id = e.shot_id
+        WHERE ${awaitingSql("e")} AND s.tablet_id = ${tablet.tabletId}::uuid AND NOT (e.shot_id = ANY(${[...skipped]}::text[]))
           AND EXISTS (SELECT 1 FROM machines AS m WHERE m.id = ${tablet.machineId}::uuid AND m.connected_session_id = ${tablet.sessionId}::uuid)
         ORDER BY e.number LIMIT 1
       )
-      SELECT next.shot_id AS "shotId",
-        (SELECT e.id::text ${unwritten(Prisma.sql`next.shot_id`)} ORDER BY e.number DESC LIMIT 1) AS id,
-        (SELECT e.rating ${unwritten(Prisma.sql`next.shot_id`)} AND e.rating IS NOT NULL ORDER BY e.number DESC LIMIT 1) AS rating,
-        (SELECT e.note ${unwritten(Prisma.sql`next.shot_id`)} AND e.note IS NOT NULL ORDER BY e.number DESC LIMIT 1) AS note
+      SELECT next.shot_id AS "shotId", next.version,
+        (SELECT e.id::text ${awaiting(Prisma.sql`next.shot_id`)} ORDER BY e.number DESC LIMIT 1) AS id,
+        ${latest("rating")} AS rating,
+        ${latest("note")} AS note
       FROM next`;
     if (!due) return null;
-    return { type: "shotEdit", id: due.id, shotId: due.shotId, ...(due.rating !== null && { rating: due.rating }), ...(due.note !== null && { note: due.note }) };
+    return { type: "shotEdit", id: due.id, shotId: due.shotId, version: due.version, ...(due.rating !== null && { rating: due.rating }), ...(due.note !== null && { note: due.note }) };
   }
 
   /**
    * Marks written the edits a write carried, as its tablet's plugin
    * answered: the edit the write was sent under, and those of its Shot
-   * made before it, not yet written. Only while that tablet holds the
-   * Shot, so an answer from one that no longer does changes nothing, nor
-   * does one repeated. Says whether it marked any.
+   * made before it, still awaiting their tablet. Only while that tablet
+   * holds the Shot, so an answer from one that no longer does changes
+   * nothing, nor does one repeated. The tablet then holds the latest value
+   * of each field those edits set, which the Shot keeps as held
+   * (`held_rating`, `held_note`), so the tablet's report of the write
+   * reads as no change of its own. Under the Shot's lock, as that report
+   * is decided under it. Says whether it marked any.
    */
   async written(tabletId: string, editId: string): Promise<boolean> {
-    const marked = await this.prisma.$executeRaw`
-      UPDATE shot_edits AS e SET written_at = now()
+    return this.prisma.$transaction(async (tx) => {
+      const edit = await tx.shotEdit.findUnique({ where: { id: editId }, select: { shotId: true } });
+      if (!edit) return false;
+      await lockShot(tx, edit.shotId);
+      const marked = await tx.$queryRaw<{ number: bigint; rating: number | null; note: string | null }[]>`
+        UPDATE shot_edits AS e SET written_at = now()
+        FROM shot_edits AS last JOIN shots AS s ON s.id = last.shot_id
+        WHERE last.id = ${editId}::uuid AND s.tablet_id = ${tabletId}::uuid
+          AND e.shot_id = last.shot_id AND e.number <= last.number AND ${awaitingSql("e")}
+        RETURNING e.number, ${standingSql("e", "rating")} AS rating, ${standingSql("e", "note")} AS note`;
+      if (marked.length === 0) return false;
+      const latestFirst = marked.sort((a, b) => (a.number < b.number ? 1 : -1));
+      const rating = latestFirst.find((made) => made.rating !== null)?.rating ?? null;
+      const note = latestFirst.find((made) => made.note !== null)?.note ?? null;
+      await tx.$executeRaw`UPDATE shots SET held_rating = COALESCE(${rating}::double precision, held_rating), held_note = COALESCE(${note}::text, held_note) WHERE id = ${edit.shotId}`;
+      return true;
+    });
+  }
+
+  /**
+   * Marks a Shot's edits as having no tablet to reach, as its tablet's
+   * plugin answered that it no longer holds the Shot, as one reset or
+   * replaced: every edit of the Shot still awaiting that tablet, the one
+   * the write was sent under and any made since, which would be answered
+   * the same. They stay on the server, as the Shot reads, and are sent no
+   * more; an edit made later is sent once, and marked in turn. Only while
+   * that tablet is the one holding the Shot, as `written`.
+   */
+  async unreachable(tabletId: string, editId: string): Promise<void> {
+    await this.prisma.$executeRaw`
+      UPDATE shot_edits AS e SET unreachable_at = now()
       FROM shot_edits AS last JOIN shots AS s ON s.id = last.shot_id
-      WHERE last.id = ${editId}::uuid AND s.tablet_id = ${tabletId}::uuid
-        AND e.shot_id = last.shot_id AND e.number <= last.number AND e.written_at IS NULL`;
-    return marked > 0;
+      WHERE last.id = ${editId}::uuid AND s.tablet_id = ${tabletId}::uuid AND e.shot_id = last.shot_id AND ${awaitingSql("e")}`;
   }
 }

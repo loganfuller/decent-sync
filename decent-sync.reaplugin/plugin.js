@@ -946,6 +946,18 @@ var __decentSync = (() => {
     }
     return true;
   }
+  var RECORD_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/;
+  function isRecordTime(value) {
+    return typeof value === "string" && RECORD_TIME.test(value);
+  }
+  function isLaterRecordTime(time, than) {
+    const [later, earlier] = [typeof time === "string" ? RECORD_TIME.exec(time) : null, typeof than === "string" ? RECORD_TIME.exec(than) : null];
+    if (!later || !earlier) return false;
+    if (later[1] !== earlier[1]) return later[1] > earlier[1];
+    const [fraction, other] = [later[2] ?? "", earlier[2] ?? ""];
+    const digits = Math.max(fraction.length, other.length);
+    return fraction.padEnd(digits, "0") > other.padEnd(digits, "0");
+  }
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -1128,6 +1140,7 @@ var __decentSync = (() => {
         return check(object3, "shotEdit", (fields) => {
           fields.uuid("id");
           fields.recordId("shotId");
+          fields.recordTime("version");
           if (object3.rating !== void 0) fields.shotRating("rating");
           if (object3.note !== void 0) fields.shotNote("note");
           fields.some(["rating", "note"]);
@@ -1201,6 +1214,10 @@ var __decentSync = (() => {
       if (!isRecordId(this.object[key2])) this.problem(key2, `must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
     }
     /** A rating a Shot's edit sets (`isShotRating`). */
+    /** A record's time as Decaid writes one in UTC (`isRecordTime`). */
+    recordTime(key2) {
+      if (!isRecordTime(this.object[key2])) this.problem(key2, "must be a UTC time such as 2026-11-10T09:00:00.123456Z");
+    }
     shotRating(key2) {
       if (!isShotRating(this.object[key2])) this.problem(key2, `must be a number from 0 to ${MAX_SHOT_RATING}`);
     }
@@ -4832,8 +4849,12 @@ var __decentSync = (() => {
   async function writeShotEdit(edit) {
     const annotations = { ...edit.rating !== void 0 && { enjoyment: edit.rating }, ...edit.note !== void 0 && { espressoNotes: edit.note } };
     try {
+      const held = await readShot(edit.shotId);
+      if (held === null) return { type: "shotEdited", id: edit.id, outcome: "notHeld" };
+      if (isLaterRecordTime(held.updatedAt, edit.version)) return { type: "shotEdited", id: edit.id, outcome: "changed" };
       const answer = await request("PUT", `/shots/${encodeURIComponent(edit.shotId)}`, { annotations });
       if (answer.ok) return { type: "shotEdited", id: edit.id, outcome: "written" };
+      if (answer.status === 404) return { type: "shotEdited", id: edit.id, outcome: "notHeld" };
       return { type: "shotEdited", id: edit.id, outcome: "refused", status: answer.status, error: answer.text.slice(0, MAX_REFUSAL_LENGTH) };
     } catch (error) {
       const why = error instanceof Error ? error.message : String(error);

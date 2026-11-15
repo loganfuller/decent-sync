@@ -221,6 +221,16 @@ the plugin writes to a tablet's Shots.
   one: the latest rating and the latest note among them.
 - **Afterwards.** Decaid reports the Shot as updated, and the plugin sends
   that to the server as it sends any edit made on the tablet.
+- **Never over a later change.** The plugin reads the Shot before it writes
+  it. Where the tablet's Shot was changed since the version the server
+  holds, in its Skin or in DYE2, the plugin writes nothing: the tablet's
+  report of that change reaches the server first, which then decides,
+  field by field. A rating or note the tablet changed later than the edit
+  stands, and the edit of it is dropped; one the tablet left alone is
+  written. Later is judged by the tablet's clock against the server's, so
+  a tablet whose clock is wrong can win or lose an edit it shouldn't.
+- **A Shot the tablet no longer holds,** as after a reset, is written
+  nothing. The edit stays on the server, which sends it no more.
 - **Refused.** If Decaid refuses the update, the edit stays waiting on the
   server, and is tried again within a few minutes, with any edit of that
   Shot made since, and when the tablet next connects.

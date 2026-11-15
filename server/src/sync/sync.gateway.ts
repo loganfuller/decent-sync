@@ -549,9 +549,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        await this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
-        // A tablet whose report of a Shot was the newer one stored holds it from now on, and is due its edits still to be written.
-        session.shotEdits?.wake();
+        // What this connection wrote to the Shot and has had no answer to may be what its tablet now reports.
+        await this.captureRecord(session, message, text, () => this.shots.store(message, reporter, session.shotEdits?.sent(message.shotId)));
+        // A tablet whose report of a Shot was the newer one stored holds it from now on, and is due its edits that still stand.
+        session.shotEdits?.reported(message.shotId);
         return;
       case "steam":
         return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
@@ -679,11 +680,15 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
    * other, as one naming an edit still to be sent, changes nothing. One the
    * plugin wrote is marked written, if its tablet still holds the Shot,
    * even where the answer came after its time was up: the Shot on the
-   * tablet holds the edit either way. A refusal is logged, escaped, as it
-   * repeats what Decaid answered, and leaves the edit to be written: the
-   * connection sends its Shot nothing more until it tries again. The
-   * answer came with a wire revision, so one from a plugin behind it, which
-   * no plugin sends, is a protocol error.
+   * tablet holds the edit either way. One for a Shot the tablet no longer
+   * holds marks the Shot's edits as having no tablet to reach (ticket
+   * #513). One for a Shot that changed on the tablet records nothing: the
+   * edit waits for the tablet's report of that change, which decides it. A
+   * refusal is logged, escaped, as it repeats what Decaid answered, and
+   * leaves the edit to be written: the connection sends its Shot nothing
+   * more until it tries again. The answer came with a wire revision, so
+   * one from a plugin behind it, which no plugin sends, is a protocol
+   * error.
    */
   private async shotEdited(session: Session, answer: ShotEdited): Promise<void> {
     if (!peerHasWireRevision(session.wireRevision!, SHOT_EDITS_WIRE_REVISION)) {
@@ -691,13 +696,13 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     }
     const id = answer.id.toLowerCase();
     if (!session.shotEdits?.awaits(id)) return;
-    const written = answer.outcome === "written";
-    if (written) await this.shotEdits.written(session.live!.tabletId, id);
-    else {
+    if (answer.outcome === "written") await this.shotEdits.written(session.live!.tabletId, id);
+    else if (answer.outcome === "notHeld") await this.shotEdits.unreachable(session.live!.tabletId, id);
+    else if (answer.outcome === "refused") {
       const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
       this.logger.warn(`The tablet of ${this.describe(session)} did not write edit ${id} of a Shot: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
     }
-    session.shotEdits.answered(id, written);
+    session.shotEdits.answered(id, answer.outcome);
   }
 
   /**

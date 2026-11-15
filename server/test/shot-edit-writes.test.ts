@@ -1,4 +1,4 @@
-import type { ShotEdit } from "@decent-sync/protocol";
+import type { ShotEdit, ShotEditedOutcome } from "@decent-sync/protocol";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { ShotEditWrites } from "../src/sync/shot-edit-writes.js";
 
@@ -6,8 +6,8 @@ import { ShotEditWrites } from "../src/sync/shot-edit-writes.js";
 // through its own interface: what it sends, and when, as the plugin answers,
 // refuses or stays silent, on a clock the test moves. What is due stands in
 // for the database: the edits not yet written, in the order they were made,
-// each a write of its own here, which an answer of `written` marks, as the
-// gateway records one before it tells the writer. That a Shot's edits go as
+// each a write of its own here, which an answer of `written` marks, or one
+// of `notHeld`, as the gateway records either before it tells the writer. That a Shot's edits go as
 // one write, and the gateway's use of the writer, are tested through Seam 1
 // and with hand-made frames in shot-edits.test.ts.
 
@@ -41,14 +41,15 @@ function connection() {
   );
   /** Makes an edit of the Shot and tells the writer, as its notification does. */
   const make = (id: string, shotId: string) => {
-    made.push({ type: "shotEdit", id, shotId, rating: 5, written: false });
+    made.push({ type: "shotEdit", id, shotId, version: "2026-11-10T09:00:00.000000Z", rating: 5, written: false });
     writes.wake();
   };
-  /** The plugin's answer, recorded before the writer is told, if the connection awaits it, as the gateway does. */
-  const answer = (id: string, written: boolean) => {
+  /** The plugin's answer, written or refused unless another is given, recorded before the writer is told, if the connection awaits it, as the gateway does. */
+  const answer = (id: string, written: boolean, outcome: ShotEditedOutcome = written ? "written" : "refused") => {
     if (!writes.awaits(id)) return;
-    if (written) made.find((edit) => edit.id === id)!.written = true;
-    writes.answered(id, written);
+    // Written, or marked as having no tablet to reach: either way it is due no more.
+    if (outcome === "written" || outcome === "notHeld") made.find((edit) => edit.id === id)!.written = true;
+    writes.answered(id, outcome);
   };
   return { writes, made, sent, warnings, make, answer, release: () => (holds = false), fail: (fails: boolean) => (failing = fails) };
 }
@@ -124,6 +125,72 @@ describe("A connection's writer of the edits of Shots", () => {
     expect(sent).toEqual(["a1", "a2"]);
     await vi.advanceTimersByTimeAsync(RETRY_MS);
     expect(sent).toEqual(["a1", "a2", "a2"]);
+  });
+
+  it("holds back a Shot that changed on its tablet until the connection reports it, and sends the other Shots' on", async () => {
+    const { writes, sent, make, answer } = connection();
+    make("a1", "shot-a");
+    make("b1", "shot-b");
+    await settled();
+    // The tablet holds a later version than the write was sent for: nothing was written, and its report is to come.
+    answer("a1", false, "changed");
+    await settled();
+    expect(sent).toEqual(["a1", "b1"]);
+    answer("b1", true);
+    // Another Shot's report changes nothing for it.
+    writes.reported("shot-b");
+    await settled();
+    expect(sent).toEqual(["a1", "b1"]);
+    // Its own does: what is due is sent again, for the version reported.
+    writes.reported("shot-a");
+    await settled();
+    expect(sent).toEqual(["a1", "b1", "a1"]);
+    answer("a1", true);
+    await settled();
+    expect(sent).toEqual(["a1", "b1", "a1"]);
+  });
+
+  it("looks again at once where the Shot was reported after its write was sent, and waits for the retry where no report comes", async () => {
+    const { writes, sent, make, answer } = connection();
+    make("a1", "shot-a");
+    await settled();
+    // The report came in before the plugin's answer did: what is due is already for its version.
+    writes.reported("shot-a");
+    answer("a1", false, "changed");
+    await settled();
+    expect(sent).toEqual(["a1", "a1"]);
+    // Changed again, with no report since that write was sent: the Shot waits for one, or for the retry.
+    answer("a1", false, "changed");
+    await settled();
+    expect(sent).toEqual(["a1", "a1"]);
+    await vi.advanceTimersByTimeAsync(RETRY_MS);
+    expect(sent).toEqual(["a1", "a1", "a1"]);
+    // An answer that comes after its time was up is taken the same way: no report since, so the Shot stays held back.
+    await vi.advanceTimersByTimeAsync(ANSWER_MS);
+    answer("a1", false, "changed");
+    await settled();
+    expect(sent).toEqual(["a1", "a1", "a1"]);
+    writes.reported("shot-a");
+    await settled();
+    expect(sent).toEqual(["a1", "a1", "a1", "a1"]);
+  });
+
+  it("goes on to the next once a Shot's tablet no longer holds it, and says what it has written a Shot without an answer", async () => {
+    const { writes, sent, make, answer } = connection();
+    make("a1", "shot-a");
+    make("b1", "shot-b");
+    await settled();
+    expect(writes.sent("shot-a").map((edit) => edit.id)).toEqual(["a1"]);
+    expect(writes.sent("shot-b")).toEqual([]);
+    answer("a1", false, "notHeld");
+    await settled();
+    expect(sent).toEqual(["a1", "b1"]);
+    expect(writes.sent("shot-a")).toEqual([]);
+    // One whose time ran out may have been written all the same, so it still counts as sent.
+    await vi.advanceTimersByTimeAsync(ANSWER_MS);
+    expect(writes.sent("shot-b").map((edit) => edit.id)).toEqual(["b1"]);
+    answer("b1", true);
+    expect(writes.sent("shot-b")).toEqual([]);
   });
 
   it("awaits only an edit it has sent and has no answer to", async () => {

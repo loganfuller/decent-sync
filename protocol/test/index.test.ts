@@ -57,6 +57,8 @@ import {
   REQUESTS_WIRE_REVISION,
   SHOT_EDITS_WIRE_REVISION,
   MAX_SHOT_RATING,
+  isLaterRecordTime,
+  isRecordTime,
   isShotNote,
   isShotRating,
   SKIN_ASKS,
@@ -813,8 +815,36 @@ describe("A Shot's edit made through the server", () => {
     }
   });
 
-  it("reads an edit with a rating, a note or both, by the edit's id and the Shot's, which only the server sends", () => {
-    const edit = { type: "shotEdit", id, shotId: "a Shot's id" };
+  it("compares two of Decaid's record times to the microsecond, and tells nothing of anything else", () => {
+    const later: [string, string][] = [
+      ["2026-11-10T09:00:01Z", "2026-11-10T09:00:00.999999Z"],
+      ["2026-11-10T09:00:00.123457Z", "2026-11-10T09:00:00.123456Z"],
+      // Dart leaves out the microseconds where they are zero: 123 ms is before 123.456 ms.
+      ["2026-11-10T09:00:00.123456Z", "2026-11-10T09:00:00.123Z"],
+      ["2026-11-10T09:00:00.124Z", "2026-11-10T09:00:00.123999Z"],
+      ["2026-11-10T09:00:00.001Z", "2026-11-10T09:00:00Z"],
+      ["2027-01-01T00:00:00.000Z", "2026-12-31T23:59:59.999999Z"],
+    ];
+    for (const [time, than] of later) {
+      expect(isLaterRecordTime(time, than), `${time} > ${than}`).toBe(true);
+      expect(isLaterRecordTime(than, time), `${than} > ${time}`).toBe(false);
+    }
+    // The same instant, however many zeros it is written with, is not later.
+    for (const [time, than] of [["2026-11-10T09:00:00Z", "2026-11-10T09:00:00.000000Z"], ["2026-11-10T09:00:00.120Z", "2026-11-10T09:00:00.12Z"]]) {
+      expect(isLaterRecordTime(time, than)).toBe(false);
+      expect(isLaterRecordTime(than, time)).toBe(false);
+    }
+    for (const time of ["2026-11-10T09:00:00.123456Z", "2026-11-10T09:00:00Z"]) expect(isRecordTime(time)).toBe(true);
+    // A local time, one with an offset, and anything that is no text: nothing is told of these.
+    for (const time of ["2026-11-10T09:00:00.123", "2026-11-10T09:00:00+01:00", "2026-11-10", "", 1_794_000_000_000, null, undefined]) {
+      expect(isRecordTime(time), String(time)).toBe(false);
+      expect(isLaterRecordTime(time, "2020-01-01T00:00:00Z"), String(time)).toBe(false);
+      expect(isLaterRecordTime("2030-01-01T00:00:00Z", time), String(time)).toBe(false);
+    }
+  });
+
+  it("reads an edit with a rating, a note or both, by the edit's id, the Shot's and the version it was sent for, which only the server sends", () => {
+    const edit = { type: "shotEdit", id, shotId: "a Shot's id", version: "2026-11-10T09:00:00.123456Z" };
     for (const message of [{ ...edit, rating: 8 }, { ...edit, note: "" }, { ...edit, rating: 0, note: "Syrupy" }, { ...edit, rating: 7.5, future: true }]) {
       expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
       expect(decodePluginMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
@@ -824,16 +854,21 @@ describe("A Shot's edit made through the server", () => {
     for (const shotId of ["", "x".repeat(MAX_RECORD_ID_LENGTH + 1), "nul \u0000", 7, undefined]) {
       expect(fromServer({ ...edit, shotId, rating: 8 })).toBe(`shotEdit.shotId must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
     }
+    for (const version of ["2026-11-10T09:00:00.123456", "2026-11-10T09:00:00+00:00", "", 7, null, undefined]) {
+      expect(fromServer({ ...edit, version, rating: 8 })).toBe("shotEdit.version must be a UTC time such as 2026-11-10T09:00:00.123456Z");
+    }
     for (const rating of [-1, 10.5, "8", null]) expect(fromServer({ ...edit, rating })).toBe("shotEdit.rating must be a number from 0 to 10");
     for (const note of [5, null, "nul \u0000", "half \ud83d"]) expect(fromServer({ ...edit, note })).toBe("shotEdit.note must be text PostgreSQL stores");
     // By field name, never by value.
     expect(fromServer({ ...edit, shotId: 7, note: ["secret"] })).not.toContain("secret");
   });
 
-  it("reads its answer, written or refused with what Decaid answered, which only the plugin sends", () => {
+  it("reads its answer: written, refused with what Decaid answered, the Shot changed since, or no longer held, which only the plugin sends", () => {
     const answer = { type: "shotEdited", id };
     const accepted = [
       { ...answer, outcome: "written" },
+      { ...answer, outcome: "changed" },
+      { ...answer, outcome: "notHeld" },
       { ...answer, outcome: "refused", status: 404, error: '{"error":"Shot not found"}' },
       { ...answer, outcome: "refused", status: null, error: "Fetch timed out" },
       { ...answer, outcome: "refused", status: 500, error: "x".repeat(MAX_REFUSAL_LENGTH), future: true },
@@ -843,9 +878,11 @@ describe("A Shot's edit made through the server", () => {
       expect(decodeServerMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
     }
     expect(fromPlugin({ ...answer, id: "edit-1", outcome: "written" })).toBe("shotEdited.id must be a UUID");
-    expect(fromPlugin(answer)).toBe("shotEdited.outcome must be one of written, refused");
-    expect(fromPlugin({ ...answer, outcome: "written", status: 200 })).toBe("shotEdited.status must be absent");
-    expect(fromPlugin({ ...answer, outcome: "written", error: "" })).toBe("shotEdited.error must be absent");
+    expect(fromPlugin(answer)).toBe("shotEdited.outcome must be one of written, refused, changed, notHeld");
+    for (const outcome of ["written", "changed", "notHeld"]) {
+      expect(fromPlugin({ ...answer, outcome, status: 200 })).toBe("shotEdited.status must be absent");
+      expect(fromPlugin({ ...answer, outcome, error: "" })).toBe("shotEdited.error must be absent");
+    }
     expect(fromPlugin({ ...answer, outcome: "refused" })).toBe("shotEdited.status must be a whole number; shotEdited.error must be a string");
     expect(fromPlugin({ ...answer, outcome: "refused", status: -1, error: "" })).toBe("shotEdited.status must not be negative");
     expect(fromPlugin({ ...answer, outcome: "refused", status: 500, error: "x".repeat(MAX_REFUSAL_LENGTH + 1) })).toBe(`shotEdited.error must be at most ${MAX_REFUSAL_LENGTH} characters`);
