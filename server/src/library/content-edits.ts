@@ -68,7 +68,13 @@ export async function takeInUnseen(
   for (const [id, values] of byItem) {
     const current = await readItem(tx, { kind, id });
     if (!current) continue;
-    const unseen = values.filter(({ field }) => current.content[field] === undefined && !Object.prototype.hasOwnProperty.call(current.fieldEdits, field));
+    // The first value of each field, as a list holding a record twice is read (`planGrinderIntake`).
+    const unseen = values.filter(
+      ({ field }, index) =>
+        current.content[field] === undefined &&
+        !Object.prototype.hasOwnProperty.call(current.fieldEdits, field) &&
+        values.findIndex((value) => value.field === field) === index,
+    );
     if (unseen.length === 0) continue;
     const edit = { values: Object.fromEntries(unseen.map(({ field, value }) => [field, value])), at: unseen[0]!.at, seenAt: null };
     taken = (await editContent(tx, { kind, id }, edit, source)).writesDue || taken;
