@@ -66,7 +66,9 @@ test("an Admin rates a Shot and edits its note on its page, which says the edit 
 
   await card.getByRole("button", { name: "Edit its rating and note" }).click();
   const form = card.getByRole("form", { name: "Edit its rating and note" });
-  // The form starts from what the Shot holds, and offers five stars, one pressed at a time.
+  // The form starts from what the Shot holds, and offers five stars, one pressed at a time, with how to clear them
+  // behind an info icon.
+  await expectTip(form, "Rating", "Press a star to rate the Shot that many. Press the star chosen again to leave it unrated.");
   const stars = form.getByRole("radiogroup", { name: "Rating" }).getByRole("radio");
   await expect(stars).toHaveCount(5);
   expect(await Promise.all((await stars.all()).map((star) => star.getAttribute("aria-label")))).toEqual(["1 star", "2 stars", "3 stars", "4 stars", "5 stars"]);
@@ -133,15 +135,25 @@ test("the card of edits, closed until opened, lists each with who made it, the C
   const accessToken = await exchange(page, verifier);
   await callTool(page, accessToken, "edit_shot", { id: SHOT, rating: 9 });
   await expect.poll(async () => (await edits(page, SHOT)).map((edit) => edit.state)).toEqual(["written", "written"]);
-  // A rating between two stars reads as it is, and the form starts from the stars DYE2 would show: saved untouched, it sends none.
+  // A rating between two stars reads as it is, in the form too, where no star is pressed for it: saved untouched, it
+  // sends none.
   await page.goto(`/shots/${SHOT}`);
   const rated = page.getByRole("region", { name: "Rating and note", exact: true });
   await expect(field(rated, "Rating")).toHaveText("4.5 stars");
   await rated.getByRole("button", { name: "Edit its rating and note" }).click();
-  await expect(rated.getByRole("radio", { checked: true })).toHaveAccessibleName("5 stars");
+  await expect(rated.getByRole("radio", { checked: true })).toHaveCount(0);
+  await expect(rated.getByRole("form").getByText("4.5 stars", { exact: true })).toBeVisible();
   await rated.getByRole("button", { name: "Save" }).click();
   await expect(rated.getByRole("form")).toHaveCount(0);
   expect(await edits(page, SHOT)).toHaveLength(2);
+  // The star it rounds to, pressed after another, is saved: five stars, which are 10.
+  await rated.getByRole("button", { name: "Edit its rating and note" }).click();
+  await rated.getByRole("radio", { name: "4 stars" }).click();
+  await rated.getByRole("radio", { name: "5 stars" }).click();
+  await rated.getByRole("button", { name: "Save" }).click();
+  await expect(field(rated, "Rating")).toHaveText("5 stars");
+  await expect.poll(async () => (await edits(page, SHOT)).map((edit) => edit.state)).toEqual(["written", "written", "written"]);
+  expect(await onTablet(belmontTablet, SHOT)).toMatchObject({ enjoyment: 10 });
 
   // And one made here while the tablet is off, whose rating a barista then changes on the tablet, later, before it reconnects.
   belmontTablet.loseNetwork();
@@ -151,7 +163,7 @@ test("the card of edits, closed until opened, lists each with who made it, the C
   await page.waitForTimeout(1_100);
   expect((await belmontTablet.callApi("PUT", `/shots/${SHOT}`, { annotations: { enjoyment: 6 } })).status).toBe(200);
   belmontTablet.restoreNetwork();
-  await expect.poll(async () => (await edits(page, SHOT)).map((edit) => edit.state), { timeout: 30_000 }).toEqual(["dropped", "written", "written"]);
+  await expect.poll(async () => (await edits(page, SHOT)).map((edit) => edit.state), { timeout: 30_000 }).toEqual(["dropped", "written", "written", "written"]);
 
   await page.goto(`/shots/${SHOT}`);
   // The tablet's later rating stands.
@@ -161,9 +173,10 @@ test("the card of edits, closed until opened, lists each with who made it, the C
   await expectTip(card, "Rating and note edits", /^Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, or through a Connected App, such as an assistant\./);
   await openCard(page, "Rating and note edits");
   const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
-  await expect(listed).toHaveCount(3);
+  await expect(listed).toHaveCount(4);
   expect(await cells(listed)).toEqual([
     ["You", "Rating: 1.5 stars", "Dropped for a later change on the tablet"],
+    ["You", "Rating: 5 stars", "Written to its tablet"],
     ["You, through Test Assistant", "Rating: 4.5 stars", "Written to its tablet"],
     ["You", "Rating: 4 starsNote: Sweeter once it cooled.\nKeep this grind.", "Written to its tablet"],
   ]);
@@ -197,7 +210,7 @@ test("a Viewer and Staff elsewhere read a Shot's rating, note and edits, with no
       await expect(card.getByRole("button", { name: "Edit its rating and note" })).toHaveCount(0);
       // The edits too, naming no other account.
       const edits = await openCard(theirs, "Rating and note edits");
-      expect((await cells(rows(edits.getByRole("table")))).map(([by]) => by)).toEqual(["An account", "An account, through Test Assistant", "An account"]);
+      expect((await cells(rows(edits.getByRole("table")))).map(([by]) => by)).toEqual(["An account", "An account", "An account, through Test Assistant", "An account"]);
 
       // Staff at the Lab edit the Lab's Shot, which then names them.
       await theirs.goto(`/shots/${LAB_SHOT}`);
@@ -210,15 +223,24 @@ test("a Viewer and Staff elsewhere read a Shot's rating, note and edits, with no
       await form.getByRole("button", { name: "Save" }).click();
       await expect(field(card, "Rating")).toHaveText("3 stars");
       await expect(field(card, "Note")).toHaveText("None");
+      // Pressing the star chosen again and saving leaves the Shot unrated, which is an edit too.
+      await card.getByRole("button", { name: "Edit its rating and note" }).click();
+      await expect(form.getByRole("radio", { checked: true })).toHaveAccessibleName("3 stars");
+      await form.getByRole("radio", { name: "3 stars" }).click();
+      await form.getByRole("button", { name: "Save" }).click();
+      await expect(field(card, "Rating")).toHaveText("Unrated");
       const made = await openCard(theirs, "Rating and note edits");
-      expect((await cells(rows(made.getByRole("table")))).map(([by, change]) => [by, change])).toEqual([["You", "Rating: 3 stars"]]);
+      expect((await cells(rows(made.getByRole("table")))).map(([by, change]) => [by, change])).toEqual([
+        ["You", "Rating: Unrated"],
+        ["You", "Rating: 3 stars"],
+      ]);
     });
   }
 
   // The Admin reads who it was.
   await page.goto(`/shots/${LAB_SHOT}`);
   const made = await openCard(page, "Rating and note edits");
-  expect((await cells(rows(made.getByRole("table")))).map(([by]) => by)).toEqual(["Sam Staff"]);
+  expect((await cells(rows(made.getByRole("table")))).map(([by]) => by)).toEqual(["Sam Staff", "Sam Staff"]);
 });
 
 /** A Shot pulled at a UTC time on the hardware of that serial, derived from the real one with the annotations given beside its own. */

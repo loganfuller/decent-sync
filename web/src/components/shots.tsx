@@ -5,7 +5,6 @@ import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
 import type { ListedShot } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
-import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
 
@@ -24,20 +23,6 @@ export function beanText(shot: Pick<ListedShot, "coffeeRoaster" | "coffeeName">)
 export function gramsText(actual: number | null, target: number | null): string | undefined {
   if (actual !== null) return `${round(actual)} g`;
   return target !== null ? `${round(target)} g target` : undefined;
-}
-
-/** The most stars a Shot is rated: DYE2 and a Skin show its rating as five, each two points of Decaid's 0 to 10 (`starsToEnjoyment` in DYE2). */
-export const MAX_STARS = 5;
-
-/** A Shot's rating in stars, which need not be whole, as where an assistant set a rating between two; 0 for one unrated. */
-export function starsOf(rating: number | null): number {
-  return round((rating ?? 0) / (MAX_SHOT_RATING / MAX_STARS));
-}
-
-/** A Shot's rating as its stars, such as "4 stars", or nothing for one unrated: 0, as DYE2 writes it for no stars and an edit through the server clears it, or none. */
-export function ratingText(rating: number | null): string | undefined {
-  const stars = starsOf(rating);
-  return stars === 0 ? undefined : `${stars} ${stars === 1 ? "star" : "stars"}`;
 }
 
 /** A link to the Library item a Shot is linked to, or a note that it is linked to none. */

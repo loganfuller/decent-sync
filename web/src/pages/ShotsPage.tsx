@@ -8,12 +8,13 @@ import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
 import { ShotTrendCard } from "@/components/shot-trend";
-import { beanText, gramsText, ratingText, shotTime } from "@/components/shots";
+import { beanText, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
+import { ratingText } from "@/lib/rating";
 import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
 import { bucketParam, trendBucket, trendNumber, trendParam } from "@/lib/shot-trend";
 
