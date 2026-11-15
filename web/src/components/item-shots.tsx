@@ -2,13 +2,14 @@ import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LocationCredit, MachineCredit, OrNone, secondsText } from "@/components/records";
-import { ShotBatch, ShotGrinder, ShotProfile, gramsText, ratingText, shotTime } from "@/components/shots";
+import { ShotBatch, ShotGrinder, ShotProfile, gramsText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotPage } from "@/lib/api";
 import { LIBRARY_KINDS, type ShotsKind } from "@/lib/library-kinds";
+import { ratingText } from "@/lib/rating";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
 // The Shots a Library item's page lists: those linked to it, through the

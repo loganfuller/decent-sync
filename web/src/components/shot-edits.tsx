@@ -6,7 +6,6 @@ import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { recordTime } from "@/components/records";
-import { MAX_STARS, ratingText, starsOf } from "@/components/shots";
 import { MadeBy } from "@/components/settings-edit-log";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,6 +15,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api, type Shot, type ShotEdit } from "@/lib/api";
+import { MAX_STARS, ratingOf, ratingText, starsOf } from "@/lib/rating";
 import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
 // A Shot's rating and note on its page (#514, ADR-0031): shown to everyone,
@@ -34,7 +34,7 @@ function ratingOrUnrated(rating: number | null): string {
 /** Each star, in order, from 1. */
 const STARS = Array.from({ length: MAX_STARS }, (_, index) => index + 1);
 
-/** A star, filled where it counts toward a rating of that many stars, rounded to a whole one as DYE2 rounds it (`enjoymentToStars`). */
+/** A star, filled where it counts toward a rating of that many stars, rounded to a whole one as DYE2 rounds one to show it (`enjoymentToStars`). */
 function Star({ star, of }: { star: number; of: number }) {
   return <StarIcon aria-hidden className={star <= Math.round(of) ? "fill-current" : "text-muted-foreground"} />;
 }
@@ -131,9 +131,13 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
 function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel(): void; onSaved(shot: Shot): void }) {
   const id = useId();
   // As the form opened: what the person saw, which what they change is told from, whatever the Shot reads as since.
-  // Its stars are whole, as DYE2 shows a rating between two: left alone, such a rating is not sent, and stays as it is.
-  const [initial] = useState(() => ({ stars: Math.round(starsOf(shot.enjoyment)), note: shot.notes ?? "" }));
-  const [stars, setStars] = useState(initial.stars);
+  const [initial] = useState(() => ({ rating: shot.enjoyment ?? 0, note: shot.notes ?? "" }));
+  // The stars pressed, none for unrated; null until one is pressed. Until then the form shows the Shot's rating as it
+  // is, which may lie between two stars, as an assistant may set one: no star is pressed for such a rating, so that
+  // pressing the one it rounds to sets it.
+  const [pressed, setPressed] = useState<number | null>(null);
+  const stars = pressed ?? starsOf(initial.rating);
+  const rating = pressed === null ? initial.rating : ratingOf(pressed);
   const [note, setNote] = useState(initial.note);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -141,7 +145,7 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    const changed = { ...(stars !== initial.stars && { rating: stars * (MAX_SHOT_RATING / MAX_STARS) }), ...(note !== initial.note && { note }) };
+    const changed = { ...(rating !== initial.rating && { rating }), ...(note !== initial.note && { note }) };
     if (Object.keys(changed).length === 0) return onCancel();
     setSaving(true);
     try {
@@ -158,10 +162,21 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
     <form aria-label="Edit its rating and note" className="grid gap-4" onSubmit={(event) => void save(event)}>
       {error && <FormError error={error} />}
       <div className="grid gap-2">
-        <Label id={`${id}-rating`}>Rating</Label>
+        <div className="flex items-center gap-1.5">
+          <Label id={`${id}-rating`}>Rating</Label>
+          <InfoTip label="About Rating">
+            <p>Press a star to rate the Shot that many. Press the star chosen again to leave it unrated.</p>
+          </InfoTip>
+        </div>
         <div className="flex items-center gap-3">
-          {/* One star pressed at a time, and none for unrated: pressing the star chosen again clears it. */}
-          <ToggleGroup type="single" variant="outline" aria-labelledby={`${id}-rating`} value={stars === 0 ? "" : String(stars)} onValueChange={(chosen) => setStars(Number(chosen))}>
+          {/* One star pressed at a time, and none for unrated, or for a rating between two stars: pressing the star chosen again clears it. */}
+          <ToggleGroup
+            type="single"
+            variant="outline"
+            aria-labelledby={`${id}-rating`}
+            value={Number.isInteger(stars) && stars > 0 ? String(stars) : ""}
+            onValueChange={(chosen) => setPressed(Number(chosen))}
+          >
             {STARS.map((star) => (
               <ToggleGroupItem key={star} value={String(star)} aria-label={`${star} ${star === 1 ? "star" : "stars"}`}>
                 <Star star={star} of={stars} />
@@ -169,7 +184,7 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
             ))}
           </ToggleGroup>
           <span className="text-sm text-muted-foreground" aria-live="polite">
-            {ratingOrUnrated(stars * (MAX_SHOT_RATING / MAX_STARS))}
+            {ratingOrUnrated(rating)}
           </span>
         </div>
       </div>

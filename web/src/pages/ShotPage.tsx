@@ -16,7 +16,7 @@ import {
   numberText,
   secondsText,
 } from "@/components/records";
-import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, gramsText, ratingText, shotTime } from "@/components/shots";
+import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, gramsText, shotTime } from "@/components/shots";
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,6 +25,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Recipe, type Shot } from "@/lib/api";
 import { SHOT_CURVES, type Sample, type ShotCurve, lastRecordedWeight, shotSamples } from "@/lib/curves";
+import { ratingText } from "@/lib/rating";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
 
 interface ShotData {

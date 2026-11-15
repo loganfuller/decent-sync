@@ -1672,16 +1672,20 @@ Recipe, a Recipe with none, or the Reference Shot itself
 (`e2e/reference-shots.spec.ts`). Its Rating and note card
 (`web/src/components/shot-edits.tsx`, #514) shows the two, the rating as
 up to five stars, as DYE2 shows it and the owner's Skin will, each star
-two points of the rating from 0 to 10 Decaid keeps (`starsOf` in
-`web/src/components/shots.tsx`, as `starsToEnjoyment` in DYE2), and a
+two points of the rating from 0 to 10 Decaid keeps (`web/src/lib/rating.ts`,
+with `web/test/rating.test.ts`: `starsOf` halves a rating as DYE2's
+`enjoymentToStars` does, without rounding it to a whole star, and
+`ratingOf` doubles whole stars as its `starsToEnjoyment` does), and a
 rating of 0 or none as Unrated. To whoever may edit them, an Admin, or
 Staff for a Shot at a Location they work at, it has an Edit button that
 opens a form in the card: five stars, a shadcn `ToggleGroup` of which one
 is pressed at a time, and pressing it again leaves the Shot unrated, and
-the note. A rating between two stars, as an assistant may set, reads as
-it is, such as 4.5 stars, and fills the stars DYE2 would, rounded; the
-form starts from those, and sends no rating unless another star is
-pressed. It sends `PATCH /api/shots/:id` with only what was changed, so
+the note. How to clear them is behind the Rating label's info icon. A
+rating between two stars, as an assistant may set, reads as it is, such
+as 4.5 stars, and fills the stars DYE2 would, rounded. The form shows it
+so too, with no star pressed, until one is: it sends a rating only where
+the stars pressed are another rating than the Shot's, so such a rating
+saved untouched stays, and pressing the star it rounds to sets that. It sends `PATCH /api/shots/:id` with only what was changed, so
 a rating leaves the note alone, and shows the Shot as the answer gives
 it. Where
 the read's `editStanding` is not null the card says so in plain sight,
