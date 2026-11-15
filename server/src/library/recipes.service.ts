@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
-import { steamTimeOf } from "@decent-sync/protocol";
+import { RECIPE_NONE_AT_ZERO, isZero, steamTimeOf } from "@decent-sync/protocol";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { shownDuration } from "../shots/extraction.js";
@@ -30,7 +30,9 @@ export interface RecipeView {
    * `hotWaterFlow`, `flushTemperature`, `flushDuration` and `flushFlow`), and
    * DYE2's display modes `steamMode` and `hotWaterMode`, each left out where
    * it holds none. Its steam time as `steamTimeOf` reads it: one of 0, as
-   * 1.6.2 may have taken one in, is none, and one above 255 s is 255.
+   * 1.6.2 may have taken one in, is none, and one above 255 s is 255. A
+   * dose, grind setting or RPM of 0, as 1.10.0 may take one in, is none too
+   * (RECIPE_NONE_AT_ZERO).
    */
   content: Record<string, unknown>;
   /** The items its content names, each with what the management interface names it by (`RecipeUses`). */
@@ -241,7 +243,8 @@ function notFound(): NotFoundException {
 }
 
 function view(row: RecipeRow, location: LocationView | null, { names, at }: Names): RecipeView {
-  const stored = isObject(row.content) ? row.content : {};
+  // A dose, grind setting or RPM of 0, as 1.10.0 may take one in, is none.
+  const stored = Object.fromEntries(Object.entries(isObject(row.content) ? row.content : {}).filter(([field, value]) => !((RECIPE_NONE_AT_ZERO as readonly string[]).includes(field) && isZero(value))));
   const { steamDuration, ...rest } = stored;
   const steamTime = steamTimeOf(steamDuration);
   const content = steamTime === null ? rest : { ...stored, steamDuration: steamTime };

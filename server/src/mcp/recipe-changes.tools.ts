@@ -77,7 +77,7 @@ export class RecipeChangesTools {
   @BudgetedTool({
     name: "create_recipe",
     title: "Create a Recipe",
-    description: `Creates a Recipe, a named, saved dial-in for a coffee, belonging to a Location, which never changes, and written to that Location's tablets, in the Recipe Slot chosen or none: any Machine there can load it. It holds the fields given; a steam, hot water or flush setting it holds none of is the Machine's own, which loading it leaves alone. ${USES} Staff create one only at the Locations they work at. ${TIMES}`,
+    description: `Creates a Recipe, a named, saved dial-in for a coffee, belonging to a Location, which never changes, and written to that Location's tablets, in the Recipe Slot chosen or none: any Machine there can load it. It holds the fields given, and is the whole Shot: a Machine that loads it is left with none of each it holds none of, as a Grinder, grind setting, Basket, dose or Bean Batch, and with stop-at-weight off where it holds no yield; but a steam, hot water or flush setting it holds none of is the Machine's own, which loading it leaves alone. ${USES} Staff create one only at the Locations they work at. ${TIMES}`,
     inputSchema: newRecipeInput,
     outputSchema: recipeOutput,
     annotations: CHANGES,
@@ -92,7 +92,7 @@ export class RecipeChangesTools {
   @BudgetedTool({
     name: "edit_recipe",
     title: "Edit a Recipe",
-    description: `Edits a Recipe, given only the fields to change: its Location's tablets are written the change, and every Machine that has it loaded follows it in its Workflow, as an edit in the management interface does. A field given null is cleared: a steam, hot water or flush setting cleared is the Machine's own again. ${USES} DYE2's ratio is kept only while the yield is the dose times it. Staff edit one only at the Locations they work at. ${TIMES}`,
+    description: `Edits a Recipe, given only the fields to change: its Location's tablets are written the change, and every Machine that has it loaded follows it in its Workflow, as an edit in the management interface does. A field given null is cleared, in the Workflow of every Machine that has it loaded too, but a steam, hot water or flush setting, which is the Machine's own again. ${USES} DYE2's ratio is kept only while the yield is the dose times it. Staff edit one only at the Locations they work at. ${TIMES}`,
     inputSchema: recipeEditInput,
     outputSchema: recipeOutput,
     annotations: { ...CHANGES, idempotentHint: true },

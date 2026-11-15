@@ -122,7 +122,14 @@ The metadata and analytics live in `shots`; curves live in
 `shot_measurements.data`, a separate jsonb column with lz4 compression. List
 and status queries never read the measurements table. `extractShot` and
 `extractCurves` are pure, optional-field projections tested against a scrubbed
-real tablet record. See the fixtures' README for provenance. A Shot's batch
+real tablet record. See the fixtures' README for provenance. A Shot's target
+yield (`target_yield`) is its Workflow's yield where above 0, or else, for a
+Workflow holding no yield, its profile's target weight where above 0. A yield
+of 0 is stop-at-weight off, so no target: Decaid stops a Shot at its weight
+only for a yield above 0 (`ShotSequencer`), and from v0.1.37 DYE2 applies a
+recipe naming no yield with one of 0 (ADR-0022, #550), so a Shot whose
+Workflow held 0 has none, whatever its profile's target weight. A Shot stored
+before #550 with a target of 0 keeps it. A Shot's batch
 and Grinder are kept by their ids on the tablet that pulled it
 (`bean_batch_id` and `grinder_id`, from its Workflow's context), indexed, so
 an Admin's hard delete of a Library item a Shot names is refused

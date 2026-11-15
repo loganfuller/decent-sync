@@ -362,7 +362,7 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     await c.changeSettings({ steamSettings: { targetTemperature: 0 } });
     await quiet();
     const edits = await editsOf(one, "steamTemperature");
-    // A feed rate typed on C, which the plugin saves into the Recipe once it has read C's Workflow, a read Decaid holds.
+    // A feed rate typed on C, which the plugin sets out to save into the Recipe once it has read C's Workflow, a read Decaid holds.
     const held = c.holdRequests("GET", "/workflow");
     await c.changeSettings({ context: { extras: { feedRate: "MF" } } });
     await expect.poll(() => held.arrived, { timeout: 15_000, interval: 5 }).toBeGreaterThan(0);
@@ -370,9 +370,10 @@ describe("Steam turned back on takes the Loaded Recipe's steam temperature and s
     await (await openDye2RecipeEditor(c, { id: LIBRARY })).set({ steamTempC: 150 }).save();
     await expect.poll(() => setting(c, "steamTemperature"), { timeout: 15_000 }).toBe(150);
     held.release();
-    await expect.poll(async () => (await recipe(one)).content.feedRate, { timeout: 15_000 }).toBe("MF");
-    // Once C's report, the plugin's save and the write into A are done.
+    // Once C's report, the plugin's save and the write into A are done. The editor's apply cleared the feed rate typed, as
+    // the recipe names none and a recipe is the whole shot from DYE2 v0.1.37, so the save found none of it to save.
     await quiet();
+    expect((await recipe(one)).content).not.toHaveProperty("feedRate");
     expect([(await recipe(one)).content.steamTemperature, await editsOf(one, "steamTemperature")]).toEqual([150, edits + 1]);
     expect([setting(c, "steamTemperature"), recorded(c, "steamTemperature"), recorded(a, "steamTemperature")]).toEqual([150, 150, 150]);
   });

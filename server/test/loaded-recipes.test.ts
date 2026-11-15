@@ -248,19 +248,14 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await history(machine)).total).toBe(1);
   });
 
-  it("applies nothing of a Recipe holding a feed rate from Streamline v0.2.24's strip, which refuses it, the Workflow and Loaded Recipe staying as they were, though it applied there before it held one", async () => {
-    // This records a known gap in Streamline v0.2.24, accepted until a release fixes it: its strip copies the recipe's embedded
-    // Workflow's context whole, and `updateWorkflow` throws in `assertDeclaredFields` before its PUT, as the `dye.applyRecipe`
-    // writer does not own `context.extras.feedRate`, which the server writes there for a Recipe holding one, as DYE2 does
-    // from v0.1.34. Upstream's main adds the field to that writer (streamline-js 26d894e and 60ccf0b), not yet released. When
-    // the simulators follow the Streamline release that carries it, turn this round: the tap then applies and loads the Recipe.
+  it("applies a Recipe holding a feed rate from Streamline's strip, which v0.2.24's refused, and loads it (dye2-v0.1.40/)", async () => {
+    // Up to v0.2.24 the strip copied the recipe's embedded Workflow's context whole and threw before its PUT, as its
+    // `dye.applyRecipe` writer did not own `context.extras.feedRate`, which the server writes there for a Recipe holding one,
+    // and DYE2 for every recipe from v0.1.37. From v0.2.25 it owns the field (streamline-js 26d894e and 60ccf0b).
     const { machine, tablet, brazil, edit, quiet } = await lab("Strip feed rate", 47341);
     await expect.poll(() => dye2GlobalIdOf(record(tablet, LIBRARY)), { timeout: 15_000 }).not.toBeNull();
     const library = dye2GlobalIdOf(record(tablet, LIBRARY))!;
     const streamline = await startStreamline(tablet);
-    // Holding no feed rate, the Brazil in slot 2 applies and loads; then the recipe in slot 1 does.
-    expect((await streamline.applyRecipe(2)).workflow?.status).toBe(200);
-    await loads(machine, brazil);
     expect((await streamline.applyRecipe(1)).workflow?.status).toBe(200);
     await loads(machine, library);
 
@@ -271,27 +266,22 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
       .toEqual(["1200", "1200"]);
     // Once the edit's writes, their reports and Streamline's replies are done.
     await quiet({ streamline });
-    const before = structuredClone(tablet.workflow());
-    const loaded = (await history(machine)).total;
 
-    // Tapped again, it is refused before its PUT, for the feed rate alone, so nothing reaches the Workflow or DYE2's selection:
-    // the Workflow is as it was, still naming the recipe in slot 1. Streamline still keeps the recipe's steam, hot water and
-    // flush values, as it does before any apply, which are the slot 1 recipe's here.
+    // Tapped, it applies, its feed rate with it, and the Machine loads it.
     const applied = await streamline.applyRecipe(2);
-    expect(applied).toEqual({ refused: "updateWorkflow: writer 'dye.applyRecipe' sent undeclared field(s) context.extras.feedRate" });
-    expect(tablet.workflow()).toEqual(before);
-    expect(recipeIdInWorkflow(tablet)).toBe(LIBRARY);
-    // Once anything the tap might have set off is done, the Machine keeps the recipe in slot 1 loaded, with no load since.
+    expect(applied.workflow?.status).toBe(200);
+    expect(streamline.refused).toEqual([]);
+    expect(extras(tablet).feedRate).toBe("1200");
+    await loads(machine, brazil);
     await quiet({ streamline });
-    expect(tablet.workflow()).toEqual(before);
-    expect(dye2RecipeIdOf((await storedWorkflow(machine))!)).toBe(LIBRARY);
-    expect((await loadedRecipe(machine))?.recipe.id).toBe(library);
-    expect((await history(machine)).total).toBe(loaded);
+    expect(extras(tablet).feedRate).toBe("1200");
+    expect(dye2RecipeIdOf((await storedWorkflow(machine))!)).toBe(BRAZIL);
+    expect((await recipe(brazil)).content.feedRate).toBe("1200");
   });
 
   it("keeps the Recipe loaded through a dial tap and Done on DYE2's dashboard, which send only the page's own edits, the tap's grind saved into the Recipe", async () => {
     const { machine, tablet, brazil, quiet } = await lab("Copy", 47021);
-    // The tablet's Workflow holds the other Recipe's Basket as the page opens, which DYE2's apply leaves and the load writes.
+    // The tablet's Workflow holds the other Recipe's Basket as the page opens, which DYE2's apply replaces from v0.1.37.
     await tablet.changeSettings({ context: { extras: { basketId: BASKET_18 } } });
     const dashboard = await openDye2Dashboard(tablet);
     expect(dashboard.recipePills().map((pill) => pill.id)).toContain(BRAZIL);
@@ -320,11 +310,12 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     const { machine, tablet, dye2, ethiopia, quiet } = await lab("Switched", 47101, { apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
     const grinder83 = await globalOf(tablet, "/grinders", RECORDED_GRINDER_83);
     expect(grinder83).toEqual(expect.any(String));
-    // The Workflow on another Basket, which the plugin's load write is to write.
+    // The Workflow on another Basket, which the plugin's load write is to write: the recipe is named with none of its values
+    // applied, as through DYE2's selection route, as DYE2's own apply writes its Basket itself from v0.1.37.
     await tablet.changeSettings({ context: { extras: { basketId: BASKET_20 } } });
     slow = true;
     const reads = tablet.requests.filter((route) => route === "/workflow").length;
-    await selectRecipeInDye2(tablet, ETHIOPIA);
+    expect((await tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: ETHIOPIA })).status).toBe(200);
     // The plugin's write, slowed, lands after the barista's switch, which it leaves as the write sets no grinder.
     await expect.poll(() => tablet.requests.filter((route) => route === "/workflow").length).toBeGreaterThan(reads + 1);
     await new Promise((resolve) => setTimeout(resolve, 150));
@@ -394,10 +385,11 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     await loads(machine, ethiopia);
     // A favourite saved on DYE2's Auto Favourites edit page, and applied from its Auto Favourites page, as its dashboard's
     // rail shows recipes only from v0.1.35 (dye2-v0.1.35/favourites.json).
-    const recipes = dye2List(tablet, "recipes");
-    const favourite = await saveFavouriteInDye2(tablet, { title: "Fixture Unloads Favourite", favSlot: 1 });
-    expect(dye2List(tablet, "recipes")).toEqual(recipes);
-    expect((await pickFavouriteInDye2(tablet, String(favourite.id))).applied?.workflow?.status).toBe(200);
+    // Its SAVE TO RECIPE makes a recipe of it too from v0.1.38, in no slot, which the Workflow does not name.
+    const { favourite, recipe: made } = await saveFavouriteInDye2(tablet, { title: "Fixture Unloads Favourite", favSlot: 1 });
+    expect(recipeIdInWorkflow(tablet)).toBe(ETHIOPIA);
+    expect((await pickFavouriteInDye2(tablet, String(favourite!.id))).applied?.workflow?.status).toBe(200);
+    expect(recipeIdInWorkflow(tablet)).not.toBe(String(made.id));
     expect(recipeIdInWorkflow(tablet)).toBeNull();
     await loads(machine, null);
     // Taken out of DYE2's favourites again, so DYE2 derives no favourite from the Workflow below, which it would match.
@@ -615,9 +607,10 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // Each another's, the plugin's being none.
     expect(new Set(await causes())).toEqual(new Set(["other"]));
 
-    // The change that loads a Recipe, a stale copy's maybe, and the plugin's load write are saved into nothing.
+    // The change that loads a Recipe, a stale copy's maybe, and the plugin's load write are saved into nothing: the recipe
+    // is named with none of its values applied, as through DYE2's selection route, so the load has its Basket to write.
     await tablet.changeSettings({ context: { extras: { basketId: BASKET_20 } } });
-    await selectRecipeInDye2(tablet, ETHIOPIA);
+    expect((await tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: ETHIOPIA })).status).toBe(200);
     await loads(machine, ethiopia);
     await expect.poll(() => extras(tablet).basketId, { timeout: 15_000 }).toBe(BASKET_18);
     // The site's own wait is the load's write above; then its report and anything else under way.

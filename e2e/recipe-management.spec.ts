@@ -85,7 +85,7 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toBeVisible();
     await expect(samsPage.getByText("Slot 3 at Roastery lab")).toBeVisible();
     const main = samsPage.getByRole("main");
-    await expectTip(main, "Recipe", "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location.");
+    await expectTip(main, "Recipe", "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.");
     await expectTip(main, "Steam, hot water and flush", "What a Machine loading it takes. A setting it does not hold is left as each Machine has it.");
     const details = samsPage.getByLabel("Recipe", { exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
@@ -104,6 +104,11 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expect(edit.getByLabel("Feed rate")).toHaveValue("MF");
     // A feeder's RPM typed as a number is kept as typed.
     await edit.getByLabel("Feed rate").fill("1200");
+    // An RPM of 0 is none, as a dose or grind setting of 0 is: the form says so, and an empty field says none.
+    await edit.getByLabel("RPM").fill("0");
+    await edit.getByRole("button", { name: "Save" }).click();
+    await expect(edit.getByRole("alert")).toHaveText("RPM must be above 0: leave it empty for none");
+    await edit.getByLabel("RPM").fill("");
     await edit.getByRole("button", { name: "Save" }).click();
     await expect(field(details, "Dose")).toHaveText("18.5 g");
     await expect(field(details, "Feed rate")).toHaveText("1200");
@@ -315,6 +320,37 @@ test("a Conflict over a Recipe's name, saved on two tablets offline, is shown on
   await expect(open).toBeHidden();
   await expect(page.getByRole("heading", { name: "House Espresso (Brazil)", level: 1 })).toBeVisible();
   for (const tablet of [one, two]) await expect.poll(() => slotOn(tablet, 1)?.name).toBe("House Espresso (Brazil)");
+});
+
+test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose, grind setting or RPM of 0 is none, and keeps a yield of 0", async ({ page }) => {
+  const lab = await createLocation(page, "Zero lab");
+  const tablet = await tabletAt(page, server, "Zero lab 1", lab, "45551", tabletApi);
+  const recipe = await createRecipe(page, lab, 1, { name: "Zero Espresso", dose: 18, yield: 36, grindSetting: 2.5, rpm: 900 });
+  await expect.poll(() => slotOn(tablet, 1)?.name).toBe("Zero Espresso");
+
+  // DYE2's editor saves an RPM left blank as 0, and here a yield of 0 too: stop-at-weight off.
+  const list = (dye2List(tablet, "recipes") as Record_[]).map((record) =>
+    record[RECIPE_SLOT_FIELD] === 1 ? { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), rpm: 0, drink: 0 } } : record,
+  );
+  expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  const content = async () => ((await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } }).recipe.content;
+  await expect.poll(async () => (await content()).yield).toBe(0);
+  expect(await content()).not.toHaveProperty("rpm");
+
+  await page.goto(`/library/recipes/${recipe.id}`);
+  const details = page.getByLabel("Recipe", { exact: true });
+  await expect(field(details, "Dose")).toHaveText("18 g");
+  await expect(field(details, "RPM")).toHaveText("-");
+  await expect(field(details, "Yield")).toHaveText("0 g");
+  // Its form shows the RPM empty, and refuses a dose of 0.
+  await page.getByRole("button", { name: "Edit the Recipe" }).click();
+  const edit = page.getByRole("form", { name: "Edit Zero Espresso" });
+  await expect(edit.getByLabel("RPM")).toHaveValue("");
+  await edit.getByLabel("Dose (g)").fill("0");
+  await edit.getByRole("button", { name: "Save" }).click();
+  await expect(edit.getByRole("alert")).toHaveText("Dose (g) must be above 0: leave it empty for none");
+  // The tablet's record keeps its 0: it reads as none.
+  expect((slotOn(tablet, 1)!.dashboardVariables as Record_).rpm).toBe(0);
 });
 
 test("the form keeps a Tool Archived since as one to uncheck, beside a new one, and offers no batch of an Archived Bean", async ({ page }) => {

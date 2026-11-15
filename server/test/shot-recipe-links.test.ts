@@ -410,24 +410,29 @@ describe("Shots linked to their Recipe and Basket, and the hard deletes those li
     // The site's own wait, as the recipe reads are held: the server has the Workflow naming the new recipe, so its report,
     // timed by the tablet's clock as the host's, comes before the dial change timed from here on.
     await expect.poll(() => namedDelivered(tablet, savedId), { timeout: 15_000 }).toBe(true);
-    // Then a change of the dial, which the load gains the Recipe, timed as the plugin observed it, not as the recipe was named.
+    // Then a change of the dial, before the recipe is a Recipe: the recipe names no grind setting, and the Recipe takes
+    // nothing from the Workflow as it loads, so the load sets it back, an accepted gap (ADR-0022, Interim).
     const dialledAt = new Date().toISOString();
     await tablet.changeSettings({ context: { grinderSetting: "3.1" } });
     const dialled = (frame: Record_) => frame.type === "workflow" && ((frame.workflow as Record_).context as Record_).grinderSetting === "3.1";
     await expect.poll(() => tablet.acknowledgedSome(dialled)).toBe(true);
 
-    // Taken in, it is loaded, and the load writes its flush temperature, which DYE2's save of the next change keeps.
+    // Taken in, it is loaded, and the load writes its flush temperature, which DYE2's save of the next change keeps, and
+    // clears the grind setting the recipe names none of.
     unread.release();
     await expect.poll(() => dye2GlobalIdOf(recordWithId(tablet, savedId)), { timeout: 15_000 }).toEqual(expect.any(String));
     const savedRecipe = dye2GlobalIdOf(recordWithId(tablet, savedId))!;
     await loads(machine, savedRecipe);
     const versions = async () => (await api.get<{ versions: { fields: Record_; editedAt: string }[] }>(`/recipes/${savedRecipe}/history`)).versions;
-    const gained = (await versions()).find((version) => version.fields.grindSetting === 3.1);
-    expect(gained).toBeDefined();
-    expect(gained!.editedAt >= dialledAt).toBe(true);
     await expect.poll(flush, { timeout: 15_000 }).toBe(87);
+    await expect.poll(() => (tablet.workflow().context as Record_).grinderSetting ?? null, { timeout: 15_000 }).toBeNull();
+    await quiet({ streamline });
+    expect((await versions()).filter((version) => "grindSetting" in version.fields)).toEqual([]);
+    // Set once it is loaded, it is the Recipe's, as the tablet's edit, timed as the plugin observed it.
     await tablet.changeSettings({ context: { grinderSetting: "3.4" } });
     await expect.poll(async () => (await recipe(savedRecipe)).content.grindSetting, { timeout: 15_000 }).toBe(3.4);
+    const taken = (await versions()).find((version) => version.fields.grindSetting === 3.4);
+    expect(taken!.editedAt >= dialledAt).toBe(true);
     // Once the change's report, DYE2's save of it and anything else they set off are done, the reads no longer held.
     await quiet({ streamline });
     const recorded = (recordWithId(tablet, savedId)?.dashboardVariables ?? {}) as Record_;

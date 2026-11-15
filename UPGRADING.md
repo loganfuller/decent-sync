@@ -24,21 +24,84 @@ Releasing).
 
 ## Unreleased
 
-### Tablets need Decaid v0.9.2
+### Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27
 
-This release follows Decaid v0.9.2
-([ADR-0017](docs/adr/0017-supported-versions.md)). Before deploying, on each
-tablet, in this order:
+This release follows Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27
+([ADR-0017](docs/adr/0017-supported-versions.md)). Decaid installs the latest
+DYE2 and Streamline on each tablet within 12 hours by itself. A tablet whose
+DYE2 or Streamline is pinned to an earlier build is moved by hand, before
+deploying, in this order:
 
-1. Move its Streamline to v0.2.25 or later. Decaid v0.9.2 bundles DYE2
-   v0.1.37 and puts it over a lower DYE2 as it starts, a pinned one included,
-   and every recipe DYE2 saves from v0.1.37 holds a feed rate that the strip
-   of Streamline v0.2.24 or earlier refuses to apply.
+1. Move its Streamline to v0.2.27 or later, and its DYE2 to v0.1.40 or later.
+   Decaid v0.9.2 bundles DYE2 v0.1.37 and puts it over a lower DYE2 as it
+   starts, a pinned one included, and every recipe DYE2 saves from v0.1.37
+   holds a feed rate that the strip of Streamline v0.2.24 or earlier refuses
+   to apply.
 2. Update its Decaid to v0.9.2 or later.
 
-Then deploy. This release's server refuses a tablet on v0.9.1 or older, and
+Then deploy the server. It refuses a tablet on Decaid v0.9.1 or older, and
 its Machine's page says why, though 1.10.0 still accepts one while it serves
-beside this release.
+beside this release. Nothing refuses an older DYE2 or Streamline, but nothing
+is written for what they do.
+
+### A Recipe is the whole Shot
+
+From DYE2 v0.1.37 and Streamline v0.2.25 a recipe is the whole shot, not an
+overlay on the one applied before it, and Decent Sync follows
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)).
+Nothing is needed, but baristas will see:
+
+- **A recipe leaves the Machine with none of what it names none of.** A
+  Machine that loads a Recipe naming no Grinder, grind setting, RPM, feed
+  rate, Basket, dose or Bean Batch is left with none, and with stop-at-weight
+  off where it names no yield. Before, it kept the last recipe's, and the
+  Recipe took them as its own as it loaded. A Recipe now gains a value only
+  as a barista sets or picks it on a Machine that has it loaded. The steam,
+  hot water and flush settings are as before: a Machine keeps its own for
+  those the Recipe holds none of. Check that each Recipe names what its Shots
+  should record, such as its Grinder and Basket.
+- **A part cleared from a Recipe is cleared on the Machines that have it
+  loaded,** as any other edit reaches them. Before, they kept it until the
+  Recipe was applied again. A Machine still holding one cleared from its
+  Loaded Recipe before this release is cleared of it as its tablet next
+  connects.
+- **A grinder pick moves the grind setting and RPM.** Picking a grinder on a
+  tablet, on DYE2's dashboard, its Grinders page or its grinder picker, sets
+  the grind setting and RPM to that grinder's defaults, or to none where it
+  declares neither. With a Recipe loaded, the Recipe takes the Grinder with
+  them, on every Machine that has it loaded. A Grinder changed in the
+  management interface, or in DYE2's recipe editor, leaves them as typed.
+- **Streamline follows the tablet's theme** wherever a barista never used
+  Streamline's own toggle, so the Theme Tablet Setting now changes its look,
+  as it next loads.
+- **Streamline offers a reload when a newer build is on the tablet:** a
+  notice to tap, 30 s after it starts and every 12 hours.
+- **SAVE TO RECIPE on a favourite adds a Recipe,** in no slot, at the
+  tablet's Location, from DYE2 v0.1.38. Before, it saved a favourite only.
+  DYE2 saves it with its profile's title alone, so the Recipe names no
+  Profile until one is picked for it.
+- **DYE2's profile picker moves the dose and yield.** Its Confirm writes the
+  profile's yield and the dose at the ratio the Machine held. On the Loaded
+  Recipe's own profile these are the Recipe's edit, with that profile's own
+  brew temperature; on another profile the Recipe is unloaded, as before.
+
+A Recipe's dose, grind setting or RPM of 0 is now none, as DYE2 applies one,
+and DYE2's editor saves an RPM left blank as 0. The management interface and
+the MCP endpoint refuse a 0 for them: clear the field for none. A yield of 0
+is stop-at-weight off, which a Recipe may hold, and a Shot pulled with it
+shows no target yield. As it starts, this release's server removes a dose,
+grind setting or RPM of 0 from every Recipe that holds one, a change of a few
+rows per Location kept in each Recipe's history
+(docs/AI_STORAGE_NOTES.md); tablets' records are left as they are, where a 0
+reads as none.
+
+Until 1.10.0's server is replaced, it may take a tablet's 0 in again, which
+this release reads as none, and it still takes what a Recipe holds none of
+from a Machine's Workflow as the Recipe loads: with DYE2 v0.1.40 and
+Streamline v0.2.27, which clear the Workflow as they apply a recipe, that is
+at most a yield of 0. A tablet still on 1.10.0's plugin is cleared of what
+its Loaded Recipe names none of by this release's server, where its Skin
+clears nothing.
 
 ### Automatic update checks are shown, and changed on the tablet
 

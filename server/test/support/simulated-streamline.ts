@@ -3,8 +3,11 @@ import { assignRecipeInDye2 } from "./simulated-dye2.js";
 import type { SimulatedTablet } from "./simulated-tablet.js";
 
 // Streamline (streamline-js) running as a simulated tablet's skin, as at
-// v0.2.24, the release Decent Sync supports (ADR-0017), as far as it touches
-// DYE2, the Workflow and the settings it remembers. The plugin is not
+// v0.2.27, the release Decent Sync supports (ADR-0017), as far as it touches
+// DYE2, the Workflow and the settings it remembers. What v0.2.24 recorded of
+// it stands (fixtures/decaid/streamline-v0.2.24/) but for its strip's apply
+// of a recipe, which from v0.2.25 clears what the recipe names none of and
+// takes one holding a feed rate (fixtures/decaid/dye2-v0.1.40/). The plugin is not
 // told of it: it calls Decaid's API as anything else on the tablet does
 // (`SimulatedTablet.callApi`).
 //
@@ -96,7 +99,13 @@ import type { SimulatedTablet } from "./simulated-tablet.js";
 // or, without one, its `dashboardVariables` (`applyRecipeLegacy`), its steam
 // time or flow by its steam mode, its milk stop, its hot water volume,
 // temperature, time and flow, and its flush time, each kept where Streamline
-// keeps one (`mergeRecipeLiveSettings`),
+// keeps one (`mergeRecipeLiveSettings`); from v0.2.25 with each of its
+// grinder, Basket, barista, drinker, grind setting, dose, RPM and feed rate
+// it names none of, or names as 0, null, and its yield 0 where it names
+// none, whatever its record's Workflow holds, so a record saved before DYE2
+// v0.1.37 clears them the same way (`clearInheritedFields`), and with a
+// grinder the tablet no longer holds, archived ones counting as held, null
+// too (`dropDeletedGrinder`);
 // and its id as `recipeId` (`recipeIdPatch`), as one partial `PUT
 // /workflow`, then `POST .../selection` to DYE2, retried in the background
 // where it fails and DYE2 records itself, DYE2's selection cleared where it
@@ -206,6 +215,7 @@ const WORKFLOW_WRITERS: Readonly<Record<string, readonly string[]>> = {
     "context.targetYield",
     "context.grinderSetting",
     "context.extras.rpm",
+    "context.extras.feedRate",
     "context.extras.dye",
     "context.coffeeName",
     "context.coffeeRoaster",
@@ -226,6 +236,7 @@ const WORKFLOW_WRITERS: Readonly<Record<string, readonly string[]>> = {
     "context.targetYield",
     "context.grinderSetting",
     "context.extras.rpm",
+    "context.extras.feedRate",
     "context.extras.dye",
     "context.coffeeName",
     "context.coffeeRoaster",
@@ -584,7 +595,9 @@ export class SimulatedStreamline {
    * off stops it, or the last fails, when it clears DYE2's selection
    * (`armSelection`): `settled()` waits for that too. Last it loads its data
    * again (`refreshAfterApply`). A body holding a field `dye.applyRecipe`
-   * does not own is refused before the PUT (`assertDeclaredFields`).
+   * does not own is refused before the PUT (`assertDeclaredFields`); from
+   * v0.2.25 it owns `context.extras.feedRate`, so a recipe holding a feed
+   * rate, as every one DYE2 saves from v0.1.37 holds the key, is applied.
    */
   async applyRecipe(cell: number | string): Promise<StreamlineApplied> {
     await this.loadDyeStripData();
@@ -595,6 +608,9 @@ export class SimulatedStreamline {
     this.activeModified = false;
     const dv = (recipe.dashboardVariables ?? {}) as Record_;
     const patch = recipe.workflow ? await this.applyStoredWorkflow(recipe.workflow as Record_) : await this.applyRecipeLegacy(recipe);
+    // What the recipe names none of is cleared, not left as the recipe applied before set it (streamline-js#189, from v0.2.25).
+    patch.context = clearInheritedFields(patch.context as Record_ | undefined);
+    if ((patch.context as Record_).grinderId) patch.context = dropDeletedGrinder(patch.context as Record_, await this.grinderCatalogue());
     Object.assign(patch, await this.mergeRecipeLiveSettings(dv));
     mergeContext(patch, recipeIdPatch(recipe.id));
     return this.applyItem("recipe", recipe.id, patch, "dye.applyRecipe");
@@ -867,6 +883,12 @@ export class SimulatedStreamline {
     return { landed: answer.status === 200, answer };
   }
 
+  /** `grinderCatalogue` in dyeStrip.js: the tablet's grinders, archived ones included, or null where they cannot be read, which keeps the recipe's grinder. */
+  private async grinderCatalogue(): Promise<unknown> {
+    const { status, body } = await this.tablet.callApi("GET", "/grinders?includeArchived=true");
+    return status === 200 ? body : null;
+  }
+
   /** `applyStoredWorkflow`: an item's stored `workflow`, its context copied and its Profile resolved whole (`resolveFullProfile`), none where no profile with steps resolves (`profileWithSteps`). */
   private async applyStoredWorkflow(workflow: Record_): Promise<Record_> {
     const patch: Record_ = {};
@@ -1101,7 +1123,9 @@ export class SimulatedStreamline {
     const read = await this.tablet.callApi("GET", "/workflow");
     const workflow = (read.body ?? {}) as Record_;
     const context = (workflow.context ?? {}) as Record_;
-    const targetDose = tile === "in" ? grams : Number(context.targetDoseWeight ?? 0);
+    // A Workflow holding no dose, as a recipe naming none leaves it from v0.2.25, shows a dash on the Dose tile, which the
+    // Drink tile's write reads as no number and sends as null (dye2-v0.1.40/yield-set.json, `drinkPlus`).
+    const targetDose = tile === "in" ? grams : context.targetDoseWeight == null ? null : Number(context.targetDoseWeight);
     const targetYield = tile === "out" ? grams : Number(context.targetYield ?? 0);
     const payload: Record_ = { context: { targetDoseWeight: targetDose, targetYield } };
     if (Number.isFinite(targetYield) && targetYield > 0) payload.profile = { target_weight: targetYield };
@@ -1213,6 +1237,38 @@ export function recipeIdPatch(id: unknown): { extras: { dye: { v: 1; recipeId: s
 }
 
 /** `mergeContext` in dyeStrip.js: a context fragment folded into the patch, `extras` merged one level, so the fragment's `extras.dye` replaces the patch's. Changes the patch. */
+/**
+ * `clearInheritedFields` in src/modules/workflow-fields.js, from v0.2.25: a
+ * copy of a recipe's context with each field a recipe apply must not inherit
+ * present, null where the recipe names none, or names 0: its grinder with
+ * its model, barista, drinker, grind setting and dose, and in `extras` its
+ * Basket with its name, RPM and feed rate; and its yield 0 where it names
+ * none, as Decaid refuses a null there (streamline-js#189).
+ */
+function clearInheritedFields(context: Record_ | undefined): Record_ {
+  const cleared: Record_ = { ...(context ?? {}) };
+  for (const field of ["grinderId", "grinderModel", "baristaName", "drinkerName", "grinderSetting", "targetDoseWeight"]) cleared[field] = cleared[field] || null;
+  cleared.targetYield = cleared.targetYield || 0;
+  const extras: Record_ = { ...((cleared.extras ?? {}) as Record_) };
+  for (const field of ["basketId", "basketName", "rpm", "feedRate"]) extras[field] = extras[field] || null;
+  cleared.extras = extras;
+  return cleared;
+}
+
+/**
+ * `dropDeletedGrinder` in src/modules/dye-selection.js, from v0.2.25: the
+ * context without its grinder and model where the tablet's grinders
+ * (`grinders`, a list or its `{ items }` envelope, archived ones included) no
+ * longer hold it; as it is where it names none or the list cannot be read.
+ */
+function dropDeletedGrinder(context: Record_, grinders: unknown): Record_ {
+  if (!context.grinderId || grinders == null) return context;
+  const list = Array.isArray(grinders) ? grinders : ((grinders as Record_).items ?? null);
+  if (!Array.isArray(list)) return context;
+  if (list.some((grinder: Record_ | null) => grinder && grinder.id === context.grinderId)) return context;
+  return { ...context, grinderId: null, grinderModel: null };
+}
+
 function mergeContext(patch: Record_, fragment: Record_): Record_ {
   const context = (patch.context ?? {}) as Record_;
   patch.context = {

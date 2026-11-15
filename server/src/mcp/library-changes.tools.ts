@@ -110,7 +110,7 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     beanBatchId: "The id of the Bean Batch it uses, as find_library_items gives it, not Archived; its Bean is the batch's. A batch not at the Recipe's Location is added there. null for none, which clears its Bean too.",
     profileId: "The id of the Profile it uses, as find_library_items gives it, not Archived. One not shown at the Recipe's Location is shown there.",
     dose: "Its dose, in grams.",
-    yield: "Its yield, in grams.",
+    yield: "Its yield, in grams: 0 for stop-at-weight off.",
     grinderId: "The id of its Grinder, as find_library_items gives it: one of the Recipe's Location's, not Archived.",
     grindSetting: "Its Grinder's setting.",
     rpm: "Its Grinder's speed, in RPM.",
@@ -152,6 +152,8 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
       return { schema: z.boolean() };
     case "number":
       return { schema: z.number(), note: "0 or more." };
+    case "aboveZero":
+      return { schema: z.number(), note: "Above 0: null for none." };
     case "date":
       return { schema: z.string(), note: "A day, such as 2026-10-01." };
     case "texts":
@@ -172,7 +174,7 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
     case "toolAttributes":
       return { schema: z.record(z.string(), attributes) };
     case "grindSetting":
-      return { schema: z.union([z.number(), z.string()]), note: "A number of 0 or more, or text as typed, such as 2.5 or 1.1.0." };
+      return { schema: z.union([z.number(), z.string()]), note: "A number above 0, or text as typed, such as 2.5 or 1.1.0: null for none." };
   }
 }
 

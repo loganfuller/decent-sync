@@ -194,7 +194,7 @@ describe("recording a load", () => {
     expect((loadWrite(typed, record, { profile: other })!.context as Record_).grinderSetting).toBeUndefined();
   });
 
-  it("writes the recipe's feed rate as typed where the Workflow holds another or none, as DYE2 v0.1.34 applies one, and leaves the Workflow's where the recipe holds none (fixtures/decaid/dye2-v0.1.35/feed-rate.json)", () => {
+  it("writes the recipe's feed rate as typed where the Workflow holds another or none, as DYE2 v0.1.34 applies one, and clears the Workflow's where the recipe holds none, as v0.1.37 does (fixtures/decaid/dye2-v0.1.35/feed-rate.json)", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
     (record.dashboardVariables as Record_).feedRate = "MF";
@@ -205,16 +205,17 @@ describe("recording a load", () => {
     // A feeder's RPM typed as a number is still text, never coerced.
     (record.dashboardVariables as Record_).feedRate = "1200";
     expect(extrasOf(loadWrite(previous, record, { profile })).feedRate).toBe("1200");
-    // A recipe holding none, or one its editor saved blank, leaves the Workflow's, as DYE2's apply does.
+    // A recipe holding none, or one its editor saved blank, clears the Workflow's, as DYE2's apply does from v0.1.37.
     for (const none of [null, ""]) {
       (record.dashboardVariables as Record_).feedRate = none;
-      expect(extrasOf(loadWrite(previous, record, { profile }))).not.toHaveProperty("feedRate");
+      expect(extrasOf(loadWrite(previous, record, { profile })).feedRate).toBeNull();
+      expect(extrasOf(loadWrite(workflow, record, { profile }))).not.toHaveProperty("feedRate");
     }
     (record.dashboardVariables as Record_).feedRate = "MF";
     expect(extrasOf(loadWrite(previous, record, { profile }, new Set(["feedRate"])))).not.toHaveProperty("feedRate");
   });
 
-  it("writes nothing to a Workflow holding it all, and leaves a value the recipe holds none of", () => {
+  it("writes nothing to a Workflow holding it all, and leaves a setting the recipe holds none of", () => {
     const workflow = appliedAtOwnTemperatures();
     const record = written();
     const first = loadWrite(workflow, record, { profile })!;
@@ -223,9 +224,63 @@ describe("recording a load", () => {
     for (const part of ["steamSettings", "hotWaterData", "rinseData"]) after[part] = { ...(after[part] as Record_), ...(first[part] as Record_) };
     expect(loadWrite(after, record, { profile })).toBeNull();
     // A setting the recipe holds none of is the Machine's own.
-    const bare = { ...record, beanBatchId: null, dashboardVariables: { ...(record.dashboardVariables as Record_), steamTempC: null, flushS: null } };
+    const bare = { ...record, dashboardVariables: { ...(record.dashboardVariables as Record_), steamTempC: null, flushS: null } };
     const otherwise = { ...after, steamSettings: { ...(after.steamSettings as Record_), targetTemperature: 160 }, rinseData: { ...(after.rinseData as Record_), duration: 9 } };
     expect(loadWrite(otherwise, bare, { profile: null })).toBeNull();
+  });
+
+  it("clears each part the recipe names none of that the Workflow still holds, as a Skin that clears nothing leaves them, its yield to 0, and the Workflow's profile and settings stay", () => {
+    // A recipe naming a Profile alone, applied by a Skin that wrote only its recipe id over recipe `1`'s Workflow.
+    const none: Record_ = { id: "9", name: "Fixture Bare", profileId: recipe("1").profileId, dashboardVariables: {} };
+    const workflow = appliedAtOwnTemperatures();
+    const write = loadWrite(workflow, none, { profile })!;
+    expect(write).toEqual({
+      context: {
+        targetDoseWeight: null,
+        targetYield: 0,
+        grinderSetting: null,
+        grinderId: null,
+        grinderModel: null,
+        extras: { rpm: null, basketId: null, basketName: null },
+        beanBatchId: null,
+        coffeeName: null,
+        coffeeRoaster: null,
+      },
+    });
+    // As Decaid leaves it: a field merged in as null is gone, and the yield is 0.
+    const context = workflow.context as Record_;
+    const cleared = { ...workflow, context: { ...context, ...(write.context as Record_), extras: { ...(context.extras as Record_), ...((write.context as Record_).extras as Record_) } } };
+    expect(loadWrite(cleared, none, { profile })).toBeNull();
+    // What DYE2's apply and Streamline's strip leave from v0.1.37 and v0.2.25: nothing to write.
+    const { targetYield: _, ...withoutYield } = cleared.context as Record_;
+    expect(loadWrite({ ...cleared, context: withoutYield }, none, { profile })).toBeNull();
+    expect(loadWrite(workflow, none, { profile }, new Set(["dose", "yield", "grind", "grinder", "rpm", "basket", "batch"]))).toBeNull();
+  });
+
+  it("reads a dose, grind setting or RPM of 0 in the record as none, as DYE2's editor saves an RPM left blank, so a recipe holding rpm 0 is written nothing once DYE2 applied it", () => {
+    const record = written();
+    Object.assign(record.dashboardVariables as Record_, { rpm: 0 });
+    // DYE2's apply cleared the RPM, as it reads the 0.
+    const workflow = appliedAtOwnTemperatures();
+    const context = workflow.context as Record_;
+    const { rpm: _, ...extras } = context.extras as Record_;
+    const applied = { ...workflow, context: { ...context, extras } };
+    expect(((loadWrite(applied, record, { profile })?.context as Record_ | undefined)?.extras as Record_ | undefined) ?? {}).not.toHaveProperty("rpm");
+    // And one a stored body left at 0 is none held.
+    expect(((loadWrite({ ...workflow, context: { ...context, extras: { ...extras, rpm: 0 } } }, record, { profile })?.context as Record_ | undefined)?.extras as Record_ | undefined) ?? {}).not.toHaveProperty("rpm");
+    // One the Workflow holds is cleared.
+    expect(((loadWrite(workflow, record, { profile })!.context as Record_).extras as Record_).rpm).toBeNull();
+    Object.assign(record.dashboardVariables as Record_, { dose: 0, grind: 0 });
+    expect(loadWrite(workflow, record, { profile })!.context).toMatchObject({ targetDoseWeight: null, grinderSetting: null });
+  });
+
+  it("clears the batch a recipe naming a Bean and no batch finds in the Workflow, leaving its Bean's name and roaster, as DYE2 applies one", () => {
+    const record = { ...written(), beanBatchId: null };
+    const workflow = appliedAtOwnTemperatures();
+    workflow.context = { ...(workflow.context as Record_), beanBatchId: batch, coffeeName: "Fixture Other" };
+    expect(loadWrite(workflow, record, { profile })!.context).toMatchObject({ beanBatchId: null, coffeeName: "Fixture Ethiopia", coffeeRoaster: "Fixture Roasters" });
+    const { beanBatchId: _, ...context } = workflow.context as Record_;
+    expect(loadWrite({ ...workflow, context }, record, { profile })?.context ?? {}).not.toHaveProperty("beanBatchId");
   });
 
   it("clears the Workflow's batch, coffee and roaster for a recipe naming no Bean, as DYE2 v0.1.32 applies one, but writes none where it holds none", () => {

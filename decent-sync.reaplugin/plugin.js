@@ -867,6 +867,7 @@ var __decentSync = (() => {
     flushDuration: [RECIPE_SETTINGS.flushDuration.workflow],
     flushFlow: [RECIPE_SETTINGS.flushFlow.workflow]
   };
+  var WORKFLOW_YIELD_OFF = 0;
   function workflowValueAt(workflow, path) {
     let value = workflow;
     for (const name of path.split(".")) value = isObject(value) ? value[name] : Array.isArray(value) && /^\d+$/.test(name) ? value[Number(name)] : void 0;
@@ -893,6 +894,13 @@ var __decentSync = (() => {
   var STEAM_TIME_TO = 255;
   function steamTimeOf(value) {
     return typeof value === "number" && Number.isFinite(value) && value >= STEAM_TIME_FROM ? Math.min(value, STEAM_TIME_TO) : null;
+  }
+  function isZero(value) {
+    if (typeof value === "number") return value === 0;
+    return typeof value === "string" && value.trim() !== "" && Number(value) === 0;
+  }
+  function noneAtZero(value) {
+    return value === void 0 || isZero(value) ? null : value;
   }
   var ANOTHER_ITEMS_RECORD = "The record carries another item's global id";
   var RECORD_CHANGED = "The record changed since the plugin last read the list";
@@ -1579,24 +1587,28 @@ var __decentSync = (() => {
     const variables = isObject2(record3.dashboardVariables) ? record3.dashboardVariables : {};
     const contextWrite = {};
     const extrasWrite = {};
-    const dose = numberOf(variables.dose);
-    if (dose !== null && !sameNumber(dose, numberOf(context.targetDoseWeight)) && !omit.has("dose")) contextWrite.targetDoseWeight = dose;
+    const dose = noneAtZero(numberOf(variables.dose));
+    if (!sameNumber(dose, noneAtZero(numberOf(context.targetDoseWeight))) && !omit.has("dose")) contextWrite.targetDoseWeight = dose;
     const ratio = numberOf(variables.ratio);
-    const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : null);
-    if (yieldValue !== null && !sameNumber(yieldValue, numberOf(context.targetYield)) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
-    const grind = grindOf(variables.grind);
-    if (grind !== null && !sameGrind(grind, grindOf(context.grinderSetting)) && !omit.has("grind")) contextWrite.grinderSetting = grind;
+    const yieldValue = numberOf(variables.drink) ?? (ratio !== null && dose !== null ? Math.round(dose * ratio * 10) / 10 : WORKFLOW_YIELD_OFF);
+    if (!sameNumber(yieldValue, numberOf(context.targetYield) ?? WORKFLOW_YIELD_OFF) && !omit.has("yield")) contextWrite.targetYield = yieldValue;
+    const grind = noneAtZero(grindOf(variables.grind));
+    if (!sameGrind(grind, noneAtZero(grindOf(context.grinderSetting))) && !omit.has("grind")) contextWrite.grinderSetting = grind;
     const grinder = textOf(variables.grinderId);
-    if (grinder !== null && grinder !== textOf(context.grinderId) && !omit.has("grinder")) {
+    if (grinder === null) {
+      if ((textOf(context.grinderId) !== null || textOf(context.grinderModel) !== null) && !omit.has("grinder")) Object.assign(contextWrite, { grinderId: null, grinderModel: null });
+    } else if (grinder !== textOf(context.grinderId) && !omit.has("grinder")) {
       contextWrite.grinderId = grinder;
       if (textOf(variables.grinderModel) !== null) contextWrite.grinderModel = variables.grinderModel;
     }
-    const rpm = numberOf(variables.rpm);
-    if (rpm !== null && !sameNumber(rpm, numberOf(extras.rpm)) && !omit.has("rpm")) extrasWrite.rpm = rpm;
+    const rpm = noneAtZero(numberOf(variables.rpm));
+    if (!sameNumber(rpm, noneAtZero(numberOf(extras.rpm))) && !omit.has("rpm")) extrasWrite.rpm = rpm;
     const feedRate = textOf(variables.feedRate);
-    if (feedRate !== null && feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
+    if (feedRate !== textOf(extras.feedRate) && !omit.has("feedRate")) extrasWrite.feedRate = feedRate;
     const basket = textOf(variables.basketId);
-    if (basket !== null && basket !== textOf(extras.basketId) && !omit.has("basket")) {
+    if (basket === null) {
+      if ((textOf(extras.basketId) !== null || textOf(extras.basketName) !== null) && !omit.has("basket")) Object.assign(extrasWrite, { basketId: null, basketName: null });
+    } else if (basket !== textOf(extras.basketId) && !omit.has("basket")) {
       extrasWrite.basketId = basket;
       if (textOf(variables.basketName) !== null) extrasWrite.basketName = variables.basketName;
     }
@@ -1606,6 +1618,10 @@ var __decentSync = (() => {
       contextWrite.beanBatchId = batch;
       if (textOf(record3.beanName) !== null) contextWrite.coffeeName = record3.beanName;
       if (textOf(record3.beanRoaster) !== null) contextWrite.coffeeRoaster = record3.beanRoaster;
+    } else if (batch === null && namesBean && textOf(context.beanBatchId) !== null && !omit.has("batch")) {
+      contextWrite.beanBatchId = null;
+      contextWrite.coffeeName = textOf(record3.beanName);
+      contextWrite.coffeeRoaster = textOf(record3.beanRoaster);
     } else if (!namesBean && !omit.has("batch") && WORKFLOW_BEAN.some((field) => context[field] !== null && context[field] !== void 0)) {
       for (const field of WORKFLOW_BEAN) contextWrite[field] = null;
     }

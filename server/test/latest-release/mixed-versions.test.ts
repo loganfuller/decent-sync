@@ -14,7 +14,7 @@ import { latestReleaseDir, latestReleaseTag, releaseWireRevision } from "../supp
 import { emptyLibrary, recipeNamedInWorkflow, syncingTablet } from "../support/loaded-tablets.js";
 import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
-import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet } from "../support/simulated-dye2.js";
+import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
 import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
@@ -255,6 +255,68 @@ describe("the latest release beside the change", () => {
     await quiet();
     const content = async () => (await api.get<{ recipe: { content: Record<string, unknown> } }>(`/recipes/${recipeId}`)).recipe.content;
     expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
+  });
+
+  // A Recipe is the whole Shot (#550): a Machine that loads one is left with
+  // none of what it names none of, whatever applied it. The change's server
+  // clears them through a write of the Loaded Recipe holding a null for each
+  // part, its yield 0, which the latest release's plugin writes as any other
+  // value, its own load write clearing nothing but the Bean, so the wire is
+  // unchanged. The latest release's server still takes what a Recipe holds
+  // none of from the Workflow as it loads, and writes it back: beside it,
+  // while a deploy runs, a Recipe applied by DYE2 v0.1.40, which clears the
+  // Workflow itself, takes at most a yield of 0, which is stop-at-weight
+  // off, and one applied by a Skin that clears nothing takes the Workflow's
+  // values as it did in that release.
+  it("leaves a tablet with none of what its Loaded Recipe names none of: on the latest release's plugin by the change's server's write, where a Skin clears nothing, and on the change's plugin on the latest release's server, where DYE2 clears as it applies", async () => {
+    type Record_ = Record<string, unknown>;
+    const ETHIOPIA = "1";
+    for (const { name, plugin, server } of [
+      { name: "the latest release's plugin", plugin: "latest release", server: "change" },
+      { name: "the change's plugin on the latest release", plugin: "change", server: "latest release" },
+    ] as const) {
+      const api = apis[server];
+      const location = await api.createLocation(`Whole Shot, ${name}`, "America/Chicago");
+      const machine = await api.createMachine(`Whole Shot, ${name}`, location.id);
+      const dye2 = new SimulatedDye2();
+      const tablet = syncingTablet(machine, servers[server], { latestRelease: plugin === "latest release", api: recordedDye2MainTablet(String(serial++), `Whole Shot ${server}`), dye2 });
+      loaded.push(tablet);
+      expect(tablet.pluginDir).toBe(pluginDirs()[plugin]);
+      await apis.change.waitForOnline(machine);
+      const records = () => (dye2List(tablet, "recipes") as Record_[] | null) ?? [];
+      await expect.poll(() => dye2GlobalIdOf(records().find((entry) => entry.id === ETHIOPIA)), { timeout: 15_000 }).not.toBeNull();
+      const ethiopia = dye2GlobalIdOf(records().find((entry) => entry.id === ETHIOPIA))!;
+      const content = async (id: string) => (await api.get<{ recipe: { content: Record_ } }>(`/recipes/${id}`)).recipe.content;
+      // A Recipe naming a Profile alone, made in the management interface, once the tablet holds its record.
+      const { recipe: bare } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: 3, content: { name: "Whole Shot Bare", profileId: (await content(ethiopia)).profileId } }, 201);
+      await expect.poll(() => records().find((entry) => dye2GlobalIdOf(entry) === bare.id)?.id ?? null, { timeout: 15_000 }).not.toBeNull();
+      const bareRecord = String(records().find((entry) => dye2GlobalIdOf(entry) === bare.id)!.id);
+      const loadedRecipe = async () => (await api.get<{ machine: { loadedRecipe: { recipe: { id: string } } | null } }>(`/machines/${machine.machine.id}`)).machine.loadedRecipe?.recipe.id;
+      const quiet = () => quiesced(api, { tablets: { tablet }, machines: { machine } });
+      const context = () => (tablet.workflow().context ?? {}) as Record_;
+      const held = () => {
+        const extras = (context().extras ?? {}) as Record_;
+        return [context().grinderId ?? null, context().grinderSetting ?? null, extras.basketId ?? null, context().targetDoseWeight ?? null, context().targetYield ?? null, extras.rpm ?? null];
+      };
+
+      // The Ethiopia, naming each, applied from DYE2's Select Recipe page.
+      expect((await selectRecipeInDye2(tablet, ETHIOPIA)).applied?.workflow?.status, name).toBe(200);
+      await expect.poll(loadedRecipe, { timeout: 15_000 }).toBe(ethiopia);
+      await quiet();
+      expect(held(), name).not.toContain(null);
+      // Then the bare one: named with nothing cleared, as a Skin that clears nothing applies it, where the change's server
+      // holds the tablet; and from DYE2's dashboard, which clears as it applies, where the latest release's does.
+      if (server === "change") expect((await tablet.callApi("POST", `/plugins/${DYE2_NAMESPACE}/selection`, { kind: "recipe", id: bareRecord })).status, name).toBe(200);
+      else expect((await (await openDye2Dashboard(tablet)).applyRecipe(bareRecord)).workflow?.status, name).toBe(200);
+      await expect.poll(loadedRecipe, { timeout: 15_000 }).toBe(bare.id);
+      await expect.poll(held, { timeout: 15_000 }).toEqual([null, null, null, null, 0, null]);
+      await quiet();
+      expect(held(), name).toEqual([null, null, null, null, 0, null]);
+      // Nothing is taken into the Recipe as it loads, but a yield of 0 by the latest release's server.
+      for (const field of ["grinderId", "grindSetting", "basketId", "dose", "rpm"]) expect(await content(bare.id), `${name}: ${field}`).not.toHaveProperty(field);
+      if (server === "change") expect(await content(bare.id), name).not.toHaveProperty("yield");
+      else expect((await content(bare.id)).yield ?? 0, name).toBe(0);
+    }
   });
 
   // A request puts a Recipe in a slot of 6 to 9 (#502), which each release's
