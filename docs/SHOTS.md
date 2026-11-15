@@ -1740,8 +1740,8 @@ instance, which has no such route, is answered 404, which the form shows
 rating Rating, where they said Enjoyment, and give it in stars too, such
 as "4 stars", with none for a Shot rated 0, as its card says Unrated.
 The Summary and Trend cards give it in stars too (#532, above). The REST
-API and the tools still give ratings from 0 to 10. Each Bean's, Bean Batch's, Grinder's,
-Profile's, Recipe's and Basket's page lists its Shots, ten at a time
+API and the tools still give ratings from 0 to 10. Each Bean's, Bean Batch's,
+Grinder's, Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
