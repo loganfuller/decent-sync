@@ -121,6 +121,8 @@ Each server has one owner: a household, or a business with all of its sites.
   Locations they work at. The Shot shows the edit at once, with who made
   it, and the plugin writes it into the Shot on the tablet that holds it,
   now or when that tablet next connects, so its Skin and DYE2 show the same.
+  Where the rating or the note was changed on that tablet later than the
+  edit, the tablet's stands, and the edit is kept, marked as not written.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and

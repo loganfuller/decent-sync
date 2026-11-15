@@ -612,6 +612,22 @@ model Shot {
   /// a tablet's index lists it, as only a tablet holding it does.
   tabletId         String?           @map("tablet_id") @db.Uuid
   tablet           Tablet?           @relation(fields: [tabletId], references: [id], onDelete: SetNull)
+  /// The rating, 0 for none, and the note, empty for none, that tablet
+  /// holds, as far as the server knows: as it last reported them, or was
+  /// last written them (ticket #513). An edit made through the server
+  /// changes the record at once and the tablet's Shot later, so the two
+  /// differ while one awaits its tablet, and a version the tablet reports
+  /// is read against these to tell the fields it changed
+  /// (`settleShotEdits` in server/src/shots/shot-edits.ts). Set as an edit
+  /// is made while no other awaits; null for a Shot never edited so.
+  heldRating       Float?            @map("held_rating")
+  heldNote         String?           @map("held_note")
+  /// The version of the Shot (`versionAt`) those were last set at. This
+  /// release sets it with every version it stores of such a Shot, so one
+  /// that differs was stored by the previous release, which decides
+  /// nothing (ADR-0025): the stored version is then decided before it is
+  /// relied on (`settleStoredVersion`).
+  heldVersionAt    DateTime?         @map("held_version_at") @db.Timestamptz(6)
   /// The Library's Bean Batch and Grinder those ids resolve to through that
   /// tablet's map, once it holds them, kept when the tablet's record leaves
   /// it (server/src/shots/links.ts). A Shot linked to an item names it.
@@ -753,6 +769,16 @@ model ShotEdit {
   /// When its tablet's plugin answered that it wrote it, by PostgreSQL's
   /// clock; null while it awaits its tablet.
   writtenAt      DateTime?     @map("written_at") @db.Timestamptz(3)
+  /// When each field it set was dropped, by PostgreSQL's clock: its tablet
+  /// reported a version of the Shot later than the edit in which it had
+  /// changed that field, so the tablet's value stands and the edit of it
+  /// is never written (ticket #513). Null for a field not dropped.
+  ratingDroppedAt DateTime?    @map("rating_dropped_at") @db.Timestamptz(3)
+  noteDroppedAt  DateTime?     @map("note_dropped_at") @db.Timestamptz(3)
+  /// When its tablet answered that it no longer holds the Shot, as one
+  /// reset or replaced, by PostgreSQL's clock: the edit stays on the
+  /// server, with no tablet to reach, and is sent no more.
+  unreachableAt  DateTime?     @map("unreachable_at") @db.Timestamptz(3)
 
   @@index([shotId, number])
   @@index([connectedAppId])

@@ -126,8 +126,8 @@ async function sample(
   // Read together, with no await between them, so what each returns marks the end of this sample.
   const found = new Map<string, Sampled>();
   for (const [name, tablet] of Object.entries(tablets)) {
-    // A request for a Skin carries an id too, but is answered, never acknowledged.
-    if (!tablet.acknowledgedEvery((frame: { id?: unknown; type?: unknown }) => typeof frame.id === "string" && frame.type !== "request")) return `tablet ${name} has a frame unacknowledged`;
+    // A request for a Skin carries an id too, but is answered, never acknowledged, and so does the answer to an edit of a Shot, which is neither.
+    if (!tablet.acknowledgedEvery((frame: { id?: unknown; type?: unknown }) => typeof frame.id === "string" && frame.type !== "request" && frame.type !== "shotEdited")) return `tablet ${name} has a frame unacknowledged`;
     const requests = tablet.inFlightRequests;
     const writes = requests.filter((request) => request.method !== "GET").length;
     if (writes > 0) return `tablet ${name} has ${writes} Decaid writes in flight`;

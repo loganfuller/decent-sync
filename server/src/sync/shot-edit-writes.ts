@@ -1,4 +1,4 @@
-import type { ShotEdit } from "@decent-sync/protocol";
+import type { ShotEdit, ShotEditedOutcome } from "@decent-sync/protocol";
 
 /**
  * How long the plugin has to answer an edit. It makes one request of Decaid
@@ -7,16 +7,16 @@ import type { ShotEdit } from "@decent-sync/protocol";
  */
 const ANSWER_TIMEOUT_MS = 60_000;
 
-/** What became of an edit sent: written, refused by Decaid, unanswered in time, or abandoned as the connection closed. */
-type Outcome = "written" | "refused" | "timedOut" | "stopped";
+/** What became of an edit sent: as the plugin answered it, unanswered in time, or abandoned as the connection closed. */
+type Outcome = ShotEditedOutcome | "timedOut" | "stopped";
 
 /**
  * Writes the edits of Shots made through the server (ADR-0031, ticket #512)
  * to the tablet of one connection this instance holds: those not yet
- * written of the Shots that tablet holds, a Shot at a time, the one whose
- * edit has waited longest first, each write carrying the latest value of
- * each field that Shot's unwritten edits set, and sent once the plugin has
- * answered the one before it and that answer is recorded.
+ * still awaiting it of the Shots that tablet holds, a Shot at a time, the
+ * one whose edit has waited longest first, each write carrying the latest
+ * value of each field that Shot's awaiting edits set, and sent once the
+ * plugin has answered the one before it and that answer is recorded.
  *
  * What is due is read from the database each time (`due`), so it reflects
  * edits made through any instance: the instance is woken to look when the
@@ -37,6 +37,16 @@ type Outcome = "written" | "refused" | "timedOut" | "stopped";
  * the order they arrive, so one tried again while an earlier one is still
  * under way lands after it.
  *
+ * A write is sent for the version of the Shot the server holds, and the
+ * plugin writes nothing where the tablet's is later (`changed`, ticket
+ * #513): the tablet changed the Shot, and its report of that is on its way.
+ * The Shot is sent nothing more until this connection reports it
+ * (`reported`), when its edits have been decided against that version and
+ * what still stands is due for it; or, had it reported it since the look
+ * for that write began, at once. A report that never comes leaves the Shot for the same
+ * timer. A tablet that no longer holds the Shot (`notHeld`) has its edits
+ * marked, so they are due no more, and the next Shot goes on.
+ *
  * Only an edit sent on this connection and not yet answered is answered
  * (`awaits`): the one awaited, or one whose answer comes after its time
  * was up, which the Shot on the tablet holds all the same.
@@ -48,8 +58,10 @@ export class ShotEditWrites {
   private stopped = false;
   /** The edit awaiting its answer. */
   private waiting: { id: string; settle: (outcome: Outcome) => void } | undefined;
-  /** The edits sent on this connection that the plugin has not answered, each with its Shot: the one awaited, and those whose time ran out. */
-  private readonly unanswered = new Map<string, string>();
+  /** The edits sent on this connection that the plugin has not answered, by their ids: the one awaited, and those whose time ran out. */
+  private readonly unanswered = new Map<string, ShotEdit>();
+  /** The Shots this connection has reported since the last look for what is due began, which read them as they then stood. */
+  private readonly reportedSince = new Set<string>();
   /** The Shots whose edit was refused, or not answered in time, on this connection, until they are tried again. */
   private readonly skipped = new Set<string>();
   /** Set while the Shots skipped wait to be tried again. */
@@ -96,16 +108,37 @@ export class ShotEditWrites {
   }
 
   /**
-   * The plugin answered an edit this connection awaits (`awaits`), and a
-   * `written` answer is recorded. One that comes after its time was up
-   * lets its Shot's later edits go on, if it was written.
+   * The plugin answered an edit this connection awaits (`awaits`), and what
+   * it answered is recorded. An answer that comes after its time was up
+   * lets its Shot's later edits go on, unless it was refused, or the Shot
+   * changed and its report is still to come.
    */
-  answered(id: string, written: boolean): void {
-    const shotId = this.unanswered.get(id);
-    if (shotId === undefined) return;
+  answered(id: string, outcome: ShotEditedOutcome): void {
+    const edit = this.unanswered.get(id);
+    if (edit === undefined) return;
     this.unanswered.delete(id);
-    if (this.waiting?.id === id) return this.waiting.settle(written ? "written" : "refused");
-    if (written && this.skipped.delete(shotId)) this.wake();
+    if (this.waiting?.id === id) return this.waiting.settle(outcome);
+    if (this.goesOn(edit.shotId, outcome) && this.skipped.delete(edit.shotId)) this.wake();
+  }
+
+  /**
+   * What this connection has written to the Shot on its tablet and has had
+   * no answer to: a version of the Shot it then reports may be Decaid's
+   * report of one of them, not a change made on the tablet.
+   */
+  sent(shotId: string): ShotEdit[] {
+    return [...this.unanswered.values()].filter((edit) => edit.shotId === shotId);
+  }
+
+  /**
+   * The connection reported the Shot, and the report was stored: its
+   * tablet holds it from now on, and what its edits are due is as that
+   * version left them. A Shot held back is looked at again.
+   */
+  reported(shotId: string): void {
+    this.reportedSince.add(shotId);
+    this.skipped.delete(shotId);
+    this.wake();
   }
 
   /** The connection closed: nothing more is sent on it. */
@@ -118,6 +151,8 @@ export class ShotEditWrites {
   private async run(): Promise<void> {
     for (;;) {
       this.again = false;
+      // What was reported before now, this look reads; what is reported from now on, a write it sends may be too early for.
+      this.reportedSince.clear();
       const edit = await this.due([...this.skipped]);
       if (this.stopped) return;
       if (edit === null) {
@@ -126,10 +161,21 @@ export class ShotEditWrites {
       }
       const outcome = await this.ask(edit);
       if (outcome === "stopped") return;
-      if (outcome === "written") continue;
       if (outcome === "timedOut") this.log.warn(`A tablet did not answer edit ${edit.id} of a Shot in ${ANSWER_TIMEOUT_MS / 1000} s`);
+      else if (this.goesOn(edit.shotId, outcome)) continue;
       this.skip(edit.shotId);
     }
+  }
+
+  /**
+   * Whether the Shot's edits go on after an answer: once written, or marked
+   * as having no tablet to reach, there is no more of that write to send;
+   * and where the Shot had changed on the tablet, once this connection has
+   * reported it since the look that sent the write began, as what is due
+   * is then for the version it reported.
+   */
+  private goesOn(shotId: string, outcome: ShotEditedOutcome): boolean {
+    return outcome === "written" || outcome === "notHeld" || (outcome === "changed" && this.reportedSince.has(shotId));
   }
 
   /** Sends the Shot nothing more until the Shots skipped are tried again, within `retryMs`. */
@@ -158,7 +204,7 @@ export class ShotEditWrites {
         resolve(outcome);
       };
       this.waiting = { id: edit.id, settle };
-      this.unanswered.set(edit.id, edit.shotId);
+      this.unanswered.set(edit.id, edit);
       this.send(edit);
     });
   }

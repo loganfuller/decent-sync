@@ -2273,17 +2273,53 @@ export function isShotNote(value: unknown): value is string {
 }
 
 /**
+ * A record's time as Decaid writes one in UTC, such as a Shot's `updatedAt`
+ * (`2026-11-10T09:00:00.123456Z`): its seconds, and their fraction, which
+ * Dart writes to the millisecond or the microsecond.
+ */
+const RECORD_TIME = /^(\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d)(?:\.(\d+))?Z$/;
+
+/** Whether a value is a record's time as Decaid writes one in UTC, ending in Z, which `isLaterRecordTime` compares. */
+export function isRecordTime(value: unknown): value is string {
+  return typeof value === "string" && RECORD_TIME.test(value);
+}
+
+/**
+ * Whether one record's time is later than another's, each as Decaid writes
+ * it in UTC (`isRecordTime`), compared to the last digit either gives, as
+ * PostgreSQL compares a Shot's versions, where a `Date` would stop at the
+ * millisecond. False where either is no such time, as nothing can be told
+ * of it.
+ */
+export function isLaterRecordTime(time: unknown, than: unknown): boolean {
+  const [later, earlier] = [typeof time === "string" ? RECORD_TIME.exec(time) : null, typeof than === "string" ? RECORD_TIME.exec(than) : null];
+  if (!later || !earlier) return false;
+  if (later[1] !== earlier[1]) return later[1]! > earlier[1]!;
+  const [fraction, other] = [later[2] ?? "", earlier[2] ?? ""];
+  const digits = Math.max(fraction.length, other.length);
+  return fraction.padEnd(digits, "0") > other.padEnd(digits, "0");
+}
+
+/**
  * Asks the plugin to write a Shot's rating, note or both, as edited
  * through the server (ADR-0031, ticket #512), into the Shot its tablet
  * holds: sent to the tablet that last reported the Shot, on the connection
  * holding its Machine, to a plugin at SHOT_EDITS_WIRE_REVISION, one at a
  * time, each once the one before it is answered. One write carries the
- * latest value of each field the Shot's edits not yet written set, so
- * several edits made while the tablet was off arrive as one. The plugin
- * writes it through Decaid's own Shot update (`PUT /api/v1/shots/{id}`),
- * setting only the fields it carries, and answers with `shotEdited`. Decaid
- * then reports the Shot as updated (`shotUpdated`), which reaches the
- * server as any edit made on the tablet does.
+ * latest value of each field the Shot's edits still awaiting their tablet
+ * set, so several edits made while the tablet was off arrive as one. The
+ * plugin writes it through Decaid's own Shot update
+ * (`PUT /api/v1/shots/{id}`), setting only the fields it carries, and
+ * answers with `shotEdited`. Decaid then reports the Shot as updated
+ * (`shotUpdated`), which reaches the server as any edit made on the tablet
+ * does.
+ *
+ * It is written only where the tablet's Shot is no later than `version`,
+ * the version the server holds (ticket #513): a later one holds a change
+ * made on the tablet that the server has yet to take in, which the write
+ * could undo. The plugin then writes nothing and answers `changed`, and the
+ * server decides the edit against that version once the tablet's report of
+ * it is in.
  */
 export interface ShotEdit {
   type: "shotEdit";
@@ -2291,11 +2327,24 @@ export interface ShotEdit {
   id: string;
   /** The Shot, by Decaid's id for it on the tablet. */
   shotId: string;
+  /** The Shot's version as the server holds it: the `updatedAt` its tablet last reported, as Decaid wrote it (`isRecordTime`). */
+  version: string;
   /** The rating to set (`isShotRating`); absent to leave the Shot's as it is. */
   rating?: number;
   /** The note to set (`isShotNote`); absent to leave the Shot's as it is. */
   note?: string;
 }
+
+/**
+ * What became of a `shotEdit` on its tablet: `written`, Decaid took the
+ * update; `refused`, it refused it, or did not answer; `changed`, the Shot
+ * there is at a later version than the edit was sent for, so nothing was
+ * written; `notHeld`, the tablet no longer holds the Shot, as one reset or
+ * replaced, so there is nothing to write it into.
+ */
+export const SHOT_EDITED_OUTCOMES = ["written", "refused", "changed", "notHeld"] as const;
+
+export type ShotEditedOutcome = (typeof SHOT_EDITED_OUTCOMES)[number];
 
 /**
  * The plugin's answer to a `shotEdit`, sent at once on the connection that
@@ -2309,8 +2358,7 @@ export interface ShotEdited {
   type: "shotEdited";
   /** The `shotEdit`'s id. */
   id: string;
-  /** `written`: Decaid took the update; `refused`: it refused it, or did not answer. */
-  outcome: "written" | "refused";
+  outcome: ShotEditedOutcome;
   /** For `refused`: Decaid's HTTP status, or null if Decaid did not answer. */
   status?: number | null;
   /** For `refused`: what Decaid answered, or why it could not be asked, cut to MAX_REFUSAL_LENGTH. */
@@ -2643,7 +2691,7 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
     case "shotEdited":
       return check<ShotEdited>(object, "shotEdited", (fields) => {
         fields.uuid("id");
-        fields.oneOf("outcome", ["written", "refused"]);
+        fields.oneOf("outcome", SHOT_EDITED_OUTCOMES);
         if (object.outcome === "refused") {
           if (object.status !== null) fields.integer("status", { nonNegative: true });
           fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
@@ -2819,6 +2867,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
       return check<ShotEdit>(object, "shotEdit", (fields) => {
         fields.uuid("id");
         fields.recordId("shotId");
+        fields.recordTime("version");
         if (object.rating !== undefined) fields.shotRating("rating");
         if (object.note !== undefined) fields.shotNote("note");
         fields.some(["rating", "note"]);
@@ -2931,6 +2980,11 @@ class FieldChecker {
   /** A Shot's or Steam Record's id (`isRecordId`). */
   recordId(key: string): void {
     if (!isRecordId(this.object[key])) this.problem(key, `must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
+  }
+
+  /** A record's time as Decaid writes one in UTC (`isRecordTime`). */
+  recordTime(key: string): void {
+    if (!isRecordTime(this.object[key])) this.problem(key, "must be a UTC time such as 2026-11-10T09:00:00.123456Z");
   }
 
   /** A rating a Shot's edit sets (`isShotRating`). */
