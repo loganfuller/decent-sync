@@ -116,9 +116,10 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
   and date. Each item's page lists its Shots. A Barista whose name was typed
   "jules" and "Jules" is one choice in the Barista filter, which finds both.
-- **Rated away from its tablet.** A Shot's rating and note can be edited
-  on its page, or by an assistant, by an Admin, or by Staff for Shots at
-  the Locations they work at. The Shot shows the edit at once, and the
+- **Rated away from its tablet.** A Shot's rating, up to five stars as
+  DYE2 shows it, and its note can be edited on its page, or by an
+  assistant, by an Admin, or by Staff for Shots at the Locations they
+  work at. The Shot shows the edit at once, and the
   plugin writes it into the Shot on the tablet that holds it, now or when
   that tablet next connects, so its Skin and DYE2 show the same. Until
   then the Shot's page says the edit awaits its tablet, or that it has no

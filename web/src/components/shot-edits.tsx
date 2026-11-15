@@ -1,18 +1,19 @@
+import { StarIcon } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { recordTime } from "@/components/records";
-import { ratingText } from "@/components/shots";
+import { MAX_STARS, ratingText, starsOf } from "@/components/shots";
 import { MadeBy } from "@/components/settings-edit-log";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api, type Shot, type ShotEdit } from "@/lib/api";
 import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
@@ -23,9 +24,17 @@ import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 // so the card says where the edits stand with that tablet, and a card of
 // its own, closed until opened, lists each edit with who made it.
 
-/** A rating as the card and its form say it: 0, or none, is unrated. */
+/** A rating as the card and its form say it, in stars: 0, or none, is unrated. */
 function ratingOrUnrated(rating: number | null): string {
   return ratingText(rating) ?? "Unrated";
+}
+
+/** Each star, in order, from 1. */
+const STARS = Array.from({ length: MAX_STARS }, (_, index) => index + 1);
+
+/** A star, filled where it counts toward a rating of that many stars, rounded to a whole one as DYE2 rounds it (`enjoymentToStars`). */
+function Star({ star, of }: { star: number; of: number }) {
+  return <StarIcon aria-hidden className={star <= Math.round(of) ? "fill-current" : "text-muted-foreground"} />;
 }
 
 /** Where a Shot's edits stand with the tablet that holds it, as the card says it in plain sight, with what explains it in its tooltip. */
@@ -55,8 +64,9 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
       <CardHeader>
         <CardTitleWithInfo title="Rating and note">
           <p>
-            How the Shot was judged. The rating runs from 1 to {MAX_SHOT_RATING}: DYE2 on a tablet shows it as five stars, two points a star. Both
-            are set on the tablet that holds the Shot, or edited away from it: here, or through a Connected App, such as an assistant.
+            How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
+            the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which Shot Summaries and an assistant's tools give. Both are set on the
+            tablet that holds the Shot, or edited away from it: here, or through a Connected App, such as an assistant.
           </p>
           <p>
             An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
@@ -86,7 +96,16 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
         ) : (
           <>
             <Fields label="Rating and note">
-              <Field term="Rating">{ratingOrUnrated(shot.enjoyment)}</Field>
+              <Field term="Rating">
+                <span className="flex items-center gap-2">
+                  <span className="flex [&_svg]:size-4">
+                    {STARS.map((star) => (
+                      <Star key={star} star={star} of={starsOf(shot.enjoyment)} />
+                    ))}
+                  </span>
+                  {ratingOrUnrated(shot.enjoyment)}
+                </span>
+              </Field>
               <Field term="Note">
                 {shot.notes ? <span className="whitespace-pre-wrap">{shot.notes}</span> : <span className="text-muted-foreground">None</span>}
               </Field>
@@ -106,17 +125,12 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
   );
 }
 
-/** A Select's value for each rating offered: unrated, then each whole number, and the Shot's own where it is none of those, as another Skin may set. */
-function ratingChoices(current: number): number[] {
-  const whole = Array.from({ length: MAX_SHOT_RATING + 1 }, (_, rating) => rating);
-  return whole.includes(current) ? whole : [...whole, current].sort((a, b) => a - b);
-}
-
 function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel(): void; onSaved(shot: Shot): void }) {
   const id = useId();
   // As the form opened: what the person saw, which what they change is told from, whatever the Shot reads as since.
-  const [initial] = useState(() => ({ rating: shot.enjoyment ?? 0, note: shot.notes ?? "" }));
-  const [rating, setRating] = useState(initial.rating);
+  // Its stars are whole, as DYE2 shows a rating between two: left alone, such a rating is not sent, and stays as it is.
+  const [initial] = useState(() => ({ stars: Math.round(starsOf(shot.enjoyment)), note: shot.notes ?? "" }));
+  const [stars, setStars] = useState(initial.stars);
   const [note, setNote] = useState(initial.note);
   const [error, setError] = useState<string>();
   const [saving, setSaving] = useState(false);
@@ -124,7 +138,7 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
   async function save(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setError(undefined);
-    const changed = { ...(rating !== initial.rating && { rating }), ...(note !== initial.note && { note }) };
+    const changed = { ...(stars !== initial.stars && { rating: stars * (MAX_SHOT_RATING / MAX_STARS) }), ...(note !== initial.note && { note }) };
     if (Object.keys(changed).length === 0) return onCancel();
     setSaving(true);
     try {
@@ -141,19 +155,20 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
     <form aria-label="Edit its rating and note" className="grid gap-4" onSubmit={(event) => void save(event)}>
       {error && <FormError error={error} />}
       <div className="grid gap-2">
-        <Label htmlFor={`${id}-rating`}>Rating</Label>
-        <Select value={String(rating)} onValueChange={(chosen) => setRating(Number(chosen))}>
-          <SelectTrigger id={`${id}-rating`} className="w-full sm:w-40">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {ratingChoices(initial.rating).map((choice) => (
-              <SelectItem key={choice} value={String(choice)}>
-                {ratingOrUnrated(choice)}
-              </SelectItem>
+        <Label id={`${id}-rating`}>Rating</Label>
+        <div className="flex items-center gap-3">
+          {/* One star pressed at a time, and none for unrated: pressing the star chosen again clears it. */}
+          <ToggleGroup type="single" variant="outline" aria-labelledby={`${id}-rating`} value={stars === 0 ? "" : String(stars)} onValueChange={(chosen) => setStars(Number(chosen))}>
+            {STARS.map((star) => (
+              <ToggleGroupItem key={star} value={String(star)} aria-label={`${star} ${star === 1 ? "star" : "stars"}`}>
+                <Star star={star} of={stars} />
+              </ToggleGroupItem>
             ))}
-          </SelectContent>
-        </Select>
+          </ToggleGroup>
+          <span className="text-sm text-muted-foreground" aria-live="polite">
+            {ratingOrUnrated(stars * (MAX_SHOT_RATING / MAX_STARS))}
+          </span>
+        </div>
       </div>
       <div className="grid gap-2">
         <Label htmlFor={`${id}-note`}>Note</Label>

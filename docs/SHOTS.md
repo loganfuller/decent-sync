@@ -1556,13 +1556,20 @@ with the Shot, and again when the Shot becomes its own Recipe's Reference
 Shot or stops being it; it is not offered for a Shot pulled with no
 Recipe, a Recipe with none, or the Reference Shot itself
 (`e2e/reference-shots.spec.ts`). Its Rating and note card
-(`web/src/components/shot-edits.tsx`, #514) shows the two, a rating of 0
-or none as Unrated, and, to whoever may edit them, an Admin, or Staff for
-a Shot at a Location they work at, an Edit button that opens a form in
-the card: a Select of Unrated and each whole rating from 1 to 10, with
-the Shot's own where another Skin set one between them, and the note. It
-sends `PATCH /api/shots/:id` with only what was changed, so a rating
-leaves the note alone, and shows the Shot as the answer gives it. Where
+(`web/src/components/shot-edits.tsx`, #514) shows the two, the rating as
+up to five stars, as DYE2 shows it and the owner's Skin will, each star
+two points of the rating from 0 to 10 Decaid keeps (`starsOf` in
+`web/src/components/shots.tsx`, as `starsToEnjoyment` in DYE2), and a
+rating of 0 or none as Unrated. To whoever may edit them, an Admin, or
+Staff for a Shot at a Location they work at, it has an Edit button that
+opens a form in the card: five stars, a shadcn `ToggleGroup` of which one
+is pressed at a time, and pressing it again leaves the Shot unrated, and
+the note. A rating between two stars, as an assistant may set, reads as
+it is, such as 4.5 stars, and fills the stars DYE2 would, rounded; the
+form starts from those, and sends no rating unless another star is
+pressed. It sends `PATCH /api/shots/:id` with only what was changed, so
+a rating leaves the note alone, and shows the Shot as the answer gives
+it. Where
 the read's `editStanding` is not null the card says so in plain sight,
 Awaiting its tablet or No tablet to reach, with what that means behind
 its info icon, and while an edit awaits its tablet the page reads the
@@ -1581,8 +1588,10 @@ shows no state and an empty card until it is loaded again, a read of a
 page already showing them changes nothing, and a save that reaches that
 instance, which has no such route, is answered 404, which the form shows
 (`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
-rating Rating, where they said Enjoyment, and show none for a Shot rated
-0, as its card says Unrated. Each Bean's, Bean Batch's, Grinder's,
+rating Rating, where they said Enjoyment, and give it in stars too, such
+as "4 stars", with none for a Shot rated 0, as its card says Unrated.
+Shot Summaries, the trends and the REST API and tools still give ratings
+from 0 to 10. Each Bean's, Bean Batch's, Grinder's,
 Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
