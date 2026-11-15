@@ -49,8 +49,8 @@ curl -X POST http://<tablet>:8080/api/v1/plugins/install/github-release \
 
 Decaid answers 401 to a request from the network that installs, updates,
 approves, enables, disables or removes a plugin or Skin, or saves a plugin's
-settings, unless it carries a token made for that on the tablet, and 403 to
-a token made without **Manage plugins and skins** turned on. Decaid's own
+settings, unless it carries a token made on the tablet, and 403 to one made
+without **Manage plugins and skins** turned on. Decaid's own
 screens and its own update checks need none, so the plugin installs and
 updates as this page says without one.
 

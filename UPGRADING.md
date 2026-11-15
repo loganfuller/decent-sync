@@ -72,7 +72,8 @@ Machine. The Settings card says so beside the field. Nothing is needed.
 
 Decaid v0.9.2 answers 401 to a request from the network that installs,
 updates or approves a plugin, unless it carries a token made on the tablet
-(docs/PLUGIN.md, A token for managing plugins). Nothing is needed where the
+with "Manage plugins and skins" turned on (docs/PLUGIN.md, A token for
+managing plugins). Nothing is needed where the
 plugin is installed from Decaid's Plugins screen and updates by itself, which
 need none.
 
