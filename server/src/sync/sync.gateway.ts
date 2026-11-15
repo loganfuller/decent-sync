@@ -34,6 +34,7 @@ import {
   REFERENCE_COPIES_WIRE_REVISION,
   REQUESTS_WIRE_REVISION,
   Reassembly,
+  SHOT_EDITS_WIRE_REVISION,
   type ReferenceCopy,
   type ReferencesHeld,
   type ReassemblyLimits,
@@ -42,6 +43,8 @@ import {
   type SettingsEdit,
   type SettingsEdited,
   type ShotDelivery,
+  type ShotEdit,
+  type ShotEdited,
   type SkinAnswer,
   type SkinRequest,
   type SteamDelivery,
@@ -80,6 +83,7 @@ import { PrismaService } from "../prisma.service.js";
 import { repeatingFailure } from "../set-aside-deliveries/repeating-failures.js";
 import { type CaptureDelivery, SetAsideDeliveriesService } from "../set-aside-deliveries/set-aside-deliveries.service.js";
 import { SettingsEditsService } from "../settings-edits/settings-edits.service.js";
+import { ShotEditsService } from "../shots/shot-edits.service.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { SkinRequestsService } from "../skin-requests/skin-requests.service.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
@@ -89,6 +93,7 @@ import { HandledDeliveries, type IndexRequest } from "./handled-deliveries.js";
 import type { Hardware, Identity, Reporter } from "./identity.js";
 import { ReferenceCopies } from "./reference-copies.js";
 import { MAX_MESSAGE_LENGTH, Sender } from "./sender.js";
+import { ShotEditWrites } from "./shot-edit-writes.js";
 import { type AwaitedWrite, TabletWriter, type WriteOutcome } from "./tablet-writer.js";
 
 /** Decaid never has more than 1 MiB pending on a transport, so no single frame is larger. */
@@ -150,6 +155,12 @@ interface Session {
    * came in (REFERENCE_COPIES_WIRE_REVISION).
    */
   references?: ReferenceCopies;
+  /**
+   * Writes the edits of Shots made through the server to its tablet, once
+   * welcomed, unless it is mismatched, or its plugin is behind the wire
+   * revision they came in (SHOT_EDITS_WIRE_REVISION).
+   */
+  shotEdits?: ShotEditWrites;
   /**
    * Sends its writes and answers, counting what its plugin has not confirmed,
    * once its hello is accepted from a plugin that confirms the server's
@@ -243,6 +254,14 @@ interface Session {
  * (`referencesHeld`), and again whenever a change to the Library, or a move
  * of its Machine, is notified.
  *
+ * A welcomed connection that is not mismatched, from a plugin at their wire
+ * revision, is sent the edits of the Shots its tablet holds that were made
+ * through the server (`ShotEditWrites`, ticket #512, ADR-0031), one at a
+ * time, each answered by the plugin (`shotEdited`): on its welcome, when an
+ * edit for its tablet is notified, through any instance, and when it
+ * reports a Shot or lists its Shots, which may make its tablet the one
+ * holding a Shot.
+ *
  * Each instance holds at most `MAX_AWAITING_HELLO` connections whose hello
  * has not been accepted, and refuses further upgrades with 503 until one is
  * accepted or closes. Connections that hold a Machine are not counted. The
@@ -279,6 +298,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly liveViews: LiveViews,
     private readonly skinRequests: SkinRequestsService,
+    private readonly shotEdits: ShotEditsService,
     notifications: Notifications,
   ) {
     notifications.subscribe("machine_access", (machineId) => void this.check(this.live.of(machineId)));
@@ -302,6 +322,11 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // After listening anew, every connection looks for edits made meanwhile.
     notifications.subscribe("settings_edits", (machineId) => {
       for (const session of this.connections) if (machineId === null || session.machine?.id === machineId) this.sendSettingsEdits(session);
+    });
+    // An edit of a Shot is for the tablet that holds the Shot, whichever Machine its connection holds. After listening
+    // anew, every connection looks for edits made meanwhile.
+    notifications.subscribe("shot_edits", (tabletId) => {
+      for (const session of this.connections) if (tabletId === null || session.live?.tabletId === tabletId) session.shotEdits?.wake();
     });
   }
 
@@ -333,6 +358,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       // A write awaiting its answer is abandoned; the tablet's next connection is written what it lacks.
       session.writer?.stop();
       session.references?.stop();
+      session.shotEdits?.stop();
       this.clearTimers(session);
       session.closing = true;
       session.socket.close(GOING_AWAY, "Server shutting down");
@@ -509,6 +535,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     // No delivery either: its id names a chunk of the server's. One arriving before the welcome, when nothing was
     // sent, or in chunks, or from a plugin the server counts nothing for, names no chunk in flight.
     if (message.type === "chunkReceived") return void this.chunkReceived(session, message);
+    // No delivery either: it answers an edit sent on this connection, and is neither kept nor acknowledged.
+    if (message.type === "shotEdited") return this.shotEdited(session, message);
     if (message.type !== "hello" && message.type !== "heartbeat" && session.handled.has(message.id)) {
       const request = session.handled.get(message.id);
       if (request) this.send(session, request);
@@ -521,7 +549,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.refuse(session, "protocol_error", "hello was already sent on this connection");
       case "shot":
       case "shotUpdated":
-        return this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
+        await this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
+        // A tablet whose report of a Shot was the newer one stored holds it from now on, and is due its edits still to be written.
+        session.shotEdits?.wake();
+        return;
       case "steam":
         return this.captureRecord(session, message, text, () => this.steamRecords.store(message, reporter));
       case "workflow":
@@ -563,7 +594,10 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         return this.settingsEdited(session, message);
       case "shotIndex": {
         const shotIds = await this.shots.requested(message, session.machine.id, reporter.tabletId);
-        return this.acknowledge(session, message.id, { type: "requestShots", shotIds });
+        this.acknowledge(session, message.id, { type: "requestShots", shotIds });
+        // A Shot stored without a tablet is held by the one listing it from now on, and its edits are due to that tablet.
+        session.shotEdits?.wake();
+        return;
       }
       case "steamIndex": {
         const steamIds = await this.steamRecords.requested(message, session.machine.id);
@@ -636,6 +670,34 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       return this.refuse(session, "protocol_error", `referencesHeld needs a plugin at wire revision ${REFERENCE_COPIES_WIRE_REVISION} or newer`);
     }
     session.references?.stated(message.held);
+  }
+
+  /**
+   * The plugin answered an edit of a Shot (`shotEdit`, ticket #512,
+   * ADR-0031), which it does on the connection that asked. Only an answer
+   * to an edit this connection sent, and has had no answer to, counts: any
+   * other, as one naming an edit still to be sent, changes nothing. One the
+   * plugin wrote is marked written, if its tablet still holds the Shot,
+   * even where the answer came after its time was up: the Shot on the
+   * tablet holds the edit either way. A refusal is logged, escaped, as it
+   * repeats what Decaid answered, and leaves the edit to be written: the
+   * connection sends its Shot nothing more until it tries again. The
+   * answer came with a wire revision, so one from a plugin behind it, which
+   * no plugin sends, is a protocol error.
+   */
+  private async shotEdited(session: Session, answer: ShotEdited): Promise<void> {
+    if (!peerHasWireRevision(session.wireRevision!, SHOT_EDITS_WIRE_REVISION)) {
+      return this.refuse(session, "protocol_error", `shotEdited needs a plugin at wire revision ${SHOT_EDITS_WIRE_REVISION} or newer`);
+    }
+    const id = answer.id.toLowerCase();
+    if (!session.shotEdits?.awaits(id)) return;
+    const written = answer.outcome === "written";
+    if (written) await this.shotEdits.written(session.live!.tabletId, id);
+    else {
+      const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
+      this.logger.warn(`The tablet of ${this.describe(session)} did not write edit ${id} of a Shot: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
+    }
+    session.shotEdits.answered(id, written);
   }
 
   /**
@@ -931,15 +993,16 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * Sends a write, delete, removal, leave-out or Settings Edit, an answer
-   * to a request, or a Reference Shot copy, on the connection: through its `Sender`, which keeps what
-   * the plugin has not confirmed within Decaid's limit, or, to the previous
-   * release's plugin, which confirms nothing, at once, in chunks if it is too
-   * large for one frame. That plugin is sent one write at a time and never
-   * an answer, as it makes no request, nor a copy.
+   * to a request, a Reference Shot copy, or an edit of a Shot, on the
+   * connection: through its `Sender`, which keeps what the plugin has not
+   * confirmed within Decaid's limit, or, to the previous release's plugin,
+   * which confirms nothing, at once, in chunks if it is too large for one
+   * frame. That plugin is sent one write at a time and never an answer, as
+   * it makes no request, nor a copy, nor an edit of a Shot.
    */
   private sendCounted(
     session: Session,
-    message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer | ReferenceCopy,
+    message: LibraryWrite | LibraryDelete | LibraryRemove | LeaveOut | SettingsEdit | SkinAnswer | ReferenceCopy | ShotEdit,
     text = encode(message),
   ): void {
     if (session.closing) return;
@@ -1032,6 +1095,19 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         () => session.sender?.waitingBytes ?? 0,
       );
     }
+    // Its tablet is written the edits of the Shots it holds made through the server, those made while it was off first.
+    if (identity.kind !== "mismatch" && peerHasWireRevision(session.wireRevision, SHOT_EDITS_WIRE_REVISION)) {
+      const edited = { sessionId: session.id, machineId: machine.id, tabletId: live.tabletId };
+      session.shotEdits = new ShotEditWrites(
+        (skipped) => this.shotEdits.due(edited, skipped),
+        (edit) => this.sendCounted(session, edit),
+        this.logger,
+        (work) => this.track(work),
+        // A write Decaid refused is tried again within ten heartbeat intervals: five minutes, as they are set by default.
+        10 * this.config.heartbeatIntervalMs,
+      );
+      session.shotEdits.wake();
+    }
     // An edit made while this hello was being accepted was notified before the session could be found.
     this.sendSettingsEdits(session);
     // Its tablet streams for the Live View while anyone watches, unless it reports other hardware than its Machine's.
@@ -1099,6 +1175,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
     session.closing = true;
     session.writer?.stop();
     session.references?.stop();
+    session.shotEdits?.stop();
     this.liveViews.closed(session.id);
     if (!session.live) return;
     this.live.delete(session.live);

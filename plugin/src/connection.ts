@@ -30,6 +30,7 @@ import { ShotGate } from "./shot-gate.js";
 import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { SettingsAccess, SettingsEdits } from "./settings-edits.js";
+import { ShotEdits } from "./shot-edits.js";
 import { ShotCapture } from "./shots.js";
 import { ReferenceCopies } from "./reference-copies.js";
 import { tellConnection, tellReference } from "./skin-api.js";
@@ -181,6 +182,8 @@ export class SyncConnection {
   private readonly writes: LibraryWrites;
   /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
   private readonly settingsEdits: SettingsEdits;
+  /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
+  private readonly shotEdits = new ShotEdits();
   /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
   private readonly shot = new ShotGate();
   /** Whether the Machine runs nothing, which the reads of its own settings and sensor calibration wait for. */
@@ -570,6 +573,15 @@ export class SyncConnection {
         // write is refused as expired; a write under way finishes, and the next connection takes its answer, which any
         // instance records.
         void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
+        break;
+      case "shotEdit":
+        // Answered at once, on this connection alone: an edit whose answer is lost with its connection is still due, and
+        // the server sends it again on the next.
+        void this.shotEdits.apply(message, (answer) => {
+          this.send(handle, answer).catch((error: unknown) => {
+            this.sendFailed(handle, `could not answer an edit of a Shot: ${describe(error)}`);
+          });
+        });
         break;
       case "liveStart":
         // Streams on this connection until liveStop or its end.

@@ -21,6 +21,9 @@ interface Queued {
   reject(error: Error): void;
 }
 
+/** The messages carrying an `id` that the server neither acknowledges nor confirms. */
+const UNCONFIRMED: ReadonlySet<PluginMessage["type"]> = new Set(["request", "chunkReceived", "shotEdited"]);
+
 /** A frame handed to Decaid that the server has not confirmed yet. */
 interface Unconfirmed {
   id: string;
@@ -40,10 +43,10 @@ interface Unconfirmed {
  * MAX_UNCONFIRMED_BYTES. Decaid writes a transport's frames in order, so a
  * confirmation also covers every frame sent before it. A message that is no
  * delivery and fits in one frame, a `hello`, a `heartbeat`, a request for a
- * Skin, what the tablet holds of the Reference Shot copies or the
- * confirmation of a chunk the server sent, is sent at once,
- * ahead of anything waiting, and not counted, so a large delivery never
- * holds up the heartbeats that keep the connection open.
+ * Skin, what the tablet holds of the Reference Shot copies, the answer to
+ * an edit of a Shot or the confirmation of a chunk the server sent, is sent
+ * at once, ahead of anything waiting, and not counted, so a large delivery
+ * never holds up the heartbeats that keep the connection open.
  */
 export class Sender {
   private readonly queue: Queued[] = [];
@@ -60,9 +63,9 @@ export class Sender {
   /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
   async send(message: PluginMessage): Promise<void> {
     if (this.failure) throw this.failure;
-    // A request's id only matches its answer to it, and a confirmation's names the server's chunk: the server
-    // confirms neither, so they are no deliveries.
-    const id = "id" in message && message.type !== "request" && message.type !== "chunkReceived" ? message.id : undefined;
+    // A request's id only matches its answer to it, a confirmation's names the server's chunk, and the answer to an
+    // edit of a Shot repeats that edit's: the server confirms none of them, so they are no deliveries.
+    const id = "id" in message && !UNCONFIRMED.has(message.type) ? message.id : undefined;
     const name = id ?? `message-${++this.unnamed}`;
     const encoded = frames(encode(message), name);
     if (encoded.length === 1 && id === undefined) return this.sendFrame(encoded[0]!.text);

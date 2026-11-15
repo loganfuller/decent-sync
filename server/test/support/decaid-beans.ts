@@ -128,9 +128,21 @@ export function withDecaidClock<T>(offsetMs: number, work: () => T): T {
 
 /** Now, as Decaid writes `DateTime.now()`: the tablet's local time without an offset, by `toIso8601String`. */
 export function decaidNow(): string {
+  return localIso(nowMicros());
+}
+
+/** Now, as Decaid writes `DateTime.now().toUtc()`, such as a Shot's edit time: UTC, ending in Z, by `toIso8601String`. */
+export function decaidUtcNow(): string {
+  const micros = nowMicros();
+  const time = new Date(Math.floor(micros / 1000)).toISOString().slice(0, -1);
+  return `${time}${micros % 1000 === 0 ? "" : String(micros % 1000).padStart(3, "0")}Z`;
+}
+
+/** The answering Decaid's clock, in microseconds since the epoch: every read is later than the one before. */
+function nowMicros(): number {
   const micros = Math.max((lastMicros.get(clockOffsetMs) ?? 0) + 1, Math.floor((performance.timeOrigin + performance.now() + clockOffsetMs) * 1000));
   lastMicros.set(clockOffsetMs, micros);
-  return localIso(micros);
+  return micros;
 }
 
 /** A time in microseconds since the epoch as Dart's `toIso8601String` writes a local one. */

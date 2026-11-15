@@ -931,6 +931,21 @@ var __decentSync = (() => {
   var REFERENCE_COPIES_WIRE_REVISION = 3;
   var MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
   var MAX_REFERENCE_VERSION_LENGTH = 128;
+  var MAX_SHOT_RATING = 10;
+  function isShotRating(value) {
+    return typeof value === "number" && value >= 0 && value <= MAX_SHOT_RATING;
+  }
+  function isShotNote(value) {
+    if (typeof value !== "string" || value.includes("\0")) return false;
+    for (let index = 0; index < value.length; index++) {
+      const unit = value.charCodeAt(index);
+      if (unit < 55296 || unit > 57343) continue;
+      const next = value.charCodeAt(index + 1);
+      if (unit > 56319 || !(next >= 56320 && next <= 57343)) return false;
+      index++;
+    }
+    return true;
+  }
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -1109,6 +1124,14 @@ var __decentSync = (() => {
             } else referenceFields(copy);
           });
         });
+      case "shotEdit":
+        return check(object3, "shotEdit", (fields) => {
+          fields.uuid("id");
+          fields.recordId("shotId");
+          if (object3.rating !== void 0) fields.shotRating("rating");
+          if (object3.note !== void 0) fields.shotNote("note");
+          fields.some(["rating", "note"]);
+        });
       default:
         return invalid("Unknown message type");
     }
@@ -1173,6 +1196,18 @@ var __decentSync = (() => {
     boolean(key2) {
       if (typeof this.object[key2] !== "boolean") this.problem(key2, "must be true or false");
     }
+    /** A Shot's or Steam Record's id (`isRecordId`). */
+    recordId(key2) {
+      if (!isRecordId(this.object[key2])) this.problem(key2, `must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
+    }
+    /** A rating a Shot's edit sets (`isShotRating`). */
+    shotRating(key2) {
+      if (!isShotRating(this.object[key2])) this.problem(key2, `must be a number from 0 to ${MAX_SHOT_RATING}`);
+    }
+    /** A note a Shot's edit sets (`isShotNote`). */
+    shotNote(key2) {
+      if (!isShotNote(this.object[key2])) this.problem(key2, "must be text PostgreSQL stores");
+    }
     /** A Recipe Slot's number. */
     recipeSlot(key2) {
       if (!isRecipeSlot(this.object[key2])) this.problem(key2, `must be a Recipe Slot, 1 to ${RECIPE_SLOTS}`);
@@ -1198,6 +1233,10 @@ var __decentSync = (() => {
     }
     absent(key2) {
       if (this.object[key2] !== void 0) this.problem(key2, "must be absent");
+    }
+    /** At least one of `keys`. */
+    some(keys) {
+      if (keys.every((key2) => this.object[key2] === void 0)) this.problems.push(`${this.path} must have ${keys.join(" or ")}`);
     }
     /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
     instant(key2) {
@@ -4451,6 +4490,7 @@ var __decentSync = (() => {
 
   // src/sender.ts
   var MAX_UNCONFIRMED_BYTES = 512 * 1024;
+  var UNCONFIRMED = /* @__PURE__ */ new Set(["request", "chunkReceived", "shotEdited"]);
   var Sender = class {
     constructor(sendFrame) {
       __publicField(this, "sendFrame", sendFrame);
@@ -4466,7 +4506,7 @@ var __decentSync = (() => {
     /** Resolves once every frame of the message has been handed to Decaid; rejects if the transport fails first. */
     async send(message) {
       if (this.failure) throw this.failure;
-      const id = "id" in message && message.type !== "request" && message.type !== "chunkReceived" ? message.id : void 0;
+      const id = "id" in message && !UNCONFIRMED.has(message.type) ? message.id : void 0;
       const name = id ?? `message-${++this.unnamed}`;
       const encoded = frames(encode(message), name);
       if (encoded.length === 1 && id === void 0) return this.sendFrame(encoded[0].text);
@@ -4775,6 +4815,30 @@ var __decentSync = (() => {
   }
   function describe(error) {
     return error instanceof Error ? error.message : String(error);
+  }
+
+  // src/shot-edits.ts
+  var ShotEdits = class {
+    constructor() {
+      __publicField(this, "queue", Promise.resolve());
+    }
+    /** Writes an edit once those before it are written, and gives its answer to `answer`. It never rejects. */
+    apply(edit, answer) {
+      this.queue = this.queue.then(async () => answer(await writeShotEdit(edit))).catch(() => {
+      });
+      return this.queue;
+    }
+  };
+  async function writeShotEdit(edit) {
+    const annotations = { ...edit.rating !== void 0 && { enjoyment: edit.rating }, ...edit.note !== void 0 && { espressoNotes: edit.note } };
+    try {
+      const answer = await request("PUT", `/shots/${encodeURIComponent(edit.shotId)}`, { annotations });
+      if (answer.ok) return { type: "shotEdited", id: edit.id, outcome: "written" };
+      return { type: "shotEdited", id: edit.id, outcome: "refused", status: answer.status, error: answer.text.slice(0, MAX_REFUSAL_LENGTH) };
+    } catch (error) {
+      const why = error instanceof Error ? error.message : String(error);
+      return { type: "shotEdited", id: edit.id, outcome: "refused", status: null, error: why.slice(0, MAX_REFUSAL_LENGTH) };
+    }
   }
 
   // src/shots.ts
@@ -5599,6 +5663,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
       __publicField(this, "writes");
       /** Carries out the Settings Edits the server asks for, one at a time, between reads of the settings collections. */
       __publicField(this, "settingsEdits");
+      /** Writes the edits of Shots made through the server into the Shots the tablet holds, one at a time (ADR-0031). */
+      __publicField(this, "shotEdits", new ShotEdits());
       /** Whether the Machine is pulling a Shot, which the plugin's writes into the Workflow, and the server's changes, wait out. */
       __publicField(this, "shot", new ShotGate());
       /** Whether the Machine runs nothing, which the reads of its own settings and sensor calibration wait for. */
@@ -5951,6 +6017,13 @@ ${JSON.stringify(copy?.reference ?? null)}`;
           break;
         case "settingsEdit":
           void this.settingsEdits.apply(message, () => this.handle === handle && !this.stopped);
+          break;
+        case "shotEdit":
+          void this.shotEdits.apply(message, (answer) => {
+            this.send(handle, answer).catch((error) => {
+              this.sendFailed(handle, `could not answer an edit of a Shot: ${describe3(error)}`);
+            });
+          });
           break;
         case "liveStart":
           if (this.welcomed) {

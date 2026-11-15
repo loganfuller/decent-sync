@@ -129,6 +129,7 @@ const STAFF = [
   "GET /api/shots/filters",
   "GET /api/shots/summary",
   "GET /api/shots/:id",
+  "PATCH /api/shots/:id",
   "GET /api/shots/:id/measurements",
   "GET /api/steam-records",
   "GET /api/steam-records/:id",

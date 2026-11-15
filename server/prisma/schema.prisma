@@ -53,6 +53,7 @@ model Account {
   itemVersions  ItemVersion[]
   conflicts     Conflict[]
   settingsEdits SettingsEdit[]
+  shotEdits     ShotEdit[]
   connectedApps ConnectedApp[]
 
   @@map("accounts")
@@ -189,11 +190,12 @@ model ConnectedApp {
   authorizationCodes AuthorizationCode[]
   accessTokens       AccessToken[]
   refreshTokens      RefreshToken[]
-  /// The Library's versions and Conflicts, and the Settings Edits, it made,
-  /// which keep it once it lapses (cleanup.ts).
+  /// The Library's versions and Conflicts, the Settings Edits and the edits
+  /// of Shots it made, which keep it once it lapses (cleanup.ts).
   itemVersions       ItemVersion[]
   conflicts          Conflict[]
   settingsEdits      SettingsEdit[]
+  shotEdits          ShotEdit[]
 
   @@index([accountId])
   @@index([lastUsedAt])
@@ -715,6 +717,48 @@ model ShotMeasurements {
   data   Json   @db.JsonB
 
   @@map("shot_measurements")
+}
+
+/// An edit of a Shot's rating, note or both made through the server
+/// (ADR-0031, ticket #512): applied to the Shot the server holds as it is
+/// made, and written into the Shot on the tablet that holds it, the one that
+/// last reported it (`shots.tablet_id`), now if that tablet is connected and
+/// otherwise when it next connects (server/src/shots/shot-edits.service.ts).
+model ShotEdit {
+  id             String        @id @default(uuid(7)) @db.Uuid
+  /// A number from its column's sequence, taken as its row is inserted
+  /// under its Shot's lock: one Shot's edits are numbered in the order they
+  /// were applied, on any instance and whatever PostgreSQL's clock does.
+  /// They are listed by it, and a write to the Shot's tablet carries the
+  /// latest value of each field by it.
+  number         BigInt        @default(autoincrement())
+  /// The Shot, by its id, with no foreign key, as a Recipe names its
+  /// Reference Shot: Shots are never deleted.
+  shotId         String        @map("shot_id")
+  /// The rating it set, 0 for unrated, and the note, empty for none; each
+  /// null where the edit left that field alone.
+  rating         Float?
+  note           String?
+  /// Who made it: an account, and the Connected App it made it through, if
+  /// one (ADR-0026). An edit made on a Machine's tablet (#515) names
+  /// neither.
+  accountId      String?       @map("account_id") @db.Uuid
+  account        Account?      @relation(fields: [accountId], references: [id], onDelete: SetNull)
+  connectedAppId String?       @map("connected_app_id") @db.Uuid
+  connectedApp   ConnectedApp? @relation(fields: [connectedAppId], references: [id], onDelete: SetNull)
+  /// By PostgreSQL's clock, as its row is inserted, under its Shot's lock
+  /// (`clock_timestamp()`): when the edit was applied, not when its
+  /// transaction began, which may have waited for that lock.
+  madeAt         DateTime      @default(dbgenerated("clock_timestamp()")) @map("made_at") @db.Timestamptz(6)
+  /// When its tablet's plugin answered that it wrote it, by PostgreSQL's
+  /// clock; null while it awaits its tablet.
+  writtenAt      DateTime?     @map("written_at") @db.Timestamptz(3)
+
+  @@index([shotId, number])
+  @@index([connectedAppId])
+  /// The migration also indexes the edits still to be written, by their
+  /// number, partially; Prisma cannot express that.
+  @@map("shot_edits")
 }
 
 /// A Decaid Steam Record, stored once by its id, whichever tablet reported it.

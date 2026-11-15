@@ -2,8 +2,9 @@
 
 The Decent Sync plugin runs inside Decaid on each machine's tablet. It sends
 the server everything the tablet records, writes the shared Library and
-Recipes back to the tablet, and answers a Skin on the tablet about what the
-server holds.
+Recipes back to the tablet, with a rating or note given to one of the
+tablet's Shots through the server, and answers a Skin on the tablet about
+what the server holds.
 
 - [Requirements](#requirements)
 - [Installing](#installing)
@@ -164,7 +165,8 @@ unless the Location had none of that kind yet.
 A Machine with no Location, or whose sharing an Admin has turned off, is
 capture-only. The server still collects its records, but its library stays out
 of the Library, and nothing from the Library is written to its tablet.
-Settings Edits still reach it. The [Reference Shot copies](#reference-shot-copies)
+Settings Edits still reach it, and so does an edit of a
+[Shot's rating or note](#a-shots-rating-and-note). The [Reference Shot copies](#reference-shot-copies)
 its tablet kept are emptied.
 
 ### Reference Shot copies
@@ -197,6 +199,35 @@ Decaid's Shots.
   time, and can't be read while the server can't be reached.
 - **Older releases.** A server of 1.9.0 sends no copies, and a 1.9.0 plugin
   is sent none.
+
+### A Shot's rating and note
+
+A Shot's rating and note can be edited through the server, away from the
+tablet that holds it
+([ADR-0031](adr/0031-a-shots-rating-and-note-are-edited-through-the-server.md)).
+The plugin writes such an edit into the Shot on the tablet that holds it, so
+that tablet's Skin and DYE2 show what the server shows. It is the only thing
+the plugin writes to a tablet's Shots.
+
+- **What.** The rating, on Decaid's scale of 0 to 10, where 0 is unrated,
+  the note, where empty is none, or both. The plugin sends Decaid's own Shot
+  update (`PUT /api/v1/shots/{id}`) only the fields the edit carries, in the
+  Shot's annotations, so an edit of the rating leaves the note alone, and
+  the reverse. Nothing else of a Shot is ever written.
+- **Which tablet.** The one that holds the Shot: the tablet that last
+  reported it to the server.
+- **When.** At once while that tablet is connected, and otherwise when it
+  next connects. Several edits of one Shot made meanwhile are written as
+  one: the latest rating and the latest note among them.
+- **Afterwards.** Decaid reports the Shot as updated, and the plugin sends
+  that to the server as it sends any edit made on the tablet.
+- **Refused.** If Decaid refuses the update, the edit stays waiting on the
+  server, and is tried again within a few minutes, with any edit of that
+  Shot made since, and when the tablet next connects.
+- **Capture-only Machines** are written their Shots' edits too: a Shot's
+  rating is no part of the Library.
+- **Older releases.** A 1.9.0 plugin is sent no edit: one waits until the
+  tablet's plugin is updated. A server of 1.9.0 sends none.
 
 ### Refused writes
 
