@@ -2,14 +2,10 @@ import { randomUUID } from "node:crypto";
 import path from "node:path";
 import {
   RECIPE_SETTINGS,
-  REFERENCE_COPIES_WIRE_REVISION,
-  REQUESTS_WIRE_REVISION,
-  SHOT_EDITS_WIRE_REVISION,
   WIRE_REVISION,
   dye2GlobalIdOf,
   globalIdOf,
   workflowValueAt,
-  writtenRecipeSlot,
 } from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
@@ -261,13 +257,10 @@ describe("the latest release beside the change", () => {
     expect([dye2.recorded.slice(saves).filter(({ patch }) => "steamTempC" in patch), held(), (await content()).steamTemperature]).toEqual([[], 160, 160]);
   });
 
-  // A request puts a Recipe in a slot of 6 to 9 (#502). Beside a release
-  // whose server and plugin read and keep a `stripSlot` of 6 to 9, the Recipe
-  // is in the slot the change's server put it in on every tablet, whichever
-  // release's plugin it runs and whichever release's instance holds it. A
-  // plugin from before them, on the change's server, is written the Recipe
-  // in no slot (`writtenRecipeSlot`, #506), and the Recipe keeps its slot all
-  // the same.
+  // A request puts a Recipe in a slot of 6 to 9 (#502), which each release's
+  // server and plugin read and keep (#506): the Recipe is in the slot the
+  // change's server put it in on every tablet, whichever release's plugin it
+  // runs and whichever release's instance holds it.
   it("keeps a Recipe put in slot 7 through REST in slot 7, on each release's plugin and each release's instance, through their reports", async () => {
     const api = apis.change;
     const location = await api.createLocation("Slot 7 through REST", "America/Chicago");
@@ -285,13 +278,8 @@ describe("the latest release beside the change", () => {
     /** Each tablet's record of each Recipe: its slot, and whether it is shown. */
     const held = (...ids: string[]) => tablets.map((tablet) => ids.map((id) => [record(tablet, id)?.stripSlot, record(tablet, id)?.showOnStreamlineDashboard]));
     const onEach = <T>(value: T) => tablets.map(() => value);
-    // What each tablet holds of a Recipe in slot 7: the slot, shown, but none where the change's server writes a plugin
-    // from before slots 6 to 9. The latest release's server writes the slot as it is.
-    const revisions = wireRevisions();
-    const inSeven = pairings.map(({ plugin, server }) => {
-      const slot = server === "change" ? writtenRecipeSlot(7, revisions[plugin]) : 7;
-      return [slot, slot !== null];
-    });
+    /** What each tablet holds of a Recipe in slot 7: the slot, shown. */
+    const inSeven = [7, true];
     /** The Recipe as each release's server reads it. */
     const read = async (id: string) => [(await api.get<Slotted>(`/recipes/${id}`)).recipe, (await apis["latest release"].get<Slotted>(`/recipes/${id}`)).recipe];
 
@@ -300,7 +288,7 @@ describe("the latest release beside the change", () => {
 
     // Moved to slot 7 through the change's server: each tablet's record holds stripSlot 7, shown.
     expect((await api.send<Slotted>("PUT", `/recipes/${recipe.id}/slot`, { slot: 7 })).recipe.slot).toBe(7);
-    await expect.poll(() => held(recipe.id)).toEqual(inSeven.map((slot) => [slot]));
+    await expect.poll(() => held(recipe.id)).toEqual(onEach([inSeven]));
     expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
 
     // A report from each tablet, of an edit there, keeps the Recipe in slot 7 and reaches the others.
@@ -312,24 +300,20 @@ describe("the latest release beside the change", () => {
       await expect.poll(async () => (await read(recipe.id)).map((seen) => seen.name)).toEqual([name, name]);
       await expect.poll(() => tablets.map((other) => record(other, recipe.id)?.name)).toEqual(onEach(name));
       expect((await read(recipe.id)).map(({ slot }) => slot)).toEqual([7, 7]);
-      expect(held(recipe.id)).toEqual(inSeven.map((slot) => [slot]));
+      expect(held(recipe.id)).toEqual(onEach([inSeven]));
     }
 
     // Another created in slot 7 through the change's server takes the slot, and the first is kept in none, on every tablet.
     const { recipe: taking } = await api.send<Slotted>("POST", "/recipes", { locationId: location.id, slot: 7, content: { name: "Seven too", dose: 18, yield: 36 } }, 201);
-    await expect.poll(() => held(taking.id, recipe.id)).toEqual(inSeven.map((slot) => [slot, [null, false]]));
+    await expect.poll(() => held(taking.id, recipe.id)).toEqual(onEach([inSeven, [null, false]]));
     expect([(await read(taking.id)).map(({ slot }) => slot), (await read(recipe.id)).map(({ slot }) => slot)]).toEqual([[7, 7], [null, null]]);
   });
 
-  // A Skin's requests came with the change's wire revision (#507, ADR-0030).
-  // The latest release's plugin declares no `status` endpoint and sends no
-  // request, so its tablet carries on as before. A tablet with the change's
-  // plugin that the latest release's instance holds, as during a deploy,
-  // sends that server no request, and answers a Skin that the server is too
-  // old to ask, on each of the endpoints that ask it (#509: `shots` and
-  // `shot`), until its connection is to the change's. Once the latest
-  // release has requests itself, its server answers them.
-  it("answers a Skin as too old to ask while the latest release's server holds its tablet, and leaves a tablet on the latest release's plugin as it was", async () => {
+  // A Skin's requests (#507, ADR-0030) are answered by each release's server
+  // and sent by each release's plugin, so a Skin is answered whichever
+  // release's instance holds its tablet, as during a deploy, and whichever
+  // release's plugin the tablet runs.
+  it("answers a Skin whichever release's instance holds its tablet, and whichever release's plugin it runs", async () => {
     const location = await apis.change.createLocation("Skin status, both releases", "America/Chicago");
     const status = async (tablet: SimulatedTablet) => {
       const answer = await tablet.callEndpoint("status");
@@ -337,51 +321,42 @@ describe("the latest release beside the change", () => {
     };
     /** Once the plugin has been welcomed, as a Skin listening is told. */
     const welcomed = (tablet: SimulatedTablet) => expect.poll(() => tablet.pushes("changes").at(-1)).toEqual({ what: "connection", connected: true });
-    const requests = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "request");
+    const served = (machine: CreatedMachine) => ({
+      status: 200,
+      body: { connected: true, served: true, machine: { id: machine.machine.id, name: machine.machine.name }, location: { id: location.id, name: location.name } },
+    });
+    const noShots = [200, { shots: [], nextCursor: null }];
+    const shots = async (tablet: SimulatedTablet) => {
+      const listed = await tablet.callEndpoint("shots");
+      return [listed.status, JSON.parse(listed.body)];
+    };
 
+    // The change's plugin, held by the latest release's instance.
     const held = await connected("Skin status, held by the latest release", "change", "latest release", { location });
     await welcomed(held.tablet);
-    const served = { connected: true, served: true, machine: { id: held.machine.machine.id, name: "Skin status, held by the latest release" }, location: { id: location.id, name: location.name } };
-    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
-      expect(await status(held.tablet)).toEqual({
-        status: 503,
-        body: { connected: true, served: false, machine: null, location: null, code: "serverTooOld", message: expect.stringContaining("too old") },
-      });
-      const tooOld = { code: "serverTooOld", message: expect.stringContaining("too old") };
-      const shots = await held.tablet.callEndpoint("shots");
-      const shot = await held.tablet.callEndpoint("shot", { query: { id: "any-shot" } });
-      expect([shots.status, JSON.parse(shots.body), shot.status, JSON.parse(shot.body)]).toEqual([503, tooOld, 503, tooOld]);
-      expect(requests(held.tablet)).toEqual([]);
-    } else {
-      expect(await status(held.tablet)).toEqual({ status: 200, body: served });
-    }
-    // Held by the change's instance, as once the deploy is done, it is answered.
+    expect(await status(held.tablet)).toEqual(served(held.machine));
+    expect(await shots(held.tablet)).toEqual(noShots);
+    // Held by the change's instance, as once the deploy is done.
     const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
     loaded.push(moved);
     await welcomed(moved);
-    expect(await status(moved)).toEqual({ status: 200, body: served });
-    const listed = await moved.callEndpoint("shots");
-    expect([listed.status, JSON.parse(listed.body)]).toEqual([200, { shots: [], nextCursor: null }]);
+    expect(await status(moved)).toEqual(served(held.machine));
+    expect(await shots(moved)).toEqual(noShots);
 
-    // The latest release's plugin on the change's server: Decaid answers for an endpoint its manifest lacks, Streamline's
-    // answers as it did, and the server sends it no answer.
+    // The latest release's plugin on the change's server, and Streamline's endpoint as it was.
     const behind = await connected("Skin status, the latest release's plugin", "latest release", "change", { location });
-    const declared = (readBuiltPlugin({ latestRelease: true }).manifest.api as { id: string }[]).some((endpoint) => endpoint.id === "status");
-    expect((await behind.tablet.callEndpoint("status")).status).toBe(declared ? 200 : 404);
-    if (!declared) expect((await behind.tablet.callEndpoint("shots")).status).toBe(404);
+    await welcomed(behind.tablet);
+    expect(await status(behind.tablet)).toEqual(served(behind.machine));
+    expect(await shots(behind.tablet)).toEqual(noShots);
     const skin = await behind.tablet.callEndpoint("skin");
     expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
-    if (!declared) expect(behind.tablet.received.filter((frame) => (frame as { type?: unknown }).type === "answer")).toEqual([]);
   });
 
-  // The Reference Shot copies came in a wire revision (#510): the server
-  // sends one only to a plugin that has said which it holds, which only a
-  // plugin at that revision does, and only to a server at it. So a tablet on
-  // the latest release's plugin is sent no copy and carries on, written its
-  // Location's Recipes as before, and one on the change's plugin that the
-  // latest release's instance holds says nothing that server doesn't know.
-  // Once the latest release has the copies itself, each is sent them.
-  it("sends a tablet on the latest release's plugin no Reference Shot copy, and one the latest release's server holds says nothing of what it holds", async () => {
+  // Each release's server sends a tablet the Reference Shot copies it is due
+  // (#510), and each release's plugin says which it holds and keeps them, so
+  // a copy reaches every tablet, whichever release's plugin it runs and
+  // whichever release's instance holds it.
+  it("sends each tablet its Reference Shot copy, whichever release's plugin it runs and whichever release's instance holds it", async () => {
     const location = await apis.change.createLocation("Reference copies, both releases", "America/Chicago");
     const typed = (frames: unknown[], type: string) => frames.filter((frame) => (frame as { type?: unknown }).type === type);
     const recipeRecords = (tablet: SimulatedTablet) => {
@@ -398,45 +373,27 @@ describe("the latest release beside the change", () => {
     const { recipe } = await apis.change.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: "next", content: { name: "Mixed reference" } }, 201);
     await apis.change.send("PUT", `/recipes/${recipe.id}/reference-shot`, { shotId: "mixed-reference-shot" });
 
-    // The change's plugin on the change's server keeps its copy.
-    await expect.poll(() => String(current.tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
-    expect(typed(current.tablet.sent, "referencesHeld")).toEqual([{ type: "referencesHeld", held: {} }]);
-    // Every tablet is written the Recipe, whichever plugin it runs and whichever instance holds it.
-    for (const { tablet } of [current, behind, held]) await expect.poll(() => recipeRecords(tablet).length).toBe(1);
-
-    const latest = wireRevisions()["latest release"] >= REFERENCE_COPIES_WIRE_REVISION;
-    // Nothing is under way between the tablets and the servers, so a copy on its way would have arrived.
-    await quiesced(apis.change, { tablets: { current: current.tablet, behind: behind.tablet, held: held.tablet } });
-    for (const { tablet } of [behind, held]) {
-      if (latest) await expect.poll(() => String(tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
-      else {
-        expect([typed(tablet.sent, "referencesHeld"), typed(tablet.received, "referenceCopy"), tablet.storage.read("reference.1")]).toEqual([[], [], null]);
-      }
+    // Every tablet is written the Recipe and keeps its copy.
+    for (const { tablet } of [current, behind, held]) {
+      await expect.poll(() => recipeRecords(tablet).length).toBe(1);
+      await expect.poll(() => String(tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
+      expect(typed(tablet.sent, "referencesHeld")).toEqual([{ type: "referencesHeld", held: {} }]);
     }
-    // Asked for the reference, the tablet the latest release's server holds has neither a server to ask nor a copy.
-    if (!latest) {
-      const answer = await held.tablet.callEndpoint("reference", { query: { recipe: String((recipeRecords(held.tablet)[0] as { id: unknown }).id) } });
-      expect([answer.status, JSON.parse(answer.body)]).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
-    }
+    // Asked for the reference, the tablet the latest release's server holds answers from that server.
+    const answer = await held.tablet.callEndpoint("reference", { query: { recipe: String((recipeRecords(held.tablet)[0] as { id: unknown }).id) } });
+    expect([answer.status, JSON.parse(answer.body)]).toEqual([200, expect.objectContaining({ reference: expect.objectContaining({ shot: expect.objectContaining({ id: "mixed-reference-shot" }) }) })]);
   });
 
-  // Choosing a Reference Shot from a tablet (#511) is a request, so it came
-  // with requests' wire revision: a tablet the latest release's instance
-  // holds, as during a deploy, sends that server nothing and refuses a Skin's
-  // choice as too old to ask, which changes nothing, and makes it once the
-  // change's instance holds it. Once the latest release has the choice
-  // itself, its server makes it.
-  it("refuses a Skin's choice of a Reference Shot as too old to ask while the latest release's server holds its tablet", async () => {
+  // Choosing a Reference Shot from a tablet (#511) is a request each
+  // release's server answers: a tablet the latest release's instance holds,
+  // as during a deploy, has the choice made by that server.
+  it("makes a Skin's choice of a Reference Shot through the latest release's server while it holds the tablet", async () => {
     const location = await apis.change.createLocation("Reference choices, both releases", "America/Chicago");
     const recipeRecords = (tablet: SimulatedTablet) => {
       const list = dye2List(tablet, "recipes");
       return Array.isArray(list) ? list.filter((record) => dye2GlobalIdOf(record) !== null) : [];
     };
     const referenceShot = async (id: string) => (await apis.change.get<{ recipe: { referenceShot: { id: string } | null } }>(`/recipes/${id}`)).recipe.referenceShot?.id ?? null;
-    const choose = async (tablet: SimulatedTablet) => {
-      const answer = await tablet.callEndpoint("reference", { method: "PUT", query: { recipe: String((recipeRecords(tablet)[0] as { id: unknown }).id) }, body: { shotId: "mixed-chosen-shot" } });
-      return [answer.status, JSON.parse(answer.body)];
-    };
     const held = await connected("Reference choices, held by the latest release", "change", "latest release", { location });
     // Pulled now, on the tablet's own machine, so it is one of the Location's Shots, which its tablet may choose.
     const fixture = derivedShot("mixed-chosen-shot", { timestamp: new Date().toISOString() });
@@ -447,32 +404,23 @@ describe("the latest release beside the change", () => {
     const { recipe } = await apis.change.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: "next", content: { name: "Mixed choice" } }, 201);
     await expect.poll(() => recipeRecords(held.tablet).length).toBe(1);
 
-    const chosen = [200, expect.objectContaining({ reference: expect.objectContaining({ shot: expect.objectContaining({ id: "mixed-chosen-shot" }) }), source: "server" })];
-    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
-      expect(await choose(held.tablet)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
-      expect(held.tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "request")).toEqual([]);
-      expect(await referenceShot(recipe.id)).toBeNull();
-    } else {
-      expect(await choose(held.tablet)).toEqual(chosen);
-    }
-    // Held by the change's instance, as once the deploy is done, the choice is made.
-    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(moved);
-    await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
-    expect(await choose(moved)).toEqual(chosen);
+    const answer = await held.tablet.callEndpoint("reference", { method: "PUT", query: { recipe: String((recipeRecords(held.tablet)[0] as { id: unknown }).id) }, body: { shotId: "mixed-chosen-shot" } });
+    expect([answer.status, JSON.parse(answer.body)]).toEqual([
+      200,
+      expect.objectContaining({ reference: expect.objectContaining({ shot: expect.objectContaining({ id: "mixed-chosen-shot" }) }), source: "server" }),
+    ]);
+    // As the change's server reads it.
     expect(await referenceShot(recipe.id)).toBe("mixed-chosen-shot");
   });
 
   // A Skin edits a Shot's rating and note through the plugin (#515). A Shot
   // its tablet holds is written through Decaid's own Shot update, which
-  // needs no server, so a tablet the latest release's instance holds, as
-  // during a deploy, edits its own Shots as before, and the edit reaches
-  // that instance as any edit made on the tablet. Any other Shot is a
-  // request, which came with requests' wire revision: it sends that server
-  // nothing and is refused as too old to ask, which changes nothing, and is
-  // made once the change's instance holds the tablet. Once the latest
-  // release has the edit itself, its server makes it.
-  it("edits a tablet's own Shot through Decaid while the latest release's server holds it, and refuses another tablet's as too old to ask", async () => {
+  // needs no server, and the edit reaches the instance holding the tablet as
+  // any edit made on it. Any other Shot is a request, which each release's
+  // server answers: the latest release's instance, holding the tablet as
+  // during a deploy, makes the edit, and it is written to the Shot's own
+  // tablet, which the change's instance holds.
+  it("edits a tablet's own Shot through Decaid, and another tablet's through the latest release's server while it holds the tablet", async () => {
     const api = apis.change;
     type Record_ = Record<string, unknown>;
     const location = await api.createLocation("Shot edits from a tablet, both releases", "America/Chicago");
@@ -491,44 +439,27 @@ describe("the latest release beside the change", () => {
       const answer = await tablet.callEndpoint("shot", { method: "PUT", query: { id }, body: { rating } });
       return [answer.status, JSON.parse(answer.body)];
     };
-    const requests = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as Record_).type === "request");
-
-    // Its own Shot, as before: Decaid writes it, and the latest release's instance takes the tablet's report of it.
+    // Its own Shot: Decaid writes it, and the latest release's instance takes the tablet's report of it.
     expect(await edit(held.tablet, "mixed-skin-own", 8)).toEqual([200, expect.objectContaining({ rating: 8 })]);
     await expect.poll(async () => (await read("mixed-skin-own")).enjoyment).toBe(8);
     expect((await read("mixed-skin-own")).edits).toEqual([]);
 
-    const made = [200, expect.objectContaining({ rating: 3 })];
-    const before = (await read("mixed-skin-other")).enjoyment;
-    const refused = wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION;
-    if (refused) {
-      expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
-      expect(requests(held.tablet)).toEqual([]);
-      expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: before, edits: [] });
-    } else {
-      expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual(made);
-    }
-    // Held by the change's instance, as once the deploy is done, the edit is made, as its Machine's.
-    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(moved);
-    await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
-    expect(await edit(moved, "mixed-skin-other", 3)).toEqual(made);
-    // One edit where the latest release's server refused the first, and both where it made it.
-    const itsMachines = expect.objectContaining({ machine: expect.objectContaining({ name: "Tablet edits, held by the latest release" }), account: null });
-    expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: 3, edits: refused ? [itsMachines] : [itsMachines, itsMachines] });
+    // The other tablet's, made by the latest release's server as the Machine's, with no account.
+    expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual([200, expect.objectContaining({ rating: 3 })]);
+    expect(await read("mixed-skin-other")).toMatchObject({
+      enjoyment: 3,
+      edits: [expect.objectContaining({ machine: expect.objectContaining({ name: "Tablet edits, held by the latest release" }), account: null })],
+    });
     await expect.poll(async () => (((await other.tablet.callApi("GET", "/shots/mixed-skin-other")).body as Record_).annotations as Record_ | undefined)?.enjoyment).toBe(3);
   });
 
   // An edit of a Shot's rating or note made through the server (#512) is
-  // written to the tablet that holds the Shot by a message that came in a
-  // wire revision: the server sends it only to a plugin at that revision. So
-  // an edit of a Shot held by a tablet on the latest release's plugin is
-  // applied on the server and left awaiting that tablet, as is one of a Shot
-  // held by a tablet the latest release's instance holds, which knows
-  // nothing of such edits. Each is written once its tablet runs the change's
-  // plugin on the change's instance. Once the latest release has the edits
-  // itself, each is written where it is.
-  it("leaves an edit of a Shot awaiting a tablet on the latest release's plugin, or held by its server, and writes it once the change's plugin and server have the tablet", async () => {
+  // written to the tablet that holds the Shot by a message each release's
+  // server sends and each release's plugin carries out: an edit made through
+  // the change's server is written to a tablet on the latest release's
+  // plugin, and to one the latest release's instance holds, by that
+  // instance.
+  it("writes an edit of a Shot to a tablet on the latest release's plugin, and to one the latest release's server holds", async () => {
     const api = apis.change;
     type Record_ = Record<string, unknown>;
     const behind = await connected("Shot edits, the latest release's plugin", "latest release", "change");
@@ -539,26 +470,10 @@ describe("the latest release beside the change", () => {
     const read = async (id: string) => (await api.get<{ shot: { enjoyment: number | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
     const states = async (id: string) => (await read(id)).edits.map((edit) => edit.state);
     const ratingOn = async (tablet: SimulatedTablet, id: string) => (((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_ | undefined)?.enjoyment;
-    const editsSent = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Record_).type === "shotEdit");
 
-    // Made through the change's server, and applied there at once.
+    // Made through the change's server, applied there at once, and written to each tablet where it is.
     for (const [id] of shots) expect((await api.send<{ shot: { enjoyment: number } }>("PATCH", `/shots/${id}`, { rating: 8 })).shot.enjoyment).toBe(8);
-
-    if (wireRevisions()["latest release"] < SHOT_EDITS_WIRE_REVISION) {
-      // Nothing is under way between the tablets and the servers, so an edit on its way would have arrived.
-      await quiesced(api, { tablets: { behind: behind.tablet, held: held.tablet } });
-      for (const [id, { tablet }] of shots) {
-        expect([await states(id), editsSent(tablet), await ratingOn(tablet, id)]).toEqual([["awaitingTablet"], [], undefined]);
-        expect((await read(id)).enjoyment).toBe(8);
-      }
-    }
-    // Once Decaid installs the change's plugin on the one, and the change's instance holds the other, as once a deploy
-    // is done, each is written.
-    const updated = await behind.tablet.reload({ latestRelease: false });
-    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(updated, moved);
-    expect([updated.pluginDir, moved.pluginDir]).toEqual([pluginDirs().change, pluginDirs().change]);
-    for (const [id, tablet] of [["mixed-edit-behind", updated], ["mixed-edit-held", moved]] as const) {
+    for (const [id, { tablet }] of shots) {
       await expect.poll(() => states(id)).toEqual(["written"]);
       expect(await ratingOn(tablet, id)).toBe(8);
       expect((await read(id)).enjoyment).toBe(8);
@@ -567,10 +482,9 @@ describe("the latest release beside the change", () => {
 
   // Edits of a Shot made through the change's server while the latest
   // release's instance holds the Shot's tablet, which changes the Shot too
-  // (#513). The latest release stores the version the tablet reports whole
-  // and, until it has #513 itself, decides nothing: the change's server
-  // decides that version before it relies on it, so the later of each field
-  // wins as if the change's instance had stored it.
+  // (#513). Each release's server decides a version of the Shot its tablet
+  // reports against the edits, so the later of each field wins whichever
+  // instance stored it.
   describe("a Shot edited through the change's server and changed on a tablet the latest release's instance holds", () => {
     type Record_ = Record<string, unknown>;
     const read = async (id: string) => (await apis.change.get<{ shot: { enjoyment: number | null; notes: string | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
