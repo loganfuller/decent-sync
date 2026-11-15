@@ -126,8 +126,8 @@ export class SkinRequestsService {
       const refused = await this.recipeEdits.chooseReferenceShotOnTablet(tx, recipeId, shotId, { ...asking, machineId: connection.machineId });
       if (refused) return { refused };
       const result = await recipeReference(tx, asking, recipeId);
-      // The Recipe was found at this Location and is locked, so it is read; were its Location deleted meanwhile, the
-      // choice is not kept.
+      // The Recipe was found at this Location and is locked, and a Recipe never changes Location, so it is read. Were
+      // it not, nothing is kept of the choice.
       if (!result) throw new Error("A Recipe whose Reference Shot was chosen is no longer its Location's");
       return { result };
     }, INTAKE_TRANSACTION);

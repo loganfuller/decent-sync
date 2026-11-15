@@ -746,8 +746,10 @@ Conflict names is kept, still refused, so history goes on naming it
     connection closed or 10 s passed, is answered to the Skin as
     unreachable too, though the server may have made the choice, or make
     it once its transaction has its locks, within that transaction's 60 s:
-    a request carries no deadline, and one the gateway has begun is
-    finished whether or not its connection still stands.
+    a request carries no deadline, and a choice that has taken its
+    Machine's row is finished whether or not its connection still stands.
+    One whose connection was released first, as when it closed while the
+    request waited its turn, is not made.
   - **Releases (ADR-0025).** The request came with requests' wire revision,
     so a tablet the previous release's instance holds refuses the choice as
     too old to ask, and nothing changes.
