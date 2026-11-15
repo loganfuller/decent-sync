@@ -43,12 +43,15 @@ export function extractShot(record: unknown) {
 /**
  * A Shot's target yield: its Workflow's yield, or else its profile's target
  * weight, each where above 0. A yield of 0 is stop-at-weight off, which is
- * no target: Decaid stops a Shot at its weight only for a yield above 0
- * (`ShotSequencer` in decaid:lib/src/controllers/shot_sequencer.dart), and
- * DYE2 from v0.1.37 applies a recipe naming no yield with one of 0. So a
- * Shot whose Workflow held 0 has none, whatever its profile's target weight,
- * which Decaid stops no Shot at; that weight stands in only for a Workflow
- * holding no yield at all, and is none at 0 too, as a profile leaves it.
+ * no target: Decaid stops a Shot at its weight only for its Workflow's
+ * yield above 0, never at its profile's target weight (`ShotSequencer` in
+ * decaid:lib/src/controllers/shot_sequencer.dart), and DYE2 from v0.1.37
+ * applies a recipe naming no yield with one of 0. So a Shot whose Workflow
+ * held 0 has none, whatever its profile's target weight. That weight still
+ * stands in for a Workflow holding no yield at all, as it did before #550:
+ * what the profile aimed at where nothing wrote a yield, though Decaid
+ * v0.9.2 stops no Shot at it either. It is none at 0 too, as a profile
+ * leaves it.
  */
 function targetYield(workflowYield: unknown, profileWeight: unknown): number | null {
   const above = (value: number | null) => (value !== null && value > 0 ? value : null);
