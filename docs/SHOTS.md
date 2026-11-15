@@ -1562,9 +1562,11 @@ Connected App it was made through, what it set, and where it stands with
 the tablet, one dropped for a later change there marked so, with the
 field where only one of two was. During a deploy the previous release's
 instance gives neither `edits` nor `editStanding`, so the page shows no
-state and an empty card until its next read, and its `PATCH` is refused
-once (`e2e/shot-edits.spec.ts`). The lists and the comparison name the
-rating Rating, where they said Enjoyment. Each Bean's, Bean Batch's, Grinder's,
+state and an empty card until its next read, and a save that reaches that
+instance, which has no such route, is answered 404, which the form shows
+(`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
+rating Rating, where they said Enjoyment, and show none for a Shot rated
+0, as its card says Unrated. Each Bean's, Bean Batch's, Grinder's,
 Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a

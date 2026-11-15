@@ -1,9 +1,10 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { derivedShot, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
-import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
+import { Refusal, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { ASSISTANT_ENV, type TestApp, authorizationUrl, pkce, serveTestApp } from "../server/test/support/test-app.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { field, openCard, rows } from "./support/locators.js";
+import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -12,7 +13,8 @@ import { expectTip } from "./support/tooltips.js";
 // that an edit awaits its tablet until the tablet has it; and its card of
 // the edits made through the server, closed until opened, with who made
 // each, the Connected App one was made through, and one dropped for a later
-// change on the tablet marked so. A Viewer and Staff elsewhere read all of
+// change on the tablet marked so; and the page saying that an edit has no
+// tablet to reach. A Viewer and Staff elsewhere read all of
 // it and have no control. Simulated tablets running the built plugin hold
 // Shots derived from a scrubbed real record, changing only their id, time,
 // recorded hardware, rating and note, and carry out Decaid's own Shot
@@ -21,6 +23,8 @@ import { expectTip } from "./support/tooltips.js";
 const server = useFreshServer({ env: { ...ASSISTANT_ENV, SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const SHOT = "belmont-espresso";
+/** Belmont's too, which its tablet comes to hold no longer. */
+const GONE = "belmont-deleted";
 const LAB_SHOT = "lab-espresso";
 
 /** Belmont's tablet, which the first test loads and the later ones use. */
@@ -37,8 +41,11 @@ test.beforeEach(({ page }) => signInAsAdmin(page));
 test("an Admin rates a Shot and edits its note on its page, which says the edit awaits its tablet until the tablet has it", async ({ page }) => {
   const belmont = await createLocation(page, "Belmont");
   const lab = await createLocation(page, "Lab", "America/Denver");
-  belmontTablet = await adopt(page, "Belmont 1", "51451", belmont.id, shotAt(SHOT, "2026-11-10T15:00:00Z", "51451", { enjoyment: 4, espressoNotes: "Sour at first" }));
-  await adopt(page, "Lab 1", "51452", lab.id, shotAt(LAB_SHOT, "2026-11-10T16:00:00Z", "51452", {}));
+  belmontTablet = await adopt(page, "Belmont 1", "51451", belmont.id, [
+    shotAt(SHOT, "2026-11-10T15:00:00Z", "51451", { enjoyment: 4, espressoNotes: "Sour at first" }),
+    shotAt(GONE, "2026-11-10T15:10:00Z", "51451", {}),
+  ]);
+  await adopt(page, "Lab 1", "51452", lab.id, [shotAt(LAB_SHOT, "2026-11-10T16:00:00Z", "51452", {})]);
 
   await page.goto(`/shots/${SHOT}`);
   const card = page.getByRole("region", { name: "Rating and note", exact: true });
@@ -83,13 +90,18 @@ test("an Admin rates a Shot and edits its note on its page, which says the edit 
   const listed = page.getByRole("table", { name: "Shots" });
   await expect(listed.getByRole("columnheader", { name: "Rating", exact: true })).toBeVisible();
   const ratings = (await listed.getByRole("columnheader").allTextContents()).indexOf("Rating");
-  await expect(rows(listed).filter({ has: page.locator(`a[href$="/shots/${SHOT}"]`) }).getByRole("cell").nth(ratings)).toHaveText("8");
+  const ratingOf = (id: string) => rows(listed).filter({ has: page.locator(`a[href$="/shots/${id}"]`) }).getByRole("cell").nth(ratings);
+  await expect(ratingOf(SHOT)).toHaveText("8");
+  // And none for a Shot unrated, as its page says Unrated.
+  await expect(ratingOf(GONE)).toHaveText("-");
 
-  // The page says so until the tablet has the edit, without being loaded again.
+  // The page says so until the tablet has the edit, without being loaded again: it reads the Shot again as often as
+  // a Machine's page reads its status, while an edit awaits.
+  await page.clock.install();
   await page.goto(`/shots/${SHOT}`);
   await expect(standing).toHaveText("Awaiting its tablet");
   belmontTablet.restoreNetwork();
-  await expect(standing).toHaveCount(0, { timeout: 30_000 });
+  await afterStatusPolls(page, () => expect(standing).toHaveCount(0, { timeout: CHECK_MS }));
   expect(await onTablet(belmontTablet, SHOT)).toEqual({ enjoyment: 8, espressoNotes: "Sweeter once it cooled.\nKeep this grind." });
   await expect(field(card, "Rating")).toHaveText("8");
 
@@ -104,7 +116,7 @@ test("an Admin rates a Shot and edits its note on its page, which says the edit 
   expect(await edits(page, SHOT)).toHaveLength(1);
 });
 
-test("the card of edits, closed until opened, lists each with who made it, the Connected App one was made through, and one dropped for a later change on the tablet", async ({ page }) => {
+test("the card of edits, closed until opened, lists each with who made it, the Connected App one was made through, and one dropped for a later change on the tablet, and a Shot its tablet no longer holds says so", async ({ page }) => {
   // One through an assistant, connected as the Admin, which may read and change.
   const { verifier, challenge } = pkce();
   await page.goto(authorizationUrl(server.url(), app, challenge));
@@ -140,7 +152,19 @@ test("the card of edits, closed until opened, lists each with who made it, the C
     ["You", "Rating: 8Note: Sweeter once it cooled.\nKeep this grind.", "Written to its tablet"],
   ]);
   // Each at its time on Belmont's clock, as the page's other times are.
-  await expect(listed.first().getByRole("cell").first()).toHaveText(/^Nov \d+, 2026, \d+:\d\d [AP]M C[SD]T$/);
+  await expect(listed.first().getByRole("cell").first()).toHaveText(/^[A-Z][a-z]{2} \d+, \d{4}, \d+:\d\d [AP]M C[SD]T$/);
+
+  // A Shot its tablet no longer holds, as one deleted there: its edit stays here, and the page says it has no tablet to reach.
+  belmontTablet.refuseFor(`/shots/${GONE}`, new Refusal(404, { error: "Shot not found" }));
+  expect((await page.request.patch(`/api/shots/${GONE}`, { data: { rating: 5 } })).status()).toBe(200);
+  await expect.poll(async () => (await edits(page, GONE)).map((edit) => edit.state)).toEqual(["noTablet"]);
+  await page.goto(`/shots/${GONE}`);
+  const gone = page.getByRole("region", { name: "Rating and note", exact: true });
+  await expect(field(gone, "Rating")).toHaveText("5");
+  await expect(gone.getByRole("status", { name: "Edits and the tablet" })).toHaveText("No tablet to reach");
+  await expectTip(gone, "No tablet to reach", "The tablet that held this Shot no longer holds it, as when the Shot is deleted there. Its latest edit is kept here, and written to no tablet.");
+  await openCard(page, "Rating and note edits");
+  expect(await cells(listed)).toEqual([["You", "Rating: 5", "No tablet to reach"]]);
 });
 
 test("a Viewer and Staff elsewhere read a Shot's rating, note and edits, with no control editing them, and Staff at its Location edit it", async ({ page, browser }) => {
@@ -194,20 +218,20 @@ function shotAt(id: string, pulledAt: string, serial: string, annotations: Recor
 }
 
 /**
- * Creates a Machine, at the Location since long before its Shot was pulled,
- * and loads a simulated tablet on its hardware holding the Shot, kept until
- * the file's tests have run; resolves once the server lists the Shot.
+ * Creates a Machine, at the Location since long before its Shots were
+ * pulled, and loads a simulated tablet on its hardware holding the Shots,
+ * kept until the file's tests have run; resolves once the server lists them.
  */
-async function adopt(page: Page, name: string, serial: string, locationId: string, shot: Record<string, unknown>): Promise<SimulatedTablet> {
+async function adopt(page: Page, name: string, serial: string, locationId: string, shots: Record<string, unknown>[]): Promise<SimulatedTablet> {
   const response = await page.request.post("/api/machines", { data: { name } });
   expect(response.status()).toBe(201);
   const { machine, token } = (await response.json()) as { machine: { id: string }; token: string };
   const moved = await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId, effectiveFrom: "2025-01-01T00:00:00Z" } });
   expect(moved.status()).toBe(201);
   const tablet = server.keep(() =>
-    SimulatedTablet.load({ settings: settingsFor({ serverUrl: server.url(), token }), api: withShots(derivedDe1Pro({ model: "DE1Pro", serial }), [shot]), timeScale: 50 }),
+    SimulatedTablet.load({ settings: settingsFor({ serverUrl: server.url(), token }), api: withShots(derivedDe1Pro({ model: "DE1Pro", serial }), shots), timeScale: 50 }),
   );
-  await expect.poll(async () => (await page.request.get(`/api/shots/${String(shot.id)}`)).status()).toBe(200);
+  for (const shot of shots) await expect.poll(async () => (await page.request.get(`/api/shots/${String(shot.id)}`)).status()).toBe(200);
   return tablet;
 }
 

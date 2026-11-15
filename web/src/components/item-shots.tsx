@@ -1,8 +1,8 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
-import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
-import { ShotBatch, ShotGrinder, ShotProfile, gramsText, shotTime } from "@/components/shots";
+import { LocationCredit, MachineCredit, OrNone, secondsText } from "@/components/records";
+import { ShotBatch, ShotGrinder, ShotProfile, gramsText, ratingText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -112,7 +112,7 @@ export function ItemShotsCard({ kind, id }: { kind: ShotsKind; id: string }) {
                         <OrNone>{secondsText(shot.duration)}</OrNone>
                       </TableCell>
                       <TableCell>
-                        <OrNone>{numberText(shot.enjoyment)}</OrNone>
+                        <OrNone>{ratingText(shot.enjoyment)}</OrNone>
                       </TableCell>
                     </TableRow>
                   ))}

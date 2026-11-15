@@ -3,7 +3,8 @@ import { CollapsibleCard } from "@/components/collapsible-card";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
-import { recordTime, round } from "@/components/records";
+import { recordTime } from "@/components/records";
+import { ratingText } from "@/components/shots";
 import { MadeBy } from "@/components/settings-edit-log";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -22,9 +23,9 @@ import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 // so the card says where the edits stand with that tablet, and a card of
 // its own, closed until opened, lists each edit with who made it.
 
-/** A rating as the page says it: 0, or none, is unrated. */
-function ratingText(rating: number | null): string {
-  return rating === null || rating === 0 ? "Unrated" : String(round(rating));
+/** A rating as the card and its form say it: 0, or none, is unrated. */
+function ratingOrUnrated(rating: number | null): string {
+  return ratingText(rating) ?? "Unrated";
 }
 
 /** Where a Shot's edits stand with the tablet that holds it, as the card says it in plain sight, with what explains it in its tooltip. */
@@ -85,7 +86,7 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
         ) : (
           <>
             <Fields label="Rating and note">
-              <Field term="Rating">{ratingText(shot.enjoyment)}</Field>
+              <Field term="Rating">{ratingOrUnrated(shot.enjoyment)}</Field>
               <Field term="Note">
                 {shot.notes ? <span className="whitespace-pre-wrap">{shot.notes}</span> : <span className="text-muted-foreground">None</span>}
               </Field>
@@ -148,7 +149,7 @@ function RatingAndNoteForm({ shot, onCancel, onSaved }: { shot: Shot; onCancel()
           <SelectContent>
             {ratingChoices(initial.rating).map((choice) => (
               <SelectItem key={choice} value={String(choice)}>
-                {ratingText(choice)}
+                {ratingOrUnrated(choice)}
               </SelectItem>
             ))}
           </SelectContent>
@@ -217,7 +218,7 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
                   </TableCell>
                   <TableCell className="min-w-48 whitespace-normal">
                     <ul className="grid gap-0.5">
-                      {edit.fields.rating !== undefined && <li>Rating: {ratingText(edit.fields.rating)}</li>}
+                      {edit.fields.rating !== undefined && <li>Rating: {ratingOrUnrated(edit.fields.rating)}</li>}
                       {edit.fields.note !== undefined && (
                         <li className="wrap-anywhere whitespace-pre-wrap">Note: {edit.fields.note === "" ? "None" : edit.fields.note}</li>
                       )}

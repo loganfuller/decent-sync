@@ -1,14 +1,14 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PageTitleWithInfo } from "@/components/info-tip";
-import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
+import { LocationCredit, MachineCredit, OrNone, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
 import { batchName } from "@/components/bean-batches";
 import { ReferenceMark } from "@/components/reference-shots";
 import { grinderName } from "@/components/grinders";
 import { ShotSummaryCard } from "@/components/shot-summary";
 import { ShotTrendCard } from "@/components/shot-trend";
-import { beanText, gramsText, shotTime } from "@/components/shots";
+import { beanText, gramsText, ratingText, shotTime } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -135,7 +135,7 @@ export function ShotsPage() {
                       <OrNone>{secondsText(shot.duration)}</OrNone>
                     </TableCell>
                     <TableCell>
-                      <OrNone>{numberText(shot.enjoyment)}</OrNone>
+                      <OrNone>{ratingText(shot.enjoyment)}</OrNone>
                     </TableCell>
                     <TableCell>
                       <OrNone>{shot.barista ?? undefined}</OrNone>

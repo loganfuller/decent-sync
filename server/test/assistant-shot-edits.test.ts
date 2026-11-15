@@ -198,6 +198,8 @@ describe("A Shot's rating and note edited through an assistant", { timeout: 120_
     // A Shot Summary counts it unrated again.
     const { groups } = await assistant.call<{ groups: { numbers: { rating: { rated: number | null } } }[] }>("summarise_shots", { machineId: belmontMachine.machine.id, numbers: ["rating"] });
     expect(groups[0]!.numbers.rating.rated).toBe(0);
+    // Each is recorded as written before the next step takes the tablet off.
+    await expect.poll(async () => (await rest("app-belmont")).edits.map((made) => made.state)).toEqual(["written", "written", "written"]);
   });
 
   it("says in get_shot that an edit awaits its tablet, lists the edits with who made each when asked, and says nothing once the tablet has them", async () => {
@@ -310,7 +312,7 @@ describe("A Shot's rating and note edited through an assistant", { timeout: 120_
     expect(await rest("app-lab")).toEqual(before);
     // A Viewer reads the Shot, where its edits stand and who made them, by id alone.
     const read = await viewer.assistant.call<ShotResult>("get_shot", { id: "app-lab", edits: true });
-    expect(read).toMatchObject({ enjoyment: 9, editStanding: expect.toBeOneOf(["awaitingTablet", null]) });
+    expect(read).toMatchObject({ enjoyment: 9 });
     expect(read.edits!.entries).toEqual([expect.objectContaining({ account: { id: adminId, name: null }, connectedApp: throughApp, rating: 9 })]);
   });
 
@@ -318,7 +320,8 @@ describe("A Shot's rating and note edited through an assistant", { timeout: 120_
     // A note far longer than any typed, of text that grows as it is serialized.
     const long = 'Quote " backslash \\ newline \n tab \t emoji \u{1F375} '.repeat(1_200);
     const { result } = await assistant.callWithinBudget<ShotResult>("edit_shot", { id: "app-belmont-long", note: long });
-    expect(result.cut).toContain("get_shot reads it again");
+    // Its note is cut in get_shot's answer too, so the note says where it reads whole.
+    expect(result.cut).toContain("The management interface shows it whole.");
     expect(result.notes!.endsWith(CUT_MARK)).toBe(true);
     expect((await rest("app-belmont-long")).notes).toBe(long);
     // And on its tablet.

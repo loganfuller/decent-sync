@@ -16,7 +16,7 @@ import {
   numberText,
   secondsText,
 } from "@/components/records";
-import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, gramsText, shotTime } from "@/components/shots";
+import { ShotBasket, ShotBatch, ShotGrinder, ShotProfile, ShotRecipe, beanText, gramsText, ratingText, shotTime } from "@/components/shots";
 import { amount, present, record, text, workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -436,7 +436,7 @@ function Comparison({ shot, other, label, name }: { shot: Shot; other: Shot; lab
     ["Yield", (shown) => gramsText(shown.actualYield, shown.targetYield)],
     ["Duration", (shown) => secondsText(shown.duration)],
     ["Peak pressure", (shown) => numberText(shown.peakPressure, "bar")],
-    ["Rating", (shown) => numberText(shown.enjoyment)],
+    ["Rating", (shown) => ratingText(shown.enjoyment)],
     ["Barista", (shown) => shown.barista ?? undefined],
   ];
   return (

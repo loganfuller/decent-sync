@@ -44,7 +44,6 @@ export class RecordChangesTools {
     outputSchema: shotDetails,
     annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: true, openWorldHint: false },
     scopes: [READ, CHANGE],
-    budget: { rest: "get_shot reads it again." },
   })
   async editShot({ id, ...fields }: z.infer<typeof editShotInput>, context: McpContext): Promise<z.infer<typeof shotDetails>> {
     const { accountId, connectedAppId, scope } = callerOf(context);

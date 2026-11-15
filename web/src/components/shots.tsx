@@ -25,6 +25,11 @@ export function gramsText(actual: number | null, target: number | null): string 
   return target !== null ? `${round(target)} g target` : undefined;
 }
 
+/** A Shot's rating, or nothing for one unrated: 0, as DYE2 writes it for no stars and an edit through the server clears it, or none. */
+export function ratingText(rating: number | null): string | undefined {
+  return rating === null || rating === 0 ? undefined : String(round(rating));
+}
+
 /** A link to the Library item a Shot is linked to, or a note that it is linked to none. */
 function LibraryLink({ to, children }: { to: string | null; children: string | undefined }) {
   if (to === null) return <span className="text-muted-foreground">Not in the Library</span>;
