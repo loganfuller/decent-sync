@@ -1,10 +1,11 @@
 import type { SummaryGroup, SummaryNumber, SummaryNumbers, SummaryReference } from "@/lib/api";
+import { starCountText, starsOf, starsText } from "./rating";
 
 // How a Shot Summary's numbers read (#466, #469): each as its median, with
 // the range the middle half of its Shots fall in beside it, such as
-// "26.0 s (25.6–26.6)"; which of them the Shots list shows, as its address
-// keeps them; and who a Barista's name names (#468), for the Barista
-// filter's choice.
+// "26.0 s (25.6–26.6)", a rating in stars (#532); which of them the Shots
+// list shows, as its address keeps them; and who a Barista's name names
+// (#468), for the Barista filter's choice.
 
 /** The numbers a summary can give, as the REST API names them, in the order the Shots list shows them. */
 export const NUMBERS = [
@@ -99,9 +100,30 @@ export function ratioText(number: SummaryNumber): MedianText | undefined {
 }
 
 /**
- * How each number read as a median shows: its places and unit. A grind
- * setting shows as Grinders' scales are written, to at most two places
- * without trailing zeros, "8.8" or "12".
+ * A rating as its median and range in stars (#532), such as "4 stars" and
+ * "3.5–4.5", as a single Shot's reads (`ratingText`): the summary gives it
+ * on Decaid's scale, from 0 to 10, of which a star is two points. None
+ * where no Shot was rated.
+ */
+export function ratingMedianText(number: SummaryNumber): MedianText | undefined {
+  const { median, p25, p75 } = number;
+  if (median === null || p25 === null || p75 === null) return undefined;
+  return starsMedianText(starsOf(median), [starsOf(p25), starsOf(p75)]);
+}
+
+/**
+ * A median and the middle half's range, already in stars, as they read:
+ * each to at most two places without trailing zeros, so a median between
+ * two stars reads as it is, "3.75 stars", and one star "1 star".
+ */
+export function starsMedianText(median: number, [p25, p75]: readonly [number, number]): MedianText {
+  return { median: starsText(median), range: `${starCountText(p25)}–${starCountText(p75)}` };
+}
+
+/**
+ * How each number read as a median shows: its places and unit. A rating
+ * shows in stars. A grind setting shows as Grinders' scales are written,
+ * to at most two places without trailing zeros, "8.8" or "12".
  */
 export const MEDIAN_TEXT = {
   yieldAgainstTarget: yieldAgainstTargetText,
@@ -109,7 +131,7 @@ export const MEDIAN_TEXT = {
   ratio: ratioText,
   peakPressure: (number: SummaryNumber) => medianText(number, places(1), " bar"),
   peakFlow: (number: SummaryNumber) => medianText(number, places(1), " ml/s"),
-  rating: (number: SummaryNumber) => medianText(number, places(1)),
+  rating: ratingMedianText,
   grindSetting: (number: SummaryNumber) => medianText(number, settingText),
   tds: (number: SummaryNumber) => medianText(number, places(2), "%"),
   extractionYield: (number: SummaryNumber) => medianText(number, places(1), "%"),

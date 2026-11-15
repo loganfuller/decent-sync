@@ -67,7 +67,7 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
         <CardTitleWithInfo title="Rating and note">
           <p>
             How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
-            the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which Shot Summaries and an assistant's tools give. Both are set on the
+            the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which the REST API and an assistant's tools give. Both are set on the
             tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on another Machine's
             tablet at its Location.
           </p>

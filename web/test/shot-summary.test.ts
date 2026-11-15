@@ -6,6 +6,7 @@ import {
   countNotes,
   durationText,
   numbersParam,
+  ratingMedianText,
   ratioText,
   referenceDurationText,
   settingText,
@@ -13,6 +14,7 @@ import {
   shotsText,
   shownNumbers,
   signedText,
+  starsMedianText,
   yieldAgainstTargetText,
 } from "../src/lib/shot-summary";
 
@@ -62,11 +64,26 @@ describe("a Shot Summary's numbers as text", () => {
     const one = (value: number) => ({ shots: 1, median: value, p25: value, p75: value });
     expect(MEDIAN_TEXT.peakPressure(one(9.004638671875))).toEqual({ median: "9.0 bar", range: "9.0–9.0" });
     expect(MEDIAN_TEXT.peakFlow(one(8.409423828125))).toEqual({ median: "8.4 ml/s", range: "8.4–8.4" });
-    expect(MEDIAN_TEXT.rating(one(7))).toEqual({ median: "7.0", range: "7.0–7.0" });
     expect(MEDIAN_TEXT.tds(one(9.125))).toEqual({ median: "9.13%", range: "9.13–9.13" });
     expect(MEDIAN_TEXT.extractionYield(one(19.84))).toEqual({ median: "19.8%", range: "19.8–19.8" });
     expect(MEDIAN_TEXT.timeToFirstDrip(one(11.32125))).toEqual({ median: "11.3 s", range: "11.3–11.3" });
     expect(MEDIAN_TEXT.grindSetting({ shots: 5, median: 8, p25: 6.5, p75: 9.125 })).toEqual({ median: "8", range: "6.5–9.13" });
+  });
+
+  it("reads a rating in stars, two points of the summary's rating each, a median between two stars as it is (#532)", () => {
+    expect(MEDIAN_TEXT.rating).toBe(ratingMedianText);
+    expect(ratingMedianText({ shots: 12, median: 8, p25: 7, p75: 9 })).toEqual({ median: "4 stars", range: "3.5–4.5" });
+    // A half star, and a median between two Shots' ratings, to at most two places without trailing zeros.
+    expect(ratingMedianText({ shots: 3, median: 9, p25: 8, p75: 10 })).toEqual({ median: "4.5 stars", range: "4–5" });
+    expect(ratingMedianText({ shots: 2, median: 7.5, p25: 7.25, p75: 7.75 })).toEqual({ median: "3.75 stars", range: "3.63–3.88" });
+    expect(ratingMedianText({ shots: 4, median: 7.33, p25: 6.665, p75: 8 })).toEqual({ median: "3.67 stars", range: "3.33–4" });
+    // One star, in the singular.
+    expect(ratingMedianText({ shots: 1, median: 2, p25: 2, p75: 2 })).toEqual({ median: "1 star", range: "1–1" });
+    expect(ratingMedianText({ shots: 5, median: 2, p25: 1, p75: 3 })).toEqual({ median: "1 star", range: "0.5–1.5" });
+    // None where no Shot was rated.
+    expect(ratingMedianText(NONE)).toBeUndefined();
+    // Stars read as they are, as a trend's point holds them.
+    expect(starsMedianText(3.75, [3.5, 4])).toEqual({ median: "3.75 stars", range: "3.5–4" });
   });
 
   it("reads a grind setting as Grinders' scales are written, without trailing zeros", () => {

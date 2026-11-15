@@ -14,6 +14,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type BucketedGroup, type ShotSummary, type SummaryBucket, api } from "@/lib/api";
 import { bucketLabel, bucketTitle } from "@/lib/machine-use";
+import { MAX_STARS } from "@/lib/rating";
 import { NUMBER_NAMES, shotsText } from "@/lib/shot-summary";
 import {
   type Bucket,
@@ -63,11 +64,15 @@ const colorOf = (line: number) => `var(--color-line${line})`;
 /** The most points each is marked with a dot at: a month by day. Beyond it dots would run together, and the line alone is drawn. */
 const MOST_MARKERS = 31;
 
+/** The value axis of a rating, in stars (#532): from none to the most a Shot is rated, marked at each. */
+const STARS_AXIS = { domain: [0, MAX_STARS] satisfies [number, number], ticks: Array.from({ length: MAX_STARS + 1 }, (_, stars) => stars) };
+
 /**
  * How one number of the Shots a list's filters find moved (#470), under
  * their summary: by day or week, its median as a line, with a band for the
  * range the middle half of each day's or week's Shots fall in, or, for a
- * share, such as stopped on weight, the line alone. A day or week is each
+ * share, such as stopped on weight, the line alone. A rating is charted in
+ * stars, from 0 to 5 (#532). A day or week is each
  * Shot's Location's own, as the server counts them, so the days charted are
  * calendar days, the browser's own time zone playing no part; one with no
  * Shots, or none with a value, has no point, and the line runs past it.
@@ -223,8 +228,15 @@ export function TrendChart({
                 padding={{ left: 12, right: 12 }}
                 tickFormatter={(at: number) => bucketLabel({ date: dateOf(at) })}
               />
-              {/* A share from none of the Shots to all of them; any other number fitted to what the Shots had. */}
-              <YAxis width={44} tickLine={false} axisLine={false} domain={share ? [0, 100] : ["auto", "auto"]} tickFormatter={(value: number) => (share ? `${value}%` : String(value))} />
+              {/* A share from none of the Shots to all of them, and a rating from no stars to five; any other number fitted to what the Shots had. */}
+              <YAxis
+                width={44}
+                tickLine={false}
+                axisLine={false}
+                domain={share ? [0, 100] : number === "rating" ? STARS_AXIS.domain : ["auto", "auto"]}
+                ticks={number === "rating" ? STARS_AXIS.ticks : undefined}
+                tickFormatter={(value: number) => (share ? `${value}%` : String(value))}
+              />
               <ChartTooltip
                 cursor={{ stroke: "var(--muted-foreground)", strokeOpacity: 0.5 }}
                 content={({ active, payload }) => (active && payload?.[0] ? <PointTip row={payload[0].payload as TrendRow} lines={lines} of={of} number={number} bucket={bucket} /> : null)}

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { SummaryBucket } from "../src/lib/api";
 import {
   TREND_NUMBERS,
+  TREND_UNITS,
   axisSpan,
   axisTicks,
   bucketParam,
@@ -21,7 +22,7 @@ import {
 // and a group's buckets, as the REST API gives them, as the points of a
 // chart, the marks of its time axis and the words of its tooltips and
 // table; and several groups' points as the rows of one chart, a line for
-// each (#474).
+// each (#474). A rating is charted, and read, in stars (#532).
 
 const counts = (shots: number, cleaning = 0) => ({ shots, unfinished: 0, cleaningAndCalibration: cleaning, awaitingValues: 0 });
 const number = (shots: number, median: number | null, p25 = median, p75 = median) => ({ shots, median, p25, p75 });
@@ -67,10 +68,25 @@ describe("a group's buckets as a trend's points", () => {
   });
 
   it("gives no point for a day whose Shots had no value, and says how many of a day's Shots a value rests on", () => {
-    expect(trendPoints(buckets, "rating")).toEqual([{ start: "2026-02-12", at: 20496, value: 8, band: [8, 8], shots: 1, covered: 3 }]);
+    // The one day with a Shot rated, 8 of Decaid's 10, in stars.
+    expect(trendPoints(buckets, "rating")).toEqual([{ start: "2026-02-12", at: 20496, value: 4, band: [4, 4], shots: 1, covered: 3 }]);
     // A number the answer doesn't hold, as the one loaded before another was chosen.
     expect(trendPoints(buckets, "tds")).toEqual([]);
     expect(trendPoints([], "duration")).toEqual([]);
+  });
+
+  it("gives a rating's median and band in stars, two points of the summary's rating each, and no point where no Shot was rated (#532)", () => {
+    const rated = (start: string, shots: number, median: number | null, p25 = median, p75 = median): SummaryBucket => ({ start, counts: counts(4), numbers: { rating: { ...number(shots, median, p25, p75), rated: shots / 4 } } });
+    expect(TREND_UNITS.rating).toBe("stars");
+    expect(trendPoints([rated("2026-02-10", 4, 8, 7, 9), rated("2026-02-11", 2, 7.5, 7.25, 7.75), rated("2026-02-12", 0, null), rated("2026-02-13", 1, 2), rated("2026-02-14", 3, 9, 8, 10)], "rating")).toEqual([
+      { start: "2026-02-10", at: 20494, value: 4, band: [3.5, 4.5], shots: 4, covered: 4 },
+      // A median between two stars, as it is.
+      { start: "2026-02-11", at: 20495, value: 3.75, band: [3.625, 3.875], shots: 2, covered: 4 },
+      { start: "2026-02-13", at: 20497, value: 1, band: [1, 1], shots: 1, covered: 4 },
+      { start: "2026-02-14", at: 20498, value: 4.5, band: [4, 5], shots: 3, covered: 4 },
+    ]);
+    // No other number is changed.
+    expect(trendPoints([{ start: "2026-02-10", counts: counts(1), numbers: { peakPressure: number(1, 8) } }], "peakPressure")[0]).toMatchObject({ value: 8, band: [8, 8] });
   });
 
   it("gives a share as a percentage with no band, and no point where no Shot either did or didn't", () => {
@@ -159,6 +175,13 @@ describe("a trend's point in words", () => {
     expect(pointText({ value: -0.7, band: [-1, 0.4] }, "yieldAgainstTarget")).toEqual({ value: "−0.7 g", range: "−1.0 to +0.4" });
     expect(pointText({ value: 2.1, band: [2, 2.25] }, "ratio")).toEqual({ value: "1:2.10", range: "2.00–2.25" });
     expect(pointText({ value: 8.75, band: [8.5, 9] }, "grindSetting")).toEqual({ value: "8.75", range: "8.5–9" });
+  });
+
+  it("reads a rating's point, in stars already, as stars, as the summary shows one (#532)", () => {
+    expect(pointText({ value: 4, band: [3.5, 4.5] }, "rating")).toEqual({ value: "4 stars", range: "3.5–4.5" });
+    expect(pointText({ value: 4.5, band: [4, 5] }, "rating")).toEqual({ value: "4.5 stars", range: "4–5" });
+    expect(pointText({ value: 3.75, band: [3.625, 3.875] }, "rating")).toEqual({ value: "3.75 stars", range: "3.63–3.88" });
+    expect(pointText({ value: 1, band: [1, 1] }, "rating")).toEqual({ value: "1 star", range: "1–1" });
   });
 
   it("reads a share as a whole percentage, with no range", () => {

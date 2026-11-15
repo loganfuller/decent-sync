@@ -133,15 +133,17 @@ Each server has one owner: a household, or a business with all of its sites.
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and
   the share that stopped on weight. Choose others to show too: the ratio,
-  peak pressure and flow, rating, grind setting, TDS, extraction yield, time
-  to first drip, and the profile steps Shots ended in. Cleaning and
+  peak pressure and flow, rating, in stars, such as "4 stars (3.5–4.5)",
+  grind setting, TDS, extraction yield, time to first drip, and the profile
+  steps Shots ended in. Cleaning and
   calibration Shots are left out, and counted, as are Unfinished Shots, in
   which nothing poured: the Machine never reached pouring and the scale
   never read a gram, as when a Shot is stopped at once.
 - **Trends.** Under that summary, a chart of one of its numbers by day or by
   week, to see a coffee drift or a change take effect: each day's or week's
   median as a line, with a band for the range the middle half of its Shots
-  fall in, or, for the share that stopped on weight, a line alone. A day is
+  fall in, or, for the share that stopped on weight, a line alone. A rating
+  is charted in stars, from 0 to 5. A day is
   each Shot's Location's own, in its time zone, or UTC's for a Shot with no
   Location, and a week starts on Monday. The number and the day or week
   chosen are kept in the page's address, with the filters.

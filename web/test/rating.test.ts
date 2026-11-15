@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { MAX_STARS, ratingOf, ratingText, starsOf } from "../src/lib/rating";
+import { MAX_STARS, ratingOf, ratingText, starCountText, starsOf, starsText } from "../src/lib/rating";
 
 // A Shot's rating in stars (#514): two points of Decaid's 0 to 10 a star, as
 // DYE2 has it, with the values DYE2's own conversion gives for whole stars.
@@ -28,5 +28,10 @@ describe("a Shot's rating in stars", () => {
     expect(ratingText(null)).toBeUndefined();
     // Rated, however little, so not unrated.
     expect(ratingText(0.004)).toBe("0 stars");
+  });
+
+  it("says stars, as a median of several Shots' is (#532), to at most two places without trailing zeros", () => {
+    expect([4, 1, 3.75, 4.5, 0.5, 3.666, 0.996, 1.004].map(starsText)).toEqual(["4 stars", "1 star", "3.75 stars", "4.5 stars", "0.5 stars", "3.67 stars", "1 star", "1 star"]);
+    expect([5, 3.5, 3.625, 0].map(starCountText)).toEqual(["5", "3.5", "3.63", "0"]);
   });
 });
