@@ -24,7 +24,9 @@ import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 // written to the tablet that holds the Shot, now or when it next connects,
 // so the card says where the edits stand with that tablet, and a card of
 // its own, closed until opened, lists each edit with who made it: an
-// account, or the Machine whose tablet it was made on (#515).
+// account, or the Machine whose tablet it was made on (#515), which is any
+// tablet at the Shot's Location that doesn't hold the Shot: nearly always
+// another Machine's.
 
 /** A rating as the card and its form say it, in stars: 0, or none, is unrated. */
 function ratingOrUnrated(rating: number | null): string {
@@ -68,8 +70,8 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
           <p>
             How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
             the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which the REST API and an assistant's tools give. Both are set on the
-            tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on another Machine's
-            tablet at its Location.
+            tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on a tablet at its
+            Location that doesn't hold the Shot.
           </p>
           <p>
             An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
@@ -220,8 +222,8 @@ export function ShotEditsCard({ shot }: { shot: Shot }) {
         <>
           <p>
             Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, through a Connected App,
-            such as an assistant, or on another Machine's tablet at its Location, which names that Machine and no person. A change made on
-            the tablet that holds it is not listed: it arrives with no person.
+            such as an assistant, or on a tablet at its Location that doesn't hold it, which names that tablet's Machine and no person. A
+            change made on the tablet that holds it is not listed: it arrives with no person.
           </p>
           <p>
             An edit awaits its tablet until it is written there. It is dropped where its rating or note was changed on that tablet later than

@@ -3,7 +3,7 @@ import { AdminApi, type CreatedMachine, type LocationView, admin, signIn } from 
 import { ASSISTANT_ENV, Assistant, type TestApp, serveTestApp } from "./support/assistants.js";
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { shotFixture } from "./support/shot-fixtures.js";
-import { RawConnection, type SimulatedTablet, helloWith } from "./support/simulated-tablet.js";
+import { RawConnection, Refusal, type SimulatedTablet, helloWith } from "./support/simulated-tablet.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
@@ -297,6 +297,24 @@ describe("A Shot's rating and note edited from a tablet", { timeout: 180_000 }, 
     expect(await put(labTablet, "skin-lab", { rating: 3 })).toEqual({ status: 200, body: { rating: 3, note: null } });
     await expect.poll(async () => (await read("skin-lab")).enjoyment).toBe(3);
     expect((await read("skin-lab")).edits).toEqual([]);
+  });
+
+  it("edits a Shot deleted on the tablet the server credits with it through the server, as that tablet's Machine's, with no tablet to reach", async () => {
+    left.pullShot(shotOf("skin-left-deleted", "2026-11-10T15:30:00.000Z", LEFT_SERIAL, { enjoyment: 4 }));
+    await expect.poll(async () => (await api.call("GET", "/shots/skin-left-deleted")).status).toBe(200);
+    // Deleted in the tablet's own Decaid, which the server is never told: it still lists the Shot, as that tablet's.
+    const restore = left.refuseFor("/shots/skin-left-deleted", new Refusal(404, { error: "Shot not found" }));
+    try {
+      expect(await put(left, "skin-left-deleted", { rating: 3 })).toEqual({ status: 200, body: { rating: 3, note: null } });
+      expect(asked(left).at(-1)).toMatchObject({ ask: "editShot", shotId: "skin-left-deleted", rating: 3 });
+      // Sent to the tablet that asked, which answers that it no longer holds the Shot: the edit stays on the server.
+      await expect.poll(() => states("skin-left-deleted")).toEqual(["noTablet"]);
+      const shot = await read("skin-left-deleted");
+      expect(shot).toMatchObject({ enjoyment: 3, editStanding: "noTablet" });
+      expect(shot.edits).toEqual([expect.objectContaining({ fields: { rating: 3 }, ...madeOn(leftMachine, "Belmont Left", left) })]);
+    } finally {
+      restore();
+    }
   });
 
   it("refuses a request it can't read without asking Decaid or the server, and a method the endpoint doesn't take", async () => {
