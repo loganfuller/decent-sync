@@ -674,27 +674,30 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
 
   /**
    * The plugin answered an edit of a Shot (`shotEdit`, ticket #512,
-   * ADR-0031), which it does on the connection that asked. One it wrote is
-   * marked written, if its tablet still holds the Shot, whether or not the
-   * connection still awaits it, as when the answer came after its time was
-   * up: the Shot on the tablet holds the edit either way. A refusal is
-   * logged, escaped, as it repeats what Decaid answered, and leaves the
-   * edit to be written: the connection sends its Shot nothing more, and
-   * the tablet's next connection tries again. The answer came with a wire
-   * revision, so one from a plugin behind it, which no plugin sends, is a
-   * protocol error.
+   * ADR-0031), which it does on the connection that asked. Only an answer
+   * to an edit this connection sent, and has had no answer to, counts: any
+   * other, as one naming an edit still to be sent, changes nothing. One the
+   * plugin wrote is marked written, if its tablet still holds the Shot,
+   * even where the answer came after its time was up: the Shot on the
+   * tablet holds the edit either way. A refusal is logged, escaped, as it
+   * repeats what Decaid answered, and leaves the edit to be written: the
+   * connection sends its Shot nothing more until it tries again. The
+   * answer came with a wire revision, so one from a plugin behind it, which
+   * no plugin sends, is a protocol error.
    */
   private async shotEdited(session: Session, answer: ShotEdited): Promise<void> {
     if (!peerHasWireRevision(session.wireRevision!, SHOT_EDITS_WIRE_REVISION)) {
       return this.refuse(session, "protocol_error", `shotEdited needs a plugin at wire revision ${SHOT_EDITS_WIRE_REVISION} or newer`);
     }
+    const id = answer.id.toLowerCase();
+    if (!session.shotEdits?.awaits(id)) return;
     const written = answer.outcome === "written";
-    if (written) await this.shotEdits.written(session.live!.tabletId, answer.id);
+    if (written) await this.shotEdits.written(session.live!.tabletId, id);
     else {
       const why = answer.status === null || answer.status === undefined ? "Decaid did not answer" : `Decaid answered ${answer.status}`;
-      this.logger.warn(`The tablet of ${this.describe(session)} did not write edit ${answer.id} of a Shot: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
+      this.logger.warn(`The tablet of ${this.describe(session)} did not write edit ${id} of a Shot: ${why}, ${quoted((answer.error ?? "").slice(0, 200))}`);
     }
-    session.shotEdits?.answered(answer.id, written);
+    session.shotEdits.answered(id, written);
   }
 
   /**
@@ -1100,6 +1103,8 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         (edit) => this.sendCounted(session, edit),
         this.logger,
         (work) => this.track(work),
+        // An edit Decaid refused is tried again after ten heartbeat intervals: five minutes, as they are set by default.
+        10 * this.config.heartbeatIntervalMs,
       );
       session.shotEdits.wake();
     }

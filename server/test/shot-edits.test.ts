@@ -187,6 +187,21 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     expect((await read("edit-belmont-plain")).edits.map((made) => made.fields)).toEqual([{ rating: 0, note: "" }, { rating: 7.5, note: "Syrupy" }]);
   });
 
+  it("applies edits of one Shot made at once one at a time, and writes them to its tablet in that order", async () => {
+    const ratings = [1, 2, 3, 4, 5, 6];
+    await Promise.all(ratings.map((rating) => edit("edit-belmont-plain", { rating })));
+    const made = (await read("edit-belmont-plain")).edits.slice(0, ratings.length).map((edit) => edit.fields.rating!);
+    expect([...made].sort()).toEqual(ratings);
+    // The tablet is sent them in the order they were applied, so it ends with the last of them.
+    await expect.poll(async () => (await states("edit-belmont-plain")).slice(0, ratings.length)).toEqual(ratings.map(() => "written"));
+    expect(editsSent(belmontTablet).slice(-ratings.length).map((sent) => sent.rating)).toEqual([...made].reverse());
+    expect(await annotationsOf(belmontTablet, "edit-belmont-plain")).toMatchObject({ enjoyment: made[0] });
+    // And so does the server, once the tablet's reports of the writes are in: until then it may read as an earlier one (#513).
+    await expect.poll(() => reportsOf(belmontTablet, "edit-belmont-plain").length).toBe(3 + ratings.length);
+    await expect.poll(() => belmontTablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
+    expect((await read("edit-belmont-plain")).enjoyment).toBe(made[0]);
+  });
+
   it("keeps an edit made while the tablet is off awaiting it, and writes it when the tablet reconnects", async () => {
     // Belmont pulls a Recipe against the Lab's Shot, so its tablet keeps a copy of that Shot (#510).
     const { recipe } = await api.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: belmont.id, slot: 1, content: { name: "Against the Lab's" } }, 201);
@@ -221,6 +236,29 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     await expect.poll(() => reportsOf(labTablet, "edit-lab")).toEqual(["shot", "shotUpdated", "shotUpdated", "shotUpdated"]);
     await expect.poll(() => labTablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
     expect(await read("edit-lab")).toMatchObject({ enjoyment: 3, notes: "Went flat as it cooled" });
+  });
+
+  it("leaves an edit Decaid refuses awaiting its tablet, with the Shot's later edits behind it, and tries again after a while", async () => {
+    // Decaid busy for a moment, as when its API is over its limit.
+    labTablet.refuseWrites = ({ method, route }) => (method === "PUT" && route === "/shots/edit-lab" ? { status: 503, body: { error: "Service unavailable" } } : undefined);
+    const answered = answersSent(labTablet).length;
+    await edit("edit-lab", { rating: 7 });
+    await expect.poll(() => answersSent(labTablet).slice(answered)).toEqual([{ type: "shotEdited", id: expect.any(String), outcome: "refused", status: 503, error: '{"error":"Service unavailable"}' }]);
+    // Applied on the server all the same, and the Shot's next edit waits behind it.
+    await edit("edit-lab", { note: "After the refusal" });
+    expect(await read("edit-lab")).toMatchObject({ enjoyment: 7, notes: "After the refusal" });
+    expect((await states("edit-lab")).slice(0, 2)).toEqual(["awaitingTablet", "awaitingTablet"]);
+    expect(answersSent(labTablet).slice(answered)).toHaveLength(1);
+    expect(await annotationsOf(labTablet, "edit-lab")).toMatchObject({ enjoyment: 3, espressoNotes: "Went flat as it cooled" });
+
+    // Tried again ten heartbeat intervals later, 10 s here, oldest first, with the connection still open.
+    labTablet.refuseWrites = undefined;
+    await expect.poll(async () => (await states("edit-lab")).slice(0, 2), { timeout: 30_000 }).toEqual(["written", "written"]);
+    expect(answersSent(labTablet).slice(answered).map((answer) => answer.outcome)).toEqual(["refused", "written", "written"]);
+    expect(await annotationsOf(labTablet, "edit-lab")).toMatchObject({ enjoyment: 7, espressoNotes: "After the refusal" });
+    await expect.poll(() => reportsOf(labTablet, "edit-lab").length).toBe(6);
+    await expect.poll(() => labTablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
+    expect(await read("edit-lab")).toMatchObject({ enjoyment: 7, notes: "After the refusal" });
   });
 
   it("reaches a tablet held by another instance", async () => {
@@ -264,7 +302,8 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     expect(refused.status).toBe(403);
     expect(await refused.json()).toMatchObject({ message: "A Viewer can't change anything" });
     expect(await edit("edit-pending", { rating: 2 })).toMatchObject({ enjoyment: 2 });
-    expect(await read("edit-lab")).toMatchObject({ enjoyment: 3 });
+    // What Staff were refused changed nothing.
+    expect(await read("edit-lab")).toMatchObject({ enjoyment: 7 });
 
     // Each edit names who made it, newest first: by name to an Admin, and by id alone to Staff and Viewers.
     const listed = (await read("edit-belmont-rated")).edits;
@@ -357,6 +396,11 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
       // The next waits for the first's answer.
       await edit("edit-raw", { note: "Second" });
       await edit("edit-raw-other", { rating: 4 });
+      // An answer naming an edit this connection has not been sent marks nothing.
+      const unsent = (await read("edit-raw")).edits[0]!.id;
+      raw.send({ type: "shotEdited", id: unsent, outcome: "written" });
+      await handled(raw);
+      expect(await states("edit-raw")).toEqual(["awaitingTablet", "awaitingTablet"]);
       // Refused, as when Decaid no longer holds the Shot: the edit stays to be written, the Shot's next is held back on
       // this connection, and the other Shot's goes on.
       raw.send({ type: "shotEdited", id: first.id, outcome: "refused", status: 404, error: '{"error":"Shot not found"}' });
@@ -408,6 +452,61 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
       await expect.poll(() => states("edit-raw-held")).toEqual(["written"]);
       await holder.close();
       await bystander.close();
+    });
+
+    it("writes a Capture-only Machine's tablet its Shots' edits, and a mismatched connection's tablet nothing", async () => {
+      // At no Location, so Capture-only: its Shots are an Admin's alone to edit, and its tablet is written them.
+      const machine = await api.createMachine("Raw 5");
+      const tabletId = randomUUID();
+      const raw = await connect(machine, "51208", tabletId);
+      await report(raw, shotOf("edit-raw-capture", "2026-11-11T12:00:00.000Z", "51208"));
+      await edit("edit-raw-capture", { rating: 4 });
+      const sent = await next(raw, (message) => message.type === "shotEdit");
+      expect(sent).toMatchObject({ shotId: "edit-raw-capture", rating: 4 });
+      raw.send({ type: "shotEdited", id: sent.id, outcome: "written" });
+      await expect.poll(() => states("edit-raw-capture")).toEqual(["written"]);
+      await raw.close();
+
+      // The same tablet, now reporting other hardware than its token's Machine's: nothing is written to it (ADR-0004).
+      await edit("edit-raw-capture", { note: "While mismatched" });
+      const mismatched = await connect(machine, "51210", tabletId);
+      await handled(mismatched);
+      expect(editsTo(mismatched)).toEqual([]);
+      // Nor does an answer from it count.
+      const waiting = (await read("edit-raw-capture")).edits[0]!.id;
+      mismatched.send({ type: "shotEdited", id: waiting, outcome: "written" });
+      await handled(mismatched);
+      expect(await states("edit-raw-capture")).toEqual(["awaitingTablet", "written"]);
+      await mismatched.close();
+
+      // Connected as its Machine again, it is written the edit.
+      const again = await connect(machine, "51208", tabletId);
+      expect(await next(again, (message) => message.type === "shotEdit")).toMatchObject({ id: waiting, shotId: "edit-raw-capture", note: "While mismatched" });
+      await again.close();
+    });
+
+    it("sends an edit of a Shot no tablet was known to hold once a tablet's index lists it", async () => {
+      const machine = await api.createMachine("Raw 6", belmont.id);
+      const raw = await connect(machine, "51211", randomUUID());
+      const shot = shotOf("edit-raw-unheld", "2026-11-11T13:00:00.000Z", "51211");
+      await report(raw, shot);
+      // As a Shot stored before Shots kept the tablet reporting them.
+      const database = await server.connectDatabase();
+      try {
+        await database.query("UPDATE shots SET tablet_id = NULL WHERE id = $1", [shot.id]);
+      } finally {
+        await database.end();
+      }
+      await edit("edit-raw-unheld", { rating: 3 });
+      await handled(raw);
+      expect(editsTo(raw)).toEqual([]);
+      // The tablet's index lists the Shot, so it holds it: the edit is its to write.
+      await raw.deliver({ type: "shotIndex", id: randomUUID(), shots: [{ id: shot.id, updatedAt: shot.updatedAt }] });
+      const sent = await next(raw, (message) => message.type === "shotEdit");
+      expect(sent).toMatchObject({ shotId: "edit-raw-unheld", rating: 3 });
+      raw.send({ type: "shotEdited", id: sent.id, outcome: "written" });
+      await expect.poll(() => states("edit-raw-unheld")).toEqual(["written"]);
+      await raw.close();
     });
 
     it("refuses an answer it can't read, and one from a plugin behind the edits' wire revision, which is sent none", async () => {

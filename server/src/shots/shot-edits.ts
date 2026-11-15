@@ -71,7 +71,7 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
   const edits = await db.shotEdit.findMany({
     where: { shotId },
     include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
-    orderBy: [{ madeAt: "desc" }, { id: "desc" }],
+    orderBy: { number: "desc" },
   });
   return edits.map((edit) => ({
     id: edit.id,

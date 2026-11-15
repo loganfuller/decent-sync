@@ -221,7 +221,8 @@ the plugin writes to a tablet's Shots.
 - **Afterwards.** Decaid reports the Shot as updated, and the plugin sends
   that to the server as it sends any edit made on the tablet.
 - **Refused.** If Decaid refuses the update, the edit stays waiting on the
-  server, and is tried again when the tablet next connects.
+  server, with any later edit of that Shot behind it, and is tried again a
+  few minutes later and when the tablet next connects.
 - **Capture-only Machines** are written their Shots' edits too: a Shot's
   rating is no part of the Library.
 - **Older releases.** A 1.9.0 plugin is sent no edit: one waits until the

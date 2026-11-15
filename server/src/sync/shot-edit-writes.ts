@@ -26,9 +26,15 @@ type Outcome = "written" | "refused" | "timedOut" | "stopped";
  * Shot. Only the connection holding its Machine is written to.
  *
  * An edit Decaid refuses, or the plugin does not answer in time, stays due,
- * and no later edit of its Shot is sent on this connection, so a Shot's
- * edits reach its tablet in the order they were made; the other Shots' go
- * on. It is tried again on the tablet's next connection.
+ * and no later edit of its Shot is sent meanwhile, so a Shot's edits reach
+ * its tablet in the order they were made; the other Shots' go on. It is
+ * tried again after `retryMs`, as Decaid may have refused it for a moment,
+ * as when it is busy, while a tablet may stay connected for days, and on
+ * the tablet's next connection.
+ *
+ * Only an edit sent on this connection and not yet answered is answered
+ * (`awaits`): the one awaited, or one whose answer comes after its time
+ * was up, which the Shot on the tablet holds all the same.
  */
 export class ShotEditWrites {
   private running = false;
@@ -37,8 +43,12 @@ export class ShotEditWrites {
   private stopped = false;
   /** The edit awaiting its answer. */
   private waiting: { id: string; settle: (outcome: Outcome) => void } | undefined;
-  /** The Shots whose edit was refused, or not answered in time, on this connection. */
+  /** The edits sent on this connection that the plugin has not answered, each with its Shot: the one awaited, and those whose time ran out. */
+  private readonly unanswered = new Map<string, string>();
+  /** The Shots whose edit was refused, or not answered in time, on this connection, until they are tried again. */
   private readonly skipped = new Set<string>();
+  /** Set while the Shots skipped wait to be tried again. */
+  private retry: ReturnType<typeof setTimeout> | undefined;
 
   constructor(
     /** The edit the tablet is due next, leaving out the Shots skipped; null where none is, or the connection no longer holds its Machine. */
@@ -48,6 +58,8 @@ export class ShotEditWrites {
     private readonly log: { warn(message: string): void; error(message: string): void },
     /** Keeps database work in the instance's work in flight, which shutdown waits for. */
     private readonly track: (work: Promise<void>) => Promise<void>,
+    /** How long a Shot whose edit was refused, or not answered in time, waits before it is tried again. */
+    private readonly retryMs: number,
   ) {}
 
   /** Looks for edits due, now or, if it is writing, once that is done. */
@@ -69,14 +81,28 @@ export class ShotEditWrites {
     );
   }
 
-  /** The plugin answered an edit, and a `written` answer is recorded. An answer to an edit not awaited, such as a late one, is ignored. */
+  /** Whether the edit was sent on this connection and its answer has not been taken. */
+  awaits(id: string): boolean {
+    return this.unanswered.has(id);
+  }
+
+  /**
+   * The plugin answered an edit this connection awaits (`awaits`), and a
+   * `written` answer is recorded. One that comes after its time was up
+   * lets its Shot's later edits go on, if it was written.
+   */
   answered(id: string, written: boolean): void {
-    if (this.waiting?.id === id) this.waiting.settle(written ? "written" : "refused");
+    const shotId = this.unanswered.get(id);
+    if (shotId === undefined) return;
+    this.unanswered.delete(id);
+    if (this.waiting?.id === id) return this.waiting.settle(written ? "written" : "refused");
+    if (written && this.skipped.delete(shotId)) this.wake();
   }
 
   /** The connection closed: nothing more is sent on it. */
   stop(): void {
     this.stopped = true;
+    clearTimeout(this.retry);
     this.waiting?.settle("stopped");
   }
 
@@ -91,11 +117,20 @@ export class ShotEditWrites {
       }
       const outcome = await this.ask(edit);
       if (outcome === "stopped") return;
-      if (outcome === "timedOut") {
-        this.log.warn(`A tablet did not answer edit ${edit.id} of a Shot in ${ANSWER_TIMEOUT_MS / 1000} s; it is tried again once the tablet reconnects`);
-      }
-      if (outcome !== "written") this.skipped.add(edit.shotId);
+      if (outcome === "written") continue;
+      if (outcome === "timedOut") this.log.warn(`A tablet did not answer edit ${edit.id} of a Shot in ${ANSWER_TIMEOUT_MS / 1000} s`);
+      this.skip(edit.shotId);
     }
+  }
+
+  /** Sends the Shot nothing more until the Shots skipped are tried again, `retryMs` after the first of them was. */
+  private skip(shotId: string): void {
+    this.skipped.add(shotId);
+    this.retry ??= setTimeout(() => {
+      this.retry = undefined;
+      this.skipped.clear();
+      this.wake();
+    }, this.retryMs);
   }
 
   /** Sends an edit and resolves with what became of it. */
@@ -108,6 +143,7 @@ export class ShotEditWrites {
         resolve(outcome);
       };
       this.waiting = { id: edit.id, settle };
+      this.unanswered.set(edit.id, edit.shotId);
       this.send(edit);
     });
   }

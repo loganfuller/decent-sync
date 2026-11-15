@@ -600,21 +600,25 @@ another tablet is #515, and what happens when two edits cross is #513
   no foreign key, as a Recipe names its Reference Shot; the `rating` and
   `note` it set, each null where it left that field alone; the account
   that made it and the Connected App it made it through, if one, each set
-  to null if deleted; `made_at`, PostgreSQL's `clock_timestamp()` as the
-  row is inserted under the Shot's lock, to the microsecond, so one Shot's
-  edits are timed in the order they were applied; and `written_at`, null
-  while it awaits its tablet. A Shot's read lists them all, newest first.
-  An edit made on a Machine's tablet (#515) will name that Machine and
-  tablet and no account, which is why the account is nullable.
+  to null if deleted, though a lapsed Connected App an edit names is kept,
+  as one a Settings Edit names is (`connected-apps/cleanup.ts`); `number`,
+  from its column's sequence, taken as the row is inserted under the
+  Shot's lock, so one Shot's edits are numbered in the order they were
+  applied, whatever PostgreSQL's clock does; `made_at`, PostgreSQL's
+  `clock_timestamp()` at that insert; and `written_at`, null while it
+  awaits its tablet. A Shot's read lists them all, newest first, by that
+  number. An edit made on a Machine's tablet (#515) will name that Machine
+  and tablet and no account, which is why the account is nullable.
 - **Which tablet.** The tablet that holds a Shot is the one that last
   reported it (`shots.tablet_id`): the one whose `shot` or `shotUpdated`
   the server stored last, or, for a Shot stored before Shots kept their
   tablet, the one whose index lists it. An edit is a write that tablet is
   due, worked out from the database each time, as its other writes are
-  (`ShotEditsService.due`): the oldest edit not yet written of a Shot it
-  holds. The transaction that makes an edit notifies `shot_edits` with the
-  tablet's id, and every instance wakes its connection from that tablet,
-  if it has one (`ShotEditWrites` in `server/src/sync/shot-edit-writes.ts`).
+  (`ShotEditsService.due`): the first made of the edits not yet written of
+  the Shots it holds. The transaction that makes an edit notifies
+  `shot_edits` with the tablet's id, read from the Shot's row as it is
+  changed, and every instance wakes its connection from that tablet, if it
+  has one (`ShotEditWrites` in `server/src/sync/shot-edit-writes.ts`).
   A connection also looks when it is welcomed, so a tablet that was off is
   written what was made meanwhile, when its instance listens anew, and when
   it reports a Shot or lists its Shots, which may make its tablet the one
@@ -624,12 +628,18 @@ another tablet is #515, and what happens when two edits cross is #513
   connection's `Sender`, and the next only once the plugin has answered
   it, with `shotEdited`, and a `written` answer is recorded
   (`ShotEditsService.written`: only an edit not yet written, of a Shot the
-  answering tablet holds). So two edits of one Shot made while its tablet
-  was off reach it oldest first, and the tablet ends with the later. An
-  edit Decaid refuses, or the plugin leaves unanswered for 60 s, stays
-  awaiting its tablet, and the connection sends that Shot nothing more, so
-  a later edit never goes ahead of an earlier one; the other Shots' edits
-  go on, and the tablet's next connection tries again.
+  answering tablet holds). Only an answer to an edit the connection sent,
+  and has had no answer to, counts. So two edits of one Shot made while
+  its tablet was off reach it oldest first, and the tablet ends with the
+  later. An edit Decaid refuses, or the plugin leaves unanswered for 60 s,
+  stays awaiting its tablet, and the connection sends that Shot nothing
+  more meanwhile, so a later edit never goes ahead of an earlier one; the
+  other Shots' edits go on. It is tried again ten heartbeat intervals
+  later, five minutes as they are set by default, since Decaid may refuse
+  for a moment, as when its API is over its limit (`admission_control.dart`),
+  while a tablet may stay connected for days; and on the tablet's next
+  connection. A refusal is logged, with Decaid's answer, and kept nowhere
+  else.
 - **The plugin** (`plugin/src/shot-edits.ts`) writes each through Decaid's
   own Shot update, `PUT /api/v1/shots/{id}` with `{ annotations: {
   enjoyment?, espressoNotes? } }`, holding only the fields the edit
@@ -672,24 +682,30 @@ another tablet is #515, and what happens when two edits cross is #513
     there while it was off, arrives as the newer version and puts the
     Shot's rating and note back to the tablet's, until the edit is written
     and reported in turn;
-  - two edits of one Shot written one after the other are reported one
-    after the other, so the server's Shot may read as the first for a
-    moment, until the second's report arrives;
+  - edits of one Shot written one after the other are reported one after
+    the other, each report replacing the Shot's stored metadata whole, so
+    while they are written the server's Shot reads as each earlier one in
+    turn, until the last one's report arrives;
   - a tablet that no longer holds the Shot answers 404, and its edit is
-    tried again on each connection.
+    tried again every five minutes and on each connection.
 - **Verified** through Seam 1 with the built plugin in simulated tablets,
   which carry out Decaid's Shot update as its source has it at v0.9.1 and
   v0.9.2 (`server/test/support/decaid-shots.ts`): that update was read,
   not run on a tablet or recorded from one. `server/test/shot-edits.test.ts`
   covers a rating and a note edited alone and together, the server's reads
   at once, the tablet's own Shot afterwards, the edit marked written and
-  the tablet's report making no second edit, an edit made while the tablet
-  is off, two instances on one database, who may, and the refusals; and
-  the write with raw frames: an edit sent again until answered as written,
-  a refusal holding back that Shot's later edits, a Shot reported by
-  another tablet, and a plugin behind the wire revision. The mixed-versions
-  suite leaves an edit awaiting a tablet on the previous release's plugin,
-  and one the previous release's instance holds.
+  the tablet's report making no second edit, edits made at once, an edit
+  made while the tablet is off, one Decaid refuses, tried again, two
+  instances on one database, who may, and the refusals; and the write with
+  raw frames: an edit sent again until answered as written, a refusal
+  holding back that Shot's later edits, an answer to an edit not sent, a
+  Shot reported by another tablet, a Capture-only Machine's tablet, a
+  mismatched connection, a Shot no tablet held until an index listed it,
+  and a plugin behind the wire revision. `server/test/shot-edit-writes.test.ts`
+  runs the connection's writer on a clock the test moves: its order, a
+  refusal, its retry, an answer that comes late. The mixed-versions suite
+  leaves an edit awaiting a tablet on the previous release's plugin, and
+  one the previous release's instance holds.
 
 ## Shot Summaries
 

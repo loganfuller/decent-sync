@@ -6,15 +6,18 @@
 -- Reference Shot: Shots are never deleted, and a key would lock `shots`
 -- against the running release's writes while it is added. Its maker's
 -- account is nullable, as an account may be deleted, and as an edit made on
--- a Machine's tablet names none (#515). The partial index finds the edits
--- still to be written, oldest first, which each connection reads for its
--- tablet.
+-- a Machine's tablet names none (#515). Its `number` comes from a sequence,
+-- as it is inserted under its Shot's lock, so one Shot's edits are ordered
+-- as they were applied whatever the clock does. The partial index finds the
+-- edits still to be written, in that order, which each connection reads for
+-- its tablet.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
 
 CREATE TABLE "shot_edits" (
     "id" UUID NOT NULL,
+    "number" BIGSERIAL NOT NULL,
     "shot_id" TEXT NOT NULL,
     "rating" DOUBLE PRECISION,
     "note" TEXT,
@@ -26,11 +29,11 @@ CREATE TABLE "shot_edits" (
     CONSTRAINT "shot_edits_pkey" PRIMARY KEY ("id")
 );
 
-CREATE INDEX "shot_edits_shot_id_made_at_id_idx" ON "shot_edits"("shot_id", "made_at", "id");
+CREATE INDEX "shot_edits_shot_id_number_idx" ON "shot_edits"("shot_id", "number");
 
 CREATE INDEX "shot_edits_connected_app_id_idx" ON "shot_edits"("connected_app_id");
 
-CREATE INDEX "shot_edits_unwritten_idx" ON "shot_edits"("made_at", "id") WHERE "written_at" IS NULL;
+CREATE INDEX "shot_edits_unwritten_idx" ON "shot_edits"("number") WHERE "written_at" IS NULL;
 
 ALTER TABLE "shot_edits" ADD CONSTRAINT "shot_edits_account_id_fkey" FOREIGN KEY ("account_id") REFERENCES "accounts"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 

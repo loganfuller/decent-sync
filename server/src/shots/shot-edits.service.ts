@@ -65,8 +65,12 @@ export class ShotEditsService {
    * which stays the tablet's, so that report is taken as the newer.
    *
    * It holds the Shot's lock, as storing a delivery of the Shot does, so
-   * the two are decided one at a time, and edits of one Shot are timed in
-   * the order they were applied.
+   * the two are decided one at a time, and edits of one Shot are numbered
+   * in the order they were applied. The tablet to tell is read from the
+   * row as it is changed: a tablet's index claiming a Shot that had none
+   * (`claimListed`) takes that row too, so it either came first, and is
+   * told, or waits for the edit, and finds it as its connection looks
+   * once the index is answered.
    */
   async make(shotId: string, fields: ShotEditFields, editor: ShotEditor): Promise<void> {
     if (!isRecordId(shotId)) throw shotNotFound();
@@ -75,34 +79,35 @@ export class ShotEditsService {
     const rating = fields.rating === undefined ? Prisma.empty : Prisma.sql`, enjoyment = ${fields.rating}::double precision`;
     await this.prisma.$transaction(async (tx) => {
       await lockShot(tx, shotId);
-      const [shot] = await tx.$queryRaw<{ locationId: string | null; tabletId: string | null }[]>`
-        SELECT s.location_id::text AS "locationId", s.tablet_id::text AS "tabletId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
+      const [shot] = await tx.$queryRaw<{ locationId: string | null }[]>`
+        SELECT s.location_id::text AS "locationId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
       if (!shot) throw shotNotFound();
       if (!includesLocation(editor.scope, shot.locationId)) throw new ForbiddenException("You can edit only the Shots at a Location you work at");
       // Set in place, so the rest of the record stays as Decaid sent it.
-      await tx.$executeRaw`
+      const [{ tabletId }] = await tx.$queryRaw<[{ tabletId: string | null }]>`
         UPDATE shots SET
           record = jsonb_set(
             record, '{annotations}',
             (CASE WHEN jsonb_typeof(record -> 'annotations') = 'object' THEN record -> 'annotations' ELSE '{}'::jsonb END) || ${JSON.stringify(annotations)}::jsonb
           ) || ${JSON.stringify(aliases)}::jsonb
           ${rating}
-        WHERE id = ${shotId}`;
+        WHERE id = ${shotId}
+        RETURNING tablet_id::text AS "tabletId"`;
       await tx.shotEdit.create({
         data: { shotId, rating: fields.rating ?? null, note: fields.note ?? null, accountId: editor.accountId, connectedAppId: editor.connectedAppId },
       });
       // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
       await announceReferenceShots(tx, Prisma.sql`s.id = ${shotId}`);
       // A Shot no tablet is known to hold, as one stored before Shots kept their tablet, waits for a tablet's index to list it.
-      if (shot.tabletId !== null) await notify(tx, "shot_edits", shot.tabletId);
+      if (tabletId !== null) await notify(tx, "shot_edits", tabletId);
     });
   }
 
   /**
-   * The edit the connection's tablet is due next: the oldest not yet
-   * written of a Shot it holds, leaving out the Shots in `skipped`, as a
-   * `shotEdit` to send it; null where none is due, or the connection no
-   * longer holds its Machine.
+   * The edit the connection's tablet is due next: the first made that is
+   * not yet written, of a Shot it holds, leaving out the Shots in
+   * `skipped`, as a `shotEdit` to send it; null where none is due, or the
+   * connection no longer holds its Machine.
    */
   async due(tablet: EditedTablet, skipped: readonly string[]): Promise<ShotEdit | null> {
     const [edit] = await this.prisma.$queryRaw<{ id: string; shotId: string; rating: number | null; note: string | null }[]>`
@@ -110,7 +115,7 @@ export class ShotEditsService {
       FROM shot_edits AS e JOIN shots AS s ON s.id = e.shot_id
       WHERE e.written_at IS NULL AND s.tablet_id = ${tablet.tabletId}::uuid AND NOT (e.shot_id = ANY(${[...skipped]}::text[]))
         AND EXISTS (SELECT 1 FROM machines AS m WHERE m.id = ${tablet.machineId}::uuid AND m.connected_session_id = ${tablet.sessionId}::uuid)
-      ORDER BY e.made_at, e.id LIMIT 1`;
+      ORDER BY e.number LIMIT 1`;
     if (!edit) return null;
     return { type: "shotEdit", id: edit.id, shotId: edit.shotId, ...(edit.rating !== null && { rating: edit.rating }), ...(edit.note !== null && { note: edit.note }) };
   }
@@ -124,7 +129,7 @@ export class ShotEditsService {
   async written(tabletId: string, editId: string): Promise<boolean> {
     const marked = await this.prisma.$executeRaw`
       UPDATE shot_edits AS e SET written_at = now() FROM shots AS s
-      WHERE e.id = ${editId.toLowerCase()}::uuid AND e.written_at IS NULL AND s.id = e.shot_id AND s.tablet_id = ${tabletId}::uuid`;
+      WHERE e.id = ${editId}::uuid AND e.written_at IS NULL AND s.id = e.shot_id AND s.tablet_id = ${tabletId}::uuid`;
     return marked > 0;
   }
 }

@@ -542,7 +542,7 @@ describe("connecting an assistant", () => {
       }
     });
 
-    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps but those the Library's history or a Settings Edit names, as an instance starts, keeping the rest", async () => {
+    it("deletes expired requests, codes and access tokens, and lapsed Connected Apps but those the Library's history, a Settings Edit or an edit of a Shot names, as an instance starts, keeping the rest", async () => {
       const hash = (secret: string) => createHash("sha256").update(secret).digest();
       const kept = await approvedCode(adminCookie);
       const keptTokens = await exchange(server.url, kept.code, kept.verifier);
@@ -566,6 +566,10 @@ describe("connecting an assistant", () => {
       const editing = await person("se@example.com", "staff", [uptown]);
       const edited = await approvedCode(editing.cookie);
       await exchange(server.url, edited.code, edited.verifier);
+      // And one that only an edit of a Shot names (ADR-0031): no tool makes one yet, so its row is written here.
+      const rating = await person("ra@example.com", "staff", [uptown]);
+      const rated = await approvedCode(rating.cookie);
+      await exchange(server.url, rated.code, rated.verifier);
       const database = await server.connectDatabase();
       try {
         await database.query(
@@ -579,12 +583,17 @@ describe("connecting an assistant", () => {
            FROM connected_apps WHERE account_id = $1`,
           [editing.id],
         );
+        await database.query(
+          `INSERT INTO shot_edits (id, shot_id, rating, account_id, connected_app_id)
+           SELECT gen_random_uuid(), 'a Shot''s id', 8, account_id, id FROM connected_apps WHERE account_id = $1`,
+          [rating.id],
+        );
         // Aged by PostgreSQL's clock, as waiting would not fit in a test.
         await database.query("UPDATE authorization_requests SET expires_at = now() - interval '1 second' WHERE id = $1", [unanswered]);
         await database.query("UPDATE authorization_codes SET expires_at = now() - interval '1 second' WHERE code_hash = $1", [hash(unexchanged.code)]);
         await database.query("UPDATE access_tokens SET expires_at = now() - interval '1 second' WHERE token_hash = $1", [hash(expiringTokens.body.access_token as string)]);
         await database.query("UPDATE connected_apps SET last_used_at = now() - interval '30 days 1 second' WHERE account_id = ANY($1)", [
-          [lapsing.id, changing.id, losing.id, editing.id],
+          [lapsing.id, changing.id, losing.id, editing.id, rating.id],
         ]);
 
         const starting = await startTestServer({ env: ASSISTANT_ENV, sharing: server, publicUrl: server.url });
@@ -604,9 +613,9 @@ describe("connecting an assistant", () => {
           const kept = await database.query<{ apps: number; refreshTokens: number }>(
             `SELECT (SELECT count(*)::int FROM connected_apps WHERE account_id = ANY($1)) AS apps,
                (SELECT count(*)::int FROM refresh_tokens JOIN connected_apps ON connected_apps.id = refresh_tokens.connected_app_id WHERE account_id = ANY($1)) AS "refreshTokens"`,
-            [[changing.id, losing.id, editing.id]],
+            [[changing.id, losing.id, editing.id, rating.id]],
           );
-          expect(kept.rows[0]).toEqual({ apps: 3, refreshTokens: 0 });
+          expect(kept.rows[0]).toEqual({ apps: 4, refreshTokens: 0 });
         } finally {
           await starting.stop();
         }
