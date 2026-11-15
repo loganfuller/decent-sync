@@ -515,8 +515,8 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Shot poured: a Shot Summary counts Unfinished Shots by it.
   The MCP endpoint's `get_shot` gives all five too, to hundredths, the
   first three from the same read of the measurements as its curves.
-  It also gives `edits`, the edits of its rating and note made through the
-  server, newest first, the newest 100 of them (A rating and note edited
+  `GET /api/shots/:id` also gives `edits`, the edits of its rating and note
+  made through the server, newest first, the newest 100 of them (A rating and note edited
   through the server, below): each `{ id, fields, account, connectedApp,
   madeAt, state, writtenAt }`. `fields` holds what it set, `rating`, `note` or both;
   `account` is who made it (`{ id, name }`, the name given to an Admin
@@ -639,14 +639,17 @@ another tablet is #515, and what happens when two edits cross is #513
   the connection sent, and has had no answer to, counts. A write Decaid
   refuses, or the plugin leaves unanswered for 60 s, leaves its edits
   awaiting their tablet, and the connection sends that Shot nothing more
-  meanwhile, so a write the plugin may still be carrying out is never
-  overtaken; the other Shots' go on. It is tried again ten heartbeat
-  intervals later, five minutes as they are set by default, since Decaid
-  may refuse for a moment, as when its API is over its limit
+  for a while, rather than ask again at once; the other Shots' go on. It
+  is tried again within ten heartbeat intervals, five minutes as they are
+  set by default, on one timer for every Shot so held, since Decaid may
+  refuse for a moment, as when its API is over its limit
   (`admission_control.dart`), while a tablet may stay connected for days;
-  and on the tablet's next connection. A look for what is due that fails,
-  as while the database can't be reached, is tried again the same way. A
-  refusal is logged, with Decaid's answer, and kept nowhere else.
+  and on the tablet's next connection. The plugin carries out the writes
+  it is sent one at a time, in the order they arrive, so one tried again
+  while an earlier one is still under way lands after it. A look for what
+  is due that fails, as while the database can't be reached, is tried
+  again on the same timer. A refusal is logged, with Decaid's answer, and
+  kept nowhere else.
 - **The plugin** (`plugin/src/shot-edits.ts`) writes each through Decaid's
   own Shot update, `PUT /api/v1/shots/{id}` with `{ annotations: {
   enjoyment?, espressoNotes? } }`, holding only the fields the edit
@@ -694,7 +697,7 @@ another tablet is #515, and what happens when two edits cross is #513
     report replacing the Shot's stored metadata whole, so the server's
     Shot may read as an earlier one until the last one's report arrives;
   - a tablet that no longer holds the Shot answers 404, and its edit is
-    tried again every five minutes and on each connection.
+    tried again every five minutes or so and on each connection.
 - **Verified** through Seam 1 with the built plugin in simulated tablets,
   which carry out Decaid's Shot update as its source has it at v0.9.1 and
   v0.9.2 (`server/test/support/decaid-shots.ts`): that update was read,
@@ -706,7 +709,8 @@ another tablet is #515, and what happens when two edits cross is #513
   again, two instances on one database, who may, and the refusals; and the
   write with raw frames: a Shot's edits sent again until answered as
   written, a refusal holding that Shot back, an answer to an edit not
-  sent, a Shot reported by another tablet, whose first tablet's answer no
+  sent, an edit made while a write is under way, left for the next, a
+  Shot reported by another tablet, whose first tablet's answer no
   longer counts, a Capture-only Machine's tablet, a mismatched connection,
   a Shot no tablet held until an index listed it, a Shot's newest hundred
   edits listed, and a plugin behind the wire revision. `server/test/shot-edit-writes.test.ts`

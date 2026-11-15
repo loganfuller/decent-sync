@@ -245,13 +245,13 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     expect(await read("edit-lab")).toMatchObject({ enjoyment: 3, notes: "Went flat as it cooled" });
   });
 
-  it("leaves an edit Decaid refuses awaiting its tablet, with the Shot's later edits behind it, and tries again after a while", async () => {
+  it("leaves an edit Decaid refuses awaiting its tablet, sends the Shot nothing more meanwhile, and tries again after a while, with what was made since", async () => {
     // Decaid busy for a moment, as when its API is over its limit.
     labTablet.refuseWrites = ({ method, route }) => (method === "PUT" && route === "/shots/edit-lab" ? { status: 503, body: { error: "Service unavailable" } } : undefined);
     const answered = answersSent(labTablet).length;
     await edit("edit-lab", { rating: 7 });
     await expect.poll(() => answersSent(labTablet).slice(answered)).toEqual([{ type: "shotEdited", id: expect.any(String), outcome: "refused", status: 503, error: '{"error":"Service unavailable"}' }]);
-    // Applied on the server all the same, and the Shot's next edit waits behind it.
+    // Applied on the server all the same, and the Shot's next edit waits with it.
     await edit("edit-lab", { note: "After the refusal" });
     expect(await read("edit-lab")).toMatchObject({ enjoyment: 7, notes: "After the refusal" });
     expect((await states("edit-lab")).slice(0, 2)).toEqual(["awaitingTablet", "awaitingTablet"]);
@@ -439,6 +439,25 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
       expect((await read("edit-raw")).edits.map((made) => made.writtenAt)).toEqual(written);
       expect(editsTo(again)).toHaveLength(1);
       await again.close();
+    });
+
+    it("leaves an edit made while a write is under way for the next write", async () => {
+      const machine = await api.createMachine("Raw 8", belmont.id);
+      const raw = await connect(machine, "51213", randomUUID());
+      await report(raw, shotOf("edit-raw-under-way", "2026-11-11T15:00:00.000Z", "51213"));
+      await edit("edit-raw-under-way", { rating: 1 });
+      const first = await next(raw, (message) => message.type === "shotEdit");
+      expect(first).toEqual({ type: "shotEdit", id: expect.any(String), shotId: "edit-raw-under-way", rating: 1 });
+      // Made before the tablet has answered: the write under way does not carry it, so its answer does not mark it.
+      await edit("edit-raw-under-way", { note: "Second" });
+      const second = (await read("edit-raw-under-way")).edits[0]!.id;
+      raw.send({ type: "shotEdited", id: first.id, outcome: "written" });
+      await expect.poll(() => states("edit-raw-under-way")).toEqual(["awaitingTablet", "written"]);
+      // It goes next, alone: the rating the tablet already holds is not sent again.
+      expect(await next(raw, (message) => message.type === "shotEdit" && message.id !== first.id)).toEqual({ type: "shotEdit", id: second, shotId: "edit-raw-under-way", note: "Second" });
+      raw.send({ type: "shotEdited", id: second, outcome: "written" });
+      await expect.poll(() => states("edit-raw-under-way")).toEqual(["written", "written"]);
+      await raw.close();
     });
 
     it("sends the tablet that last reported a Shot its edits, and no other", async () => {

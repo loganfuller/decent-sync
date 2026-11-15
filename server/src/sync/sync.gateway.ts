@@ -1103,7 +1103,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
         (edit) => this.sendCounted(session, edit),
         this.logger,
         (work) => this.track(work),
-        // An edit Decaid refused is tried again after ten heartbeat intervals: five minutes, as they are set by default.
+        // A write Decaid refused is tried again within ten heartbeat intervals: five minutes, as they are set by default.
         10 * this.config.heartbeatIntervalMs,
       );
       session.shotEdits.wake();

@@ -27,13 +27,15 @@ type Outcome = "written" | "refused" | "timedOut" | "stopped";
  * Shot. Only the connection holding its Machine is written to.
  *
  * A write Decaid refuses, or the plugin does not answer in time, leaves its
- * edits due, and its Shot is sent nothing more meanwhile, so a write the
- * plugin may still be carrying out is never overtaken by a later one; the
- * other Shots' go on. It is tried again after `retryMs`, with whatever was
- * made since, as Decaid may have refused it for a moment, as when it is
- * busy, while a tablet may stay connected for days, and on the tablet's
- * next connection. So is a look that failed, as when the database could
- * not be reached.
+ * edits due, and its Shot is sent nothing more for a while, rather than
+ * asked again at once; the other Shots' go on. It is tried again within
+ * `retryMs`, on one timer for every Shot so held, with whatever was made
+ * since, as Decaid may have refused it for a moment, as when it is busy,
+ * while a tablet may stay connected for days, and on the tablet's next
+ * connection. So is a look that failed, as when the database could not be
+ * reached. The plugin carries out the writes it is sent one at a time, in
+ * the order they arrive, so one tried again while an earlier one is still
+ * under way lands after it.
  *
  * Only an edit sent on this connection and not yet answered is answered
  * (`awaits`): the one awaited, or one whose answer comes after its time
@@ -61,7 +63,7 @@ export class ShotEditWrites {
     private readonly log: { warn(message: string): void; error(message: string): void },
     /** Keeps database work in the instance's work in flight, which shutdown waits for. */
     private readonly track: (work: Promise<void>) => Promise<void>,
-    /** How long a Shot whose edit was refused, or not answered in time, waits before it is tried again. */
+    /** The longest a Shot whose write was refused, or not answered in time, waits before it is tried again. */
     private readonly retryMs: number,
   ) {}
 
@@ -130,7 +132,7 @@ export class ShotEditWrites {
     }
   }
 
-  /** Sends the Shot nothing more until the Shots skipped are tried again, `retryMs` after the first of them was. */
+  /** Sends the Shot nothing more until the Shots skipped are tried again, within `retryMs`. */
   private skip(shotId: string): void {
     this.skipped.add(shotId);
     this.retryLater();
