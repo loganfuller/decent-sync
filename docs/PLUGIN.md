@@ -90,8 +90,7 @@ its other update checks, every 12 hours while it runs, or when you press
   to the tablet. Each tablet needs its own approval.
 
 Only a new permission needs approval. A release that adds endpoints for a
-Skin, as the release after 1.9.0 adds `status`, `changes`, `shots`, `shot`
-and `reference`, installs by itself: Decaid compares the permissions of the installed plugin and the
+Skin, as 1.10.0 adds `status`, `changes`, `shots`, `shot` and `reference`, installs by itself: Decaid compares the permissions of the installed plugin and the
 update, and nothing else of their manifests (`_addedPermissions` in Decaid's
 `plugin_source_service.dart`, read at v0.9.1 and v0.9.2; not yet seen on a
 tablet).

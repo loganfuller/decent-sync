@@ -13,7 +13,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.10.0
 
 ### Check every tablet runs the 1.9.0 plugin before deploying
 
@@ -39,6 +39,34 @@ as before.
 This release's server writes a tablet still on the 1.9.0 plugin a Recipe in
 slots 6 to 9 in no slot, until Decaid updates its plugin, and the Recipe
 keeps its slot meanwhile.
+
+### A tablet's network can read its Location's Shots
+
+The plugin now serves a Skin on its tablet what the server holds: the Shots
+at its Machine's Location, each of that Location's Recipes' Reference Shots,
+the choice of a Reference Shot, and edits of a Shot's rating and note
+(docs/PLUGIN.md, For a Skin's author). Decaid checks no caller, so anything
+on a tablet's network can call the same endpoints. The server holds each
+tablet to its own Machine's Location. That network can already change the
+Workflow and delete the tablet's Shots through Decaid, so nothing is needed
+where it is trusted with that. A Capture-only Machine's tablet is served
+nothing from the server.
+
+### The plugin's update should need no approval
+
+This release's plugin adds those endpoints and no permission, and Decaid
+asks for approval only of a new permission, so each tablet should install it
+by itself. That is read from Decaid's code and not yet seen on a tablet. If a
+tablet's Plugins page says the update needs approval, approve it there
+(docs/PLUGIN.md, Updates).
+
+### A rating reads in stars
+
+The management interface now gives a Shot's rating in stars, up to five, as
+DYE2 shows it, where it gave Decaid's number from 0 to 10: on a Shot's page,
+in the Shots list, and in the Summary and Trend cards. A star is two points
+of that number. Nothing is needed. The REST API and the MCP endpoint give
+and take the rating from 0 to 10 as before.
 
 ## 1.9.0
 
