@@ -704,6 +704,60 @@ Conflict names is kept, still refused, so history goes on naming it
   The Recipe's other Shots are read against it in a Shot Summary grouped by
   Recipe, in the Overview's cells and on a Shot's page (`SHOTS.md`, Shot
   Summaries and Management interface; #473).
+- **A tablet may choose a Recipe's Reference Shot, and may not clear it**
+  (#511, ADR-0030, amending ADR-0029, which left choosing to the management
+  interface and the MCP endpoint). A Skin sends the plugin's `reference`
+  endpoint a PUT naming the Recipe by its DYE2 record on the tablet and a
+  Shot's id (`PLUGIN.md`, Choosing a Recipe's Reference Shot), which the
+  plugin asks the server for as a request (`chooseReference`,
+  `AI_PROTOCOL_NOTES.md`, Requests for a Skin).
+  - **One service, the same locks.** `SkinRequestsService` finds the
+    connection's Machine served at a Location and has
+    `RecipeEditsService.chooseReferenceShotOnTablet` make the choice in the
+    same transaction: the Location's lock and then the Recipe's row, the
+    update, the version and the `library_changes` announcement are those of
+    `setReferenceShot`, which the REST route and `set_reference_shot` call.
+    The transaction holds the Machine's row first, as a tablet's report
+    does (`lockHeldMachine`), which a hello, a move and a sharing switch
+    take too: a choice is made only by the connection holding a Machine
+    that is served at the Recipe's Location as it commits.
+    So the other tablets' copies are replaced and their Skins pushed, and
+    the Recipe's REST read, `get_library_item` and the management interface
+    show it at once.
+  - **No person.** The version names the Machine and the tablet and no
+    account, as a dial-in change saved from a tablet does (`tabletSource`),
+    timed by PostgreSQL's clock. The Recipe's history shows the Machine.
+  - **Which Recipe.** One of the Location the Machine is served at. Another
+    Location's is refused as `notAtThisLocation`, one the Library doesn't
+    hold as `noSuchRecipe`, and an Archived one as `archived`, as the REST
+    route refuses it (409).
+  - **Which Shot.** One the tablet may read whole (`readableWhole` in
+    `server/src/shots/location-references.ts`): a Shot the Shots list lists
+    for its Location, or the Reference Shot of one of its Location's
+    Recipes, which may be another Location's. Any other is refused as
+    `noSuchShot`. The management interface and an assistant may still
+    choose any listed Shot.
+  - **Never clears.** A request names a Shot: the wire has no way to ask
+    for none, and the plugin refuses a body without a `shotId`.
+  - **Never queued.** The plugin refuses at once while it isn't connected,
+    and keeps nothing to send later; the request follows the tablet's
+    reports, so a Shot pulled seconds ago is chosen once the server has
+    stored it. A request the plugin sent and has no answer to, as its
+    connection closed or 10 s passed, is answered to the Skin as
+    unreachable too, though the server may have made the choice, or make
+    it once its transaction has its locks, within that transaction's 60 s:
+    a request carries no deadline, and a choice that has taken its
+    Machine's row is finished whether or not its connection still stands.
+    One whose connection was released first, as when it closed while the
+    request waited its turn, is not made.
+  - **Releases (ADR-0025).** The request came with requests' wire revision,
+    so a tablet the previous release's instance holds refuses the choice as
+    too old to ask, and nothing changes.
+  - `server/test/skin-reference-choices.test.ts` covers it through the
+    built plugin in simulated tablets, with two instances on one database
+    and with raw frames, `server/test/latest-release/mixed-versions.test.ts`
+    a tablet the latest release's instance holds, and
+    `e2e/reference-shots.spec.ts` the Recipe's history.
 - **A Recipe's Reference Shot on its Location's tablets** (#510, ADR-0030,
   amending ADR-0029). Each served tablet keeps a copy of the Reference Shot
   of each Recipe in a slot at its Location, whole, with its measurements,
@@ -739,7 +793,8 @@ Conflict names is kept, still refused, so history goes on naming it
     each time. A long Shot's record passes that.
   - **A tablet reads the Reference Shot of any Recipe of its Location,** in
     a slot or not, from the server, a Shot pulled at another Location
-    included. A Recipe of another Location is refused as no such Recipe.
+    included. A Recipe of another Location is refused as no such Recipe to
+    a read, where a choice is told it is not at this Location, above.
   - `server/test/skin-references.test.ts` covers them through the built
     plugin in simulated tablets, with two instances on one database, and
     `server/test/latest-release/mixed-versions.test.ts` with the latest

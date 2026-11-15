@@ -1,6 +1,8 @@
 import { Injectable } from "@nestjs/common";
-import { type NotServed, type SkinAnswer, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
+import { type NotServed, type SkinAnswer, type SkinReference, type SkinRefusal, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
+import { INTAKE_TRANSACTION, lockHeldMachine } from "../library/intake.js";
+import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type DueCopy, recipeReference, referenceCopiesDue } from "../shots/location-references.js";
 import { type AskingTablet, locationShot, locationShots } from "../shots/location-shots.js";
@@ -33,6 +35,15 @@ import type { Identity } from "../sync/identity.js";
 // any other Recipe is refused as no such Recipe. And it keeps a copy of the
 // Reference Shot of each Recipe in a slot there, which the connection's
 // `ReferenceCopies` sends as `referenceCopiesDue` here finds them due.
+//
+// One ask changes something: `chooseReference` makes a Shot the tablet may
+// read whole the Reference Shot of one of its Location's Recipes (ticket
+// #511, amending ADR-0029), through the service the management interface
+// and an assistant's tool choose one through (`RecipeEditsService`). It is
+// made while its request is handled or not at all: nothing of it is kept to
+// make later. Its answer may still be lost on the way, as when the
+// connection closes meanwhile, so a plugin that sent the request and has no
+// answer can't tell its Skin whether the choice was made.
 
 /** The connection a request arrived on: its session, its token's Machine, its tablet, and who that tablet is, as its hello settled it. */
 export interface AskingConnection {
@@ -44,7 +55,10 @@ export interface AskingConnection {
 
 @Injectable()
 export class SkinRequestsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly recipeEdits: RecipeEditsService,
+  ) {}
 
   /**
    * Answers a request, as things stand now. Null where the connection no
@@ -80,7 +94,43 @@ export class SkinRequestsService {
         });
         return outcome && { ...answer, ask: "reference", ...outcome };
       }
+      case "chooseReference": {
+        const outcome = await this.chooseReference(connection, request.recipeId, request.shotId);
+        return outcome && { ...answer, ask: "chooseReference", ...outcome };
+      }
     }
+  }
+
+  /**
+   * Makes the Shot the Reference Shot of one of the Recipes of the Location
+   * the connection's Machine is served at, as its tablet chose it (ticket
+   * #511), and gives the Recipe's reference as it then is, as `reference`
+   * reads it; or why the choice is refused; or null as `answer` gives it.
+   * Whether the Machine is served and where, the choice and the reference
+   * read after it are of one transaction, which takes the locks every
+   * change of a Recipe takes, so it reads each as committed then, where a
+   * read's snapshot would fail the choice whenever another change came
+   * first. It holds the Machine's row first, as a tablet's report does
+   * (`lockHeldMachine`): a hello taking the Machine, a move and a sharing
+   * switch each take that lock, so each waits for the choice or came before
+   * it, and a choice is made only by the connection holding a Machine that
+   * is served at the Recipe's Location as it commits.
+   */
+  private chooseReference(connection: AskingConnection, recipeId: string, shotId: string): Promise<{ result: SkinReference } | { refused: SkinRefusal } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      if (!(await lockHeldMachine(tx, connection))) return null;
+      const status = await this.status(tx, connection);
+      if (status === null) return null;
+      if (status.notServed !== undefined || status.location === null) return { refused: status.notServed ?? "captureOnly" };
+      const asking = { locationId: status.location.id, tabletId: connection.tabletId };
+      const refused = await this.recipeEdits.chooseReferenceShotOnTablet(tx, recipeId, shotId, { ...asking, machineId: connection.machineId });
+      if (refused) return { refused };
+      const result = await recipeReference(tx, asking, recipeId);
+      // The Recipe was found at this Location and is locked, and a Recipe never changes Location, so it is read. Were
+      // it not, nothing is kept of the choice.
+      if (!result) throw new Error("A Recipe whose Reference Shot was chosen is no longer its Location's");
+      return { result };
+    }, INTAKE_TRANSACTION);
   }
 
   /**

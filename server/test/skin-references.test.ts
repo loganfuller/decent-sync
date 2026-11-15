@@ -399,7 +399,7 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
     await until(async () => (await reference(right, espresso)).status === 200);
   });
 
-  it("refuses a record that is no Recipe of the Library's as no such Recipe, a request it can't read, and anything but a GET", async () => {
+  it("refuses a record that is no Recipe of the Library's as no such Recipe, a request it can't read, and a method it doesn't take", async () => {
     const noSuchRecipe = { status: 404, body: { code: "noSuchRecipe", message: expect.stringContaining("Recipe") } };
     const asked = sentOf(left, "request").length;
     expect(await call(left, "reference", { recipe: "no-such-record" })).toEqual(noSuchRecipe);
@@ -409,8 +409,9 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
     expect(await call(left, "reference", { recipe: "" })).toMatchObject({ status: 400, body: { code: "invalidRequest" } });
     // None of them was asked of the server.
     expect(sentOf(left, "request")).toHaveLength(asked);
+    // A PUT chooses the Recipe's Reference Shot (#511, skin-reference-choices.test.ts).
     const post = await left.callEndpoint("reference", { method: "POST", query: { recipe: recordIdOf(left, espresso) } });
-    expect([post.status, post.headers.Allow]).toEqual([405, "GET"]);
+    expect([post.status, post.headers.Allow]).toEqual([405, "GET, PUT"]);
     // The Lab's tablet holds no record of a Belmont Recipe.
     expect(recipeRecords(labTablet).some((record) => dye2GlobalIdOf(record) === espresso)).toBe(false);
   });

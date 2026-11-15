@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { MAX_REFERENCE_COPY_BYTES, type ReferenceCopy, type SkinRecipe, type SkinReference, type SkinReferenceShot, isGlobalId, utf8Length } from "@decent-sync/protocol";
+import { MAX_REFERENCE_COPY_BYTES, type ReferenceCopy, type SkinRecipe, type SkinReference, type SkinReferenceShot, isGlobalId, isRecordId, utf8Length } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { recordedText } from "./extraction.js";
 import { referenceProfileDiffers, shotListedSql, shotProfileSql, shotRecipeSql } from "./links.js";
@@ -12,9 +12,11 @@ import { type AskingTablet, referencesOf } from "./location-shots.js";
 // Reference Shot may be from any Machine or Location, so a tablet reads
 // whole the Reference Shot of any Recipe of its Location, a Shot pulled at
 // another Location included: this widens what a tablet reads of the
-// Location's Shots (location-shots.ts) by exactly that. One the Shots list
-// doesn't list, as a dismissed Pending Machine's, reads as none. Each takes
-// the transaction of what it answers, so it reads what that saw.
+// Location's Shots (location-shots.ts) by exactly that, and so which Shots
+// it may choose as a Recipe's Reference Shot (`readableWhole`, ticket
+// #511). One the Shots list doesn't list, as a dismissed Pending Machine's,
+// reads as none. Each takes the transaction of what it answers, so it reads
+// what that saw.
 
 /** Raised when what a copy holds changes shape, so every tablet's copies are sent again. */
 const COPY_FORMAT = 1;
@@ -109,6 +111,24 @@ export async function recipeReference(db: Prisma.TransactionClient, asking: Aski
   if (!isGlobalId(recipeId)) return null;
   const [head] = await heads(db, asking, Prisma.sql`r.id = ${recipeId}::uuid`);
   return head ? whole(db, head) : null;
+}
+
+/**
+ * Whether the Shot is one the asking tablet may read whole: one of its
+ * Location's Shots (`locationShot`), or the Reference Shot of one of its
+ * Location's Recipes, Archived or not (`recipeReference`), that the Shots
+ * list lists. Those are the Shots a tablet may choose as a Recipe's
+ * Reference Shot (ticket #511).
+ */
+export async function readableWhole(db: Prisma.TransactionClient, asking: AskingTablet, shotId: string): Promise<boolean> {
+  if (!isRecordId(shotId)) return false;
+  const found = await db.$queryRaw<unknown[]>`
+    SELECT 1 FROM shots AS s
+    WHERE s.id = ${shotId} AND ${shotListedSql("s")} AND (
+      s.location_id = ${asking.locationId}::uuid
+      OR EXISTS (SELECT 1 FROM recipes AS r WHERE r.location_id = ${asking.locationId}::uuid AND r.reference_shot_id = s.id)
+    )`;
+  return found.length > 0;
 }
 
 /** What a tablet is to keep for a slot, as a `referenceCopy` carries it. */

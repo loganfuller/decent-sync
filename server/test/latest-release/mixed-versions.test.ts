@@ -524,6 +524,49 @@ describe("the latest release beside the change", () => {
     }
   });
 
+  // Choosing a Reference Shot from a tablet (#511) is a request, so it came
+  // with requests' wire revision: a tablet the latest release's instance
+  // holds, as during a deploy, sends that server nothing and refuses a Skin's
+  // choice as too old to ask, which changes nothing, and makes it once the
+  // change's instance holds it. Once the latest release has the choice
+  // itself, its server makes it.
+  it("refuses a Skin's choice of a Reference Shot as too old to ask while the latest release's server holds its tablet", async () => {
+    const location = await apis.change.createLocation("Reference choices, both releases", "America/Chicago");
+    const recipeRecords = (tablet: SimulatedTablet) => {
+      const list = dye2List(tablet, "recipes");
+      return Array.isArray(list) ? list.filter((record) => dye2GlobalIdOf(record) !== null) : [];
+    };
+    const referenceShot = async (id: string) => (await apis.change.get<{ recipe: { referenceShot: { id: string } | null } }>(`/recipes/${id}`)).recipe.referenceShot?.id ?? null;
+    const choose = async (tablet: SimulatedTablet) => {
+      const answer = await tablet.callEndpoint("reference", { method: "PUT", query: { recipe: String((recipeRecords(tablet)[0] as { id: unknown }).id) }, body: { shotId: "mixed-chosen-shot" } });
+      return [answer.status, JSON.parse(answer.body)];
+    };
+    const held = await connected("Reference choices, held by the latest release", "change", "latest release", { location });
+    // Pulled now, on the tablet's own machine, so it is one of the Location's Shots, which its tablet may choose.
+    const fixture = derivedShot("mixed-chosen-shot", { timestamp: new Date().toISOString() });
+    const { model, serialNumber } = (await held.tablet.callApi("GET", "/machine/info")).body as { model: string; serialNumber: string };
+    const workflow = fixture.workflow as Record<string, unknown>;
+    held.tablet.pullShot({ ...fixture, workflow: { ...workflow, machine: { ...(workflow.machine as Record<string, unknown>), model, serialNumber } } });
+    await expect.poll(async () => (await apis.change.get<{ shots: { id: string }[] }>(`/shots?locationId=${location.id}`)).shots.map((shot) => shot.id)).toEqual(["mixed-chosen-shot"]);
+    const { recipe } = await apis.change.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: "next", content: { name: "Mixed choice" } }, 201);
+    await expect.poll(() => recipeRecords(held.tablet).length).toBe(1);
+
+    const chosen = [200, expect.objectContaining({ reference: expect.objectContaining({ shot: expect.objectContaining({ id: "mixed-chosen-shot" }) }), source: "server" })];
+    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
+      expect(await choose(held.tablet)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
+      expect(held.tablet.sent.filter((frame) => (frame as { type?: unknown }).type === "request")).toEqual([]);
+      expect(await referenceShot(recipe.id)).toBeNull();
+    } else {
+      expect(await choose(held.tablet)).toEqual(chosen);
+    }
+    // Held by the change's instance, as once the deploy is done, the choice is made.
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
+    expect(await choose(moved)).toEqual(chosen);
+    expect(await referenceShot(recipe.id)).toBe("mixed-chosen-shot");
+  });
+
   // A tablet with the latest release's plugin on each instance, as a deploy
   // finds them before Decaid installs the change's.
   describe("both releases' servers on one database the change migrated, a tablet on each", () => {
