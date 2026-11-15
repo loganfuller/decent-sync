@@ -116,6 +116,11 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
   and date. Each item's page lists its Shots. A Barista whose name was typed
   "jules" and "Jules" is one choice in the Barista filter, which finds both.
+- **Rated away from its tablet.** A Shot's rating and note can be edited
+  through the server's REST API, by an Admin, or by Staff for Shots at the
+  Locations they work at. The Shot shows the edit at once, with who made
+  it, and the plugin writes it into the Shot on the tablet that pulled it,
+  now or when that tablet next connects, so its Skin and DYE2 show the same.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and

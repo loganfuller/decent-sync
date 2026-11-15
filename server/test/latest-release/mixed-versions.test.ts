@@ -4,6 +4,7 @@ import {
   RECIPE_SETTINGS,
   REFERENCE_COPIES_WIRE_REVISION,
   REQUESTS_WIRE_REVISION,
+  SHOT_EDITS_WIRE_REVISION,
   WIRE_REVISION,
   dye2GlobalIdOf,
   globalIdOf,
@@ -565,6 +566,52 @@ describe("the latest release beside the change", () => {
     await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
     expect(await choose(moved)).toEqual(chosen);
     expect(await referenceShot(recipe.id)).toBe("mixed-chosen-shot");
+  });
+
+  // An edit of a Shot's rating or note made through the server (#512) is
+  // written to the tablet that holds the Shot by a message that came in a
+  // wire revision: the server sends it only to a plugin at that revision. So
+  // an edit of a Shot held by a tablet on the latest release's plugin is
+  // applied on the server and left awaiting that tablet, as is one of a Shot
+  // held by a tablet the latest release's instance holds, which knows
+  // nothing of such edits. Each is written once its tablet runs the change's
+  // plugin on the change's instance. Once the latest release has the edits
+  // itself, each is written where it is.
+  it("leaves an edit of a Shot awaiting a tablet on the latest release's plugin, or held by its server, and writes it once the change's plugin and server have the tablet", async () => {
+    const api = apis.change;
+    type Record_ = Record<string, unknown>;
+    const behind = await connected("Shot edits, the latest release's plugin", "latest release", "change");
+    const held = await connected("Shot edits, held by the latest release", "change", "latest release");
+    const shots = [["mixed-edit-behind", behind], ["mixed-edit-held", held]] as const;
+    for (const [id, { tablet }] of shots) tablet.pullShot(derivedShot(id));
+    for (const [id] of shots) await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
+    const read = async (id: string) => (await api.get<{ shot: { enjoyment: number | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
+    const states = async (id: string) => (await read(id)).edits.map((edit) => edit.state);
+    const ratingOn = async (tablet: SimulatedTablet, id: string) => (((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_ | undefined)?.enjoyment;
+    const editsSent = (tablet: SimulatedTablet) => tablet.received.filter((frame) => (frame as Record_).type === "shotEdit");
+
+    // Made through the change's server, and applied there at once.
+    for (const [id] of shots) expect((await api.send<{ shot: { enjoyment: number } }>("PATCH", `/shots/${id}`, { rating: 8 })).shot.enjoyment).toBe(8);
+
+    if (wireRevisions()["latest release"] < SHOT_EDITS_WIRE_REVISION) {
+      // Nothing is under way between the tablets and the servers, so an edit on its way would have arrived.
+      await quiesced(api, { tablets: { behind: behind.tablet, held: held.tablet } });
+      for (const [id, { tablet }] of shots) {
+        expect([await states(id), editsSent(tablet), await ratingOn(tablet, id)]).toEqual([["awaitingTablet"], [], undefined]);
+        expect((await read(id)).enjoyment).toBe(8);
+      }
+    }
+    // Once Decaid installs the change's plugin on the one, and the change's instance holds the other, as once a deploy
+    // is done, each is written.
+    const updated = await behind.tablet.reload({ latestRelease: false });
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(updated, moved);
+    expect([updated.pluginDir, moved.pluginDir]).toEqual([pluginDirs().change, pluginDirs().change]);
+    for (const [id, tablet] of [["mixed-edit-behind", updated], ["mixed-edit-held", moved]] as const) {
+      await expect.poll(() => states(id)).toEqual(["written"]);
+      expect(await ratingOn(tablet, id)).toBe(8);
+      expect((await read(id)).enjoyment).toBe(8);
+    }
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

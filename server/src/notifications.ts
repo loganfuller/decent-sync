@@ -21,6 +21,9 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   to be taken in afresh, or no longer;
  * - `settings_edits`, a Machine's id: a Settings Edit was made for the
  *   connection holding it, which its instance is to send;
+ * - `shot_edits`, a tablet's id: an edit of a Shot that tablet holds was
+ *   made through the server (ADR-0031), which the instance holding its
+ *   connection is to write to it;
  * - `live_views`, a Machine's id: a Live View of it opened or closed, so the
  *   instance holding its connection checks whether its plugin is to stream
  *   (ADR-0024);
@@ -29,9 +32,9 @@ import type { Prisma } from "./generated/prisma/client.js";
  *   (`relayedLiveFrame`), sent outside any transaction: nothing waits on it,
  *   and one lost costs nothing, as the next replaces it.
  */
-export type Channel = "machine_access" | "library_changes" | "machine_locations" | "settings_edits" | "live_views" | "live_frames";
+export type Channel = "machine_access" | "library_changes" | "machine_locations" | "settings_edits" | "shot_edits" | "live_views" | "live_frames";
 
-const CHANNELS: readonly Channel[] = ["machine_access", "library_changes", "machine_locations", "settings_edits", "live_views", "live_frames"];
+const CHANNELS: readonly Channel[] = ["machine_access", "library_changes", "machine_locations", "settings_edits", "shot_edits", "live_views", "live_frames"];
 const MIN_RETRY_MS = 1_000;
 const MAX_RETRY_MS = 30_000;
 

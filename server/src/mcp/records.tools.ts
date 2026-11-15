@@ -454,7 +454,7 @@ const findSteamRecordsInput = z.object({
 const findSteamRecordsOutput = z.object({ ...pageOutput, steamRecords: z.array(steamSummary) });
 
 type ListedShot = Awaited<ReturnType<ShotsService["list"]>>["shots"][number];
-type ShownShot = Awaited<ReturnType<ShotsService["get"]>>;
+type ShownShot = Awaited<ReturnType<ShotsService["read"]>>["shot"];
 type ShownSteamRecord = Awaited<ReturnType<SteamRecordsService["get"]>>;
 
 /**

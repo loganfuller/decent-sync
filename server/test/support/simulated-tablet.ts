@@ -9,6 +9,7 @@ import { assertBuilt } from "./builds.js";
 import { batchesOf, createBatch, deleteBatch, deleteBean, listedBatches, updateBatch } from "./decaid-batches.js";
 import { type DecaidAnswer, createBean, decaidNow, listedBeans, updateBean, withDecaidClock } from "./decaid-beans.js";
 import { createGrinder, deleteGrinder, listedGrinders, updateGrinder } from "./decaid-grinders.js";
+import { updateShot } from "./decaid-shots.js";
 import { createProfile, deleteProfile, getProfile, listProfiles, purgeProfile, setProfileVisibility, updateProfile } from "./decaid-profiles.js";
 import { type FieldWriteFailure, type KeptMachineSettings, type SettingsAnswer, type Written, machineSettingsHeld, presenceSettings, reconnected, writeAdvancedSettings, writeAppSettings, writeCalibration, writeMachineSettings, writePresence, writeSensorCalibration } from "./decaid-settings.js";
 import { machineSettingsWritten, updateWorkflow } from "./decaid-workflow.js";
@@ -58,7 +59,9 @@ import { opened } from "./test-scope.js";
 //   grinders (`POST /grinders`, `PUT` and `DELETE /grinders/{id}`),
 //   profiles (`POST /profiles`, `PUT` and `DELETE /profiles/{id}`, `PUT
 //   /profiles/{id}/visibility` and `DELETE /profiles/{id}/purge`), the
-//   Workflow (`PUT /workflow`), the store (above), and the settings: the
+//   Workflow (`PUT /workflow`), a Shot (`PUT /shots/{id}`, which merges
+//   the body into the Shot it holds and sends the plugin `shotUpdated`,
+//   decaid-shots.ts), the store (above), and the settings: the
 //   machine's (`POST /machine/settings`, `/machine/settings/advanced` and
 //   `/machine/calibration`, and `PUT /machine/calibration/{target}`),
 //   Decaid's own (`POST /settings`) and its presence settings and wake
@@ -1966,6 +1969,8 @@ export class SimulatedTablet {
     if (route.startsWith("/plugins/dye2.reaplugin/")) return response(404, JSON.stringify({ error: "plugin with dye2.reaplugin not loaded" }));
     const settings = this.answerSettings(method, route, requestBody);
     if (settings) return response(settings.status, settings.text ?? JSON.stringify(settings.body));
+    const shotId = method === "PUT" ? /^\/shots\/([^/]+)$/.exec(route)?.[1] : undefined;
+    if (shotId !== undefined) return this.writeShot(decodeURIComponent(shotId), requestBody);
     const written = withDecaidClock(this.decaidClockOffsetMs, () => this.writeLibrary(method, route, new URL(url).searchParams, requestBody));
     if (written) {
       return written.etag && written.status === 200 ? conditional(JSON.stringify(written.body), headers) : response(written.status, JSON.stringify(written.body));
@@ -2027,6 +2032,24 @@ export class SimulatedTablet {
     if (!(served in this.api) && stored) return response(200, "null");
     if (!(served in this.api)) return response(404, "");
     return response(200, JSON.stringify(answer));
+  }
+
+  /**
+   * Updates a Shot the tablet holds as Decaid does (decaid-shots.ts): the
+   * Shot is served as updated from now on, and the plugin is sent Decaid's
+   * `shotUpdated` event before the request is answered, as Decaid raises it
+   * before it answers.
+   */
+  private writeShot(id: string, body: unknown): unknown {
+    const served = `/shots/${encodeURIComponent(id)}`;
+    const held = this.api[served];
+    const sent: unknown = typeof body === "string" ? JSON.parse(body) : body;
+    const { answer, shot, event } = withDecaidClock(this.decaidClockOffsetMs, () => updateShot(held instanceof Refusal ? undefined : (held as Record<string, unknown> | undefined), id, sent));
+    if (shot && event) {
+      this.api = { ...this.api, [served]: shot };
+      this.fire("shotUpdated", event);
+    }
+    return response(answer.status, JSON.stringify(answer.body));
   }
 
   /**

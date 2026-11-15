@@ -55,6 +55,10 @@ import {
   PROTOCOL_VERSION,
   REMOVAL_ORDER,
   REQUESTS_WIRE_REVISION,
+  SHOT_EDITS_WIRE_REVISION,
+  MAX_SHOT_RATING,
+  isShotNote,
+  isShotRating,
   SKIN_ASKS,
   SKIN_REFUSALS,
   type SkinAnswer,
@@ -781,6 +785,70 @@ describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", 
     expect(fromServer({ ...copy, copy: { ...kept, tooLarge: true, reference } })).toBe("referenceCopy.copy.reference must be absent");
     expect(fromServer({ ...copy, copy: { ...kept, tooLarge: "yes", reference } })).toBe("referenceCopy.copy.tooLarge must be true or false");
     expect(fromServer({ ...copy, copy: { ...kept, reference: { ...reference, shot: "secret" } } })).not.toContain("secret");
+  });
+});
+
+describe("A Shot's edit made through the server", () => {
+  const problem = (decoded: { ok: boolean; problem?: string }) => (decoded.ok ? null : decoded.problem);
+  const fromPlugin = (message: unknown) => problem(decodePluginMessage(frame(message)));
+  const fromServer = (message: unknown) => problem(decodeServerMessage(frame(message)));
+  const id = "019a2f3e-7c41-7b9e-8a1d-5f3c2e4b6a72";
+
+  it("came in the release's wire revision", () => {
+    expect(SHOT_EDITS_WIRE_REVISION).toBe(3);
+  });
+
+  it("takes the ratings Decaid's own Shot update takes, from 0 to 10, whole or not, and no other value", () => {
+    expect(MAX_SHOT_RATING).toBe(10);
+    for (const rating of [0, 0.5, 7, 9.99, 10]) expect(isShotRating(rating), String(rating)).toBe(true);
+    for (const rating of [-0.01, 10.01, 100, Number.NaN, Number.POSITIVE_INFINITY, Number.NEGATIVE_INFINITY, "8", null, undefined, true, [8], {}]) {
+      expect(isShotRating(rating), String(rating)).toBe(false);
+    }
+  });
+
+  it("takes any note PostgreSQL stores: text, empty for none, without a NUL or half of a surrogate pair", () => {
+    for (const note of ["", "Sweet, a little thin", "a\nb\ttab", "\u{1F600} paired", "x".repeat(100_000)]) expect(isShotNote(note), note.slice(0, 20)).toBe(true);
+    for (const note of ["nul \u0000", "\ud83d", "high \ud83d alone", "\ude00 low first", "\ud83d\ud83d\ude00", "ends high \ud83d", 5, null, undefined, ["text"], {}]) {
+      expect(isShotNote(note), JSON.stringify(note)).toBe(false);
+    }
+  });
+
+  it("reads an edit with a rating, a note or both, by the edit's id and the Shot's, which only the server sends", () => {
+    const edit = { type: "shotEdit", id, shotId: "a Shot's id" };
+    for (const message of [{ ...edit, rating: 8 }, { ...edit, note: "" }, { ...edit, rating: 0, note: "Syrupy" }, { ...edit, rating: 7.5, future: true }]) {
+      expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodePluginMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    expect(fromServer(edit)).toBe("shotEdit must have rating or note");
+    expect(fromServer({ ...edit, id: "edit-1", rating: 8 })).toBe("shotEdit.id must be a UUID");
+    for (const shotId of ["", "x".repeat(MAX_RECORD_ID_LENGTH + 1), "nul \u0000", 7, undefined]) {
+      expect(fromServer({ ...edit, shotId, rating: 8 })).toBe(`shotEdit.shotId must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
+    }
+    for (const rating of [-1, 10.5, "8", null]) expect(fromServer({ ...edit, rating })).toBe("shotEdit.rating must be a number from 0 to 10");
+    for (const note of [5, null, "nul \u0000", "half \ud83d"]) expect(fromServer({ ...edit, note })).toBe("shotEdit.note must be text PostgreSQL stores");
+    // By field name, never by value.
+    expect(fromServer({ ...edit, shotId: 7, note: ["secret"] })).not.toContain("secret");
+  });
+
+  it("reads its answer, written or refused with what Decaid answered, which only the plugin sends", () => {
+    const answer = { type: "shotEdited", id };
+    const accepted = [
+      { ...answer, outcome: "written" },
+      { ...answer, outcome: "refused", status: 404, error: '{"error":"Shot not found"}' },
+      { ...answer, outcome: "refused", status: null, error: "Fetch timed out" },
+      { ...answer, outcome: "refused", status: 500, error: "x".repeat(MAX_REFUSAL_LENGTH), future: true },
+    ];
+    for (const message of accepted) {
+      expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+      expect(decodeServerMessage(frame(message))).toMatchObject({ ok: false, problem: "Unknown message type" });
+    }
+    expect(fromPlugin({ ...answer, id: "edit-1", outcome: "written" })).toBe("shotEdited.id must be a UUID");
+    expect(fromPlugin(answer)).toBe("shotEdited.outcome must be one of written, refused");
+    expect(fromPlugin({ ...answer, outcome: "written", status: 200 })).toBe("shotEdited.status must be absent");
+    expect(fromPlugin({ ...answer, outcome: "written", error: "" })).toBe("shotEdited.error must be absent");
+    expect(fromPlugin({ ...answer, outcome: "refused" })).toBe("shotEdited.status must be a whole number; shotEdited.error must be a string");
+    expect(fromPlugin({ ...answer, outcome: "refused", status: -1, error: "" })).toBe("shotEdited.status must not be negative");
+    expect(fromPlugin({ ...answer, outcome: "refused", status: 500, error: "x".repeat(MAX_REFUSAL_LENGTH + 1) })).toBe(`shotEdited.error must be at most ${MAX_REFUSAL_LENGTH} characters`);
   });
 });
 

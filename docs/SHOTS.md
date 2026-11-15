@@ -515,6 +515,24 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Shot poured: a Shot Summary counts Unfinished Shots by it.
   The MCP endpoint's `get_shot` gives all five too, to hundredths, the
   first three from the same read of the measurements as its curves.
+  It also gives `edits`, the edits of its rating and note made through the
+  server, newest first (A rating and note edited through the server,
+  below): each `{ id, fields, account, connectedApp, madeAt, state,
+  writtenAt }`. `fields` holds what it set, `rating`, `note` or both;
+  `account` is who made it (`{ id, name }`, the name given to an Admin
+  only, as other accounts' names are personal information) and
+  `connectedApp` the Connected App they made it through (`{ id, name,
+  host }`), null for the management interface; `madeAt` is PostgreSQL's
+  time; `state` is `awaitingTablet` until the tablet holding the Shot has
+  written it, and `written` from then on, with `writtenAt`. `get_shot`
+  does not give them yet (#514).
+- `PATCH /api/shots/:id` edits the Shot's rating, its note or both, with
+  `{ rating?, note? }`, and returns `{ shot }` as `GET /api/shots/:id`
+  then gives it. An Admin edits any Shot the list lists, and Staff those
+  at a Location they work at: 403 for any other, a Shot at no Location
+  among them, and for a Viewer; 404 for a Shot the list doesn't list; 400
+  for a value it doesn't take, a field other than those two, or a body
+  with neither (below).
 - `GET /api/shots/:id/measurements` returns `{ measurements }`, as sent by
   Decaid (null when none were sent).
 - `GET /api/machines/:id/set-aside-deliveries?limit=20&offset=0` returns
@@ -527,11 +545,151 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
 
 Dismissed Pending Shots are hidden from every read, including filter choices
 and previous Shots; adoption restores access. No capture endpoint writes to
-the tablet.
+the tablet; an edit of a Shot's rating or note does (below).
 
 `server/test/shot-lists.test.ts` covers the filters, alone and combined,
 across Locations in different time zones and both of New York's 2025-2026
 daylight-saving changes, and previous Shots.
+
+## A rating and note edited through the server
+
+Ticket [#512](https://github.com/loganfuller/decent-sync/issues/512) makes
+the first edit of a Shot that does not come from the tablet holding it
+(ADR-0031): a Shot's rating, its note or both, changed through `PATCH
+/api/shots/:id`. The server applies it to the Shot it holds at once, keeps
+it with who made it, and writes it into the Shot on the tablet that holds
+it, now if that tablet is connected and otherwise when it next connects.
+Everything else about a Shot still comes only from its tablet. The
+management interface and the assistant's tool for it are #514, editing from
+another tablet is #515, and what happens when two edits cross is #513
+(Until #513, below).
+
+- **What is edited.** `rating` is a number from 0 to 10, whole or not,
+  where 0 is unrated, and `note` is text, where empty is none
+  (`isShotRating` and `isShotNote` in `protocol/`). Those are the values
+  Decaid's own Shot update takes for `annotations.enjoyment` and
+  `annotations.espressoNotes` (`_updateShot` and `_enjoymentRangeError` in
+  `decaid:lib/src/services/webserver/shots_handler.dart`, read at v0.9.1
+  and v0.9.2, where they are the same), with three differences. Decaid also
+  takes null for either, clearing the rating and keeping the note as empty
+  text; an edit says those as 0 and empty, so each has one way to be said.
+  A note holding a NUL or a surrogate without its pair is refused, as
+  PostgreSQL stores neither (`AI_PROTOCOL_NOTES.md`, Deliveries set aside).
+  And a note is as long as a request's body may be, 100 KB, where Decaid's
+  may be 1 MiB. A request carries either or both, and a field it leaves
+  out is left alone. Any other field is refused: a Shot's doses, yield,
+  TDS and the rest stay as its tablet recorded them.
+- **Who may.** An Admin, for any Shot the Shots list lists; Staff, for a
+  Shot credited to a Location they work at, by its Location History, so a
+  Shot at no Location, as a Pending Machine's, is an Admin's alone; a
+  Viewer never. A Shot the list doesn't list, as a dismissed Pending
+  Machine's, is refused as not found.
+- **Applied at once** (`ShotEditsService.make` in
+  `server/src/shots/shot-edits.service.ts`). In one transaction, holding
+  the Shot's advisory lock as storing a delivery of it does, the server
+  sets the rating and note in the Shot's stored record as Decaid's update
+  leaves them: `annotations.enjoyment`, `annotations.espressoNotes` and
+  `shotNotes`, Decaid's older name for the note, which it keeps equal to
+  it; and the `enjoyment` column, which lists and Shot Summaries read. The
+  record is changed in place (`jsonb_set`), so the rest stays as Decaid
+  sent it, its `updatedAt` included, and the Shot's version stays the
+  tablet's. So every read, the Shots list and a Shot Summary show the edit
+  as soon as the request returns, and each tablet keeping the Shot as a
+  Recipe's Reference Shot is sent its copy again (`announceReferenceShots`).
+- **The edit is kept** as a row of `shot_edits`: the Shot, by its id with
+  no foreign key, as a Recipe names its Reference Shot; the `rating` and
+  `note` it set, each null where it left that field alone; the account
+  that made it and the Connected App it made it through, if one, each set
+  to null if deleted; `made_at`, PostgreSQL's `clock_timestamp()` as the
+  row is inserted under the Shot's lock, to the microsecond, so one Shot's
+  edits are timed in the order they were applied; and `written_at`, null
+  while it awaits its tablet. A Shot's read lists them all, newest first.
+  An edit made on a Machine's tablet (#515) will name that Machine and
+  tablet and no account, which is why the account is nullable.
+- **Which tablet.** The tablet that holds a Shot is the one that last
+  reported it (`shots.tablet_id`): the one whose `shot` or `shotUpdated`
+  the server stored last, or, for a Shot stored before Shots kept their
+  tablet, the one whose index lists it. An edit is a write that tablet is
+  due, worked out from the database each time, as its other writes are
+  (`ShotEditsService.due`): the oldest edit not yet written of a Shot it
+  holds. The transaction that makes an edit notifies `shot_edits` with the
+  tablet's id, and every instance wakes its connection from that tablet,
+  if it has one (`ShotEditWrites` in `server/src/sync/shot-edit-writes.ts`).
+  A connection also looks when it is welcomed, so a tablet that was off is
+  written what was made meanwhile, when its instance listens anew, and when
+  it reports a Shot or lists its Shots, which may make its tablet the one
+  holding a Shot with an edit still to write.
+- **One at a time, in the order they were made.** The server sends an
+  edit as `shotEdit` (`{ id, shotId, rating?, note? }`), through the
+  connection's `Sender`, and the next only once the plugin has answered
+  it, with `shotEdited`, and a `written` answer is recorded
+  (`ShotEditsService.written`: only an edit not yet written, of a Shot the
+  answering tablet holds). So two edits of one Shot made while its tablet
+  was off reach it oldest first, and the tablet ends with the later. An
+  edit Decaid refuses, or the plugin leaves unanswered for 60 s, stays
+  awaiting its tablet, and the connection sends that Shot nothing more, so
+  a later edit never goes ahead of an earlier one; the other Shots' edits
+  go on, and the tablet's next connection tries again.
+- **The plugin** (`plugin/src/shot-edits.ts`) writes each through Decaid's
+  own Shot update, `PUT /api/v1/shots/{id}` with `{ annotations: {
+  enjoyment?, espressoNotes? } }`, holding only the fields the edit
+  carries: Decaid merges the body into the Shot it holds, so a rating
+  leaves the note alone, and the reverse. It carries them out one at a
+  time, and waits out no Shot being pulled, as an edit touches neither the
+  Workflow nor a recipe (ADR-0022). It answers on the connection that
+  asked, at once, outside its outbox: the answer is no delivery, is never
+  acknowledged, and is not sent again. One lost with its connection leaves
+  the edit awaiting its tablet, so the server sends it again on the next
+  connection, and Decaid's update, given values the Shot already holds,
+  changes nothing.
+- **Decaid then reports the Shot as updated** (`shotUpdated`, with its
+  `updatedAt` moved to now where its content changed), which the plugin
+  queues in its outbox and the server stores as any edit made on the
+  tablet, the newer version replacing the stored metadata whole. It holds
+  what the edit set, so it changes nothing the edit hadn't already, and it
+  makes no row of `shot_edits`: only `PATCH /api/shots/:id` does.
+- **Only where the tablet is written anything.** Nothing is written to a
+  mismatched connection's tablet (ADR-0004), so an edit of a Shot such a
+  tablet holds waits until that tablet connects as its Machine. A
+  Capture-only Machine's tablet is written its Shots' edits: they are no
+  part of the Library. An edit of a Shot no tablet is known to hold, or
+  whose tablet never connects again, waits for good, as ADR-0031 accepts.
+- **Releases (ADR-0025).** `shotEdit` and `shotEdited` came in wire
+  revision 3 (`SHOT_EDITS_WIRE_REVISION`; `AI_PROTOCOL_NOTES.md`, A Shot's
+  edits). The server sends an edit only to a plugin at it, so one for a
+  tablet on the previous release's plugin awaits that tablet until its
+  plugin is at it. The previous release's instance neither listens for
+  `shot_edits` nor knows the table, so a tablet it holds during a deploy is
+  sent nothing until it connects to an instance of this release, and a
+  `shotUpdated` reaching that instance is an ordinary Shot update. The
+  migration adds the table only.
+- **Until #513.** Nothing here judges which of two edits is the later, so
+  no release is tagged between this and #513:
+  - an edit awaiting its tablet is written over a later change made on
+    that tablet, as it is sent on the welcome, before the tablet's own
+    reports are in;
+  - a report from the tablet that predates an edit, such as an edit made
+    there while it was off, arrives as the newer version and puts the
+    Shot's rating and note back to the tablet's, until the edit is written
+    and reported in turn;
+  - two edits of one Shot written one after the other are reported one
+    after the other, so the server's Shot may read as the first for a
+    moment, until the second's report arrives;
+  - a tablet that no longer holds the Shot answers 404, and its edit is
+    tried again on each connection.
+- **Verified** through Seam 1 with the built plugin in simulated tablets,
+  which carry out Decaid's Shot update as its source has it at v0.9.1 and
+  v0.9.2 (`server/test/support/decaid-shots.ts`): that update was read,
+  not run on a tablet or recorded from one. `server/test/shot-edits.test.ts`
+  covers a rating and a note edited alone and together, the server's reads
+  at once, the tablet's own Shot afterwards, the edit marked written and
+  the tablet's report making no second edit, an edit made while the tablet
+  is off, two instances on one database, who may, and the refusals; and
+  the write with raw frames: an edit sent again until answered as written,
+  a refusal holding back that Shot's later edits, a Shot reported by
+  another tablet, and a plugin behind the wire revision. The mixed-versions
+  suite leaves an edit awaiting a tablet on the previous release's plugin,
+  and one the previous release's instance holds.
 
 ## Shot Summaries
 

@@ -2223,6 +2223,98 @@ export interface ReferenceCopy {
   } | null;
 }
 
+/**
+ * The wire revision a Shot's edits arrived in (ticket #512, ADR-0031): the
+ * server sends a `shotEdit` only to a plugin at it, as one behind it ignores
+ * a message it doesn't know and would never answer, and the plugin sends
+ * `shotEdited` only in answer to one, on the connection that asked.
+ */
+export const SHOT_EDITS_WIRE_REVISION = 3;
+
+/**
+ * The highest rating a Shot takes, on Decaid's scale of 0 to 10
+ * (`enjoymentMax` in decaid:lib/src/import/parsers/enjoyment_scale.dart, the
+ * same at v0.9.1 and v0.9.2).
+ */
+export const MAX_SHOT_RATING = 10;
+
+/**
+ * Whether a value is a rating a Shot's edit may set: a number from 0 to
+ * MAX_SHOT_RATING, whole or not, where 0 is unrated, as DYE2 writes it for no
+ * stars. Those are the numbers Decaid's own Shot update takes for
+ * `annotations.enjoyment` (`_enjoymentRangeError` in
+ * decaid:lib/src/services/webserver/shots_handler.dart, the same at v0.9.1
+ * and v0.9.2). Decaid takes null too, which clears it; an edit says unrated
+ * as 0 instead, so it has one way to.
+ */
+export function isShotRating(value: unknown): value is number {
+  return typeof value === "number" && value >= 0 && value <= MAX_SHOT_RATING;
+}
+
+/**
+ * Whether a value is a note a Shot's edit may set: text, where empty is
+ * none, which is how Decaid keeps a note that was cleared
+ * (`_representClearedNoteAsEmpty`). Decaid's own Shot update takes any text
+ * for `annotations.espressoNotes`; an edit takes any PostgreSQL stores, so
+ * none holding a NUL or a surrogate without its pair (`AI_PROTOCOL_NOTES.md`,
+ * Deliveries set aside).
+ */
+export function isShotNote(value: unknown): value is string {
+  if (typeof value !== "string" || value.includes("\u0000")) return false;
+  for (let index = 0; index < value.length; index++) {
+    const unit = value.charCodeAt(index);
+    if (unit < 0xd800 || unit > 0xdfff) continue;
+    const next = value.charCodeAt(index + 1);
+    // A high half must be followed by a low one, which is then skipped; a low half met here has no high one before it.
+    if (unit > 0xdbff || !(next >= 0xdc00 && next <= 0xdfff)) return false;
+    index++;
+  }
+  return true;
+}
+
+/**
+ * Asks the plugin to write an edit of a Shot's rating, note or both, made
+ * through the server (ADR-0031, ticket #512), into the Shot its tablet
+ * holds: sent to the tablet that last reported the Shot, on the connection
+ * holding its Machine, to a plugin at SHOT_EDITS_WIRE_REVISION, one edit at
+ * a time, each once the one before it is answered. The plugin writes it
+ * through Decaid's own Shot update (`PUT /api/v1/shots/{id}`), setting only
+ * the fields it carries, and answers with `shotEdited`. Decaid then reports
+ * the Shot as updated (`shotUpdated`), which reaches the server as any edit
+ * made on the tablet does.
+ */
+export interface ShotEdit {
+  type: "shotEdit";
+  /** The edit's id, a UUID, which its answer repeats. */
+  id: string;
+  /** The Shot, by Decaid's id for it on the tablet. */
+  shotId: string;
+  /** The rating to set (`isShotRating`); absent to leave the Shot's as it is. */
+  rating?: number;
+  /** The note to set (`isShotNote`); absent to leave the Shot's as it is. */
+  note?: string;
+}
+
+/**
+ * The plugin's answer to a `shotEdit`, sent at once on the connection that
+ * asked, and on no other. It is no delivery: it is neither kept nor
+ * acknowledged, and one lost with its connection is not sent again. The
+ * server then finds the edit still to be written, and sends it again on the
+ * tablet's next connection; Decaid's update, given values the Shot already
+ * holds, changes nothing.
+ */
+export interface ShotEdited {
+  type: "shotEdited";
+  /** The edit's id. */
+  id: string;
+  /** `written`: Decaid took the update; `refused`: it refused it, or did not answer. */
+  outcome: "written" | "refused";
+  /** For `refused`: Decaid's HTTP status, or null if Decaid did not answer. */
+  status?: number | null;
+  /** For `refused`: what Decaid answered, or why it could not be asked, cut to MAX_REFUSAL_LENGTH. */
+  error?: string;
+}
+
 /** Messages the plugin sends, each in a frame of its own or in chunks. */
 export type PluginMessage =
   | Hello
@@ -2244,8 +2336,9 @@ export type PluginMessage =
   | LiveFrame
   | SkinRequest
   | ReferencesHeld
+  | ShotEdited
   | ChunkReceived;
-/** Messages the server sends, each in a frame of its own or, a `write`, an `answer` or a `referenceCopy`, in chunks. */
+/** Messages the server sends, each in a frame of its own or, a `write`, an `answer`, a `referenceCopy` or a `shotEdit`, in chunks. */
 export type ServerMessage =
   | Welcome
   | Heartbeat
@@ -2265,7 +2358,8 @@ export type ServerMessage =
   | LiveStop
   | LiveReceived
   | SkinAnswer
-  | ReferenceCopy;
+  | ReferenceCopy
+  | ShotEdit;
 
 export type Decoded<T> =
   | { ok: true; message: T }
@@ -2544,6 +2638,18 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
       });
     case "referencesHeld":
       return check<ReferencesHeld>(object, "referencesHeld", (fields) => fields.versionsBySlot("held"));
+    case "shotEdited":
+      return check<ShotEdited>(object, "shotEdited", (fields) => {
+        fields.uuid("id");
+        fields.oneOf("outcome", ["written", "refused"]);
+        if (object.outcome === "refused") {
+          if (object.status !== null) fields.integer("status", { nonNegative: true });
+          fields.string("error", { maxLength: MAX_REFUSAL_LENGTH });
+        } else {
+          fields.absent("status");
+          fields.absent("error");
+        }
+      });
     case "chunkReceived":
       return check<ChunkReceived>(object, "chunkReceived", (fields) => {
         fields.id();
@@ -2707,6 +2813,14 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           } else referenceFields(copy);
         });
       });
+    case "shotEdit":
+      return check<ShotEdit>(object, "shotEdit", (fields) => {
+        fields.uuid("id");
+        fields.recordId("shotId");
+        if (object.rating !== undefined) fields.shotRating("rating");
+        if (object.note !== undefined) fields.shotNote("note");
+        fields.some(["rating", "note"]);
+      });
     default:
       return invalid("Unknown message type");
   }
@@ -2812,6 +2926,21 @@ class FieldChecker {
     if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
   }
 
+  /** A Shot's or Steam Record's id (`isRecordId`). */
+  recordId(key: string): void {
+    if (!isRecordId(this.object[key])) this.problem(key, `must be a record id of at most ${MAX_RECORD_ID_LENGTH} characters`);
+  }
+
+  /** A rating a Shot's edit sets (`isShotRating`). */
+  shotRating(key: string): void {
+    if (!isShotRating(this.object[key])) this.problem(key, `must be a number from 0 to ${MAX_SHOT_RATING}`);
+  }
+
+  /** A note a Shot's edit sets (`isShotNote`). */
+  shotNote(key: string): void {
+    if (!isShotNote(this.object[key])) this.problem(key, "must be text PostgreSQL stores");
+  }
+
   /** A Recipe Slot's number. */
   recipeSlot(key: string): void {
     if (!isRecipeSlot(this.object[key])) this.problem(key, `must be a Recipe Slot, 1 to ${RECIPE_SLOTS}`);
@@ -2843,6 +2972,11 @@ class FieldChecker {
 
   absent(key: string): void {
     if (this.object[key] !== undefined) this.problem(key, "must be absent");
+  }
+
+  /** At least one of `keys`. */
+  some(keys: readonly string[]): void {
+    if (keys.every((key) => this.object[key] === undefined)) this.problems.push(`${this.path} must have ${keys.join(" or ")}`);
   }
 
   /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */

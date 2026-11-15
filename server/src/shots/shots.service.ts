@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
 import { type ShotDelivery, type ShotIndex, isRecordId, shotSamples } from "@decent-sync/protocol";
+import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { viewLocation } from "../locations/locations.service.js";
 import { creditHardware, creditReporter } from "../machines/credit.js";
@@ -10,10 +11,20 @@ import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedD
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
+import { listShotEdits } from "./shot-edits.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
 const SHOT_LOCK = 4_000_003;
+
+/**
+ * Holds the Shot's advisory lock until the transaction ends: what stores a
+ * Shot's record, a delivery from its tablet or an edit made through the
+ * server (shot-edits.service.ts), is decided one at a time, on any instance.
+ */
+export async function lockShot(tx: Prisma.TransactionClient, shotId: string): Promise<void> {
+  await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${shotId}::text))`;
+}
 
 /** Metadata and curves are deliberately separate queries: lists never read curves, and a detail read reads them once, in a query of their own. */
 @Injectable()
@@ -37,7 +48,7 @@ export class ShotsService {
       // Serializes even the first insertion across instances. No row is held
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
-      await tx.$executeRaw`SELECT pg_advisory_xact_lock(${SHOT_LOCK}::int, hashtext(${message.shotId}::text))`;
+      await lockShot(tx, message.shotId);
       const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; newer: boolean }[]>`
         SELECT record, has_full_record AS "hasFullRecord", ${version}::timestamptz > version_at AS newer
         FROM shots WHERE id = ${message.shotId}`;
@@ -231,9 +242,14 @@ export class ShotsService {
     return previous ?? null;
   }
 
-  /** A Shot as `GET /api/shots/:id` shows it (`read`). */
-  async get(id: string) {
-    return (await this.read(id)).shot;
+  /**
+   * A Shot as `GET /api/shots/:id` shows it (`read`), with the edits of its
+   * rating and note made through the server (ADR-0031), newest first, as
+   * the asking account's Scope sees who made each (`listShotEdits`).
+   */
+  async get(id: string, scope: Scope) {
+    const { shot } = await this.read(id);
+    return { ...shot, edits: await listShotEdits(this.prisma, id, scope) };
   }
 
   /**
@@ -474,4 +490,4 @@ function shownShot<
   };
 }
 
-function shotNotFound() { return new NotFoundException("Shot not found"); }
+export function shotNotFound() { return new NotFoundException("Shot not found"); }
