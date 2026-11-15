@@ -42,17 +42,17 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await expect.poll(() => Object.values(local(labTablet, labGrinder.id)).every(Boolean)).toBe(true);
   await expect.poll(() => Object.values(local(cafeTablet, cafeGrinder.id)).every(Boolean)).toBe(true);
 
-  labTablet.pullShot(shotWith("lab-linked", "27001", local(labTablet, labGrinder.id), 80));
-  cafeTablet.pullShot(shotWith("cafe-linked", "27002", local(cafeTablet, cafeGrinder.id), 70));
+  labTablet.pullShot(shotWith("lab-linked", "27001", local(labTablet, labGrinder.id), 8));
+  cafeTablet.pullShot(shotWith("cafe-linked", "27002", local(cafeTablet, cafeGrinder.id), 7));
   // A Shot naming a batch the Library lacks stays unlinked, and listed.
-  labTablet.pullShot(shotWith("lab-unlinked", "27001", { beanBatchId: "a-batch-the-library-lacks" }, 60));
+  labTablet.pullShot(shotWith("lab-unlinked", "27001", { beanBatchId: "a-batch-the-library-lacks" }, 6));
   await expect.poll(async () => ((await (await page.request.get("/api/shots")).json()) as { total: number }).total).toBe(3);
 
   await page.goto(`/library/bean-batches/${batch.id}`);
   const shots = page.getByRole("table", { name: "Shots with this Bean Batch" });
   await expect(shots.getByRole("row")).toHaveCount(3);
-  await expect(shots.getByRole("row", { name: /Lab group.*Lab EK43 .* 80$/ })).toBeVisible();
-  await expect(shots.getByRole("row", { name: /Belmont 1.*Belmont Mythos .* 70$/ })).toBeVisible();
+  await expect(shots.getByRole("row", { name: /Lab group.*Lab EK43 .* 4 stars$/ })).toBeVisible();
+  await expect(shots.getByRole("row", { name: /Belmont 1.*Belmont Mythos .* 3\.5 stars$/ })).toBeVisible();
   await expectTip(page.getByRole("region", { name: "Shots" }), "Shots", "The Shots pulled with this Bean Batch on any Machine, newest first, in each Shot's Location's time zone.");
 
   // Its Shots in the Shots list, filtered by it.
@@ -78,7 +78,7 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await page.getByLabel("Bean Batch", { exact: true }).click();
   await page.getByRole("option", { name: "Not linked to a Bean Batch" }).click();
   // The list filtered by Grinder also had one Shot, so wait for this one's row before counting.
-  const unlinked = list.getByRole("row", { name: /Lab group .* 60 Fixture Barista$/ });
+  const unlinked = list.getByRole("row", { name: /Lab group .* 3 stars Fixture Barista$/ });
   await expect(unlinked).toBeVisible();
   await expect(list.getByRole("row")).toHaveCount(2);
   await unlinked.getByRole("link").first().click();
