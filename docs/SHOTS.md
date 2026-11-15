@@ -1558,8 +1558,8 @@ median with the middle half's range, such as "26.0 s (25.6–26.6)" and
 "−0.1 g (−0.8 to +0.4)" (`web/src/lib/shot-summary.ts`), and the share that
 stopped on weight. Its Numbers menu chooses others, at least one, in the
 order the REST API gives them: the ratio, as "1:2.10", peak pressure and
-flow, the rating, in stars, the grind setting, with its lowest and highest where they
-differ, TDS, extraction yield, time to first drip, and the steps most Shots
+flow, the rating (in stars), the grind setting, with its lowest and highest
+where they differ, TDS, extraction yield, time to first drip, and the steps most Shots
 ended in, each with how many. The choice is kept in the page's address as
 `numbers`, apart from the filters, so it survives a reload and a shared
 address, and Clear filters leaves it; the default is kept as none, and a

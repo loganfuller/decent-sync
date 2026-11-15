@@ -133,7 +133,7 @@ Each server has one owner: a household, or a business with all of its sites.
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and
   the share that stopped on weight. Choose others to show too: the ratio,
-  peak pressure and flow, rating, in stars, such as "4 stars (3.5–4.5)",
+  peak pressure and flow, rating (in stars, such as "4 stars (3.5–4.5)"),
   grind setting, TDS, extraction yield, time to first drip, and the profile
   steps Shots ended in. Cleaning and
   calibration Shots are left out, and counted, as are Unfinished Shots, in
