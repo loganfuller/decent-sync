@@ -87,10 +87,10 @@ export const BATCH_FIELDS: FormField[] = [
 ];
 
 /**
- * A Grinder's fields, in Decaid's order, with the range and default DYE2
- * keeps in its `extras` for its setting and for its RPM beside the steps of
- * each, then the feed rate note DYE2 keeps there. A blank range or default
- * is none, and 0 is a value.
+ * A Grinder's fields, in Decaid's order, with the range DYE2 keeps in its
+ * `extras` for its setting and for its RPM beside the steps of each, each
+ * pair a row of the form, then the default of each, and the feed rate note
+ * DYE2 keeps there. A blank range or default is none, and 0 is a value.
  */
 export const GRINDER_FIELDS: FormField[] = [
   { field: "model", label: "Model", kind: "text", required: true },
@@ -112,11 +112,11 @@ export const GRINDER_FIELDS: FormField[] = [
   { field: "settingBigStep", label: "Big step", kind: "number" },
   { field: "settingMin", label: "Lowest setting", kind: "number", signed: true },
   { field: "settingMax", label: "Highest setting", kind: "number", signed: true },
-  { field: "settingDefault", label: "Default setting", kind: "number", signed: true },
   { field: "rpmSmallStep", label: "RPM small step", kind: "number" },
   { field: "rpmBigStep", label: "RPM big step", kind: "number" },
   { field: "rpmMin", label: "Lowest RPM", kind: "number", signed: true },
   { field: "rpmMax", label: "Highest RPM", kind: "number", signed: true },
+  { field: "settingDefault", label: "Default setting", kind: "number", signed: true },
   { field: "rpmDefault", label: "Default RPM", kind: "number", signed: true },
   { field: "feedRate", label: "Feed rate", kind: "text" },
 ];
