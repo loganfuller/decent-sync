@@ -4,7 +4,7 @@ import { AdminApi, type CreatedMachine, type LocationView } from "./support/admi
 import { LoadedTablets, emptyLibrary } from "./support/loaded-tablets.js";
 import { longShot, shotFixture } from "./support/shot-fixtures.js";
 import { dye2List } from "./support/simulated-dye2.js";
-import { RawConnection, type SimulatedTablet, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
+import { RawConnection, Refusal, type SimulatedTablet, derivedProfile, helloWith, settingsFor } from "./support/simulated-tablet.js";
 import { StandInServer } from "./support/stand-in-server.js";
 import { runAsSteps } from "./support/steps.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
@@ -492,6 +492,16 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
       expect(await reference(tablet, espresso)).toEqual({ status: 200, body: { ...live.body, source: "tablet" } });
       expect(await reference(tablet, spare)).toMatchObject({ status: 503, body: { code: "serverTooOld" } });
       expect([sentOf(tablet, "referencesHeld"), sentOf(tablet, "request")]).toEqual([[], []]);
+      // A tablet whose Decaid doesn't give DYE2's recipes, or gives them in a shape that is not a list of them, can't say which Recipe is asked about.
+      for (const [serial, recipes] of [[51_006, new Refusal(500, { error: "Store unavailable" })], [51_007, { recipes: [] }]] as const) {
+        const unread = tablets.load({
+          settings: settingsFor({ token: `stand-in token ${serial}`, serverUrl: standIn.url }),
+          timeScale: 50,
+          api: { ...emptyLibrary(serial), "/store/dye2.reaplugin/recipes": recipes },
+        });
+        expect(await call(unread, "reference", { recipe: "1" })).toEqual({ status: 500, body: { code: "recipesUnread", message: expect.stringContaining("DYE2's recipes") } });
+        await unread.unload();
+      }
     } finally {
       await tablet.unload();
       await standIn.stop();

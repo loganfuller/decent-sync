@@ -109,6 +109,8 @@ describe("a connection's Reference Shot copies", () => {
     closed.sender.stated({});
     await closed.settled();
     closed.sender.stop();
+    // The look it had put off is not left to fire.
+    expect(vi.getTimerCount()).toBe(0);
     closed.state.waiting = 0;
     await vi.advanceTimersByTimeAsync(5_000);
     closed.sender.wake();

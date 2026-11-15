@@ -88,8 +88,8 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
         <CardTitleWithInfo title="Reference Shot">
           <p>
             The one Shot chosen to show how this Recipe's Shots should go. It can be any Shot, from any Machine or Location, and stays through
-            edits to the Recipe until someone chooses another or clears it. Choose one from a Shot's page. Each tablet at the Recipe's Location
-            keeps a copy of it for its Skin to draw, while the Recipe is in a Recipe Slot.
+            edits to the Recipe until someone chooses another or clears it. Choose one from a Shot's page. A Skin on a tablet at the Recipe's
+            Location draws it, and each of those tablets keeps a copy for when the server can't be reached, while the Recipe is in a Recipe Slot.
           </p>
         </CardTitleWithInfo>
       </CardHeader>
@@ -291,7 +291,7 @@ function ChooseReferenceDialog({ shot, onChosen }: { shot: Shot; onChosen(): voi
           <DialogTitle>Make it a Reference Shot</DialogTitle>
           <DialogDescription>
             A Recipe's Reference Shot shows how its Shots should go. It has one, so this replaces any it has. Tablets at the Recipe's Location draw it
-            from then on, while the Recipe is in a Recipe Slot.
+            from then on.
           </DialogDescription>
         </DialogHeader>
         <form className="grid gap-4" onSubmit={(event) => void submit(event)}>

@@ -4952,9 +4952,8 @@ var __decentSync = (() => {
      */
     apply({ slot, copy }) {
       if (this.stopped || !isRecipeSlot(slot)) return;
-      const idle = this.waiting.size === 0 && !this.busy;
       this.waiting.set(slot, copy);
-      if (idle) this.keeping = this.keepWaiting();
+      if (!this.busy) this.keeping = this.keepWaiting();
     }
     /** Keeps the copies waiting, until none is. It never rejects. */
     async keepWaiting() {

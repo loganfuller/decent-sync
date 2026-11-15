@@ -16,7 +16,7 @@ const shot = (id: string) => ({ shot: { id, measurements: [] }, recipe: null, re
 const copyOf = (slot: number, copy: ReferenceCopy["copy"]): ReferenceCopy => ({ type: "referenceCopy", id: `copy-${slot}`, slot, copy });
 
 /** The plugin's copies on a Decaid whose plugin storage holds `values`, answering each command in a later turn unless `unanswered` says it leaves it. */
-function loaded(values: Record<string, unknown> = {}, unanswered: (command: StorageCommand) => boolean = () => false) {
+function loaded(values: Record<string, unknown> = {}, unanswered: (command: StorageCommand) => boolean = () => false, tell: (recipe: SkinRecipe) => void = () => {}) {
   const held = new Map(Object.entries(values));
   const logs: string[] = [];
   const told: SkinRecipe[] = [];
@@ -35,7 +35,10 @@ function loaded(values: Record<string, unknown> = {}, unanswered: (command: Stor
     },
   } as PluginHost;
   const storage = new PluginStorage(host);
-  const copies = new ReferenceCopies(storage, (message) => void logs.push(message), (recipe) => void told.push(recipe));
+  const copies = new ReferenceCopies(storage, (message) => void logs.push(message), (recipe) => {
+    told.push(recipe);
+    tell(recipe);
+  });
   /** What the plugin tells a server that welcomes it now. */
   const stated = async (serverRevision = WIRE_REVISION, current = true): Promise<ReferencesHeld | undefined> => {
     let sent: ReferencesHeld | undefined;
@@ -98,6 +101,21 @@ describe("the plugin's Reference Shot copies", () => {
     copies.apply(copyOf(1, { version: "edit 101", recipe: ESPRESSO, reference: null }));
     expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "edit 101" } });
     expect(written).toEqual(["reference.1", "reference.2", "reference.1"]);
+  });
+
+  it("goes on keeping the copies that wait after one whose keeping failed outright", async () => {
+    // Telling Skins of the first copy throws, as nothing of the plugin's does: the copies behind it are kept with the next to come.
+    const { copies, held, logs, told, stated } = loaded({}, undefined, (recipe) => {
+      if (recipe === ESPRESSO) throw new Error("told nobody");
+    });
+    copies.apply(copyOf(1, { version: "one", recipe: ESPRESSO, reference: null }));
+    copies.apply(copyOf(2, { version: "two", recipe: DECAF, reference: null }));
+    await copies.read(ESPRESSO.id);
+    expect(logs).toEqual([expect.stringContaining("told nobody")]);
+    copies.apply(copyOf(3, { version: "three", recipe: DECAF, reference: null }));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "one", "2": "two", "3": "three" } });
+    expect(["reference.1", "reference.2", "reference.3"].every((key) => held.has(key))).toBe(true);
+    expect(told).toEqual([ESPRESSO, DECAF, DECAF]);
   });
 
   it("reads the copy of a Recipe in a slot: its Reference Shot or none, and nothing for one too large to keep or for any other Recipe", async () => {
