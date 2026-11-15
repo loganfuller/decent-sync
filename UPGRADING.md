@@ -49,9 +49,11 @@ each Machine's page that they are on. Where they are off, turn them on in
 Decaid's settings on the tablet: until then its plugin updates only when
 someone there presses Check for updates.
 
-During the deploy, an edit of them made through 1.10.0's server is refused:
-by this release's plugin as not written, and by Decaid on a tablet still
-running 1.10.0's plugin where it turns them on.
+Until 1.10.0's server is replaced, its pages still offer the edit, and it is
+refused: by Decaid, on a tablet still running 1.10.0's plugin, where it turns
+the checks on, and by this release's plugin, which writes nothing. 1.10.0's
+page then says the Tablet's plugin must update before it takes the change.
+No update brings the edit back: change the setting in Decaid on the tablet.
 
 ### A flow multiplier edit lasts, over one set elsewhere
 
