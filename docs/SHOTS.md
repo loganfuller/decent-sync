@@ -917,8 +917,11 @@ decides them (ADR-0031).
   which marks nothing. The mixed-versions suite has a tablet's change
   stored by the previous release's instance: a later change of the edit's
   field, which is not written over and drops the edit once this release's
-  instance holds the tablet; and a change of the other field, followed by
-  an edit of that field made later, both edits then written.
+  instance holds the tablet; a change of the other field, followed by an
+  edit of that field made later and by a second version that instance
+  stores, both edits then written; and, with raw frames, a version that
+  instance stored decided before a newer one, reported by a tablet that
+  is written no edits, so that storing the newer one is what decides it.
   `isLaterRecordTime` is tested in `protocol/`. Decaid's answers were read
   in its source, as for #512, not run on a tablet.
 
