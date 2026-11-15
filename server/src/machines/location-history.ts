@@ -1,6 +1,7 @@
 import { Prisma } from "../generated/prisma/client.js";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import type { Hardware } from "../sync/identity.js";
+import { announceReferenceShots } from "../shots/reference-announcements.js";
 import { unknownLocation } from "./input.js";
 
 // A Machine's Location History: which Location it was at from which time.
@@ -98,6 +99,8 @@ export async function creditLocations(tx: Prisma.TransactionClient, machineId: s
  * Its row lock must be held, or the Machine created in this transaction.
  */
 export async function handOverRecords(tx: Prisma.TransactionClient, hardware: Hardware, machineId: string): Promise<void> {
+  // A Shot a dismissed Pending Machine held is listed again, and so is a Recipe's Reference Shot again where it was one.
+  await announceReferenceShots(tx, Prisma.sql`s.pending_machine_id = (SELECT id FROM pending_machines WHERE model = ${hardware.model} AND serial = ${hardware.serial})`);
   for (const table of ["shots", "steam_records"] as const) {
     const records = Prisma.raw(table);
     const location = locationAt(Prisma.sql`${machineId}::uuid`, Prisma.sql`${records}.${Prisma.raw(RECORDED_AT[table])}`);

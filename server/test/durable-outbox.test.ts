@@ -143,7 +143,8 @@ describe("The durable outbox", () => {
     expect(kept.map(({ type, workflow, state, substate }) => (type === "workflow" ? { type, workflow } : { type, state, substate }))).toEqual(made);
     expect(kept.map((frame) => frame.observedAt)).toEqual(stored.map((event) => event.observedAt));
     expect(new Set(kept.map((frame) => frame.id)).size).toBe(kept.length);
-    const delivered = (second.sent as Frame[]).filter((frame) => !["hello", "heartbeat", "chunk"].includes(frame.type));
+    // Of its deliveries: what it holds of the Reference Shot copies, which it says on each welcome, is none.
+    const delivered = (second.sent as Frame[]).filter((frame) => !["hello", "heartbeat", "chunk", "referencesHeld"].includes(frame.type));
     expect(delivered.slice(0, kept.length)).toEqual(kept);
   });
 

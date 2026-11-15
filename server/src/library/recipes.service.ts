@@ -3,7 +3,7 @@ import { steamTimeOf } from "@decent-sync/protocol";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { shownDuration } from "../shots/extraction.js";
-import { shotListedSql, shotProfileSql } from "../shots/links.js";
+import { referenceProfileDiffers, shotListedSql, shotProfileSql } from "../shots/links.js";
 import { isObject } from "./listed.js";
 
 /** A Recipe as the REST API returns it. */
@@ -170,7 +170,6 @@ export class RecipesService {
       LEFT JOIN profiles AS p ON p.id = ${shotProfileSql("s")}
       WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
     if (!shot) return null;
-    const recipeProfile = isObject(content) && typeof content.profileId === "string" ? content.profileId : null;
     return {
       id: shot.id,
       pulledAt: shot.pulledAt?.toISOString() ?? null,
@@ -183,7 +182,7 @@ export class RecipesService {
       targetYield: shot.targetYield,
       actualYield: shot.actualYield,
       duration: shownDuration(shot.duration, shot.preheat),
-      profileDiffers: recipeProfile !== null && shot.profileId !== recipeProfile,
+      profileDiffers: referenceProfileDiffers(content, shot.profileId),
     };
   }
 

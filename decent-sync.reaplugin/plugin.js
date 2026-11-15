@@ -5,21 +5,21 @@ var __decentSync = (() => {
   var __getOwnPropDesc = Object.getOwnPropertyDescriptor;
   var __getOwnPropNames = Object.getOwnPropertyNames;
   var __hasOwnProp = Object.prototype.hasOwnProperty;
-  var __defNormalProp = (obj, key, value) => key in obj ? __defProp(obj, key, { enumerable: true, configurable: true, writable: true, value }) : obj[key] = value;
+  var __defNormalProp = (obj, key2, value) => key2 in obj ? __defProp(obj, key2, { enumerable: true, configurable: true, writable: true, value }) : obj[key2] = value;
   var __export = (target, all) => {
     for (var name in all)
       __defProp(target, name, { get: all[name], enumerable: true });
   };
   var __copyProps = (to, from, except, desc) => {
     if (from && typeof from === "object" || typeof from === "function") {
-      for (let key of __getOwnPropNames(from))
-        if (!__hasOwnProp.call(to, key) && key !== except)
-          __defProp(to, key, { get: () => from[key], enumerable: !(desc = __getOwnPropDesc(from, key)) || desc.enumerable });
+      for (let key2 of __getOwnPropNames(from))
+        if (!__hasOwnProp.call(to, key2) && key2 !== except)
+          __defProp(to, key2, { get: () => from[key2], enumerable: !(desc = __getOwnPropDesc(from, key2)) || desc.enumerable });
     }
     return to;
   };
   var __toCommonJS = (mod) => __copyProps(__defProp({}, "__esModule", { value: true }), mod);
-  var __publicField = (obj, key, value) => __defNormalProp(obj, typeof key !== "symbol" ? key + "" : key, value);
+  var __publicField = (obj, key2, value) => __defNormalProp(obj, typeof key2 !== "symbol" ? key2 + "" : key2, value);
 
   // src/index.ts
   var index_exports = {};
@@ -688,7 +688,7 @@ var __decentSync = (() => {
     }
     if (!isObject(a) || !isObject(b)) return false;
     const keys = /* @__PURE__ */ new Set([...Object.keys(a), ...Object.keys(b)]);
-    return [...keys].every((key) => sameValue(a[key], b[key]));
+    return [...keys].every((key2) => sameValue(a[key2], b[key2]));
   }
   function globalIdOf(record3) {
     const extras = isObject(record3) ? record3.extras : void 0;
@@ -823,7 +823,7 @@ var __decentSync = (() => {
     return JSON.stringify({ title: profile.title, tank_temperature: profile.tank_temperature, steps }, sortedKeys);
   }
   function sortedKeys(_key, value) {
-    return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key) => [key, value[key]])) : value;
+    return isObject(value) ? Object.fromEntries(Object.keys(value).sort().map((key2) => [key2, value[key2]])) : value;
   }
   var LOADED_RECIPE_KIND = "loadedRecipe";
   var BREW_TEMPERATURE_FIELD = "profile.steps.0.temperature";
@@ -924,10 +924,13 @@ var __decentSync = (() => {
   }
   var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
   var REQUESTS_WIRE_REVISION = 3;
-  var SKIN_ASKS = ["status", "shots", "shot"];
+  var SKIN_ASKS = ["status", "shots", "shot", "reference"];
   var MAX_SHOTS_PAGE = 50;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
-  var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor"];
+  var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe"];
+  var REFERENCE_COPIES_WIRE_REVISION = 3;
+  var MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
+  var MAX_REFERENCE_VERSION_LENGTH = 128;
   function encode(message) {
     return JSON.stringify(message);
   }
@@ -1078,6 +1081,7 @@ var __decentSync = (() => {
             });
           }
           if (object3.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
+          if (object3.ask === "reference") fields.optionalObject("result", referenceFields);
           if (object3.ask === "status") {
             fields.optionalObject("result", (status) => {
               status.boolean("served");
@@ -1092,9 +1096,33 @@ var __decentSync = (() => {
             });
           }
         });
+      case "referenceCopy":
+        return check(object3, "referenceCopy", (fields) => {
+          fields.string("id", { nonEmpty: true });
+          fields.recipeSlot("slot");
+          fields.nullableObject("copy", (copy) => {
+            copy.string("version", { nonEmpty: true, maxLength: MAX_REFERENCE_VERSION_LENGTH });
+            copy.optionalBoolean("tooLarge");
+            if (isObject(object3.copy) && object3.copy.tooLarge === true) {
+              recipeField(copy);
+              copy.absent("reference");
+            } else referenceFields(copy);
+          });
+        });
       default:
         return invalid("Unknown message type");
     }
+  }
+  function recipeField(fields) {
+    fields.objectField("recipe");
+    fields.optionalObject("recipe", (recipe) => recipe.string("id", { nonEmpty: true }));
+  }
+  function referenceFields(fields) {
+    recipeField(fields);
+    fields.nullableObject("reference", (reference) => {
+      reference.objectField("shot");
+      reference.boolean("profileDiffers");
+    });
   }
   var FieldChecker = class _FieldChecker {
     constructor(object3, path, problems) {
@@ -1102,12 +1130,12 @@ var __decentSync = (() => {
       __publicField(this, "path", path);
       __publicField(this, "problems", problems);
     }
-    string(key, options = {}) {
-      const value = this.object[key];
-      if (typeof value !== "string") this.problem(key, "must be a string");
-      else if (options.nonEmpty && value === "") this.problem(key, "must not be empty");
+    string(key2, options = {}) {
+      const value = this.object[key2];
+      if (typeof value !== "string") this.problem(key2, "must be a string");
+      else if (options.nonEmpty && value === "") this.problem(key2, "must not be empty");
       else if (options.maxLength !== void 0 && value.length > options.maxLength) {
-        this.problem(key, `must be at most ${options.maxLength} characters`);
+        this.problem(key2, `must be at most ${options.maxLength} characters`);
       }
     }
     /** The id of a delivery or a chunk. */
@@ -1115,88 +1143,99 @@ var __decentSync = (() => {
       this.string("id", { nonEmpty: true, maxLength: MAX_ID_LENGTH });
     }
     /** A UUID, in either case, as a tablet id is. */
-    uuid(key) {
-      if (!isTabletId(this.object[key])) this.problem(key, "must be a UUID");
+    uuid(key2) {
+      if (!isTabletId(this.object[key2])) this.problem(key2, "must be a UUID");
     }
     /** The id of an item of the kind given, as that kind declares its ids (`itemIdRule`). */
-    itemId(key, kind) {
+    itemId(key2, kind) {
       const rule = itemIdRule(String(kind));
-      if (!rule.test(this.object[key])) this.problem(key, rule.problem);
+      if (!rule.test(this.object[key2])) this.problem(key2, rule.problem);
     }
-    optionalString(key, options = {}) {
-      const value = this.object[key];
+    optionalString(key2, options = {}) {
+      const value = this.object[key2];
       if (value === void 0 || value === null) return;
-      if (typeof value !== "string") this.problem(key, "must be a string or null");
+      if (typeof value !== "string") this.problem(key2, "must be a string or null");
       else if (options.maxLength !== void 0 && value.length > options.maxLength) {
-        this.problem(key, `must be at most ${options.maxLength} characters`);
+        this.problem(key2, `must be at most ${options.maxLength} characters`);
       }
     }
-    integer(key, options = {}) {
-      const value = this.object[key];
-      if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key, "must be a whole number");
-      else if (options.positive && value <= 0) this.problem(key, "must be positive");
-      else if (options.nonNegative && value < 0) this.problem(key, "must not be negative");
-      else if (options.within !== void 0 && Math.abs(value) > options.within) this.problem(key, `must be from -${options.within} to ${options.within}`);
+    integer(key2, options = {}) {
+      const value = this.object[key2];
+      if (typeof value !== "number" || !Number.isInteger(value)) this.problem(key2, "must be a whole number");
+      else if (options.positive && value <= 0) this.problem(key2, "must be positive");
+      else if (options.nonNegative && value < 0) this.problem(key2, "must not be negative");
+      else if (options.within !== void 0 && Math.abs(value) > options.within) this.problem(key2, `must be from -${options.within} to ${options.within}`);
     }
     /** One of `values`. */
-    oneOf(key, values) {
-      if (!values.includes(this.object[key])) this.problem(key, `must be one of ${values.join(", ")}`);
+    oneOf(key2, values) {
+      if (!values.includes(this.object[key2])) this.problem(key2, `must be one of ${values.join(", ")}`);
     }
-    boolean(key) {
-      if (typeof this.object[key] !== "boolean") this.problem(key, "must be true or false");
+    boolean(key2) {
+      if (typeof this.object[key2] !== "boolean") this.problem(key2, "must be true or false");
     }
-    optionalBoolean(key) {
-      const value = this.object[key];
-      if (value !== void 0 && typeof value !== "boolean") this.problem(key, "must be true or false");
+    /** A Recipe Slot's number. */
+    recipeSlot(key2) {
+      if (!isRecipeSlot(this.object[key2])) this.problem(key2, `must be a Recipe Slot, 1 to ${RECIPE_SLOTS}`);
     }
-    objectField(key) {
-      if (!isObject(this.object[key])) this.problem(key, "must be an object");
+    /** The version of a Reference Shot copy for each of some Recipe Slots, by the slot's number (`ReferencesHeld.held`). */
+    versionsBySlot(key2) {
+      const value = this.object[key2];
+      const held = isObject(value) ? Object.entries(value) : null;
+      const valid = ([slot, version]) => /^[1-9]\d*$/.test(slot) && isRecipeSlot(Number(slot)) && typeof version === "string" && version !== "" && version.length <= MAX_REFERENCE_VERSION_LENGTH;
+      if (!held?.every(valid)) this.problem(key2, "must be an object of versions by Recipe Slot");
+    }
+    optionalBoolean(key2) {
+      const value = this.object[key2];
+      if (value !== void 0 && typeof value !== "boolean") this.problem(key2, "must be true or false");
+    }
+    objectField(key2) {
+      if (!isObject(this.object[key2])) this.problem(key2, "must be an object");
     }
     /** Any JSON value but null. */
-    present(key) {
-      const value = this.object[key];
-      if (value === void 0 || value === null) this.problem(key, "must be present and not null");
+    present(key2) {
+      const value = this.object[key2];
+      if (value === void 0 || value === null) this.problem(key2, "must be present and not null");
     }
-    absent(key) {
-      if (this.object[key] !== void 0) this.problem(key, "must be absent");
+    absent(key2) {
+      if (this.object[key2] !== void 0) this.problem(key2, "must be absent");
     }
     /** A UTC instant as `Date.prototype.toISOString` writes it. Read back, it must be written the same, so times that do not exist, which Date rolls over, are refused. */
-    instant(key) {
-      if (!isInstant(this.object[key])) this.problem(key, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
+    instant(key2) {
+      if (!isInstant(this.object[key2])) this.problem(key2, "must be a UTC time such as 2026-10-05T14:07:03.341Z");
     }
     /**
      * An array of `length` UTC instants, as `instant` reads one, or nulls. A
      * `length` below zero says there is nothing for it to go beside.
      */
-    instants(key, length) {
-      const value = this.object[key];
-      if (length < 0) this.problem(key, "must be absent unless value is a list");
+    instants(key2, length) {
+      const value = this.object[key2];
+      if (length < 0) this.problem(key2, "must be absent unless value is a list");
       else if (!Array.isArray(value) || value.length !== length || !value.every((entry) => entry === null || isInstant(entry))) {
-        this.problem(key, "must be an array as long as value, of UTC times such as 2026-10-05T14:07:03.341Z or nulls");
+        this.problem(key2, "must be an array as long as value, of UTC times such as 2026-10-05T14:07:03.341Z or nulls");
       }
     }
-    array(key, valid, max) {
-      const value = this.object[key];
+    array(key2, valid, max) {
+      const value = this.object[key2];
       if (!Array.isArray(value) || value.length > max || !value.every(valid)) {
-        this.problem(key, `must be an array of at most ${max} valid entries`);
+        this.problem(key2, `must be an array of at most ${max} valid entries`);
       }
     }
-    optionalObject(key, checkFields) {
-      const value = this.object[key];
+    optionalObject(key2, checkFields) {
+      const value = this.object[key2];
       if (value === void 0 || value === null) return;
       if (!isObject(value)) {
-        this.problem(key, "must be an object or null");
+        this.problem(key2, "must be an object or null");
         return;
       }
-      checkFields(new _FieldChecker(value, `${this.path}.${key}`, this.problems));
+      checkFields(new _FieldChecker(value, `${this.path}.${key2}`, this.problems));
     }
     /** An object, checked by `checkFields`, or null, but not absent. */
-    nullableObject(key, checkFields) {
-      if (this.object[key] === void 0) this.problem(key, "must be an object or null");
-      else this.optionalObject(key, checkFields);
+    nullableObject(key2, checkFields) {
+      if (this.object[key2] === void 0) this.problem(key2, "must be an object or null");
+      else this.optionalObject(key2, checkFields);
     }
-    problem(key, what) {
-      this.problems.push(`${this.path}.${key} ${what}`);
+    problem(key2, what) {
+      this.problems.push(`${this.path}.${key2} ${what}`);
     }
   };
   function check(object3, type, checkFields) {
@@ -1319,8 +1358,8 @@ var __decentSync = (() => {
       return null;
     }
   }
-  function stringField(object3, key) {
-    const value = object3?.[key];
+  function stringField(object3, key2) {
+    const value = object3?.[key2];
     return typeof value === "string" && value !== "" ? value : null;
   }
   async function findMilkProbe() {
@@ -1443,7 +1482,7 @@ var __decentSync = (() => {
   }
   function stableJson(value) {
     if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
-    if (isObject2(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
+    if (isObject2(value)) return `{${Object.keys(value).sort().map((key2) => `${JSON.stringify(key2)}:${stableJson(value[key2])}`).join(",")}}`;
     return JSON.stringify(value ?? null);
   }
   function clearRecipe() {
@@ -1505,8 +1544,8 @@ var __decentSync = (() => {
     if (Object.keys(extrasWrite).length > 0) contextWrite.extras = extrasWrite;
     const write = {};
     if (Object.keys(contextWrite).length > 0) write.context = contextWrite;
-    const key = profileKey(load.profile);
-    if (!omit.has("profile") && key !== null && key !== profileKey(workflow.profile)) write.profile = load.profile;
+    const key2 = profileKey(load.profile);
+    if (!omit.has("profile") && key2 !== null && key2 !== profileKey(workflow.profile)) write.profile = load.profile;
     const settings = RECIPE_SETTING_NAMES.flatMap((setting) => {
       const { dye2, workflow: path } = RECIPE_SETTINGS[setting];
       const held = numberOf(variables[dye2]);
@@ -2115,8 +2154,8 @@ var __decentSync = (() => {
     return answer;
   }
   function fieldPaths(body, prefix = "") {
-    return Object.entries(body).flatMap(([key, value]) => {
-      const path = prefix === "" ? key : `${prefix}.${key}`;
+    return Object.entries(body).flatMap(([key2, value]) => {
+      const path = prefix === "" ? key2 : `${prefix}.${key2}`;
       return isObject4(value) && path !== "profile" ? fieldPaths(value, path) : [path];
     });
   }
@@ -2335,7 +2374,7 @@ var __decentSync = (() => {
       __publicField(this, "shotsName", /* @__PURE__ */ new Map());
       /** The Shots still to be sent that `namedByShot` read. */
       __publicField(this, "shotsRead", /* @__PURE__ */ new Set());
-      this.posted = Object.assign((key) => skins.listPosted(key), { loaded, workflowWritten: skins.workflowWritten });
+      this.posted = Object.assign((key2) => skins.listPosted(key2), { loaded, workflowWritten: skins.workflowWritten });
       outbox.watch((delivery) => {
         if (delivery.type === "shot" || delivery.type === "shotUpdated") this.noteShot(delivery.shotId, delivery.shot);
       });
@@ -2441,7 +2480,7 @@ var __decentSync = (() => {
       return this.afterShot(
         again,
         () => this.loaded.ownWrite(named, async (answered3) => {
-          const answer = await carryOut(write, this.log, Object.assign((key) => this.posted(key), this.posted, { answered: answered3 }));
+          const answer = await carryOut(write, this.log, Object.assign((key2) => this.posted(key2), this.posted, { answered: answered3 }));
           if (answer.type === "writeRefused" && answer.status === 500 && answer.error.includes("DeviceNotConnectedException")) this.machineMissing();
           this.outbox.enqueue(answer);
         })
@@ -2823,18 +2862,18 @@ var __decentSync = (() => {
   function isObject5(value) {
     return typeof value === "object" && value !== null && !Array.isArray(value);
   }
-  function dye2Writer(key) {
-    const path = `/store/${DYE2_NAMESPACE}/${key}`;
-    const list = (posted) => ({ path, key, posted });
+  function dye2Writer(key2) {
+    const path = `/store/${DYE2_NAMESPACE}/${key2}`;
+    const list = (posted) => ({ path, key: key2, posted });
     return {
       list: path,
-      write: (write, _log, posted) => key === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write),
+      write: (write, _log, posted) => key2 === "recipes" ? writeRecipe(list(posted), write) : writeInList(list(posted), write),
       // A hard-deleted item's record is removed as one its Location no longer shows is. A Shot names a basket or tool by its
       // id here, so one a Shot this plugin has yet to send names is kept, as a batch is (`deleteRecord`); a Recipe is named
       // only by a Shot linked to it, which the server judges (hard-deletes.ts).
       remove: async (remove, namedByShot, posted) => {
-        if (key !== "recipes") {
-          const named = await namedByShot(key === "baskets" ? "basket" : "tool", /* @__PURE__ */ new Set([remove.localId]));
+        if (key2 !== "recipes") {
+          const named = await namedByShot(key2 === "baskets" ? "basket" : "tool", /* @__PURE__ */ new Set([remove.localId]));
           if (named !== false) return refused(remove, null, named === "tooMany" ? SHOTS_STILL_TO_READ : SHOT_NOT_SENT);
         }
         const answer = await removeFromList(list(posted), remove);
@@ -2844,7 +2883,7 @@ var __decentSync = (() => {
       setAside: (leave, posted) => leaveOutOfList(list(posted), leave)
     };
   }
-  async function readList({ path, key }) {
+  async function readList({ path, key: key2 }) {
     const answer = await request("GET", path);
     const value = answer.ok ? parsed3(answer.text) : void 0;
     if (value === void 0) return { refused: answer };
@@ -2852,12 +2891,12 @@ var __decentSync = (() => {
     const records = dye2Records(value);
     return records === null ? { unrecognised: true } : { records: [...records] };
   }
-  async function postList({ path, key, posted }, records, before) {
-    if (key === "recipes") await posted.loaded?.beforePost(before, records);
+  async function postList({ path, key: key2, posted }, records, before) {
+    if (key2 === "recipes") await posted.loaded?.beforePost(before, records);
     const answer = await request("POST", path, records);
     if (answer.ok) {
-      posted(key);
-      if (key === "recipes") posted.loaded?.posted(records);
+      posted(key2);
+      if (key2 === "recipes") posted.loaded?.posted(records);
     }
     return answer;
   }
@@ -2984,7 +3023,7 @@ var __decentSync = (() => {
     if (Array.isArray(a) || Array.isArray(b)) return Array.isArray(a) && Array.isArray(b) && a.length === b.length && a.every((value, index) => sameJson(value, b[index]));
     if (!isObject5(a) || !isObject5(b)) return false;
     const keys = Object.keys(a);
-    return keys.length === Object.keys(b).length && keys.every((key) => Object.prototype.hasOwnProperty.call(b, key) && sameJson(a[key], b[key]));
+    return keys.length === Object.keys(b).length && keys.every((key2) => Object.prototype.hasOwnProperty.call(b, key2) && sameJson(a[key2], b[key2]));
   }
   var DASHBOARD = "dashboardVariables";
   function valueAt(record3, path) {
@@ -4259,13 +4298,13 @@ var __decentSync = (() => {
     request(kind, ids, options = {}) {
       const records = ids.map((id) => [`${kind}:${id}`, { kind, id }]);
       if (options.first) {
-        const keys = new Set(records.map(([key]) => key));
-        for (const key of keys) this.fresh.add(key);
-        const others = [...this.requested].filter(([key]) => !keys.has(key));
+        const keys = new Set(records.map(([key2]) => key2));
+        for (const key2 of keys) this.fresh.add(key2);
+        const others = [...this.requested].filter(([key2]) => !keys.has(key2));
         this.requested.clear();
-        for (const [key, record3] of [...records, ...others]) this.requested.set(key, record3);
+        for (const [key2, record3] of [...records, ...others]) this.requested.set(key2, record3);
       } else {
-        for (const [key, record3] of records) this.requested.set(key, record3);
+        for (const [key2, record3] of records) this.requested.set(key2, record3);
       }
       this.pump();
     }
@@ -4292,25 +4331,25 @@ var __decentSync = (() => {
     async work() {
       const generation = this.connections;
       if (this.queued.size === 0 && this.requested.size > 0) {
-        const [key, record3] = this.requested.entries().next().value;
+        const [key2, record3] = this.requested.entries().next().value;
         let delivery;
         try {
           delivery = await this.readers[record3.kind](record3.id, this.nextId());
         } catch {
-          this.requested.delete(key);
-          this.requested.set(key, record3);
-          this.noLongerFresh(key, void 0);
+          this.requested.delete(key2);
+          this.requested.set(key2, record3);
+          this.noLongerFresh(key2, void 0);
           this.log(`Could not read ${RECORD_NAMES[record3.kind]} ${record3.id} from Decaid; retrying it after the other requested records.`);
           this.retry();
           return;
         }
         if (this.stopped) return;
-        this.requested.delete(key);
+        this.requested.delete(key2);
         if (delivery) {
           this.queued.set(delivery.id, delivery);
           for (const watcher of this.watchers) watcher(delivery);
         }
-        this.noLongerFresh(key, delivery?.id);
+        this.noLongerFresh(key2, delivery?.id);
       }
       if (generation !== this.connections || !this.sendMessage) return;
       const next = this.queued.entries().next().value;
@@ -4383,9 +4422,9 @@ var __decentSync = (() => {
      * requested. A wait for it is now one for its delivery, or for nothing
      * more of it, so a record that can't be read holds back nothing.
      */
-    noLongerFresh(key, deliveryId) {
-      this.fresh.delete(key);
-      for (const wait of this.waits) if (wait.records.delete(key) && deliveryId !== void 0) wait.deliveries.add(deliveryId);
+    noLongerFresh(key2, deliveryId) {
+      this.fresh.delete(key2);
+      for (const wait of this.waits) if (wait.records.delete(key2) && deliveryId !== void 0) wait.deliveries.add(deliveryId);
       this.settleWaits();
     }
     /** A delivery left the queue, acknowledged or dropped: no wait is for it any longer. */
@@ -4853,10 +4892,159 @@ var __decentSync = (() => {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : void 0;
   }
 
+  // src/reference-copies.ts
+  var EMPTY = "{}";
+  function key(slot) {
+    return `reference.${slot}`;
+  }
+  var ReferenceCopies = class {
+    constructor(storage, log, changed) {
+      __publicField(this, "storage", storage);
+      __publicField(this, "log", log);
+      __publicField(this, "changed", changed);
+      /** What each slot's key holds, for the slots holding a copy. */
+      __publicField(this, "slots", /* @__PURE__ */ new Map());
+      /** The reading of what the keys hold, begun by the first use. */
+      __publicField(this, "loading");
+      /** What each slot is to hold, for the slots whose latest copy from the server is still to be kept. */
+      __publicField(this, "waiting", /* @__PURE__ */ new Map());
+      /** Whether the copies waiting are being kept. */
+      __publicField(this, "busy", false);
+      /** Resolves once the copies that have come are kept. */
+      __publicField(this, "keeping", Promise.resolve());
+      __publicField(this, "stopped", false);
+    }
+    /** Reads what the keys hold, once. A key that can't be read, or holds no copy, counts as holding none, which the server then sends. */
+    load() {
+      this.loading ?? (this.loading = (async () => {
+        for (let slot = 1; slot <= RECIPE_SLOTS; slot++) {
+          try {
+            const head = headOf(await this.storage.read(key(slot), `a read of the Reference Shot copy of Recipe Slot ${slot}`));
+            if (head) this.slots.set(slot, head);
+          } catch (error) {
+            if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+          }
+        }
+      })());
+      return this.loading;
+    }
+    /**
+     * The server welcomed a connection: it is told what the tablet holds, once
+     * that is read and the copies an earlier connection brought are kept,
+     * where `current` says the connection is still the one welcomed. A server
+     * behind the copies' wire revision is told nothing, and sends none.
+     */
+    async welcomed(send, serverRevision, current) {
+      if (!peerHasWireRevision(serverRevision, REFERENCE_COPIES_WIRE_REVISION)) return;
+      await this.settled();
+      if (this.stopped || !current()) return;
+      const held = {};
+      for (const [slot, head] of this.slots) held[String(slot)] = head.version;
+      await send({ type: "referencesHeld", held }).catch(() => {
+      });
+    }
+    /**
+     * Keeps a copy the server sent in place of what its slot held, and tells
+     * Skins of its Recipe. Copies are kept one at a time. One that arrives
+     * while an earlier copy for its slot still waits its turn takes that
+     * copy's place, so however slow Decaid's storage is, no more wait than
+     * there are slots.
+     */
+    apply({ slot, copy }) {
+      if (this.stopped || !isRecipeSlot(slot)) return;
+      this.waiting.set(slot, copy);
+      if (!this.busy) this.keeping = this.keepWaiting();
+    }
+    /** Keeps the copies waiting, until none is. It never rejects. */
+    async keepWaiting() {
+      this.busy = true;
+      try {
+        await this.load();
+        for (; ; ) {
+          const next = this.waiting.entries().next();
+          if (next.done || this.stopped) return;
+          const [slot, copy] = next.value;
+          this.waiting.delete(slot);
+          await this.keep(slot, copy);
+        }
+      } catch (error) {
+        this.log(`Could not keep the Reference Shot copies: ${describe2(error)}`);
+      } finally {
+        this.busy = false;
+      }
+    }
+    /** Writes what a slot is to hold to its key, and tells Skins of its Recipe once it is written. */
+    async keep(slot, copy) {
+      const head = copy && { version: copy.version, recipe: copy.recipe, ...copy.tooLarge === true && { tooLarge: true } };
+      try {
+        const data = head === null ? EMPTY : head.tooLarge ? JSON.stringify(head) : `${JSON.stringify(head)}
+${JSON.stringify(copy?.reference ?? null)}`;
+        await this.storage.write(key(slot), data, `the Reference Shot copy of Recipe Slot ${slot}`);
+      } catch (error) {
+        this.slots.delete(slot);
+        if (!this.stopped) this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+        return;
+      }
+      if (head === null) this.slots.delete(slot);
+      else {
+        this.slots.set(slot, head);
+        this.changed(head.recipe);
+      }
+    }
+    /**
+     * The tablet's copy of the Recipe's reference, for a Recipe in a slot whose
+     * copy it holds: its Reference Shot, or that it has none. Undefined for
+     * any other Recipe, for one whose reference was too large to keep, and
+     * where the copy can't be read.
+     */
+    async read(recipeId) {
+      await this.settled();
+      for (const [slot, head] of this.slots) {
+        if (head.recipe.id !== recipeId) continue;
+        if (head.tooLarge) return void 0;
+        try {
+          const value = await this.storage.read(key(slot), `a read of the Reference Shot copy of Recipe Slot ${slot}`);
+          const [first, second] = typeof value === "string" ? value.split("\n") : [];
+          if (first === void 0 || second === void 0 || headOf(first)?.version !== head.version) return void 0;
+          return { recipe: head.recipe, reference: JSON.parse(second) };
+        } catch (error) {
+          if (!this.stopped) this.log(`Could not read the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+          return void 0;
+        }
+      }
+      return void 0;
+    }
+    /** The plugin unloads: nothing more is kept or told. A write under way still lands (storage.ts). */
+    stop() {
+      this.stopped = true;
+    }
+    /** Resolves once what the keys hold is read and every copy that has come is kept. */
+    async settled() {
+      await this.load();
+      await this.keeping;
+    }
+  };
+  function headOf(value) {
+    if (typeof value !== "string") return null;
+    try {
+      const head = JSON.parse(value.split("\n", 1)[0] ?? "");
+      if (typeof head !== "object" || head === null) return null;
+      const { version, recipe, tooLarge } = head;
+      if (typeof version !== "string" || version === "" || typeof recipe !== "object" || recipe === null || typeof recipe.id !== "string") return null;
+      return { version, recipe, ...tooLarge === true && { tooLarge: true } };
+    } catch {
+      return null;
+    }
+  }
+  function describe2(error) {
+    return error instanceof Error ? error.message : String(error);
+  }
+
   // src/skin-api.ts
   var STATUS_ENDPOINT = "status";
   var SHOTS_ENDPOINT = "shots";
   var SHOT_ENDPOINT = "shot";
+  var REFERENCE_ENDPOINT = "reference";
   var CHANGES_ENDPOINT = "changes";
   var MAX_ASKED_LENGTH = 2048;
   var REFUSALS = {
@@ -4874,10 +5062,12 @@ var __decentSync = (() => {
       message: "The machine connected to this tablet is not the one this tablet's token was issued for, so the server serves it nothing until an Admin settles which Machine it is."
     },
     noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
+    noSuchRecipe: { status: 404, message: "No DYE2 recipe on this tablet with that id is a Recipe of this Machine's Location." },
+    recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
     // Each says what is wrong with it in a sentence of its own (`invalid`).
     invalidRequest: { status: 400, message: "The request is not one this endpoint answers." }
   };
-  function answerSkin(request2, requests) {
+  function answerSkin(request2, requests, references) {
     switch (request2.endpoint) {
       case STATUS_ENDPOINT:
         return answerStatus(request2, requests);
@@ -4885,6 +5075,8 @@ var __decentSync = (() => {
         return answerShots(request2, requests);
       case SHOT_ENDPOINT:
         return answerShot(request2, requests);
+      case REFERENCE_ENDPOINT:
+        return answerReference(request2, requests, references);
       default:
         return void 0;
     }
@@ -4914,6 +5106,23 @@ var __decentSync = (() => {
     if (!askable(id) || id === "") return invalid2("Give the Shot's id as id.");
     return answered2(await ask(requests, { ask: "shot", shotId: id }));
   }
+  async function answerReference(request2, requests, references) {
+    if (request2.method !== "GET") return onlyGet();
+    const { recipe } = request2.query;
+    if (!askable(recipe) || recipe === "") return invalid2("Give the id of the Recipe's DYE2 record on this tablet as recipe.");
+    const recipeId = await recipeIdOf(recipe);
+    if (recipeId === void 0) return refusal("recipesUnread");
+    if (recipeId === null) return refusal("noSuchRecipe");
+    const asked = await ask(requests, { ask: "reference", recipeId });
+    if (!("unanswered" in asked)) return "refused" in asked.answer ? refused2(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+    const copy = await references?.read(recipeId);
+    return copy ? json(200, { ...copy, source: "tablet" }) : refusal(asked.unanswered);
+  }
+  async function recipeIdOf(recordId) {
+    const reading = await readCollection(`/store/${DYE2_NAMESPACE}/recipes`, null, true);
+    const records = reading.kind === "value" ? dye2Records(reading.value) : null;
+    return records === null ? void 0 : dye2GlobalIdOf(records.find((record3) => record3.id === recordId));
+  }
   function askable(value) {
     return typeof value === "string" && value.length <= MAX_ASKED_LENGTH;
   }
@@ -4939,6 +5148,13 @@ var __decentSync = (() => {
   function json(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
   }
+  function tellReference(host, log, recipe) {
+    try {
+      host.emit(CHANGES_ENDPOINT, { what: "reference", recipe });
+    } catch (error) {
+      log(`Could not tell Skins that a Recipe's Reference Shot changed: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
   function tellConnection(host, log, connected) {
     try {
       host.emit(CHANGES_ENDPOINT, { what: "connection", connected });
@@ -4948,7 +5164,7 @@ var __decentSync = (() => {
   }
 
   // src/skin-requests.ts
-  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true };
+  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true };
   var SKIN_REQUEST_MS = 1e4;
   var SkinRequests = class {
     constructor(outbox) {
@@ -5024,8 +5240,8 @@ var __decentSync = (() => {
       }
     };
     return {
-      listPosted: (key) => {
-        if (key === "recipes") push("DYE2's recipes");
+      listPosted: (key2) => {
+        if (key2 === "recipes") push("DYE2's recipes");
       },
       workflowWritten: (before, after) => {
         if (!sameValue(before, after)) push("the Workflow");
@@ -5184,9 +5400,9 @@ var __decentSync = (() => {
       __publicField(this, "stopped", false);
     }
     /** The value at `key`, null if it was never written. Rejects, saying why, if Decaid refuses or does not answer in time. */
-    async read(key, what) {
-      const answer = await this.run({ type: "read", key }, what, "storageRead", (payload) => {
-        return typeof payload === "object" && payload !== null && payload.key === key;
+    async read(key2, what) {
+      const answer = await this.run({ type: "read", key: key2 }, what, "storageRead", (payload) => {
+        return typeof payload === "object" && payload !== null && payload.key === key2;
       });
       return answer.value ?? null;
     }
@@ -5196,13 +5412,13 @@ var __decentSync = (() => {
      * does not answer in time; it may still have written it. While Decaid
      * leaves writes unanswered, it resolves once the write is sent.
      */
-    async write(key, data, what) {
-      const queued = this.queuedWrites.get(key);
+    async write(key2, data, what) {
+      const queued = this.queuedWrites.get(key2);
       if (!queued || this.stopped) {
-        await this.run({ type: "write", key, data }, what, "storageWrite", (payload) => payload === data);
+        await this.run({ type: "write", key: key2, data }, what, "storageWrite", (payload) => payload === data);
         return;
       }
-      queued.command = { type: "write", key, data };
+      queued.command = { type: "write", key: key2, data };
       queued.what = what;
       queued.answers = (payload) => payload === data;
       await new Promise((resolve, reject) => queued.waiting.push({ resolve, reject }));
@@ -5375,6 +5591,8 @@ var __decentSync = (() => {
       __publicField(this, "tabletId");
       /** What the plugin asks the server for a Skin, each request on the connection welcomed as it is made (ADR-0030). */
       __publicField(this, "skinRequests");
+      /** The copies the tablet keeps of its Location's Recipes' Reference Shots, which the server sends (ticket #510). */
+      __publicField(this, "references");
       __publicField(this, "checkingHardware", false);
       __publicField(this, "hardwareCooldown", false);
       this.storage = new PluginStorage(host);
@@ -5454,6 +5672,7 @@ var __decentSync = (() => {
       this.tabletId = new TabletId(this.storage, log);
       this.liveView = new LiveView(log, localTransports, findMilkProbe);
       this.skinRequests = new SkinRequests(this.outbox);
+      this.references = new ReferenceCopies(this.storage, log, (recipe) => tellReference(host, log, recipe));
     }
     /**
      * Reads back the outbox's deliveries kept by earlier loads, and connects,
@@ -5500,6 +5719,7 @@ var __decentSync = (() => {
       this.shot.stop();
       this.liveView.stop();
       this.tabletId.stop();
+      this.references.stop();
       this.storage.stop();
       for (const id of this.timers.values()) clearTimeout(id);
       this.timers.clear();
@@ -5523,7 +5743,7 @@ var __decentSync = (() => {
         try {
           tabletId = await this.tabletId.read();
         } catch (error) {
-          if (attempt === this.attempt) this.drop(describe2(error));
+          if (attempt === this.attempt) this.drop(describe3(error));
           return;
         }
         if (this.stopped || attempt !== this.attempt) return;
@@ -5570,7 +5790,7 @@ var __decentSync = (() => {
           ...this.yielding ? { yielding: true } : {}
         });
       } catch (error) {
-        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe2(error)}`);
+        if (attempt === this.attempt) this.drop(`could not connect to ${this.settings.syncUrl}: ${describe3(error)}`);
       } finally {
         if (attempt === this.attempt) this.connecting = false;
       }
@@ -5620,7 +5840,7 @@ var __decentSync = (() => {
       if (this.confirmsChunks) {
         const { id, index } = decoded.message;
         this.send(handle, { type: "chunkReceived", id, index }).catch((error) => {
-          this.sendFailed(handle, `could not confirm a chunk: ${describe2(error)}`);
+          this.sendFailed(handle, `could not confirm a chunk: ${describe3(error)}`);
         });
       }
       if (added.status === "incomplete") return;
@@ -5666,6 +5886,18 @@ var __decentSync = (() => {
             }
           }, wireRevisionOf(message));
           tellConnection(this.host, this.log, true);
+          void this.references.welcomed(
+            async (held) => {
+              try {
+                await this.send(handle, held);
+              } catch (error) {
+                this.sendFailed(handle, "could not say which Reference Shot copies the tablet holds");
+                throw error;
+              }
+            },
+            wireRevisionOf(message),
+            () => handle === this.handle
+          );
           break;
         case "ack":
           this.sender?.acknowledged(message.id);
@@ -5716,6 +5948,9 @@ var __decentSync = (() => {
         case "answer":
           this.skinRequests.answered(message);
           break;
+        case "referenceCopy":
+          this.references.apply(message);
+          break;
         case "heartbeat":
           break;
         case "error": {
@@ -5732,7 +5967,7 @@ var __decentSync = (() => {
         this.send(handle, { type: "heartbeat" }).then(
           () => this.scheduleHeartbeat(handle, intervalMs),
           (error) => {
-            this.sendFailed(handle, `could not send a heartbeat: ${describe2(error)}`);
+            this.sendFailed(handle, `could not send a heartbeat: ${describe3(error)}`);
           }
         );
       });
@@ -5889,7 +6124,7 @@ var __decentSync = (() => {
   function describeError(code) {
     return code.replace(/_/g, " ");
   }
-  function describe2(error) {
+  function describe3(error) {
     return error instanceof Error ? error.message : String(error);
   }
 
@@ -5945,7 +6180,7 @@ var __decentSync = (() => {
       },
       // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
       // holds is told the server can't be reached.
-      __httpRequestHandler: (request2) => answerSkin(request2, connection?.skinRequests) ?? answerHttp(request2)
+      __httpRequestHandler: (request2) => answerSkin(request2, connection?.skinRequests, connection?.references) ?? answerHttp(request2)
     };
   }
   return __toCommonJS(index_exports);

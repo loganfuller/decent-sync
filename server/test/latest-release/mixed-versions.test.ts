@@ -1,5 +1,15 @@
 import path from "node:path";
-import { MAX_FRAME_BYTES, RECIPE_SETTINGS, REQUESTS_WIRE_REVISION, WIRE_REVISION, dye2GlobalIdOf, globalIdOf, workflowValueAt, writtenRecipeSlot } from "@decent-sync/protocol";
+import {
+  MAX_FRAME_BYTES,
+  RECIPE_SETTINGS,
+  REFERENCE_COPIES_WIRE_REVISION,
+  REQUESTS_WIRE_REVISION,
+  WIRE_REVISION,
+  dye2GlobalIdOf,
+  globalIdOf,
+  workflowValueAt,
+  writtenRecipeSlot,
+} from "@decent-sync/protocol";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 import { MAX_UNCONFIRMED_BYTES } from "../../src/sync/sender.js";
 import { AdminApi, type CreatedMachine, type LocationView } from "../support/admin-api.js";
@@ -466,6 +476,52 @@ describe("the latest release beside the change", () => {
     const skin = await behind.tablet.callEndpoint("skin");
     expect([skin.status, JSON.parse(skin.body)]).toEqual([200, { version: 1, surfaces: [], live: { endpoint: "changed" } }]);
     if (!declared) expect(behind.tablet.received.filter((frame) => (frame as { type?: unknown }).type === "answer")).toEqual([]);
+  });
+
+  // The Reference Shot copies came in a wire revision (#510): the server
+  // sends one only to a plugin that has said which it holds, which only a
+  // plugin at that revision does, and only to a server at it. So a tablet on
+  // the latest release's plugin is sent no copy and carries on, written its
+  // Location's Recipes as before, and one on the change's plugin that the
+  // latest release's instance holds says nothing that server doesn't know.
+  // Once the latest release has the copies itself, each is sent them.
+  it("sends a tablet on the latest release's plugin no Reference Shot copy, and one the latest release's server holds says nothing of what it holds", async () => {
+    const location = await apis.change.createLocation("Reference copies, both releases", "America/Chicago");
+    const typed = (frames: unknown[], type: string) => frames.filter((frame) => (frame as { type?: unknown }).type === type);
+    const recipeRecords = (tablet: SimulatedTablet) => {
+      const list = dye2List(tablet, "recipes");
+      return Array.isArray(list) ? list.filter((record) => dye2GlobalIdOf(record) !== null) : [];
+    };
+    const current = await connected("Reference copies, the change's plugin", "change", "change", { location });
+    const behind = await connected("Reference copies, the latest release's plugin", "latest release", "change", { location });
+    const held = await connected("Reference copies, held by the latest release", "change", "latest release", { location });
+
+    // A Shot, and a Recipe in a slot whose Reference Shot it is, chosen through the change's server.
+    current.tablet.pullShot(derivedShot("mixed-reference-shot"));
+    await expect.poll(async () => (await apis.change.call("GET", "/shots/mixed-reference-shot")).status).toBe(200);
+    const { recipe } = await apis.change.send<{ recipe: { id: string } }>("POST", "/recipes", { locationId: location.id, slot: "next", content: { name: "Mixed reference" } }, 201);
+    await apis.change.send("PUT", `/recipes/${recipe.id}/reference-shot`, { shotId: "mixed-reference-shot" });
+
+    // The change's plugin on the change's server keeps its copy.
+    await expect.poll(() => String(current.tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
+    expect(typed(current.tablet.sent, "referencesHeld")).toEqual([{ type: "referencesHeld", held: {} }]);
+    // Every tablet is written the Recipe, whichever plugin it runs and whichever instance holds it.
+    for (const { tablet } of [current, behind, held]) await expect.poll(() => recipeRecords(tablet).length).toBe(1);
+
+    const latest = wireRevisions()["latest release"] >= REFERENCE_COPIES_WIRE_REVISION;
+    // Nothing is under way between the tablets and the servers, so a copy on its way would have arrived.
+    await quiesced(apis.change, { tablets: { current: current.tablet, behind: behind.tablet, held: held.tablet } });
+    for (const { tablet } of [behind, held]) {
+      if (latest) await expect.poll(() => String(tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
+      else {
+        expect([typed(tablet.sent, "referencesHeld"), typed(tablet.received, "referenceCopy"), tablet.storage.read("reference.1")]).toEqual([[], [], null]);
+      }
+    }
+    // Asked for the reference, the tablet the latest release's server holds has neither a server to ask nor a copy.
+    if (!latest) {
+      const answer = await held.tablet.callEndpoint("reference", { query: { recipe: String((recipeRecords(held.tablet)[0] as { id: unknown }).id) } });
+      expect([answer.status, JSON.parse(answer.body)]).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
+    }
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

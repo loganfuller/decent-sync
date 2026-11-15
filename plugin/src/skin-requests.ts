@@ -9,9 +9,10 @@ import type { Outbox } from "./outbox.js";
  * tablet reports changes, so it goes at once: behind a tablet's backlog
  * after an outage it would run out of time for nothing. An ask that reads
  * or names what the tablet delivers follows it: the Location's Shots, and
- * any one of them, so a Shot just pulled on this tablet is among them.
+ * any one of them, so a Shot just pulled on this tablet is among them, and a
+ * Recipe's Reference Shot, so a rating just given it on this tablet is in it.
  */
-export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true };
+export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true, reference: true };
 
 /**
  * How long a request has to be answered, from when the Skin asked: its wait

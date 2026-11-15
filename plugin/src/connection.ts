@@ -31,7 +31,8 @@ import { Outbox } from "./outbox.js";
 import { Sender } from "./sender.js";
 import { SettingsAccess, SettingsEdits } from "./settings-edits.js";
 import { ShotCapture } from "./shots.js";
-import { tellConnection } from "./skin-api.js";
+import { ReferenceCopies } from "./reference-copies.js";
+import { tellConnection, tellReference } from "./skin-api.js";
 import { SkinRequests } from "./skin-requests.js";
 import { tellSkins } from "./skins.js";
 import type { SyncSettings } from "./settings.js";
@@ -190,6 +191,8 @@ export class SyncConnection {
   private readonly tabletId: TabletId;
   /** What the plugin asks the server for a Skin, each request on the connection welcomed as it is made (ADR-0030). */
   readonly skinRequests: SkinRequests;
+  /** The copies the tablet keeps of its Location's Recipes' Reference Shots, which the server sends (ticket #510). */
+  readonly references: ReferenceCopies;
   private checkingHardware = false;
   private hardwareCooldown = false;
 
@@ -272,6 +275,7 @@ export class SyncConnection {
     this.tabletId = new TabletId(this.storage, log);
     this.liveView = new LiveView(log, localTransports, findMilkProbe);
     this.skinRequests = new SkinRequests(this.outbox);
+    this.references = new ReferenceCopies(this.storage, log, (recipe) => tellReference(host, log, recipe));
   }
 
   /**
@@ -322,6 +326,7 @@ export class SyncConnection {
     this.shot.stop();
     this.liveView.stop();
     this.tabletId.stop();
+    this.references.stop();
     // Sends the writes still waiting their turn, such as of a delivery just acknowledged.
     this.storage.stop();
     for (const id of this.timers.values()) clearTimeout(id);
@@ -509,6 +514,18 @@ export class SyncConnection {
           }
         }, wireRevisionOf(message));
         tellConnection(this.host, this.log, true);
+        // The server sends the Reference Shot copies the tablet is due once told which it holds.
+        void this.references.welcomed(
+          async (held) => {
+            try { await this.send(handle, held); }
+            catch (error) {
+              this.sendFailed(handle, "could not say which Reference Shot copies the tablet holds");
+              throw error;
+            }
+          },
+          wireRevisionOf(message),
+          () => handle === this.handle,
+        );
         break;
       case "ack":
         this.sender?.acknowledged(message.id);
@@ -570,6 +587,10 @@ export class SyncConnection {
         break;
       case "answer":
         this.skinRequests.answered(message);
+        break;
+      case "referenceCopy":
+        // Kept in place of what its slot held, and never answered.
+        this.references.apply(message);
         break;
       case "heartbeat":
         // Its arrival is what counts.

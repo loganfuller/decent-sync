@@ -967,8 +967,14 @@ tool: only a Skin calls them.
   connection (`AI_PROTOCOL_NOTES.md`, Requests for a Skin).
 - **Only its own Location's.** A tablet reads whole only a Shot its list
   would list. Any other, and an id that is no Shot's, is refused as no such
-  Shot, without saying whether the server holds it. (#510 adds the
-  Reference Shots of its Location's Recipes.)
+  Shot, without saying whether the server holds it.
+- **And the Reference Shots of its Location's Recipes** (#510). A tablet
+  reads a Recipe's Reference Shot whole through the plugin's `reference`
+  endpoint, a Shot pulled at another Location included, as one may be chosen
+  from anywhere (ADR-0029). That widens what a tablet reads by exactly that:
+  the same Shot asked for through `shot` is still no such Shot.
+  `server/src/shots/location-references.ts` reads it, and the copies each
+  tablet keeps (`LIBRARY.md`, A Recipe's Reference Shot).
 
 `server/test/skin-shots.test.ts` covers them through the built plugin in
 simulated tablets, two at one Location and one at another.

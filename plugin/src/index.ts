@@ -38,6 +38,6 @@ export function createPlugin(host: PluginHost): Plugin {
     },
     // Answered whether or not the plugin connects: a skin asks every loaded plugin, and a Skin asking what the server
     // holds is told the server can't be reached.
-    __httpRequestHandler: (request) => answerSkin(request, connection?.skinRequests) ?? answerHttp(request),
+    __httpRequestHandler: (request) => answerSkin(request, connection?.skinRequests, connection?.references) ?? answerHttp(request),
   };
 }

@@ -44,8 +44,10 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 //
 // A Recipe's Reference Shot (ADR-0029) is its own too, not its content: a
 // change of it is a version of its own, as a slot change is, so it makes no
-// Conflict, and nothing is written to tablets, so no `NOTIFY` is sent. A
-// copy starts with the Recipe's.
+// Conflict, and it is no part of the record written to tablets. Each tablet
+// at its Location keeps a copy of the Shot while the Recipe is in a slot
+// (ADR-0030, shots/location-references.ts), so a change of it commits with
+// the `NOTIFY` too. A copy of a Recipe starts with the Recipe's.
 //
 // Locks are taken as a tablet's report of its recipes takes them: the
 // Location's, then the Recipe's row; then the rows of the items it is set to
@@ -194,7 +196,10 @@ export class RecipeEditsService {
    * any Machine or Location, pulled with the Recipe or not, but must be one
    * the Shots list lists. An Archived Recipe keeps its Reference Shot, and
    * may have it cleared, but is given none until it is restored, as it is
-   * put in no slot. 404 for no such Recipe, 403 for Staff elsewhere, 400 for
+   * put in no slot. A change is announced to the Recipe's Location, whose
+   * tablets keep a copy of the Reference Shot of each Recipe in a slot
+   * (ADR-0030, amending ADR-0029), though it is no content edit: it makes
+   * no Conflict (ADR-0020), and is no part of DYE2's recipe record. 404 for no such Recipe, 403 for Staff elsewhere, 400 for
    * a Shot the list doesn't list, 409 for choosing one for an Archived
    * Recipe.
    */
@@ -208,8 +213,9 @@ export class RecipeEditsService {
       if (recipe.referenceShotId !== shotId) {
         await tx.$executeRaw`UPDATE recipes SET reference_shot_id = ${shotId} WHERE id = ${recipe.id}::uuid`;
         await recordVersion(tx, { kind: "recipe", id: recipe.id }, null, { referenceShotId: shotId }, source, at);
+        // Each tablet at its Location keeps a copy of it while the Recipe is in a slot (ADR-0030).
+        return true;
       }
-      // Nothing of it is written to tablets.
       return false;
     });
   }
@@ -239,7 +245,7 @@ export class RecipeEditsService {
   /**
    * Makes a change to a Recipe as the account, under its Location's lock and
    * then its row lock, notifying its Location's tablets if `apply` says the
-   * change is to be written to them. 404 for no such Recipe, 403 for Staff at
+   * change is to reach them. 404 for no such Recipe, 403 for Staff at
    * a Location they do not work at.
    */
   private async change(

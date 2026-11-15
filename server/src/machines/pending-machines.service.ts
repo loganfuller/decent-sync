@@ -15,6 +15,7 @@ import {
   refuseDuplicateName,
   transferPendingRecords,
 } from "./machines.service.js";
+import { announceReferenceShots } from "../shots/reference-announcements.js";
 import { notifyAccessChanged } from "./access-changes.js";
 
 /** A Pending Machine as the REST API returns it. */
@@ -116,6 +117,8 @@ export class PendingMachinesService {
         ORDER BY id
         FOR NO KEY UPDATE`;
       if (!found.dismissedAt) await tx.$executeRaw`UPDATE pending_machines SET dismissed_at = now() WHERE id = ${id}::uuid`;
+      // Its Shots are listed no more, so a Recipe whose Reference Shot is one of them reads as having none.
+      await announceReferenceShots(tx, Prisma.sql`s.pending_machine_id = ${id}::uuid`);
       const pending = await tx.pendingMachine.findUniqueOrThrow({ where: { id } });
       await tx.dismissedHardware.createMany({
         data: refused.map((machine) => ({ machineId: machine.id, model: pending.model, serial: pending.serial })),

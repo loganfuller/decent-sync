@@ -40,7 +40,8 @@ interface Unconfirmed {
  * MAX_UNCONFIRMED_BYTES. Decaid writes a transport's frames in order, so a
  * confirmation also covers every frame sent before it. A message that is no
  * delivery and fits in one frame, a `hello`, a `heartbeat`, a request for a
- * Skin or the confirmation of a chunk the server sent, is sent at once,
+ * Skin, what the tablet holds of the Reference Shot copies or the
+ * confirmation of a chunk the server sent, is sent at once,
  * ahead of anything waiting, and not counted, so a large delivery never
  * holds up the heartbeats that keep the connection open.
  */
