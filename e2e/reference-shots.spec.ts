@@ -210,8 +210,11 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, w
 // Chosen on a tablet (#511, ADR-0030), as a Skin there chooses it through the plugin's `reference` endpoint, naming the
 // Recipe by the id of its DYE2 record on the tablet.
 test("a Recipe's history names the Machine its Reference Shot was chosen on, when it was chosen on a tablet", async ({ page }) => {
-  const answer = await uptownTablet.callEndpoint("reference", { method: "PUT", query: { recipe: ETHIOPIA }, body: { shotId: LATER_SHOT } });
-  expect(answer.status, answer.body).toBe(200);
+  // Asked again if the server dropped the tablet meanwhile: this file's server expects a heartbeat every second, and the
+  // tablet's slow with its clock while a call awaits its answer. The same choice made twice is made once.
+  await expect
+    .poll(async () => (await uptownTablet.callEndpoint("reference", { method: "PUT", query: { recipe: ETHIOPIA }, body: { shotId: LATER_SHOT } })).status)
+    .toBe(200);
 
   await page.goto(`/library/recipes/${ethiopiaId}`);
   const card = page.getByRole("region", { name: "Reference Shot" });

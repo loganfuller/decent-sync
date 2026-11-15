@@ -589,10 +589,10 @@ moved, or its sharing changed, while the plugin was away.
 
 It is sent when the tablet's copy of a Recipe's Reference Shot changes:
 another Shot was chosen, on a tablet or anywhere else, or it was cleared,
-the Shot's rating or note changed, or the Recipe entered a slot. It names the Recipe as an answer
-does, `recordId` being the id of this tablet's DYE2 record of it. Read
-[`reference`](#a-recipes-reference-shot) again for that Recipe if it is the
-one on screen.
+the Shot's rating or note changed, or the Recipe entered a slot. It names
+the Recipe as an answer does, `recordId` being the id of this tablet's DYE2
+record of it. Read [`reference`](#a-recipes-reference-shot) again for that
+Recipe if it is the one on screen.
 
 - **Only Recipes in a slot are pushed.** A Recipe in no slot has no copy, so
   nothing is pushed when its Reference Shot changes. Read it again when the

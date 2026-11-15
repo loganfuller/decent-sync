@@ -5131,7 +5131,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     if (recipeId === null) return refusal("noSuchRecipe");
     const asked = await ask(requests, { ask: "chooseReference", recipeId, shotId });
     if ("unanswered" in asked) return refusal(asked.unanswered);
-    return "refused" in asked.answer ? refused2(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+    if (!("refused" in asked.answer)) return json(200, { ...asked.answer.result, source: "server" });
+    return asked.answer.refused === "noSuchShot" ? refusal("noSuchShot", {}, "No Shot this tablet may read whole has that id.") : refused2(asked.answer.refused);
   }
   var NAME_THE_RECIPE = "Give the id of the Recipe's DYE2 record on this tablet as recipe.";
   async function recipeIdOf(recordId) {

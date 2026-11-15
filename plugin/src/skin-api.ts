@@ -205,7 +205,9 @@ async function chooseReference(request: HttpRequest, requests: SkinRequests | un
   if (recipeId === null) return refusal("noSuchRecipe");
   const asked = await ask(requests, { ask: "chooseReference", recipeId, shotId });
   if ("unanswered" in asked) return refusal(asked.unanswered);
-  return "refused" in asked.answer ? refused(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+  if (!("refused" in asked.answer)) return json(200, { ...asked.answer.result, source: "server" });
+  // A tablet may choose more than its Location's Shots: the Reference Shots of its Location's Recipes too.
+  return asked.answer.refused === "noSuchShot" ? refusal("noSuchShot", {}, "No Shot this tablet may read whole has that id.") : refused(asked.answer.refused);
 }
 
 /** What a request to `reference` that names no Recipe is told. */

@@ -233,9 +233,13 @@ describe("Choosing a Recipe's Reference Shot from a tablet", { timeout: 180_000 
 
   it("chooses only a Shot the tablet may read whole: another Location's only as the Reference Shot of one of its Location's Recipes", async () => {
     const noSuchShot = { status: 404, body: { code: "noSuchShot", message: expect.stringContaining("No Shot") } };
-    // Another Location's Shot, a dismissed Pending Machine's and an id that names none are refused alike.
+    // Another Location's Shot and an id that names none are refused alike.
     expect(await choose(left, espresso, "choice-lab")).toEqual(noSuchShot);
     expect(await choose(left, espresso, "no-such-shot")).toEqual(noSuchShot);
+    // A Pending Machine's Shot, at no Location, made a Belmont Recipe's Reference Shot in the management interface and
+    // then hidden as its Pending Machine is dismissed: the Shots list no longer lists it, so no tablet may choose it,
+    // though a Belmont Recipe still names it.
+    await api.send("PUT", `/recipes/${spare}/reference-shot`, { shotId: "choice-pending" });
     const { pendingMachines } = await api.get<{ pendingMachines: { id: string; serial: string }[] }>("/pending-machines");
     expect((await api.call("POST", `/pending-machines/${pendingMachines.find((each) => each.serial === UNKNOWN_SERIAL)!.id}/dismiss`)).status).toBe(200);
     expect(await choose(left, espresso, "choice-pending")).toEqual(noSuchShot);

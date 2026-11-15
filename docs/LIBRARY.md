@@ -785,7 +785,7 @@ Conflict names is kept, still refused, so history goes on naming it
     each time. A long Shot's record passes that.
   - **A tablet reads the Reference Shot of any Recipe of its Location,** in
     a slot or not, from the server, a Shot pulled at another Location
-      included. A Recipe of another Location is refused as no such Recipe to
+    included. A Recipe of another Location is refused as no such Recipe to
     a read, where a choice is told it is not at this Location, above.
   - `server/test/skin-references.test.ts` covers them through the built
     plugin in simulated tablets, with two instances on one database, and
