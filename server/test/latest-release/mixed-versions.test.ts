@@ -614,43 +614,77 @@ describe("the latest release beside the change", () => {
     }
   });
 
-  // An edit of a Shot made through the change's server while the latest
-  // release's instance holds the Shot's tablet, and a later change of the
-  // same field on that tablet (#513). The latest release stores the version
-  // the tablet reports whole and, until it has #513 itself, decides nothing:
-  // the edit is then not written over the tablet's change once the change's
-  // instance holds the tablet, and is decided by the tablet's next report.
-  it("never writes an edit of a Shot over a later change on its tablet that the latest release's instance stored", async () => {
-    const api = apis.change;
+  // Edits of a Shot made through the change's server while the latest
+  // release's instance holds the Shot's tablet, which changes the Shot too
+  // (#513). The latest release stores the version the tablet reports whole
+  // and, until it has #513 itself, decides nothing: the change's server
+  // decides that version before it relies on it, so the later of each field
+  // wins as if the change's instance had stored it.
+  describe("a Shot edited through the change's server and changed on a tablet the latest release's instance holds", () => {
     type Record_ = Record<string, unknown>;
-    const id = "mixed-edit-crossed";
-    const held = await connected("Shot edits, crossed on the latest release", "change", "latest release");
-    held.tablet.pullShot(derivedShot(id));
-    await expect.poll(async () => (await api.call("GET", `/shots/${id}`)).status).toBe(200);
-    const read = async () => (await api.get<{ shot: { enjoyment: number | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
-    const ratingOn = async (tablet: SimulatedTablet) => (((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_ | undefined)?.enjoyment;
-    const change = async (tablet: SimulatedTablet, annotations: Record_) => expect((await tablet.callApi("PUT", `/shots/${id}`, { annotations })).status).toBe(200);
+    const read = async (id: string) => (await apis.change.get<{ shot: { enjoyment: number | null; notes: string | null; edits: { state: string }[] } }>(`/shots/${id}`)).shot;
+    const states = async (id: string) => (await read(id)).edits.map((edit) => edit.state);
+    const edit = (id: string, fields: Record_) => apis.change.send("PATCH", `/shots/${id}`, fields);
+    const annotationsOn = async (tablet: SimulatedTablet, id: string) => ((await tablet.callApi("GET", `/shots/${id}`)).body as Record_).annotations as Record_;
+    const changeOn = async (tablet: SimulatedTablet, id: string, annotations: Record_) => expect((await tablet.callApi("PUT", `/shots/${id}`, { annotations })).status).toBe(200);
+    const writesTo = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write.startsWith("PUT /shots/"));
+    /** A second, between two events timed by different clocks, the tablet's Decaid's and PostgreSQL's. */
+    const aSecond = () => new Promise((resolve) => setTimeout(resolve, 1100));
 
-    expect((await api.send<{ shot: { enjoyment: number } }>("PATCH", `/shots/${id}`, { rating: 8 })).shot.enjoyment).toBe(8);
-    // A second later, as the two are timed by different clocks, the barista rates it on the tablet.
-    await new Promise((resolve) => setTimeout(resolve, 1100));
-    await change(held.tablet, { enjoyment: 6 });
-    await expect.poll(async () => (await read()).enjoyment).toBe(6);
+    /** A tablet running the change's plugin, held by the latest release's instance, having pulled the Shot, rated 4 with a note. */
+    async function held(name: string, id: string) {
+      const connection = await connected(name, "change", "latest release");
+      connection.tablet.pullShot(derivedShot(id, { annotations: { ...(derivedShot(id).annotations as Record_), enjoyment: 4, espressoNotes: "As pulled" } }));
+      await expect.poll(async () => (await apis.change.call("GET", `/shots/${id}`)).status).toBe(200);
+      return connection;
+    }
 
-    // Once the change's instance holds the tablet, as once a deploy is done, the tablet keeps its rating.
-    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
-    loaded.push(moved);
-    await api.waitForOnline(held.machine);
-    await quiesced(api, { tablets: { moved } });
-    expect(await ratingOn(moved)).toBe(6);
-    expect(moved.writes.filter((write) => write.startsWith("PUT /shots/"))).toEqual([]);
+    /** The tablet once the change's instance holds it, as once a deploy is done, and nothing is under way. */
+    async function moved(connection: { machine: CreatedMachine; tablet: SimulatedTablet }): Promise<SimulatedTablet> {
+      const tablet = await connection.tablet.reload({ settings: { ...settingsFor({ token: connection.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+      loaded.push(tablet);
+      await apis.change.waitForOnline(connection.machine);
+      return tablet;
+    }
 
-    // Its next report of the Shot decides the edit: the tablet changed the rating later, so the edit is dropped.
-    await change(moved, { espressoNotes: "Rated at the tablet" });
-    await expect.poll(async () => (await read()).edits.map((edit) => edit.state)).toEqual(["dropped"]);
-    await quiesced(api, { tablets: { moved } });
-    expect([(await read()).enjoyment, await ratingOn(moved)]).toEqual([6, 6]);
-    expect(moved.writes.filter((write) => write.startsWith("PUT /shots/"))).toEqual([]);
+    it("never writes the edit over a later change of the same field on the tablet, and drops it", async () => {
+      const id = "mixed-edit-crossed";
+      const connection = await held("Shot edits, crossed on the latest release", id);
+      await edit(id, { rating: 8 });
+      await aSecond();
+      await changeOn(connection.tablet, id, { enjoyment: 6 });
+      // Stored by the latest release's instance.
+      await expect.poll(async () => (await read(id)).enjoyment).toBe(6);
+
+      const tablet = await moved(connection);
+      await expect.poll(() => states(id)).toEqual(["dropped"]);
+      await quiesced(apis.change, { tablets: { tablet } });
+      expect([(await read(id)).enjoyment, (await annotationsOn(tablet, id)).enjoyment]).toEqual([6, 6]);
+      expect(writesTo(tablet)).toEqual([]);
+    });
+
+    it("writes an edit of a field the tablet left alone, and one made after the tablet's change of the other", async () => {
+      const id = "mixed-edit-later";
+      const connection = await held("Shot edits, edited again on the latest release", id);
+      await edit(id, { rating: 8 });
+      await aSecond();
+      // The tablet changes the note alone, which the latest release's instance stores.
+      await changeOn(connection.tablet, id, { espressoNotes: "Said at the tablet" });
+      await expect.poll(async () => (await read(id)).notes).toBe("Said at the tablet");
+      await aSecond();
+      // Seeing that, an Admin edits the note: later than the tablet's change, so it wins, and the rating's edit stands.
+      await edit(id, { note: "Said at the office, later" });
+      expect(await read(id)).toMatchObject({ enjoyment: 8, notes: "Said at the office, later" });
+
+      const tablet = await moved(connection);
+      await expect.poll(() => states(id)).toEqual(["written", "written"]);
+      expect(await annotationsOn(tablet, id)).toMatchObject({ enjoyment: 8, espressoNotes: "Said at the office, later" });
+      // The tablet's next change of something else leaves both as they are.
+      await changeOn(tablet, id, { actualYield: 36.5 });
+      await quiesced(apis.change, { tablets: { tablet } });
+      expect(await read(id)).toMatchObject({ enjoyment: 8, notes: "Said at the office, later" });
+      expect(await states(id)).toEqual(["written", "written"]);
+    });
   });
 
   // A tablet with the latest release's plugin on each instance, as a deploy

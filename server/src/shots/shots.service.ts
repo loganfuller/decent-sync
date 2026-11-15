@@ -11,7 +11,7 @@ import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedD
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import { type ShotEditFields, listShotEdits, settleShotEdits } from "./shot-edits.js";
+import { type ShotEditFields, listShotEdits, settleShotEdits, settleStoredVersion } from "./shot-edits.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -42,7 +42,10 @@ export class ShotsService {
    * (`settleShotEdits`): those the tablet's later change overtook are
    * dropped, and the rest stay set in the record stored. `sent` is what the
    * reporting connection has written to that Shot on its tablet and has had
-   * no answer to, which such a version may be the tablet's report of.
+   * no answer to, which such a version may be the tablet's report of. The
+   * version before it is decided first where the previous release stored
+   * it (`settleStoredVersion`), so the newer one is read against what the
+   * tablet held then.
    */
   async store(message: ShotDelivery, reporter: Reporter, sent: readonly ShotEditFields[] = []): Promise<string | null> {
     const { measurements, ...incoming } = message.shot;
@@ -56,9 +59,17 @@ export class ShotsService {
       // until credit is resolved: hardware adoption can finish while we wait
       // for its hardware lock. Adoption never takes this advisory lock.
       await lockShot(tx, message.shotId);
-      const [stored] = await tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; newer: boolean; heldRating: number | null; heldNote: string | null }[]>`
-        SELECT record, has_full_record AS "hasFullRecord", ${version}::timestamptz > version_at AS newer, held_rating AS "heldRating", held_note AS "heldNote"
+      const read = () => tx.$queryRaw<{ record: Prisma.JsonObject; hasFullRecord: boolean; newer: boolean; heldRating: number | null; heldNote: string | null; undecided: boolean }[]>`
+        SELECT record, has_full_record AS "hasFullRecord", ${version}::timestamptz > version_at AS newer, held_rating AS "heldRating", held_note AS "heldNote",
+          held_rating IS NOT NULL AND held_version_at IS DISTINCT FROM version_at AS undecided
         FROM shots WHERE id = ${message.shotId}`;
+      let [found] = await read();
+      // The version stored was the previous release's to store, which decided nothing: it is decided before a newer one is.
+      if (found?.newer && found.undecided) {
+        await settleStoredVersion(tx, message.shotId);
+        [found] = await read();
+      }
+      const stored = found;
       if (stored && !stored.newer && (!full || stored.hasFullRecord)) return;
 
       // Every delivery carries complete metadata, so the newer one is kept
@@ -93,7 +104,9 @@ export class ShotsService {
       // Prisma's Date loses Decaid's microseconds. Let PostgreSQL parse and
       // retain them, so two edits within one millisecond compare correctly.
       if (!stored || stored.newer) {
-        await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz WHERE id = ${message.shotId}`;
+        // With the version what the tablet holds was read at, where it was.
+        const held = settled ? Prisma.sql`, held_version_at = ${version}::timestamptz` : Prisma.empty;
+        await tx.$executeRaw`UPDATE shots SET version_at = ${version}::timestamptz ${held} WHERE id = ${message.shotId}`;
       }
       if (credit) await creditShotLocation(tx, message.shotId);
       // The Recipe it is linked to is not hard-deleted until the Shot is stored, which the delete then finds linked to it:
@@ -339,7 +352,7 @@ const linkColumns = { tabletId: true, libraryBatchId: true, libraryGrinderId: tr
  * (`UNFINISHED` in summary.ts), and the scale's last weight is read from its
  * samples where it is given (`ShotsService.read`).
  */
-const readOmitted = { versionAt: true, hasFullRecord: true, curvesRevision: true, poured: true, lastWeight: true, lastWeightSeconds: true, heldRating: true, heldNote: true, ...linkColumns } as const;
+const readOmitted = { versionAt: true, hasFullRecord: true, curvesRevision: true, poured: true, lastWeight: true, lastWeightSeconds: true, heldRating: true, heldNote: true, heldVersionAt: true, ...linkColumns } as const;
 /** A list leaves out the record too, and the flow at the stop. */
 const listOmitted = { ...readOmitted, record: true, flowAtStop: true } as const;
 

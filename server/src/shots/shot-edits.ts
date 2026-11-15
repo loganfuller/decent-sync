@@ -3,6 +3,7 @@ import { MAX_SHOT_RATING, isShotNote, isShotRating } from "@decent-sync/protocol
 import type { Scope } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
 import { object } from "./extraction.js";
+import { announceReferenceShots } from "./reference-announcements.js";
 
 // The edits of a Shot's rating and note made through the server (ADR-0031,
 // ticket #512), as a request gives one and as a Shot's read lists them.
@@ -112,7 +113,8 @@ function withShotEdit(record: Prisma.JsonObject, fields: ShotEditFields): Prisma
  *
  * Returns the record to store, the reported one with the edits that stand
  * set in it, so the Shot goes on reading as edited until its tablet is
- * written, and what the tablet holds from now on.
+ * written, with the fields so set (`stands`), and what the tablet holds
+ * from now on.
  */
 export async function settleShotEdits(
   tx: Prisma.TransactionClient,
@@ -121,7 +123,7 @@ export async function settleShotEdits(
   version: string,
   held: Required<ShotEditFields>,
   sent: readonly ShotEditFields[],
-): Promise<{ record: Prisma.JsonObject; held: Required<ShotEditFields> }> {
+): Promise<{ record: Prisma.JsonObject; stands: ShotEditFields; held: Required<ShotEditFields> }> {
   const awaiting = await tx.$queryRaw<{ id: string; rating: number | null; note: string | null; earlier: boolean }[]>`
     SELECT e.id::text AS id, ${standingSql("e", "rating")} AS rating, ${standingSql("e", "note")} AS note, e.made_at < ${version}::timestamptz AS earlier
     FROM shot_edits AS e WHERE e.shot_id = ${shotId} AND ${awaitingSql("e")} ORDER BY e.number`;
@@ -138,7 +140,38 @@ export async function settleShotEdits(
     return undefined;
   }
   const [rating, note] = [await decide("rating"), await decide("note")];
-  return { record: withShotEdit(reported, { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) }), held: now };
+  const stands = { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) };
+  return { record: withShotEdit(reported, stands), stands, held: now };
+}
+
+/**
+ * Decides a Shot's awaiting edits against the version of it stored, where
+ * an instance of the previous release stored that version (ADR-0025),
+ * under the Shot's lock. That release stores what a tablet reports whole:
+ * it neither decides the edits nor keeps what the tablet holds, so the
+ * version the held values were set at is no longer the Shot's
+ * (`held_version_at`). The stored record is then the tablet's report as it
+ * came, and is decided as this release would have decided it on storing it
+ * (`settleShotEdits`): the edits the tablet's change overtook are dropped,
+ * the rest set in the record again, and what the tablet holds is what it
+ * reported. Changes nothing for a Shot this release stored last, or one
+ * never edited through the server.
+ *
+ * It runs before anything reads the record as decided: as an edit is made,
+ * as a newer version is stored, and as a write to the tablet is looked for.
+ */
+export async function settleStoredVersion(tx: Prisma.TransactionClient, shotId: string): Promise<void> {
+  const [shot] = await tx.$queryRaw<{ record: Prisma.JsonObject; heldRating: number; heldNote: string }[]>`
+    SELECT record, held_rating AS "heldRating", held_note AS "heldNote" FROM shots
+    WHERE id = ${shotId} AND held_rating IS NOT NULL AND held_note IS NOT NULL AND held_version_at IS DISTINCT FROM version_at`;
+  if (!shot) return;
+  const { record, stands, held } = await settleShotEdits(tx, shotId, shot.record, String(shot.record.updatedAt), { rating: shot.heldRating, note: shot.heldNote }, []);
+  await tx.$executeRaw`
+    UPDATE shots SET record = ${JSON.stringify(record)}::jsonb, enjoyment = COALESCE(${stands.rating ?? null}::double precision, enjoyment),
+      held_rating = ${held.rating}::double precision, held_note = ${held.note}, held_version_at = version_at
+    WHERE id = ${shotId}`;
+  // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
+  await announceReferenceShots(tx, Prisma.sql`s.id = ${shotId}`);
 }
 
 /**

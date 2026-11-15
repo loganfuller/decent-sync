@@ -6,7 +6,7 @@ import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import { type ShotEditFields, awaitingSql, ratingAndNote, standingSql } from "./shot-edits.js";
+import { type ShotEditFields, awaitingSql, settleStoredVersion, standingSql } from "./shot-edits.js";
 import { lockShot, shotNotFound } from "./shots.service.js";
 
 /**
@@ -75,7 +75,10 @@ export class ShotEditsService {
    * (`settleShotEdits`). It is what the record held before the edit, where
    * no other edit awaits the tablet: the two then read the same, as every
    * edit before was written, dropped for the tablet's own value, or has no
-   * tablet to reach. While one awaits, it is kept as it is.
+   * tablet to reach. While one awaits, it is kept as it is. A version of
+   * the Shot the previous release stored is decided first
+   * (`settleStoredVersion`), so the edit is made over a record that holds
+   * the edits before it, and held values that are the tablet's.
    *
    * It holds the Shot's lock, as storing a delivery of the Shot does, so
    * the two are decided one at a time, and edits of one Shot are numbered
@@ -96,6 +99,7 @@ export class ShotEditsService {
         SELECT s.location_id::text AS "locationId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
       if (!shot) throw shotNotFound();
       if (!includesLocation(editor.scope, shot.locationId)) throw new ForbiddenException("You can edit only the Shots at a Location you work at");
+      await settleStoredVersion(tx, shotId);
       // Set in place, so the rest of the record stays as Decaid sent it. Each expression reads the row as it was before the edit.
       const awaited = Prisma.sql`EXISTS (SELECT 1 FROM shot_edits AS e WHERE e.shot_id = shots.id AND ${awaitingSql("e")})`;
       const [{ tabletId }] = await tx.$queryRaw<[{ tabletId: string | null }]>`
@@ -104,6 +108,7 @@ export class ShotEditsService {
             WHEN jsonb_typeof(record #> '{annotations,enjoyment}') = 'number' THEN (record #>> '{annotations,enjoyment}')::double precision ELSE 0 END,
           held_note = CASE WHEN ${awaited} THEN held_note
             WHEN jsonb_typeof(record #> '{annotations,espressoNotes}') = 'string' THEN record #>> '{annotations,espressoNotes}' ELSE '' END,
+          held_version_at = CASE WHEN ${awaited} THEN held_version_at ELSE version_at END,
           record = jsonb_set(
             record, '{annotations}',
             (CASE WHEN jsonb_typeof(record -> 'annotations') = 'object' THEN record -> 'annotations' ELSE '{}'::jsonb END) || ${JSON.stringify(annotations)}::jsonb
@@ -132,36 +137,37 @@ export class ShotEditsService {
    * statement, so one snapshot: an edit made meanwhile is either carried
    * whole or left for the next look.
    *
-   * A Shot whose record no longer holds what its awaiting edits set is
-   * left out. This release keeps them set in it, so the record was stored
-   * by an instance of the previous release (ADR-0025), which stores a
-   * version a tablet reports whole and decides nothing: that version may
-   * hold a later change of the tablet's, which the write would undo, as it
-   * would be sent for that very version. The edits wait for the tablet's
-   * next report of the Shot, which an instance of this release decides
-   * them against (`settleShotEdits`), with what the tablet held before.
+   * A Shot whose version an instance of the previous release stored
+   * (ADR-0025) is decided first, and looked at again: that release stores
+   * what a tablet reports whole and decides nothing, so the version may
+   * hold a later change of the tablet's, which a write sent for that very
+   * version would undo (`settleStoredVersion`).
    */
   async due(tablet: EditedTablet, skipped: readonly string[]): Promise<ShotEdit | null> {
     const awaiting = (shot: Prisma.Sql) => Prisma.sql`FROM shot_edits AS e WHERE e.shot_id = ${shot} AND ${awaitingSql("e")}`;
     const latest = (field: "rating" | "note") => Prisma.sql`
       (SELECT ${standingSql("e", field)} ${awaiting(Prisma.sql`next.shot_id`)} AND ${standingSql("e", field)} IS NOT NULL ORDER BY e.number DESC LIMIT 1)`;
-    const [due] = await this.prisma.$queryRaw<{ id: string; shotId: string; version: string; annotations: unknown; decided: boolean; rating: number | null; note: string | null }[]>`
+    const [due] = await this.prisma.$queryRaw<{ id: string; shotId: string; version: string; undecided: boolean; rating: number | null; note: string | null }[]>`
       WITH next AS (
-        SELECT e.shot_id, s.record ->> 'updatedAt' AS version, s.record -> 'annotations' AS annotations, s.held_rating IS NOT NULL AS decided
+        SELECT e.shot_id, s.record ->> 'updatedAt' AS version, s.held_rating IS NOT NULL AND s.held_version_at IS DISTINCT FROM s.version_at AS undecided
         FROM shot_edits AS e JOIN shots AS s ON s.id = e.shot_id
         WHERE ${awaitingSql("e")} AND s.tablet_id = ${tablet.tabletId}::uuid AND NOT (e.shot_id = ANY(${[...skipped]}::text[]))
           AND EXISTS (SELECT 1 FROM machines AS m WHERE m.id = ${tablet.machineId}::uuid AND m.connected_session_id = ${tablet.sessionId}::uuid)
         ORDER BY e.number LIMIT 1
       )
-      SELECT next.shot_id AS "shotId", next.version, next.annotations, next.decided,
+      SELECT next.shot_id AS "shotId", next.version, next.undecided,
         (SELECT e.id::text ${awaiting(Prisma.sql`next.shot_id`)} ORDER BY e.number DESC LIMIT 1) AS id,
         ${latest("rating")} AS rating,
         ${latest("note")} AS note
       FROM next`;
     if (!due) return null;
-    const stored = ratingAndNote({ annotations: due.annotations });
-    const replaced = (due.rating !== null && due.rating !== stored.rating) || (due.note !== null && due.note !== stored.note);
-    if (due.decided && replaced) return this.due(tablet, [...skipped, due.shotId]);
+    if (due.undecided) {
+      await this.prisma.$transaction(async (tx) => {
+        await lockShot(tx, due.shotId);
+        await settleStoredVersion(tx, due.shotId);
+      });
+      return this.due(tablet, skipped);
+    }
     return { type: "shotEdit", id: due.id, shotId: due.shotId, version: due.version, ...(due.rating !== null && { rating: due.rating }), ...(due.note !== null && { note: due.note }) };
   }
 

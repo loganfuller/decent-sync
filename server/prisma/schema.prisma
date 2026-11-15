@@ -622,6 +622,12 @@ model Shot {
   /// is made while no other awaits; null for a Shot never edited so.
   heldRating       Float?            @map("held_rating")
   heldNote         String?           @map("held_note")
+  /// The version of the Shot (`versionAt`) those were last set at. This
+  /// release sets it with every version it stores of such a Shot, so one
+  /// that differs was stored by the previous release, which decides
+  /// nothing (ADR-0025): the stored version is then decided before it is
+  /// relied on (`settleStoredVersion`).
+  heldVersionAt    DateTime?         @map("held_version_at") @db.Timestamptz(6)
   /// The Library's Bean Batch and Grinder those ids resolve to through that
   /// tablet's map, once it holds them, kept when the tablet's record leaves
   /// it (server/src/shots/links.ts). A Shot linked to an item names it.

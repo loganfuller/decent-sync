@@ -486,6 +486,35 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       await again.close();
     });
 
+    it("keeps an edit made at the very time of the tablet's version, and marks nothing for a tablet that is no longer the one holding the Shot", async () => {
+      const [first, other] = [await api.createMachine("Raw conflicts 7", belmont.id), await api.createMachine("Raw conflicts 8", belmont.id)];
+      const holder = await connect(first, "51317", randomUUID());
+      const shot = shotOf("conflict-raw-tie", "2026-11-12T16:00:00.000Z", "51317", { enjoyment: 4 });
+      await report(holder, shot);
+      await edit("conflict-raw-tie", { rating: 8 });
+      const sent = await next(holder, (message) => message.type === "shotEdit");
+      // The edit's own time, to the microsecond, as a tablet would write it.
+      const database = await server.connectDatabase();
+      const { rows } = await database.query(`SELECT to_char(made_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "madeAt" FROM shot_edits WHERE id = $1`, [sent.id]);
+      await database.end();
+      const madeAt = (rows[0] as { madeAt: string }).madeAt;
+      // A version of that very time in which the tablet changed the rating is not the later: the edit stands.
+      holder.send({ type: "shotEdited", id: sent.id, outcome: "changed" });
+      await reportUpdate(holder, shot, madeAt, { enjoyment: 6 });
+      expect(await view("conflict-raw-tie")).toEqual({ enjoyment: 8, notes: null, edits: [[{ rating: 8 }, "awaitingTablet", []]] });
+      const again = await next(holder, (message) => message.type === "shotEdit" && message.version === madeAt);
+
+      // Another tablet reports the Shot, as one restored from the first's backup, and holds it from then on: the
+      // first's answer that it no longer holds the Shot marks nothing.
+      const bystander = await connect(other, "51318", randomUUID());
+      await reportUpdate(bystander, shot, tabletTime(60), { enjoyment: 6 });
+      holder.send({ type: "shotEdited", id: again.id, outcome: "notHeld" });
+      await handled(holder);
+      expect(await states("conflict-raw-tie")).toEqual(["awaitingTablet"]);
+      await holder.close();
+      await bystander.close();
+    });
+
     it("marks every edit awaiting a tablet that no longer holds the Shot, one made since the write was sent too, and takes a later version of the Shot whole", async () => {
       const held = await api.createMachine("Raw conflicts 4", belmont.id);
       const tabletId = randomUUID();

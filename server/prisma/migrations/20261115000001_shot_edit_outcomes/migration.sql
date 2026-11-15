@@ -6,9 +6,12 @@
 -- note its tablet holds, as far as the server knows, which differ from the
 -- record's while an edit awaits that tablet: a version of the Shot the
 -- tablet reports is read against them, to tell the fields the tablet
--- changed from those it only reports again. Nullable columns with no
--- default, so nothing is rewritten, and the previous release, which reads
--- and writes none of them, stores a Shot as before (ADR-0025).
+-- changed from those it only reports again, with the version of the Shot
+-- they were taken at: the previous release stores a version without
+-- deciding it or touching them, which the two versions differing shows
+-- (ADR-0025). Nullable columns with no default, so nothing is rewritten,
+-- and the previous release, which reads and writes none of them, stores a
+-- Shot as before.
 
 BEGIN;
 SET LOCAL lock_timeout = '5s';
@@ -20,6 +23,7 @@ ALTER TABLE "shot_edits"
 
 ALTER TABLE "shots"
     ADD COLUMN "held_rating" DOUBLE PRECISION,
-    ADD COLUMN "held_note" TEXT;
+    ADD COLUMN "held_note" TEXT,
+    ADD COLUMN "held_version_at" TIMESTAMPTZ(6);
 
 COMMIT;

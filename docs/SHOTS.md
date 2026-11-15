@@ -752,7 +752,8 @@ decides them (ADR-0031).
   are set as an edit is made while no other awaits the tablet, to what the
   record held before it, since the two then read the same; as a write is
   answered `written`, to what it carried (`ShotEditsService.written`); and
-  as a newer version from a tablet is stored, to what it reports.
+  as a newer version from a tablet is stored, to what it reports, with
+  that version (`held_version_at`; Releases, below).
 - **A newer version from the tablet** is decided as it is stored, under the
   Shot's lock (`settleShotEdits` in `server/src/shots/shot-edits.ts`,
   called by `ShotsService.store` for a Shot with held values). For each
@@ -823,8 +824,10 @@ decides them (ADR-0031).
   minute ahead wins against an edit made up to a minute after its change,
   and the edit is dropped. A tablet a minute behind loses a change it made
   up to a minute after the edit, which is then written over it. Edits
-  further apart than the clocks, and edits of different fields, are
-  decided rightly whatever the clocks say. No allowance is built:
+  of different fields are decided rightly whatever the clocks say, and so
+  are edits further apart than the clocks, but for a field timed by the
+  Shot's last change rather than its own (Which is later, above). No
+  allowance is built:
   - the Shot's own comparison of versions has none. `ShotsService.store`
     takes a version as newer where its `updatedAt` is later at all, to the
     microsecond, and a tie keeps what is stored. It compares a tablet's
@@ -854,24 +857,35 @@ decides them (ADR-0031).
     tablet's clock puts the write later than that edit, is that edit
     dropped as if the tablet had changed the field, and the Shot left as
     the earlier edit set it on both sides.
-  - A version the tablet holds that the server cannot store, as one whose
+  - A version the tablet holds that the server never stores stays later
+    than the server's: an edit of that Shot is answered `changed` each
+    time it is tried, and awaits its tablet. So it is for one whose
     delivery is set aside (`AI_PROTOCOL_NOTES.md`, Deliveries set aside),
-    stays later than the server's for good: an edit of that Shot is
-    answered `changed` each time it is tried, and awaits its tablet.
+    and for any later version of that Shot whose report is lost with a
+    reload of the plugin, as a Shot with a delivery set aside is not
+    requested again.
+  - A write that goes unanswered for 60 s is sent again under the same
+    id, so a late answer to the first is taken as the second's. A refusal
+    so taken leaves the edit to the next retry, though the second write
+    was made.
 - **Releases (ADR-0025).** Additions only: `shotEdit`'s `version` and
   `shotEdited`'s `changed` and `notHeld` are within wire revision 3, which
   no release has, and the migration adds nullable columns to `shot_edits`
   and `shots`, which the previous release neither reads nor writes. The
   previous release's instance stores a version a tablet reports to it
-  whole, and decides nothing. Where an edit made through an instance of
-  this release awaits that tablet during a deploy, the Shot then reads as
-  the tablet reported it, and that version may hold a later change of the
-  edit's field. So `ShotEditsService.due` leaves out a Shot whose record
-  no longer holds what its awaiting edits set, which only such a store
-  leaves: the edit is not written over that version, and waits for the
-  tablet's next report of the Shot, which an instance of this release
-  decides it against, with what the tablet held before. A tablet that
-  never reports the Shot again leaves the edit awaiting it.
+  whole: it decides nothing, and leaves what the tablet holds as it was.
+  Where an edit made through an instance of this release awaits that
+  tablet during a deploy, the Shot then reads as the tablet reported it,
+  and that version may hold a later change of the edit's field. This
+  release tells such a version by the version the held values were set at
+  (`shots.held_version_at`), which it sets with every version it stores of
+  such a Shot, so one that differs from the Shot's was the previous
+  release's to store. It decides that version, as it would have on storing
+  it (`settleStoredVersion`), before it relies on the record: as an edit
+  of the Shot is made, as a newer version is stored, and as a write to its
+  tablet is looked for. Until one of those the Shot reads as the tablet
+  reported it. Only the last version the previous release stored is
+  there to decide against.
 - **Verified** through Seam 1 with the built plugin in a simulated tablet
   (`server/test/shot-edit-conflicts.test.ts`): a rating edited through the
   server while the tablet is off and changed on the tablet later, the
@@ -892,9 +906,14 @@ decides them (ADR-0031).
   report; an answer lost with its connection; and a Shot no longer held,
   with an edit made since the write was sent.
   `server/test/shot-edit-writes.test.ts` covers the connection's writer
-  holding a Shot back until it is reported. The mixed-versions suite has a
-  tablet's later change stored by the previous release's instance, and the
-  edit not written over it once this release's instance holds the tablet.
+  holding a Shot back until it is reported. With raw frames too: a version
+  timed at the edit's own time, which leaves the edit standing, and an
+  answer of `notHeld` from a tablet no longer the one holding the Shot,
+  which marks nothing. The mixed-versions suite has a tablet's change
+  stored by the previous release's instance: a later change of the edit's
+  field, which is not written over and drops the edit once this release's
+  instance holds the tablet; and a change of the other field, followed by
+  an edit of that field made later, both edits then written.
   `isLaterRecordTime` is tested in `protocol/`. Decaid's answers were read
   in its source, as for #512, not run on a tablet.
 
