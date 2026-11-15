@@ -550,7 +550,7 @@ export class SyncGateway implements OnApplicationBootstrap, OnModuleDestroy {
       case "shot":
       case "shotUpdated":
         await this.captureRecord(session, message, text, () => this.shots.store(message, reporter));
-        // The tablet reporting a Shot holds it from now on, and is due the edits of it still to be written.
+        // A tablet whose report of a Shot was the newer one stored holds it from now on, and is due its edits still to be written.
         session.shotEdits?.wake();
         return;
       case "steam":

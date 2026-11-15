@@ -203,7 +203,7 @@ Decaid's Shots.
 ### A Shot's rating and note
 
 A Shot's rating and note can be edited through the server, away from the
-tablet that pulled it
+tablet that holds it
 ([ADR-0031](adr/0031-a-shots-rating-and-note-are-edited-through-the-server.md)).
 The plugin writes such an edit into the Shot on the tablet that holds it, so
 that tablet's Skin and DYE2 show what the server shows. It is the only thing
@@ -217,7 +217,8 @@ the plugin writes to a tablet's Shots.
 - **Which tablet.** The one that holds the Shot: the tablet that last
   reported it to the server.
 - **When.** At once while that tablet is connected, and otherwise when it
-  next connects. Edits of one Shot are written in the order they were made.
+  next connects. Several edits of one Shot made meanwhile are written as
+  one: the latest rating and the latest note among them.
 - **Afterwards.** Decaid reports the Shot as updated, and the plugin sends
   that to the server as it sends any edit made on the tablet.
 - **Refused.** If Decaid refuses the update, the edit stays waiting on the

@@ -32,7 +32,9 @@ export interface ShotEditView {
   /**
    * Where it stands with the tablet that holds the Shot: `awaitingTablet`
    * until that tablet's plugin answers that it wrote it into the Shot
-   * there, as while the tablet is off, and `written` from then on.
+   * there, as while the tablet is off, and `written` from then on. One a
+   * later edit of the same field overtook before either was written is
+   * `written` with that one, as the Shot there holds what came of both.
    */
   state: "awaitingTablet" | "written";
   /** When the plugin's answer that it wrote it was recorded, by PostgreSQL's clock; null while it awaits its tablet. */
@@ -62,16 +64,20 @@ export function readShotEdit(body: unknown): ShotEditFields {
 
 const NOTHING_TO_SET = "Send the Shot's rating, its note or both";
 
+/** The most of a Shot's edits its read lists: the newest. A Shot has a handful, and each may hold a note as long as a request. */
+export const MAX_LISTED_EDITS = 100;
+
 /**
  * The edits of a Shot's rating and note made through the server, newest
- * first, with who made each, as `scope` sees them, and where each stands
- * with the Shot's tablet.
+ * first, the newest MAX_LISTED_EDITS of them, with who made each, as
+ * `scope` sees them, and where each stands with the Shot's tablet.
  */
 export async function listShotEdits(db: Prisma.TransactionClient, shotId: string, scope: Scope): Promise<ShotEditView[]> {
   const edits = await db.shotEdit.findMany({
     where: { shotId },
     include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
     orderBy: { number: "desc" },
+    take: MAX_LISTED_EDITS,
   });
   return edits.map((edit) => ({
     id: edit.id,

@@ -2273,19 +2273,21 @@ export function isShotNote(value: unknown): value is string {
 }
 
 /**
- * Asks the plugin to write an edit of a Shot's rating, note or both, made
+ * Asks the plugin to write a Shot's rating, note or both, as edited
  * through the server (ADR-0031, ticket #512), into the Shot its tablet
  * holds: sent to the tablet that last reported the Shot, on the connection
- * holding its Machine, to a plugin at SHOT_EDITS_WIRE_REVISION, one edit at
- * a time, each once the one before it is answered. The plugin writes it
- * through Decaid's own Shot update (`PUT /api/v1/shots/{id}`), setting only
- * the fields it carries, and answers with `shotEdited`. Decaid then reports
- * the Shot as updated (`shotUpdated`), which reaches the server as any edit
- * made on the tablet does.
+ * holding its Machine, to a plugin at SHOT_EDITS_WIRE_REVISION, one at a
+ * time, each once the one before it is answered. One write carries the
+ * latest value of each field the Shot's edits not yet written set, so
+ * several edits made while the tablet was off arrive as one. The plugin
+ * writes it through Decaid's own Shot update (`PUT /api/v1/shots/{id}`),
+ * setting only the fields it carries, and answers with `shotEdited`. Decaid
+ * then reports the Shot as updated (`shotUpdated`), which reaches the
+ * server as any edit made on the tablet does.
  */
 export interface ShotEdit {
   type: "shotEdit";
-  /** The edit's id, a UUID, which its answer repeats. */
+  /** The id of the last edit it carries, a UUID, which its answer repeats. */
   id: string;
   /** The Shot, by Decaid's id for it on the tablet. */
   shotId: string;
@@ -2305,7 +2307,7 @@ export interface ShotEdit {
  */
 export interface ShotEdited {
   type: "shotEdited";
-  /** The edit's id. */
+  /** The `shotEdit`'s id. */
   id: string;
   /** `written`: Decaid took the update; `refused`: it refused it, or did not answer. */
   outcome: "written" | "refused";

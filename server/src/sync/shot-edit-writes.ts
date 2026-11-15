@@ -13,9 +13,10 @@ type Outcome = "written" | "refused" | "timedOut" | "stopped";
 /**
  * Writes the edits of Shots made through the server (ADR-0031, ticket #512)
  * to the tablet of one connection this instance holds: those not yet
- * written of the Shots that tablet holds, in the order they were made, one
- * at a time, each once the plugin has answered the one before it and that
- * answer is recorded.
+ * written of the Shots that tablet holds, a Shot at a time, the one whose
+ * edit has waited longest first, each write carrying the latest value of
+ * each field that Shot's unwritten edits set, and sent once the plugin has
+ * answered the one before it and that answer is recorded.
  *
  * What is due is read from the database each time (`due`), so it reflects
  * edits made through any instance: the instance is woken to look when the
@@ -25,12 +26,14 @@ type Outcome = "written" | "refused" | "timedOut" | "stopped";
  * Shot or lists its Shots, which may make its tablet the one holding a
  * Shot. Only the connection holding its Machine is written to.
  *
- * An edit Decaid refuses, or the plugin does not answer in time, stays due,
- * and no later edit of its Shot is sent meanwhile, so a Shot's edits reach
- * its tablet in the order they were made; the other Shots' go on. It is
- * tried again after `retryMs`, as Decaid may have refused it for a moment,
- * as when it is busy, while a tablet may stay connected for days, and on
- * the tablet's next connection.
+ * A write Decaid refuses, or the plugin does not answer in time, leaves its
+ * edits due, and its Shot is sent nothing more meanwhile, so a write the
+ * plugin may still be carrying out is never overtaken by a later one; the
+ * other Shots' go on. It is tried again after `retryMs`, with whatever was
+ * made since, as Decaid may have refused it for a moment, as when it is
+ * busy, while a tablet may stay connected for days, and on the tablet's
+ * next connection. So is a look that failed, as when the database could
+ * not be reached.
  *
  * Only an edit sent on this connection and not yet answered is answered
  * (`awaits`): the one awaited, or one whose answer comes after its time
@@ -72,7 +75,11 @@ export class ShotEditWrites {
     this.running = true;
     void this.track(
       this.run()
-        .catch((error: unknown) => this.log.error(`Could not write a tablet the edits of its Shots: ${String(error)}`))
+        .catch((error: unknown) => {
+          this.log.error(`Could not write a tablet the edits of its Shots: ${String(error)}`);
+          // Nothing else may wake a connection that stays open: it looks again as it tries the Shots skipped again.
+          this.retryLater();
+        })
         .finally(() => {
           this.running = false;
           // Woken as the look ended: nothing else would look for what that wake was for.
@@ -126,6 +133,12 @@ export class ShotEditWrites {
   /** Sends the Shot nothing more until the Shots skipped are tried again, `retryMs` after the first of them was. */
   private skip(shotId: string): void {
     this.skipped.add(shotId);
+    this.retryLater();
+  }
+
+  /** Looks again in `retryMs`, with no Shot skipped, unless it is already set to. */
+  private retryLater(): void {
+    if (this.stopped) return;
     this.retry ??= setTimeout(() => {
       this.retry = undefined;
       this.skipped.clear();

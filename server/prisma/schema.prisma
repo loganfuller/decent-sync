@@ -728,8 +728,9 @@ model ShotEdit {
   id             String        @id @default(uuid(7)) @db.Uuid
   /// A number from its column's sequence, taken as its row is inserted
   /// under its Shot's lock: one Shot's edits are numbered in the order they
-  /// were applied, on any instance and whatever PostgreSQL's clock does,
-  /// which is the order they are listed in and written to its tablet.
+  /// were applied, on any instance and whatever PostgreSQL's clock does.
+  /// They are listed by it, and a write to the Shot's tablet carries the
+  /// latest value of each field by it.
   number         BigInt        @default(autoincrement())
   /// The Shot, by its id, with no foreign key, as a Recipe names its
   /// Reference Shot: Shots are never deleted.

@@ -6,9 +6,10 @@ import { ShotEditWrites } from "../src/sync/shot-edit-writes.js";
 // through its own interface: what it sends, and when, as the plugin answers,
 // refuses or stays silent, on a clock the test moves. What is due stands in
 // for the database: the edits not yet written, in the order they were made,
-// which an answer of `written` marks, as the gateway records one before it
-// tells the writer. The gateway's use of it is tested through Seam 1 and
-// with hand-made frames in shot-edits.test.ts.
+// each a write of its own here, which an answer of `written` marks, as the
+// gateway records one before it tells the writer. That a Shot's edits go as
+// one write, and the gateway's use of the writer, are tested through Seam 1
+// and with hand-made frames in shot-edits.test.ts.
 
 const RETRY_MS = 300_000;
 /** How long the writer waits for an answer (ANSWER_TIMEOUT_MS). */
@@ -24,11 +25,13 @@ function connection() {
   const sent: string[] = [];
   const warnings: string[] = [];
   let holds = true;
+  let failing = false;
   const writes = new ShotEditWrites(
     async (skipped) => {
       // Read as the look begins, and answered a moment later, as a query is.
       const due = holds ? (made.find((edit) => !edit.written && !skipped.includes(edit.shotId)) ?? null) : null;
       await new Promise((resolve) => setTimeout(resolve, 1));
+      if (failing) throw new Error("The database could not be reached");
       return due;
     },
     (edit) => sent.push(edit.id),
@@ -47,7 +50,7 @@ function connection() {
     if (written) made.find((edit) => edit.id === id)!.written = true;
     writes.answered(id, written);
   };
-  return { writes, made, sent, warnings, make, answer, release: () => (holds = false) };
+  return { writes, made, sent, warnings, make, answer, release: () => (holds = false), fail: (fails: boolean) => (failing = fails) };
 }
 
 /** Lets the writer's looks under way, and what follows them, run. */
@@ -141,6 +144,19 @@ describe("A connection's writer of the edits of Shots", () => {
     answer("a1", false);
     await settled();
     expect(sent).toEqual(["a1", "a2"]);
+  });
+
+  it("looks again after the retry time when a look fails, as nothing else may wake it", async () => {
+    const { sent, warnings, make, fail } = connection();
+    fail(true);
+    make("a1", "shot-a");
+    await settled();
+    expect([sent, warnings]).toEqual([[], [expect.stringContaining("The database could not be reached")]]);
+    fail(false);
+    await vi.advanceTimersByTimeAsync(RETRY_MS - 1000);
+    expect(sent).toEqual([]);
+    await vi.advanceTimersByTimeAsync(1000);
+    expect(sent).toEqual(["a1"]);
   });
 
   it("looks again for an edit made while it was looking, and sends nothing once stopped or once its connection no longer holds its Machine", async () => {
