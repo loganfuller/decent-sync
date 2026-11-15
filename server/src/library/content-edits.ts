@@ -48,24 +48,30 @@ export async function unseenOf<T extends { id: string }>(tx: Prisma.TransactionC
 /**
  * Takes in, as the tablet's edit, each value its records hold of a field
  * that the item holds none of and has never had an edit of (`held`, each
- * with when the tablet's record was read), the items locked already: one a
- * record held while the previous release, which knew no such field, kept it
- * as sent, so no change of the record brings it in, and the item's none
- * would be written over it, as a feed rate DYE2 v0.1.34 saved under 1.6.2
- * (#395). Returns whether any was taken in, so the item's records are due.
+ * with its field and when the tablet's record was read), the items locked
+ * already: one a record held while the previous release, which knew no such
+ * field, kept it as sent, so no change of the record brings it in, and the
+ * item's none would be written over it, as a feed rate DYE2 v0.1.34 saved
+ * under 1.6.2 (#395). An item's values are one edit, so one version of it,
+ * timed by the first of them, as one record's are all read at once. Returns
+ * whether any was taken in, so the item's records are due.
  */
 export async function takeInUnseen(
   tx: Prisma.TransactionClient,
   kind: LibraryKind,
-  field: string,
-  held: readonly { id: string; value: unknown; at: Date }[],
+  held: readonly { id: string; field: string; value: unknown; at: Date }[],
   source: EditSource,
 ): Promise<boolean> {
   let taken = false;
-  for (const { id, value, at } of held) {
+  const byItem = new Map<string, (typeof held)[number][]>();
+  for (const value of held) byItem.set(value.id, [...(byItem.get(value.id) ?? []), value]);
+  for (const [id, values] of byItem) {
     const current = await readItem(tx, { kind, id });
-    if (!current || current.content[field] !== undefined || Object.prototype.hasOwnProperty.call(current.fieldEdits, field)) continue;
-    taken = (await editContent(tx, { kind, id }, { values: { [field]: value }, at, seenAt: null }, source)).writesDue || taken;
+    if (!current) continue;
+    const unseen = values.filter(({ field }) => current.content[field] === undefined && !Object.prototype.hasOwnProperty.call(current.fieldEdits, field));
+    if (unseen.length === 0) continue;
+    const edit = { values: Object.fromEntries(unseen.map(({ field, value }) => [field, value])), at: unseen[0]!.at, seenAt: null };
+    taken = (await editContent(tx, { kind, id }, edit, source)).writesDue || taken;
   }
   return taken;
 }

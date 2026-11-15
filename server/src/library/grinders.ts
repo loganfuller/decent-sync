@@ -94,12 +94,11 @@ export async function takeInGrinders(
   const named = reported.flatMap((grinder) => (grinder.globalId !== null && !mappedIds.has(grinder.localId) ? [grinder.globalId] : []));
   const library = named.length === 0 ? [] : await tx.grinder.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planGrinderIntake(reported, mapped, new Set(library.map((grinder) => grinder.id)), listedIds(value));
-  /** By field, the values the tablet's records hold in their `extras` that their Grinders never had (`heldInExtras`). */
-  const unseen: [field: string, held: HeldInExtras[]][] = [];
+  /** The values the tablet's records hold in their `extras` that their Grinders never had (`heldInExtras`), each with its field. */
+  const unseen: (HeldInExtras & { field: string })[] = [];
   if (!joining) {
     for (const field of GRINDER_EXTRAS_FIELDS) {
-      const held = await unseenOf(tx, "grinder", field, heldInExtras(field, reported, mapped));
-      if (held.length > 0) unseen.push([field, held]);
+      for (const held of await unseenOf(tx, "grinder", field, heldInExtras(field, reported, mapped))) unseen.push({ ...held, field });
     }
   }
   if (steps.length === 0 && unseen.length === 0) {
@@ -113,7 +112,7 @@ export async function takeInGrinders(
     : steps.flatMap((step) =>
         (step.kind === "update" && (Object.keys(step.content).length > 0 || step.archived !== undefined)) || (step.kind === "delete" && step.archived) ? [step.grinderId] : [],
       );
-  await lockItems(tx, "grinder", [...edited, ...unseen.flatMap(([, held]) => held.map((grinder) => grinder.id))]);
+  await lockItems(tx, "grinder", [...edited, ...unseen.map((held) => held.id)]);
   /** The Grinders the report edits that belong to the tablet's Location, whose Archived state it may change. */
   const here = new Set(
     edited.length === 0 ? [] : (await tx.grinder.findMany({ where: { id: { in: edited }, locationId }, select: { id: true } })).map((grinder) => grinder.id),
@@ -162,7 +161,7 @@ export async function takeInGrinders(
     // A record whose global id is lost has it written back.
     if (grinder.globalId !== grinderId) writesDue = true;
   }
-  for (const [field, held] of unseen) writesDue = (await takeInUnseen(tx, "grinder", field, held, source)) || writesDue;
+  writesDue = (await takeInUnseen(tx, "grinder", unseen, source)) || writesDue;
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
 }

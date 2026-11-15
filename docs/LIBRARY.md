@@ -554,7 +554,10 @@ Conflict names is kept, still refused, so history goes on naming it
   What tablets' edits merge to is taken as it comes: two edits made out of
   each other's sight, or a Conflict's value used, can leave a lowest above
   a highest, which Streamline ignores, and which an edit here of either end
-  must put right, an edit of anything else being taken. The previous release's plugin writes them at the record's top,
+  must put right, an edit of anything else being taken. The same way, a
+  Conflict's value used, or a tablet's record, can give a Grinder with
+  named positions a range for its setting, which the next edit here clears.
+  The previous release's plugin writes them at the record's top,
   which Decaid drops (`dye2-v0.1.40/grinder-form.json`, `topLevel`), so its
   tablet holds none until Decaid updates the plugin, the write listed among
   its refusals as a Grinder's note was; its record's `extras` are kept

@@ -726,6 +726,10 @@ describe("the latest release beside the change", () => {
       await quiesced(apis.change, { tablets: { after }, machines: { machine } });
       expect(heldGrinder(after, grinder.id)?.extras).toMatchObject({ bcUuid: "fixture-bc-uuid", ...range });
       expect(await content()).toMatchObject(range);
+      // Taken in as one edit of the Grinder, so one version of it, unless the latest release took them in itself as the Grinder joined.
+      const history = (await apis.change.get<{ versions: { fields: Record<string, unknown> }[] }>(`/grinders/${grinder.id}/history`)).versions;
+      const taken = history.filter((version) => "settingMin" in version.fields);
+      expect(taken.map((version) => Object.keys(range).every((field) => field in version.fields))).toEqual([true]);
     });
 
     // What a Shot's samples show of how it went (#467), of a Shot the latest release's server stored: that server works
