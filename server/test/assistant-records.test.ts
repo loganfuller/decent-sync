@@ -36,6 +36,7 @@ type Fields = Record<string, unknown>;
 /** A Shot as the REST API lists or shows it, as far as the tools read it. */
 interface RestShot {
   id: string;
+  editStanding?: "awaitingTablet" | "noTablet" | null;
   pulledAt: string | null;
   machine: { id: string; name: string } | null;
   machineInferred: boolean;
@@ -627,8 +628,10 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, stopReason, steps, lastStep, timeToFirstDrip: firstDrip, flowAtStop: flow, ...summary } = read;
+    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, editStanding, stopReason, steps, lastStep, timeToFirstDrip: firstDrip, flowAtStop: flow, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
+    // Never edited through the server, as the REST API says too.
+    expect([editStanding, rest.editStanding]).toEqual([null, null]);
     expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
     expect({ steps, lastStep }).toEqual({ steps: toolSteps(rest.steps!), lastStep: rest.lastStep });
     // As stored with the Shot, to hundredths: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.819 g/s.

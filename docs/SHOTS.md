@@ -531,8 +531,30 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   so the edit stays on the server alone. `dropped` lists the fields of it
   the tablet changed later, `rating`, `note` or both, and is empty for
   most: an edit of both fields of which one was dropped stands as the
-  other does (When two edits cross, below). `get_shot` does not give them
-  yet (#514).
+  other does (When two edits cross, below). It gives `editStanding` too,
+  where those edits stand with that tablet as a whole (`editStanding` in
+  `server/src/shots/shot-edits.ts`): `awaitingTablet` while any of them
+  awaits it; `noTablet` where the latest of them found that tablet no
+  longer holding the Shot, while the Shot still reads as that edit set
+  it; null otherwise, as for a Shot never edited through the server. A
+  Shot that came back to its tablet, as one restored from a backup, and
+  was changed there is stored whole over an edit that had no tablet to
+  reach (When two edits cross, below), so it no longer reads as that edit
+  set it, unless the tablet holds the same, and `editStanding` is null
+  again, though the edit stays listed as `noTablet`. A field of that edit
+  the tablet had changed later, before it lost the Shot, is left out of
+  the comparison. An edit whose tablet never connects again, as one
+  replaced, and so never answers, awaits it for good, and reads
+  `awaitingTablet`: ADR-0031
+  has such an edit marked as having no tablet to reach, which the server
+  can't tell from a tablet that is off. The MCP endpoint's `get_shot`
+  gives `editStanding` always, and with `edits: true` the edits, as a
+  page (`{ total, offset, more, entries }`) of the newest 100 at most,
+  which the response's budget may end sooner (ADR-0028): `total` is how
+  many the Shot has, and `more` whether older ones are left out, which no
+  offset reaches. Each has its time on the Shot's Location's clock,
+  `account`, `connectedApp`, the `rating` or `note` it set, `state` and
+  `dropped`.
 - `PATCH /api/shots/:id` edits the Shot's rating, its note or both, with
   `{ rating?, note? }`, and returns `{ shot }` as `GET /api/shots/:id`
   then gives it. An Admin edits any Shot the list lists, and Staff those
@@ -566,9 +588,10 @@ the first edit of a Shot that does not come from the tablet holding it
 /api/shots/:id`. The server applies it to the Shot it holds at once, keeps
 it with who made it, and writes it into the Shot on the tablet that holds
 it, now if that tablet is connected and otherwise when it next connects.
-Everything else about a Shot still comes only from its tablet. The
-management interface and the assistant's tool for it are #514, and editing
-from another tablet is #515. Ticket
+Everything else about a Shot still comes only from its tablet. Ticket
+[#514](https://github.com/loganfuller/decent-sync/issues/514) edits them
+on the Shot's page (Management interface, below) and through the MCP
+endpoint's `edit_shot`, and editing from another tablet is #515. Ticket
 [#513](https://github.com/loganfuller/decent-sync/issues/513) settles what
 happens when such an edit and a change made on the tablet cross, and when
 the tablet no longer holds the Shot (When two edits cross, below).
@@ -724,6 +747,22 @@ the tablet no longer holds the Shot (When two edits cross, below).
   refusal, its retry, an answer that comes late, a look that fails. The mixed-versions suite
   leaves an edit awaiting a tablet on the previous release's plugin, and
   one the previous release's instance holds.
+- **Through an assistant** (#514, ADR-0026). `edit_shot`
+  (`server/src/mcp/record-changes.tools.ts`) takes a Shot's id with a
+  `rating`, a `note` or both, calls `ShotEditsService.make` as the
+  account, through its Connected App, and returns the Shot as `get_shot`
+  reads it, without curves. It needs the `change` scope besides `read`,
+  is refused wherever the REST route is, with its message, and refuses a
+  note holding text a response cut, as every changing tool does. No tool
+  is added for the plugin's endpoints, which only a Skin calls.
+  `server/test/assistant-shot-edits.test.ts` covers it through Seam 1: a
+  rating and a note edited alone and together, listed by the REST API as
+  made through the Connected App and written to the tablet; `get_shot`
+  saying an edit awaits its tablet, and has none to reach, and listing
+  the edits; Staff at and away from the Shot's Location; the refusals;
+  a Connected App that may only read and a Viewer's; and a long note
+  within the budget. `server/test/assistant-budget.test.ts` reads a
+  Shot's hundred edits, each note far longer than any typed.
 
 ### When two edits cross
 
@@ -1516,7 +1555,47 @@ Shot is the one the Recipe's read gives (`GET /api/recipes/:id`), read
 with the Shot, and again when the Shot becomes its own Recipe's Reference
 Shot or stops being it; it is not offered for a Shot pulled with no
 Recipe, a Recipe with none, or the Reference Shot itself
-(`e2e/reference-shots.spec.ts`). Each Bean's, Bean Batch's, Grinder's,
+(`e2e/reference-shots.spec.ts`). Its Rating and note card
+(`web/src/components/shot-edits.tsx`, #514) shows the two, the rating as
+up to five stars, as DYE2 shows it and the owner's Skin will, each star
+two points of the rating from 0 to 10 Decaid keeps (`web/src/lib/rating.ts`,
+with `web/test/rating.test.ts`: `starsOf` halves a rating as DYE2's
+`enjoymentToStars` does, without rounding it to a whole star, and
+`ratingOf` doubles whole stars as its `starsToEnjoyment` does), and a
+rating of 0 or none as Unrated. To whoever may edit them, an Admin, or
+Staff for a Shot at a Location they work at, it has an Edit button that
+opens a form in the card: five stars, a shadcn `ToggleGroup` of which one
+is pressed at a time, and pressing it again leaves the Shot unrated, and
+the note. How to clear them is behind the Rating label's info icon. A
+rating between two stars, as an assistant may set, reads as it is, such
+as 4.5 stars, and fills the stars DYE2 would, rounded. The form shows it
+so too, with no star pressed, until one is: it sends a rating only where
+the stars pressed are another rating than the Shot's, so such a rating
+saved untouched stays, and pressing the star it rounds to sets that. It sends `PATCH /api/shots/:id` with only what was changed, so
+a rating leaves the note alone, and shows the Shot as the answer gives
+it. Where
+the read's `editStanding` is not null the card says so in plain sight,
+Awaiting its tablet or No tablet to reach, with what that means behind
+its info icon, and while an edit awaits its tablet the page reads the
+Shot again 5 s after each answer, so the note goes once the tablet has
+the edit. A
+Viewer and Staff elsewhere see the rating, note and that state, and no
+button. The Annotations card leaves the two to it. Its Rating and note
+edits card, closed until opened, lists the read's `edits`, newest first:
+when each was made, on the Shot's Location's clock, who made it, You for
+one's own, by name to an Admin and An account to anyone else, with the
+Connected App it was made through, what it set, and where it stands with
+the tablet, one dropped for a later change there marked so, with the
+field where only one of two was. During a deploy the previous release's
+instance gives neither `edits` nor `editStanding`: a page loaded from it
+shows no state and an empty card until it is loaded again, a read of a
+page already showing them changes nothing, and a save that reaches that
+instance, which has no such route, is answered 404, which the form shows
+(`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
+rating Rating, where they said Enjoyment, and give it in stars too, such
+as "4 stars", with none for a Shot rated 0, as its card says Unrated.
+Shot Summaries, the trends and the REST API and tools still give ratings
+from 0 to 10. Each Bean's, Bean Batch's, Grinder's,
 Profile's, Recipe's and Basket's page lists its Shots, ten at a time
 (`web/src/components/item-shots.tsx`).
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a

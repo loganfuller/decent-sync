@@ -43,6 +43,8 @@ interface ShotView {
   id: string;
   enjoyment: number | null;
   notes: string | null;
+  /** Where its edits stand with its tablet, as its page and get_shot say it (#514). */
+  editStanding: "awaitingTablet" | "noTablet" | null;
   edits: Edit[];
 }
 
@@ -126,7 +128,7 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
 
   it("applies a rating at once: the Shot's read, the list's row and a Shot Summary show it", async () => {
     const before = await read("edit-belmont-rated");
-    expect(before).toMatchObject({ enjoyment: 4, notes: "Sour at first", edits: [] });
+    expect(before).toMatchObject({ enjoyment: 4, notes: "Sour at first", editStanding: null, edits: [] });
 
     const edited = await edit("edit-belmont-rated", { rating: 8 });
     // The answer is the Shot as it now reads, with the edit: nothing waited for the tablet.
@@ -237,6 +239,8 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     expect(await states("edit-lab")).toEqual(["awaitingTablet", "awaitingTablet", "awaitingTablet", "written"]);
     const [last] = (await read("edit-lab")).edits;
     expect(last).toMatchObject({ fields: { rating: 3 }, state: "awaitingTablet", writtenAt: null });
+    // The Shot says as much of its edits as a whole, while any of them awaits its tablet.
+    expect((await read("edit-lab")).editStanding).toBe("awaitingTablet");
     expect(await annotationsOf(labTablet, "edit-lab")).toMatchObject({ enjoyment: 6, espressoNotes: "Sweeter than yesterday's" });
     // The copy on Belmont's tablet follows the edit, without waiting for the Lab's tablet.
     await expect.poll(copied).toEqual({ rating: 3, note: "Went flat as it cooled" });
@@ -249,7 +253,7 @@ describe("A Shot's rating and note edited through the server", { timeout: 120_00
     // The tablet's report of that write changes nothing the edits hadn't.
     await expect.poll(() => reportsOf(labTablet, "edit-lab")).toEqual(["shot", "shotUpdated", "shotUpdated"]);
     await expect.poll(() => labTablet.acknowledgedEvery((frame: Record_) => frame.type === "shotUpdated")).toBe(true);
-    expect(await read("edit-lab")).toMatchObject({ enjoyment: 3, notes: "Went flat as it cooled" });
+    expect(await read("edit-lab")).toMatchObject({ enjoyment: 3, notes: "Went flat as it cooled", editStanding: null });
   });
 
   it("leaves an edit Decaid refuses awaiting its tablet, sends the Shot nothing more meanwhile, and tries again after a while, with what was made since", async () => {

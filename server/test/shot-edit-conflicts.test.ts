@@ -39,6 +39,7 @@ interface ShotView {
   id: string;
   enjoyment: number | null;
   notes: string | null;
+  editStanding: "awaitingTablet" | "noTablet" | null;
   edits: Edit[];
 }
 
@@ -200,7 +201,8 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       await reconnect(order, id);
       // The tablet's rating stands on the server, and the edit is still listed, as not written.
       await expect.poll(() => view(id)).toEqual({ enjoyment: 6, notes: "As pulled", edits: [[{ rating: 8 }, "dropped", ["rating"]]] });
-      expect((await read(id)).edits[0]).toMatchObject({ writtenAt: null });
+      // Nothing awaits the tablet any more, as the Shot says of its edits as a whole (#514).
+      expect(await read(id)).toMatchObject({ editStanding: null, edits: [{ writtenAt: null }] });
       await settled(id);
       // And on the tablet: the plugin wrote nothing, whichever came first.
       expect(writesOf(id)).toEqual([]);
@@ -286,6 +288,8 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
     // The edit stays on the server, as the Shot reads.
     expect(await view(id)).toEqual({ enjoyment: 7, notes: "As pulled", edits: [[{ rating: 7 }, "noTablet", []]] });
     expect((await read(id)).edits[0]).toMatchObject({ writtenAt: null });
+    // The Shot says so of its edits as a whole (#514), where its latest has no tablet to reach.
+    expect(await read(id)).toMatchObject({ editStanding: "noTablet" });
 
     // On its next connection the tablet is written what its other Shots are due, the longest waiting first, and that edit not again.
     await offline();
@@ -368,6 +372,27 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       expect(await view("conflict-raw-fields")).toMatchObject({ enjoyment: 9, notes: "Tablet again", edits: [[{ rating: 1, note: "Office again" }, "dropped", ["rating", "note"]], [expect.anything(), "written", ["note"]]] });
       await handled(raw);
       expect(editsTo(raw)).toHaveLength(3);
+      await raw.close();
+    });
+
+    it("says a Shot has no tablet to reach where its tablet lost it after changing one of the edit's two fields, as the other still stands on the server alone", async () => {
+      const held = await api.createMachine("Raw conflicts 1b", belmont.id);
+      const raw = await connect(held, "51319", randomUUID());
+      const shot = shotOf("conflict-raw-part-gone", "2026-11-12T10:30:00.000Z", "51319", { enjoyment: 4, espressoNotes: "As pulled" });
+      await report(raw, shot);
+      await edit("conflict-raw-part-gone", { rating: 8, note: "Said at the office" });
+      const first = await next(raw, (message) => message.type === "shotEdit");
+      raw.send({ type: "shotEdited", id: first.id, outcome: "changed" });
+      // The tablet changed the note later than the edit, whose rating still awaits it.
+      const later = tabletTime(60);
+      await reportUpdate(raw, shot, later, { espressoNotes: "Said at the tablet" });
+      const second = await next(raw, (message) => message.type === "shotEdit" && message.version === later);
+      expect(await read("conflict-raw-part-gone")).toMatchObject({ editStanding: "awaitingTablet" });
+      // Then the Shot is deleted there, before the rating is written.
+      raw.send({ type: "shotEdited", id: second.id, outcome: "notHeld" });
+      await expect.poll(() => view("conflict-raw-part-gone")).toEqual({ enjoyment: 8, notes: "Said at the tablet", edits: [[{ rating: 8, note: "Said at the office" }, "noTablet", ["note"]]] });
+      // The rating stands on the server alone, so the Shot says so, though its note reads as the tablet's (#514).
+      expect(await read("conflict-raw-part-gone")).toMatchObject({ editStanding: "noTablet" });
       await raw.close();
     });
 
@@ -535,10 +560,13 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       const again = await connect(held, "51314", tabletId);
       await handled(again);
       expect(editsTo(again)).toEqual([]);
+      expect(await read("conflict-raw-gone")).toMatchObject({ notes: "Made since", editStanding: "noTablet" });
       // The Shot back on a tablet, as one restored from a backup made before the edits, at a later version: with no
       // edit awaiting it, the version is stored whole, as any tablet's is.
       await reportUpdate(again, shot, tabletTime(60), { enjoyment: 4 });
       expect(await view("conflict-raw-gone")).toMatchObject({ enjoyment: 4, notes: null, edits: [[{ note: "Made since" }, "noTablet", []], [{ rating: 5 }, "noTablet", []]] });
+      // A tablet holds the Shot again, and it no longer reads as its latest edit set it: it says nothing of a tablet to reach (#514).
+      expect(await read("conflict-raw-gone")).toMatchObject({ editStanding: null });
       await again.close();
     });
   });

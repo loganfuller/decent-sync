@@ -587,9 +587,38 @@ export interface ShotPage {
   offset: number;
 }
 
+/** An edit of a Shot's rating or note made through the server (ADR-0031): in the management interface or through a Connected App. */
+export interface ShotEdit {
+  id: string;
+  /** The fields it set, with the values it set them to: a rating, 0 for unrated, a note, empty for none, or both. */
+  fields: { rating?: number; note?: string };
+  /** Who made it: named to Admins, and to Staff and Viewers by its id only; null once the account is gone. */
+  account: { id: string; name: string | null } | null;
+  /** The Connected App, such as an assistant, the account made it through; null for the management interface. */
+  connectedApp: { id: string; name: string; host: string } | null;
+  madeAt: string;
+  /**
+   * Where it stands with the tablet that holds the Shot: awaiting it;
+   * written to it; dropped, never written, as the tablet changed every field
+   * it set later; or with no tablet to reach, as that tablet no longer holds
+   * the Shot.
+   */
+  state: "awaitingTablet" | "written" | "dropped" | "noTablet";
+  /** The fields it set that were not written, as the tablet changed them later than it was made. */
+  dropped: ("rating" | "note")[];
+  writtenAt: string | null;
+}
+
 /** A Shot with its Decaid record, without measurements, as stored. */
 export interface Shot extends ListedShot {
   record: Record<string, unknown>;
+  /**
+   * The edits of its rating and note made through the server, newest first, and where they stand with the tablet that
+   * holds it: an edit awaits that tablet, the latest found it no longer holding the Shot, or neither. Both absent from
+   * the previous release's answer during a deploy (ADR-0025).
+   */
+  edits?: ShotEdit[];
+  editStanding?: "awaitingTablet" | "noTablet" | null;
   /**
    * The scale's weight flow at its last weight sample, in g/s; null without one, and until the server has worked it out.
    * Absent from the previous release's answer during a deploy (ADR-0025).

@@ -11,7 +11,7 @@ import { CURVES_REVISION, extractCurves, extractShot, measuredDetails, recordedD
 import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
-import { type ShotEditFields, listShotEdits, settleShotEdits, settleStoredVersion, undecidedSql } from "./shot-edits.js";
+import { type ShotEditFields, type ShotEditView, editStanding, listShotEdits, settleShotEdits, settleStoredVersion, undecidedSql } from "./shot-edits.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -270,11 +270,18 @@ export class ShotsService {
   /**
    * A Shot as `GET /api/shots/:id` shows it (`read`), with the edits of its
    * rating and note made through the server (ADR-0031), newest first, as
-   * the asking account's Scope sees who made each (`listShotEdits`).
+   * the asking account's Scope sees who made each (`edits`), and where
+   * they stand with the tablet that holds it (`editStanding`).
    */
   async get(id: string, scope: Scope) {
     const { shot } = await this.read(id);
-    return { ...shot, edits: await listShotEdits(this.prisma, id, scope) };
+    const { edits } = await this.edits(id, scope);
+    return { ...shot, editStanding: editStanding(edits, shot.record), edits };
+  }
+
+  /** The edits of a Shot's rating and note made through the server, as its read lists them, and how many there are in all (`listShotEdits`). */
+  edits(id: string, scope: Scope): Promise<{ edits: ShotEditView[]; total: number }> {
+    return listShotEdits(this.prisma, id, scope);
   }
 
   /**

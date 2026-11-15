@@ -42,8 +42,9 @@ export interface ShotEditView {
    * - `dropped` where it was never written, as the tablet changed every
    *   field it set later than it was made, so the tablet's values stand;
    * - `noTablet` where the tablet answered that it no longer holds the
-   *   Shot, as one reset or replaced: the edit stays on the server, and is
-   *   sent no more.
+   *   Shot, as one the Shot was deleted on: the edit stays on the server,
+   *   and is sent no more. An edit whose tablet never connects again, as
+   *   one replaced, has no such answer, and awaits it for good.
    *
    * An edit of both fields of which the tablet changed one later is where
    * the other stands, with the one in `dropped`.
@@ -57,6 +58,36 @@ export interface ShotEditView {
 
 export type ShotEditField = "rating" | "note";
 export type ShotEditState = "awaitingTablet" | "written" | "dropped" | "noTablet";
+
+/**
+ * Where a Shot's edits stand with the tablet that holds it, as its page
+ * and get_shot say it (ticket #514): `awaitingTablet` while any of them
+ * awaits that tablet, so the Shot there doesn't show it yet; `noTablet`
+ * where the latest of them found that tablet no longer holding the Shot,
+ * and the Shot still reads as it set it, on the server alone; null
+ * otherwise, as for a Shot never edited through the server.
+ */
+export type ShotEditStanding = "awaitingTablet" | "noTablet" | null;
+
+/**
+ * Where a Shot's edits stand with its tablet (`ShotEditStanding`), from
+ * them as its read lists them, newest first, and the Shot's record. An
+ * edit with no tablet to reach stays so marked for good, but its Shot may
+ * come back to a tablet, as one restored from a backup, and be changed
+ * there: the version that tablet then reports is stored whole, over the
+ * edit. So the Shot has no tablet to reach only while it still reads as
+ * its latest edit set it, which needs no clock to tell: but for a field of
+ * it the tablet had changed later, before it lost the Shot, which reads
+ * as the tablet's.
+ */
+export function editStanding(edits: readonly Pick<ShotEditView, "state" | "fields" | "dropped">[], record: unknown): ShotEditStanding {
+  if (edits.some((edit) => edit.state === "awaitingTablet")) return "awaitingTablet";
+  const [latest] = edits;
+  if (latest?.state !== "noTablet") return null;
+  const now = ratingAndNote(record);
+  const stands = (["rating", "note"] as const).every((field) => latest.fields[field] === undefined || latest.dropped.includes(field) || latest.fields[field] === now[field]);
+  return stands ? "noTablet" : null;
+}
 
 /**
  * In SQL, whether an edit, a row of `shot_edits` under that alias, still
@@ -213,16 +244,25 @@ export const MAX_LISTED_EDITS = 100;
 /**
  * The edits of a Shot's rating and note made through the server, newest
  * first, the newest MAX_LISTED_EDITS of them, with who made each, as
- * `scope` sees them, and where each stands with the Shot's tablet.
+ * `scope` sees them, and where each stands with the Shot's tablet; and how
+ * many there are in all.
  */
-export async function listShotEdits(db: Prisma.TransactionClient, shotId: string, scope: Scope): Promise<ShotEditView[]> {
-  const edits = await db.shotEdit.findMany({
-    where: { shotId },
-    include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
-    orderBy: { number: "desc" },
-    take: MAX_LISTED_EDITS,
-  });
-  return edits.map((edit) => {
+export async function listShotEdits(db: Prisma.TransactionClient, shotId: string, scope: Scope): Promise<{ edits: ShotEditView[]; total: number }> {
+  const [edits, total] = await Promise.all([
+    db.shotEdit.findMany({
+      where: { shotId },
+      include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
+      orderBy: { number: "desc" },
+      take: MAX_LISTED_EDITS,
+    }),
+    db.shotEdit.count({ where: { shotId } }),
+  ]);
+  return { edits: edits.map(viewShotEdit(scope)), total };
+}
+
+/** An edit as a Shot's read lists it, as `scope` sees who made it. */
+function viewShotEdit(scope: Scope) {
+  return (edit: Prisma.ShotEditGetPayload<{ include: { account: { select: { name: true } }; connectedApp: { select: { id: true; name: true; clientHost: true } } } }>): ShotEditView => {
     const dropped: ShotEditField[] = [];
     if (edit.rating !== null && edit.ratingDroppedAt !== null) dropped.push("rating");
     if (edit.note !== null && edit.noteDroppedAt !== null) dropped.push("note");
@@ -239,5 +279,5 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
       dropped,
       writtenAt: state === "written" ? edit.writtenAt!.toISOString() : null,
     };
-  });
+  };
 }

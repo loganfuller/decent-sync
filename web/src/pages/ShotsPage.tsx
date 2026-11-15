@@ -1,7 +1,7 @@
 import { useEffect, useId, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { PageTitleWithInfo } from "@/components/info-tip";
-import { LocationCredit, MachineCredit, OrNone, numberText, secondsText } from "@/components/records";
+import { LocationCredit, MachineCredit, OrNone, secondsText } from "@/components/records";
 import { ANY, ListPagination, type ListState, NONE, RECORD_FILTERS, RecordFilters, type RecordList, useRecordList } from "@/components/record-lists";
 import { batchName } from "@/components/bean-batches";
 import { ReferenceMark } from "@/components/reference-shots";
@@ -14,6 +14,7 @@ import { Field, FieldLabel } from "@/components/ui/field";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type ShotFilterOptions, type ShotPage } from "@/lib/api";
+import { ratingText } from "@/lib/rating";
 import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
 import { bucketParam, trendBucket, trendNumber, trendParam } from "@/lib/shot-trend";
 
@@ -94,7 +95,7 @@ export function ShotsPage() {
                   <TableHead>Dose</TableHead>
                   <TableHead>Yield</TableHead>
                   <TableHead>Duration</TableHead>
-                  <TableHead>Enjoyment</TableHead>
+                  <TableHead>Rating</TableHead>
                   <TableHead>Barista</TableHead>
                 </TableRow>
               </TableHeader>
@@ -135,7 +136,7 @@ export function ShotsPage() {
                       <OrNone>{secondsText(shot.duration)}</OrNone>
                     </TableCell>
                     <TableCell>
-                      <OrNone>{numberText(shot.enjoyment)}</OrNone>
+                      <OrNone>{ratingText(shot.enjoyment)}</OrNone>
                     </TableCell>
                     <TableCell>
                       <OrNone>{shot.barista ?? undefined}</OrNone>

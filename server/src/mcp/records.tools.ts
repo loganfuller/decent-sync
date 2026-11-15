@@ -1,10 +1,13 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
-import { SHOT_CURVES, STEAM_CURVES, steamSamples } from "@decent-sync/protocol";
+import type { McpContext } from "@nestjs/mcp";
+import { MAX_SHOT_RATING, SHOT_CURVES, STEAM_CURVES, steamSamples } from "@decent-sync/protocol";
 import * as z from "zod";
+import type { Scope } from "../accounts/scope.js";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
 import { recordedText } from "../shots/extraction.js";
 import { MAX_WORDS, type ShotFilters, readShotFilters } from "../shots/filters.js";
+import { MAX_LISTED_EDITS, type ShotEditView, editStanding } from "../shots/shot-edits.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { BUCKETS, DEFAULT_NUMBERS, GROUPINGS, LAST_STEPS, MAX_GROUPINGS, NUMBERS, groupingsOf, numbersOf } from "../shots/summary.js";
 import { SteamRecordsService } from "../steam-records/steam-records.service.js";
@@ -12,10 +15,12 @@ import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, overBudge
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
 import { MAX_PAGE, PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
+import { callerOf } from "./token-verifier.js";
 
 // Shots and Steam Records, found and read through an assistant as the REST
 // API lists and reads them, calling the same services (#408, ADR-0026).
-// Every account reads every one, as through the REST API.
+// Every account reads every one, as through the REST API. A Shot's rating
+// and note are edited in record-changes.tools.ts.
 
 const id = z.string();
 const machine = z.object({ id, name: z.string() }).nullable().describe("The Machine it is credited to; null while it waits for an Admin to name the Machine that recorded it.");
@@ -25,6 +30,9 @@ const location = z
   .describe("The Location its Machine was at then, by the Machine's Location History; null when unknown. Its times are given with this time zone's offset.");
 const seconds = (what: string) => z.number().nullable().describe(`${what}, in seconds.`);
 const celsius = (what: string) => z.number().nullable().describe(`${what}, in °C.`);
+
+/** What a Shot's rating is, wherever a tool gives it. */
+const RATING = `Its rating, from 0 to ${MAX_SHOT_RATING}, where 0 or none is unrated, as rated on its tablet or edited since (edit_shot).`;
 
 const shotBasics = z.object({
   id,
@@ -52,7 +60,7 @@ const shotBasics = z.object({
     .nullable()
     .describe("The scale's last weight sample after its Preheat, in grams, at its seconds on its curves' axis, just before the stop; null without one."),
   duration: seconds("How long its profile ran, leaving out its Preheat"),
-  enjoyment: z.number().nullable().describe("As rated on the tablet."),
+  enjoyment: z.number().nullable().describe(RATING),
   barista: z.string().nullable(),
   peakPressure: z.number().nullable().describe("In bar, leaving out its Preheat."),
   peakFlow: z.number().nullable().describe("In ml/s, leaving out its Preheat."),
@@ -64,14 +72,41 @@ const shotBasics = z.object({
 
 const step = z.object({ frame: z.number().describe("Its index among its Profile's steps, from 0."), name: z.string() });
 
-const shotDetails = shotBasics.extend({
+/** An edit of a Shot's rating or note made through Decent Sync (ADR-0031), as get_shot lists one. */
+const shotEdit = z.object({
+  madeAt: z.string().describe("When it was made."),
+  account: z
+    .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
+    .nullable()
+    .describe("Who made it; null once the account is gone."),
+  connectedApp: z
+    .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host of its client id, which the app can't choose.") })
+    .nullable()
+    .describe("The Connected App, such as an assistant, the account made it through; null for the management interface."),
+  rating: z.number().optional().describe("The rating it set, 0 for unrated; left out where it left the rating alone."),
+  note: z.string().optional().describe("The note it set, empty for none; left out where it left the note alone."),
+  state: z
+    .enum(["awaitingTablet", "written", "dropped", "noTablet"])
+    .describe("Where it stands with the tablet that holds the Shot: awaitingTablet, not written there yet; written; dropped, never written, as the tablet changed every field it set later; noTablet, that tablet no longer holds the Shot."),
+  dropped: z.array(z.enum(["rating", "note"])).describe("The fields it set that were never written, as the tablet changed them later than it was made; empty for most."),
+});
+
+export const shotDetails = shotBasics.extend({
   grinderModel: z.string().nullable().describe("Its Grinder's model, as the Shot recorded it, linked to the Library or not."),
   basketName: z.string().nullable().describe("Its Basket's name, as the Shot recorded it, linked to the Library or not."),
   grinderSetting: z.string().nullable().describe("Its Grinder's setting, as its Workflow recorded it."),
   grinderBurrs: z.string().nullable().describe("The burrs its Grinder had fitted."),
   tds: z.number().nullable().describe("Total dissolved solids, in %."),
   extractionYield: z.number().nullable().describe("In %."),
-  notes: z.string().nullable().describe("As typed on the tablet."),
+  notes: z.string().nullable().describe("Its note, as typed on its tablet or edited since (edit_shot)."),
+  editStanding: z
+    .enum(["awaitingTablet", "noTablet"])
+    .nullable()
+    .describe("Where the edits of its rating and note made through Decent Sync stand with the tablet that holds it: awaitingTablet, noTablet, or null where none waits."),
+  edits: z
+    .object({ ...pageOutput, entries: z.array(shotEdit) })
+    .optional()
+    .describe(`Only when asked for: the edits of its rating and note made through Decent Sync, newest first, the newest ${MAX_LISTED_EDITS} at most: total is how many there are, and more whether older ones are left out, which no offset reaches.`),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
   lastStep: step.nullable().describe("The step of its Profile it ended in; null when it stopped in its Preheat, or its samples name no step."),
   timeToFirstDrip: z
@@ -138,11 +173,11 @@ const shotRow = z.object({
   peakFlow: amount("In ml/s, leaving out its Preheat."),
   stopReason: text.describe("What stopped it, as Decaid recorded it."),
   lastStep: step.optional().describe("The step of its Profile it ended in."),
-  enjoyment: amount("As rated on the tablet."),
+  enjoyment: amount(`Its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, as rated on its tablet or edited since.`),
   barista: text,
   tds: amount("Total dissolved solids, in %."),
   extractionYield: amount("In %."),
-  notes: text.describe(`As typed on the tablet, cut beyond about ${ROW_NOTES} characters.`),
+  notes: text.describe(`Its note, as typed on its tablet or edited since, cut beyond about ${ROW_NOTES} characters.`),
   referenceOf: z.array(z.object({ id, name: text })).optional().describe("Only where there are any: the Recipes it is the Reference Shot of, by the Library's name."),
 });
 
@@ -191,13 +226,22 @@ const curveWindow = z
   .strict()
   .optional()
   .describe("Only the curves' readings in this stretch of their axis, its bounds included: every one if the response fits, otherwise each series thinned to as many as fit (thinnedTo). With curves false or left out, it gives all of them.");
-const getShotInput = z.object({ id: id.describe("The Shot's id."), curves: shotCurves, window: curveWindow });
+const getShotInput = z.object({
+  id: id.describe("The Shot's id."),
+  curves: shotCurves,
+  window: curveWindow,
+  edits: z.boolean().default(false).describe("Whether to list the edits of its rating and note made through Decent Sync, with who made each."),
+});
 const steamCurves = curvesInput(STEAM_CURVES);
 const timeZoneNote = "Times are ISO 8601, with the offset of the record's Location's time zone, or UTC's when its Location is unknown.";
 
 /** What a Shot's numbers mean, for the descriptions of the tools that read Shots. */
 const SHOT_UNITS =
-  "Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is as rated on the tablet. A Shot's bean is as it recorded it, and beanBatch, grinder, basket, profile and recipe the Library's it is linked to. machineInferred: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred: its Location comes from that Machine's Location History.";
+  `Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. enjoyment is its rating, 0 to ${MAX_SHOT_RATING}. A Shot's bean is as it recorded it, and beanBatch, grinder, basket, profile and recipe the Library's it is linked to. machineInferred: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred: its Location comes from that Machine's Location History.`;
+
+/** Where a Shot's edits stand with its tablet, for the descriptions of the tools that give a Shot whole. */
+const EDIT_STANDING =
+  "editStanding: awaitingTablet, an edit of its rating or note (edit_shot) isn't yet on its tablet; noTablet, its tablet no longer holds it; or null. edits true lists them, as edit_shot describes.";
 
 /** What each stop reason Decaid records means. */
 const STOP_REASONS =
@@ -254,8 +298,10 @@ const findShotsInput = z.object({ ...shotFilters, ...page });
 const findShotsOutput = z.object({ ...pageOutput, shots: z.array(shotRow) });
 const findShotsBudget: Budget = { rest: "get_shot reads one Shot whole, with more of it." };
 
+const getShotBudget: Budget = { rest: "Asked for without curves, it has more of its text and of its edits." };
+
 /** What a find_shots row's fields mean, for its description. */
-const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is as rated on the tablet; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
+const SHOT_ROW = `Each Shot gives its machine and location; its recipe, profile, beanBatch (its Bean's roaster and name, and its roast date), grinder and basket, each with the Library's id and name, or, where the Shot isn't linked to the Library's, a null id and the name it recorded, a recipe being only the Library's; and grinderSetting, as its Workflow recorded it. A field with no value, such as notes where none were typed, is left out, but an item's id, given null where it isn't linked. Doses and yields are in grams, targets as set and actuals as weighed. duration is in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts. timeToFirstDrip is the seconds from the start of its profile to the scale's first reading of 1 g or more, left out where none read that, as without a scale. lastStep is the step of its Profile it ended in, with its frame, its index among the Profile's steps from 0, and its name, Step N, from 1, where the Profile names none; it is left out for a Shot stopped in its Preheat, or whose samples name no step. Both are left out too until the server has worked them out. enjoyment is its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, and notes its note, each as set on its tablet or edited since; tds (total dissolved solids) and extractionYield are in %. Amounts are to two decimal places, and roastDate a day. referenceOf, given only where there are any, names the Recipes it is the Reference Shot of. machineInferred, given only when true: it recorded no machine hardware, so it is credited to the Machine whose tablet reported it; locationInferred, only when true: its Location comes from that Machine's Location History. Names over about ${ROW_NAME} characters and notes over about ${ROW_NOTES} end in ${CUT_MARK}, and get_shot reads them whole.`;
 
 /** How find_shots' filters find Shots, for the descriptions of the tools that take them. */
 const SHOT_FILTERS =
@@ -521,17 +567,27 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it turned out, the steps of its Profile it ran, its last recorded weight, and its curves when asked for, with its Preheat marked. ${SHOT_UNITS} grinderModel and basketName are its Grinder's model and Basket's name as it recorded them, as bean is its Bean's. grinderSetting is as its Workflow recorded it. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves false or left out, it gives all of them. Ask for a few seconds, such as those around the stop, to see every reading there. ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it went, and its curves when asked for. ${SHOT_UNITS} ${EDIT_STANDING} grinderModel, basketName and grinderSetting are as it recorded them, as bean is. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves false or left out, it gives all of them. Ask for a few seconds, as around the stop, to see every reading. ${timeZoneNote}`,
     inputSchema: getShotInput,
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
     scopes: [READ],
-    budget: { rest: "Asked for without curves, it has more of its text." },
+    budget: getShotBudget,
   })
-  async getShot({ id, curves, window }: z.infer<typeof getShotInput>): Promise<z.infer<typeof shotDetails>> {
+  getShot(input: z.infer<typeof getShotInput>, context: McpContext): Promise<z.infer<typeof shotDetails>> {
+    return this.readShot(input, callerOf(context).scope);
+  }
+
+  /**
+   * A Shot as get_shot reads it, as an account's Scope sees who made its
+   * edits: with its curves, all or those listed, or those in a window, and
+   * its edits, only when asked for.
+   */
+  async readShot({ id, curves = false, window, edits: listed = false }: z.input<typeof getShotInput>, scope: Scope): Promise<z.infer<typeof shotDetails>> {
     if (window?.from !== undefined && window.until !== undefined && window.until < window.from) throw new BadRequestException("Choose a window's until at or after its from");
     // One read of its measurements, for its steps, last weight and curves.
     const { shot, samples } = await this.shots.read(id);
+    const { edits, total } = await this.shots.edits(id, scope);
     const timeZone = shot.location?.timeZone;
     const details = {
       ...shotBasicsOf(shot),
@@ -542,6 +598,9 @@ export class RecordsTools {
       tds: shot.tds,
       extractionYield: shot.extractionYield,
       notes: shot.notes,
+      editStanding: editStanding(edits, shot.record),
+      // The newest of them: more says older ones follow, which no offset reaches.
+      ...(listed && { edits: { ...pageOf(total, 0, edits.length), entries: edits.map((edit) => shotEditOf(edit, timeZone)) } }),
       stopReason: shot.stopReason,
       lastStep: shot.lastStep,
       timeToFirstDrip: shot.timeToFirstDrip,
@@ -679,6 +738,11 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     notes: shorten(shot.notes, ROW_NOTES),
     referenceOf: shot.referenceOf?.map((recipe) => present({ id: recipe.id, name: shorten(recipe.name, ROW_NAME) })),
   }) as z.infer<typeof shotRow>;
+}
+
+/** An edit of a Shot as get_shot lists it, from the REST API's, with its time on the Shot's Location's clock. */
+function shotEditOf(edit: ShotEditView, timeZone: string | undefined): z.infer<typeof shotEdit> {
+  return { madeAt: zonedTime(new Date(edit.madeAt), timeZone), account: edit.account, connectedApp: edit.connectedApp, ...edit.fields, state: edit.state, dropped: edit.dropped };
 }
 
 /** The fields of a row, or of an item it names, that have a value: all but those null, keeping an item's id, null where it isn't linked to the Library's. */

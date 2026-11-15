@@ -116,13 +116,18 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
   and date. Each item's page lists its Shots. A Barista whose name was typed
   "jules" and "Jules" is one choice in the Barista filter, which finds both.
-- **Rated away from its tablet.** A Shot's rating and note can be edited
-  through the server's REST API, by an Admin, or by Staff for Shots at the
-  Locations they work at. The Shot shows the edit at once, with who made
-  it, and the plugin writes it into the Shot on the tablet that holds it,
-  now or when that tablet next connects, so its Skin and DYE2 show the same.
-  Where the rating or the note was changed on that tablet later than the
-  edit, the tablet's stands, and the edit is kept, marked as not written.
+- **Rated away from its tablet.** A Shot's rating, up to five stars as
+  DYE2 shows it, and its note can be edited on its page, or by an
+  assistant, by an Admin, or by Staff for Shots at the Locations they
+  work at. The Shot shows the edit at once, and the
+  plugin writes it into the Shot on the tablet that holds it, now or when
+  that tablet next connects, so its Skin and DYE2 show the same. Until
+  then the Shot's page says the edit awaits its tablet, or that it has no
+  tablet to reach where that tablet no longer holds the Shot. Where the
+  rating or the note was changed on that tablet later than the edit, the
+  tablet's stands, and the edit is kept, marked as dropped. A card on the
+  page lists each edit, with who made it and any Connected App it was made
+  through.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and
@@ -351,10 +356,12 @@ with each item's history and Conflicts. It can create
 and edit Beans, Bean Batches, Grinders, Baskets, Tools and Recipes, Archive and
 restore Library items, change what a Location offers, put Recipes in Recipe
 Slots, choose their Reference Shots and copy them to other Locations, use or dismiss a Conflict's value, make
-Settings Edits, and move Machines between Locations. An Admin's assistant can
+Settings Edits, move Machines between Locations, and rate a Shot or edit its
+note, saying whether that edit still awaits the Shot's tablet. An Admin's assistant can
 also turn a Machine's sharing on or off, and create and edit Locations. Nothing
 an assistant does grants access or deletes anything for good. Each Library
-change and Settings Edit it makes is recorded as "*account*, through *app*".
+change, Settings Edit and edit of a Shot it makes is recorded as "*account*,
+through *app*".
 
 Each answer is kept small enough for Claude and ChatGPT to read whole: a long
 list comes a page at a time, and very long text, such as a Shot's notes, may be
