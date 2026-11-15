@@ -924,10 +924,10 @@ var __decentSync = (() => {
   }
   var CONFIRMED_CHUNKS_WIRE_REVISION = 3;
   var REQUESTS_WIRE_REVISION = 3;
-  var SKIN_ASKS = ["status", "shots", "shot", "reference"];
+  var SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference"];
   var MAX_SHOTS_PAGE = 50;
   var NOT_SERVED = ["captureOnly", "hardwareMismatch"];
-  var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe"];
+  var SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"];
   var REFERENCE_COPIES_WIRE_REVISION = 3;
   var MAX_REFERENCE_COPY_BYTES = 1024 * 1024;
   var MAX_REFERENCE_VERSION_LENGTH = 128;
@@ -1081,7 +1081,7 @@ var __decentSync = (() => {
             });
           }
           if (object3.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
-          if (object3.ask === "reference") fields.optionalObject("result", referenceFields);
+          if (object3.ask === "reference" || object3.ask === "chooseReference") fields.optionalObject("result", referenceFields);
           if (object3.ask === "status") {
             fields.optionalObject("result", (status) => {
               status.boolean("served");
@@ -5063,6 +5063,8 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     },
     noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
     noSuchRecipe: { status: 404, message: "No DYE2 recipe on this tablet with that id is a Recipe of this Machine's Location." },
+    notAtThisLocation: { status: 403, message: "That Recipe belongs to another Location than this Machine's, so its Reference Shot can't be chosen on this tablet." },
+    archived: { status: 409, message: "That Recipe is Archived. Its Reference Shot can be chosen once it is restored." },
     recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
     // Each says what is wrong with it in a sentence of its own (`invalid`).
     invalidRequest: { status: 400, message: "The request is not one this endpoint answers." }
@@ -5082,7 +5084,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     }
   }
   async function answerStatus(request2, requests) {
-    if (request2.method !== "GET") return onlyGet();
+    if (request2.method !== "GET") return methodNotAllowed("GET");
     const asked = await ask(requests, { ask: "status" });
     const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
     if ("unanswered" in asked) return refusal(asked.unanswered, unanswered);
@@ -5092,7 +5094,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     return notServed === void 0 ? json(200, status) : refusal(notServed, status);
   }
   async function answerShots(request2, requests) {
-    if (request2.method !== "GET") return onlyGet();
+    if (request2.method !== "GET") return methodNotAllowed("GET");
     const { limit, cursor } = request2.query;
     if (limit !== void 0 && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
       return invalid2(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
@@ -5101,15 +5103,16 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     return answered2(await ask(requests, { ask: "shots", limit: limit === void 0 ? MAX_SHOTS_PAGE : Number(limit), ...cursor !== void 0 && { cursor } }));
   }
   async function answerShot(request2, requests) {
-    if (request2.method !== "GET") return onlyGet();
+    if (request2.method !== "GET") return methodNotAllowed("GET");
     const { id } = request2.query;
     if (!askable(id) || id === "") return invalid2("Give the Shot's id as id.");
     return answered2(await ask(requests, { ask: "shot", shotId: id }));
   }
   async function answerReference(request2, requests, references) {
-    if (request2.method !== "GET") return onlyGet();
+    if (request2.method === "PUT") return chooseReference(request2, requests);
+    if (request2.method !== "GET") return methodNotAllowed("GET", "PUT");
     const { recipe } = request2.query;
-    if (!askable(recipe) || recipe === "") return invalid2("Give the id of the Recipe's DYE2 record on this tablet as recipe.");
+    if (!askable(recipe) || recipe === "") return invalid2(NAME_THE_RECIPE);
     const recipeId = await recipeIdOf(recipe);
     if (recipeId === void 0) return refusal("recipesUnread");
     if (recipeId === null) return refusal("noSuchRecipe");
@@ -5118,6 +5121,19 @@ ${JSON.stringify(copy?.reference ?? null)}`;
     const copy = await references?.read(recipeId);
     return copy ? json(200, { ...copy, source: "tablet" }) : refusal(asked.unanswered);
   }
+  async function chooseReference(request2, requests) {
+    const { recipe } = request2.query;
+    if (!askable(recipe) || recipe === "") return invalid2(NAME_THE_RECIPE);
+    const shotId = typeof request2.body === "object" && request2.body !== null ? request2.body.shotId : void 0;
+    if (!askable(shotId) || shotId === "") return invalid2("Give the Shot's id as shotId in a JSON body. A tablet can't clear a Reference Shot.");
+    const recipeId = await recipeIdOf(recipe);
+    if (recipeId === void 0) return refusal("recipesUnread");
+    if (recipeId === null) return refusal("noSuchRecipe");
+    const asked = await ask(requests, { ask: "chooseReference", recipeId, shotId });
+    if ("unanswered" in asked) return refusal(asked.unanswered);
+    return "refused" in asked.answer ? refused2(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+  }
+  var NAME_THE_RECIPE = "Give the id of the Recipe's DYE2 record on this tablet as recipe.";
   async function recipeIdOf(recordId) {
     const reading = await readCollection(`/store/${DYE2_NAMESPACE}/recipes`, null, true);
     const records = reading.kind === "value" ? dye2Records(reading.value) : null;
@@ -5142,8 +5158,9 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   function invalid2(message) {
     return refusal("invalidRequest", {}, message);
   }
-  function onlyGet() {
-    return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
+  function methodNotAllowed(...allowed) {
+    const error = `Only ${allowed.join(" and ")} ${allowed.length === 1 ? "is" : "are"} answered`;
+    return { ...json(405, { error }), headers: { "Content-Type": "application/json", Allow: allowed.join(", ") } };
   }
   function json(status, body) {
     return { status, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) };
@@ -5164,7 +5181,7 @@ ${JSON.stringify(copy?.reference ?? null)}`;
   }
 
   // src/skin-requests.ts
-  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true };
+  var FOLLOWS_REPORTS = { status: false, shots: true, shot: true, reference: true, chooseReference: true };
   var SKIN_REQUEST_MS = 1e4;
   var SkinRequests = class {
     constructor(outbox) {

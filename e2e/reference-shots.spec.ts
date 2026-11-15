@@ -207,6 +207,28 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, w
   await expect(curves.getByRole("alert")).toHaveCount(1);
 });
 
+// Chosen on a tablet (#511, ADR-0030), as a Skin there chooses it through the plugin's `reference` endpoint, naming the
+// Recipe by the id of its DYE2 record on the tablet.
+test("a Recipe's history names the Machine its Reference Shot was chosen on, when it was chosen on a tablet", async ({ page }) => {
+  const answer = await uptownTablet.callEndpoint("reference", { method: "PUT", query: { recipe: ETHIOPIA }, body: { shotId: LATER_SHOT } });
+  expect(answer.status, answer.body).toBe(200);
+
+  await page.goto(`/library/recipes/${ethiopiaId}`);
+  const card = page.getByRole("region", { name: "Reference Shot" });
+  await expect(field(card, "Pulled").getByRole("link")).toHaveAttribute("href", `/shots/${LATER_SHOT}`);
+  await expectTip(card, "Reference Shot", /A Skin may choose it on a tablet there too: the Recipe's history then names the Machine it was chosen on\.$/);
+  // The latest change in its history: made on the Machine, where the changes made here name an account.
+  const history = rows(page.getByRole("table", { name: "History" }));
+  const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
+  const uptown1 = machines.find((machine) => machine.name === "Uptown 1")!;
+  await expect(history.first().getByRole("cell").nth(1)).toHaveText("Uptown 1");
+  await expect(history.first().getByRole("link", { name: "Uptown 1" })).toHaveAttribute("href", `/machines/${uptown1.id}`);
+  await expect(history.first().getByRole("cell").nth(2)).toContainText("Reference Shot");
+  await expect(history.first().getByRole("link", { name: "The Shot" })).toHaveAttribute("href", `/shots/${LATER_SHOT}`);
+  // The clearing before it was made here.
+  await expect(history.nth(1).getByRole("cell").nth(1)).toHaveText("You, here");
+});
+
 /** The ids of the two Recipes the first test made the Shot the Reference Shot of. */
 async function recipes(page: Page): Promise<{ ethiopia: string; belmont: string }> {
   const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };

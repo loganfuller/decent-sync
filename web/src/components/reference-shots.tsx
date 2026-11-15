@@ -90,6 +90,7 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
             The one Shot chosen to show how this Recipe's Shots should go. It can be any Shot, from any Machine or Location, and stays through
             edits to the Recipe until someone chooses another or clears it. Choose one from a Shot's page. A Skin on a tablet at the Recipe's
             Location draws it, and each of those tablets keeps a copy for when the server can't be reached, while the Recipe is in a Recipe Slot.
+            A Skin may choose it on a tablet there too: the Recipe's history then names the Machine it was chosen on.
           </p>
         </CardTitleWithInfo>
       </CardHeader>

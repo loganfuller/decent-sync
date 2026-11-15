@@ -975,6 +975,10 @@ tool: only a Skin calls them.
   the same Shot asked for through `shot` is still no such Shot.
   `server/src/shots/location-references.ts` reads it, and the copies each
   tablet keeps (`LIBRARY.md`, A Recipe's Reference Shot).
+- **A Shot a tablet may read whole is one it may choose** (#511) as the
+  Reference Shot of one of its Location's Recipes: a Shot its list lists,
+  or the Reference Shot of one of those Recipes (`readableWhole`;
+  `LIBRARY.md`, A tablet may choose a Recipe's Reference Shot).
 
 `server/test/skin-shots.test.ts` covers them through the built plugin in
 simulated tablets, two at one Location and one at another.

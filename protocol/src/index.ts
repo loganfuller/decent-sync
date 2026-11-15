@@ -1927,10 +1927,12 @@ export const REQUESTS_WIRE_REVISION = 3;
  * What a request may ask (`SkinRequest.ask`): `status`, whether the
  * connection's Machine is served, and which Machine and Location it is;
  * `shots`, a page of the Shots at its Machine's Location; `shot`, one of
- * those Shots whole (ticket #509); and `reference`, the Reference Shot of
- * one of that Location's Recipes, whole (ticket #510).
+ * those Shots whole (ticket #509); `reference`, the Reference Shot of one of
+ * that Location's Recipes, whole (ticket #510); and `chooseReference`, which
+ * makes a Shot the tablet may read whole the Reference Shot of one of those
+ * Recipes (ticket #511), the one ask that changes anything.
  */
-export const SKIN_ASKS = ["status", "shots", "shot", "reference"] as const;
+export const SKIN_ASKS = ["status", "shots", "shot", "reference", "chooseReference"] as const;
 
 export type SkinAsk = (typeof SKIN_ASKS)[number];
 
@@ -1974,6 +1976,13 @@ export type SkinQuestion =
       ask: "reference";
       /** The Recipe's own id, which its DYE2 record on the tablet carries (GLOBAL_ID_KEY). */
       recipeId: string;
+    }
+  | {
+      ask: "chooseReference";
+      /** The Recipe's own id, as `reference` names it. */
+      recipeId: string;
+      /** The id of the Shot to make its Reference Shot. A request names one: a tablet can't clear a Reference Shot (ADR-0030). */
+      shotId: string;
     };
 
 /**
@@ -2111,12 +2120,17 @@ export interface SkinReference {
  * - `captureOnly` and `hardwareMismatch`: the connection's Machine is not
  *   served (NOT_SERVED);
  * - `noSuchShot`: the Shot asked for is none its Machine's Location lists,
- *   whether or not the server holds it;
+ *   whether or not the server holds it; or, for `chooseReference`, none
+ *   the tablet may read whole;
  * - `invalidCursor`: the cursor is none the server gave;
  * - `noSuchRecipe`: the Recipe asked about is none of its Machine's
- *   Location's, whether or not the Library holds it.
+ *   Location's, whether or not the Library holds it; or, for
+ *   `chooseReference`, none the Library holds;
+ * - `notAtThisLocation`: the Recipe a `chooseReference` names belongs to
+ *   another Location than its Machine's;
+ * - `archived`: the Recipe a `chooseReference` names is Archived.
  */
-export const SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe"] as const;
+export const SKIN_REFUSALS = [...NOT_SERVED, "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"] as const;
 
 export type SkinRefusal = (typeof SKIN_REFUSALS)[number];
 
@@ -2129,8 +2143,8 @@ export type SkinAnswer = { type: "answer"; id: string } & (
   | { ask: "status"; result: SkinStatus }
   | { ask: "shots"; result: SkinShots }
   | { ask: "shot"; result: SkinShot }
-  | { ask: "reference"; result: SkinReference }
-  | { ask: "shots" | "shot" | "reference"; refused: SkinRefusal }
+  | { ask: "reference" | "chooseReference"; result: SkinReference }
+  | { ask: "shots" | "shot" | "reference" | "chooseReference"; refused: SkinRefusal }
 );
 
 /**
@@ -2524,7 +2538,9 @@ function decodeMessage(object: Fields & { type: string }): Decoded<PluginMessage
         // Whatever a Skin gave, too: one that is no Shot's id names no Shot.
         if (object.ask === "shot") fields.string("shotId");
         // The id the tablet's record carries, which the plugin reads as a global id.
-        if (object.ask === "reference") fields.uuid("recipeId");
+        if (object.ask === "reference" || object.ask === "chooseReference") fields.uuid("recipeId");
+        // Whatever a Skin gave, as a `shot` request's is.
+        if (object.ask === "chooseReference") fields.string("shotId");
       });
     case "referencesHeld":
       return check<ReferencesHeld>(object, "referencesHeld", (fields) => fields.versionsBySlot("held"));
@@ -2663,7 +2679,7 @@ function decodeServerObject(object: Fields & { type: string }): Decoded<ServerMe
           });
         }
         if (object.ask === "shot") fields.optionalObject("result", (whole) => whole.objectField("shot"));
-        if (object.ask === "reference") fields.optionalObject("result", referenceFields);
+        if (object.ask === "reference" || object.ask === "chooseReference") fields.optionalObject("result", referenceFields);
         if (object.ask === "status") {
           fields.optionalObject("result", (status) => {
             status.boolean("served");

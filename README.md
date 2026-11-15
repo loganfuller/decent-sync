@@ -74,9 +74,11 @@ Each server has one owner: a household, or a business with all of its sites.
 - **A Reference Shot for each Recipe.** Make the Shot you just dialled in,
   or one from another Location, such as the lab's, the Shot a Recipe's
   Shots should go like. Its page shows the Shot's numbers, says where its
-  Profile is another than the Recipe's, and keeps who chose it in its
-  history. It stays until someone chooses another or clears it, the Shots
-  list marks it, and nothing changes on the tablets. The Recipe's other
+  Profile is another than the Recipe's, and keeps who chose it, or the
+  Machine it was chosen on, in its history. It stays until someone chooses
+  another or clears it, and the Shots list marks it. Each tablet at the
+  Recipe's Location keeps a copy for a Skin to draw, and a Skin may choose
+  it there. The Recipe's other
   Shots are read against it in four places: a Shot's page draws its curves
   behind the Shot's own, the Overview gives its duration beside each
   Machine's median, the Recipe's page gives its duration and yield against

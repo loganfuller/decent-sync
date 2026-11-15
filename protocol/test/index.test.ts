@@ -605,9 +605,9 @@ describe("Requests for a Skin", () => {
 
   it("arrived in the release's wire revision, with every ask and reason for not being served named once", () => {
     expect(REQUESTS_WIRE_REVISION).toBe(3);
-    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference"]);
+    expect(SKIN_ASKS).toEqual(["status", "shots", "shot", "reference", "chooseReference"]);
     expect(NOT_SERVED).toEqual(["captureOnly", "hardwareMismatch"]);
-    expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe"]);
+    expect(SKIN_REFUSALS).toEqual(["captureOnly", "hardwareMismatch", "noSuchShot", "invalidCursor", "noSuchRecipe", "notAtThisLocation", "archived"]);
   });
 
   it("reads a request by its id and what it asks, which only the plugin sends", () => {
@@ -618,7 +618,7 @@ describe("Requests for a Skin", () => {
       const result = decodePluginMessage(frame(message));
       return result.ok ? null : result.problem;
     };
-    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference");
+    expect(problem({ ...request, ask: "everything" })).toBe("request.ask must be one of status, shots, shot, reference, chooseReference");
     expect(problem({ type: "request", ask: "status" })).toBe("request.id must be a string");
     expect(problem({ ...request, id: "" })).toBe("request.id must not be empty");
     expect(problem({ ...request, id: "x".repeat(MAX_ID_LENGTH + 1) })).toBe(`request.id must be at most ${MAX_ID_LENGTH} characters`);
@@ -679,7 +679,7 @@ describe("Requests for a Skin", () => {
 
   it("refuses an answer that does not say what the plugin relies on, naming each field and repeating none", () => {
     expect(refused({ ...served, id: "" })).toBe("answer.id must not be empty");
-    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference");
+    expect(refused({ ...served, ask: "everything" })).toBe("answer.ask must be one of status, shots, shot, reference, chooseReference");
     expect(refused({ type: "answer", id: request.id, ask: "status" })).toBe("answer.result must be an object");
     expect(refused({ ...served, result: { ...served.result, served: "yes" } })).toBe("answer.result.served must be true or false");
     // Why it is not served goes with not being served, and only with it.
@@ -724,6 +724,23 @@ describe("A Recipe's Reference Shot for a Skin, and the copies a tablet keeps", 
     expect(fromServer({ ...answer, result: { recipe } })).toBe("answer.result.reference must be an object or null");
     expect(fromServer({ ...answer, result: { recipe, reference: { ...reference, shot: "a Shot's id" } } })).toBe("answer.result.reference.shot must be an object");
     expect(fromServer({ ...answer, result: { recipe, reference: { shot: reference.shot } } })).toBe("answer.result.reference.profileDiffers must be true or false");
+  });
+
+  it("reads a request choosing a Recipe's Reference Shot by the Recipe's own id and a Shot's, never none, and its answer as a read's or a refusal", () => {
+    const request = { type: "request", id: "1j2k3l-4m5n-19", ask: "chooseReference", recipeId: recipe.id, shotId: "a Shot's id" };
+    for (const message of [request, { ...request, shotId: "" }]) expect(decodePluginMessage(frame(message))).toEqual({ ok: true, message });
+    expect(fromPlugin({ ...request, recipeId: "2" })).toBe("request.recipeId must be a UUID");
+    // A tablet can't clear a Reference Shot: a request names a Shot.
+    expect(fromPlugin({ ...request, shotId: null })).toBe("request.shotId must be a string");
+    expect(fromPlugin({ type: "request", id: request.id, ask: "chooseReference", recipeId: recipe.id })).toBe("request.shotId must be a string");
+
+    const answer = { type: "answer", id: request.id, ask: "chooseReference" };
+    const accepted: unknown[] = [{ ...answer, result: { recipe, reference } }];
+    for (const refusal of ["noSuchRecipe", "notAtThisLocation", "archived", "noSuchShot", "captureOnly"]) accepted.push({ ...answer, refused: refusal });
+    for (const message of accepted) expect(decodeServerMessage(frame(message))).toEqual({ ok: true, message });
+    expect(fromServer(answer)).toBe("answer.result must be an object");
+    expect(fromServer({ ...answer, result: { recipe } })).toBe("answer.result.reference must be an object or null");
+    expect(fromServer({ ...answer, result: { recipe, reference: { ...reference, shot: "a Shot's id" } } })).toBe("answer.result.reference.shot must be an object");
   });
 
   it("reads what the plugin holds, a version for each of some Recipe Slots, which only the plugin sends", () => {

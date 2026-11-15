@@ -13,7 +13,9 @@ import type { Asked, SkinRequests, Unanswered } from "./skin-requests.js";
 // in decaid:lib/src/plugins/plugin_manager.dart, the same at v0.9.1 and
 // v0.9.2). Decaid checks no caller, so anything on the tablet's network can
 // call these, as it can Decaid's own API. docs/PLUGIN.md describes them for
-// a Skin's author.
+// a Skin's author. All read but one: a PUT to `reference` chooses a Recipe's
+// Reference Shot (ticket #511), which the server does or refuses, never the
+// plugin later.
 //
 // They are apart from the `skin` endpoint and the `changed` push Streamline
 // reads (skins.ts), which stay as they were: Streamline reads any push on
@@ -29,7 +31,7 @@ const SHOTS_ENDPOINT = "shots";
 /** The plugin's HTTP endpoint a Skin reads one of those Shots whole from (manifest.json). */
 const SHOT_ENDPOINT = "shot";
 
-/** The plugin's HTTP endpoint a Skin reads a Recipe's Reference Shot from (manifest.json). */
+/** The plugin's HTTP endpoint a Skin reads a Recipe's Reference Shot from, and chooses it through (manifest.json). */
 const REFERENCE_ENDPOINT = "reference";
 
 /** The plugin's WebSocket endpoint a Skin listens on for what changed (manifest.json). */
@@ -43,7 +45,7 @@ const CHANGES_ENDPOINT = "changes";
 const MAX_ASKED_LENGTH = 2048;
 
 /** Why an endpoint refuses a request: one of these codes, each with its HTTP status and a sentence. */
-export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe" | "recipesUnread" | "invalidRequest";
+export type RefusalCode = Unanswered | NotServed | "noSuchShot" | "noSuchRecipe" | "notAtThisLocation" | "archived" | "recipesUnread" | "invalidRequest";
 
 const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }>> = {
   unreachable: { status: 503, message: "The Decent Sync server can't be reached from this tablet right now." },
@@ -61,6 +63,8 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
   },
   noSuchShot: { status: 404, message: "No Shot at this Machine's Location has that id." },
   noSuchRecipe: { status: 404, message: "No DYE2 recipe on this tablet with that id is a Recipe of this Machine's Location." },
+  notAtThisLocation: { status: 403, message: "That Recipe belongs to another Location than this Machine's, so its Reference Shot can't be chosen on this tablet." },
+  archived: { status: 409, message: "That Recipe is Archived. Its Reference Shot can be chosen once it is restored." },
   recipesUnread: { status: 500, message: "DYE2's recipes can't be read on this tablet right now." },
   // Each says what is wrong with it in a sentence of its own (`invalid`).
   invalidRequest: { status: 400, message: "The request is not one this endpoint answers." },
@@ -68,10 +72,11 @@ const REFUSALS: Readonly<Record<RefusalCode, { status: number; message: string }
 
 /**
  * Answers a request to one of the endpoints a Skin reads what the server
- * holds from, or undefined for any other endpoint, as those Streamline reads
- * (skins.ts). Each is answered whether or not the plugin connects: a Skin
- * is then told the server can't be reached, or, of a Recipe's Reference
- * Shot, answered from the tablet's copy (`references`) where it holds one.
+ * holds from, and chooses a Recipe's Reference Shot through, or undefined
+ * for any other endpoint, as those Streamline reads (skins.ts). Each is
+ * answered whether or not the plugin connects: a Skin is then told the
+ * server can't be reached, or, reading a Recipe's Reference Shot, answered
+ * from the tablet's copy (`references`) where it holds one.
  */
 export function answerSkin(request: HttpRequest, requests: SkinRequests | undefined, references: ReferenceCopies | undefined): Promise<HttpAnswer> | undefined {
   switch (request.endpoint) {
@@ -97,7 +102,7 @@ export function answerSkin(request: HttpRequest, requests: SkinRequests | undefi
  * not connected it answers at once, asking nothing.
  */
 async function answerStatus(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return onlyGet();
+  if (request.method !== "GET") return methodNotAllowed("GET");
   const asked = await ask(requests, { ask: "status" });
   // Still connected where the server is too old to ask, or did not answer in time.
   const unanswered = { connected: requests?.connected ?? false, served: false, machine: null, location: null };
@@ -118,7 +123,7 @@ async function answerStatus(request: HttpRequest, requests: SkinRequests | undef
  * tablet has still to report, so a Shot just pulled here is in its answer.
  */
 async function answerShots(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return onlyGet();
+  if (request.method !== "GET") return methodNotAllowed("GET");
   const { limit, cursor } = request.query;
   if (limit !== undefined && !(/^\d{1,3}$/.test(limit) && Number(limit) >= 1 && Number(limit) <= MAX_SHOTS_PAGE)) {
     return invalid(`Give limit as a whole number from 1 to ${MAX_SHOTS_PAGE}.`);
@@ -135,7 +140,7 @@ async function answerShots(request: HttpRequest, requests: SkinRequests | undefi
  * holds it.
  */
 async function answerShot(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return onlyGet();
+  if (request.method !== "GET") return methodNotAllowed("GET");
   const { id } = request.query;
   if (!askable(id) || id === "") return invalid("Give the Shot's id as id.");
   return answered(await ask(requests, { ask: "shot", shotId: id }));
@@ -158,11 +163,14 @@ async function answerShot(request: HttpRequest, requests: SkinRequests | undefin
  * (reference-copies.ts), with `source`, "tablet"; a Recipe it keeps no copy
  * for, as one in no slot, is then refused as the server is: unreachable, or
  * too old to ask.
+ *
+ * A PUT chooses the Recipe's Reference Shot (`chooseReference`).
  */
 async function answerReference(request: HttpRequest, requests: SkinRequests | undefined, references: ReferenceCopies | undefined): Promise<HttpAnswer> {
-  if (request.method !== "GET") return onlyGet();
+  if (request.method === "PUT") return chooseReference(request, requests);
+  if (request.method !== "GET") return methodNotAllowed("GET", "PUT");
   const { recipe } = request.query;
-  if (!askable(recipe) || recipe === "") return invalid("Give the id of the Recipe's DYE2 record on this tablet as recipe.");
+  if (!askable(recipe) || recipe === "") return invalid(NAME_THE_RECIPE);
   const recipeId = await recipeIdOf(recipe);
   if (recipeId === undefined) return refusal("recipesUnread");
   if (recipeId === null) return refusal("noSuchRecipe");
@@ -171,6 +179,37 @@ async function answerReference(request: HttpRequest, requests: SkinRequests | un
   const copy = await references?.read(recipeId);
   return copy ? json(200, { ...copy, source: "tablet" }) : refusal(asked.unanswered);
 }
+
+/**
+ * Answers a PUT to `reference` (ticket #511, ADR-0030): makes the Shot the
+ * body's `shotId` names the Reference Shot of the Recipe the query's
+ * `recipe` names, as a read names it, by the id of its DYE2 record on this
+ * tablet. The server makes the choice, as it does one made in the
+ * management interface, for a Recipe of the Machine's Location and a Shot
+ * this tablet may read whole, and the answer is the Recipe's Reference Shot
+ * as it then is, as a read is answered from the server.
+ *
+ * A request names a Shot: a tablet can't clear a Reference Shot. And a
+ * choice is never kept for later: while the server can't be asked it is
+ * refused, as unreachable or too old to ask, and the tablet's copy is no
+ * answer to it. The request follows what the tablet has still to report, so
+ * a Shot pulled seconds ago is chosen once the server has stored it.
+ */
+async function chooseReference(request: HttpRequest, requests: SkinRequests | undefined): Promise<HttpAnswer> {
+  const { recipe } = request.query;
+  if (!askable(recipe) || recipe === "") return invalid(NAME_THE_RECIPE);
+  const shotId = typeof request.body === "object" && request.body !== null ? (request.body as { shotId?: unknown }).shotId : undefined;
+  if (!askable(shotId) || shotId === "") return invalid("Give the Shot's id as shotId in a JSON body. A tablet can't clear a Reference Shot.");
+  const recipeId = await recipeIdOf(recipe);
+  if (recipeId === undefined) return refusal("recipesUnread");
+  if (recipeId === null) return refusal("noSuchRecipe");
+  const asked = await ask(requests, { ask: "chooseReference", recipeId, shotId });
+  if ("unanswered" in asked) return refusal(asked.unanswered);
+  return "refused" in asked.answer ? refused(asked.answer.refused) : json(200, { ...asked.answer.result, source: "server" });
+}
+
+/** What a request to `reference` that names no Recipe is told. */
+const NAME_THE_RECIPE = "Give the id of the Recipe's DYE2 record on this tablet as recipe.";
 
 /**
  * The Recipe's own id that the DYE2 recipe with this record id on the
@@ -216,8 +255,10 @@ function invalid(message: string): HttpAnswer {
   return refusal("invalidRequest", {}, message);
 }
 
-function onlyGet(): HttpAnswer {
-  return { ...json(405, { error: "Only GET is answered" }), headers: { "Content-Type": "application/json", Allow: "GET" } };
+/** The answer to a method an endpoint doesn't take, naming those it does. */
+function methodNotAllowed(...allowed: string[]): HttpAnswer {
+  const error = `Only ${allowed.join(" and ")} ${allowed.length === 1 ? "is" : "are"} answered`;
+  return { ...json(405, { error }), headers: { "Content-Type": "application/json", Allow: allowed.join(", ") } };
 }
 
 function json(status: number, body: unknown): HttpAnswer {

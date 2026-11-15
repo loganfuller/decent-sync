@@ -5,9 +5,11 @@ import { Prisma } from "../generated/prisma/client.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql } from "../shots/links.js";
+import { readableWhole } from "../shots/location-references.js";
+import type { AskingTablet } from "../shots/location-shots.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
-import { type CopiedFrom, type EditSource, type Editor, accountSource, recordVersion } from "./history.js";
-import { INTAKE_TRANSACTION } from "./intake.js";
+import { type CopiedFrom, type EditSource, type Editor, accountSource, recordVersion, tabletSource } from "./history.js";
+import { INTAKE_TRANSACTION, type ReportingTablet } from "./intake.js";
 import type { SlotChoice } from "./item-input.js";
 import { editTime, staffElsewhere } from "./library-edits.service.js";
 import { isObject } from "./listed.js";
@@ -47,7 +49,12 @@ import { type ShownKind, addBatchAt, lockLocation, offerBeanAt, showAt } from ".
 // Conflict, and it is no part of the record written to tablets. Each tablet
 // at its Location keeps a copy of the Shot while the Recipe is in a slot
 // (ADR-0030, shots/location-references.ts), so a change of it commits with
-// the `NOTIFY` too. A copy of a Recipe starts with the Recipe's.
+// the `NOTIFY` too. A copy of a Recipe starts with the Recipe's. A tablet at
+// the Recipe's Location may choose it too (ticket #511, ADR-0030, amending
+// ADR-0029), for a Skin, which `chooseReferenceShotOnTablet` does as
+// `setReferenceShot` does an account's: under the same locks, as a version
+// naming its Machine and tablet and no account, as a dial-in change saved
+// from a tablet does.
 //
 // Locks are taken as a tablet's report of its recipes takes them: the
 // Location's, then the Recipe's row; then the rows of the items it is set to
@@ -71,6 +78,13 @@ export interface RecipeCopy {
   /** The Bean Batch it uses instead of the Recipe's, or null for none; undefined keeps the Recipe's. */
   beanBatchId: string | null | undefined;
 }
+
+/**
+ * Why a tablet's choice of a Recipe's Reference Shot is refused
+ * (`chooseReferenceShotOnTablet`), as its `answer` says it (`SkinRefusal` in
+ * protocol/).
+ */
+export type TabletChoiceRefusal = "noSuchRecipe" | "notAtThisLocation" | "archived" | "noSuchShot";
 
 /** Where a Recipe is: its Location, and its slot there or none. */
 interface Placed {
@@ -210,14 +224,33 @@ export class RecipeEditsService {
         const [listed] = await tx.$queryRaw<unknown[]>`SELECT 1 FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
         if (!listed) throw new BadRequestException("No such Shot");
       }
-      if (recipe.referenceShotId !== shotId) {
-        await tx.$executeRaw`UPDATE recipes SET reference_shot_id = ${shotId} WHERE id = ${recipe.id}::uuid`;
-        await recordVersion(tx, { kind: "recipe", id: recipe.id }, null, { referenceShotId: shotId }, source, at);
-        // Each tablet at its Location keeps a copy of it while the Recipe is in a slot (ADR-0030).
-        return true;
-      }
-      return false;
+      return referenceShotSet(tx, recipe, shotId, source, at);
     });
+  }
+
+  /**
+   * Makes the Shot the Recipe's Reference Shot as a tablet at the Recipe's
+   * Location chose it, for a Skin (ticket #511, ADR-0030, amending
+   * ADR-0029), in the transaction that found the tablet's Machine served
+   * there (`SkinRequestsService`). It is the change `setReferenceShot` makes
+   * for an account, under the same locks, announced the same way, as a
+   * version naming the Machine and tablet and no account. A tablet chooses
+   * only for a Recipe of its Machine's Location, and only a Shot it may read
+   * whole (`readableWhole`): one of its Location's Shots, or the Reference
+   * Shot of one of its Location's Recipes. It never clears one. Returns why
+   * the choice is refused, or null once the Recipe has the Shot.
+   */
+  async chooseReferenceShotOnTablet(tx: Prisma.TransactionClient, id: string, shotId: string, tablet: ReportingTablet & AskingTablet): Promise<TabletChoiceRefusal | null> {
+    if (!UUID.test(id)) return "noSuchRecipe";
+    const [owned] = await tx.$queryRaw<{ locationId: string | null }[]>`SELECT location_id::text AS "locationId" FROM recipes WHERE id = ${id}::uuid`;
+    if (!owned) return "noSuchRecipe";
+    if (owned.locationId !== tablet.locationId) return "notAtThisLocation";
+    const recipe = await placed(tx, id, owned.locationId);
+    if (!recipe) return "noSuchRecipe";
+    if (recipe.archived) return "archived";
+    if (!(await readableWhole(tx, tablet, shotId))) return "noSuchShot";
+    if (await referenceShotSet(tx, recipe, shotId, tabletSource(tablet), await editTime(tx))) await notify(tx, "library_changes", recipe.locationId);
+    return null;
   }
 
   /**
@@ -261,25 +294,42 @@ export class RecipeEditsService {
       if (!owned) throw new NotFoundException("No such Recipe");
       if (!includesLocation(scope, owned.locationId)) throw staffElsewhere(what);
       if (owned.locationId === null) throw new ConflictException("This Recipe's Location no longer exists");
-      await lockLocation(tx, owned.locationId);
-      await lockItems(tx, "recipe", [id]);
-      const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown; referenceShotId: string | null }[]>`
-        SELECT slot, archived, content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
-      if (!row) throw new NotFoundException("No such Recipe");
-      // Its id as PostgreSQL writes it, however the request spelled it, as the slots it is compared with name it (`freeSlot`).
-      const recipe: Placed = {
-        id: id.toLowerCase(),
-        locationId: owned.locationId,
-        slot: row.slot,
-        archived: row.archived,
-        content: isObject(row.content) ? row.content : {},
-        referenceShotId: row.referenceShotId,
-      };
+      const recipe = await placed(tx, id, owned.locationId);
+      if (!recipe) throw new NotFoundException("No such Recipe");
       if (await apply(tx, recipe, accountSource(editor), await editTime(tx))) {
         await notify(tx, "library_changes", owned.locationId);
       }
     }, INTAKE_TRANSACTION);
   }
+}
+
+/**
+ * The Recipe as it stands, with its Location's lock and then its row lock
+ * held until the transaction ends, as every change of a Recipe made through
+ * the server holds them; or null where it is gone. The Location a Recipe
+ * belongs to never changes, so it is read before its lock is taken.
+ */
+async function placed(tx: Prisma.TransactionClient, id: string, locationId: string): Promise<Placed | null> {
+  await lockLocation(tx, locationId);
+  await lockItems(tx, "recipe", [id]);
+  const [row] = await tx.$queryRaw<{ slot: number | null; archived: boolean; content: unknown; referenceShotId: string | null }[]>`
+    SELECT slot, archived, content, reference_shot_id AS "referenceShotId" FROM recipes WHERE id = ${id}::uuid`;
+  if (!row) return null;
+  // Its id as PostgreSQL writes it, however the request spelled it, as the slots it is compared with name it (`freeSlot`).
+  return { id: id.toLowerCase(), locationId, slot: row.slot, archived: row.archived, content: isObject(row.content) ? row.content : {}, referenceShotId: row.referenceShotId };
+}
+
+/**
+ * Sets the Recipe's Reference Shot to the Shot, or to none (null), as a
+ * version of its own from `source`, unless it has that already. Returns
+ * whether it changed, which its Location is then told of: each tablet there
+ * keeps a copy of it while the Recipe is in a slot (ADR-0030).
+ */
+async function referenceShotSet(tx: Prisma.TransactionClient, recipe: Placed, shotId: string | null, source: EditSource, at: Date): Promise<boolean> {
+  if (recipe.referenceShotId === shotId) return false;
+  await tx.$executeRaw`UPDATE recipes SET reference_shot_id = ${shotId} WHERE id = ${recipe.id}::uuid`;
+  await recordVersion(tx, { kind: "recipe", id: recipe.id }, null, { referenceShotId: shotId }, source, at);
+  return true;
 }
 
 /**
