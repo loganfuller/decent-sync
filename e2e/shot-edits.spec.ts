@@ -233,10 +233,10 @@ test("an edit made on another Machine's tablet is listed with that Machine, link
   expect(await onTablet(belmontTablet, SHOT)).toMatchObject({ enjoyment: 2 });
 
   await page.goto(`/shots/${SHOT}`);
-  await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("2");
+  await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("1 star");
   const card = await openCard(page, "Rating and note edits");
   const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
-  expect((await cells(listed))[0]).toEqual(["Belmont 2", "Rating: 2", "Written to its tablet"]);
+  expect((await cells(listed))[0]).toEqual(["Belmont 2", "Rating: 1 star", "Written to its tablet"]);
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   await expect(listed.first().getByRole("link", { name: "Belmont 2" })).toHaveAttribute("href", `/machines/${machines.find((machine) => machine.name === "Belmont 2")!.id}`);
 });
