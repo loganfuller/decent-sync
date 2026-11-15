@@ -306,7 +306,13 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
 - **Answers come quickly or not at all.** Decaid gives a plugin 30 seconds to
   answer. The plugin gives the server 10: a request still unanswered then is
   refused as `unreachable`. While the plugin isn't connected it refuses at
-  once, without asking.
+  once, without asking. Before it asks the server the plugin may ask Decaid
+  first: for DYE2's recipes, to read which Recipe `reference` names, and to
+  write [an edit of a Shot](#editing-a-shots-rating-and-note). Decaid's own
+  API answers in milliseconds. Were it to take most of the 30 seconds, the
+  call could run past them, and Decaid then answers it itself, with an
+  `error` and no `code`. Treat that as `unreachable`: a choice or an edit
+  may still have been made.
 - **Nothing is queued.** A request refused as `unreachable` was not kept, and
   is not sent later. Ask again. That holds for
   [a choice](#choosing-a-recipes-reference-shot) and for

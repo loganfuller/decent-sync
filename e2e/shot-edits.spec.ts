@@ -248,17 +248,21 @@ test("an edit made on another Machine's tablet is listed with that Machine, link
   const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
   const second = await adopt(page, "Belmont 2", "51453", locations.find((location) => location.name === "Belmont")!.id, []);
   await expect.poll(() => online(page, "Belmont 2")).toBe(true);
+  // A Shot of this test's own, which the first tablet pulls and holds.
+  const BESIDE = "belmont-beside";
+  belmontTablet.pullShot(shotAt(BESIDE, "2026-11-10T15:20:00Z", "51451", { enjoyment: 6, espressoNotes: "Bright" }));
+  await expect.poll(async () => (await page.request.get(`/api/shots/${BESIDE}`)).status()).toBe(200);
   // A Skin on the tablet beside the one that pulled the Shot rates it, through the plugin's endpoint.
-  const answer = await second.callEndpoint("shot", { method: "PUT", query: { id: SHOT }, body: { rating: 2 } });
-  expect([answer.status, JSON.parse(answer.body)]).toEqual([200, { rating: 2, note: "Sweeter once it cooled.\nKeep this grind." }]);
-  await expect.poll(async () => (await edits(page, SHOT)).map((edit) => edit.state)).toEqual(["written", "dropped", "written", "written"]);
-  expect(await onTablet(belmontTablet, SHOT)).toMatchObject({ enjoyment: 2 });
+  const answer = await second.callEndpoint("shot", { method: "PUT", query: { id: BESIDE }, body: { rating: 2 } });
+  expect([answer.status, JSON.parse(answer.body)]).toEqual([200, { rating: 2, note: "Bright" }]);
+  await expect.poll(async () => (await edits(page, BESIDE)).map((edit) => edit.state)).toEqual(["written"]);
+  expect(await onTablet(belmontTablet, BESIDE)).toEqual({ enjoyment: 2, espressoNotes: "Bright" });
 
-  await page.goto(`/shots/${SHOT}`);
+  await page.goto(`/shots/${BESIDE}`);
   await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("1 star");
   const card = await openCard(page, "Rating and note edits");
   const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
-  expect((await cells(listed))[0]).toEqual(["Belmont 2", "Rating: 1 star", "Written to its tablet"]);
+  expect(await cells(listed)).toEqual([["Belmont 2", "Rating: 1 star", "Written to its tablet"]]);
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   await expect(listed.first().getByRole("link", { name: "Belmont 2" })).toHaveAttribute("href", `/machines/${machines.find((machine) => machine.name === "Belmont 2")!.id}`);
 });
