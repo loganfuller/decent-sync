@@ -32,7 +32,7 @@ function ratingOrUnrated(rating: number | null): string {
 const STANDING = {
   awaitingTablet: {
     label: "Awaiting its tablet",
-    tip: "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off or its plugin is older than this release. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands. An edit whose tablet was replaced or reset waits for good.",
+    tip: "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off or its plugin is older than this release. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands. An edit whose tablet never connects again, as one replaced, waits for good.",
   },
   noTablet: {
     label: "No tablet to reach",

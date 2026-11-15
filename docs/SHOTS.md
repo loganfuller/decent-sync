@@ -540,9 +540,12 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   Shot that came back to its tablet, as one restored from a backup, and
   was changed there is stored whole over an edit that had no tablet to
   reach (When two edits cross, below), so it no longer reads as that edit
-  set it, and `editStanding` is null again, though the edit stays listed
-  as `noTablet`. An edit whose tablet was replaced or reset, and so
-  never answers, awaits it for good, and reads `awaitingTablet`: ADR-0031
+  set it, unless the tablet holds the same, and `editStanding` is null
+  again, though the edit stays listed as `noTablet`. A field of that edit
+  the tablet had changed later, before it lost the Shot, is left out of
+  the comparison. An edit whose tablet never connects again, as one
+  replaced, and so never answers, awaits it for good, and reads
+  `awaitingTablet`: ADR-0031
   has such an edit marked as having no tablet to reach, which the server
   can't tell from a tablet that is off. The MCP endpoint's `get_shot`
   gives `editStanding` always, and with `edits: true` the edits, as a

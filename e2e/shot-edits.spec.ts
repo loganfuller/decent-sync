@@ -82,7 +82,7 @@ test("an Admin rates a Shot and edits its note on its page, which says the edit 
   await expectTip(
     card,
     "Awaiting its tablet",
-    "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off or its plugin is older than this release. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands. An edit whose tablet was replaced or reset waits for good.",
+    "An edit of its rating or note made away from the tablet that holds this Shot is not written there yet, as while that tablet is off or its plugin is older than this release. Its Skin and DYE2 show the Shot as it was until then. Where the same is changed on that tablet later than the edit, the tablet's stands. An edit whose tablet never connects again, as one replaced, waits for good.",
   );
   expect(await onTablet(belmontTablet, SHOT)).toEqual({ enjoyment: 4, espressoNotes: "Sour at first" });
   // The Shots list shows the rating too.

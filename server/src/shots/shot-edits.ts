@@ -42,8 +42,9 @@ export interface ShotEditView {
    * - `dropped` where it was never written, as the tablet changed every
    *   field it set later than it was made, so the tablet's values stand;
    * - `noTablet` where the tablet answered that it no longer holds the
-   *   Shot, as one reset or replaced: the edit stays on the server, and is
-   *   sent no more.
+   *   Shot, as one the Shot was deleted on: the edit stays on the server,
+   *   and is sent no more. An edit whose tablet never connects again, as
+   *   one replaced, has no such answer, and awaits it for good.
    *
    * An edit of both fields of which the tablet changed one later is where
    * the other stands, with the one in `dropped`.
@@ -75,14 +76,16 @@ export type ShotEditStanding = "awaitingTablet" | "noTablet" | null;
  * come back to a tablet, as one restored from a backup, and be changed
  * there: the version that tablet then reports is stored whole, over the
  * edit. So the Shot has no tablet to reach only while it still reads as
- * its latest edit set it, which needs no clock to tell.
+ * its latest edit set it, which needs no clock to tell: but for a field of
+ * it the tablet had changed later, before it lost the Shot, which reads
+ * as the tablet's.
  */
-export function editStanding(edits: readonly Pick<ShotEditView, "state" | "fields">[], record: unknown): ShotEditStanding {
+export function editStanding(edits: readonly Pick<ShotEditView, "state" | "fields" | "dropped">[], record: unknown): ShotEditStanding {
   if (edits.some((edit) => edit.state === "awaitingTablet")) return "awaitingTablet";
   const [latest] = edits;
   if (latest?.state !== "noTablet") return null;
   const now = ratingAndNote(record);
-  const stands = (latest.fields.rating === undefined || latest.fields.rating === now.rating) && (latest.fields.note === undefined || latest.fields.note === now.note);
+  const stands = (["rating", "note"] as const).every((field) => latest.fields[field] === undefined || latest.dropped.includes(field) || latest.fields[field] === now[field]);
   return stands ? "noTablet" : null;
 }
 

@@ -375,6 +375,27 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       await raw.close();
     });
 
+    it("says a Shot has no tablet to reach where its tablet lost it after changing one of the edit's two fields, as the other still stands on the server alone", async () => {
+      const held = await api.createMachine("Raw conflicts 1b", belmont.id);
+      const raw = await connect(held, "51319", randomUUID());
+      const shot = shotOf("conflict-raw-part-gone", "2026-11-12T10:30:00.000Z", "51319", { enjoyment: 4, espressoNotes: "As pulled" });
+      await report(raw, shot);
+      await edit("conflict-raw-part-gone", { rating: 8, note: "Said at the office" });
+      const first = await next(raw, (message) => message.type === "shotEdit");
+      raw.send({ type: "shotEdited", id: first.id, outcome: "changed" });
+      // The tablet changed the note later than the edit, whose rating still awaits it.
+      const later = tabletTime(60);
+      await reportUpdate(raw, shot, later, { espressoNotes: "Said at the tablet" });
+      const second = await next(raw, (message) => message.type === "shotEdit" && message.version === later);
+      expect(await read("conflict-raw-part-gone")).toMatchObject({ editStanding: "awaitingTablet" });
+      // Then the Shot is deleted there, before the rating is written.
+      raw.send({ type: "shotEdited", id: second.id, outcome: "notHeld" });
+      await expect.poll(() => view("conflict-raw-part-gone")).toEqual({ enjoyment: 8, notes: "Said at the tablet", edits: [[{ rating: 8, note: "Said at the office" }, "noTablet", ["note"]]] });
+      // The rating stands on the server alone, so the Shot says so, though its note reads as the tablet's (#514).
+      expect(await read("conflict-raw-part-gone")).toMatchObject({ editStanding: "noTablet" });
+      await raw.close();
+    });
+
     it("takes the tablet's report of a write under way as that write, not a change of the tablet's, so an edit made meanwhile stands", async () => {
       const held = await api.createMachine("Raw conflicts 2", belmont.id);
       const raw = await connect(held, "51312", randomUUID());
