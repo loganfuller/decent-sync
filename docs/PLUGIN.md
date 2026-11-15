@@ -207,7 +207,9 @@ tablet that holds it
 ([ADR-0031](adr/0031-a-shots-rating-and-note-are-edited-through-the-server.md)).
 The plugin writes such an edit into the Shot on the tablet that holds it, so
 that tablet's Skin and DYE2 show what the server shows. It is the only thing
-the plugin writes to a tablet's Shots.
+the plugin writes to a tablet's Shots by itself. A Skin may also have it
+write the same two fields of the tablet's own Shot
+([Editing a Shot's rating and note](#editing-a-shots-rating-and-note)).
 
 - **What.** The rating, on Decaid's scale of 0 to 10, where 0 is unrated,
   the note, where empty is none, or both. The plugin sends Decaid's own Shot
@@ -285,9 +287,10 @@ Skin calls an HTTP endpoint of the plugin's on the tablet, the plugin asks
 the server over its own connection, and the answer comes back in the same
 call. So far a Skin reads the [status](#status), [the Shots at its Machine's
 Location](#the-locations-shots), [any one of them whole](#a-shot-whole) and
-[a Recipe's Reference Shot](#a-recipes-reference-shot), and
-[chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot). A
-Shot's rating and note follow in a later release.
+[a Recipe's Reference Shot](#a-recipes-reference-shot),
+[chooses a Recipe's Reference Shot](#choosing-a-recipes-reference-shot), and
+[edits the rating and note of any Shot at the
+Location](#editing-a-shots-rating-and-note).
 
 ### Calling the plugin
 
@@ -303,11 +306,19 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
 - **Answers come quickly or not at all.** Decaid gives a plugin 30 seconds to
   answer. The plugin gives the server 10: a request still unanswered then is
   refused as `unreachable`. While the plugin isn't connected it refuses at
-  once, without asking.
+  once, without asking. Before it asks the server the plugin may ask Decaid
+  first: for DYE2's recipes, to read which Recipe `reference` names, and to
+  write [an edit of a Shot](#editing-a-shots-rating-and-note). Decaid's own
+  API answers in milliseconds. Were it to take most of the 30 seconds, the
+  call could run past them, and Decaid then answers it itself, with an
+  `error` and no `code`. Treat that as `unreachable`: a choice or an edit
+  may still have been made.
 - **Nothing is queued.** A request refused as `unreachable` was not kept, and
   is not sent later. Ask again. That holds for
-  [a choice](#choosing-a-recipes-reference-shot) too: one refused while the
-  plugin isn't connected changes nothing, then or later.
+  [a choice](#choosing-a-recipes-reference-shot) and for
+  [an edit of another tablet's Shot](#editing-a-shots-rating-and-note) too:
+  one refused while the plugin isn't connected changes nothing, then or
+  later.
 - **Decaid answers some requests itself.** It answers 404 while the plugin
   isn't loaded, and for an endpoint the installed plugin doesn't have, such
   as `status` on the 1.9.0 plugin or an earlier one.
@@ -325,6 +336,9 @@ Decaid serves a plugin's endpoints beside its own API, each by its name alone:
   Ask the status, which doesn't wait, to learn whether the Machine is
   served. A `reference` refused so is answered from the tablet's copy where
   it has one.
+- **An edit of a Shot is asked at once.** It waits for nothing the tablet
+  has still to send, as it is of a Shot another tablet holds, so a Shot can
+  be rated while a tablet catches up.
 
 Anything on the tablet's network can call these endpoints, as it can Decaid's
 own API: Decaid checks no caller. That network can already change the
@@ -585,6 +599,80 @@ The tablet's own [copy](#reference-shot-copies) is replaced a moment after
 the answer, for a Recipe in a slot, and a [push](#changes) follows it, on
 this tablet and on the others at the Location.
 
+### Editing a Shot's rating and note
+
+`PUT /api/v1/plugins/decent-sync.reaplugin/shot?id=<Shot's id>` sets a
+Shot's rating, its note or both
+([ADR-0031](adr/0031-a-shots-rating-and-note-are-edited-through-the-server.md)).
+It is one call for any Shot in [the Location's list](#the-locations-shots),
+whichever tablet holds it: a Skin needn't know where a Shot is held. Send
+what to set in a JSON body, and leave out what to leave alone:
+
+```json
+{ "rating": 8, "note": "Sweet, a little thin" }
+```
+
+| Field | What it is |
+|---|---|
+| `rating` | A number from 0 to 10, whole or not, on Decaid's scale, where 0 is unrated. |
+| `note` | Text of at most 40,000 characters, where empty is none. |
+
+It answers 200 with the Shot's rating and note as they now are:
+
+```json
+{ "rating": 8, "note": "Sweet, a little thin" }
+```
+
+`rating` is null where the Shot has none, and `note` where it has none or
+only blanks, as [a Reference Shot's](#a-recipes-reference-shot) are.
+
+- **The tablet's own Shot works without the server.** The plugin sends the
+  edit to Decaid's own Shot update (`PUT /api/v1/shots/{id}`) first, with
+  only the fields given. Where Decaid holds the Shot it is written at once,
+  whether or not the plugin is connected, and whether or not the Machine is
+  served: a Capture-only Machine's Skin rates its own Shots this way too.
+  The edit reaches the server as any edit made on the tablet does, when the
+  plugin is next connected, with no person and nothing added to the Shot's
+  list of edits.
+- **Any other Shot goes through the server.** Where Decaid answers that the
+  tablet doesn't hold the Shot, the plugin asks the server. The server
+  applies the edit at once, so the management interface, the Location's
+  list and a Shot Summary show it, and writes it into the Shot on the
+  tablet that holds it, now if that tablet is connected and otherwise when
+  it next connects ([A Shot's rating and note](#a-shots-rating-and-note)).
+- **Only the Shots in the Location's list.** Any other is refused as
+  `noSuchShot`: another Location's, an id that names nothing, and the
+  Reference Shot of one of the Location's Recipes that was pulled
+  elsewhere, though the tablet can read that one.
+- **Another tablet's Shot is edited now or not at all.** While the plugin
+  isn't connected the request is refused as `unreachable` at once, or as
+  `serverTooOld`, without being sent, and nothing is kept to send later.
+- **An edit the plugin sent may have been made, whatever it answers.** As
+  for [a choice](#choosing-a-recipes-reference-shot), the plugin also
+  answers `unreachable` when it sent the request and has no answer. After
+  one, read the Shot again once the plugin is connected before showing the
+  edit as failed.
+- **The later edit of a field wins.** Where the rating or the note was
+  changed on the tablet that holds the Shot later than this edit, without
+  seeing it, that tablet's stands, and nothing is kept of the other. An
+  edit of the rating never undoes a note, or the reverse.
+- **The Machine is named, and no person.** The Shot's page in the management
+  interface lists an edit made through the server with the Machine it was
+  made on, and no account. Anyone at the tablet may edit.
+- **Only the rating and the note.** Any other field in the body, a null, a
+  rating outside 0 to 10, a note that is too long or holds a NUL or half of
+  a surrogate pair, and a body with neither is refused as `invalidRequest`,
+  whichever tablet holds the Shot, before Decaid or the server is asked. To
+  clear a rating send 0, and to clear a note send empty text.
+- **If Decaid refuses its own Shot's edit,** or doesn't answer, the request
+  is refused as `shotUnwritten`, and the server is not asked.
+- **Nothing is pushed** when a Shot is edited, but for [a Recipe's Reference
+  Shot](#changes), whose copy on each tablet follows the edit. Read the
+  list again to show an edit made elsewhere.
+- **Older releases.** A tablet whose plugin is connected to a 1.9.0 server,
+  as for a moment during an upgrade, edits its own Shots as above, and is
+  refused any other as `serverTooOld`.
+
 ### Refusals
 
 Every refusal is an HTTP status with a `code` to act on and a `message` to
@@ -597,23 +685,26 @@ show. A Skin refused as `unreachable`, `serverTooOld`, `captureOnly` or
 | `serverTooOld` | 503 | The plugin is connected to a server of the release before these endpoints, as for a moment during an upgrade. Treat it as `unreachable`. |
 | `captureOnly` | 409 | The Machine is a [Capture-only Machine](#capture-only-machines): at no Location, or with its sharing off. |
 | `hardwareMismatch` | 409 | The machine connected to the tablet is not the one the tablet's token was issued for. Its records wait as a Pending Machine's, or go to the Machine that hardware belongs to, until an Admin settles it on the Machines page. |
-| `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for. For a choice: the Shot is none this tablet can open. |
+| `noSuchShot` | 404 | No Shot at the Machine's Location has the id asked for, or to be edited. For a choice: the Shot is none this tablet can open. |
 | `noSuchRecipe` | 404 | No DYE2 recipe on the tablet has the record id asked for, or the one that has it is no Recipe of the Machine's Location. For a choice: its record carries no Recipe's id, or the server has no such Recipe. |
 | `notAtThisLocation` | 403 | A choice only: the Recipe belongs to another Location than the Machine's. |
 | `archived` | 409 | A choice only: the Recipe is Archived. |
 | `recipesUnread` | 500 | Decaid didn't give the plugin DYE2's recipes, or gave them in a shape it doesn't recognise, so it couldn't tell which Recipe was asked about. Ask again. |
-| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, `recipe` or, for a choice, `shotId`, or one longer than 2,048 characters. The `message` says which. |
+| `shotUnwritten` | 500 | An edit of the tablet's own Shot only: Decaid refused the update, or didn't answer it. The `message` gives Decaid's status. Ask again. |
+| `invalidRequest` | 400 | The request is not one the endpoint can read: a `limit` that is no whole number from 1 to 50, a `cursor` no page gave, or no `id`, `recipe` or, for a choice, `shotId`, or one longer than 2,048 characters, or, for an edit, a body that sets neither a rating nor a note, or sets one to a value it can't take, or sets anything else. The `message` says which. |
 
 The plugin answers some of these itself, at once, without asking the server:
 `unreachable` while it isn't connected, `serverTooOld`, `recipesUnread`,
-`noSuchRecipe` for a record that carries no Recipe's id, and `invalidRequest`
-for a `limit`, a missing `id`, `recipe` or `shotId`, or an `id`, `recipe`,
-`shotId` or `cursor` too long to be one. The server answers the rest, and
-tells a Machine that isn't served so whatever it asked for.
+`shotUnwritten`, `noSuchRecipe` for a record that carries no Recipe's id, and
+`invalidRequest` for a `limit`, a missing `id`, `recipe` or `shotId`, an
+`id`, `recipe`, `shotId` or `cursor` too long to be one, or an edit's body.
+The server answers the rest, and tells a Machine that isn't served so
+whatever it asked for, but for an edit of the tablet's own Shot, which the
+server is never asked.
 
 A request with a method an endpoint doesn't take answers 405, with an `error`
-in place of a `code`. Every endpoint takes GET, and `reference` takes PUT
-too.
+in place of a `code`. Every endpoint takes GET, and `reference` and `shot`
+take PUT too.
 
 ### Changes
 

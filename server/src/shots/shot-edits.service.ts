@@ -1,10 +1,12 @@
 import { ForbiddenException, Injectable } from "@nestjs/common";
-import { type ShotEdit, isRecordId } from "@decent-sync/protocol";
+import { type ShotEdit, type SkinShotEdited, isRecordId, shotRatingAndNote } from "@decent-sync/protocol";
 import { type Scope, includesLocation } from "../accounts/scope.js";
 import { Prisma } from "../generated/prisma/client.js";
+import type { ReportingTablet } from "../library/intake.js";
 import { notify } from "../notifications.js";
 import { PrismaService } from "../prisma.service.js";
 import { shotListedSql } from "./links.js";
+import { type AskingTablet, locationLists } from "./location-shots.js";
 import { announceReferenceShots } from "./reference-announcements.js";
 import { type ShotEditFields, awaitingSql, settleStoredVersion, standingSql, undecidedSql } from "./shot-edits.js";
 import { lockShot, shotNotFound } from "./shots.service.js";
@@ -51,16 +53,55 @@ export interface EditedTablet {
  *
  * An Admin edits any Shot the Shots list lists. Staff edit those at a
  * Location they work at, so a Shot at no Location is an Admin's alone. A
- * Viewer changes nothing, which the session guard sees to.
+ * Viewer changes nothing, which the session guard sees to. A served tablet
+ * edits the Shots its list lists, for a Skin (`makeOnTablet`, ticket #515):
+ * those it doesn't hold, as its plugin writes the ones it does through
+ * Decaid, which reach the server as that tablet's own reports, and are no
+ * edits here.
  */
 @Injectable()
 export class ShotEditsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Makes an edit: sets the Shot's rating, note or both, keeps the edit and
-   * tells the instance holding the Shot's tablet. 404 for a Shot the Shots
-   * list doesn't list, and 403 for one the editor's Scope doesn't include.
+   * Makes an account's edit: sets the Shot's rating, note or both, keeps
+   * the edit and tells the instance holding the Shot's tablet (`apply`). 404
+   * for a Shot the Shots list doesn't list, and 403 for one the editor's
+   * Scope doesn't include. It holds the Shot's lock, as storing a delivery
+   * of the Shot does, so the two are decided one at a time.
+   */
+  async make(shotId: string, fields: ShotEditFields, editor: ShotEditor): Promise<void> {
+    if (!isRecordId(shotId)) throw shotNotFound();
+    await this.prisma.$transaction(async (tx) => {
+      await lockShot(tx, shotId);
+      const [shot] = await tx.$queryRaw<{ locationId: string | null }[]>`
+        SELECT s.location_id::text AS "locationId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
+      if (!shot) throw shotNotFound();
+      if (!includesLocation(editor.scope, shot.locationId)) throw new ForbiddenException("You can edit only the Shots at a Location you work at");
+      await this.apply(tx, shotId, fields, { accountId: editor.accountId, connectedAppId: editor.connectedAppId, machineId: null, tabletId: null });
+    });
+  }
+
+  /**
+   * Makes an edit a Skin made on a tablet (ticket #515, ADR-0031), of a
+   * Shot that tablet's list lists: one credited to the Location its Machine
+   * is served at (`locationLists`). It is kept with the Machine and tablet
+   * it was made on, and no account. Gives the Shot's rating and note as
+   * they then are, or null for any other Shot, whether or not the server
+   * holds it. In the transaction of the request it answers, which holds
+   * the Shot's lock already (`SkinRequestsService`).
+   */
+  async makeOnTablet(tx: Prisma.TransactionClient, shotId: string, fields: ShotEditFields, tablet: ReportingTablet & AskingTablet): Promise<SkinShotEdited | null> {
+    if (!(await locationLists(tx, tablet, shotId))) return null;
+    return shotRatingAndNote(await this.apply(tx, shotId, fields, { accountId: null, connectedAppId: null, machineId: tablet.machineId, tabletId: tablet.tabletId }));
+  }
+
+  /**
+   * Applies an edit to a Shot the Shots list lists, under the Shot's lock:
+   * sets its rating, note or both, keeps the edit with who made it, an
+   * account and any Connected App or a Machine and tablet, and tells the
+   * instance holding the Shot's tablet. Gives the Shot's record as it then
+   * is.
    *
    * The Shot's record is changed as Decaid's own Shot update changes it
    * (`_updateShot` in decaid:lib/src/services/webserver/shots_handler.dart),
@@ -80,50 +121,45 @@ export class ShotEditsService {
    * (`settleStoredVersion`), so the edit is made over a record that holds
    * the edits before it, and held values that are the tablet's.
    *
-   * It holds the Shot's lock, as storing a delivery of the Shot does, so
-   * the two are decided one at a time, and edits of one Shot are numbered
-   * in the order they were applied. The tablet to tell is read from the
-   * row as it is changed: a tablet's index claiming a Shot that had none
-   * (`claimListed`) takes that row too, so it either came first, and is
-   * told, or waits for the edit, and finds it as its connection looks
-   * once the index is answered.
+   * Under the Shot's lock, edits of one Shot are numbered in the order
+   * they were applied. The tablet to tell is read from the row as it is
+   * changed: a tablet's index claiming a Shot that had none (`claimListed`)
+   * takes that row too, so it either came first, and is told, or waits for
+   * the edit, and finds it as its connection looks once the index is
+   * answered.
    */
-  async make(shotId: string, fields: ShotEditFields, editor: ShotEditor): Promise<void> {
-    if (!isRecordId(shotId)) throw shotNotFound();
+  private async apply(
+    tx: Prisma.TransactionClient,
+    shotId: string,
+    fields: ShotEditFields,
+    maker: { accountId: string | null; connectedAppId: string | null; machineId: string | null; tabletId: string | null },
+  ): Promise<Prisma.JsonValue> {
     const annotations = { ...(fields.rating !== undefined && { enjoyment: fields.rating }), ...(fields.note !== undefined && { espressoNotes: fields.note }) };
     const aliases = fields.note === undefined ? {} : { shotNotes: fields.note };
     const rating = fields.rating === undefined ? Prisma.empty : Prisma.sql`, enjoyment = ${fields.rating}::double precision`;
-    await this.prisma.$transaction(async (tx) => {
-      await lockShot(tx, shotId);
-      const [shot] = await tx.$queryRaw<{ locationId: string | null }[]>`
-        SELECT s.location_id::text AS "locationId" FROM shots AS s WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
-      if (!shot) throw shotNotFound();
-      if (!includesLocation(editor.scope, shot.locationId)) throw new ForbiddenException("You can edit only the Shots at a Location you work at");
-      await settleStoredVersion(tx, shotId);
-      // Set in place, so the rest of the record stays as Decaid sent it. Each expression reads the row as it was before the edit.
-      const awaited = Prisma.sql`EXISTS (SELECT 1 FROM shot_edits AS e WHERE e.shot_id = shots.id AND ${awaitingSql("e")})`;
-      const [{ tabletId }] = await tx.$queryRaw<[{ tabletId: string | null }]>`
-        UPDATE shots SET
-          held_rating = CASE WHEN ${awaited} THEN held_rating
-            WHEN jsonb_typeof(record #> '{annotations,enjoyment}') = 'number' THEN (record #>> '{annotations,enjoyment}')::double precision ELSE 0 END,
-          held_note = CASE WHEN ${awaited} THEN held_note
-            WHEN jsonb_typeof(record #> '{annotations,espressoNotes}') = 'string' THEN record #>> '{annotations,espressoNotes}' ELSE '' END,
-          held_version_at = CASE WHEN ${awaited} THEN held_version_at ELSE version_at END,
-          record = jsonb_set(
-            record, '{annotations}',
-            (CASE WHEN jsonb_typeof(record -> 'annotations') = 'object' THEN record -> 'annotations' ELSE '{}'::jsonb END) || ${JSON.stringify(annotations)}::jsonb
-          ) || ${JSON.stringify(aliases)}::jsonb
-          ${rating}
-        WHERE id = ${shotId}
-        RETURNING tablet_id::text AS "tabletId"`;
-      await tx.shotEdit.create({
-        data: { shotId, rating: fields.rating ?? null, note: fields.note ?? null, accountId: editor.accountId, connectedAppId: editor.connectedAppId },
-      });
-      // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
-      await announceReferenceShots(tx, Prisma.sql`s.id = ${shotId}`);
-      // A Shot no tablet is known to hold, as one stored before Shots kept their tablet, waits for a tablet's index to list it.
-      if (tabletId !== null) await notify(tx, "shot_edits", tabletId);
-    });
+    await settleStoredVersion(tx, shotId);
+    // Set in place, so the rest of the record stays as Decaid sent it. Each expression reads the row as it was before the edit.
+    const awaited = Prisma.sql`EXISTS (SELECT 1 FROM shot_edits AS e WHERE e.shot_id = shots.id AND ${awaitingSql("e")})`;
+    const [{ tabletId, record }] = await tx.$queryRaw<[{ tabletId: string | null; record: Prisma.JsonValue }]>`
+      UPDATE shots SET
+        held_rating = CASE WHEN ${awaited} THEN held_rating
+          WHEN jsonb_typeof(record #> '{annotations,enjoyment}') = 'number' THEN (record #>> '{annotations,enjoyment}')::double precision ELSE 0 END,
+        held_note = CASE WHEN ${awaited} THEN held_note
+          WHEN jsonb_typeof(record #> '{annotations,espressoNotes}') = 'string' THEN record #>> '{annotations,espressoNotes}' ELSE '' END,
+        held_version_at = CASE WHEN ${awaited} THEN held_version_at ELSE version_at END,
+        record = jsonb_set(
+          record, '{annotations}',
+          (CASE WHEN jsonb_typeof(record -> 'annotations') = 'object' THEN record -> 'annotations' ELSE '{}'::jsonb END) || ${JSON.stringify(annotations)}::jsonb
+        ) || ${JSON.stringify(aliases)}::jsonb
+        ${rating}
+      WHERE id = ${shotId}
+      RETURNING tablet_id::text AS "tabletId", record`;
+    await tx.shotEdit.create({ data: { shotId, rating: fields.rating ?? null, note: fields.note ?? null, ...maker } });
+    // Each tablet keeping a copy of it as a Recipe's Reference Shot is sent it as it is now.
+    await announceReferenceShots(tx, Prisma.sql`s.id = ${shotId}`);
+    // A Shot no tablet is known to hold, as one stored before Shots kept their tablet, waits for a tablet's index to list it.
+    if (tabletId !== null) await notify(tx, "shot_edits", tabletId);
+    return record;
   }
 
   /**

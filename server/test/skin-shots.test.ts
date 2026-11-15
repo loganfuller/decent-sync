@@ -369,7 +369,7 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     expect((await whole(labTablet, "skin-lab")).status).toBe(200);
   });
 
-  it("refuses a request it can't read with what is wrong with it, and answers nothing but a GET", async () => {
+  it("refuses a request it can't read with what is wrong with it, and a method the endpoint doesn't take", async () => {
     const asked = requestsSent(left).length;
     for (const limit of ["0", "51", "-1", "2.5", "ten", ""]) expect(await call(left, "shots", { limit }), limit).toEqual(invalidRequest("limit"));
     expect(await call(left, "shot")).toEqual(invalidRequest("id"));
@@ -377,9 +377,10 @@ describe("A Location's Shots on its tablets", { timeout: 120_000 }, () => {
     // Longer than any Shot's id or any cursor the server gives: never sent, whatever its length.
     expect(await call(left, "shot", { id: "x".repeat(2049) })).toEqual(invalidRequest("id"));
     expect(await call(left, "shots", { cursor: "x".repeat(2049) })).toEqual(invalidRequest("cursor"));
-    for (const endpoint of ["shots", "shot"] as const) {
+    // A PUT to `shot` edits a Shot's rating and note (#515, skin-shot-edits.test.ts).
+    for (const [endpoint, allowed] of [["shots", "GET"], ["shot", "GET, PUT"]] as const) {
       const posted = await left.callEndpoint(endpoint, { method: "POST", body: {}, query: { id: "skin-left-early" } });
-      expect([posted.status, posted.headers.Allow]).toEqual([405, "GET"]);
+      expect([posted.status, posted.headers.Allow]).toEqual([405, allowed]);
     }
     // None of those was asked of the server. An id of the longest length asked is, and names no Shot.
     expect(requestsSent(left)).toHaveLength(asked);

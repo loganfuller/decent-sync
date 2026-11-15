@@ -119,7 +119,8 @@ Each server has one owner: a household, or a business with all of its sites.
 - **Rated away from its tablet.** A Shot's rating, up to five stars as
   DYE2 shows it, and its note can be edited on its page, or by an
   assistant, by an Admin, or by Staff for Shots at the Locations they
-  work at. The Shot shows the edit at once, and the
+  work at, and by a Skin on any tablet at the Shot's Location. The Shot
+  shows the edit at once, and the
   plugin writes it into the Shot on the tablet that holds it, now or when
   that tablet next connects, so its Skin and DYE2 show the same. Until
   then the Shot's page says the edit awaits its tablet, or that it has no
@@ -127,7 +128,7 @@ Each server has one owner: a household, or a business with all of its sites.
   rating or the note was changed on that tablet later than the edit, the
   tablet's stands, and the edit is kept, marked as dropped. A card on the
   page lists each edit, with who made it and any Connected App it was made
-  through.
+  through, or the Machine whose tablet it was made on.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and

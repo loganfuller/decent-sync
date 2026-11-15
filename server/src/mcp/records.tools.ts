@@ -78,7 +78,11 @@ const shotEdit = z.object({
   account: z
     .object({ id, name: z.string().nullable().describe("Shown to Admins only.") })
     .nullable()
-    .describe("Who made it; null once the account is gone."),
+    .describe("The account that made it; null for one made on a Machine's tablet, and once the account is gone."),
+  machine: z
+    .object({ id, name: z.string() })
+    .nullable()
+    .describe("The Machine whose tablet it was made on, for a Shot that tablet doesn't hold, which names no person; null for an account's, and once the Machine is gone."),
   connectedApp: z
     .object({ id, name: z.string().describe("The name the app gave itself."), host: z.string().describe("The host of its client id, which the app can't choose.") })
     .nullable()
@@ -742,7 +746,7 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
 
 /** An edit of a Shot as get_shot lists it, from the REST API's, with its time on the Shot's Location's clock. */
 function shotEditOf(edit: ShotEditView, timeZone: string | undefined): z.infer<typeof shotEdit> {
-  return { madeAt: zonedTime(new Date(edit.madeAt), timeZone), account: edit.account, connectedApp: edit.connectedApp, ...edit.fields, state: edit.state, dropped: edit.dropped };
+  return { madeAt: zonedTime(new Date(edit.madeAt), timeZone), account: edit.account, machine: edit.machine, connectedApp: edit.connectedApp, ...edit.fields, state: edit.state, dropped: edit.dropped };
 }
 
 /** The fields of a row, or of an item it names, that have a value: all but those null, keeping an item's id, null where it isn't linked to the Library's. */

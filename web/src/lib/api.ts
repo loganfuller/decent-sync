@@ -587,13 +587,16 @@ export interface ShotPage {
   offset: number;
 }
 
-/** An edit of a Shot's rating or note made through the server (ADR-0031): in the management interface or through a Connected App. */
+/** An edit of a Shot's rating or note made through the server (ADR-0031): in the management interface, through a Connected App, or on a tablet that doesn't hold the Shot. */
 export interface ShotEdit {
   id: string;
   /** The fields it set, with the values it set them to: a rating, 0 for unrated, a note, empty for none, or both. */
   fields: { rating?: number; note?: string };
-  /** Who made it: named to Admins, and to Staff and Viewers by its id only; null once the account is gone. */
+  /** The account that made it: named to Admins, and to Staff and Viewers by its id only; null for one made on a Machine's tablet, and once the account is gone. */
   account: { id: string; name: string | null } | null;
+  /** The Machine whose tablet it was made on, and that tablet's id; each null for an account's, and once the Machine or tablet is gone. */
+  machine: { id: string; name: string } | null;
+  tabletId: string | null;
   /** The Connected App, such as an assistant, the account made it through; null for the management interface. */
   connectedApp: { id: string; name: string; host: string } | null;
   madeAt: string;

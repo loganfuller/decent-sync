@@ -16,7 +16,8 @@ import { expectTip } from "./support/tooltips.js";
 // each, the Connected App one was made through, and one dropped for a later
 // change on the tablet marked so; and the page saying that an edit has no
 // tablet to reach. A Viewer and Staff elsewhere read all of
-// it and have no control. Simulated tablets running the built plugin hold
+// it and have no control. An edit made on another Machine's tablet, for a
+// Skin (#515), names that Machine in the card. Simulated tablets running the built plugin hold
 // Shots derived from a scrubbed real record, changing only their id, time,
 // recorded hardware, rating and note, and carry out Decaid's own Shot
 // update. The Connected App is a loopback test app. Serials are made up,
@@ -170,7 +171,7 @@ test("the card of edits, closed until opened, lists each with who made it, the C
   await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("3 stars");
   const card = page.getByRole("region", { name: "Rating and note edits" });
   await expect(card.getByRole("table")).toHaveCount(0);
-  await expectTip(card, "Rating and note edits", /^Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, or through a Connected App, such as an assistant\./);
+  await expectTip(card, "Rating and note edits", /^Each edit of this Shot's rating or note made away from the tablet that holds it, newest first: here, through a Connected App, such as an assistant, or on a tablet at its Location that doesn't hold it, which names that tablet's Machine and no person\./);
   await openCard(page, "Rating and note edits");
   const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
   await expect(listed).toHaveCount(4);
@@ -241,6 +242,29 @@ test("a Viewer and Staff elsewhere read a Shot's rating, note and edits, with no
   await page.goto(`/shots/${LAB_SHOT}`);
   const made = await openCard(page, "Rating and note edits");
   expect((await cells(rows(made.getByRole("table")))).map(([by]) => by)).toEqual(["Sam Staff", "Sam Staff"]);
+});
+
+test("an edit made on another Machine's tablet is listed with that Machine, linked to its page, and no account", async ({ page }) => {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  const second = await adopt(page, "Belmont 2", "51453", locations.find((location) => location.name === "Belmont")!.id, []);
+  await expect.poll(() => online(page, "Belmont 2")).toBe(true);
+  // A Shot of this test's own, which the first tablet pulls and holds.
+  const BESIDE = "belmont-beside";
+  belmontTablet.pullShot(shotAt(BESIDE, "2026-11-10T15:20:00Z", "51451", { enjoyment: 6, espressoNotes: "Bright" }));
+  await expect.poll(async () => (await page.request.get(`/api/shots/${BESIDE}`)).status()).toBe(200);
+  // A Skin on the tablet beside the one that pulled the Shot rates it, through the plugin's endpoint.
+  const answer = await second.callEndpoint("shot", { method: "PUT", query: { id: BESIDE }, body: { rating: 2 } });
+  expect([answer.status, JSON.parse(answer.body)]).toEqual([200, { rating: 2, note: "Bright" }]);
+  await expect.poll(async () => (await edits(page, BESIDE)).map((edit) => edit.state)).toEqual(["written"]);
+  expect(await onTablet(belmontTablet, BESIDE)).toEqual({ enjoyment: 2, espressoNotes: "Bright" });
+
+  await page.goto(`/shots/${BESIDE}`);
+  await expect(field(page.getByRole("region", { name: "Rating and note", exact: true }), "Rating")).toHaveText("1 star");
+  const card = await openCard(page, "Rating and note edits");
+  const listed = rows(card.getByRole("table", { name: "Rating and note edits" }));
+  expect(await cells(listed)).toEqual([["Belmont 2", "Rating: 1 star", "Written to its tablet"]]);
+  const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
+  await expect(listed.first().getByRole("link", { name: "Belmont 2" })).toHaveAttribute("href", `/machines/${machines.find((machine) => machine.name === "Belmont 2")!.id}`);
 });
 
 /** A Shot pulled at a UTC time on the hardware of that serial, derived from the real one with the annotations given beside its own. */

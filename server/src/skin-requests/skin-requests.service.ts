@@ -1,11 +1,14 @@
 import { Injectable } from "@nestjs/common";
-import { type NotServed, type SkinAnswer, type SkinReference, type SkinRefusal, type SkinRequest, type SkinStatus } from "@decent-sync/protocol";
+import { type NotServed, type SkinAnswer, type SkinReference, type SkinRefusal, type SkinRequest, type SkinShotEdited, type SkinStatus } from "@decent-sync/protocol";
 import { Prisma } from "../generated/prisma/client.js";
 import { INTAKE_TRANSACTION, lockHeldMachine } from "../library/intake.js";
 import { RecipeEditsService } from "../library/recipe-edits.service.js";
 import { PrismaService } from "../prisma.service.js";
 import { type DueCopy, recipeReference, referenceCopiesDue } from "../shots/location-references.js";
 import { type AskingTablet, locationShot, locationShots } from "../shots/location-shots.js";
+import { ShotEditsService } from "../shots/shot-edits.service.js";
+import type { ShotEditFields } from "../shots/shot-edits.js";
+import { lockShot } from "../shots/shots.service.js";
 import type { Identity } from "../sync/identity.js";
 
 // What a plugin asks the server for a Skin on its tablet (ADR-0030,
@@ -36,14 +39,19 @@ import type { Identity } from "../sync/identity.js";
 // Reference Shot of each Recipe in a slot there, which the connection's
 // `ReferenceCopies` sends as `referenceCopiesDue` here finds them due.
 //
-// One ask changes something: `chooseReference` makes a Shot the tablet may
+// Two asks change something. `chooseReference` makes a Shot the tablet may
 // read whole the Reference Shot of one of its Location's Recipes (ticket
 // #511, amending ADR-0029), through the service the management interface
-// and an assistant's tool choose one through (`RecipeEditsService`). It is
+// and an assistant's tool choose one through (`RecipeEditsService`). And
+// `editShot` sets the rating, the note or both of a Shot its list lists
+// (ticket #515, ADR-0031), through the service the REST API's route and an
+// assistant's tool edit one through (`ShotEditsService`), kept with its
+// Machine and tablet and no account. Its plugin asks only for a Shot its
+// tablet doesn't hold, and writes the ones it does through Decaid. Each is
 // made while its request is handled or not at all: nothing of it is kept to
 // make later. Its answer may still be lost on the way, as when the
 // connection closes meanwhile, so a plugin that sent the request and has no
-// answer can't tell its Skin whether the choice was made.
+// answer can't tell its Skin whether it was made.
 
 /** The connection a request arrived on: its session, its token's Machine, its tablet, and who that tablet is, as its hello settled it. */
 export interface AskingConnection {
@@ -58,6 +66,7 @@ export class SkinRequestsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly recipeEdits: RecipeEditsService,
+    private readonly shotEdits: ShotEditsService,
   ) {}
 
   /**
@@ -98,7 +107,37 @@ export class SkinRequestsService {
         const outcome = await this.chooseReference(connection, request.recipeId, request.shotId);
         return outcome && { ...answer, ask: "chooseReference", ...outcome };
       }
+      case "editShot": {
+        const { rating, note } = request;
+        const outcome = await this.editShot(connection, request.shotId, { ...(rating !== undefined && { rating }), ...(note !== undefined && { note }) });
+        return outcome && { ...answer, ask: "editShot", ...outcome };
+      }
     }
+  }
+
+  /**
+   * Sets the rating, the note or both of one of the Shots at the Location
+   * the connection's Machine is served at, as a Skin on its tablet edited
+   * it (ticket #515), and gives the Shot's rating and note as they then
+   * are; or why the edit is refused, a Shot its list doesn't list as no
+   * such Shot; or null as `answer` gives it. Whether the Machine is served
+   * and where, and the edit, are of one transaction, which holds the
+   * Machine's row as a choice of a Reference Shot does (`chooseReference`),
+   * so an edit is made only by the connection holding a Machine that is
+   * served at the Shot's Location as it commits. The Shot's lock is taken
+   * before that row, as storing a Shot takes them, crediting it
+   * (`ShotsService.store`), so the two never wait on each other.
+   */
+  private editShot(connection: AskingConnection, shotId: string, fields: ShotEditFields): Promise<{ result: SkinShotEdited } | { refused: SkinRefusal } | null> {
+    return this.prisma.$transaction(async (tx) => {
+      await lockShot(tx, shotId);
+      if (!(await lockHeldMachine(tx, connection))) return null;
+      const status = await this.status(tx, connection);
+      if (status === null) return null;
+      if (status.notServed !== undefined || status.location === null) return { refused: status.notServed ?? "captureOnly" };
+      const result = await this.shotEdits.makeOnTablet(tx, shotId, fields, { locationId: status.location.id, machineId: connection.machineId, tabletId: connection.tabletId });
+      return result ? { result } : { refused: "noSuchShot" };
+    }, INTAKE_TRANSACTION);
   }
 
   /**

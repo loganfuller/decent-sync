@@ -518,11 +518,14 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   `GET /api/shots/:id` also gives `edits`, the edits of its rating and note
   made through the server, newest first, the newest 100 of them (A rating and note edited
   through the server, below): each `{ id, fields, account, connectedApp,
-  madeAt, state, dropped, writtenAt }`. `fields` holds what it set, `rating`, `note` or both;
+  machine, tabletId, madeAt, state, dropped, writtenAt }`. `fields` holds what it set, `rating`, `note` or both;
   `account` is who made it (`{ id, name }`, the name given to an Admin
   only, as other accounts' names are personal information) and
   `connectedApp` the Connected App they made it through (`{ id, name,
-  host }`), null for the management interface; `madeAt` is PostgreSQL's
+  host }`), null for the management interface; for an edit made on a
+  Machine's tablet (#515) `account` is null, and `machine` is that Machine
+  (`{ id, name }`) and `tabletId` its tablet, each null for an account's
+  edit; `madeAt` is PostgreSQL's
   time; `state` says where it stands with the tablet holding the Shot:
   `awaitingTablet` until that tablet answers; `written` once it has
   written it, with `writtenAt`; `dropped` where it was never written, as
@@ -591,7 +594,9 @@ it, now if that tablet is connected and otherwise when it next connects.
 Everything else about a Shot still comes only from its tablet. Ticket
 [#514](https://github.com/loganfuller/decent-sync/issues/514) edits them
 on the Shot's page (Management interface, below) and through the MCP
-endpoint's `edit_shot`, and editing from another tablet is #515. Ticket
+endpoint's `edit_shot`, and ticket
+[#515](https://github.com/loganfuller/decent-sync/issues/515) from another
+tablet at the Shot's Location (Edited from a tablet, below). Ticket
 [#513](https://github.com/loganfuller/decent-sync/issues/513) settles what
 happens when such an edit and a change made on the tablet cross, and when
 the tablet no longer holds the Shot (When two edits cross, below).
@@ -644,8 +649,9 @@ the tablet no longer holds the Shot (When two edits cross, below).
   longer holds the Shot (When two edits cross, below). A Shot's read lists the newest 100 (`MAX_LISTED_EDITS`),
   newest first, by that number: a Shot has a handful, and each may hold a
   note as long as a request. An edit made on a Machine's tablet (#515)
-  will name that Machine and tablet and no account, which is why the
-  account is nullable.
+  names that Machine and tablet (`machine_id`, `tablet_id`) and no account,
+  as a version of a Library item made on a tablet does; each is set to
+  null if its Machine or tablet is deleted.
 - **Which tablet.** The tablet that holds a Shot is the one that last
   reported it (`shots.tablet_id`): the one whose report of the Shot's
   newest version the server stored, as a delivery that is no newer than
@@ -709,7 +715,8 @@ the tablet no longer holds the Shot (When two edits cross, below).
   the rating and note of edits still awaiting the tablet, which stay set
   in it (When two edits cross, below). It holds what the edit set, so it
   changes nothing the edit hadn't already, and it makes no row of
-  `shot_edits`: only `PATCH /api/shots/:id` does.
+  `shot_edits`: only an edit made through the server does, by an account
+  or from another tablet.
 - **Only where the tablet is written anything.** Nothing is written to a
   mismatched connection's tablet (ADR-0004), so an edit of a Shot such a
   tablet holds waits until that tablet connects as its Machine. A
@@ -763,6 +770,120 @@ the tablet no longer holds the Shot (When two edits cross, below).
   a Connected App that may only read and a Viewer's; and a long note
   within the budget. `server/test/assistant-budget.test.ts` reads a
   Shot's hundred edits, each note far longer than any typed.
+
+### Edited from a tablet
+
+Ticket [#515](https://github.com/loganfuller/decent-sync/issues/515) has a
+Skin edit a Shot's rating and note from its tablet, whichever tablet holds
+the Shot: a PUT to the plugin's `shot` endpoint with a `rating`, a `note`
+or both (`editShot` in `plugin/src/skin-api.ts`; `PLUGIN.md`, Editing a
+Shot's rating and note). It is one call for any Shot, and two paths.
+
+- **The values** are those the REST route takes (`isShotRating`,
+  `isShotNote`), with a note of at most 40,000 characters
+  (`MAX_SKIN_NOTE_LENGTH` in `protocol/`), so that the request to the
+  server fits one frame however its JSON escapes it. The plugin checks them
+  before it asks Decaid or the server, so a request is refused the same
+  way whichever tablet holds the Shot, where Decaid alone would take a null
+  and a longer note. The answer is the Shot's rating and note as they then
+  are (`SkinShotEdited`, read from its record by `shotRatingAndNote`): the
+  rating null where it has none, and the note null where it has none or
+  only blanks, as a Reference Shot's read gives them.
+- **A Shot the tablet holds** is written through Decaid's own Shot update,
+  `PUT /api/v1/shots/{id}` with only the fields given in its annotations,
+  as the plugin writes an edit the server sends it. The plugin sends that
+  update first and reads nothing before it: Decaid answers 200 with the
+  Shot where it holds it, and 404 where it doesn't, so whether the tablet
+  holds the Shot is decided as it is written. It needs no connection, and
+  not that the Machine is served. Decaid reports the Shot as updated, and
+  that report reaches the server from the plugin's outbox as any edit made
+  on the tablet does: the newer version is stored, no row of `shot_edits`
+  is made, and the Shot names no one. A refusal from Decaid, or no answer,
+  is told the Skin (`shotUnwritten`), and the server is not asked.
+- **Any other Shot** the plugin asks the server to edit, with the request
+  `editShot` (`AI_PROTOCOL_NOTES.md`, Requests for a Skin).
+  `SkinRequestsService.editShot` makes it through `ShotEditsService`, the
+  service the REST route and `edit_shot` use (`makeOnTablet`), so it is
+  applied at once, announced to the tablets keeping the Shot as a Recipe's
+  Reference Shot, written to the tablet that holds the Shot and decided
+  against that tablet's own changes exactly as an account's edit is (When
+  two edits cross, below).
+- **Which Shots.** A served tablet edits the Shots its list lists
+  (`locationLists` in `location-shots.ts`): those credited to the Location
+  its Machine is served at. Any other is refused as no such Shot, whether
+  or not the server holds it. That is narrower than what the tablet reads
+  whole: the Reference Shot of one of its Location's Recipes that was
+  pulled at another Location is read, and not edited. A Machine that is
+  not served is refused as every request is, with why.
+- **A Shot the server believes the asking tablet holds** is edited the
+  same way, where that tablet's Decaid answers that it doesn't, as once
+  the Shot is deleted there. The server makes the edit, as the asking
+  Machine's, and sends it to that same tablet, which answers that it no
+  longer holds the Shot: the edit stays on the server, with no tablet to
+  reach. A Machine's Shot held by the tablet it had before, since
+  replaced, is edited from its new tablet the same way, as that
+  Machine's, and awaits the old tablet, for good if it never connects
+  again. So an edit made on a tablet is nearly always of another
+  Machine's Shot, and not always.
+- **Who made it.** The edit's row names the connection's Machine and its
+  tablet and no account, which the Shot's read gives as `machine` and
+  `tabletId`, `get_shot` as `machine`, and the Shot page's card as the
+  Machine's name, linked.
+- **Made as the request is handled, or not at all.** In one transaction
+  that takes the Shot's lock, then holds the Machine's row if the
+  connection still holds the Machine (`lockHeldMachine`), then reads
+  whether the Machine is served and where, as a choice of a Reference Shot
+  does: a hello taking the Machine, a move and a sharing switch each take
+  that row, so the edit is made only by a connection holding a Machine
+  served at the Shot's Location as it commits. The Shot's lock comes
+  first, as storing a Shot takes them: a Shot's first full record is
+  credited under the Shot's lock, taking its Machine's row. Taken the
+  other way round, an edit of a Shot credited to the asking Machine could
+  wait on that delivery while it waited on the edit.
+- **Never queued.** While the plugin isn't connected, or its server is the
+  previous release's, the request is refused at once, as unreachable or
+  too old to ask, and nothing is kept: no edit is made later. An edit the
+  plugin sent and has no answer to, as when its connection closes
+  meanwhile, may have been made, as a choice may.
+- **At once, behind nothing.** The request waits for nothing the tablet has
+  still to report (`FOLLOWS_REPORTS`): it is of a Shot the tablet doesn't
+  hold, so none of its reports is of that Shot, and a rating given while a
+  tablet catches up after an outage is not refused for the wait. One case
+  is left to the rules above: a Shot deleted on the tablet whose last
+  report is still in its outbox. The server takes the edit first and the
+  report after it, and decides the two as it decides any edit against a
+  tablet's version, by their times.
+- **Releases (ADR-0025).** The ask came in requests' wire revision, 3,
+  before any release had requests, so it has no check of its own. The
+  migration adds two nullable columns, with their indexes and keys, to a
+  table the previous release neither reads nor writes. A tablet the
+  previous release's instance holds during a deploy edits its own Shots as
+  before, as that needs no server, and is refused any other as too old to
+  ask. The previous release's plugin has no `shot` endpoint, so Decaid
+  answers a Skin 404 for it.
+- **Verified** through Seam 1 with the built plugin in simulated tablets,
+  three at one Location and one at another
+  (`server/test/skin-shot-edits.test.ts`): a rating edited on the other
+  tablet's Shot, with the server's read at once, a Shot Summary, the
+  Location's list and the pulling tablet's own Shot afterwards; the edit
+  listed as made on that Machine and tablet with no account, in the REST
+  read and through `get_shot`; a note edited leaving the rating alone,
+  both, and both cleared; the tablet's own Shot written through Decaid
+  with nothing asked of the server and no edit kept; a Reference Shot's
+  copy on each tablet following either kind of edit; an edit made while
+  the pulling tablet is off, written when it reconnects; an edit asked at
+  once while a Shot just pulled is still to be delivered; another
+  Location's Shot refused, though the tablet reads it whole as a
+  Reference Shot; the requests the plugin refuses itself; Decaid's
+  refusal; raw frames from a Capture-only connection and with values no
+  plugin sends; and, with the server stopped, the tablet's own Shot
+  edited and reaching the server once it is back, and another tablet's
+  refused and unchanged then, the edit crossing two instances on one
+  database once asked again; and a Shot deleted on the tablet the server
+  credits with it, edited from that tablet, kept as its Machine's with no
+  tablet to reach. The mixed-versions suite has a tablet the
+  previous release's instance holds edit its own Shot and be refused
+  another's as too old to ask. Nothing was run on a real tablet.
 
 ### When two edits cross
 
@@ -1410,6 +1531,11 @@ tool: only a Skin calls them.
   Reference Shot of one of its Location's Recipes: a Shot its list lists,
   or the Reference Shot of one of those Recipes (`readableWhole`;
   `LIBRARY.md`, A tablet may choose a Recipe's Reference Shot).
+- **A Shot its list lists is one it may edit** (#515): its rating and its
+  note, through a PUT to `shot`, written by Decaid where the tablet holds
+  the Shot and by the server where it doesn't (Edited from a tablet,
+  above). The Reference Shot of one of its Recipes that another Location
+  pulled is not one of them.
 
 `server/test/skin-shots.test.ts` covers them through the built plugin in
 simulated tablets, two at one Location and one at another.
@@ -1584,7 +1710,8 @@ button. The Annotations card leaves the two to it. Its Rating and note
 edits card, closed until opened, lists the read's `edits`, newest first:
 when each was made, on the Shot's Location's clock, who made it, You for
 one's own, by name to an Admin and An account to anyone else, with the
-Connected App it was made through, what it set, and where it stands with
+Connected App it was made through, or, for one made on a tablet (#515),
+the Machine's name, linked to its page, what it set, and where it stands with
 the tablet, one dropped for a later change there marked so, with the
 field where only one of two was. During a deploy the previous release's
 instance gives neither `edits` nor `editStanding`: a page loaded from it

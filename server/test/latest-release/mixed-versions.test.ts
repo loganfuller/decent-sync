@@ -569,6 +569,59 @@ describe("the latest release beside the change", () => {
     expect(await referenceShot(recipe.id)).toBe("mixed-chosen-shot");
   });
 
+  // A Skin edits a Shot's rating and note through the plugin (#515). A Shot
+  // its tablet holds is written through Decaid's own Shot update, which
+  // needs no server, so a tablet the latest release's instance holds, as
+  // during a deploy, edits its own Shots as before, and the edit reaches
+  // that instance as any edit made on the tablet. Any other Shot is a
+  // request, which came with requests' wire revision: it sends that server
+  // nothing and is refused as too old to ask, which changes nothing, and is
+  // made once the change's instance holds the tablet. Once the latest
+  // release has the edit itself, its server makes it.
+  it("edits a tablet's own Shot through Decaid while the latest release's server holds it, and refuses another tablet's as too old to ask", async () => {
+    const api = apis.change;
+    type Record_ = Record<string, unknown>;
+    const location = await api.createLocation("Shot edits from a tablet, both releases", "America/Chicago");
+    const held = await connected("Tablet edits, held by the latest release", "change", "latest release", { location });
+    const other = await connected("Tablet edits, the other tablet", "change", "change", { location });
+    // Pulled now, each on its tablet's own machine, so both are the Location's Shots.
+    for (const [id, { tablet }] of [["mixed-skin-own", held], ["mixed-skin-other", other]] as const) {
+      const fixture = derivedShot(id, { timestamp: new Date().toISOString() });
+      const { model, serialNumber } = (await tablet.callApi("GET", "/machine/info")).body as { model: string; serialNumber: string };
+      const workflow = fixture.workflow as Record_;
+      tablet.pullShot({ ...fixture, workflow: { ...workflow, machine: { ...(workflow.machine as Record_), model, serialNumber } } });
+    }
+    await expect.poll(async () => (await api.get<{ shots: { id: string }[] }>(`/shots?locationId=${location.id}`)).shots.map((shot) => shot.id).sort()).toEqual(["mixed-skin-other", "mixed-skin-own"]);
+    const read = async (id: string) => (await api.get<{ shot: { enjoyment: number | null; edits: { machine: { name: string } | null; account: unknown }[] } }>(`/shots/${id}`)).shot;
+    const edit = async (tablet: SimulatedTablet, id: string, rating: number) => {
+      const answer = await tablet.callEndpoint("shot", { method: "PUT", query: { id }, body: { rating } });
+      return [answer.status, JSON.parse(answer.body)];
+    };
+    const requests = (tablet: SimulatedTablet) => tablet.sent.filter((frame) => (frame as Record_).type === "request");
+
+    // Its own Shot, as before: Decaid writes it, and the latest release's instance takes the tablet's report of it.
+    expect(await edit(held.tablet, "mixed-skin-own", 8)).toEqual([200, expect.objectContaining({ rating: 8 })]);
+    await expect.poll(async () => (await read("mixed-skin-own")).enjoyment).toBe(8);
+    expect((await read("mixed-skin-own")).edits).toEqual([]);
+
+    const made = [200, expect.objectContaining({ rating: 3 })];
+    const before = (await read("mixed-skin-other")).enjoyment;
+    if (wireRevisions()["latest release"] < REQUESTS_WIRE_REVISION) {
+      expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual([503, { code: "serverTooOld", message: expect.stringContaining("too old") }]);
+      expect(requests(held.tablet)).toEqual([]);
+      expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: before, edits: [] });
+    } else {
+      expect(await edit(held.tablet, "mixed-skin-other", 3)).toEqual(made);
+    }
+    // Held by the change's instance, as once the deploy is done, the edit is made, as its Machine's.
+    const moved = await held.tablet.reload({ settings: { ...settingsFor({ token: held.machine.token, serverUrl: servers.change.url }), PollSeconds: 5 } });
+    loaded.push(moved);
+    await expect.poll(() => moved.pushes("changes")).toContainEqual({ what: "connection", connected: true });
+    expect(await edit(moved, "mixed-skin-other", 3)).toEqual(made);
+    expect(await read("mixed-skin-other")).toMatchObject({ enjoyment: 3, edits: [expect.objectContaining({ machine: expect.objectContaining({ name: "Tablet edits, held by the latest release" }), account: null })] });
+    await expect.poll(async () => (((await other.tablet.callApi("GET", "/shots/mixed-skin-other")).body as Record_).annotations as Record_ | undefined)?.enjoyment).toBe(3);
+  });
+
   // An edit of a Shot's rating or note made through the server (#512) is
   // written to the tablet that holds the Shot by a message that came in a
   // wire revision: the server sends it only to a plugin at that revision. So

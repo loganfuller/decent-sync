@@ -12,9 +12,12 @@ import type { Outbox } from "./outbox.js";
  * any one of them, so a Shot just pulled on this tablet is among them, a
  * Recipe's Reference Shot, so a rating just given it on this tablet is in
  * it, and the choice of one (#511), so a Shot pulled seconds ago, which the
- * server has yet to store, is chosen once it has.
+ * server has yet to store, is chosen once it has. An edit of a Shot (#515)
+ * is of one this tablet doesn't hold, so nothing it has still to report is
+ * of that Shot, and it goes at once, as a rating given while the tablet
+ * catches up after an outage should.
  */
-export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true, reference: true, chooseReference: true };
+export const FOLLOWS_REPORTS: Readonly<Record<SkinAsk, boolean>> = { status: false, shots: true, shot: true, reference: true, chooseReference: true, editShot: false };
 
 /**
  * How long a request has to be answered, from when the Skin asked: its wait

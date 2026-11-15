@@ -6,7 +6,9 @@ import { object } from "./extraction.js";
 import { announceReferenceShots } from "./reference-announcements.js";
 
 // The edits of a Shot's rating and note made through the server (ADR-0031,
-// ticket #512), as a request gives one and as a Shot's read lists them.
+// ticket #512), by an account or on a Machine's tablet that doesn't hold
+// the Shot (ticket #515), as a request gives one and as a Shot's read lists
+// them.
 // ShotEditsService (shot-edits.service.ts) makes them and has them written
 // to the tablet that holds the Shot.
 
@@ -21,8 +23,20 @@ export interface ShotEditView {
   id: string;
   /** The fields it set, with the values it set them to. A field it left alone is absent. */
   fields: ShotEditFields;
-  /** Who made it: named to Admins, and to Staff and Viewers by its id only, as other accounts' names are personal information they do not see. */
+  /**
+   * The account that made it: named to Admins, and to Staff and Viewers by
+   * its id only, as other accounts' names are personal information they do
+   * not see. Null for one made on a Machine's tablet, and once the account
+   * is gone.
+   */
   account: { id: string; name: string | null } | null;
+  /**
+   * The Machine whose tablet it was made on, for a Skin (ticket #515), with
+   * that tablet's id, as a Library item's history names them; each null for
+   * an account's, and once the Machine or the tablet is gone.
+   */
+  machine: { id: string; name: string } | null;
+  tabletId: string | null;
   /**
    * The Connected App the account made it through, by the name its app gave
    * and the host of its client id as it was approved; null for the
@@ -251,7 +265,7 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
   const [edits, total] = await Promise.all([
     db.shotEdit.findMany({
       where: { shotId },
-      include: { account: { select: { name: true } }, connectedApp: { select: { id: true, name: true, clientHost: true } } },
+      include: MADE_BY,
       orderBy: { number: "desc" },
       take: MAX_LISTED_EDITS,
     }),
@@ -260,9 +274,16 @@ export async function listShotEdits(db: Prisma.TransactionClient, shotId: string
   return { edits: edits.map(viewShotEdit(scope)), total };
 }
 
+/** Who made an edit, as its row is read with them. */
+const MADE_BY = {
+  account: { select: { name: true } },
+  connectedApp: { select: { id: true, name: true, clientHost: true } },
+  machine: { select: { id: true, name: true } },
+} as const;
+
 /** An edit as a Shot's read lists it, as `scope` sees who made it. */
 function viewShotEdit(scope: Scope) {
-  return (edit: Prisma.ShotEditGetPayload<{ include: { account: { select: { name: true } }; connectedApp: { select: { id: true; name: true; clientHost: true } } } }>): ShotEditView => {
+  return (edit: Prisma.ShotEditGetPayload<{ include: typeof MADE_BY }>): ShotEditView => {
     const dropped: ShotEditField[] = [];
     if (edit.rating !== null && edit.ratingDroppedAt !== null) dropped.push("rating");
     if (edit.note !== null && edit.noteDroppedAt !== null) dropped.push("note");
@@ -274,6 +295,8 @@ function viewShotEdit(scope: Scope) {
       // Other accounts' names are personal information that only an Admin sees.
       account: edit.accountId === null ? null : { id: edit.accountId, name: scope.kind === "everything" ? (edit.account?.name ?? null) : null },
       connectedApp: edit.connectedApp && { id: edit.connectedApp.id, name: edit.connectedApp.name, host: edit.connectedApp.clientHost },
+      machine: edit.machine,
+      tabletId: edit.tabletId,
       madeAt: edit.madeAt.toISOString(),
       state,
       dropped,
