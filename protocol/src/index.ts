@@ -264,6 +264,28 @@ export function isGlobalId(value: unknown): value is string {
 export const GLOBAL_ID_KEY = "decentSyncId";
 
 /**
+ * The range and defaults a Grinder may declare for its setting and for its
+ * RPM, under DYE2's names (from v0.1.37; `buildGrinderBody` in
+ * dye2:dye2-plugin/src/utils/grinder-form.ts): each a number, or none. A 0
+ * is a value here. A machine takes the default, or the middle of the range,
+ * as a barista picks the grinder on it (`grinderDefaultsPatch`), and DYE2's
+ * and Streamline's steppers stop at the range.
+ */
+export const GRINDER_RANGE_FIELDS = ["settingMin", "settingMax", "settingDefault", "rpmMin", "rpmMax", "rpmDefault"] as const;
+
+/** Those of a Grinder's range and defaults that are its setting's, which one with named positions holds none of. */
+export const GRINDER_SETTING_RANGE_FIELDS = ["settingMin", "settingMax", "settingDefault"] as const;
+
+/**
+ * The fields of a Grinder that its tablets' records hold in their `extras`,
+ * beside its global id, as Decaid's record has no field for them and drops
+ * one sent at its top: the feed rate note DYE2 v0.1.34 keeps there, and its
+ * range and defaults. The server reads them from there and the plugin
+ * writes them there, keeping the record's other keys.
+ */
+export const GRINDER_EXTRAS_FIELDS: readonly string[] = ["feedRate", ...GRINDER_RANGE_FIELDS];
+
+/**
  * The key two Beans with the same roaster and name share, ignoring case and
  * white space at either end: how a bean new to the Library is matched to a
  * Library Bean (ADR-0018). The server matches a tablet's new beans by it, and

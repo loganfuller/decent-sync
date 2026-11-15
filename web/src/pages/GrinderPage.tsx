@@ -22,12 +22,18 @@ const CONTENT: [key: string, term: string, unit?: string][] = [
   ["notes", "Notes"],
 ];
 
-/** The setting steps a Grinder's page names, in Decaid's order. */
+/** The steps a Grinder's page names, in Decaid's order, with the range and default of its setting and of its RPM beside each's. */
 const STEPS: [key: string, term: string][] = [
   ["settingSmallStep", "Small step"],
   ["settingBigStep", "Big step"],
+  ["settingMin", "Lowest setting"],
+  ["settingMax", "Highest setting"],
+  ["settingDefault", "Default setting"],
   ["rpmSmallStep", "RPM small step"],
   ["rpmBigStep", "RPM big step"],
+  ["rpmMin", "Lowest RPM"],
+  ["rpmMax", "Highest RPM"],
+  ["rpmDefault", "Default RPM"],
 ];
 
 /** One Grinder: what it is, and the Location it belongs to. */
@@ -128,6 +134,10 @@ function GrinderDetails({ id }: { id: string }) {
           <CardHeader>
             <CardTitleWithInfo title="Grinder">
               <p>As it was created, with the edits made since, on its Location's tablets or here.</p>
+              <p>
+                A tablet's steppers stop at the lowest and highest setting and RPM. A Machine takes the default setting and RPM as a barista picks the Grinder on it, or the
+                middle of each range where there is no default.
+              </p>
             </CardTitleWithInfo>
           </CardHeader>
           <CardContent className="grid gap-4">

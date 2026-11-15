@@ -177,7 +177,7 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
   });
 
   it("creates and edits a Grinder, Basket and Tool, each as the REST API reads it, recorded as the Admin's through the Connected App, and on Uptown's tablet", async () => {
-    const grinder = (await assistant.call<{ grinder: Record_ }>("create_grinder", { locationId: uptown.id, model: "Assistant EK43", burrSize: 98, burrType: "flat" })).grinder;
+    const grinder = (await assistant.call<{ grinder: Record_ }>("create_grinder", { locationId: uptown.id, model: "Assistant EK43", burrSize: 98, burrType: "flat", settingMin: 0, settingMax: 50, rpmDefault: 900 })).grinder;
     const basket = (await assistant.call<{ basket: Record_ }>("create_basket", { locationId: uptown.id, name: "Assistant 18g", size: "double", diameterMm: 58.5 })).basket;
     const tool = (await assistant.call<{ tool: Record_ }>("create_tool", { locationId: uptown.id, name: "Assistant Screen", custom: [{ key: "thickness", value: "1.7 mm" }] })).tool;
     made = { grinder: grinder.id as string, basket: basket.id as string, tool: tool.id as string, recipe: "", ristretto: "" };
@@ -188,7 +188,10 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     expect(grinder).toMatchObject({ model: "Assistant EK43", location: { id: uptown.id }, content: { model: "Assistant EK43", burrSize: 98, burrType: "flat", settingType: "numeric" } });
     expect(basket).toMatchObject({ name: "Assistant 18g", shownAt: [{ location: { id: uptown.id } }], content: { name: "Assistant 18g", size: "double", diameterMm: 58.5 } });
     expect(tool).toMatchObject({ name: "Assistant Screen", content: { name: "Assistant Screen", custom: [{ key: "thickness", value: "1.7 mm" }] } });
-    await expect.poll(() => held(tablet.grinders(), made.grinder)).toMatchObject({ model: "Assistant EK43", burrSize: 98 });
+    // Its range and default, a lowest setting of 0 among them, are in its content and in the record's extras, where DYE2 keeps them.
+    expect(grinder.content).toMatchObject({ settingMin: 0, settingMax: 50, rpmDefault: 900 });
+    await expect.poll(() => held(tablet.grinders(), made.grinder)).toMatchObject({ model: "Assistant EK43", burrSize: 98, extras: { settingMin: 0, settingMax: 50, rpmDefault: 900 } });
+    expect(held(tablet.grinders(), made.grinder)).not.toHaveProperty("settingMin");
     await expect.poll(() => inList("baskets", made.basket)).toMatchObject({ name: "Assistant 18g", size: "double" });
     await expect.poll(() => inList("equipment", made.tool)).toMatchObject({ name: "Assistant Screen" });
 
@@ -197,6 +200,12 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
     expect(comparable(grinderEdited)).toEqual(comparable(await restItem("grinder", made.grinder)));
     expect(grinderEdited.content).toMatchObject({ model: "Assistant EK43", notes: "New burrs", burrType: "flat" });
     expect(grinderEdited.content).not.toHaveProperty("burrSize");
+    // A default outside its range is taken as given, and a highest cleared.
+    const ranged = (await assistant.call<{ grinder: Record_ }>("edit_grinder", { id: made.grinder, settingDefault: 80, settingMax: null, rpmMin: 300 })).grinder;
+    expect(comparable(ranged)).toEqual(comparable(await restItem("grinder", made.grinder)));
+    expect(ranged.content).toMatchObject({ settingMin: 0, settingDefault: 80, rpmMin: 300, rpmDefault: 900 });
+    expect(ranged.content).not.toHaveProperty("settingMax");
+    await expect.poll(() => held(tablet.grinders(), made.grinder)?.extras).toMatchObject({ settingMin: 0, settingMax: null, settingDefault: 80, rpmMin: 300, rpmDefault: 900 });
     const basketEdited = (await assistant.call<{ basket: Record_ }>("edit_basket", { id: made.basket.toUpperCase(), notes: "Ridgeless", diameterMm: null })).basket;
     expect(comparable(basketEdited)).toEqual(comparable(await restItem("basket", made.basket)));
     expect(basketEdited.content).toEqual({ name: "Assistant 18g", size: "double", notes: "Ridgeless" });
@@ -218,7 +227,11 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
       account: { id: adminId, name: "Ada Admin" },
       connectedApp: { id: expect.stringMatching(/^[0-9a-f-]{36}$/), name: "Test Assistant", host: new URL(app.clientId).host },
     });
-    expect(grinderVersions.map((version) => version.fields)).toEqual([{ notes: "New burrs", burrSize: null }, expect.objectContaining({ model: "Assistant EK43", archived: false })]);
+    expect(grinderVersions.map((version) => version.fields)).toEqual([
+      { settingDefault: 80, settingMax: null, rpmMin: 300 },
+      { notes: "New burrs", burrSize: null },
+      expect.objectContaining({ model: "Assistant EK43", archived: false, settingMin: 0, settingMax: 50, rpmDefault: 900 }),
+    ]);
     expect((await versions("basket", made.basket)).map((version) => [version.location?.name ?? null, version.fields])).toEqual([
       [null, { notes: "Ridgeless", diameterMm: null }],
       ["Uptown", { shown: true }],
@@ -387,6 +400,11 @@ describe("Changing equipment, Recipes and Conflicts through an assistant", { tim
       // Values Decaid and DYE2 would refuse, as the REST API reads them.
       // Several problems, named in the order of the tool's fields.
       ["edit_grinder", { id: made.grinder, burrSize: -1, settingType: "dial" }, "PATCH", `/grinders/${made.grinder}`, { content: { burrSize: -1, settingType: "dial" } }, 400],
+      // A Grinder's lowest above its highest, over what it holds and in a new one, and a setting's range for named positions.
+      ["edit_grinder", { id: made.grinder, rpmMax: 200 }, "PATCH", `/grinders/${made.grinder}`, { content: { rpmMax: 200 } }, 400],
+      ["create_grinder", { locationId: uptown.id, model: "Reversed", settingMin: 9, settingMax: 3 }, "POST", "/grinders", { locationId: uptown.id, content: { model: "Reversed", settingMin: 9, settingMax: 3 } }, 400],
+      ["edit_grinder", { id: made.grinder, settingType: "preset", settingMin: 1 }, "PATCH", `/grinders/${made.grinder}`, { content: { settingType: "preset", settingMin: 1 } }, 400],
+      ["create_grinder", { locationId: uptown.id, model: "Named", settingType: "preset", settingDefault: 2 }, "POST", "/grinders", { locationId: uptown.id, content: { model: "Named", settingType: "preset", settingDefault: 2 } }, 400],
       ["edit_basket", { id: made.basket, size: "huge" }, "PATCH", `/baskets/${made.basket}`, { content: { size: "huge" } }, 400],
       ["edit_recipe", { id: made.recipe, steamTemperature: 171, steamStopTemperature: 20, hotWaterFlow: 9, flushDuration: 2.5 }, "PATCH", `/recipes/${made.recipe}`, { content: { steamTemperature: 171, steamStopTemperature: 20, hotWaterFlow: 9, flushDuration: 2.5 } }, 400],
       ["create_recipe", { locationId: uptown.id, grindSetting: -1 }, "POST", "/recipes", { locationId: uptown.id, content: { grindSetting: -1 } }, 400],

@@ -193,8 +193,15 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   const cafeTablet = await tabletAt(page, server, "Grinder cafe group", cafe, "15032", tabletApi);
 
   // One model at both Locations is two Grinders; one archived on the lab's tablet is Archived.
-  // The lab's with the feed rate note DYE2 v0.1.34's grinders page keeps in its extras.
-  await labTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish", burrSize: 98, burrType: "flat", notes: "Filter station", extras: { feedRate: "manual FF/MF/SF" } });
+  // The lab's with the feed rate note DYE2 v0.1.34's grinders page keeps in its extras, and the range and default of its setting v0.1.37's does.
+  const ek43 = await labTablet.addGrinder({
+    model: "E2E EK43",
+    burrs: "98mm Turkish",
+    burrSize: 98,
+    burrType: "flat",
+    notes: "Filter station",
+    extras: { feedRate: "manual FF/MF/SF", settingMin: 0, settingMax: 16, settingDefault: 9 },
+  });
   await cafeTablet.addGrinder({ model: "E2E EK43", burrs: "98mm Turkish" });
   const preset = await labTablet.addGrinder({ model: "E2E Encore", burrType: "conical", settingType: "preset", settingValues: ["1", "5", "10"], settingSmallStep: 1 });
   await expect.poll(async () => grindersAt(page, "E2E EK43")).toEqual([["Grinder cafe", false], ["Grinder lab", false]]);
@@ -217,7 +224,7 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   await row("E2E EK43").nth(1).getByRole("link").click();
   await expect(page.getByRole("heading", { name: "E2E EK43", level: 1 })).toBeVisible();
   await expectTip(page.getByRole("main"), "In the Library", "A Grinder belongs to the Location where it was created, and only that Location's tablets hold it.");
-  await expectTip(page.getByRole("main"), "Grinder", "As it was created, with the edits made since, on its Location's tablets or here.");
+  await expectTip(page.getByRole("main"), "Grinder", /^As it was created, with the edits made since, on its Location's tablets or here\.A tablet's steppers stop at the lowest and highest setting and RPM\./);
   const library = page.getByLabel("In the Library", { exact: true });
   await expect(field(library, "Location")).toHaveText("Grinder lab");
   await expect(field(library, "Offered")).toHaveText("Yes");
@@ -227,6 +234,44 @@ test("the Grinders list shows each Grinder's Location, and a Grinder's page show
   await expect(field(grinder, "Notes")).toHaveText("Filter station");
   await expect(field(grinder, "Setting")).toHaveText("Numbered dial");
   await expect(field(grinder, "Feed rate")).toHaveText("manual FF/MF/SF");
+  // Its range and default, a lowest setting of 0 shown as 0, and none for its RPM.
+  await expect(field(grinder, "Lowest setting")).toHaveText("0");
+  await expect(field(grinder, "Highest setting")).toHaveText("16");
+  await expect(field(grinder, "Default setting")).toHaveText("9");
+  await expect(field(grinder, "Lowest RPM")).toHaveText("-");
+
+  // Edited here: a lowest above a highest is refused, and the form stays open as typed.
+  await page.getByRole("button", { name: "Edit the Grinder" }).click();
+  const form = page.getByRole("form", { name: "Edit the Grinder" });
+  await expect(form.getByLabel("Lowest setting")).toHaveValue("0");
+  await form.getByLabel("Lowest RPM").fill("1400");
+  await form.getByLabel("Highest RPM").fill("300");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(form.getByRole("alert")).toHaveText("The lowest RPM cannot be above the highest");
+  await form.getByLabel("Lowest RPM").fill("300");
+  await form.getByLabel("Highest RPM").fill("1400");
+  await form.getByLabel("Default RPM").fill("900");
+  await form.getByLabel("Highest setting").fill("");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(field(grinder, "Lowest RPM")).toHaveText("300");
+  await expect(field(grinder, "Highest RPM")).toHaveText("1400");
+  await expect(field(grinder, "Default RPM")).toHaveText("900");
+  await expect(field(grinder, "Lowest setting")).toHaveText("0");
+  await expect(field(grinder, "Highest setting")).toHaveText("-");
+  // The lab's tablet holds them in its record's extras.
+  await expect
+    .poll(() => labTablet.grinders().find((record) => record.id === ek43.id)?.extras)
+    .toMatchObject({ feedRate: "manual FF/MF/SF", settingMin: 0, settingMax: null, settingDefault: 9, rpmMin: 300, rpmMax: 1400, rpmDefault: 900 });
+  // Given named positions, it holds no range or default for its setting.
+  await page.getByRole("button", { name: "Edit the Grinder" }).click();
+  await form.getByLabel("Setting type").click();
+  await page.getByRole("option", { name: "Preset values" }).click();
+  await form.getByLabel("Preset values (comma separated)").fill("Fine, Coarse");
+  await form.getByRole("button", { name: "Save" }).click();
+  await expect(field(grinder, "Setting")).toHaveText("Named positions: Fine, Coarse");
+  await expect(field(grinder, "Lowest setting")).toHaveText("-");
+  await expect(field(grinder, "Default setting")).toHaveText("-");
+  await expect(field(grinder, "Default RPM")).toHaveText("900");
 
   await page.getByRole("link", { name: "← Grinders" }).click();
   await row("E2E Encore").getByRole("link").click();

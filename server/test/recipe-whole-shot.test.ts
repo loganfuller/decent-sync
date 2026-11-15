@@ -8,6 +8,7 @@ import {
   SimulatedDye2,
   dye2List,
   dye2NeverUsed,
+  editGrinderInDye2,
   openDye2Dashboard,
   openDye2RecipeEditor,
   recordedDye2MainTablet,
@@ -349,6 +350,28 @@ describe("A Recipe is the whole Shot", { timeout: 120_000 }, () => {
     expect(content).not.toHaveProperty("rpm");
     expect(held(a)).toMatchObject({ grinder: grinder64, grind: null, rpm: null });
     for (const tablet of [a, c]) expect([variables(record(tablet, ETHIOPIA)).grind ?? null, variables(record(tablet, ETHIOPIA)).rpm ?? null]).toEqual([null, null]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  // Ticket #551: a Grinder's range and defaults are the Grinder's, shared across its Location's tablets.
+  it("brings a default given to a Grinder on one tablet into the Workflow and the Recipe as the Grinder is picked on another Machine", async () => {
+    const { machines, a, c, one, quiet } = await lab("Shared default", 56061);
+    await quiet();
+    const [global64, global83] = [(await globalOf(a, "/grinders", String(held(a).grinder)))!, (await globalOf(a, "/grinders", RECORDED_GRINDER_83))!];
+    expect((await recipe(one)).content).toMatchObject({ grinderId: global64, grindSetting: 2.5, rpm: 900 });
+    // Given on A, on DYE2's Grinders page: a default setting, and a range for its RPM with no default.
+    expect((await editGrinderInDye2(a, RECORDED_GRINDER_83, { settingDefault: "5", rpmMin: "600", rpmMax: "1000" })).status).toBe(200);
+    const onC = String(await localId(c, "/grinders", global83));
+    await expect.poll(async () => ((await c.callApi("GET", `/grinders/${onC}`)).body as Record_).extras, { timeout: 15_000 }).toMatchObject({ settingDefault: 5, rpmMin: 600, rpmMax: 1000 });
+    await quiet();
+
+    // Picked on C, on DYE2's Grinders page: C's own record of it brings the default and the middle of the RPM's range.
+    expect((await tapGrinderInDye2(c, onC)).status).toBe(200);
+    expect(held(c)).toMatchObject({ grinder: onC, grind: "5", rpm: 800 });
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ grinderId: global83, grindSetting: 5, rpm: 800 });
+    await expect.poll(async () => held(a), { timeout: 15_000 }).toMatchObject({ grinder: RECORDED_GRINDER_83, grind: "5", rpm: 800 });
+    await quiet();
+    expect(held(c)).toMatchObject({ grinder: onC, grind: "5", rpm: 800 });
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 });

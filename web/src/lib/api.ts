@@ -1015,7 +1015,13 @@ export interface GrinderSummary {
   createdAt: string;
 }
 
-/** A Grinder with its content: Decaid's record fields, as the tablet that created it sent them, and `feedRate`, the feed rate note DYE2 keeps in the record's `extras`. */
+/**
+ * A Grinder with its content: Decaid's record fields, as the tablet that
+ * created it sent them, and what DYE2 keeps in the record's `extras`:
+ * `feedRate`, its feed rate note, and the range and default of its setting
+ * and of its RPM (`settingMin`, `settingMax`, `settingDefault`, `rpmMin`,
+ * `rpmMax`, `rpmDefault`), each a number, where 0 is a value.
+ */
 export interface Grinder extends GrinderSummary {
   content: Record<string, unknown>;
 }

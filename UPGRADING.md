@@ -103,6 +103,41 @@ at most a yield of 0. A tablet still on 1.10.0's plugin is cleared of what
 its Loaded Recipe names none of by this release's server, where its Skin
 clears nothing.
 
+### A Grinder's range and defaults are shared across its Location's Tablets
+
+From DYE2 v0.1.37 a grinder may declare the range of its setting and of its
+RPM, and a default for each: a tablet's steppers stop at the range, and
+picking the grinder brings its default, or the middle of its range. DYE2
+keeps them on the tablet they were typed on. A Grinder now holds them
+([ADR-0022](docs/adr/0022-loaded-recipe-worked-out-from-the-workflow.md)), so
+its Location's other tablets are written them, and a pick brings the same
+numbers on every Machine. Nothing is needed.
+
+- **Those typed already are taken in.** A range or default a tablet's record
+  holds is taken into its Grinder as the tablet next connects, where the
+  Grinder holds none. Where two tablets hold different ones for one Grinder,
+  the first to connect gives its value, and the other tablet's is written
+  over, so check each Grinder's page after deploying if baristas typed them
+  on more than one tablet.
+- **The Grinder's page and form** show and edit them beside its steps:
+  Lowest setting, Highest setting, Default setting, Lowest RPM, Highest RPM
+  and Default RPM. Blank is none, and 0 is a value. `create_grinder` and
+  `edit_grinder` take them through the MCP endpoint, and what reads a
+  Grinder gives them.
+- **The rules are DYE2's.** A lowest above a highest is refused. A Grinder
+  with named positions holds no range or default for its setting, and
+  giving one named positions clears them. A default outside the range is
+  accepted, and so is a Recipe's grind setting or RPM outside its Grinder's
+  range: the tablet's steppers do the bounding.
+
+A tablet still on 1.10.0's plugin, until Decaid updates it, cannot write a
+Grinder's range or default into its record, so one changed elsewhere is
+listed among that tablet's refusals ("Written, but its record still differs
+as it did") until the tablet connects with this release's plugin, which
+writes it. Its own are kept, and taken in. In the minute or so that 1.10.0
+still serves beside this release, it takes none in: one typed in DYE2 then
+stays on its tablet, and is taken in once this release serves it.
+
 ### Automatic update checks are shown, and changed on the tablet
 
 Decaid v0.9.2 turns its automatic update checks on only for a request

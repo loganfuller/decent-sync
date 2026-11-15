@@ -93,6 +93,12 @@ const FIELD_NOTES: Readonly<Record<EditableKind, Readonly<Record<string, string>
     rpmSmallStep: "How much a small step on the tablet changes its RPM.",
     rpmBigStep: "How much a big step on the tablet changes its RPM.",
     feedRate: "Which feed rates it takes, as text, such as manual FF/MF/SF.",
+    settingMin: "The lowest setting a tablet's steppers go to, for a numeric Grinder: never above settingMax. 0 is a setting; null for none.",
+    settingMax: "The highest setting a tablet's steppers go to, for a numeric Grinder. null for none.",
+    settingDefault: "The setting a Machine takes as a barista picks the Grinder on it, for a numeric Grinder; with none, the middle of its range, or none. One outside the range is taken to its nearest end. null for none.",
+    rpmMin: "The lowest RPM a tablet's steppers go to: never above rpmMax. null for none.",
+    rpmMax: "The highest RPM a tablet's steppers go to. null for none.",
+    rpmDefault: "The RPM a Machine takes as a barista picks the Grinder on it; with none, the middle of its range, or none. One outside the range is taken to its nearest end. null for none.",
   },
   basket: {
     name: "Its name, such as VST 18g.",
@@ -152,6 +158,8 @@ function fieldSchema(type: FieldType): { schema: z.ZodType; note?: string } {
       return { schema: z.boolean() };
     case "number":
       return { schema: z.number(), note: "0 or more." };
+    case "anyNumber":
+      return { schema: z.number() };
     case "aboveZero":
       return { schema: z.number(), note: "Above 0: null for none." };
     case "date":
@@ -352,7 +360,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "create_grinder",
     title: "Create a Grinder",
-    description: `Creates a Grinder belonging to a Location, which never changes, and written to that Location's tablets. Staff create one only at the Locations they work at. ${TIMES}`,
+    description: `Creates a Grinder belonging to a Location, which never changes, and written to that Location's tablets. A lowest setting or RPM above its highest is refused, and so is a range or default of the setting for a preset Grinder. Staff create one only at the Locations they work at. ${TIMES}`,
     inputSchema: newGrinderInput,
     outputSchema: z.object({ grinder: itemOutput.shape.grinder.unwrap() }),
     annotations: CHANGES,
@@ -367,7 +375,7 @@ export class LibraryChangesTools {
   @BudgetedTool({
     name: "edit_grinder",
     title: "Edit a Grinder",
-    description: `Edits a Grinder's details, given only the fields to change, and its Location's tablets are written the change. A field given null is cleared, but its model, which can't be. Staff edit one only at the Locations they work at. ${TIMES}`,
+    description: `Edits a Grinder's details, given only the fields to change, and its Location's tablets are written the change. A field given null is cleared, but its model, which can't be. A lowest setting or RPM above its highest is refused, over what the Grinder holds, and so is a range or default of the setting for a preset Grinder: making it preset clears those it holds. Staff edit one only at the Locations they work at. ${TIMES}`,
     inputSchema: grinderEditInput,
     outputSchema: z.object({ grinder: itemOutput.shape.grinder.unwrap() }),
     annotations: { ...CHANGES, idempotentHint: true },

@@ -97,6 +97,7 @@ its file's row below gives.
 | `explicit-nulls.json` | Item 9, writes from the script, recipe `1`: `seeded`; `applyFull`; `clearedAll`, `PUT /workflow {"context":{"targetDoseWeight":null,"grinderSetting":null,"grinderId":null,"grinderModel":null,"targetYield":0,"extras":{"rpm":null,"feedRate":null,"basketId":null,"basketName":null}}}`; `yieldNull`, `{"context":{"targetYield":null}}`; `applyFullAgain`; then one part a write: `doseNull`, `grindNull`, `grinderNull`, `rpmNull`, `feedRateNull`, `basketNull`, `yieldZero` |
 | `yield-set.json` | Item 10, Streamline's main page open, recipes `1` and `2`: `seeded`; `started`; `applyBareFirst`, `applyFull`, `applyBare`, strip buttons; `recordUnmoved`; `drinkPlus`, the Drink tile's + (`#drink-out-plus`) tapped; `recordAfterPlus`; `yieldForty`, `PUT /workflow {"context":{"targetYield":40}}` from the script; `recordAfterForty` |
 | `keys.json` | Not exchanges: DYE2's recipes, favourites and stored selection at the end |
+| `grinder-form.json` | Recorded apart, for decent-sync #551 (A grinder's range and defaults, below): the form of DYE2's Grinders page saving a grinder's range and defaults |
 
 ## How they were recorded
 
@@ -166,13 +167,93 @@ scale and its data new. No tablet was contacted.
   times Decaid gave and for `save-to-recipe.json`'s `applyFull`, where the
   dashboard sent what differed from another Workflow.
 
+## A grinder's range and defaults
+
+`grinder-form.json` was recorded for decent-sync #551, which has a Grinder
+hold the range and defaults DYE2 keeps in a grinder's `extras`, on another
+fresh Decaid v0.9.2 of the same build, started the same way with a token of
+its own, on 2026-11-15 (UTC). Its script, `record-grinder-form.mjs`,
+installs DYE2 v0.1.40 over the bundled v0.1.37 as `record.mjs` does, and
+drives the form of DYE2's Grinders page in Playwright's headless Chromium:
+`DECAID_EXTENSIONS_TOKEN=<token> node
+server/test/fixtures/decaid/dye2-v0.1.40/record-grinder-form.mjs <output
+dir>`. Streamline was not loaded, and no recipe or Workflow is written:
+nothing here goes through them. The token is in no file.
+
+A step is `{exchanges, after}`: every request but a read that the form or
+the script sent, each with Decaid's answer, and then the grinder as Decaid
+holds it (`GET /grinders/{id}`). A step of the form's also holds three
+entries that are no exchange: `{"shown": ...}`, what its inputs showed as it
+opened; `{"typed": ...}`, what was typed over them, by input name; and
+`{"error": ...}`, the error it showed after SAVE, null for none. The form
+is opened on a grinder as the dashboard's long-press opens it
+(`grinders?edit=<id>`), or for a new one by its ADD NEW GRINDER card.
+`versions` holds Decaid's and DYE2's, and `grindersAtEnd` the grinders at
+the end.
+
+| Step | What it holds |
+|---|---|
+| `made` | From the script: `Fixture Grinder Form` created with a small step of 0.5 for its setting and 50 for its RPM, and in its `extras` a made-up global id, as Decent Sync's plugin writes one, and a Beanconqueror key |
+| `rangeSaved` | A feed rate note, a setting from 0 to 10 with a default of 4, and an RPM from 400 to 1200 with a default of 900, typed and saved |
+| `otherEdited` | Its notes alone changed |
+| `settingReversed`, `rpmReversed` | A Setting Min of 12 over its Max of 10, and an RPM Min of 1500 over its Max of 1200 |
+| `defaultOutside` | A Setting Min of 10, equal to its Max, a Setting Default of 40 and an RPM Default of 100, each outside its range |
+| `defaultCleared` | The Setting Min back to 0, and both defaults emptied |
+| `belowZero` | A Setting Min of -5 and a Setting Default of -1.5 |
+| `topLevel` | From the script: `PUT /grinders/{id} {"settingMin":1,"settingMax":20,"rpmDefault":700}`, as the previous release's plugin writes a Grinder's range |
+| `inExtras` | From the script: the same three in `extras`, over its other keys, as this release's plugin writes them |
+| `namedPositions` | Its Setting Type changed to Preset, with three values |
+| `numericAgain` | Its Setting Type changed back to Numeric |
+| `created` | A new grinder, `Fixture Grinder Ranged`, with a setting from 0 to 50 and an RPM Default of 800 |
+| `createdNamed` | A new preset grinder, `Fixture Grinder Named`, with an RPM from 300 to 1400 |
+| `createdReversed` | A new grinder with a Setting Min of 9 over a Max of 3 |
+
+What it shows, none of it contradicting what decent-sync #551 says:
+
+- **The range and defaults are saved in `extras`, over its other keys**
+  (`rangeSaved`; `buildGrinderBody` in
+  dye2:dye2-plugin/src/utils/grinder-form.ts). The form PUT the grinder's
+  fields with `extras: {bcUuid, decentSyncId, feedRate: "manual FF/MF/SF",
+  settingMin: 0, settingMax: 10, settingDefault: 4, rpmMin: 400, rpmMax:
+  1200, rpmDefault: 900}`, and Decaid held them so: the global id and the
+  feed rate note stay, and a lowest setting of 0 is 0. An edit of another
+  field sent the same `extras` again (`otherEdited`).
+- **A lowest above a highest is refused, and nothing is sent**
+  (`settingReversed`, `rpmReversed`, `createdReversed`; `submitForm` in
+  dye2:dye2-plugin/src/pages/grinders.ts). The form showed `Setting Min must
+  not be greater than Setting Max.` or `RPM Min must not be greater than RPM
+  Max.` and sent no request; the grinder stayed as it was. A lowest equal to
+  a highest is saved (`defaultOutside`).
+- **A default outside the range is saved as typed** (`defaultOutside`): 40
+  with a setting of 10 to 10, and 100 with an RPM of 400 to 1200.
+- **A blank is null on an edit, and left out of a new grinder**
+  (`defaultCleared`, `created`). Emptied, each default was sent and held as
+  null. The new grinder's `extras` hold only what was typed, `{feedRate:
+  null, settingMin: 0, settingMax: 50, rpmDefault: 800}`.
+- **A number below 0 is saved** (`belowZero`): the form's inputs set no
+  lowest value.
+- **An edit to named positions clears the setting's three, and keeps the
+  RPM's** (`namedPositions`). The form PUT `settingType: "preset"` with
+  `settingMin`, `settingMax` and `settingDefault` each null in `extras` and
+  the RPM's as they were. Edited back to a numbered dial, the three stayed
+  null (`numericAgain`). A new preset grinder's `extras` hold none of the
+  three and its RPM's range (`createdNamed`).
+- **Decaid drops a range sent at the record's top, and keeps one in
+  `extras`** (`topLevel`, `inExtras`). The top-level write answered 200 with
+  the record as it was but for its `updatedAt`, its `extras` whole; the one
+  in `extras` was held.
+- **Not recorded.** A grinder's range bounding the steppers of DYE2's
+  dashboard and Streamline's Grind tile, which write nothing of the
+  grinder's; and a pick, which `grinder-picks.json` holds.
+
 ## Edits
 
 Everything named (bean, batch, grinders, Baskets, recipes) was made up for
 the recording; the profiles are Decaid's bundled ones. The simulated machine
 names no real hardware, and nothing of the host's is in the files, so
-nothing is scrubbed. As recorded, the files were compacted (`compactAll`).
-Nothing else was changed.
+nothing is scrubbed. As recorded, the files were compacted (`compactAll`),
+but for `grinder-form.json`, which has no shorthands. Nothing else was
+changed.
 
 ## What they show
 

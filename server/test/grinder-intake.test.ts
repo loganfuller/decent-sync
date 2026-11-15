@@ -124,6 +124,27 @@ describe("planGrinderIntake", () => {
     expect(planGrinderIntake([reported(LOCAL[0], { archived: true, ...withId(GLOBAL[0]) }, "2026-10-08T18:00:00.000Z")], [mapped(GLOBAL[0], LOCAL[0])], new Set())).toEqual([]);
   });
 
+  it("keeps as content the range and defaults DYE2 keeps in extras, a 0 as 0 and a null as none, and takes one set or cleared there as an edit of the Grinder (fixtures/decaid/dye2-v0.1.40/grinder-form.json)", () => {
+    const ranged = { settingMin: 0, settingMax: 10, settingDefault: 4, rpmMin: 400, rpmMax: 1200, rpmDefault: null };
+    const held = record(LOCAL[0], { extras: { bcUuid: "fixture-bc-uuid", [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF", ...ranged } });
+    expect(grinderContent(held)).toEqual({ model: "Fixture Grinder", burrs: "Fixture 63mm", notes: "Lab", settingType: "numeric", feedRate: "manual FF/MF/SF", ...ranged });
+    // One sent at the record's top, as the previous release's plugin wrote it, is whatever Decaid kept of it: nothing.
+    expect(grinderContent(record(LOCAL[0], withId(GLOBAL[0])))).not.toHaveProperty("settingMin");
+
+    const known = mapped(GLOBAL[0], LOCAL[0], { record: held });
+    const [set] = planGrinderIntake([reported(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF", ...ranged, settingMin: 1, rpmDefault: 900 } }, LATER)], [known], new Set());
+    expect(set).toMatchObject({ kind: "update", content: { settingMin: 1, rpmDefault: 900 } });
+    // Edited to named positions, as DYE2 writes the setting's three null.
+    const named = { settingType: "preset", extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF", ...ranged, settingMin: null, settingMax: null, settingDefault: null } };
+    const [cleared] = planGrinderIntake([reported(LOCAL[0], named, LATER)], [known], new Set());
+    expect(cleared).toMatchObject({ kind: "update", content: { settingType: "preset", settingMin: null, settingMax: null, settingDefault: null } });
+    // A null where the record known held none is no edit.
+    const blank = mapped(GLOBAL[0], LOCAL[0], { record: record(LOCAL[0], withId(GLOBAL[0])) });
+    const nulls = { settingMin: null, settingMax: null, settingDefault: null, rpmMin: null, rpmMax: null, rpmDefault: null };
+    const [same] = planGrinderIntake([reported(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], ...nulls } }, LATER)], [blank], new Set());
+    expect(same).toMatchObject({ kind: "update", content: {} });
+  });
+
   it("takes a feed rate note set or cleared in the record's extras as an edit of the Grinder", () => {
     const known = mapped(GLOBAL[0], LOCAL[0], { record: record(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "SF only" } }) });
     const [set] = planGrinderIntake([reported(LOCAL[0], { extras: { [GLOBAL_ID_KEY]: GLOBAL[0], feedRate: "manual FF/MF/SF" } }, LATER)], [known], new Set());

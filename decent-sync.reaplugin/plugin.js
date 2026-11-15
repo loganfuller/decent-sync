@@ -679,6 +679,8 @@ var __decentSync = (() => {
     return isUuid(value);
   }
   var GLOBAL_ID_KEY = "decentSyncId";
+  var GRINDER_RANGE_FIELDS = ["settingMin", "settingMax", "settingDefault", "rpmMin", "rpmMax", "rpmDefault"];
+  var GRINDER_EXTRAS_FIELDS = ["feedRate", ...GRINDER_RANGE_FIELDS];
   function beanMatchKey(roaster, name) {
     return JSON.stringify([roaster.trim().toLowerCase(), name.trim().toLowerCase()]);
   }
@@ -2368,7 +2370,7 @@ var __decentSync = (() => {
       deferred: ["archived"],
       sameItem: () => false,
       namedByShots: true,
-      inExtras: ["feedRate"]
+      inExtras: GRINDER_EXTRAS_FIELDS
     }
   };
   var WRITERS = {

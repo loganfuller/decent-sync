@@ -79,7 +79,7 @@ Gear used alongside a machine that can be shared between machines without changi
 _Avoid_: Gear, accessories. A tablet is not equipment.
 
 **Grinder**:
-One physical grinder, with its own burrs and calibration, that grinds coffee at a numbered or named setting.
+One physical grinder, with its own burrs and calibration, that grinds coffee at a numbered or named setting. It may declare the range of its setting and of its RPM, and a default for each, which a machine takes as a barista picks the grinder on it.
 
 **Basket**:
 A model of filter basket, such as a 20 g high-flow basket. One basket stands for every copy of that model, at every location.

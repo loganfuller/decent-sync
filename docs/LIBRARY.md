@@ -211,7 +211,8 @@ can hide nothing (Taking in a tablet's baskets and tools, below).
 - `grinders`: each Grinder, by its global id, with its content, Decaid's
   record fields as the tablet that created it sent them, but the record's id,
   times, `archived` and `extras`, which belong to each tablet's record, as
-  edited since. Also whether it is Archived, a field of its own merged with
+  edited since, and from `extras` the feed rate note and the range and
+  defaults DYE2 keeps there (`grinderContent`). Also whether it is Archived, a field of its own merged with
   its content's, the Location it belongs to, which is that of the tablet that
   created it, when it joined the Library, and its fields' latest edits. Its
   Location and whether it is Archived change only under that Location's lock
@@ -355,7 +356,7 @@ holds the item, at every Location, merged per field with the latest edit
 winning (ADR-0020; `content-edits.ts`, with the pure merge in `merge.ts`). An
 item's content is a Bean's, a Bean Batch's or a Grinder's record fields, but
 those of the tablet's record (its ids, times and `extras`, but for a
-Grinder's feed rate note, below) and of each
+Grinder's feed rate note and its range and defaults, below) and of each
 Location's (a batch's `archived` and `weightRemaining`; a Bean's `archived`,
 which takes it away from the tablet's Location), whether a Grinder is
 Archived, and a Profile's title, author and notes, which are outside its id
@@ -523,7 +524,46 @@ Conflict names is kept, still refused, so history goes on naming it
   first to report gives the item its value, which is written over the
   others' with no Conflict kept: no edit tells a value never taken in from
   a record still to be written, so a Conflict would be kept for each such
-  record too. A Basket's fields are those DYE2's baskets
+  record too.
+
+  A Grinder holds its range and defaults the same way (#551, DYE2 v0.1.37,
+  `d992296`; GRINDER_RANGE_FIELDS in `protocol/`): `settingMin`,
+  `settingMax` and `settingDefault`, and `rpmMin`, `rpmMax` and
+  `rpmDefault`, each a number of any sign, blank for none, where 0 is a
+  value: a Recipe's dose, grind setting and RPM are none at 0, and these are
+  not. A tablet's steppers stop at the range, and a Machine takes the
+  default, or the middle of the range, as a barista picks the Grinder on it
+  (ADR-0022, What DYE2 and Streamline do). DYE2 keeps them in the record's
+  `extras` beside the note, so the server reads them from there and the
+  plugin writes them there (GRINDER_EXTRAS_FIELDS), a change of one on a
+  tablet an edit, with Conflicts per field as its other fields have. A null
+  there is none, as DYE2's edit writes one for each left blank. Their rules
+  are DYE2's (`grinder-range.ts`), kept where a Grinder is created or edited
+  here or through the MCP endpoint, and judged over what the Grinder holds,
+  under its row lock:
+  - a lowest above a highest is refused, for the setting and for the RPM;
+  - a Grinder with named positions (`settingType` other than `numeric`)
+    holds no range or default for its setting: one sent for it is refused,
+    and an edit that leaves it with named positions clears those it holds,
+    as DYE2's edit writes the three null. Its RPM's stay;
+  - a default outside the range is accepted, as DYE2 saves one as typed and
+    holds it within the range as it is used;
+  - a Recipe's grind setting or RPM outside its Grinder's range is accepted,
+    as DYE2's recipe editor accepts one.
+
+  What tablets' edits merge to is taken as it comes: two edits made out of
+  each other's sight, or a Conflict's value used, can leave a lowest above
+  a highest, which Streamline ignores, and which an edit here of either end
+  must put right, an edit of anything else being taken. The previous release's plugin writes them at the record's top,
+  which Decaid drops (`dye2-v0.1.40/grinder-form.json`, `topLevel`), so its
+  tablet holds none until Decaid updates the plugin, the write listed among
+  its refusals as a Grinder's note was; its record's `extras` are kept
+  whole, so it is never taken to have cleared one. The previous release's
+  server takes none in, so one a tablet's record holds that its Grinder
+  never had is taken in at its next report, as a note is (`heldInExtras` in
+  `grinders.ts`).
+
+  A Basket's fields are those DYE2's baskets
   page saves, its name, `size` (one of the sizes the page offers),
   `diameterMm` and `notes`, and a Tool's those of its equipment page, its
   name and its attributes, `custom`, a list of `{ key, value }`, each trimmed,
@@ -553,7 +593,10 @@ Conflict names is kept, still refused, so history goes on naming it
   the batch is, or is added. Its details are its content.
 - **Grinders.** A Grinder is created belonging to a Location, which never
   changes; its Archived state and its content are edited under that
-  Location's lock, as a tablet's are.
+  Location's lock, as a tablet's are. Its form and page have its range and
+  defaults beside its steps (Lowest setting, Highest setting, Default
+  setting, Lowest RPM, Highest RPM, Default RPM), and a Conflict about one
+  is labelled so.
 - **Profiles.** A Profile is shown or hidden at each Location, as an edit of
   that Location's state of it (`showProfileAt`), under the Location's lock,
   as having seen every decision made there before it, which is how a lab

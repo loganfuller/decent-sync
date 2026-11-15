@@ -12,6 +12,7 @@ import {
   RECIPE_SETTINGS,
   SHOTS_STILL_TO_READ,
   GLOBAL_ID_KEY,
+  GRINDER_EXTRAS_FIELDS,
   type ItemDeleted,
   type ItemLeftOut,
   type ItemRemoved,
@@ -112,7 +113,7 @@ interface Route {
    * that has batches.
    */
   listUnder?(parentPath: string): string;
-  /** Fields a record holds in its `extras`, beside its global id, as Decaid drops them at its top: a Grinder's feed rate note, where DYE2 v0.1.34 keeps it. */
+  /** Fields a record holds in its `extras`, beside its global id, as Decaid drops them at its top: a Grinder's feed rate note, where DYE2 v0.1.34 keeps it, and its range and defaults (GRINDER_EXTRAS_FIELDS). */
   inExtras?: readonly string[];
 }
 
@@ -194,7 +195,7 @@ const ROUTES = {
     deferred: ["archived"],
     sameItem: () => false,
     namedByShots: true,
-    inExtras: ["feedRate"],
+    inExtras: GRINDER_EXTRAS_FIELDS,
   },
 } satisfies Readonly<Record<string, Route>>;
 
