@@ -1,0 +1,187 @@
+{
+  "recipes": [
+    {
+      "id": "1",
+      "name": "Fixture Full Recipe",
+      "title": "Fixture Full Recipe",
+      "beanId": "492fa33e-4187-4b33-b3ef-2f37152b7221",
+      "barista": "",
+      "drinker": "",
+      "beanName": "Fixture Ethiopia",
+      "beverage": "",
+      "subtitle": "Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "extras": {
+            "rpm": 1000,
+            "basketId": "28e4750c-859e-43b7-a6cd-75044b29963d",
+            "feedRate": "MF",
+            "basketName": "Fixture 18g Precision"
+          },
+          "grinderId": "29a15f5e-e97e-43e7-9727-5be5682578aa",
+          "coffeeName": "Fixture Ethiopia",
+          "beanBatchId": "ba5c1d3f-d227-44e1-8917-98bf5f734461",
+          "targetYield": 36,
+          "grinderModel": "Fixture Grinder 64",
+          "coffeeRoaster": "Fixture Roasters",
+          "grinderSetting": "2.5",
+          "targetDoseWeight": 18
+        },
+        "profile": {
+          "$profile": "Adaptive v3/62896d2cab"
+        }
+      },
+      "profileId": "profile:98fa00c191551b435845",
+      "stripSlot": 1,
+      "capturedAt": "2026-11-14T10:00:01.000Z",
+      "beanBatchId": "ba5c1d3f-d227-44e1-8917-98bf5f734461",
+      "beanRoaster": "Fixture Roasters",
+      "decentSyncId": "02ba0c50-696f-4c9a-bf2d-89b4bfb5fd7c",
+      "profileTitle": "Adaptive v3",
+      "profileSnapshot": {
+        "$profile": "Adaptive v3/b0b4007f6f"
+      },
+      "dashboardVariables": {
+        "rpm": 1000,
+        "dose": 18,
+        "brewC": 92,
+        "drink": 36,
+        "grind": 2.5,
+        "basketId": "28e4750c-859e-43b7-a6cd-75044b29963d",
+        "feedRate": "MF",
+        "grinderId": "29a15f5e-e97e-43e7-9727-5be5682578aa",
+        "basketName": "Fixture 18g Precision",
+        "equipmentIds": [],
+        "grinderModel": "Fixture Grinder 64",
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    },
+    {
+      "id": "2",
+      "name": "Fixture Bare Server",
+      "title": "Fixture Bare Server",
+      "barista": "",
+      "drinker": "",
+      "beverage": "",
+      "subtitle": "",
+      "workflow": {
+        "context": {
+          "coffeeName": null,
+          "beanBatchId": null,
+          "coffeeRoaster": null
+        },
+        "profile": {
+          "$profile": "Classic Italian espresso/426b883ece"
+        }
+      },
+      "profileId": "profile:39e939592679fb194706",
+      "stripSlot": 2,
+      "capturedAt": "2026-11-14T10:00:02.000Z",
+      "decentSyncId": "c4518841-c881-4acb-8a13-97d7fc5b7c00",
+      "profileTitle": "Classic Italian espresso",
+      "profileSnapshot": {
+        "$profile": "Classic Italian espresso/82d9749fc4"
+      },
+      "dashboardVariables": {
+        "brewC": 93,
+        "equipmentIds": [],
+        "hotWaterMode": "vol",
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "showOnStreamlineDashboard": true
+    }
+  ],
+  "autoFavourites": [
+    {
+      "snapshot": {
+        "profileId": "profile:98fa00c191551b435845",
+        "profileTitle": "Adaptive v3",
+        "profileSnapshot": {
+          "$profile": "Adaptive v3/ae6157d8da"
+        },
+        "beanBatchId": "ba5c1d3f-d227-44e1-8917-98bf5f734461",
+        "coffeeName": "Fixture Ethiopia",
+        "coffeeRoaster": "Fixture Roasters",
+        "roastDate": null,
+        "grinderId": "29a15f5e-e97e-43e7-9727-5be5682578aa",
+        "grinderModel": "Fixture Grinder 64",
+        "basketId": "28e4750c-859e-43b7-a6cd-75044b29963d",
+        "basketName": "Fixture 18g Precision",
+        "grindSetting": 2.5,
+        "rpm": 1000,
+        "feedRate": "MF",
+        "dose": 18,
+        "drink": 36,
+        "barista": null,
+        "drinker": null,
+        "note": null,
+        "equipmentIds": [],
+        "equipmentNames": [],
+        "equipmentCustom": {}
+      },
+      "alwaysOnDashboard": true,
+      "title": "Fixture Saved From Favourite",
+      "beverage": "",
+      "favSlot": 1,
+      "copyMask": {
+        "profile": true,
+        "beans": true,
+        "roastDate": false,
+        "grinder": true,
+        "basket": true,
+        "equipment": true,
+        "grindSetting": true,
+        "dose": true,
+        "drink": true,
+        "barista": false,
+        "drinker": false,
+        "note": false
+      },
+      "id": "da8297d1-78b6-4ef5-9163-3591a1728d21",
+      "capturedAt": "2026-11-15T22:54:56.535Z",
+      "subtitle": "Fixture Roasters · Fixture Ethiopia",
+      "workflow": {
+        "context": {
+          "targetDoseWeight": 18,
+          "targetYield": 36,
+          "grinderSetting": "2.5",
+          "extras": {
+            "rpm": 1000,
+            "feedRate": "MF",
+            "basketId": "28e4750c-859e-43b7-a6cd-75044b29963d",
+            "basketName": "Fixture 18g Precision",
+            "dye": {
+              "v": 1,
+              "beanBatchId": true,
+              "coffeeName": true,
+              "coffeeRoaster": true,
+              "grinderId": true,
+              "grinderModel": true,
+              "basketId": true,
+              "basketName": true,
+              "rpm": true,
+              "feedRate": true
+            }
+          },
+          "grinderId": "29a15f5e-e97e-43e7-9727-5be5682578aa",
+          "grinderModel": "Fixture Grinder 64",
+          "beanBatchId": "ba5c1d3f-d227-44e1-8917-98bf5f734461",
+          "coffeeName": "Fixture Ethiopia",
+          "coffeeRoaster": "Fixture Roasters"
+        },
+        "profile": {
+          "$profile": "Adaptive v3/ae6157d8da"
+        }
+      }
+    }
+  ],
+  "selection": {
+    "kind": "recipe",
+    "id": "2",
+    "modified": true
+  }
+}

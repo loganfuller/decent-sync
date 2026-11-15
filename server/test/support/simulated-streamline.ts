@@ -1123,7 +1123,9 @@ export class SimulatedStreamline {
     const read = await this.tablet.callApi("GET", "/workflow");
     const workflow = (read.body ?? {}) as Record_;
     const context = (workflow.context ?? {}) as Record_;
-    const targetDose = tile === "in" ? grams : Number(context.targetDoseWeight ?? 0);
+    // A Workflow holding no dose, as a recipe naming none leaves it from v0.2.25, shows a dash on the Dose tile, which the
+    // Drink tile's write reads as no number and sends as null (dye2-v0.1.40/yield-set.json, `drinkPlus`).
+    const targetDose = tile === "in" ? grams : context.targetDoseWeight == null ? null : Number(context.targetDoseWeight);
     const targetYield = tile === "out" ? grams : Number(context.targetYield ?? 0);
     const payload: Record_ = { context: { targetDoseWeight: targetDose, targetYield } };
     if (Number.isFinite(targetYield) && targetYield > 0) payload.profile = { target_weight: targetYield };

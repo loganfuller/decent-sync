@@ -17,11 +17,13 @@ import {
   dye2V032Recording,
   dye2V033Recording,
   dye2V035Recording,
+  dye2V040Recording,
   openDye2Dashboard,
   openDye2RecipeEditor,
   pickBasketInDye2,
   pickFavouriteInDye2,
   pickGrinderInDye2,
+  pickProfileInDye2,
   saveFavouriteInDye2,
   recordedDye2MainTablet,
   selectRecipeInDye2,
@@ -57,10 +59,18 @@ import { runAsSteps } from "./support/steps.js";
 // made again (fixtures/decaid/dye2-v0.1.32/), but where v0.1.33 keeps a
 // recipe whose record holds its profile in another key order
 // (`KEPT_SINCE_V0133`), then what v0.1.33 and v0.2.21 were recorded doing
-// otherwise (fixtures/decaid/dye2-v0.1.33/), and last what Streamline
+// otherwise (fixtures/decaid/dye2-v0.1.33/), then what Streamline
 // v0.2.24 was recorded doing around steam, on a profile switch and from its
 // Grind label, with DYE2 v0.1.36's Grinders page
-// (fixtures/decaid/streamline-v0.2.24/).
+// (fixtures/decaid/streamline-v0.2.24/). The recordings made before DYE2
+// v0.1.37 are compared but for what an apply clears since (`sinceV0137`).
+// Last, what DYE2 v0.1.40 and Streamline v0.2.27 were recorded doing on
+// Decaid v0.9.2 is made again and compared whole
+// (fixtures/decaid/dye2-v0.1.40/): the applies that clear, the grinder
+// picks, the editor's None chips, the profile picker, SAVE TO RECIPE, the
+// explicit nulls of a load write and a yield set over none. Its
+// grinder-archive.json is kept as a recording and not made again, as the
+// simulation has no Grinders page archive.
 // No settings are given, so the plugin does not connect.
 
 type Record_ = Record<string, unknown>;
@@ -263,7 +273,9 @@ function asSaved(step: Dye2Step, id?: string): void {
  * script made them, with Decaid's answers (`made`), and the context of each
  * Workflow change (`events`).
  */
-function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unnamed) {
+function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unnamed, { exact = false }: { exact?: boolean } = {}) {
+  /** A recording made before DYE2 v0.1.37 is compared but for what a recipe's apply clears since (`sinceV0137`); one made since, as it is (`exact`). */
+  const since = <T,>(madeAgain: T, recorded: T, contexts = false): [T, T] => (exact ? [madeAgain, recorded] : sinceV0137(madeAgain, recorded, contexts));
   const dye2 = new SimulatedDye2();
   const tablet = SimulatedTablet.load({ settings: {}, api, dye2, keepsFlushSettings: false });
   tablets.push(tablet);
@@ -317,14 +329,14 @@ function replaying(api: DecaidApi, compare: (value: unknown) => unknown = unname
     const from = { made: made.length, pushes: dye2.pushes.length, events: events.length };
     await act();
     await settled();
-    const [writes, recordedWrites] = sinceV0137(made.slice(from.made).filter(compared), step.exchanges.filter(compared));
+    const [writes, recordedWrites] = since(made.slice(from.made).filter(compared), step.exchanges.filter(compared));
     expect(view(writes), `${name}: writes`).toEqual(view(recordedWrites));
     const after: DecaidAnswer[] = [];
     for (const { request } of step.after) after.push(await tablet.callApi(request.method, request.path));
-    const [afterAgain, recordedAfter] = sinceV0137(after, step.after.map(({ response }) => response));
+    const [afterAgain, recordedAfter] = since(after, step.after.map(({ response }) => response));
     expect(view(afterAgain), `${name}: after`).toEqual(view(recordedAfter));
     if (restarts) return;
-    const [changes, recordedChanges] = sinceV0137(events.slice(from.events), step.events, true);
+    const [changes, recordedChanges] = since(events.slice(from.events), step.events, true);
     expect(changes, `${name}: events`).toEqual(recordedChanges);
     if (!STARRED_ALREADY.has(name)) expect(dye2.pushes.length > from.pushes, `${name}: pushed`).toBe(step.pushes.length > 0);
   }
@@ -943,6 +955,169 @@ describe("The simulated DYE2 v0.1.35, made again as it was recorded doing otherw
       editorTempOff: (step) => (asSaved(step, "3"), edit("3", { steamTempC: 0 })()),
     });
     expect(file.form).toMatchObject({ timeOffTyped: "Off", timeLongTyped: "255s", timeLongPlus: "255s", tempOffPressed: "Off" });
+  });
+});
+
+describe("The simulated DYE2 v0.1.40 and Streamline v0.2.27, made again as they were recorded on Decaid v0.9.2 (dye2-v0.1.40/)", () => {
+  runAsSteps();
+  // From the state DYE2 v0.1.40's install left (dye2-v0.1.40/loading.json), each file's steps in the recording's order, on
+  // one tablet, as the recording carried its Workflow from one file to the next, compared as recorded.
+  const library = dye2V040Recording<Record_>("library");
+  const loading = dye2V040Recording<{ values: Record<string, unknown>; workflow: Record_ }>("loading");
+  const api: DecaidApi = {
+    ...dye2NeverUsed("10008"),
+    "/beans": library.beans,
+    "/bean-batches": library.beanBatches,
+    "/grinders": library.grinders,
+    "/profiles": library.profiles,
+    // Decaid's simulated machine's settings, which this recording did not read: as dye2-v0.1.35/ recorded them, whose flush
+    // settings differ from the Workflow's, so DYE2 stars a recipe from its apply on, as recorded here too.
+    "/machine/settings": dye2V035Recording<Record_>("library").machineSettings,
+    "/workflow": loading.workflow,
+  };
+  for (const [key, value] of Object.entries(loading.values)) api[`/store/${DYE2_NAMESPACE}/${key}`] = value;
+  const { proxy, pages, script, settled, again } = replaying(api, (value) => value, { exact: true });
+  const generated = { ...dye2Generated };
+  afterEach(() => Object.assign(dye2Generated, generated));
+  /**
+   * A recorded step, without the entries among its exchanges that are none, what a page showed, and with only the
+   * requests the simulated pages make: those of the Workflow, DYE2's routes and keys and Decaid's grinders, but the
+   * pages' asks of DYE2 to work out its recent favourites again (`recent-favs`). Streamline's writes of its own settings,
+   * of Decaid's settings and of its wake lock as it starts are left out.
+   */
+  const stepOf = (value: unknown): Dye2Step | null => {
+    const step = value as Dye2Step | null;
+    if (!step || typeof step !== "object" || !Array.isArray(step.exchanges)) return null;
+    const simulated = ({ request }: Dye2Exchange) =>
+      request !== undefined && /^\/(workflow$|plugins\/dye2\.reaplugin\/|store\/dye2\.reaplugin\/|grinders)/.test(request.path) && !request.path.endsWith("/recent-favs");
+    return { ...step, exchanges: step.exchanges.filter(simulated) };
+  };
+  const steps = (file: Record_) => Object.entries(file).flatMap(([name, value]) => (stepOf(value) ? [[name, stepOf(value)!] as const] : []));
+  const pill = (id: string) => async () => (await openDye2Dashboard(proxy)).applyRecipe(id);
+  const strip = (id: string) => async () => pages.streamline!.applyRecipe(id);
+  const sent = (step: Dye2Step) => () => script(step, ({ request }) => request.method !== "GET");
+  const edit = (id: string, change: Dye2RecipeEdit) => async () => (await openDye2RecipeEditor(proxy, { id })).set(change).save();
+  /** Makes each step of the file again, as `acts` says for each by its name, and otherwise sends its requests as recorded. */
+  async function made(file: Record_, acts: Record<string, (step: Dye2Step) => Promise<unknown>>) {
+    await settled();
+    for (const [name, step] of steps(file)) await again(step, () => (acts[name] ? acts[name](step) : sent(step)()), name);
+  }
+  /** The recipe each apply step applies, by the step's name. */
+  const APPLIED: Record<string, string> = {
+    applyFull: "1",
+    applyFullAgain: "1",
+    applyFullThird: "1",
+    applyFullFourth: "1",
+    applyBareServer: "2",
+    applyBareDye2: "3",
+    applyRpmZeroServer: "4",
+    applyRpmZeroDye2: "5",
+  };
+
+  it("applies a recipe from DYE2's dashboard clearing what it names none of, a record the server wrote and one DYE2 saved alike, an RPM of 0 as none (dashboard-applies.json)", async () => {
+    const file = dye2V040Recording<Record_>("dashboard-applies");
+    await made(file, {
+      editorSavedBare: (step) => (asSaved(step, "3"), edit("3", {})()),
+      editorSavedRpmZero: (step) => (asSaved(step, "5"), edit("5", {})()),
+      ...Object.fromEntries(Object.entries(APPLIED).map(([name, id]) => [name, pill(id)])),
+    });
+  });
+
+  it("applies the same recipes from Streamline's strip, clearing whatever each record's Workflow holds, and one holding a feed rate (strip-applies.json)", async () => {
+    const file = dye2V040Recording<Record_>("strip-applies");
+    await made(file, {
+      started: async () => (pages.streamline = await startStreamline(proxy)),
+      ...Object.fromEntries(Object.entries(APPLIED).map(([name, id]) => [name, strip(id)])),
+    });
+    pages.streamline!.stop();
+  });
+
+  const grinder = (model: string) => String((library.grinders as Record_[]).find((record) => record.model === model)!.id);
+  const profileTitled = (title: string) => String((library.profiles as Record_[]).find((record) => (record.profile as Record_).title === title)!.id);
+
+  it("brings a picked grinder's default grind setting and RPM, the middles of its ranges, or none, from the dashboard's tabs, the Grinders page and the grinder picker, DYE2's record saving the numbers into a record holding them and never the grinder or a clear (grinder-picks.json)", async () => {
+    const file = dye2V040Recording<Record<string, Record_>>("grinder-picks");
+    await settled();
+    for (const [name, pick] of Object.entries(file)) {
+      const model = `Fixture Grinder ${/Default$/.test(name) ? "Default" : /Range$/.test(name) ? "Range" : "Plain"}`;
+      // A tab is tapped on the dashboard that applied the recipe, which sends what its copy changed since that apply.
+      let dashboard: Awaited<ReturnType<typeof openDye2Dashboard>> | undefined;
+      const applied = async () => {
+        dashboard = await openDye2Dashboard(proxy);
+        return dashboard.applyRecipe(name.startsWith("grinderOnly") ? "6" : "1");
+      };
+      const picked = name.startsWith("card")
+        ? () => tapGrinderInDye2(proxy, grinder(model))
+        : name.startsWith("picker")
+          ? () => pickGrinderInDye2(proxy, grinder(model))
+          : () => dashboard!.pickGrinder(grinder(model));
+      const acts: Record<string, () => Promise<unknown>> = { applied, picked };
+      for (const [part, step] of steps(pick)) await again(step, acts[part] ?? sent(step), `${name}.${part}`);
+    }
+  });
+
+  it("saves None for a grinder and a Basket from the editor's None chips, and shows and saves None for a grinder deleted from the tablet, which the strip and the dashboard clear as they apply its recipe (editor.json)", async () => {
+    const file = dye2V040Recording<Record_>("editor");
+    await made(file, {
+      applyFull: pill("1"),
+      applyFullAgain: pill("1"),
+      applyFullThird: pill("1"),
+      streamlineStarted: async () => (pages.streamline = await startStreamline(proxy)),
+      stripGoneGrinder: strip("7"),
+      dashboardGoneGrinder: pill("7"),
+      editorGoneGrinder: (step) => (asSaved(step, "7"), edit("7", {})()),
+      editorNoneChips: (step) => (asSaved(step, "1"), edit("1", { grinderId: null, basketId: null })()),
+    });
+    pages.streamline!.stop();
+  });
+
+  it("writes the profile's yield and the dose at the ratio the Workflow held from DYE2's profile picker, the recipe kept named on its own profile and cleared on another (profile-picker.json)", async () => {
+    const file = dye2V040Recording<Record_>("profile-picker");
+    await made(file, {
+      applyRatio: pill("8"),
+      applyRatioAgain: pill("8"),
+      confirmOwn: () => pickProfileInDye2(proxy, profileTitled("Adaptive v3")),
+      confirmOther: () => pickProfileInDye2(proxy, profileTitled("Classic Italian espresso")),
+    });
+  });
+
+  it("makes a recipe under a UUID in no slot from SAVE TO RECIPE on Edit Auto Favourite, with a favourite where it is always displayed (save-to-recipe.json)", async () => {
+    const file = dye2V040Recording<Record_>("save-to-recipe");
+    /** DYE2's clock and new ids as the step's save had them: the recipe's, then the favourite's. */
+    const asRecorded = (step: Dye2Step) => {
+      const before = (step.exchanges.find(({ request }) => request.method === "GET" && request.path.endsWith("/recipes"))?.response.body ?? []) as Record_[];
+      const recipes = step.exchanges.find(({ request }) => request.method === "POST" && request.path.endsWith("/recipes"))!.request.body as Record_[];
+      const recipe = recipes.find((saved) => !before.some((held) => held.id === saved.id))!;
+      const favourites = step.exchanges.find(({ request }) => request.method === "POST" && request.path.endsWith("/autoFavourites"))?.request.body as Record_[] | undefined;
+      const favourite = favourites?.at(-1);
+      const ids = [String(recipe.id), ...(favourite ? [String(favourite.id)] : [])];
+      const times = [String(recipe.capturedAt), ...(favourite ? [String(favourite.capturedAt)] : [])];
+      dye2Generated.uuid = () => ids.shift()!;
+      dye2Generated.now = () => new Date(times.length > 1 ? times.shift()! : times[0]!);
+      return String(recipe.name);
+    };
+    await made(file, {
+      applyFull: pill("1"),
+      saved: (step) => saveFavouriteInDye2(proxy, { title: asRecorded(step) }),
+      savedNotDisplayed: (step) => saveFavouriteInDye2(proxy, { title: asRecorded(step), alwaysOnDashboard: false }),
+    });
+  });
+
+  it("takes a null for each part of a Workflow's context but its yield, which it refuses, a field of its `extras` cleared staying as a key holding null (explicit-nulls.json)", async () => {
+    const file = dye2V040Recording<Record_>("explicit-nulls");
+    await made(file, { applyFull: pill("1"), applyFullAgain: pill("1") });
+  });
+
+  it("has DYE2's record save no yield into a recipe holding none, at 0, at the Drink tile's + or set to 40 (yield-set.json)", async () => {
+    const file = dye2V040Recording<Record_>("yield-set");
+    await made(file, {
+      started: async () => (pages.streamline = await startStreamline(proxy)),
+      applyBareFirst: strip("2"),
+      applyFull: strip("1"),
+      applyBare: strip("2"),
+      drinkPlus: () => pages.streamline!.setYield(1),
+    });
+    pages.streamline!.stop();
   });
 });
 

@@ -78,6 +78,12 @@ Nothing is needed, but baristas will see:
   notice to tap, 30 s after it starts and every 12 hours.
 - **SAVE TO RECIPE on a favourite adds a Recipe,** in no slot, at the
   tablet's Location, from DYE2 v0.1.38. Before, it saved a favourite only.
+  DYE2 saves it with its profile's title alone, so the Recipe names no
+  Profile until one is picked for it.
+- **DYE2's profile picker moves the dose and yield.** Its Confirm writes the
+  profile's yield and the dose at the ratio the Machine held. On the Loaded
+  Recipe's own profile these are the Recipe's edit, with that profile's own
+  brew temperature; on another profile the Recipe is unloaded, as before.
 
 A Recipe's dose, grind setting or RPM of 0 is now none, as DYE2 applies one,
 and DYE2's editor saves an RPM left blank as 0. The management interface and

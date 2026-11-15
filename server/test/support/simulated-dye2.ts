@@ -120,6 +120,7 @@ const fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.26");
 const v032Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.32");
 const v033Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.33");
 const v035Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.35");
+const v040Fixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-v0.1.40");
 const streamlineV0224Fixtures = path.resolve(supportDir, "../fixtures/decaid/streamline-v0.2.24");
 const pagesFixtures = path.resolve(supportDir, "../fixtures/decaid/dye2-2cf631c");
 
@@ -131,6 +132,21 @@ export type Dye2V033File = "library" | "loading" | "plugins" | "applies" | "bask
 
 /** The files of fixtures/decaid/dye2-v0.1.35/: what DYE2 v0.1.35 does otherwise than v0.1.33 (its README). */
 export type Dye2V035File = "library" | "loading" | "plugins" | "feed-rate" | "grinders" | "favourites" | "steam" | "keys";
+
+/** The files of fixtures/decaid/dye2-v0.1.40/: what DYE2 v0.1.37 to v0.1.40 and Streamline v0.2.25 to v0.2.27 do otherwise as they apply a recipe, pick a grinder or a profile, edit a recipe and save a favourite, on Decaid v0.9.2 (its README). */
+export type Dye2V040File =
+  | "library"
+  | "loading"
+  | "dashboard-applies"
+  | "strip-applies"
+  | "grinder-picks"
+  | "editor"
+  | "grinder-archive"
+  | "profile-picker"
+  | "save-to-recipe"
+  | "explicit-nulls"
+  | "yield-set"
+  | "keys";
 
 /** The files of fixtures/decaid/streamline-v0.2.24/: what Streamline v0.2.24 writes around steam, on a profile switch and from its Grind label, and DYE2 v0.1.36's Grinders page (its README). */
 export type StreamlineV0224File = "library" | "loading" | "strip" | "heater" | "tile" | "settings" | "record" | "steam-off-edit" | "settings-kept" | "profile-switch" | "grind-label" | "grinders-page" | "keys";
@@ -161,6 +177,11 @@ export function dye2V032Recording<T = Record_>(file: Dye2V032File): T {
 /** A file of fixtures/decaid/dye2-v0.1.33/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
 export function dye2V033Recording<T = Record_>(file: Dye2V033File): T {
   return expandedRecording<T>(v033Fixtures, file);
+}
+
+/** A file of fixtures/decaid/dye2-v0.1.40/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
+export function dye2V040Recording<T = Record_>(file: Dye2V040File): T {
+  return expandedRecording<T>(v040Fixtures, file);
 }
 
 /** A file of fixtures/decaid/dye2-v0.1.35/, its shorthands expanded as `dye2Recording` expands those of v0.1.26's. */
@@ -2760,8 +2781,9 @@ const NEW_FAVOURITE_COPY_MASK = { profile: true, beans: true, roastDate: false, 
  * v0.1.38), its title typed: the page takes the Workflow as its snapshot
  * (`favouriteSnapshot`) and saves it as a new recipe into `recipes`, under a
  * new UUID, in no slot (`updateRecipe`), its Bean the tablet's of the
- * snapshot's coffee name; v0.1.34 to v0.1.37 saved a favourite and no
- * recipe. With "Always display on Dashboard" on, as it starts, it also saves
+ * snapshot's coffee name, and its profile named by its title alone, with no
+ * id or snapshot, as the page read it from the Workflow; v0.1.34 to v0.1.37
+ * saved a favourite and no recipe. With "Always display on Dashboard" on, as it starts, it also saves
  * the favourite into `autoFavourites` under a new id (`createAutoFavourite`),
  * pinned to the Fav Number picked, or else the lowest of 1 to 4 no saved
  * favourite holds, or 1 (`nextFreeFavSlot`), taken from the favourite that
@@ -2786,9 +2808,11 @@ export async function saveFavouriteInDye2(
     beanName: snapshot.coffeeName,
     beanRoaster: snapshot.coffeeRoaster,
     beanBatchId: snapshot.beanBatchId,
-    profileId: snapshot.profileId,
+    // The page's own snapshot of the Workflow, whose profile holds no id: the title alone, where the favourite it saves
+    // holds the tablet's record of that profile (`fattenFavouriteProfile`, in `createAutoFavourite`).
+    profileId: null,
     profileTitle: snapshot.profileTitle,
-    profileSnapshot: snapshot.profileSnapshot,
+    profileSnapshot: null,
     barista: snapshot.barista,
     drinker: snapshot.drinker,
     dashboardVariables: {
