@@ -820,7 +820,10 @@ Shot's rating and note). It is one call for any Shot, and two paths.
   the Shot is deleted there. The server makes the edit, as the asking
   Machine's, and sends it to that same tablet, which answers that it no
   longer holds the Shot: the edit stays on the server, with no tablet to
-  reach. So an edit made on a tablet is nearly always of another
+  reach. A Machine's Shot held by the tablet it had before, since
+  replaced, is edited from its new tablet the same way, as that
+  Machine's, and awaits the old tablet, for good if it never connects
+  again. So an edit made on a tablet is nearly always of another
   Machine's Shot, and not always.
 - **Who made it.** The edit's row names the connection's Machine and its
   tablet and no account, which the Shot's read gives as `machine` and
@@ -876,7 +879,9 @@ Shot's rating and note). It is one call for any Shot, and two paths.
   plugin sends; and, with the server stopped, the tablet's own Shot
   edited and reaching the server once it is back, and another tablet's
   refused and unchanged then, the edit crossing two instances on one
-  database once asked again. The mixed-versions suite has a tablet the
+  database once asked again; and a Shot deleted on the tablet the server
+  credits with it, edited from that tablet, kept as its Machine's with no
+  tablet to reach. The mixed-versions suite has a tablet the
   previous release's instance holds edit its own Shot and be refused
   another's as too old to ask. Nothing was run on a real tablet.
 

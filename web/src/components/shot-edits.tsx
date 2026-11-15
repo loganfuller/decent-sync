@@ -71,7 +71,7 @@ export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(sho
             How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
             the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which Shot Summaries and an assistant's tools give. Both are set on the
             tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on a tablet at its
-            Location that doesn't hold it.
+            Location that doesn't hold the Shot.
           </p>
           <p>
             An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
