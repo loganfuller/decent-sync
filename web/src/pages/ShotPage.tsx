@@ -4,6 +4,7 @@ import { Curves } from "@/components/curves";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ReferenceShotControl } from "@/components/reference-shots";
+import { RatingAndNoteCard, ShotEditsCard } from "@/components/shot-edits";
 import type { ListState } from "@/components/record-lists";
 import {
   LocationCredit,
@@ -24,6 +25,7 @@ import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { ApiError, api, type Recipe, type Shot } from "@/lib/api";
 import { SHOT_CURVES, type Sample, type ShotCurve, lastRecordedWeight, shotSamples } from "@/lib/curves";
+import { STATUS_POLL_MS } from "@/lib/use-polled";
 
 interface ShotData {
   shot: Shot;
@@ -43,7 +45,8 @@ const COMPARED = {
  * One Shot: its curves, everything recorded about it, how it was credited,
  * a comparison with the previous Shot on the same Machine or with its
  * Recipe's Reference Shot (#473), which Recipes it is the Reference Shot of,
- * and a control making it one.
+ * and a control making it one; and its rating and note, edited here by
+ * whoever may, with the edits made through the server (#514, ADR-0031).
  */
 export function ShotPage() {
   const { id = "" } = useParams();
@@ -53,7 +56,7 @@ export function ShotPage() {
 
 async function loadShot(id: string): Promise<ShotData> {
   const path = `/shots/${encodeURIComponent(id)}`;
-  // A Shot never changes its curves, only its metadata, so neither is polled.
+  // A Shot never changes its curves, only its metadata. It is read again only while an edit of it awaits its tablet.
   const [{ shot }, { measurements }] = await Promise.all([
     api<{ shot: Shot }>("GET", path),
     api<{ measurements: unknown }>("GET", `${path}/measurements`),
@@ -77,13 +80,32 @@ function ShotDetails({ id }: { id: string }) {
   // Why its Recipe's Reference Shot isn't offered, where its Recipe could not be read: apart from a comparison's own failure.
   const [referenceError, setReferenceError] = useState<string>();
   const compareId = useId();
+  // Counts the times the Shot was read again or edited, so an answer that arrives after a later one's changes nothing:
+  // a read begun before an edit would otherwise show the Shot as it was before it.
+  const shotReads = useRef(0);
+  /** The Shot as the server read it just now, its curves kept, unless a later read or edit has been asked for since `read`. */
+  const show = useCallback((shot: Shot, read: number) => {
+    if (shotReads.current === read) setData((loaded) => loaded && { ...loaded, shot });
+  }, []);
+  const reread = useCallback(
+    (failed: (caught: unknown) => void) => {
+      const read = ++shotReads.current;
+      api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`).then(({ shot }) => show(shot, read), failed);
+    },
+    [id, show],
+  );
   // Making it a Reference Shot changes what it says of that, so the Shot is read again, its curves kept.
-  const changed = useCallback(() => {
-    api<{ shot: Shot }>("GET", `/shots/${encodeURIComponent(id)}`).then(
-      ({ shot }) => setData((loaded) => loaded && { ...loaded, shot }),
-      (caught: unknown) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded"),
-    );
-  }, [id]);
+  const changed = useCallback(() => reread((caught) => setError(caught instanceof Error ? caught.message : "The Shot could not be loaded")), [reread]);
+  // While an edit awaits its tablet, the Shot is read again, as a Machine's status is, until the tablet has it: a read
+  // that fails is left to the next.
+  const awaitingTablet = data?.shot.editStanding === "awaitingTablet";
+  useEffect(() => {
+    if (!awaitingTablet) return;
+    const timer = setInterval(() => {
+      if (!document.hidden) reread(() => undefined);
+    }, STATUS_POLL_MS);
+    return () => clearInterval(timer);
+  }, [awaitingTablet, reread]);
 
   useEffect(() => {
     let current = true;
@@ -244,9 +266,6 @@ function ShotDetails({ id }: { id: string }) {
               <Field term="Duration">
                 <OrNone>{secondsText(shot.duration)}</OrNone>
               </Field>
-              <Field term="Enjoyment">
-                <OrNone>{numberText(shot.enjoyment)}</OrNone>
-              </Field>
               <Field term="Barista">
                 <OrNone>{shot.barista ?? undefined}</OrNone>
               </Field>
@@ -261,6 +280,7 @@ function ShotDetails({ id }: { id: string }) {
         </Card>
 
         <div className="grid content-start gap-4">
+          <RatingAndNoteCard shot={shot} onEdited={(edited) => show(edited, ++shotReads.current)} />
           <RecordCard title="Annotations" description={ANNOTATIONS_TIP} fields={annotationFields(shot, lastRecordedWeight(samples))} />
           <RecordCard
             title="Machine at the time"
@@ -335,6 +355,8 @@ function ShotDetails({ id }: { id: string }) {
         </CardContent>
       </Card>
 
+      <ShotEditsCard shot={shot} />
+
       <RecordAsSent record={shot.record} />
     </section>
   );
@@ -345,9 +367,9 @@ const ANNOTATIONS_TIP =
 
 /**
  * Decaid's annotations: the weighed dose and yield, with what the scale's samples show beside the yield (its time to
- * first drip, the last weight they recorded and the flow at the stop), refractometer readings, enjoyment and notes. The
- * time to first drip and the flow at the stop are the Shot's stored ones, which a Shot stored before they were kept has
- * once the server has worked them out.
+ * first drip, the last weight they recorded and the flow at the stop) and refractometer readings. Its rating and note
+ * are shown, and edited, in a card of their own (`RatingAndNoteCard`). The time to first drip and the flow at the stop
+ * are the Shot's stored ones, which a Shot stored before they were kept has once the server has worked them out.
  */
 function annotationFields(shot: Shot, lastWeight: { weight: number; seconds: number } | null): [string, string][] {
   const annotations = record(shot.record.annotations);
@@ -360,8 +382,6 @@ function annotationFields(shot: Shot, lastWeight: { weight: number; seconds: num
     ["Flow at the stop", numberText(shot.flowAtStop ?? null, "g/s")],
     ["TDS", amount(annotations?.drinkTds, "%")],
     ["Extraction yield", amount(annotations?.drinkEy, "%")],
-    ["Enjoyment", text(annotations?.enjoyment)],
-    ["Notes", text(annotations?.espressoNotes)],
     ["Stopped by", text(shot.record.stopReason)],
   ]);
 }
@@ -416,7 +436,7 @@ function Comparison({ shot, other, label, name }: { shot: Shot; other: Shot; lab
     ["Yield", (shown) => gramsText(shown.actualYield, shown.targetYield)],
     ["Duration", (shown) => secondsText(shown.duration)],
     ["Peak pressure", (shown) => numberText(shown.peakPressure, "bar")],
-    ["Enjoyment", (shown) => numberText(shown.enjoyment)],
+    ["Rating", (shown) => numberText(shown.enjoyment)],
     ["Barista", (shown) => shown.barista ?? undefined],
   ];
   return (

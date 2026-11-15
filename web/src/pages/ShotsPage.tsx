@@ -94,7 +94,7 @@ export function ShotsPage() {
                   <TableHead>Dose</TableHead>
                   <TableHead>Yield</TableHead>
                   <TableHead>Duration</TableHead>
-                  <TableHead>Enjoyment</TableHead>
+                  <TableHead>Rating</TableHead>
                   <TableHead>Barista</TableHead>
                 </TableRow>
               </TableHeader>

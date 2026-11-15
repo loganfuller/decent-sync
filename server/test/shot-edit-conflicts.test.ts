@@ -39,6 +39,7 @@ interface ShotView {
   id: string;
   enjoyment: number | null;
   notes: string | null;
+  editStanding: "awaitingTablet" | "noTablet" | null;
   edits: Edit[];
 }
 
@@ -200,7 +201,8 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
       await reconnect(order, id);
       // The tablet's rating stands on the server, and the edit is still listed, as not written.
       await expect.poll(() => view(id)).toEqual({ enjoyment: 6, notes: "As pulled", edits: [[{ rating: 8 }, "dropped", ["rating"]]] });
-      expect((await read(id)).edits[0]).toMatchObject({ writtenAt: null });
+      // Nothing awaits the tablet any more, as the Shot says of its edits as a whole (#514).
+      expect(await read(id)).toMatchObject({ editStanding: null, edits: [{ writtenAt: null }] });
       await settled(id);
       // And on the tablet: the plugin wrote nothing, whichever came first.
       expect(writesOf(id)).toEqual([]);
@@ -286,6 +288,8 @@ describe("Two edits of one Shot's rating or note", { timeout: 120_000 }, () => {
     // The edit stays on the server, as the Shot reads.
     expect(await view(id)).toEqual({ enjoyment: 7, notes: "As pulled", edits: [[{ rating: 7 }, "noTablet", []]] });
     expect((await read(id)).edits[0]).toMatchObject({ writtenAt: null });
+    // The Shot says so of its edits as a whole (#514), where its latest has no tablet to reach.
+    expect(await read(id)).toMatchObject({ editStanding: "noTablet" });
 
     // On its next connection the tablet is written what its other Shots are due, the longest waiting first, and that edit not again.
     await offline();

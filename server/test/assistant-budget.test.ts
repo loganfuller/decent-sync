@@ -293,6 +293,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(widest.result.curves.thinnedTo).toBeGreaterThan(100);
         expect(widest.result.curves.thinnedTo).toBeLessThan(840);
       }
+      // With the edits of its rating and note too (#514), a handful, as a Shot has: each whole, beside every curve.
+      for (const fields of [{ rating: 8 }, { note: "Sweeter once it cooled; keep the grind." }, { rating: 9, note: "The best of the morning." }]) await api.send("PATCH", "/shots/preheat", fields);
+      const edited = await assistant.callWithinBudget<Fields & { edits: Page & { entries: Fields[] } }>("get_shot", { id: "preheat", curves: true, edits: true });
+      expect(edited.result).not.toHaveProperty("cut");
+      pagingFirst(edited.text.slice(edited.text.indexOf('"edits":')), "entries");
+      expect(edited.result.edits).toMatchObject({ total: 3, offset: 0, more: false });
+      expect(edited.result.edits.entries.map((edit) => [edit.rating, edit.note])).toEqual([[9, "The best of the morning."], [undefined, "Sweeter once it cooled; keep the grind."], [8, undefined]]);
+      expect(edited.result.curves).toEqual(result.curves);
     });
 
     it("finds Steam Records a page at a time, and reads one with its curves", async () => {
@@ -950,6 +958,30 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
       expect(result.lastRecordedWeight).toEqual(plain.lastRecordedWeight);
       expect([result.timeToFirstDrip, result.flowAtStop]).toEqual([plain.timeToFirstDrip, plain.flowAtStop]);
       expect(result.steps).not.toEqual([]);
+    });
+
+    it("lists a Shot's hundred edits, each note far longer than any typed, cut and marked, the page of them ended sooner", async () => {
+      // The most a Shot's read lists (MAX_LISTED_EDITS), and five more: no tablet holds the Shot, so each awaits one.
+      await deliverShots(raw, [shotAt("haunted-edits", 350, "43102")]);
+      for (let n = 0; n < 105; n++) await api.send("PATCH", "/shots/haunted-edits", { rating: n % 11, note: `${n} ${hostile(3_000)}` });
+      const { result, text } = await assistant.callWithinBudget<Fields & { cut: string; edits: Page & { entries: Fields[] } }>("get_shot", { id: "haunted-edits", edits: true, curves: true });
+      expect(result.cut).toContain("without curves or edits");
+      pagingFirst(text.slice(text.indexOf('"edits":')), "entries");
+      // The newest first, fewer than the hundred listed, saying more follow.
+      expect(result.edits).toMatchObject({ total: 100, offset: 0, more: true });
+      expect(result.edits.entries.length).toBeGreaterThan(20);
+      expect(result.edits.entries.length).toBeLessThan(100);
+      expect(result.edits.entries.every((edit) => cut(edit.note))).toBe(true);
+      expect(result.edits.entries.slice(0, 2).map((edit) => [edit.rating, String(edit.note).slice(0, 4), edit.state])).toEqual([[5, "104 ", "awaitingTablet"], [4, "103 ", "awaitingTablet"]]);
+      expect(result).toMatchObject({ editStanding: "awaitingTablet", enjoyment: 5 });
+      expect(cut(result.notes)).toBe(true);
+      // Its curves are whole beside them, as a Shot's with the same measurements and no edits.
+      expect(result.curves).toEqual((await assistant.call<Fields>("get_shot", { id: "plain", curves: true })).curves);
+      // Without its edits, it says where they stand all the same, in a response a fraction of the size.
+      const plain = await assistant.callWithinBudget<Fields>("get_shot", { id: "haunted-edits" });
+      expect(plain.result).toMatchObject({ editStanding: "awaitingTablet" });
+      expect(plain.result).not.toHaveProperty("edits");
+      expect(plain.text.length).toBeLessThan(5_000);
     });
 
     it("reads a Shot whose Profile's step names run long with its steps whole, as a Profile's steps are", async () => {

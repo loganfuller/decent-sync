@@ -59,6 +59,22 @@ export type ShotEditField = "rating" | "note";
 export type ShotEditState = "awaitingTablet" | "written" | "dropped" | "noTablet";
 
 /**
+ * Where a Shot's edits stand with the tablet that holds it, as its page
+ * and get_shot say it (ticket #514): `awaitingTablet` while any of them
+ * awaits that tablet, so the Shot there doesn't show it yet; `noTablet`
+ * where the latest of them found that tablet no longer holding the Shot,
+ * so the Shot reads as edited on the server alone; null otherwise, as for
+ * a Shot never edited through the server.
+ */
+export type ShotEditStanding = "awaitingTablet" | "noTablet" | null;
+
+/** Where a Shot's edits stand with its tablet (`ShotEditStanding`), from them as its read lists them, newest first. */
+export function editStanding(edits: readonly Pick<ShotEditView, "state">[]): ShotEditStanding {
+  if (edits.some((edit) => edit.state === "awaitingTablet")) return "awaitingTablet";
+  return edits[0]?.state === "noTablet" ? "noTablet" : null;
+}
+
+/**
  * In SQL, whether an edit, a row of `shot_edits` under that alias, still
  * awaits its tablet: not written, not found to have no tablet to reach, and
  * setting a field its tablet has not changed later.

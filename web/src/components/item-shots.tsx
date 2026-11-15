@@ -70,7 +70,7 @@ export function ItemShotsCard({ kind, id }: { kind: ShotsKind; id: string }) {
                     <TableHead>Dose</TableHead>
                     <TableHead>Yield</TableHead>
                     <TableHead>Duration</TableHead>
-                    <TableHead>Enjoyment</TableHead>
+                    <TableHead>Rating</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

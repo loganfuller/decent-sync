@@ -169,6 +169,7 @@ describe("connecting an assistant", () => {
         "edit_location",
         "edit_machine_settings",
         "edit_recipe",
+        "edit_shot",
         "edit_tool",
         "move_machine",
         "resolve_conflict",
@@ -566,7 +567,7 @@ describe("connecting an assistant", () => {
       const editing = await person("se@example.com", "staff", [uptown]);
       const edited = await approvedCode(editing.cookie);
       await exchange(server.url, edited.code, edited.verifier);
-      // And one that only an edit of a Shot names (ADR-0031): no tool makes one yet, so its row is written here.
+      // And one that only an edit of a Shot names (ADR-0031), as edit_shot makes: its row is written here, as the others' are.
       const rating = await person("ra@example.com", "staff", [uptown]);
       const rated = await approvedCode(rating.cookie);
       await exchange(server.url, rated.code, rated.verifier);
