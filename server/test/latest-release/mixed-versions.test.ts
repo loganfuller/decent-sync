@@ -509,6 +509,8 @@ describe("the latest release beside the change", () => {
     for (const { tablet } of [current, behind, held]) await expect.poll(() => recipeRecords(tablet).length).toBe(1);
 
     const latest = wireRevisions()["latest release"] >= REFERENCE_COPIES_WIRE_REVISION;
+    // Nothing is under way between the tablets and the servers, so a copy on its way would have arrived.
+    await quiesced(apis.change, { tablets: { current: current.tablet, behind: behind.tablet, held: held.tablet } });
     for (const { tablet } of [behind, held]) {
       if (latest) await expect.poll(() => String(tablet.storage.read("reference.1"))).toContain("mixed-reference-shot");
       else {

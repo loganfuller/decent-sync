@@ -458,6 +458,10 @@ describe("A Recipe's Reference Shot on the tablets at its Location", { timeout: 
       await choose(espresso, "ref-left-bloom");
       await expect.poll(() => of(raw, "referenceCopy").length).toBe(4);
       expect(of(raw, "referenceCopy").at(-1)).toMatchObject({ slot: 1, copy: { reference: { shot: { id: "ref-left-bloom" } } } });
+      // And nothing after it: the tablets beside it have their copies of the same change, so every look it woke has run.
+      for (const tablet of [left, right]) await expect.poll(() => kept(tablet, 1)).toBe("ref-left-bloom");
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(of(raw, "referenceCopy")).toHaveLength(4);
       await raw.close();
     });
 

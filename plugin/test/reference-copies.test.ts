@@ -20,10 +20,15 @@ function loaded(values: Record<string, unknown> = {}, unanswered: (command: Stor
   const held = new Map(Object.entries(values));
   const logs: string[] = [];
   const told: SkinRecipe[] = [];
+  /** The keys written, in order. */
+  const written: string[] = [];
   const host = {
     storage: (command: StorageCommand) => {
       if (unanswered(command)) return;
-      if (command.type === "write") held.set(command.key, command.data);
+      if (command.type === "write") {
+        held.set(command.key, command.data);
+        written.push(command.key);
+      }
       queueMicrotask(() =>
         command.type === "read" ? storage.answered("storageRead", { key: command.key, value: held.get(command.key) ?? null }) : storage.answered("storageWrite", command.data),
       );
@@ -37,7 +42,7 @@ function loaded(values: Record<string, unknown> = {}, unanswered: (command: Stor
     await copies.welcomed(async (message) => void (sent = message), serverRevision, () => current);
     return sent;
   };
-  return { copies, held, logs, told, stated };
+  return { copies, held, logs, told, written, stated };
 }
 
 afterEach(() => vi.useRealTimers());
@@ -59,19 +64,40 @@ describe("the plugin's Reference Shot copies", () => {
     expect(await stated(WIRE_REVISION, false)).toBeUndefined();
   });
 
-  it("keeps each copy in place of what its slot held, in the order they came, and tells Skins of its Recipe", async () => {
-    const { copies, held, told, stated } = loaded();
+  it("keeps each copy in place of what its slot held, one after another, and tells Skins of its Recipe", async () => {
+    const { copies, held, told, written, stated } = loaded();
     copies.apply(copyOf(1, { version: "one", recipe: ESPRESSO, reference: shot("a") }));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "one" } });
+    expect(held.get("reference.1")).toBe(`${JSON.stringify({ version: "one", recipe: ESPRESSO })}\n${JSON.stringify(shot("a"))}`);
     copies.apply(copyOf(1, { version: "two", recipe: ESPRESSO, reference: null }));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "two" } });
     copies.apply(copyOf(2, { version: "three", recipe: DECAF, tooLarge: true }));
     copies.apply(copyOf(3, { version: "four", recipe: DECAF, reference: shot("b") }));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "two", "2": "three", "3": "four" } });
     copies.apply(copyOf(3, null));
     expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "two", "2": "three" } });
     expect(held.get("reference.1")).toBe(`${JSON.stringify({ version: "two", recipe: ESPRESSO })}\nnull`);
     expect(held.get("reference.2")).toBe(JSON.stringify({ version: "three", recipe: DECAF, tooLarge: true }));
     expect(held.get("reference.3")).toBe("{}");
+    expect(written).toEqual(["reference.1", "reference.1", "reference.2", "reference.3", "reference.3"]);
     // Each copy kept is told of, and a slot emptied is not.
     expect(told).toEqual([ESPRESSO, ESPRESSO, DECAF, DECAF]);
+  });
+
+  it("keeps only the latest copy for a slot of those that arrive while its storage is behind, so no more wait than there are slots", async () => {
+    const { copies, held, told, written, stated } = loaded();
+    // Faster than Decaid stores them: a hundred edits of one Reference Shot, and a slot filled and emptied.
+    for (let edit = 1; edit <= 100; edit++) copies.apply(copyOf(1, { version: `edit ${edit}`, recipe: ESPRESSO, reference: shot("a") }));
+    copies.apply(copyOf(2, { version: "filled", recipe: DECAF, reference: shot("b") }));
+    copies.apply(copyOf(2, null));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "edit 100" } });
+    expect(written).toEqual(["reference.1", "reference.2"]);
+    expect(held.get("reference.2")).toBe("{}");
+    expect(told).toEqual([ESPRESSO]);
+    // One that arrives once the others are kept is kept in its turn.
+    copies.apply(copyOf(1, { version: "edit 101", recipe: ESPRESSO, reference: null }));
+    expect(await stated()).toEqual({ type: "referencesHeld", held: { "1": "edit 101" } });
+    expect(written).toEqual(["reference.1", "reference.2", "reference.1"]);
   });
 
   it("reads the copy of a Recipe in a slot: its Reference Shot or none, and nothing for one too large to keep or for any other Recipe", async () => {

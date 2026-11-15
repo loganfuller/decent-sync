@@ -4906,7 +4906,11 @@ var __decentSync = (() => {
       __publicField(this, "slots", /* @__PURE__ */ new Map());
       /** The reading of what the keys hold, begun by the first use. */
       __publicField(this, "loading");
-      /** The copies being kept, one at a time, in the order they came. */
+      /** What each slot is to hold, for the slots whose latest copy from the server is still to be kept. */
+      __publicField(this, "waiting", /* @__PURE__ */ new Map());
+      /** Whether the copies waiting are being kept. */
+      __publicField(this, "busy", false);
+      /** Resolves once the copies that have come are kept. */
       __publicField(this, "keeping", Promise.resolve());
       __publicField(this, "stopped", false);
     }
@@ -4939,28 +4943,54 @@ var __decentSync = (() => {
       await send({ type: "referencesHeld", held }).catch(() => {
       });
     }
-    /** Keeps a copy the server sent in place of what its slot held, after those before it, and tells Skins of its Recipe. */
+    /**
+     * Keeps a copy the server sent in place of what its slot held, and tells
+     * Skins of its Recipe. Copies are kept one at a time. One that arrives
+     * while an earlier copy for its slot still waits its turn takes that
+     * copy's place, so however slow Decaid's storage is, no more wait than
+     * there are slots.
+     */
     apply({ slot, copy }) {
-      const kept = this.keeping.then(async () => {
+      if (this.stopped || !isRecipeSlot(slot)) return;
+      const idle = this.waiting.size === 0 && !this.busy;
+      this.waiting.set(slot, copy);
+      if (idle) this.keeping = this.keepWaiting();
+    }
+    /** Keeps the copies waiting, until none is. It never rejects. */
+    async keepWaiting() {
+      this.busy = true;
+      try {
         await this.load();
-        if (this.stopped || !isRecipeSlot(slot)) return;
-        const head = copy && { version: copy.version, recipe: copy.recipe, ...copy.tooLarge === true && { tooLarge: true } };
+        for (; ; ) {
+          const next = this.waiting.entries().next();
+          if (next.done || this.stopped) return;
+          const [slot, copy] = next.value;
+          this.waiting.delete(slot);
+          await this.keep(slot, copy);
+        }
+      } catch (error) {
+        this.log(`Could not keep the Reference Shot copies: ${describe2(error)}`);
+      } finally {
+        this.busy = false;
+      }
+    }
+    /** Writes what a slot is to hold to its key, and tells Skins of its Recipe once it is written. */
+    async keep(slot, copy) {
+      const head = copy && { version: copy.version, recipe: copy.recipe, ...copy.tooLarge === true && { tooLarge: true } };
+      try {
         const data = head === null ? EMPTY : head.tooLarge ? JSON.stringify(head) : `${JSON.stringify(head)}
 ${JSON.stringify(copy?.reference ?? null)}`;
-        try {
-          await this.storage.write(key(slot), data, `the Reference Shot copy of Recipe Slot ${slot}`);
-        } catch (error) {
-          this.slots.delete(slot);
-          if (!this.stopped) this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
-          return;
-        }
-        if (head === null) this.slots.delete(slot);
-        else {
-          this.slots.set(slot, head);
-          this.changed(head.recipe);
-        }
-      });
-      this.keeping = kept.catch((error) => this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`));
+        await this.storage.write(key(slot), data, `the Reference Shot copy of Recipe Slot ${slot}`);
+      } catch (error) {
+        this.slots.delete(slot);
+        if (!this.stopped) this.log(`Could not keep the Reference Shot copy of Recipe Slot ${slot}: ${describe2(error)}`);
+        return;
+      }
+      if (head === null) this.slots.delete(slot);
+      else {
+        this.slots.set(slot, head);
+        this.changed(head.recipe);
+      }
     }
     /**
      * The tablet's copy of the Recipe's reference, for a Recipe in a slot whose

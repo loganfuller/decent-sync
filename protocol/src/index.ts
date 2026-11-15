@@ -2144,7 +2144,7 @@ export const REFERENCE_COPIES_WIRE_REVISION = 3;
 
 /**
  * The largest copy of a Reference Shot a tablet keeps: 1 MiB of its JSON
- * (`SkinReference`), in UTF-8. It is the largest value Decaid's store takes
+ * (`ReferenceCopy.copy`), in UTF-8. It is the largest value Decaid's store takes
  * through its own API (`largeRequestBodyBytes` in
  * decaid:lib/src/services/webserver/bounded_request_body.dart, which
  * `POST /api/v1/store/{namespace}/{key}` reads its body within, the same at

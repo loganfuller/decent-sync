@@ -130,9 +130,10 @@ export async function referenceCopiesDue(db: Prisma.TransactionClient, asking: A
   const due: DueCopy[] = [...held.keys()].filter((slot) => !filled.has(slot)).map((slot) => ({ slot, copy: null }));
   for (const head of slotted) {
     if (head.slot === null || held.get(head.slot) === head.version) continue;
-    const { recipe, reference } = await whole(db, head);
-    const tooLarge = utf8Length(JSON.stringify({ recipe, reference })) > MAX_REFERENCE_COPY_BYTES;
-    due.push({ slot: head.slot, copy: { version: head.version, recipe, ...(tooLarge ? { tooLarge } : { reference }) } });
+    const copy = { version: head.version, ...(await whole(db, head)) };
+    // As long as what the plugin keeps of it, or a little longer.
+    const tooLarge = utf8Length(JSON.stringify(copy)) > MAX_REFERENCE_COPY_BYTES;
+    due.push({ slot: head.slot, copy: tooLarge ? { version: copy.version, recipe: copy.recipe, tooLarge } : copy });
   }
   return due;
 }
