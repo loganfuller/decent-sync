@@ -7,6 +7,7 @@ import { PrismaService } from "../prisma.service.js";
 import { lockBeanMatching } from "./beans.js";
 import { editContent, lockItems, recordJoined } from "./content-edits.js";
 import { type EquipmentKind, lockMatching } from "./equipment.js";
+import { grinderEdit, newGrinderProblem } from "./grinder-range.js";
 import { type EditSource, type Editor, type ItemRef, accountSource, recordVersion } from "./history.js";
 import { INTAKE_TRANSACTION } from "./intake.js";
 import { KINDS, idSql } from "./kinds.js";
@@ -167,6 +168,8 @@ export class LibraryEditsService {
   /** Creates a Grinder belonging to the Location. 404 if there is no such Location, 403 for Staff elsewhere. */
   async createGrinder(locationId: string, content: Record<string, unknown>, editor: Editor, scope: Scope): Promise<string> {
     if (!includesLocation(scope, locationId)) throw staffElsewhere("create a Grinder");
+    const problem = newGrinderProblem(content);
+    if (problem !== null) throw new BadRequestException(problem);
     return this.prisma.$transaction(async (tx) => {
       await this.checkLocations(tx, [locationId]);
       await lockLocation(tx, locationId);
@@ -177,9 +180,19 @@ export class LibraryEditsService {
     }, INTAKE_TRANSACTION);
   }
 
-  /** Edits a Grinder's content: Staff only at the Location it belongs to. */
+  /**
+   * Edits a Grinder's content: Staff only at the Location it belongs to. 400
+   * for an edit that would leave a lowest above a highest, or a range or
+   * default of its setting on a Grinder with named positions, judged over its
+   * content under its row lock; one that gives it named positions clears
+   * them (`grinderEdit`).
+   */
   async editGrinder(id: string, values: Record<string, unknown>, editor: Editor, scope: Scope): Promise<void> {
-    await this.editShared({ kind: "grinder", id }, values, editor, scope);
+    await this.editShared({ kind: "grinder", id }, values, editor, scope, (content) => {
+      const edit = grinderEdit(content, values);
+      if ("problem" in edit) throw new BadRequestException(edit.problem);
+      return edit.values;
+    });
   }
 
   /** Archives a Grinder, so it is offered nowhere, or restores it, at its Location: Staff anywhere. */
@@ -316,9 +329,17 @@ export class LibraryEditsService {
    * Merges an edit of the item's content, a Grinder's Archived state
    * included, made over it as it stands, under its row lock, after its
    * Location's for a Grinder, whose Archived state changes only under it.
-   * With a scope, Staff edit a Grinder only at its own Location.
+   * With a scope, Staff edit a Grinder only at its own Location. With
+   * `over`, the edit is what it returns for the item's content as it stands,
+   * read under that lock, or is refused as it throws.
    */
-  private async editShared(item: ItemRef, values: Record<string, unknown>, editor: Editor, scope: Scope | null): Promise<void> {
+  private async editShared(
+    item: ItemRef,
+    values: Record<string, unknown>,
+    editor: Editor,
+    scope: Scope | null,
+    over?: (content: Record<string, unknown>) => Record<string, unknown>,
+  ): Promise<void> {
     const description = KINDS[item.kind];
     await this.prisma.$transaction(async (tx) => {
       if (description.belongsToLocation) {
@@ -331,7 +352,8 @@ export class LibraryEditsService {
       }
       await lockItems(tx, item.kind, [item.id]);
       await found(tx, item.kind, item.id);
-      const edited = await editContent(tx, item, { values, at: await editTime(tx), seenAt: "everything" }, accountSource(editor));
+      const edit = over ? over(await contentOf(tx, item)) : values;
+      const edited = await editContent(tx, item, { values: edit, at: await editTime(tx), seenAt: "everything" }, accountSource(editor));
       if (edited.writesDue) await notify(tx, "library_changes", item.id);
     }, INTAKE_TRANSACTION);
   }
@@ -367,6 +389,13 @@ export async function editTime(tx: Prisma.TransactionClient): Promise<Date> {
 
 function notFound(kind: LibraryKind): NotFoundException {
   return new NotFoundException(`No such ${KINDS[kind].name}`);
+}
+
+/** The item's content as edits merge it (`values` in kinds.ts), read under its row lock. */
+async function contentOf(tx: Prisma.TransactionClient, item: ItemRef): Promise<Record<string, unknown>> {
+  const description = KINDS[item.kind];
+  const [row] = await tx.$queryRaw<{ content: unknown }[]>`SELECT content FROM ${Prisma.raw(description.table)} WHERE id = ${idSql(description, item.id)}`;
+  return typeof row?.content === "object" && row.content !== null && !Array.isArray(row.content) ? description.values(row.content as Record<string, unknown>) : {};
 }
 
 /** 404 unless the Library has the item. */

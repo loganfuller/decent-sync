@@ -16,7 +16,7 @@ import { quiesced } from "../support/quiet.js";
 import { derivedShot } from "../support/shot-fixtures.js";
 import { DYE2_NAMESPACE, SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../support/simulated-dye2.js";
 import { startStreamline } from "../support/simulated-streamline.js";
-import { RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
+import { PluginStorage, RawConnection, type SimulatedTablet, derivedWorkflow, helloWith, readBuiltPlugin, settingsFor } from "../support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../support/steam-fixtures.js";
 import { type TestServer, startTestServer } from "../support/test-server.js";
 
@@ -203,6 +203,38 @@ describe("the latest release beside the change", () => {
       await expect.poll(async () => (await api.get<{ grinder: { content: { notes?: unknown } } }>(`/grinders/${grinder.id}`)).grinder.content.notes).toBe(
         "Edited on the tablet",
       );
+    });
+
+    // A Grinder's range and defaults (#551), which a tablet's record holds in its `extras`. 1.10.0's plugin writes them
+    // at the record's top, where Decaid drops them, and 1.10.0's server takes none in from a record. Neither loses one
+    // the other holds: a tablet written none is not taken to have cleared the Grinder's, and one typed on a tablet
+    // stays in its record through that server's writes.
+    it("keeps a Grinder's range and defaults where the other release knows none of them", async () => {
+      const api = apis[server];
+      const location = await api.createLocation(`Range, the ${plugin}'s plugin`, "America/Chicago");
+      const { tablet } = await connected(`Range, the ${plugin}'s plugin`, plugin, server, { location });
+      const range = { settingMin: 0, settingMax: 10, rpmDefault: 900 };
+      if (server === "change") {
+        const { grinder } = await api.send<{ grinder: { id: string } }>("POST", "/grinders", { locationId: location.id, content: { model: "Ranged EG-1", ...range } }, 201);
+        await expect.poll(() => heldGrinder(tablet, grinder.id)).toMatchObject({ model: "Ranged EG-1" });
+        await api.send("PATCH", `/grinders/${grinder.id}`, { content: { settingDefault: 4 } });
+        // An edit on the tablet, whose record holds whatever its plugin could write of them, is its notes alone.
+        await tablet.editGrinder(heldGrinder(tablet, grinder.id)!.id, { notes: "Edited on the tablet" });
+        const content = async () => (await api.get<{ grinder: { content: Record<string, unknown> } }>(`/grinders/${grinder.id}`)).grinder.content;
+        await expect.poll(async () => (await content()).notes).toBe("Edited on the tablet");
+        expect(await content()).toMatchObject({ ...range, settingDefault: 4 });
+        const history = (await api.get<{ versions: { fields: Record<string, unknown> }[] }>(`/grinders/${grinder.id}/history`)).versions;
+        expect(history.map((version) => Object.keys(version.fields)).filter((fields) => fields.some((field) => field in range) && !fields.includes("model"))).toEqual([]);
+      } else {
+        const record = await tablet.addGrinder({ model: "Ranged EG-2", extras: { bcUuid: "fixture-bc-uuid", ...range } });
+        const listed = async () => (await api.get<{ grinders: { id: string; model: string | null }[] }>("/grinders")).grinders.find((grinder) => grinder.model === "Ranged EG-2");
+        await expect.poll(listed).toBeDefined();
+        const grinder = (await listed())!;
+        await expect.poll(() => heldGrinder(tablet, grinder.id)?.id).toBe(record.id);
+        await api.send("PATCH", `/grinders/${grinder.id}`, { content: { notes: "Edited in the management interface" } });
+        await expect.poll(() => heldGrinder(tablet, grinder.id)?.notes).toBe("Edited in the management interface");
+        expect(heldGrinder(tablet, grinder.id)?.extras).toMatchObject({ bcUuid: "fixture-bc-uuid", ...range });
+      }
     });
 
     it("writes a Settings Edit and confirms it", async () => {
@@ -663,6 +695,41 @@ describe("the latest release beside the change", () => {
         await apis[through].send("PATCH", `/grinders/${grinder.id}`, { content: { notes: `Edited through the ${through}` } });
         await expect.poll(() => heldGrinder(holding, grinder.id)?.notes).toBe(`Edited through the ${through}`);
       }
+    });
+
+    // A range typed into a grinder under 1.10.0, whose server kept the record as sent and took none of it in (#551):
+    // the change's server takes it in from the tablet's next report, where the Grinder never had one, rather than
+    // writing the Grinder's none over it. The tablet keeps the latest release's plugin, as in the minutes after a deploy.
+    it("takes in a range a tablet's record held while the latest release served it, once the change serves it, and writes none over it", async () => {
+      const location = await apis.change.createLocation("Range, held before", "America/Chicago");
+      const machine = await apis.change.createMachine("Range, held before", location.id);
+      const decaid = emptyLibrary(serial++);
+      const storage = new PluginStorage();
+      const before = syncingTablet(machine, servers["latest release"], { latestRelease: true, api: decaid, storage });
+      loaded.push(before);
+      await apis.change.waitForOnline(machine);
+      const range = { settingMin: 0, settingMax: 10, settingDefault: 4, rpmMin: 400, rpmMax: 1200 };
+      const record = await before.addGrinder({ model: "Held EG-1", extras: { bcUuid: "fixture-bc-uuid", ...range } });
+      const listed = async () => (await apis.change.get<{ grinders: { id: string; model: string | null }[] }>("/grinders")).grinders.find((grinder) => grinder.model === "Held EG-1");
+      await expect.poll(listed).toBeDefined();
+      const grinder = (await listed())!;
+      await expect.poll(() => heldGrinder(before, grinder.id)?.id).toBe(record.id);
+      const held = before.grinders();
+      await before.unload();
+      await apis.change.waitForMachine(machine.machine.name, (viewed) => !viewed.online);
+
+      const after = syncingTablet(machine, servers.change, { latestRelease: true, api: { ...decaid, "/grinders": held }, storage });
+      loaded.push(after);
+      await apis.change.waitForOnline(machine);
+      const content = async () => (await apis.change.get<{ grinder: { content: Record<string, unknown> } }>(`/grinders/${grinder.id}`)).grinder.content;
+      await expect.poll(content).toMatchObject(range);
+      await quiesced(apis.change, { tablets: { after }, machines: { machine } });
+      expect(heldGrinder(after, grinder.id)?.extras).toMatchObject({ bcUuid: "fixture-bc-uuid", ...range });
+      expect(await content()).toMatchObject(range);
+      // Taken in as one edit of the Grinder, so one version of it, unless the latest release took them in itself as the Grinder joined.
+      const history = (await apis.change.get<{ versions: { fields: Record<string, unknown> }[] }>(`/grinders/${grinder.id}/history`)).versions;
+      const taken = history.filter((version) => "settingMin" in version.fields);
+      expect(taken.map((version) => Object.keys(range).every((field) => field in version.fields))).toEqual([true]);
     });
 
     // What a Shot's samples show of how it went (#467), of a Shot the latest release's server stored: that server works

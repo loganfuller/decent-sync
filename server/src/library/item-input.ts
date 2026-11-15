@@ -27,13 +27,15 @@ import { type EditableContent, KINDS } from "./kinds.js";
  * numbers above 0 (`aboveZero`), and its grind setting is no 0 either, as a
  * Recipe holds none of one at 0 (RECIPE_NONE_AT_ZERO in protocol/): clearing
  * the field says so. A number DYE2's recipe editor takes only within a
- * range is read against it (`NumberRange`).
+ * range is read against it (`NumberRange`). A Grinder's range and defaults
+ * are numbers of any sign (`anyNumber`), as DYE2's Grinders page takes them.
  */
 export type FieldType =
   | "text"
   | "name"
   | "flag"
   | "number"
+  | "anyNumber"
   | "aboveZero"
   | "date"
   | "texts"
@@ -140,6 +142,8 @@ function readValue(type: FieldType, value: unknown): { value: unknown } | string
       return typeof value === "boolean" ? { value } : "must be true or false";
     case "number":
       return typeof value === "number" && Number.isFinite(value) && value >= 0 ? { value } : "must be a number of 0 or more";
+    case "anyNumber":
+      return typeof value === "number" && Number.isFinite(value) ? { value } : "must be a number";
     case "aboveZero":
       return typeof value === "number" && Number.isFinite(value) && value > 0 ? { value } : "must be a number above 0: clear it for none";
     case "date":

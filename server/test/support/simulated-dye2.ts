@@ -2866,19 +2866,40 @@ export async function pickFavouriteInDye2(tablet: SimulatedTablet, favouriteId: 
   return openDye2Dashboard(tablet, { selectedFavouriteId: favouriteId });
 }
 
+/** The range and defaults of DYE2's grinder form (from v0.1.37, `d992296`), which a grinder's `extras` hold. */
+const GRINDER_FORM_RANGED = ["settingMin", "settingMax", "settingDefault", "rpmMin", "rpmMax", "rpmDefault"] as const;
+
 /** The fields of DYE2's grinder form, by the names `submitForm` reads them (grinders.ts). */
-const GRINDER_FORM_FIELDS = ["model", "burrs", "burrType", "burrSize", "feedRate", "notes", "settingType", "settingSmallStep", "settingBigStep", "rpmSmallStep", "rpmBigStep", "settingValues"] as const;
+const GRINDER_FORM_FIELDS = [
+  "model",
+  "burrs",
+  "burrType",
+  "burrSize",
+  "feedRate",
+  "notes",
+  "settingType",
+  "settingSmallStep",
+  "settingBigStep",
+  "rpmSmallStep",
+  "rpmBigStep",
+  "settingValues",
+  ...GRINDER_FORM_RANGED,
+] as const;
 
 /** A field of DYE2's grinder form, as typed. */
 export type Dye2GrinderField = (typeof GRINDER_FORM_FIELDS)[number];
 
 /**
- * `buildGrinderBody` in dye2:dye2-plugin/src/utils/grinder-form.ts at v0.1.35:
+ * `buildGrinderBody` in dye2:dye2-plugin/src/utils/grinder-form.ts at v0.1.40:
  * a field left blank is left out of a new grinder and cleared (null) on an
  * edit; numbers read with `parseFloat`; the setting's steps or its preset
- * values by its type; and the feed rate note in `extras`, where Decaid keeps
- * it, over the grinder's own `extras` so their other keys stay, null where
- * blank, sent on every edit and on a new grinder holding one.
+ * values by its type; and in `extras`, where Decaid keeps them, over the
+ * grinder's own `extras` so their other keys stay: the feed rate note, null
+ * where blank, and the range and default of its setting and of its RPM, each
+ * a number, null where blank on an edit and left out of a new grinder; the
+ * setting's three null on an edit of a grinder with named positions, and
+ * left out of a new one. `extras` are sent on every edit, and on a new
+ * grinder holding a note or any of the six.
  */
 function grinderBody(fields: Record<Dye2GrinderField, string>, isEdit: boolean, existingExtras: Record_): Record_ {
   const body: Record_ = { model: fields.model || "" };
@@ -2896,34 +2917,58 @@ function grinderBody(fields: Record<Dye2GrinderField, string>, isEdit: boolean, 
   if (settingType === "numeric") for (const key of ["settingSmallStep", "settingBigStep"] as const) number(key);
   else if (fields.settingValues) body.settingValues = fields.settingValues.split(",").map((value) => value.trim()).filter(Boolean);
   else if (isEdit) body.settingValues = null;
-  if (fields.feedRate || isEdit) body.extras = { ...existingExtras, feedRate: fields.feedRate || null };
+  const given = (key: Dye2GrinderField) => fields[key] !== "" && !Number.isNaN(parseFloat(fields[key]));
+  if (fields.feedRate || isEdit || GRINDER_FORM_RANGED.some(given)) {
+    const extras: Record_ = { ...existingExtras, feedRate: fields.feedRate || null };
+    for (const key of GRINDER_FORM_RANGED) {
+      if (given(key)) extras[key] = parseFloat(fields[key]);
+      else if (isEdit) extras[key] = null;
+    }
+    if (settingType !== "numeric") {
+      for (const key of ["settingMin", "settingMax", "settingDefault"] as const) {
+        if (isEdit) extras[key] = null;
+        else delete extras[key];
+      }
+    }
+    body.extras = extras;
+  }
   return body;
 }
 
+/** DYE2's grinder form refusing to save, with the error it shows (`submitForm` in grinders.ts): it sends nothing. */
+export class Dye2FormRefused extends Error {}
+
 /**
- * DYE2's grinders page (grinders.ts at v0.1.35): it lists the grinders, and
+ * DYE2's grinders page (grinders.ts at v0.1.40): it lists the grinders, and
  * its form is opened on the one with that id, as the dashboard's long-press
  * of a grinder opens it (`grinders?edit=<id>`), and from v0.1.36 a 500 ms
  * hold of its card on the page, or empty for a new one (null),
- * each field shown as the record holds it, the feed rate note from its
- * `extras` (`openModal`); `changes` are typed over the form, and SAVE sends
- * what `grinderBody` builds, through `PUT /grinders/{id}` or `POST /grinders`.
- * Resolves with Decaid's answer (fixtures/decaid/dye2-v0.1.35/grinders.json).
+ * each field shown as the record holds it, the feed rate note and the range
+ * and defaults from its `extras` (`openModal`); `changes` are typed over the
+ * form, and SAVE sends what `grinderBody` builds, through `PUT
+ * /grinders/{id}` or `POST /grinders`, unless a lowest it built is above its
+ * highest, for the setting or the RPM: the form then shows an error and
+ * sends nothing (`Dye2FormRefused`). Resolves with Decaid's answer
+ * (fixtures/decaid/dye2-v0.1.35/grinders.json, dye2-v0.1.40/grinder-form.json).
  */
 export async function editGrinderInDye2(tablet: SimulatedTablet, id: string | null, changes: Partial<Record<Dye2GrinderField, string>>): Promise<DecaidAnswer> {
-  const { status, body } = await tablet.callApi("GET", "/grinders");
+  const { status, body } = await tablet.callApi("GET", "/grinders?includeArchived=true");
   const grinder = id === null ? null : (status === 200 ? asList(body) : []).find((candidate) => candidate && candidate.id === id);
   if (grinder === undefined) throw new Error(`DYE2's grinders page lists no grinder ${id}`);
   const extras = (grinder?.extras ?? {}) as Record_;
   const shown = (value: unknown) => (value == null ? "" : String(value));
+  const inExtras = new Set<Dye2GrinderField>(["feedRate", ...GRINDER_FORM_RANGED]);
   const fields = Object.fromEntries(GRINDER_FORM_FIELDS.map((key) => [key, ""])) as Record<Dye2GrinderField, string>;
   if (grinder) {
-    for (const key of GRINDER_FORM_FIELDS) if (key !== "feedRate" && key !== "settingValues") fields[key] = shown(grinder[key]);
-    fields.feedRate = shown(extras.feedRate);
+    for (const key of GRINDER_FORM_FIELDS) if (key !== "settingValues") fields[key] = shown(inExtras.has(key) ? extras[key] : grinder[key]);
     fields.settingValues = Array.isArray(grinder.settingValues) ? (grinder.settingValues as unknown[]).join(", ") : shown(grinder.settingValues);
   }
   if (!fields.settingType) fields.settingType = "numeric";
   Object.assign(fields, changes);
   const sent = grinderBody(fields, grinder !== null, extras);
+  const built = (sent.extras ?? {}) as Record_;
+  for (const [what, lowest, highest] of [["Setting", built.settingMin, built.settingMax], ["RPM", built.rpmMin, built.rpmMax]] as const) {
+    if (typeof lowest === "number" && typeof highest === "number" && lowest > highest) throw new Dye2FormRefused(`${what} Min must not be greater than ${what} Max.`);
+  }
   return grinder ? tablet.callApi("PUT", `/grinders/${encodeURIComponent(String(grinder.id))}`, sent) : tablet.callApi("POST", "/grinders", sent);
 }

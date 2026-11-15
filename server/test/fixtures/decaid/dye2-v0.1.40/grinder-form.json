@@ -1,0 +1,1557 @@
+{
+  "versions": {
+    "decaid": "0.9.2+3191",
+    "bundledDye2": "0.1.37",
+    "dye2": "0.1.40"
+  },
+  "made": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/grinders",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551"
+            }
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:13.817423",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551"
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:13.817423",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551"
+            }
+          }
+        }
+      }
+    ]
+  },
+  "rangeSaved": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": null,
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:14.150106",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "",
+          "settingMax": "",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "",
+          "rpmMax": "",
+          "rpmDefault": "",
+          "feedRate": ""
+        }
+      },
+      {
+        "typed": {
+          "feedRate": "manual FF/MF/SF",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "4",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "900"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:14.150106",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      }
+    ]
+  },
+  "otherEdited": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:16.315510",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "4",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "900",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "notes": "Fixture notes"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:16.315510",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      }
+    ]
+  },
+  "settingReversed": {
+    "exchanges": [
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "4",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "900",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingMin": "12"
+        }
+      },
+      {
+        "error": "Setting Min must not be greater than Setting Max."
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:16.315510",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      }
+    ]
+  },
+  "rpmReversed": {
+    "exchanges": [
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "4",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "900",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "rpmMin": "1500"
+        }
+      },
+      {
+        "error": "RPM Min must not be greater than RPM Max."
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:16.315510",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": 4,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 900
+            }
+          }
+        }
+      }
+    ]
+  },
+  "defaultOutside": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 10,
+              "settingMax": 10,
+              "settingDefault": 40,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 100
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:22.799794",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 10,
+              "settingMax": 10,
+              "settingDefault": 40,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 100
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "4",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "900",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingMin": "10",
+          "settingDefault": "40",
+          "rpmDefault": "100"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:22.799794",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 10,
+              "settingMax": 10,
+              "settingDefault": 40,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 100
+            }
+          }
+        }
+      }
+    ]
+  },
+  "defaultCleared": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:24.963550",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "10",
+          "settingMax": "10",
+          "settingDefault": "40",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "100",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingMin": "0",
+          "settingDefault": "",
+          "rpmDefault": ""
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:24.963550",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 0,
+              "settingMax": 10,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  "belowZero": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": -5,
+              "settingMax": 10,
+              "settingDefault": -1.5,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:27.125104",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": -5,
+              "settingMax": 10,
+              "settingDefault": -1.5,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "0",
+          "settingMax": "10",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingMin": "-5",
+          "settingDefault": "-1.5"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:27.125104",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": -5,
+              "settingMax": 10,
+              "settingDefault": -1.5,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  "topLevel": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "settingMin": 1,
+            "settingMax": 20,
+            "rpmDefault": 700
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:29.137463",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": -5,
+              "settingMax": 10,
+              "settingDefault": -1.5,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:29.137463",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": -5,
+              "settingMax": 10,
+              "settingDefault": -1.5,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": null
+            }
+          }
+        }
+      }
+    ]
+  },
+  "inExtras": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 1,
+              "settingMax": 20,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:29.664130",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 1,
+              "settingMax": 20,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:29.664130",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": 1,
+              "settingMax": 20,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      }
+    ]
+  },
+  "namedPositions": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Medium",
+              "Coarse"
+            ],
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Medium",
+              "Coarse"
+            ],
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:30.362903",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "numeric",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "1",
+          "settingMax": "20",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "700",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingType": "preset",
+          "settingValues": "Fine, Medium, Coarse"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Medium",
+              "Coarse"
+            ],
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:30.362903",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      }
+    ]
+  },
+  "numericAgain": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "PUT",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a",
+          "body": {
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "burrType": null,
+            "notes": "Fixture notes",
+            "burrSize": null,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "settingType": "numeric",
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingValues": [
+              "Fine",
+              "Medium",
+              "Coarse"
+            ],
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:32.521186",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "Fixture Grinder Form",
+          "settingType": "preset",
+          "settingSmallStep": "0.5",
+          "settingBigStep": "1",
+          "settingMin": "",
+          "settingMax": "",
+          "settingDefault": "",
+          "settingValues": "Fine, Medium, Coarse",
+          "rpmSmallStep": "50",
+          "rpmBigStep": "100",
+          "rpmMin": "400",
+          "rpmMax": "1200",
+          "rpmDefault": "700",
+          "feedRate": "manual FF/MF/SF"
+        }
+      },
+      {
+        "typed": {
+          "settingType": "numeric"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/63546f22-e69e-48f1-8274-33bafc41221a"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+            "model": "Fixture Grinder Form",
+            "burrs": "Fixture 64mm flat",
+            "notes": "Fixture notes",
+            "archived": false,
+            "settingType": "numeric",
+            "settingValues": [
+              "Fine",
+              "Medium",
+              "Coarse"
+            ],
+            "settingSmallStep": 0.5,
+            "settingBigStep": 1,
+            "rpmSmallStep": 50,
+            "rpmBigStep": 100,
+            "createdAt": "2026-11-15T23:21:13.817423",
+            "updatedAt": "2026-11-15T23:21:32.521186",
+            "extras": {
+              "bcUuid": "fixture-bc-uuid",
+              "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+              "feedRate": "manual FF/MF/SF",
+              "settingMin": null,
+              "settingMax": null,
+              "settingDefault": null,
+              "rpmMin": 400,
+              "rpmMax": 1200,
+              "rpmDefault": 700
+            }
+          }
+        }
+      }
+    ]
+  },
+  "created": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/grinders",
+          "body": {
+            "model": "Fixture Grinder Ranged",
+            "settingType": "numeric",
+            "extras": {
+              "feedRate": null,
+              "settingMin": 0,
+              "settingMax": 50,
+              "rpmDefault": 800
+            }
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "e19f5f1d-e7b7-46ec-ab99-3dca5c7d76df",
+            "model": "Fixture Grinder Ranged",
+            "archived": false,
+            "settingType": "numeric",
+            "createdAt": "2026-11-15T23:21:34.721809",
+            "updatedAt": "2026-11-15T23:21:34.721809",
+            "extras": {
+              "feedRate": null,
+              "settingMin": 0,
+              "settingMax": 50,
+              "rpmDefault": 800
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "",
+          "settingType": "numeric",
+          "settingSmallStep": "",
+          "settingBigStep": "",
+          "settingMin": "",
+          "settingMax": "",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "",
+          "rpmBigStep": "",
+          "rpmMin": "",
+          "rpmMax": "",
+          "rpmDefault": "",
+          "feedRate": ""
+        }
+      },
+      {
+        "typed": {
+          "model": "Fixture Grinder Ranged",
+          "settingMin": "0",
+          "settingMax": "50",
+          "rpmDefault": "800"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/e19f5f1d-e7b7-46ec-ab99-3dca5c7d76df"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "e19f5f1d-e7b7-46ec-ab99-3dca5c7d76df",
+            "model": "Fixture Grinder Ranged",
+            "archived": false,
+            "settingType": "numeric",
+            "createdAt": "2026-11-15T23:21:34.721809",
+            "updatedAt": "2026-11-15T23:21:34.721809",
+            "extras": {
+              "feedRate": null,
+              "settingMin": 0,
+              "settingMax": 50,
+              "rpmDefault": 800
+            }
+          }
+        }
+      }
+    ]
+  },
+  "createdNamed": {
+    "exchanges": [
+      {
+        "request": {
+          "method": "POST",
+          "path": "/grinders",
+          "body": {
+            "model": "Fixture Grinder Named",
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Coarse"
+            ],
+            "extras": {
+              "feedRate": null,
+              "rpmMin": 300,
+              "rpmMax": 1400
+            }
+          }
+        },
+        "response": {
+          "status": 201,
+          "body": {
+            "id": "92726a2d-1be8-4c66-89cf-4d1d0bae2ca2",
+            "model": "Fixture Grinder Named",
+            "archived": false,
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Coarse"
+            ],
+            "createdAt": "2026-11-15T23:21:36.373514",
+            "updatedAt": "2026-11-15T23:21:36.373514",
+            "extras": {
+              "feedRate": null,
+              "rpmMin": 300,
+              "rpmMax": 1400
+            }
+          }
+        }
+      },
+      {
+        "shown": {
+          "model": "",
+          "settingType": "numeric",
+          "settingSmallStep": "",
+          "settingBigStep": "",
+          "settingMin": "",
+          "settingMax": "",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "",
+          "rpmBigStep": "",
+          "rpmMin": "",
+          "rpmMax": "",
+          "rpmDefault": "",
+          "feedRate": ""
+        }
+      },
+      {
+        "typed": {
+          "model": "Fixture Grinder Named",
+          "settingType": "preset",
+          "settingValues": "Fine, Coarse",
+          "rpmMin": "300",
+          "rpmMax": "1400"
+        }
+      },
+      {
+        "error": null
+      }
+    ],
+    "after": [
+      {
+        "request": {
+          "method": "GET",
+          "path": "/grinders/92726a2d-1be8-4c66-89cf-4d1d0bae2ca2"
+        },
+        "response": {
+          "status": 200,
+          "body": {
+            "id": "92726a2d-1be8-4c66-89cf-4d1d0bae2ca2",
+            "model": "Fixture Grinder Named",
+            "archived": false,
+            "settingType": "preset",
+            "settingValues": [
+              "Fine",
+              "Coarse"
+            ],
+            "createdAt": "2026-11-15T23:21:36.373514",
+            "updatedAt": "2026-11-15T23:21:36.373514",
+            "extras": {
+              "feedRate": null,
+              "rpmMin": 300,
+              "rpmMax": 1400
+            }
+          }
+        }
+      }
+    ]
+  },
+  "createdReversed": {
+    "exchanges": [
+      {
+        "shown": {
+          "model": "",
+          "settingType": "numeric",
+          "settingSmallStep": "",
+          "settingBigStep": "",
+          "settingMin": "",
+          "settingMax": "",
+          "settingDefault": "",
+          "settingValues": "",
+          "rpmSmallStep": "",
+          "rpmBigStep": "",
+          "rpmMin": "",
+          "rpmMax": "",
+          "rpmDefault": "",
+          "feedRate": ""
+        }
+      },
+      {
+        "typed": {
+          "model": "Fixture Grinder Reversed",
+          "settingMin": "9",
+          "settingMax": "3"
+        }
+      },
+      {
+        "error": "Setting Min must not be greater than Setting Max."
+      }
+    ],
+    "after": []
+  },
+  "grindersAtEnd": [
+    {
+      "id": "92726a2d-1be8-4c66-89cf-4d1d0bae2ca2",
+      "model": "Fixture Grinder Named",
+      "archived": false,
+      "settingType": "preset",
+      "settingValues": [
+        "Fine",
+        "Coarse"
+      ],
+      "createdAt": "2026-11-15T23:21:36.373514",
+      "updatedAt": "2026-11-15T23:21:36.373514",
+      "extras": {
+        "feedRate": null,
+        "rpmMin": 300,
+        "rpmMax": 1400
+      }
+    },
+    {
+      "id": "e19f5f1d-e7b7-46ec-ab99-3dca5c7d76df",
+      "model": "Fixture Grinder Ranged",
+      "archived": false,
+      "settingType": "numeric",
+      "createdAt": "2026-11-15T23:21:34.721809",
+      "updatedAt": "2026-11-15T23:21:34.721809",
+      "extras": {
+        "feedRate": null,
+        "settingMin": 0,
+        "settingMax": 50,
+        "rpmDefault": 800
+      }
+    },
+    {
+      "id": "63546f22-e69e-48f1-8274-33bafc41221a",
+      "model": "Fixture Grinder Form",
+      "burrs": "Fixture 64mm flat",
+      "notes": "Fixture notes",
+      "archived": false,
+      "settingType": "numeric",
+      "settingValues": [
+        "Fine",
+        "Medium",
+        "Coarse"
+      ],
+      "settingSmallStep": 0.5,
+      "settingBigStep": 1,
+      "rpmSmallStep": 50,
+      "rpmBigStep": 100,
+      "createdAt": "2026-11-15T23:21:13.817423",
+      "updatedAt": "2026-11-15T23:21:32.521186",
+      "extras": {
+        "bcUuid": "fixture-bc-uuid",
+        "decentSyncId": "5c0f3d52-7a1e-4c55-9d0e-2f6a41b7c551",
+        "feedRate": "manual FF/MF/SF",
+        "settingMin": null,
+        "settingMax": null,
+        "settingDefault": null,
+        "rpmMin": 400,
+        "rpmMax": 1200,
+        "rpmDefault": 700
+      }
+    }
+  ]
+}

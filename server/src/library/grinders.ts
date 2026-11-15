@@ -1,4 +1,4 @@
-import { GLOBAL_ID_KEY, globalIdOf, isRecordId } from "@decent-sync/protocol";
+import { GLOBAL_ID_KEY, GRINDER_EXTRAS_FIELDS, globalIdOf, isRecordId } from "@decent-sync/protocol";
 import type { Prisma } from "../generated/prisma/client.js";
 import { linkWorkflowChanges } from "../machine-events/workflow-links.js";
 import { notify } from "../notifications.js";
@@ -94,7 +94,13 @@ export async function takeInGrinders(
   const named = reported.flatMap((grinder) => (grinder.globalId !== null && !mappedIds.has(grinder.localId) ? [grinder.globalId] : []));
   const library = named.length === 0 ? [] : await tx.grinder.findMany({ where: { id: { in: named } }, select: { id: true } });
   const steps = planGrinderIntake(reported, mapped, new Set(library.map((grinder) => grinder.id)), listedIds(value));
-  const unseen = joining ? [] : await unseenOf(tx, "grinder", "feedRate", heldFeedRates(reported, mapped));
+  /** The values the tablet's records hold in their `extras` that their Grinders never had (`heldInExtras`), each with its field. */
+  const unseen: (HeldInExtras & { field: string })[] = [];
+  if (!joining) {
+    for (const field of GRINDER_EXTRAS_FIELDS) {
+      for (const held of await unseenOf(tx, "grinder", field, heldInExtras(field, reported, mapped))) unseen.push({ ...held, field });
+    }
+  }
   if (steps.length === 0 && unseen.length === 0) {
     if (screened.due || left.due) await notify(tx, "library_changes", locationId);
     return takenInAt;
@@ -155,25 +161,36 @@ export async function takeInGrinders(
     // A record whose global id is lost has it written back.
     if (grinder.globalId !== grinderId) writesDue = true;
   }
-  writesDue = (await takeInUnseen(tx, "grinder", "feedRate", unseen, source)) || writesDue;
+  writesDue = (await takeInUnseen(tx, "grinder", unseen, source)) || writesDue;
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;
 }
 
+/** A value a tablet's record of a Grinder holds in its `extras`, with when the record was read. */
+interface HeldInExtras {
+  id: string;
+  value: unknown;
+  at: Date;
+}
+
 /**
- * The feed rate notes the tablet's records of its Grinders hold in their
- * `extras`, each by its Grinder, with when the record was read: release
- * 1.6.2 kept a record as sent without taking in a note DYE2 v0.1.34 saved
- * there, so one still held is taken in where the Grinder never had one
- * (`unseenOf`, `takeInUnseen`), rather than written over (#395).
+ * The values of one field the tablet's records of its Grinders hold in
+ * their `extras` (GRINDER_EXTRAS_FIELDS), each by its Grinder, with when the
+ * record was read: a feed rate note of some text, or a number of its range
+ * and defaults. A release that did not know the field kept a record as sent
+ * without taking it in, as 1.6.2 did a note DYE2 v0.1.34 saved (#395) and
+ * 1.10.0 a range or default DYE2 v0.1.37 saved, so one still held is taken
+ * in where the Grinder never had one (`unseenOf`, `takeInUnseen`), rather
+ * than written over.
  */
-function heldFeedRates(reported: readonly ReportedGrinder[], mapped: readonly { grinderId: string; localId: string }[]): { id: string; value: string; at: Date }[] {
+function heldInExtras(field: string, reported: readonly ReportedGrinder[], mapped: readonly { grinderId: string; localId: string }[]): HeldInExtras[] {
   const byLocalId = new Map(mapped.map((grinder) => [grinder.localId, grinder.grinderId]));
   return reported.flatMap((grinder) => {
     const grinderId = byLocalId.get(grinder.localId);
-    const feedRate = grinderContent(grinder.record).feedRate;
+    const value = grinderContent(grinder.record)[field];
     if (grinderId === undefined || (grinder.globalId !== null && grinder.globalId !== grinderId)) return [];
-    return typeof feedRate === "string" && feedRate.trim() !== "" ? [{ id: grinderId, value: feedRate, at: grinder.updatedAt }] : [];
+    const held = field === "feedRate" ? typeof value === "string" && value.trim() !== "" : typeof value === "number" && Number.isFinite(value);
+    return held ? [{ id: grinderId, value, at: grinder.updatedAt }] : [];
   });
 }
 

@@ -351,7 +351,7 @@ export async function takeInRecipes(
     await saveRecord(tx, tablet.tabletId, itemId, record.localId, record.record, record.updatedAt, { contentSeen: null, listed: true });
     if (step.kind !== "update") await recordMapped(tx, tablet, itemId, record.localId);
   }
-  writesDue = (await takeInUnseen(tx, "recipe", "feedRate", unseen, source)) || writesDue;
+  writesDue = (await takeInUnseen(tx, "recipe", unseen.map((held) => ({ ...held, field: "feedRate" })), source)) || writesDue;
   await moveSlots(tx, locationId, moves, source, tablet.wireRevision ?? WIRE_REVISION);
   if (writesDue) await notify(tx, "library_changes", locationId);
   return takenInAt;

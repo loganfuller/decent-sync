@@ -38,7 +38,8 @@ function itemApiPath(kind: ItemKind, id: string): string {
 
 /**
  * Content fields whose names do not spell out as people read them: a
- * Basket's diameter, a Tool's attributes, which DYE2 keeps as `custom`, and
+ * Basket's diameter, a Tool's attributes, which DYE2 keeps as `custom`, a
+ * Grinder's range and defaults, as its form labels them, and
  * a Recipe's items, named by their ids, its dial and hot water, and
  * whether it was shown on the strip, which only its versions made by 1.6.0
  * and earlier hold; and a Recipe's Reference Shot, which is not its content.
@@ -46,6 +47,12 @@ function itemApiPath(kind: ItemKind, id: string): string {
 const FIELD_LABELS: Readonly<Record<string, string>> = {
   diameterMm: "Diameter (mm)",
   custom: "Attributes",
+  settingMin: "Lowest setting",
+  settingMax: "Highest setting",
+  settingDefault: "Default setting",
+  rpmMin: "Lowest RPM",
+  rpmMax: "Highest RPM",
+  rpmDefault: "Default RPM",
   beanId: "Bean",
   beanBatchId: "Bean Batch",
   profileId: "Profile",

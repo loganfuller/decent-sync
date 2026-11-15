@@ -255,7 +255,14 @@ const BATCH_FIELDS: Readonly<Record<string, FieldType>> = {
   notes: "text",
 };
 
-/** A Grinder's fields, as Decaid keeps them, and the feed rate note DYE2 v0.1.34 keeps in its `extras` (`grinderContent`). */
+/**
+ * A Grinder's fields, as Decaid keeps them, and what DYE2 keeps of it in its
+ * `extras` (`grinderContent`): the feed rate note from v0.1.34, and from
+ * v0.1.37 the range and default of its setting and of its RPM
+ * (GRINDER_RANGE_FIELDS in protocol/), each any number, 0 and one below it
+ * included, as DYE2's Grinders page takes them: blank is none. Their rules
+ * are in grinder-range.ts.
+ */
 const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   model: "name",
   burrs: "text",
@@ -269,6 +276,12 @@ const GRINDER_FIELDS: Readonly<Record<string, FieldType>> = {
   rpmSmallStep: "number",
   rpmBigStep: "number",
   feedRate: "text",
+  settingMin: "anyNumber",
+  settingMax: "anyNumber",
+  settingDefault: "anyNumber",
+  rpmMin: "anyNumber",
+  rpmMax: "anyNumber",
+  rpmDefault: "anyNumber",
 };
 
 /** A Basket's fields, as DYE2's baskets page saves them. */

@@ -48,6 +48,8 @@ interface FormField {
   choices?: [value: string, label: string][];
   /** For a choice, whether it may be left unset, as a Basket's size. */
   optional?: boolean;
+  /** For a number, whether it may be below 0, as a Grinder's range and defaults may. */
+  signed?: boolean;
 }
 
 /** A Bean's fields, in Decaid's order. */
@@ -84,7 +86,12 @@ export const BATCH_FIELDS: FormField[] = [
   { field: "notes", label: "Notes", kind: "longText" },
 ];
 
-/** A Grinder's fields, in Decaid's order, then the feed rate note DYE2 v0.1.34 keeps in its `extras`. */
+/**
+ * A Grinder's fields, in Decaid's order, with the range DYE2 keeps in its
+ * `extras` for its setting and for its RPM beside the steps of each, each
+ * pair a row of the form, then the default of each, and the feed rate note
+ * DYE2 keeps there. A blank range or default is none, and 0 is a value.
+ */
 export const GRINDER_FIELDS: FormField[] = [
   { field: "model", label: "Model", kind: "text", required: true },
   { field: "burrs", label: "Burrs", kind: "text" },
@@ -103,8 +110,14 @@ export const GRINDER_FIELDS: FormField[] = [
   { field: "settingValues", label: "Preset values (comma separated)", kind: "list" },
   { field: "settingSmallStep", label: "Small step", kind: "number" },
   { field: "settingBigStep", label: "Big step", kind: "number" },
+  { field: "settingMin", label: "Lowest setting", kind: "number", signed: true },
+  { field: "settingMax", label: "Highest setting", kind: "number", signed: true },
   { field: "rpmSmallStep", label: "RPM small step", kind: "number" },
   { field: "rpmBigStep", label: "RPM big step", kind: "number" },
+  { field: "rpmMin", label: "Lowest RPM", kind: "number", signed: true },
+  { field: "rpmMax", label: "Highest RPM", kind: "number", signed: true },
+  { field: "settingDefault", label: "Default setting", kind: "number", signed: true },
+  { field: "rpmDefault", label: "Default RPM", kind: "number", signed: true },
   { field: "feedRate", label: "Feed rate", kind: "text" },
 ];
 
@@ -274,7 +287,7 @@ function ContentInputs({ fields, values, onChange }: { fields: FormField[]; valu
                 id={inputId}
                 type={field.kind === "number" ? "number" : field.kind === "day" ? "date" : "text"}
                 inputMode={field.kind === "number" ? "decimal" : undefined}
-                min={field.kind === "number" ? 0 : undefined}
+                min={field.kind === "number" && !field.signed ? 0 : undefined}
                 step={field.kind === "number" ? "any" : undefined}
                 required={field.required}
                 value={String(value ?? "")}

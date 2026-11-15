@@ -33,6 +33,9 @@ type Record_ = Record<string, unknown>;
 
 const env = { SYNC_HELLO_TIMEOUT_SECONDS: "2", SYNC_HEARTBEAT_SECONDS: "1" };
 
+/** A grinder's `extras` holding none of its range and defaults, as DYE2 v0.1.40's form saves an edit that leaves them blank. */
+const NO_RANGE = { settingMin: null, settingMax: null, settingDefault: null, rpmMin: null, rpmMax: null, rpmDefault: null };
+
 describe("Grinders belonging to a Location", () => {
   let server: TestServer;
   let other: TestServer;
@@ -139,16 +142,96 @@ describe("Grinders belonging to a Location", () => {
     await expect.poll(async () => (await viewGrinder(grinder.id)).content.feedRate).toBe("manual FF/MF/SF");
     const written = await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "manual FF/MF/SF" } });
     expect(written).not.toHaveProperty("feedRate");
-    expect(heldGrinder(one, grinder.id)[0]!.extras).toEqual({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "manual FF/MF/SF" });
+    // Its own record keeps its keys, with a null for each of the range and defaults its form left blank, as v0.1.40 saves an edit.
+    expect(heldGrinder(one, grinder.id)[0]!.extras).toEqual({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "manual FF/MF/SF", ...NO_RANGE });
+    // A null there is none, so no edit: the other tablet's record is written the note alone.
+    expect(Object.keys(written.extras as Record_).sort()).toEqual(["bcUuid", GLOBAL_ID_KEY, "feedRate"].sort());
     // Set in the management interface, it reaches both, in extras, and the other keys stay.
     expect((await api.call("PATCH", `/grinders/${grinder.id}`, { content: { feedRate: "feeder RPM 200-1200" } })).status).toBe(200);
-    await holds(one, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "feeder RPM 200-1200" } });
+    await holds(one, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "feeder RPM 200-1200", ...NO_RANGE } });
     await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "feeder RPM 200-1200" } });
     // Cleared on DYE2's grinders page, it is cleared everywhere.
     expect((await editGrinderInDye2(two, String(heldGrinder(two, grinder.id)[0]!.id), { feedRate: "" })).status).toBe(200);
     await expect.poll(async () => (await viewGrinder(grinder.id)).content.feedRate ?? null).toBeNull();
     await expect.poll(() => (heldGrinder(one, grinder.id)[0]!.extras as Record_).feedRate ?? null).toBeNull();
     expect(heldGrinder(one, grinder.id)[0]!.extras).toMatchObject({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one" });
+  });
+
+  it("takes a range and defaults typed on DYE2's grinders page into the Grinder, a lowest setting of 0 as 0, and writes them to the lab's other tablet in extras, beside each record's other extras keys, and those set in the management interface to both (dye2-v0.1.40/grinder-form.json)", async () => {
+    const { one, two, cafe } = await lab("Range", 18111);
+    const { record, grinder } = await enterGrinder(one, two, "Range EG-1");
+    // Another app's key in each tablet's record, as a Beanconqueror import leaves one, and a feed rate note.
+    for (const [tablet, value] of [[one, "fixture-bc-one"], [two, "fixture-bc-two"]] as const) {
+      const held = heldGrinder(tablet, grinder.id)[0]!;
+      await tablet.editGrinder(held.id, { extras: { ...(held.extras as Record_), bcUuid: value } });
+    }
+    expect((await editGrinderInDye2(one, String(record.id), { feedRate: "manual FF/MF/SF" })).status).toBe(200);
+    await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "manual FF/MF/SF" } });
+
+    // Typed on one: the setting's range, from 0, and its default, and the RPM's range.
+    const typed = { settingMin: "0", settingMax: "10", settingDefault: "4", rpmMin: "400", rpmMax: "1200" };
+    expect((await editGrinderInDye2(one, String(record.id), typed)).status).toBe(200);
+    const range = { settingMin: 0, settingMax: 10, settingDefault: 4, rpmMin: 400, rpmMax: 1200 };
+    await expect.poll(async () => (await viewGrinder(grinder.id)).content).toMatchObject(range);
+    expect((await viewGrinder(grinder.id)).content).not.toHaveProperty("rpmDefault");
+    const written = await holds(two, grinder.id, { extras: { [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-two", feedRate: "manual FF/MF/SF", ...range } });
+    // In extras alone: Decaid's record has no field for them.
+    for (const field of Object.keys(NO_RANGE)) expect(written, field).not.toHaveProperty(field);
+    expect(heldGrinder(one, grinder.id)[0]!.extras).toEqual({ [GLOBAL_ID_KEY]: grinder.id, bcUuid: "fixture-bc-one", feedRate: "manual FF/MF/SF", ...range, rpmDefault: null });
+    expect(cafe.grinders()).toEqual([]);
+
+    // Set in the management interface, they reach both, in extras, and the other keys stay. A default outside the range is taken as typed.
+    expect((await api.call("PATCH", `/grinders/${grinder.id}`, { content: { rpmDefault: 900, settingDefault: 40, settingMax: null } })).status).toBe(200);
+    for (const [tablet, bcUuid] of [[one, "fixture-bc-one"], [two, "fixture-bc-two"]] as const) {
+      await holds(tablet, grinder.id, { extras: expect.objectContaining({ [GLOBAL_ID_KEY]: grinder.id, bcUuid, feedRate: "manual FF/MF/SF", settingMin: 0, settingDefault: 40, rpmMin: 400, rpmMax: 1200, rpmDefault: 900 }) });
+      expect((heldGrinder(tablet, grinder.id)[0]!.extras as Record_).settingMax ?? null).toBeNull();
+    }
+    const content = (await viewGrinder(grinder.id)).content;
+    expect(content).toMatchObject({ settingMin: 0, settingDefault: 40, rpmMin: 400, rpmMax: 1200, rpmDefault: 900 });
+    expect(content).not.toHaveProperty("settingMax");
+
+    // A lowest above a highest is refused, over what the Grinder holds, and changes nothing.
+    const refusal = async (body: Record_) => {
+      const response = await api.call("PATCH", `/grinders/${grinder.id}`, { content: body });
+      return [response.status, ((await response.json()) as { message: string }).message];
+    };
+    expect(await refusal({ rpmMin: 1300 })).toEqual([400, "The lowest RPM cannot be above the highest"]);
+    expect(await refusal({ settingMin: 5, settingMax: 4 })).toEqual([400, "The lowest setting cannot be above the highest"]);
+    expect(await refusal({ settingType: "preset", settingDefault: 2 })).toEqual([400, "A Grinder with named positions holds no range or default for its setting"]);
+    expect(await refusal({ rpmDefault: "fast" })).toEqual([400, ["rpmDefault must be a number"]]);
+    expect((await viewGrinder(grinder.id)).content).toEqual(content);
+
+    // Given named positions in the management interface, it holds no range or default for its setting; its RPM's stay.
+    expect((await api.call("PATCH", `/grinders/${grinder.id}`, { content: { settingType: "preset", settingValues: ["Fine", "Coarse"] } })).status).toBe(200);
+    const named = (await viewGrinder(grinder.id)).content;
+    expect(named).toMatchObject({ settingType: "preset", rpmMin: 400, rpmMax: 1200, rpmDefault: 900 });
+    for (const field of ["settingMin", "settingMax", "settingDefault"]) expect(named, field).not.toHaveProperty(field);
+    for (const tablet of [one, two]) {
+      await holds(tablet, grinder.id, { settingType: "preset", extras: expect.objectContaining({ rpmMin: 400, rpmMax: 1200, rpmDefault: 900 }) });
+      await expect.poll(() => ["settingMin", "settingMax", "settingDefault"].map((field) => (heldGrinder(tablet, grinder.id)[0]!.extras as Record_)[field] ?? null)).toEqual([null, null, null]);
+    }
+  });
+
+  it("clears a Grinder's setting range as DYE2's grinders page edits it to named positions, on the lab's other tablet too, and takes a grinder new on a tablet with its range", async () => {
+    const { one, two } = await lab("Named", 18121);
+    const { record, grinder } = await enterGrinder(one, two, "Named EG-1");
+    expect((await editGrinderInDye2(one, String(record.id), { settingMin: "1", settingMax: "9", rpmDefault: "800" })).status).toBe(200);
+    await holds(two, grinder.id, { extras: expect.objectContaining({ settingMin: 1, settingMax: 9, rpmDefault: 800 }) });
+
+    const onTwo = String(heldGrinder(two, grinder.id)[0]!.id);
+    expect((await editGrinderInDye2(two, onTwo, { settingType: "preset", settingValues: "Fine, Medium, Coarse" })).status).toBe(200);
+    await expect.poll(async () => (await viewGrinder(grinder.id)).content.settingType).toBe("preset");
+    const content = (await viewGrinder(grinder.id)).content;
+    expect(content).toMatchObject({ settingValues: ["Fine", "Medium", "Coarse"], rpmDefault: 800 });
+    for (const field of ["settingMin", "settingMax", "settingDefault"]) expect(content, field).not.toHaveProperty(field);
+    await holds(one, grinder.id, { settingType: "preset", extras: expect.objectContaining({ rpmDefault: 800 }) });
+    await expect.poll(() => ["settingMin", "settingMax"].map((field) => (heldGrinder(one, grinder.id)[0]!.extras as Record_)[field] ?? null)).toEqual([null, null]);
+
+    // A grinder made on DYE2's page with a range joins the Library with it.
+    expect((await editGrinderInDye2(one, null, { model: "Named Ranged", settingMin: "0", settingMax: "50", rpmDefault: "700" })).status).toBe(201);
+    const ranged = await libraryGrinder("Named Ranged");
+    expect((await viewGrinder(ranged.id)).content).toMatchObject({ model: "Named Ranged", settingMin: 0, settingMax: 50, rpmDefault: 700 });
+    await holds(two, ranged.id, { extras: expect.objectContaining({ settingMin: 0, settingMax: 50, rpmDefault: 700 }) });
   });
 
   it("Archives a Grinder deleted or archived on one lab tablet, archiving it on the lab's other tablet, never deleting it, and restores it when un-archived", async () => {
