@@ -239,7 +239,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/shot-dark.png">
-  <img src="docs/images/shot-light.png" alt="A Shot's pressure, flow, weight, weight flow and temperature curves over its Recipe's Reference Shot, with a table comparing their grind setting, dose, yield, duration, peak pressure and rating in stars">
+  <img src="docs/images/shot-light.png" alt="A Shot's page: how it went, with its duration against its Reference Shot's, its yield against its target, its dose, how it stopped and its rating in stars; then its pressure, flow, weight, weight flow and temperature curves over its Recipe's Reference Shot's, with a table comparing their duration, yield, time to first drip, peak pressure and grind setting">
 </picture>
 
 ### Machines, from anywhere
