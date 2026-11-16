@@ -78,6 +78,8 @@ interface Group {
   by: By;
   counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
   numbers: Numbers;
+  /** Its judgement against the margins (#543), which shot-spec.test.ts covers: `summary()` leaves it out. */
+  spec?: unknown;
   /** Its Recipe's Reference Shot, with its own value of each number asked for. */
   reference?: Reference;
 }
@@ -113,7 +115,7 @@ const HARBOR_SERIAL = "47803";
 const UNKNOWN_SERIAL = "47809";
 
 const GROUPINGS = ["location", "machine", "recipe", "bean", "beanBatch", "profile", "grinder", "basket", "barista"] as const;
-const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
 
 /**
  * One Shot of shot-espresso.json's own value of each number, worked out by
@@ -124,6 +126,7 @@ const ESPRESSO_OWN = {
   yieldAgainstTarget: -0.1,
   duration: 23.549,
   stoppedOnWeight: true,
+  stoppedAtTarget: true,
   ratio: 1.994444,
   peakPressure: 9.004639,
   peakFlow: 9.502197,
@@ -139,6 +142,7 @@ const PREHEAT_OWN = {
   yieldAgainstTarget: -1.3,
   duration: 25.833,
   stoppedOnWeight: true,
+  stoppedAtTarget: true,
   ratio: 2.16875,
   peakPressure: 8.012207,
   peakFlow: 8.045166,
@@ -359,7 +363,8 @@ describe("Shot Summaries by group", () => {
     const exactNumber = ({ shots, median, p25, p75 }: SummaryNumber) => ({ shots, median: exact(median), p25: exact(p25), p75: exact(p75) });
     return {
       ...read,
-      groups: read.groups.map(({ numbers, ...group }) => ({
+      // Without each group's judgement, and with the three numbers these tests work out by hand: shot-spec.test.ts covers the judgement and stopped at target.
+      groups: read.groups.map(({ numbers, spec: _judged, ...group }) => ({
         ...group,
         numbers: {
           yieldAgainstTarget: exactNumber(numbers.yieldAgainstTarget),
@@ -661,9 +666,9 @@ describe("Shot Summaries by group", () => {
     const given = (await api.get<Summary>(`/shots/summary?${new URLSearchParams({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: every })}`)).groups[0]!.reference!;
     expect(given.numbers).toMatchObject({ duration: read.duration, peakPressure: read.peakPressure, peakFlow: read.peakFlow, timeToFirstDrip: read.timeToFirstDrip, lastStep: read.lastStep });
     expect((read.actualYield as number) - (read.targetYield as number)).toBeCloseTo(given.numbers.yieldAgainstTarget as number, 9);
-    // Only the numbers asked for, in one order: the default three where none are named.
-    const { yieldAgainstTarget, duration, stoppedOnWeight, ratio, lastStep } = PREHEAT_OWN;
-    const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedOnWeight } };
+    // Only the numbers asked for, in one order: the default four where none are named.
+    const { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget, ratio, lastStep } = PREHEAT_OWN;
+    const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget } };
     expect((await references({ groupBy: "recipe", recipeId: recipes.labHouse.id }))[0]![1]).toEqual(defaults);
     const asked = (await references({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: "lastStep,ratio" }))[0]![1]!;
     expect(asked).toEqual({ id: "harbor-house-2", numbers: { ratio, lastStep } });
@@ -690,22 +695,22 @@ describe("Shot Summaries by group", () => {
     for (const groupBy of ["machine", "location,barista"]) expect((await references({ groupBy })).every(([, reference]) => reference === null), groupBy).toBe(true);
     expect(await references({})).toEqual([[{}, null]]);
 
-    // Whether it stopped on weight is its own: none where it recorded no stop reason, and not where its Machine ended it.
+    // Whether it stopped on weight, and at its target, is its own: none where it recorded no stop reason, and not where its Machine ended it.
     const ofDecaf = async () => (await references({ groupBy: "recipe", recipeId: recipes.decaf.id }))[0]![1];
     await choose(recipes.decaf, "right-decaf");
-    expect(await ofDecaf()).toEqual({ id: "right-decaf", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: null } });
+    expect(await ofDecaf()).toEqual({ id: "right-decaf", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: null, stoppedAtTarget: null } });
     await choose(recipes.decaf, "left-decaf");
-    expect(await ofDecaf()).toEqual({ id: "left-decaf", numbers: { yieldAgainstTarget: 2.4, duration: 23.549, stoppedOnWeight: false } });
+    expect(await ofDecaf()).toEqual({ id: "left-decaf", numbers: { yieldAgainstTarget: 2.4, duration: 23.549, stoppedOnWeight: false, stoppedAtTarget: false } });
     // A cleaning Shot, left out of every group's numbers, gives its own as a Reference Shot.
     await choose(recipes.decaf, "left-cleaning");
-    expect(await ofDecaf()).toEqual({ id: "left-cleaning", numbers: { yieldAgainstTarget: -0.1, duration: 23.549, stoppedOnWeight: true } });
+    expect(await ofDecaf()).toEqual({ id: "left-cleaning", numbers: { yieldAgainstTarget: -0.1, duration: 23.549, stoppedOnWeight: true, stoppedAtTarget: true } });
     // Cleared, the Recipe gives none again.
     await choose(recipes.decaf, null);
     expect(await ofDecaf()).toBeNull();
 
     // Nothing is worked out of the two: a group gives its numbers and the reference, and no more.
     const [group] = (await api.get<Summary>(`/shots/summary?${new URLSearchParams({ groupBy: "recipe", recipeId: recipes.labHouse.id })}`)).groups;
-    expect(Object.keys(group!)).toEqual(["by", "counts", "numbers", "reference"]);
+    expect(Object.keys(group!)).toEqual(["by", "counts", "numbers", "spec", "reference"]);
     expect(Object.keys(group!.reference!)).toEqual(["id", "numbers"]);
   });
 

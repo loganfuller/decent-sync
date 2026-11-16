@@ -31,7 +31,7 @@ interface RestMachine {
   decaidVersion: string | null;
   online: boolean;
   lastSeenAt: string | null;
-  lastShot: { id: string; pulledAt: string | null } | null;
+  lastShot: (Record_ & { id: string; pulledAt: string | null }) | null;
   machineState: { state: string; substate: string; observedAt: string } | null;
   loadedRecipe: { id: string; recipe: Record_; loadedAt: string; unloadedAt: string | null } | null;
   location: LocationView | null;
@@ -117,8 +117,8 @@ interface Person {
 
 /** What list_machines gives of a Machine the REST API returns. */
 function listed(machine: RestMachine): Record_ {
-  const { id, name, model, location, online, lastSeenAt, machineState, loadedRecipe, captureOnly } = machine;
-  return { id, name, model, location, online, lastSeenAt, machineState, loadedRecipe: loadedRecipe && withoutId(loadedRecipe), captureOnly };
+  const { id, name, model, location, online, lastSeenAt, machineState, loadedRecipe, lastShot, captureOnly } = machine;
+  return { id, name, model, location, online, lastSeenAt, machineState, loadedRecipe: loadedRecipe && withoutId(loadedRecipe), lastShot: asTools(lastShot), captureOnly };
 }
 
 function withoutId<T extends { id: string }>({ id: _, ...rest }: T): Omit<T, "id"> {
@@ -271,7 +271,6 @@ describe("Machines through an assistant", { timeout: 120_000 }, () => {
         decaidVersion: rest.decaidVersion,
         locationHistory: rest.locationHistory.map(({ location, effectiveFrom }) => ({ location, effectiveFrom })),
         sharing: rest.sharing,
-        lastShot: rest.lastShot,
       },
       workflow: withoutId(workflow as Record_ & { id: string }),
       machineSettings: {

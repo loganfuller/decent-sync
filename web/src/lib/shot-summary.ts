@@ -1,4 +1,4 @@
-import type { SummaryGroup, SummaryNumber, SummaryNumbers, SummaryReference } from "@/lib/api";
+import type { SummaryGroup, SummaryNumber, SummaryNumbers } from "@/lib/api";
 import { starCountText, starsOf, starsText } from "./rating";
 
 // How a Shot Summary's numbers read (#466, #469): each as its median, with
@@ -81,16 +81,6 @@ const places = (digits: number) => (value: number) => value.toFixed(digits);
 /** A duration as its median and range, in seconds to a tenth, as the Shots list shows one: none where no Shot had one. */
 export function durationText(number: SummaryNumber): MedianText | undefined {
   return medianText(number, places(1), " s");
-}
-
-/**
- * A group's median duration with that of its Recipe's Reference Shot beside
- * it, in seconds to a tenth, as "26.0 s (reference 27.5 s)": the median
- * alone where the Recipe has none, or the Reference Shot no duration.
- */
-export function referenceDurationText(median: string, reference: SummaryReference | undefined): string {
-  const duration = reference?.numbers.duration ?? null;
-  return duration === null ? median : `${median} (reference ${duration.toFixed(1)} s)`;
 }
 
 /** A ratio, yield over dose, as "1:2.10", its range to hundredths. */

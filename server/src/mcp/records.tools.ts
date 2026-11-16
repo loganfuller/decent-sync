@@ -14,6 +14,7 @@ import { SteamRecordsService } from "../steam-records/steam-records.service.js";
 import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, overBudget, refuseCutText } from "./budget.js";
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
 import { MAX_PAGE, PAGED, page, pageOf, pageOutput } from "./paging.js";
+import { GROUP_SPEC, SHOT_SPEC, STOPPED_AT_TARGET, STOPPED_BRIEFLY, groupSpec, shotRowSpec, shotSpec } from "./spec.js";
 import { timeBound, timeRange, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 
@@ -112,6 +113,7 @@ export const shotDetails = shotBasics.extend({
     .optional()
     .describe(`Only when asked for: the edits of its rating and note made through Decent Sync, newest first, the newest ${MAX_LISTED_EDITS} at most: total is how many there are, and more whether older ones are left out, which no offset reaches.`),
   stopReason: z.string().nullable().describe("What stopped it, as Decaid recorded it."),
+  spec: shotSpec,
   lastStep: step.nullable().describe("The step of its Profile it ended in; null when it stopped in its Preheat, or its samples name no step."),
   timeToFirstDrip: z
     .number()
@@ -176,6 +178,7 @@ const shotRow = z.object({
   peakPressure: amount("In bar, leaving out its Preheat."),
   peakFlow: amount("In ml/s, leaving out its Preheat."),
   stopReason: text.describe("What stopped it, as Decaid recorded it."),
+  spec: shotRowSpec,
   lastStep: step.optional().describe("The step of its Profile it ended in."),
   enjoyment: amount(`Its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated, as rated on its tablet or edited since.`),
   barista: text,
@@ -247,9 +250,8 @@ const SHOT_UNITS =
 const EDIT_STANDING =
   "editStanding: awaitingTablet, an edit of its rating or note (edit_shot) isn't yet on its tablet; noTablet, its tablet no longer holds it; or null. edits true lists them, as edit_shot describes.";
 
-/** What each stop reason Decaid records means. */
-const STOP_REASONS =
-  "stopReason is what Decaid recorded stopping it: targetWeight, Decaid stopping it as the scale's projected weight reached the target yield; targetVolume, Decaid stopping it at the target water volume, without a scale; machineEnded, the Machine ending it itself, as its profile finishes or it is stopped on the Machine; appStop, the Stop button in Decaid's own app; apiStop, a stop through Decaid's API, as a skin's such as Streamline's; error, the Machine going into an error state. Another value is Decaid's name for what stopped it.";
+/** What each stop reason Decaid records means, and the kind a Shot's spec gives it (`STOP_KINDS` in shots/spec.ts). */
+const STOP_REASONS = `stopReason is what Decaid recorded stopping it, and spec.stopped its kind: targetWeight, Decaid stopping it as the scale's projected weight reached the target yield, or targetVolume, at the target water volume, without a scale, which are both stopped at target; byHand, appStop, the Stop button in Decaid's own app, or apiStop, a stop through Decaid's API, as a skin's such as Streamline's; machineEnded, the Machine ending it itself, as its profile finishes or it is stopped on the Machine; error, the Machine going into an error state, or disconnected; or other, any other of Decaid's names.`;
 
 /** What get_shot's steps, lastStep, lastRecordedWeight, flowAtStop and timeToFirstDrip are. */
 const SHOT_STEPS =
@@ -373,6 +375,7 @@ const summaryReference = z
         yieldAgainstTarget: ownNumber,
         duration: ownNumber,
         stoppedOnWeight: z.boolean().nullable().optional().describe("Whether targetWeight stopped it; null where it recorded no stop reason."),
+        stoppedAtTarget: z.boolean().nullable().optional().describe("Whether it stopped at its target; null where it recorded no stop reason."),
         ratio: ownNumber,
         peakPressure: ownNumber,
         peakFlow: ownNumber,
@@ -387,7 +390,7 @@ const summaryReference = z
   })
   .optional()
   .describe(
-    "Only with groupBy recipe, where the group's Recipe has a Reference Shot, the Shot chosen to show how its Shots should go (set_reference_shot): that Shot, to read the group's numbers against. Every group of one Recipe gives the same, whatever the filters, and whatever kind of Shot it is. Nothing is scored against it.",
+    "Only with groupBy recipe, where the group's Recipe has a Reference Shot, the Shot chosen to show how its Shots should go (set_reference_shot): that Shot, to read the group's numbers against. Every group of one Recipe gives the same, whatever the filters, and whatever kind of Shot it is. The group's spec judges its duration against it.",
   );
 const summaryCounts = z.object({
   shots: z.number().describe("The Shots its numbers cover."),
@@ -405,6 +408,18 @@ const summaryNumbers = z.object({
     })
     .optional()
     .describe("The share of Shots that stopped on weight; given only when asked for."),
+  stoppedAtTarget: z
+    .object({
+      shots: z.number().describe("How many Shots recorded a stop reason."),
+      share: z.number().nullable().describe("The part of them that stopped at target, from 0 to 1; null where none recorded one."),
+      atTarget: z.number().describe("How many stopped at their target weight or volume."),
+      byHand: z.number().describe("How many were stopped in Decaid's app or through its API."),
+      machineEnded: z.number().describe("How many the Machine ended itself."),
+      error: z.number().describe("How many an error or a dropped connection stopped."),
+      other: z.number().describe("How many anything else stopped."),
+    })
+    .optional()
+    .describe("The Shots that stopped at target, and how the rest stopped; given only when asked for."),
   ratio: summaryNumber("Each Shot's yield weighed over its dose weighed."),
   peakPressure: summaryNumber("Each Shot's peak pressure, leaving out its Preheat, in bar."),
   peakFlow: summaryNumber("Each Shot's peak flow, leaving out its Preheat, in ml/s."),
@@ -436,6 +451,7 @@ const summariseShotsOutput = z.object({
         by: summaryGroupBy,
         counts: summaryCounts.optional().describe("Without bucket: the group's counts."),
         numbers: summaryNumbers.optional().describe("Without bucket: the group's numbers."),
+        spec: groupSpec.optional(),
         buckets: z
           .array(
             z.object({
@@ -455,11 +471,11 @@ const summariseShotsOutput = z.object({
 const summariseShotsBudget: Budget = { rest: "Asked for fewer groups at a time, it has more of each name." };
 
 /** What summarise_shots' groups are, for its description. */
-const SHOT_GROUPS = `groupBy takes up to ${MAX_GROUPINGS} of ${GROUPINGS.slice(0, -1).join(", ")} and ${GROUPINGS.at(-1)}; without it, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping, a Library item, Machine or Location by id, a recipe's and grinder's location the one it belongs to, and bean, profile and barista as the Shots recorded them, null for the group of none. By machine, Shots waiting for an Admin to name the Machine that recorded them are a group of their own: machine null, and pendingMachine, that hardware's model and serial, which find_shots has no filter for. find_shots finds a group's Shots with the same filters and the group's: its id as locationId, machineId, recipeId, beanBatchId, grinderId or basketId, each but machineId none for the group of none, or, with match exact, its bean's roaster and name as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none. match is one for every text filter, so to open bean, profile or barista groups, summarise with no text filter or with match exact. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, with its group of none last, and limit and offset page them.`;
+const SHOT_GROUPS = `Without groupBy, groups holds one group, every Shot the filters find. A group's by gives an entry for each grouping, null for its group of none: a Library item, Machine or Location by id, a recipe's and grinder's location the one it belongs to, and bean, profile and barista as the Shots recorded them. By machine, Shots waiting for an Admin to name their Machine are a group apart: machine null, with pendingMachine, that hardware. find_shots finds a group's Shots with the same filters and the group's: its id as the filter of its kind, such as recipeId, none for the group of none, or, with match exact, its bean as beanRoaster and beanName, its profile as profileTitle and its barista as barista, each empty for the group of none; match being one for every text filter, summarise with no text filter or with match exact to open those. Groups are ordered by the first grouping, then the second, each by name, ignoring case, then id, its group of none last.`;
 
 /** What summarise_shots' buckets are, and how a day and a week are counted, for its description. */
 const SHOT_BUCKETS =
-  "With bucket, a group gives buckets in place of counts and numbers: those of each day, or week from Monday, it has Shots of, oldest first, each with start, a date, null, last, where the time is unknown. A day is each Shot's Location's own, in its time zone, or UTC's with none, as from and to read one. Pages never split a group's buckets.";
+  "With bucket, a group gives buckets in place of counts, numbers and spec: the counts and numbers of each day, or week from Monday, it has Shots of, oldest first, each with start, a date, null, last, where the time is unknown. Pages never split a group's buckets.";
 
 /** The lists list_shot_values gives, as `GET /api/shots/filters` gives them. */
 const SHOT_VALUE_KINDS = ["beans", "baristas", "profileTitles", "beanBatches", "grinders", "recipes", "baskets"] as const;
@@ -522,7 +538,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS} ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} ${SHOT_SPEC} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
@@ -546,7 +562,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "summarise_shots",
     title: "Summarise Shots",
-    description: `Summarises the Shots find_shots finds for the same filters: how many and how they went, as one group or, with groupBy, by group. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured: the Machine never reported pouring and the scale never read 1 g; and counts.cleaningAndCalibration, those whose profile's type, as recorded, is cleaning or calibrate. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots have no timeToFirstDrip or lastStep yet, which the server is working out; they count as poured. numbers gives those it names, by default ${DEFAULT_NUMBERS.slice(0, -1).join(", ")} and ${DEFAULT_NUMBERS.at(-1)}: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat, the Machine heating its water before the profile starts; ratio, yield over dose weighed, none where the dose is 0 or missing; rating (enjoyment), 0 to 10, two points a star of five, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the setting recorded is wholly a decimal number, such as 8.8, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: few say little. They are null where none had. stoppedOnWeight is the share, 0 to 1, of the Shots that recorded a stop reason whose reason is targetWeight, Decaid stopping it as the scale's projected weight reached the target, with shots, how many recorded one. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} By recipe, a group whose Recipe has a Reference Shot gives reference: that Shot's id and, as numbers, its own value of each number, stoppedOnWeight true or false and lastStep one step. ${SHOT_BUCKETS} ${PAGED} match is as find_shots'.`,
+    description: `Summarises the Shots find_shots finds for the same filters: how many and how they went, as one group or, with groupBy, by group. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured, and counts.cleaningAndCalibration, by the profile's type recorded. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots await their timeToFirstDrip and lastStep; they count as poured. numbers gives those it names: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat; ratio, yield over dose weighed, none where the dose is 0 or missing; rating (enjoyment), 0 to 10, two points a star of five, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the setting recorded is wholly a decimal number, such as 8.8, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: few say little. They are null where none had. stoppedAtTarget is the share, 0 to 1, of the Shots that recorded a stop reason that were ${STOPPED_AT_TARGET}, with shots, how many recorded one, atTarget, and how many of the rest stopped byHand, in Decaid's app or through its API, machineEnded, error and other; stoppedOnWeight is targetWeight's share alone. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} By recipe, a group whose Recipe has a Reference Shot gives reference: that Shot's id and, as numbers, its own value of each number, a share as true or false and lastStep as one step. ${GROUP_SPEC} ${SHOT_BUCKETS} Pages and match are as find_shots'.`,
     inputSchema: summariseShotsInput,
     outputSchema: summariseShotsOutput,
     annotations: { readOnlyHint: true },
@@ -571,7 +587,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "get_shot",
     title: "Get a Shot",
-    description: `Reads a Shot: what it used, how it went, and its curves when asked for. ${SHOT_UNITS} ${EDIT_STANDING} grinderModel, basketName and grinderSetting are as it recorded them, as bean is. tds (total dissolved solids) and extractionYield are in %. ${STOP_REASONS} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, flow in ml/s, the pump's, weight in grams as the scale weighed it, weightFlow in g/s, the rate coffee lands in the cup as the scale measured it, and temperature in °C, the group temperature, measured at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says. With curves false or left out, it gives all of them. Ask for a few seconds, as around the stop, to see every reading. ${timeZoneNote}`,
+    description: `Reads a Shot: what it used, how it went, and its curves when asked for. ${SHOT_UNITS} ${EDIT_STANDING} grinderModel, basketName and grinderSetting are as it recorded them, as bean is. tds (total dissolved solids) and extractionYield are in %. ${STOPPED_BRIEFLY} ${SHOT_SPEC} ${SHOT_STEPS} Its steps, lastRecordedWeight, timeToFirstDrip and curves are timed in seconds from the start of its profile, after its Preheat, which shaded marks before 0 s, with the heater test's targets, left out of its duration and peaks. Its curves give pressure in bar, the pump's flow in ml/s, the scale's weight in grams and weightFlow in g/s, the rate coffee lands in the cup, and temperature in °C, at the group head, the closest to the coffee. ${CURVES_NOTE} window, from and until in seconds on the curves' axis, each included and defaulting to the first or last sample, gives only the readings in it, none for a window outside the Shot: every one if the response fits, otherwise each series thinned to as many as fit, as thinnedTo says, and of every curve where curves isn't given. Ask for a few seconds, as around the stop, to see every reading. ${timeZoneNote}`,
     inputSchema: getShotInput,
     outputSchema: shotDetails,
     annotations: { readOnlyHint: true },
@@ -606,6 +622,7 @@ export class RecordsTools {
       // The newest of them: more says older ones follow, which no offset reaches.
       ...(listed && { edits: { ...pageOf(total, 0, edits.length), entries: edits.map((edit) => shotEditOf(edit, timeZone)) } }),
       stopReason: shot.stopReason,
+      spec: shot.spec,
       lastStep: shot.lastStep,
       timeToFirstDrip: shot.timeToFirstDrip,
       flowAtStop: shot.flowAtStop,
@@ -734,6 +751,8 @@ function shotRowOf(shot: ListedShot, shorten: (text: string | null, at: number) 
     peakPressure: shot.peakPressure,
     peakFlow: shot.peakFlow,
     stopReason: shot.stopReason,
+    // Each part where it has one, and the two flags only when true, as a row leaves out what has no value.
+    spec: present({ ...shot.spec, unfinished: shot.spec.unfinished || null, cleaningOrCalibration: shot.spec.cleaningOrCalibration || null }),
     lastStep: shot.lastStep && { frame: shot.lastStep.frame, name: shorten(shot.lastStep.name, ROW_NAME)! },
     enjoyment: shot.enjoyment,
     barista: shorten(recordedText(shot.barista), ROW_NAME),

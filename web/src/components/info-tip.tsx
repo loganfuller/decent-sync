@@ -4,14 +4,14 @@ import { CardTitle } from "@/components/ui/card";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 
 /**
- * A small info icon whose tooltip holds what explains the value beside it,
- * kept out of the page until asked for. It opens on hover, on keyboard focus
- * and on a tap or click: Radix opens a tooltip on neither a tap nor a click,
- * and closes it on a click, which would leave a touchscreen no way to read
- * it. A tap elsewhere, Escape or moving away closes it. The icon is a button,
- * and `label` names it for screen readers.
+ * A button whose tooltip holds `tip`, kept out of the page until asked for.
+ * It opens on hover, on keyboard focus and on a tap or click: Radix opens a
+ * tooltip on neither a tap nor a click, and closes it on a click, which
+ * would leave a touchscreen no way to read it. A tap elsewhere, Escape or
+ * moving away closes it. `label` names the button for screen readers where
+ * what it shows doesn't.
  */
-export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+export function TapTooltip({ label, className, tip, children }: { label?: string; className?: string; tip: ReactNode; children: ReactNode }) {
   const [open, setOpen] = useState(false);
   return (
     <Tooltip open={open} onOpenChange={setOpen}>
@@ -19,7 +19,7 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
         <button
           type="button"
           aria-label={label}
-          className="inline-flex align-middle text-muted-foreground hover:text-foreground"
+          className={className}
           // Each prevented, so Radix's own handler, which closes the tooltip, is skipped.
           onPointerDown={(event) => event.preventDefault()}
           onClick={(event) => {
@@ -27,13 +27,24 @@ export function InfoTip({ label, children }: { label: string; children: ReactNod
             setOpen(true);
           }}
         >
-          <InfoIcon className="size-3.5" />
+          {children}
         </button>
       </TooltipTrigger>
-      <TooltipContent>
-        <div className="grid gap-1">{children}</div>
-      </TooltipContent>
+      <TooltipContent>{tip}</TooltipContent>
     </Tooltip>
+  );
+}
+
+/**
+ * A small info icon whose tooltip holds what explains the value beside it
+ * (`TapTooltip`). The icon is a button, and `label` names it for screen
+ * readers.
+ */
+export function InfoTip({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <TapTooltip label={label} className="inline-flex align-middle text-muted-foreground hover:text-foreground" tip={<div className="grid gap-1">{children}</div>}>
+      <InfoIcon className="size-3.5" />
+    </TapTooltip>
   );
 }
 

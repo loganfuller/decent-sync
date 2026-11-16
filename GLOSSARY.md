@@ -170,8 +170,16 @@ A shot in which nothing poured, as its machine and scale show it: its machine ne
 _Avoid_: Aborted shot, failed shot, sink shot
 
 **Shot Summary**:
-What a set of shots have in common, by group: how many there are; for each number a shot has, such as its duration or its yield against its target, their median and the range the middle half of them fall in; and for what a shot either did or didn't, such as stopping on weight, the share that did. Grouped by machine it compares machines, and grouped by day it shows a trend.
+What a set of shots have in common, by group: how many there are; for each number a shot has, such as its duration or its yield against its target, their median and the range the middle half of them fall in; and for what a shot either did or didn't, such as stopping at its target, the share that did. Grouped by machine it compares machines, and grouped by day it shows a trend.
 _Avoid_: Statistics, report, dial-in health, analytics (for one result)
+
+**Out of spec**:
+Of a machine's shots of a recipe over a period, or of one shot: further than a margin from what they are measured against. Their duration is measured against the recipe's reference shot's, their yield against each shot's own target, and their stopping against stopping at their target. A recipe is out of spec between machines where its fastest and slowest machines' durations differ by more than the margin. Shots that are judged and not out of spec are **within spec**; too few shots are not judged.
+_Avoid_: Off, bad, failing, drifted, alert (an alert is Monitoring's)
+
+**Stopped at target**:
+A shot Decaid stopped as it reached its target: its target weight on the scale or, with no scale, its target volume. A shot stopped by hand, ended by its machine as its profile ran out, or cut short by an error did not.
+_Avoid_: Stopped on weight (a volume stop counts too)
 
 **Steam Record**:
 One recorded use of a machine's steam wand: its measurements over time and the milk temperature reached. Its recording also holds the steam starting up, the pauses after each stop, the puffs that keep the wand clear and the purge, which are shown with it but aren't counted in its duration: that counts only the steaming.

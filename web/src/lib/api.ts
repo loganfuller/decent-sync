@@ -178,7 +178,11 @@ export interface Machine {
   takeover: Takeover | null;
   online: boolean;
   lastSeenAt: string | null;
-  lastShot: { id: string; pulledAt: string | null } | null;
+  /**
+   * The Shot it pulled last, with the Recipe it was pulled with, its duration in seconds and how it stands against the
+   * margins (#543); those three are absent from the previous release's answer during a deploy (ADR-0025).
+   */
+  lastShot: { id: string; pulledAt: string | null; recipe?: NamedLink | null; duration?: number | null; spec?: ShotSpec } | null;
   /** What it is doing: the latest machine state its tablet reported, or null before any. */
   machineState: MachineState | null;
   /** The Recipe its Workflow has loaded, since when, or null for none. */
@@ -541,6 +545,8 @@ export interface ListedShot {
   grinderSetting: string | null;
   /** What stopped it, as Decaid recorded it. */
   stopReason: string | null;
+  /** How it stands against the margins (#543). Absent from the previous release's answer during a deploy (ADR-0025). */
+  spec?: ShotSpec;
   /** As typed on the tablet. */
   notes: string | null;
   /** Total dissolved solids, in %. */
@@ -552,6 +558,27 @@ export interface ListedShot {
    * never by the previous release during a deploy (ADR-0025).
    */
   referenceOf?: (NamedLink & { location: Location | null })[];
+}
+
+/**
+ * How a Shot stopped, of the stop reason Decaid recorded: at its target weight or volume, which are stopped at target
+ * (GLOSSARY.md), by hand, by the Machine itself, by an error, or `other`, any other reason, which `stopReason` gives.
+ */
+export type StopKind = "targetWeight" | "targetVolume" | "byHand" | "machineEnded" | "error" | "other";
+
+/**
+ * One Shot against the margins (#543; GLOSSARY.md, Out of spec), as the server judges it. An Unfinished Shot and a
+ * cleaning or calibration Shot are not judged: their `duration` and `yield` are null.
+ */
+export interface ShotSpec {
+  unfinished: boolean;
+  cleaningOrCalibration: boolean;
+  /** Its duration less its Recipe's Reference Shot's, in seconds, and whether that is out of spec; null with no such Shot to compare. */
+  duration: { difference: number; outOfSpec: boolean } | null;
+  /** Its yield weighed less its own target, in grams, and whether that is out of spec; null with no target, or no yield. */
+  yield: { againstTarget: number; outOfSpec: boolean } | null;
+  /** How it stopped; null where it recorded no stop reason. */
+  stopped: StopKind | null;
 }
 
 /** A Library Bean Batch a Shot is linked to: its Bean and roast date, as the Bean Batches list names them. */
@@ -664,6 +691,12 @@ export interface SummaryNumbers {
   duration: SummaryNumber;
   /** Of the Shots that recorded a stop reason, how many there are, and the part Decaid stopped at the target weight, from 0 to 1. */
   stoppedOnWeight: { shots: number; share: number | null };
+  /**
+   * Stopped at target (GLOSSARY.md): of the Shots that recorded a stop reason, how many there are, how many Decaid
+   * stopped at their target weight or volume, that part of them, from 0 to 1, and how many of the rest stopped each
+   * other way.
+   */
+  stoppedAtTarget: { shots: number; share: number | null; atTarget: number; byHand: number; machineEnded: number; error: number; other: number };
   /** Yield weighed over dose weighed. */
   ratio: SummaryNumber;
   /** In bar and ml/s, without the Preheat. */
@@ -692,6 +725,28 @@ export interface GroupedBy {
   recipe?: { id: string; name: string | null; location: { id: string; name: string } | null } | null;
 }
 
+/**
+ * The server's judgement of a group's Shots against a margin (GLOSSARY.md, Out of spec): within spec, out of spec, or
+ * not judged, for want of Shots with a value. `beyondMargin` says whether what they have is beyond the margin, judged
+ * or not; null with nothing to measure.
+ */
+export interface Judgement {
+  judgement: "withinSpec" | "outOfSpec" | "notJudged";
+  beyondMargin: boolean | null;
+}
+
+/** A group's Shots against the margins: each of what the server judges of it. */
+export interface GroupSpec {
+  /** Grouped by Recipe, where the Recipe has a Reference Shot with a duration: the median duration's difference from it, in seconds. */
+  duration?: Judgement & { difference: number | null };
+  /** The median of each Shot's yield against its own target, as a share of it. */
+  yield: Judgement;
+  /** The share of the Shots that recorded what stopped them that stopped at their target. */
+  stoppedAtTarget: Judgement;
+  /** Grouped by Recipe and Machine, for a group with a Recipe: how far apart its Machines' median durations are, in seconds, the same on each of its groups. */
+  betweenMachines?: Judgement & { apart: number | null };
+}
+
 /** What a set of Shots have in common: a Shot Summary's group. */
 export interface SummaryGroup {
   by: GroupedBy;
@@ -707,6 +762,11 @@ export interface SummaryGroup {
   };
   /** The numbers asked for. */
   numbers: Partial<SummaryNumbers>;
+  /**
+   * How its Shots stand against the margins (#543), of a summary with no bucket. Absent from the previous release's
+   * answer during a deploy (ADR-0025).
+   */
+  spec?: GroupSpec;
   /**
    * Grouped by Recipe, its Recipe's Reference Shot, where it has one the Shots list lists: the same for each group of
    * the Recipe. Absent from the previous release's answer during a deploy (ADR-0025).
@@ -743,7 +803,7 @@ export interface SummaryReference {
  * or false, and its last step the step of its Profile it ended in.
  */
 export type ShotNumbers = {
-  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" | "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
 };
 
 /**

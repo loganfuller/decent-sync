@@ -412,7 +412,8 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   (`recordedDetails`), each null where it recorded none or blank text:
   `grinderModel` and `basketName`, the names its Grinder and Basket recorded,
   `grinderSetting`, `stopReason`, `notes` (whole), `tds` and
-  `extractionYield`. And each gives two of the values its samples show, as
+  `extractionYield`. Each gives `spec`, how it stands against the margins
+  (#543; Shot Summaries, Out of spec). And each gives two of the values its samples show, as
   stored (`measuredValues`, above): `timeToFirstDrip`, in seconds, and
   `lastStep` (`{ frame, name }`), the step of its Profile it ended in, each
   null where the Shot has none, and until a Shot stored before they were
@@ -421,7 +422,9 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   and the name the Shot recorded, each field with no value left out, the
   names people type, a step's among them, cut beyond about 60 characters
   and notes beyond about 200, which `get_shot` reads whole, with
-  `grinderModel` and `basketName`.
+  `grinderModel` and `basketName`. A row's `spec` holds each part that has
+  a value, and `unfinished` and `cleaningOrCalibration` only when true;
+  `get_shot` gives it whole.
 - Filters, each given at most once and combined with AND
   (`server/src/shots/filters.ts`; the Machine, Location and date filters are
   `server/src/record-filters.ts`, which Steam Records lists share):
@@ -579,8 +582,12 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
   tablet set aside, latest first, each with `receivedAt`, `type`,
   `deliveryId`, `recordId`, `sqlState` and `error`, never its message.
 - Machine list and detail responses include
-  `lastShot: { id, pulledAt } | null`, by credited hardware rather than the
-  tablet that delivered it.
+  `lastShot: { id, pulledAt, recipe, duration, spec } | null`, by credited
+  hardware rather than the tablet that delivered it: with the Recipe it was
+  pulled with (`{ id, name }`, or null), its duration as the list shows it,
+  and its `spec`, how it stands against the margins, as the Shot's own read
+  gives it (#543; Shot Summaries, Out of spec), so a status line needs no
+  second read.
 
 Dismissed Pending Shots are hidden from every read, including filter choices
 and previous Shots; adoption restores access. No capture endpoint writes to
@@ -1118,6 +1125,10 @@ charts one number of them as a trend on the Shots list. As the list has no
 grouping, its trend is one line, of the Shots its filters find. Ticket [#474](https://github.com/loganfuller/decent-sync/issues/474)
 shows a Recipe's Shots grouped by Machine on its page, today's and the
 last 30 days' by day, a line for each Machine, from this route alone.
+Ticket [#543](https://github.com/loganfuller/decent-sync/issues/543) adds
+the number stopped at target, judges each group, each Recipe between its
+Machines and each Shot within spec or out of spec against three margins
+(Out of spec, below), and redraws the Overview around that judgement.
 
 - **Which Shots.** Those the Shots list lists for the same filters, read by
   the same conditions (`listed`, `shotFilterSql`), less those whose
@@ -1238,10 +1249,10 @@ last 30 days' by day, a line for each Machine, from this route alone.
   - **Through an assistant,** `summarise_shots` takes `bucket` and gives the
     same. The budget's guard ends a page of groups sooner to fit (ADR-0028),
     never a group's buckets: 30 days by day by Recipe and Machine, about
-    290 characters a day at the default numbers, fill a page at 4 groups,
-    and with every number, about 870 a day, at one. A single group can't be
-    shortened, so one of more than about 150 days at the default numbers, or
-    50 with every number, is over the budget: a summary of every Shot by
+    380 characters a day at the default numbers, fill a page at 3 groups,
+    and with every number, about 960 a day, at one. A single group can't be
+    shortened, so one of more than about 115 days at the default numbers, or
+    45 with every number, is over the budget: a summary of every Shot by
     day reaches that on any server a few months old. The tool refuses a
     page whose first group alone can't fit (`overBudget` in
     `server/src/mcp/budget.ts`), saying to give `from` and `to` for a
@@ -1273,8 +1284,10 @@ last 30 days' by day, a line for each Machine, from this route alone.
 - **The numbers,** each of the Shots covered. `numbers` names those a
   summary gives: in the REST route one or more separated by a comma, such
   as `numbers=ratio,rating`, each once, and in the tool a list. Without it a
-  summary gives `yieldAgainstTarget`, `duration` and `stoppedOnWeight`, which
-  with the count are the Overview's four (#465). A group gives those named,
+  summary gives `yieldAgainstTarget`, `duration`, `stoppedOnWeight` and
+  `stoppedAtTarget`: with the count, what the Overview reads (#465, #543).
+  `stoppedOnWeight` stays among them for the latest release's pages, which
+  read it (ADR-0025), until #559 removes it. A group gives those named,
   in the order below, and only those are read, so a number read from each
   Shot's record costs only a summary that asks for it.
   - `yieldAgainstTarget`: the yield weighed less the target yield
@@ -1291,6 +1304,21 @@ last 30 days' by day, a line for each Machine, from this route alone.
     Decaid writes one of its stop reasons' names or nothing), and the part
     of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
     where none recorded one.
+  - `stoppedAtTarget` (`GLOSSARY.md`, Stopped at target): `{ shots, share,
+    atTarget, byHand, machineEnded, error, other }`. `shots` is how many
+    Shots recorded a stop reason, as `stoppedOnWeight`'s; `atTarget` how
+    many of them Decaid stopped at their target, its weight on the scale
+    (`targetWeight`) or, with no scale, its volume (`targetVolume`), and
+    `share` that part of them, null where none recorded one. The rest are
+    counted by how they stopped: `byHand`, the Stop button in Decaid's own
+    app or a stop through its API, as a Skin's (`appStop`, `apiStop`);
+    `machineEnded`, the Machine ending the Shot itself, as its profile ran
+    out; `error`, an error state or a dropped connection (`error`,
+    `disconnected`); and `other`, any other reason. The five add up to
+    `shots`. The kinds are `STOP_KINDS` in `server/src/shots/spec.ts`, of
+    Decaid's `ShotDecisionReason`
+    (`decaid:lib/src/models/data/shot_state_event.dart`, the same at v0.9.1
+    and v0.9.2).
   - `ratio`: the yield weighed over the dose weighed (`actual_yield`,
     `actual_dose`), to millionths. A Shot whose dose is 0 or missing, or
     that weighed no yield, has no value; nor has one whose yield is more
@@ -1316,7 +1344,7 @@ last 30 days' by day, a line for each Machine, from this route alone.
     (`annotations.drinkTds`, `annotations.drinkEy`), in %, where the record
     holds a number; text there has no value, as the Shot page shows none.
   - `timeToFirstDrip`: as the Shot keeps it (`time_to_first_drip`, above).
-  - Each of those but `stoppedOnWeight` is `{ shots, median, p25, p75 }`:
+  - Each of those but `stoppedOnWeight` and `stoppedAtTarget` is `{ shots, median, p25, p75 }`:
     how many Shots had a value, their median, and the 25th and 75th
     percentiles, between which the middle half of them fall. A percentile
     is interpolated between the two Shots nearest it (PostgreSQL's
@@ -1352,16 +1380,86 @@ last 30 days' by day, a line for each Machine, from this route alone.
     of them holds it.
   - A value is the Shot's own, worked out as each Shot's is for the group's
     numbers (`NumberSql.own`), null where it has none or one too large to
-    count: `stoppedOnWeight` is true or false, null where it recorded no
-    stop reason, `lastStep` is `{ frame, name }`, and each other a number.
+    count: `stoppedOnWeight` and `stoppedAtTarget` are each true or false,
+    null where it recorded no stop reason, `lastStep` is `{ frame, name }`,
+    and each other a number.
   - It is read in the summary's one statement, for the groups on the page
     alone, each by its id (`reference_shot_id`), so it is of the same
     moment as the numbers beside it.
-  - Nothing is worked out of the two: no score, tolerance or judgement of
-    the Shots against it (#465, Out of Scope). The management interface
-    shows it in the Overview, a cell's median duration beside the Reference
-    Shot's ("24.7 s (reference 25.8 s)", `referenceDurationText`). The Shots
-    list's Summary card, never grouped, shows none.
+  - A group's median duration is judged against the Reference Shot's
+    (Out of spec, below), which #465 left out of scope and #543 builds. The
+    management interface shows it in the Overview: a row's heading gives the
+    Reference Shot's duration, and each cell how far its median is from it.
+    The Shots list's Summary card, never grouped, shows none.
+- **Out of spec** (#543; `GLOSSARY.md`). The server judges Shots against
+  three margins, named once in `server/src/shots/spec.ts` (`MARGINS`), the
+  same for every Location and Recipe; setting them in the management
+  interface, and a marginal level between the two, are #548's.
+  - **The margins.** A duration is out of spec more than 10% of the
+    Recipe's Reference Shot's duration from it, either way. A yield is out
+    of spec more than 5% of the Shot's own target from it, either way. A
+    group's stopping is out of spec where under 90% of the Shots that
+    recorded what stopped them stopped at target. At a margin exactly,
+    10%, 5% or 90%, it is within spec: each is compared in whole
+    millionths, or whole Shots, so a float's rounding moves no edge.
+  - **A group's judgement.** Each group of a summary with no bucket gives
+    `spec`, whichever numbers were asked for: `yield` and
+    `stoppedAtTarget`, each `{ judgement, beyondMargin }`, and, grouped by
+    Recipe, where the group's Recipe has a Reference Shot with a duration,
+    `duration`, `{ judgement, beyondMargin, difference }`, its median
+    duration less the Reference Shot's, in seconds. `judgement` is
+    `withinSpec`, `outOfSpec` or `notJudged`: a judgement needs at least 3
+    Shots with a value, and fewer are not judged. `beyondMargin` says
+    whether what they have is beyond the margin, judged or not, null with
+    nothing to measure, so the few Shots of a group not judged still say
+    which way they lean, which the Overview shows unmarked. A group's
+    duration is its median's; its yield the median of each Shot's yield
+    less its own target as a share of that target (`yieldShare`, to
+    millionths), not the median of `yieldAgainstTarget` over a target, as
+    its Shots may have different targets; its stopping
+    `stoppedAtTarget`'s share. Each is of the Shots the group's numbers
+    cover, so an Unfinished Shot and a cleaning or calibration Shot judge
+    nothing. A bucketed summary carries no judgement, in its groups or
+    their buckets.
+  - **Between Machines.** A summary grouped by Recipe and Machine, in
+    either order, gives each group with a Recipe `spec.betweenMachines`:
+    `{ judgement, beyondMargin, apart }`, the same on each of the Recipe's
+    groups, as its Reference Shot is. `apart` is how far apart its fastest
+    and slowest Machines' median durations are, in seconds, and the Recipe
+    is out of spec between Machines where that is more than 10% of the
+    slower one's. Only Machines with at least 3 Shots with a duration are
+    counted, where there are two or more of them, so a Machine with fewer
+    is left out of both the number and the judgement; where there are not,
+    `apart` is of every Machine that pulled the Recipe, not judged, and
+    null where fewer than two did. A Pending Machine's Shots are no
+    Machine's. It is worked out from every group of the Recipe the filters
+    find (`MACHINE_SPREAD`), in the summary's one statement, not the
+    page's alone, so it is the same whichever page a Recipe's groups fall
+    on. The group of Shots pulled with no Recipe has none.
+  - **One Shot.** A Shot's read, a Shots list's row and a Machine's
+    `lastShot` give `spec` (`ShotSpec`; `shotSpecs` in
+    `server/src/shots/shot-specs.ts`, which reads each Shot by the
+    expressions a summary reads it by, so a Shot and a group of it alone
+    are judged alike): `duration`, `{ difference, outOfSpec }`, its
+    duration less that of the Reference Shot of the Recipe it was pulled
+    with, null where that Recipe has none with a duration or it was pulled
+    with no Recipe, so a Recipe's Reference Shot pulled with that Recipe is
+    at no difference; `yield`, `{ againstTarget, outOfSpec }`, its yield
+    less its own target, in grams, null where its target is 0 or missing or
+    it weighed none; `stopped`, how it stopped: `targetWeight`,
+    `targetVolume`, `byHand`, `machineEnded`, `error`, or `other`, for
+    which `stopReason` gives the reason as recorded, null where it recorded
+    none; and `unfinished` and `cleaningOrCalibration`, whether it is an
+    Unfinished Shot or a cleaning or calibration Shot, neither of which is
+    judged: their `duration` and `yield` are null. One Shot is not subject
+    to the 3 a group needs.
+  - **What it costs.** A judgement reads each Shot's stop reason from its
+    record whichever numbers are named, once where a number reads it too,
+    so a summary that names only numbers read from columns now reads the
+    record once more for each Shot: about 100 ms of 50,000 Shots, as each
+    read from the record was measured for #469 (What the other numbers
+    cost, below). The medians a judgement reads are sorted apart from the
+    numbers' own quartiles.
 - **Worked out when read,** from the Shot's columns and its record, with
   nothing stored for it, so a Shot's edit, such as its rating, shows in the
   next summary. Differences and quotients are taken in decimal, as the
@@ -1453,6 +1551,14 @@ bucket's own steps; and a Recipe's Reference Shot once on its group. The
 assistant tests check the tool's buckets against the route's, and a month
 by day by Recipe and Machine within the budget, its pages ending sooner
 with each group's 30 days whole.
+`server/test/shot-spec.test.ts` covers what is out of spec through Seam 1,
+with one Shot a simulated tablet stores and copies of its row made in
+PostgreSQL, so that each margin's edge is exact: each margin at its edge
+and beyond it, fewer than 3 Shots not judged, a Recipe with no Reference
+Shot, each stop reason under its kind, between Machines across pages and
+with a Machine of fewer than 3 Shots left out, one Shot's judgement in its
+read and its row, a Machine's last Shot, and each of those through an
+assistant.
 `server/test/shot-summary-numbers.test.ts` covers the other numbers and
 Unfinished Shots the same way: every number against values worked out by
 hand, a rating of 0, a dose of 0, grind settings of text, `2.00` and within
@@ -1625,6 +1731,66 @@ is drawn only by a page that has groups, the Recipe page's trend by
 Machine (#474, below). During a deploy the previous release's instance
 knows no `bucket` and gives no buckets, of which nothing is drawn.
 `e2e/shot-trend.spec.ts` covers it.
+
+The Overview (`/`, and each Location's page; `web/src/components/overview.tsx`,
+#471, #543) is drawn from `GET /api/machines`, read every 5 s, and `GET
+/api/shots/summary` grouped by `recipe,machine` for the Location and the
+period's days there, read every 30 s, every page of it. No read was added
+for it, so no MCP tool is its own: `list_machines` and `summarise_shots`
+give an assistant what it shows.
+- **A block's heading** gives the Location, linked to its page, on the home
+  page, or "Overview" on the Location's page, with the period's choice
+  beside it there, and how many Shots the period's numbers cover, with the
+  Unfinished Shots beside them (`coveredText` in `web/src/lib/overview.ts`).
+- **A status card** for each Machine there now, or that pulled Shots there
+  in the period: its name, linked to its page; "Online" with its Machine
+  State; or, offline, how (`offlineKind`): marked "Offline" where its last
+  Machine State was not asleep, a muted "Offline, asleep" where it was, as
+  a Machine left for the night, each with when it was last seen, and a
+  muted "Offline" for one no plugin ever connected for. Then its last Shot,
+  from the Machine's `lastShot` alone: how long ago, its Recipe and
+  duration, linked to the Shot, and a mark for its duration and its yield
+  where its `spec` has them out of spec (`lastShotMarks`); its Loaded
+  Recipe with its Recipe Slot; that it is capture-only; and where it is now
+  if not here. The Location's page has no Machines card: these cards carry
+  what it showed.
+- **A row** is a Recipe pulled in the period, as before: its Recipe Slot,
+  its name, its Reference Shot's duration, linked to that Shot, or "No
+  reference", linked to the Recipe's Shots in the Shots list, to choose
+  one from, and its Bean Batch's days since roast.
+- **A cell** gives the count and the median duration, and under them what
+  the group's `spec` has it say (`cellLines`): the duration's difference
+  from the reference, marked when out of spec and muted when within spec or
+  not judged; the yield against target and "N of M stopped at target", each
+  only when out of spec, marked, or, for a cell of fewer than 3 Shots,
+  when `beyondMargin`, muted; and the Unfinished and the cleaning or
+  calibration Shots left out. A last column, Between Machines, gives the
+  row's `betweenMachines.apart`, marked when out of spec and muted
+  otherwise. Against the previous release during a deploy, which judges
+  nothing (ADR-0025), cells give the count, the median and what they leave
+  out, and the cards the last Shot's time.
+- **On a phone** (390 px) the cards stack and the table is as wide as the
+  block with two Machines, its cells without the words its columns and row
+  say ("+3.5 s", "0 of 3 at target"), which a screen reader still hears,
+  and how far apart the Machines are under the Recipe's name, in place of
+  the last column. With three or more Machines the table is wider than the
+  block and scrolls within it, the Recipe column staying in place, of one
+  width however many Machines there are (`tableWidths`).
+- **The shared parts** the milestone's other tickets use: the mark
+  (`SpecMark` in `web/src/components/spec-mark.tsx`), which never rests on
+  colour alone, having a triangle, semibold text and "Out of spec" for a
+  screen reader, its colours (`--spec-mark` on `--spec-mark-ground`,
+  `web/src/index.css`) at 6:1 in the light theme and 7:1 in the dark; a
+  relative time (`RelativeTime` in `web/src/components/relative-time.tsx`,
+  worded by the pure `web/src/lib/relative-time.ts`: "14 min ago", "3 h
+  ago", "Yesterday, 4:12 PM", "2 days ago", "Nov 12"), by the wall clock of
+  the time zone given, whose exact time is in a tooltip that opens on
+  hover, focus and tap (`TapTooltip` in `web/src/components/info-tip.tsx`,
+  which the info icons share); and the words for how a Shot stopped
+  (`web/src/lib/stops.ts`), which the Shot page's Stopped field reads.
+`e2e/overview.spec.ts` covers it at a desktop's width and at 390 px, and
+`web/test/overview.test.ts` and `web/test/relative-time.test.ts` its pure
+parts.
 
 A Recipe's page (`/library/recipes/:id`) shows how it is pulling, in two
 cards under its Reference Shot (`web/src/components/recipe-numbers.tsx`,

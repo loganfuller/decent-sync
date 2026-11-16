@@ -1,16 +1,17 @@
-import type { GroupedBy, Machine, Recipe, SummaryGroup } from "@/lib/api";
+import type { GroupSpec, GroupedBy, Machine, Recipe, ShotSpec, SummaryGroup, SummaryReference } from "@/lib/api";
 import { dateIn } from "./machine-activity";
+import { shotsText, signedText, yieldAgainstTargetText } from "./shot-summary";
 
-// The Overview (#471; GLOSSARY.md) as the home page and each Location's page
-// show it: the pure parts, which work out a period's days at a Location and
-// put a Shot Summary grouped by Recipe and Machine into a block's rows and
-// columns.
+// The Overview (#471, #543; GLOSSARY.md) as the home page and each
+// Location's page show it: the pure parts, which work out a period's days at
+// a Location, put a Shot Summary grouped by Recipe and Machine into a
+// block's rows and columns, and word what the server judged out of spec.
 
 /** The periods the Overview offers, as its address names them, in the order it offers them. */
 export const PERIODS = [
   { period: "today", label: "Today", pulled: "today" },
   { period: "yesterday", label: "Yesterday", pulled: "yesterday" },
-  { period: "week", label: "Last 7 days", pulled: "in the last 7 days" },
+  { period: "week", label: "7 days", pulled: "in the last 7 days" },
 ] as const;
 
 export type Period = (typeof PERIODS)[number]["period"];
@@ -94,6 +95,10 @@ export interface OverviewRow {
   slot: number | null;
   /** Each Machine's Shots of it, by the Machine's id. */
   cells: Map<string, SummaryGroup>;
+  /** The Recipe's Reference Shot, as its groups give it: none for a Recipe with none, or from the previous release's answer. */
+  reference: SummaryReference | undefined;
+  /** The Recipe between its Machines, as its groups give it: none for the Shots pulled with no Recipe, or from the previous release's answer. */
+  betweenMachines: GroupSpec["betweenMachines"];
 }
 
 /**
@@ -112,7 +117,8 @@ export function overviewRows(groups: readonly SummaryGroup[], recipes: readonly 
     let row = rows.get(recipe?.id ?? null);
     if (!row) {
       const details = recipe ? recipes.find((held) => held.id === recipe.id) : undefined;
-      row = { recipe, details, slot: details?.location?.id === locationId ? details.slot : null, cells: new Map() };
+      // Each group of a Recipe gives the same Reference Shot and the same judgement between its Machines.
+      row = { recipe, details, slot: details?.location?.id === locationId ? details.slot : null, cells: new Map(), reference: group.reference, betweenMachines: group.spec?.betweenMachines };
       rows.set(recipe?.id ?? null, row);
     }
     row.cells.set(machineId, group);
@@ -125,4 +131,91 @@ export function overviewRows(groups: readonly SummaryGroup[], recipes: readonly 
 /** The Shots list's filters for a cell: its Location, Machine, Recipe, or none, and the period's days, so the Shots it finds are the cell's. */
 export function cellFilters(locationId: string, machineId: string, recipeId: string | null, days: { from: string; to: string }): string {
   return new URLSearchParams({ locationId, machineId, recipeId: recipeId ?? "none", from: days.from, to: days.to }).toString();
+}
+
+/** What a block's heading says its period's numbers cover: how many Shots, with the Unfinished Shots left out of them beside it. */
+export function coveredText(groups: readonly SummaryGroup[], period: Period): string {
+  const count = (of: (counts: SummaryGroup["counts"]) => number) => groups.reduce((sum, group) => sum + of(group.counts), 0);
+  const shots = count((counts) => counts.shots);
+  const unfinished = count((counts) => counts.unfinished);
+  const pulled = PERIODS.find((each) => each.period === period)!.pulled;
+  return `${shots === 0 ? "No Shots" : shotsText(shots)} ${pulled}${unfinished > 0 ? ` · ${unfinished} unfinished` : ""}`;
+}
+
+/**
+ * A line of a cell, a row or a status card that says how far something is
+ * from what it is measured against: `text` in full, `short` as a narrow
+ * screen has room for, and whether it is marked, being out of spec, or
+ * muted, being within spec or not judged.
+ */
+export interface SpecLine {
+  text: string;
+  short: string;
+  marked: boolean;
+}
+
+/** Seconds to a tenth, with their sign. */
+const secondsApart = (seconds: number) => `${signedText(seconds)} s`;
+
+/**
+ * What a cell says under its count and median duration (#543), from the
+ * server's judgement of its Shots:
+ * - `duration`, the median's difference from the Recipe's Reference Shot's,
+ *   always, where there is one: marked when out of spec;
+ * - `yield` and `stopping`, each only when out of spec, marked, or, for a
+ *   cell too small to judge, when its few Shots are beyond the margin,
+ *   muted;
+ * - `leftOut`, the Unfinished Shots and the cleaning and calibration Shots
+ *   its numbers leave out.
+ * The previous release's answer during a deploy judges nothing (ADR-0025),
+ * so its cells say only what they leave out.
+ */
+export function cellLines({ counts, numbers, spec }: SummaryGroup): { duration?: SpecLine; yield?: SpecLine; stopping?: SpecLine; leftOut: string[] } {
+  const shown = (judged: GroupSpec["yield"] | undefined) => judged?.judgement === "outOfSpec" || (judged?.judgement === "notJudged" && judged.beyondMargin === true);
+  const marked = (judged: GroupSpec["yield"]) => judged.judgement === "outOfSpec";
+  const difference = spec?.duration?.difference;
+  const against = numbers.yieldAgainstTarget && yieldAgainstTargetText(numbers.yieldAgainstTarget)?.median;
+  const stops = numbers.stoppedAtTarget;
+  return {
+    ...(spec?.duration && difference != null && { duration: { text: `${secondsApart(difference)} vs reference`, short: secondsApart(difference), marked: marked(spec.duration) } }),
+    ...(spec && shown(spec.yield) && against && { yield: { text: `${against} vs target`, short: against, marked: marked(spec.yield) } }),
+    ...(spec &&
+      shown(spec.stoppedAtTarget) &&
+      stops && { stopping: { text: `${stops.atTarget} of ${stops.shots} stopped at target`, short: `${stops.atTarget} of ${stops.shots} at target`, marked: marked(spec.stoppedAtTarget) } }),
+    leftOut: [
+      ...(counts.unfinished > 0 ? [`${counts.unfinished} unfinished`] : []),
+      ...(counts.cleaningAndCalibration > 0 ? [`${counts.cleaningAndCalibration} cleaning or calibration`] : []),
+    ],
+  };
+}
+
+/** How far apart a Recipe's Machines are, as its row says it: marked when out of spec between Machines; none where fewer than two Machines pulled it. */
+export function betweenMachinesLine(between: GroupSpec["betweenMachines"]): SpecLine | undefined {
+  if (!between || between.apart === null) return undefined;
+  const text = `${between.apart.toFixed(1)} s apart`;
+  return { text, short: text, marked: between.judgement === "outOfSpec" };
+}
+
+/**
+ * What of a Machine's last Shot is out of spec, as its status card marks it:
+ * its duration against its Recipe's Reference Shot's, and its yield against
+ * its own target, each only when out of spec.
+ */
+export function lastShotMarks(spec: ShotSpec | undefined): string[] {
+  return [
+    ...(spec?.duration?.outOfSpec ? [`${secondsApart(spec.duration.difference)} vs reference`] : []),
+    ...(spec?.yield?.outOfSpec ? [`${signedText(spec.yield.againstTarget)} g vs target`] : []),
+  ];
+}
+
+/**
+ * How a Machine that is offline reads (#543): `asleep` where its last
+ * Machine State was asleep, which is where a Machine left for the night
+ * ends up, and reads muted; `awake` where it went offline doing anything
+ * else, which is marked; and `never` where no plugin has ever connected
+ * with its token, which is nothing to mark.
+ */
+export function offlineKind(machine: Pick<Machine, "lastSeenAt" | "machineState">): "asleep" | "awake" | "never" {
+  if (machine.lastSeenAt === null) return "never";
+  return machine.machineState?.state === "sleeping" ? "asleep" : "awake";
 }

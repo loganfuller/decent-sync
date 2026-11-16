@@ -83,11 +83,12 @@ Each server has one owner: a household, or a business with all of its sites.
   Recipe's Location keeps a copy for a Skin to draw, while the Recipe is in
   a Recipe Slot, and a Skin may choose it there. The Recipe's other
   Shots are read against it in four places: a Shot's page draws its curves
-  behind the Shot's own, the Overview gives its duration beside each
-  Machine's median, the Recipe's page gives its duration and yield against
-  target under each Machine's numbers of today, and a summary grouped by
-  Recipe, through the REST API or an assistant, gives its numbers beside
-  the Recipe's. Nothing scores a Shot against it.
+  behind the Shot's own, the Overview says how far each Machine's median
+  duration is from its own, the Recipe's page gives its duration and yield
+  against target under each Machine's numbers of today, and a summary
+  grouped by Recipe, through the REST API or an assistant, gives its numbers
+  beside the Recipe's. A Shot's duration, and a group's median, more than
+  10% from its own is out of spec (below).
 - **No edit lost to a clash.** Edits merge field by field, and the edit made
   most recently wins. Every item keeps its history. An edit that lost to one made without
   seeing it is kept as a Conflict, for you to use or dismiss.
@@ -97,7 +98,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/location-dark.png">
-  <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with today's Shots of each Recipe on each of its two Machines; its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, and grinder setting; and the Recipe each Machine has loaded">
+  <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with a status card for each of its two Machines and today's Shots of each Recipe on each of them; and its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, and grinder setting">
 </picture>
 
 <picture>
@@ -150,15 +151,37 @@ Each server has one owner: a household, or a business with all of its sites.
   each Shot's Location's own, in its time zone, or UTC's for a Shot with no
   Location, and a week starts on Monday. The number and the day or week
   chosen are kept in the page's address, with the filters.
-- **Each Location at a glance.** The home page is the Overview: a block for
-  each Location, with a column for each Machine there, showing whether it is
-  online, its Machine State, its Loaded Recipe and its last Shot, and a row
-  for each Recipe pulled today, yesterday or in the last 7 days, in Recipe
-  Slot order. Each cell counts that Machine's Shots of that Recipe, with
-  their median duration, beside its Recipe's Reference Shot's where it has
-  one, their median yield against target and the share that stopped on
-  weight, says how many were unfinished, and opens them in the Shots list.
-  Each Location's page shows its own block.
+- **What is out of spec, marked.** The server judges a Machine's Shots of a
+  Recipe over a period, and each Shot, against three margins: a duration
+  more than 10% from the Recipe's Reference Shot's, a yield more than 5%
+  from the Shot's own target, and, of a group, under 90% of its Shots
+  stopped at target, which is Decaid stopping the Shot at its target weight
+  or, with no scale, its target volume. A Recipe is out of spec between
+  Machines where its fastest and slowest Machines' median durations are
+  more than 10% of the slower one's apart. A group is judged on its medians
+  and needs at least 3 Shots; fewer are not judged. A Shot Summary gives
+  each group's judgement, and a Shot's read its own, through the REST API
+  and an assistant, and the Overview marks them: a triangle and bold text
+  beside the colour.
+- **Each Location at a glance.** The home page is the Overview, the first
+  item of the navigation: a block for each Location, headed by how many
+  Shots the period's numbers cover. A status card for each Machine there
+  says whether it is online and what it is doing, how long ago its last
+  Shot was pulled, with its Recipe and duration and a mark for what of it
+  is out of spec, and its Loaded Recipe with its Recipe Slot. A Machine
+  that went offline is marked, unless it went offline asleep, as one left
+  for the night. Under them, a row for each Recipe pulled today, yesterday
+  or in the last 7 days, in Recipe Slot order, with its Reference Shot's
+  duration, and a column for each Machine: a cell counts that Machine's
+  Shots of that Recipe with their median duration, says how far that is
+  from the reference, marked when out of spec, and gives their yield
+  against target and how many stopped at target only when those are out of
+  spec, with how many were unfinished, and opens them in the Shots list. A
+  last column says how far apart the Recipe's Machines are. On a phone the
+  cards stack and the cells shorten, so two Machines fit the screen, and
+  with more the Recipe column stays in place while the cells scroll. Each
+  Location's page shows its own block, with the period chosen in its
+  heading.
 - **Each Recipe on its page.** A Recipe's page shows how it is pulling.
   Today, by its Location's day, for each Machine that pulled it: the count
   of Shots, their median duration and median yield against target, each
@@ -177,7 +200,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">
-  <img src="docs/images/overview-light.png" alt="The Overview's block for a Location: a column for each of its two Machines, with its status, Machine State, Loaded Recipe and last Shot, and a row for each Recipe pulled today, each cell giving the count of Shots, their median duration beside the Reference Shot's, their median yield against target and the share that stopped on weight">
+  <img src="docs/images/overview-light.png" alt="The Overview's block for a Location: a status card for each of its two Machines, with whether it is online, its last Shot and its Loaded Recipe, and a row for each Recipe pulled today, each cell giving the count of Shots and their median duration, with what is out of spec marked, and a last column for how far apart the Machines are">
 </picture>
 
 <picture>

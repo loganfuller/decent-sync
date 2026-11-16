@@ -256,7 +256,8 @@ describe("Shot capture and reconciliation", () => {
     expect(await waitShot(String(record.id), (shot) => shot.enjoyment === null)).toMatchObject({ actualDose: null, actualYield: null });
     expect((await detail(String(record.id))).record!.annotations).toEqual({});
     expect(await measurements(String(record.id))).toEqual(curves);
-    expect((await api.machineNamed("Live Shots"))!.lastShot).toEqual({ id: record.id, pulledAt: "2026-11-01T12:00:00.000Z" });
+    // With its Recipe, none, its duration and how it stands against the margins (#543), which shot-spec.test.ts covers.
+    expect((await api.machineNamed("Live Shots"))!.lastShot).toEqual({ id: record.id, pulledAt: "2026-11-01T12:00:00.000Z", recipe: null, duration: expect.any(Number), spec: expect.any(Object) });
   });
 
   it("holds only the ids of Shots stored while the server is unreachable, then sends them ahead of requested backfill", async () => {

@@ -20,6 +20,7 @@ import { PrismaService } from "../prisma.service.js";
 import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import { BudgetedTool } from "./budget.js";
 import { PAGED, page, pageOf, pageOutput } from "./paging.js";
+import { LAST_SHOT, LAST_SHOT_BRIEFLY, shotSpec } from "./spec.js";
 import { timeBound, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 import { WORKFLOW_SUMMARY, workflowSummaryOutput } from "./workflow-summary.js";
@@ -31,9 +32,9 @@ const tabletTime = z.string().describe("ISO 8601, with the offset of the time zo
 const MACHINE_TIMES =
   "Times are ISO 8601 with the offset of the time zone of the Location the Machine was at then, by its Location History, or UTC's while it was at none; a Machine State's and a Loaded Recipe's times, and its Workflow's observedAt, are by its tablet's clock.";
 
-/** What list_machines gives of each Machine, which get_machine gives too. */
-const LISTED =
-  "where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, its plugin's latest heartbeat or report; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 9, and unloadedAt null while still loaded; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.";
+/** What list_machines gives of each Machine, which get_machine gives too, with what it says of its last Shot. */
+const listedNote = (lastShot: string) =>
+  `where it is now; online, whether its tablet's plugin is connected now, and lastSeenAt, its plugin's latest heartbeat or report; its last Machine State, as Decaid names its state and substate, such as espresso and pouring, or sleeping; its Loaded Recipe, the Recipe a barista last applied on it, with its Recipe Slot, 1 to 9, and unloadedAt null while still loaded; ${lastShot}; and captureOnly, why it is a Capture-only Machine, whose records are kept but which takes no part in the Library: noLocation, sharingOff, or empty while it takes part.`;
 
 /** What a date given for a bound of a Machine's activity means. */
 const MACHINE_DAY = "A date, such as 2026-11-06, is that day at the Location the Machine was at, in its time zone, or in UTC while it was at none.";
@@ -77,6 +78,16 @@ const listedMachine = z.object({
     .describe("When its plugin was last heard from, by the server's clock: the later of its latest heartbeat and the latest Workflow, Machine State or collection report the server received from it; null if never. online goes by the heartbeats alone."),
   machineState: machineState.nullable().describe("What it is doing: its last Machine State, null before any."),
   loadedRecipe: loadedRecipe.nullable(),
+  lastShot: z
+    .object({
+      id: z.string(),
+      pulledAt: tabletTime.nullable(),
+      recipe: z.object({ id: z.string(), name: z.string().nullable() }).nullable().describe("The Recipe it was pulled with."),
+      duration: z.number().nullable().describe("How long its profile ran, leaving out its Preheat, in seconds."),
+      spec: shotSpec,
+    })
+    .nullable()
+    .describe("The Shot it pulled last, which get_shot reads; null before any."),
   captureOnly,
 });
 
@@ -105,12 +116,14 @@ export const machineDetail = listedMachine.extend({
     .array(z.object({ location, effectiveFrom: z.string().describe("When it arrived there, ISO 8601 with the offset of that Location's time zone then. It stayed until the next entry's time.") }))
     .describe("Where it has been, oldest first."),
   sharing: z.boolean().describe("Whether it shares the Library at its Location: on unless an Admin turned it off."),
-  lastShot: z.object({ id: z.string(), pulledAt: tabletTime.nullable() }).nullable(),
 });
 
 /** What a Workflow change's cause and pluginWrite mean, for the descriptions of get_machine and get_machine_activity, as clients show the model those rather than the output schema. */
 const WORKFLOW_CAUSE =
-  "cause says who made a Workflow change: plugin, one of Decent Sync's own writes, which pluginWrite names; other, anyone else, such as a barista on Streamline, Streamline itself or DYE2, which can't be told apart; unknown, for one received before Decent Sync recorded this, or from a tablet whose plugin is older. pluginWrite is load, the Recipe the Workflow came to name loaded; loadedRecipe, an edit of the Loaded Recipe made elsewhere written into it; clear, the Recipe unloaded, or a grinder, batch or Basket the Location doesn't offer cleared; or steamOn, steam turned back on at the Loaded Recipe's steam temperature and time. A plugin change may also hold a change someone else made while Decent Sync's write was under way, as a barista turning steam back on is given as steamOn.";
+  "cause says who made a Workflow change: plugin, one of Decent Sync's own writes, which pluginWrite names; other, anyone else, such as a barista on Streamline, Streamline itself or DYE2, which can't be told apart; unknown, for one received before Decent Sync recorded this, or from a tablet whose plugin is older. pluginWrite is load, the Recipe the Workflow came to name loaded; loadedRecipe, an edit of the Loaded Recipe made elsewhere written into it; clear, the Recipe unloaded, or a grinder, batch or Basket the Location doesn't offer cleared; or steamOn, steam turned back on at the Loaded Recipe's steam temperature and time.";
+
+/** What a trail's plugin change may hold beside Decent Sync's own write, for get_machine_activity's description. */
+const PLUGIN_CHANGE = "A plugin change may also hold a change someone else made while Decent Sync's write was under way, as a barista turning steam back on is given as steamOn.";
 
 /** What get_machine_activity's dial-in trail is, and how it folds and merges Workflow changes (dial-in-trail.ts). */
 const DIAL_IN_TRAIL =
@@ -432,7 +445,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "list_machines",
     title: "List Machines",
-    description: `Lists every Machine, by name, with its model, such as DE1PRO or Bengle: ${LISTED} ${MACHINE_TIMES}`,
+    description: `Lists every Machine, by name, with its model, such as DE1PRO or Bengle: ${listedNote(LAST_SHOT)} ${MACHINE_TIMES}`,
     outputSchema: machinesOutput,
     annotations: { readOnlyHint: true },
     scopes: [READ],
@@ -445,7 +458,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine",
     title: "Get a Machine",
-    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${LISTED} Its Workflow, what it is set up to do next, with who made its latest change, is summarised; raw adds it whole, to hundredths. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. Its Location History is oldest first, each entry from when it arrived there until the next. ${MACHINE_TIMES}`,
+    description: `One Machine: its Workflow, Machine Settings, its tablet's Tablet Settings, its Location History, its sharing status, and the versions on its tablet, besides what list_machines gives: ${listedNote(LAST_SHOT_BRIEFLY)} Its Workflow, what it is set up to do next, with who made its latest change, is summarised; raw adds it whole, to hundredths. ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} Its Machine Settings (machineSettings, advancedSettings, machineCalibration, its flow calibration, and sensorCalibration) and its tablet's Tablet Settings (appSettings, and presenceSettings, when it sleeps and wakes) are each as Decaid sent it, by Decaid's field names and in its units, as edit_machine_settings lists them, sleepTimeoutMinutes and a wake schedule's keepAwakeFor in minutes, kept while later reports are unavailable (available false), with utcOffsetMinutes, the tablet's offset, for a value whose times have none; null for one never reported. ${AS_OF} Its sharing status gives how many Library changes its tablet is due (waiting, null while it is written nothing), the last it applied, and those it refused, with Decaid's answer. ${MACHINE_TIMES}`,
     inputSchema: machineInput,
     outputSchema: machineOutput,
     annotations: { readOnlyHint: true },
@@ -512,7 +525,7 @@ export class MachinesTools {
   @BudgetedTool({
     name: "get_machine_activity",
     title: "Get a Machine's activity",
-    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes as a dial-in trail, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} ${DIAL_IN_TRAIL} ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} A Machine State lasts until the next one reported.`,
+    description: `What happened on one Machine over a time range, by its tablet's clock: its Workflow changes as a dial-in trail, its Loaded Recipes and its Machine States, each list latest first. Times are given with the offset of the Location it was at then. Each list counts what was in effect at any time in the range, so its last (oldest) entry, on its last page, may date from the range's start or before: what was in effect as it began. limit and offset page each list, and kinds asks for some of them alone. ${PAGED} ${DIAL_IN_TRAIL} ${WORKFLOW_SUMMARY} ${WORKFLOW_CAUSE} ${PLUGIN_CHANGE} A Machine State lasts until the next one reported.`,
     inputSchema: activityInput,
     outputSchema: activityOutput,
     annotations: { readOnlyHint: true },
@@ -612,7 +625,6 @@ export function detailed(machine: MachineView): z.infer<typeof machineDetail> {
     decaidVersion: machine.decaidVersion,
     locationHistory: machine.locationHistory.map((entry) => ({ location: locationOf(entry.location), effectiveFrom: zone(entry.effectiveFrom) })),
     sharing: machine.sharing,
-    lastShot: machine.lastShot && { id: machine.lastShot.id, pulledAt: zoneMaybe(zone, machine.lastShot.pulledAt) },
   };
 }
 
@@ -668,6 +680,7 @@ function listed(machine: MachineView, zone: Zone): z.infer<typeof listedMachine>
     lastSeenAt: zoneMaybe(zone, machine.lastSeenAt),
     machineState: machine.machineState && { state: machine.machineState.state, substate: machine.machineState.substate, observedAt: zone(machine.machineState.observedAt) },
     loadedRecipe: machine.loadedRecipe && loaded(machine.loadedRecipe, zone),
+    lastShot: machine.lastShot && { ...machine.lastShot, pulledAt: zoneMaybe(zone, machine.lastShot.pulledAt) },
     captureOnly: machine.captureOnly,
   };
 }
