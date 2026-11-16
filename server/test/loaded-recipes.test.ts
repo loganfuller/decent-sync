@@ -564,8 +564,8 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     // A Recipe holding none takes it from the Workflow itself, as typed.
     await edit(brazil, { grindSetting: null });
     await expect.poll(() => variables(record(tablet, BRAZIL)).grind ?? null, { timeout: 15_000 }).toBeNull();
-    // The Workflow's is cleared by a write of its own, which can land after the record's (#557): one landing after the
-    // change below would clear that too.
+    // The Workflow's is cleared by a write of its own, after the record's (#557): the change below, made between that
+    // write's read of the Workflow and its write, would be cleared too.
     await expect.poll(() => context(tablet).grinderSetting ?? null, { timeout: 15_000 }).toBeNull();
     await tablet.changeSettings({ context: { grinderSetting: "fine" } });
     await expect.poll(async () => (await recipe(brazil)).content.grindSetting, { timeout: 15_000 }).toBe("fine");
