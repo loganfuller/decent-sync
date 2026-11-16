@@ -163,7 +163,8 @@ function ShotDetails({ id }: { id: string }) {
   const wanted = chosen ?? (referenceId !== undefined ? "reference" : "nothing");
   const compared = wanted !== "nothing" && comparable[wanted] !== undefined ? wanted : "nothing";
   const comparedId = compared === "nothing" ? undefined : comparable[compared];
-  // The Shot compared with is read once it is the one compared with, and again, after a read that failed, when it is chosen again.
+  // The Shot compared with is read once it is the one compared with, and again, after a read that failed, at the next
+  // choice of it: under another name too, as where its Recipe's Reference Shot is also the Shot before it.
   useEffect(() => {
     if (comparedId === undefined || others.has(comparedId)) return;
     let current = true;
@@ -175,8 +176,8 @@ function ShotDetails({ id }: { id: string }) {
     return () => {
       current = false;
     };
-    // Only a change of the Shot compared with reads one: `others` changes as each arrives.
-  }, [comparedId]);
+    // Only a change of what it is compared with reads one: `others` changes as each arrives.
+  }, [comparedId, compared]);
 
   const back = (
     <Link to={`/shots${state?.list ?? ""}`} className="text-sm text-muted-foreground hover:text-foreground">
@@ -216,9 +217,10 @@ function ShotDetails({ id }: { id: string }) {
     <section className="grid grid-cols-1 gap-4">
       {back}
       <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
-        <div className="grid gap-1">
+        {/* No wider than the page, so a long name wraps, within a word where it must. */}
+        <div className="grid min-w-0 gap-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h1 className="text-2xl font-semibold">
+            <h1 className="min-w-0 text-2xl font-semibold wrap-anywhere">
               {shot.recipe ? (
                 <Link to={`${LIBRARY_KINDS.recipe.pages}/${shot.recipe.id}`} className="underline-offset-4 hover:underline">
                   {shot.recipe.name ?? "Unnamed Recipe"}
@@ -239,7 +241,7 @@ function ShotDetails({ id }: { id: string }) {
             </h1>
             {!shot.machine && shot.pendingMachine && <Badge variant="secondary">Pending Machine</Badge>}
           </div>
-          <p className="text-muted-foreground tabular-nums">
+          <p className="text-muted-foreground tabular-nums wrap-anywhere">
             {shotTime(shot)} · {shot.location?.name ?? "No Location, times in UTC"}
           </p>
         </div>

@@ -88,6 +88,8 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await page.goto("/shots/lab-linked");
   const details = await openCard(page, "Details");
   await expect(field(details, "Grinder").getByRole("link", { name: "Lab EK43" })).toHaveAttribute("href", `/library/grinders/${labGrinder.id}`);
+  // The Library's Grinder by its name now, with the model the Shot recorded, which is another, and its grind setting.
+  await expect(field(details, "Grinder")).toHaveText("Lab EK43 (recorded as DF64 v2) at 8");
   await details.getByRole("link", { name: "Linked Sidra, roasted 2026-10-04" }).click();
   await expect(page.getByRole("heading", { name: "Linked Sidra, roasted 2026-10-04", level: 1 })).toBeVisible();
 });

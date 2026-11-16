@@ -21,10 +21,13 @@ import { expectTip } from "./support/tooltips.js";
 // pulled with no Recipe. One more is pulled here, on the Lab's Left, of the
 // House: FAST, the Shot Decaid recorded with a long Preheat, cut off 20.03 s
 // into its profile, weighing 35.9 g, so 3.5 s under the reference, which is
-// out of spec, and 0.1 g under its target, which is within.
+// out of spec, and 0.1 g under its target, which is within. And the Guest is
+// given a long name.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const FAST = "left-house-fast";
+/** What the Guest is renamed to here: a name with nowhere to break, wider than a phone. */
+const LONG_NAME = "Guest".padEnd(64, "o");
 
 let machines: JudgedShots["machines"];
 let recipes: JudgedShots["recipes"];
@@ -68,6 +71,11 @@ for (const [width, phone] of WIDTHS) {
       await shown.goto("/shots/left-none");
       await expect(title).toHaveText("No Recipe loaded on Lab Left");
       await expect(title.getByRole("link")).toHaveText(["Lab Left"]);
+      await expectFits(shown, phone);
+
+      // A long name with nowhere to break wraps within the page.
+      await shown.goto("/shots/right-guest");
+      await expect(title).toHaveText(`${LONG_NAME} on Lab Right`);
       await expectFits(shown, phone);
     });
   });
@@ -297,6 +305,7 @@ async function seed(page: Page) {
   await expect.poll(async () => (await page.request.get(`/api/shots/${FAST}`)).status(), { timeout: 30_000 }).toBe(200);
   // Its Recipe is set once its tablet is unloaded, as the seed sets the others', so nothing the tablet sends later undoes it.
   await tablet.unload();
+  expect((await page.request.patch(`/api/recipes/${recipes.guest}`, { data: { content: { name: LONG_NAME } } })).status()).toBe(200);
   const database = await server.connectDatabase();
   try {
     await database.query("UPDATE shots SET recipe_id = $2 WHERE id = $1", [FAST, recipes.house]);

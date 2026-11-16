@@ -2031,7 +2031,9 @@ each, closed until opened.
   (#473), the previous Shot on its Machine, or nothing, offering only what
   the Shot has. It opens on the Reference Shot, where its Recipe has one
   and the Shot is not that Shot, and otherwise on nothing, until the
-  person chooses. The Reference Shot is the one the Recipe's read gives
+  person chooses. A Shot that could not be read says so while it is the
+  one compared with, and is read again at the next choice of it. The
+  Reference Shot is the one the Recipe's read gives
   (`GET /api/recipes/:id`), read with the Shot, and again when the Shot
   becomes its own Recipe's Reference Shot or stops being it; it is not
   offered for a Shot pulled with no Recipe, a Recipe with none, or the
@@ -2046,7 +2048,9 @@ each, closed until opened.
   recorded none of: its Recipe, with the Recipe Slot that Recipe is in
   now, as its read gives it, its Profile, its Bean, its Bean Batch, its
   Grinder with its grind setting, its Basket and its Barista. Each Library
-  item it is linked to links to its page; a Grinder or Basket the Library
+  item it is linked to links to its page, by its name now, with the name
+  the Shot recorded beside it where that is another, as after the item was
+  renamed ("recorded as"); a Grinder or Basket the Library
   has none for reads as the Shot recorded its name, and a Bean Batch its
   tablet named by an id the Library has none for reads as "Not linked",
   with no id. Then, each only where recorded: its Grinder's burrs, the

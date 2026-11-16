@@ -166,6 +166,11 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own as
   await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
   await expect(curves.getByRole("alert")).toHaveText("Internal server error");
   await expect(comparison).toHaveCount(0);
+  // The Shot before it is that same Shot: chosen as that, it is read again, and fails again.
+  const failed = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/shots/${SHOT}/measurements`);
+  await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
+  expect((await failed).status()).toBe(500);
+  await expect(curves.getByRole("alert")).toHaveText("Internal server error");
   await choice.getByRole("radio", { name: "Nothing" }).click();
   await expect(curves.getByRole("alert")).toHaveCount(0);
   await page.unroute(measurements);

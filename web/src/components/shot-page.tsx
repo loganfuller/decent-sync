@@ -40,7 +40,7 @@ function Figure({ term, value, words = false, children }: { term: string; value:
     <div className="grid content-start gap-1">
       <dt className="text-[0.8125rem] text-muted-foreground">{term}</dt>
       {/* Words are set smaller than a number, on a line as tall. */}
-      <dd className={words ? "flex min-h-8 items-center text-base leading-tight font-semibold" : "text-2xl leading-8 font-semibold"}>
+      <dd className={words ? "flex min-h-8 items-center text-base leading-tight font-semibold wrap-anywhere" : "text-2xl leading-8 font-semibold"}>
         <OrNone>{value}</OrNone>
       </dd>
       {children && <dd>{children}</dd>}
@@ -258,6 +258,15 @@ export function ShotDetailsCard({ shot, samples, recipe }: { shot: Shot; samples
   );
 }
 
+/**
+ * The name the Shot recorded for a Library item it is linked to, where that is another than the item's name now, as
+ * after the item was renamed: said beside its link, so what the Shot recorded is not lost.
+ */
+function RecordedAs({ recorded, linked }: { recorded: string | null; linked: string | null }) {
+  if (recorded === null || recorded.trim() === (linked ?? "").trim()) return null;
+  return <span className="text-muted-foreground"> (recorded as {recorded})</span>;
+}
+
 /** The Details list's terms and values, in order. */
 function detailsOf(shot: Shot, samples: Sample<ShotCurve>[], recipe: Recipe | undefined): [string, ReactNode][] {
   const workflow = workflowParts(record(shot.record.workflow) ?? {});
@@ -298,10 +307,21 @@ function detailsOf(shot: Shot, samples: Sample<ShotCurve>[], recipe: Recipe | un
       <>
         {/* The Library's Grinder, linked, or else its model as recorded. */}
         {shot.grinder ? <ShotGrinder shot={shot} /> : shot.grinderModel === null && shot.grinderSetting !== null ? "Grind setting" : <OrNone>{shot.grinderModel ?? undefined}</OrNone>}
+        {shot.grinder && <RecordedAs recorded={shot.grinderModel} linked={shot.grinder.model} />}
         {shot.grinderSetting !== null && ` ${shot.grinder || shot.grinderModel !== null ? "at " : ""}${shot.grinderSetting}`}
       </>,
     ],
-    ["Basket", shot.basket ? <ShotBasket shot={shot} /> : <OrNone>{shot.basketName ?? undefined}</OrNone>],
+    [
+      "Basket",
+      shot.basket ? (
+        <>
+          <ShotBasket shot={shot} />
+          <RecordedAs recorded={shot.basketName} linked={shot.basket.name} />
+        </>
+      ) : (
+        <OrNone>{shot.basketName ?? undefined}</OrNone>
+      ),
+    ],
     ["Barista", <OrNone>{shot.barista ?? undefined}</OrNone>],
     ...measured.flatMap(([term, value]): [string, ReactNode][] => (value === undefined ? [] : [[term, value]])),
     ["Machine, as recorded", recorded.machine ?? <span className="text-muted-foreground">It recorded no machine hardware</span>],
