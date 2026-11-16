@@ -182,7 +182,8 @@ for (const [width, phone] of WIDTHS) {
       await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
       await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).toContainText("This Shot");
       await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Previous Shot");
-      await expect(curves.getByRole("table")).toHaveCount(0);
+      await expect(comparison(curves, "Comparison with the previous Shot", phone)).toHaveCount(0);
+      await expect(comparison(curves, "Comparison with the Reference Shot", phone)).toHaveCount(0);
 
       // The House's Reference Shot itself, the first Shot on its Machine, has nothing to be compared with.
       await shown.goto("/shots/left-house-1");

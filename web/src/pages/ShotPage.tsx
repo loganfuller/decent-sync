@@ -69,8 +69,8 @@ function ShotDetails({ id }: { id: string }) {
   const [chosen, setChosen] = useState<Compared>();
   // Each Shot it has been compared with, by its id, so one is read once: a Map, as an id may be any text.
   const [others, setOthers] = useState<ReadonlyMap<string, ShotData>>(new Map());
-  // Why the Shot it is compared with could not be loaded, with that Shot's id: shown while it is still the one compared with.
-  const [compareError, setCompareError] = useState<{ id: string; message: string }>();
+  // Why a Shot it was compared with could not be loaded, by that Shot's id: shown while it is the one compared with, until it is read again.
+  const [failures, setFailures] = useState<ReadonlyMap<string, string>>(new Map());
   // Its Recipe as last read, by the id read: null for one that could not be read, or was deleted since.
   const [recipeRead, setRecipeRead] = useState<{ id: string; recipe: Recipe | null }>();
   // Why its Recipe's Reference Shot isn't offered, where its Recipe could not be read: apart from a comparison's own failure.
@@ -164,18 +164,19 @@ function ShotDetails({ id }: { id: string }) {
   const compared = wanted !== "nothing" && comparable[wanted] !== undefined ? wanted : "nothing";
   const comparedId = compared === "nothing" ? undefined : comparable[compared];
   // The Shot compared with is read once it is the one compared with, and again, after a read that failed, at the next
-  // choice of it: under another name too, as where its Recipe's Reference Shot is also the Shot before it.
+  // choice of it: under another name too, as where its Recipe's Reference Shot is also the Shot before it. A read
+  // still under way is not begun again, and its answer is kept whatever is compared with by then.
+  const reading = useRef(new Set<string>());
   useEffect(() => {
-    if (comparedId === undefined || others.has(comparedId)) return;
-    let current = true;
-    setCompareError(undefined);
-    loadShot(comparedId).then(
-      (other) => current && setOthers((loaded) => new Map(loaded).set(comparedId, other)),
-      (caught: unknown) => current && setCompareError({ id: comparedId, message: caught instanceof Error ? caught.message : "The Shot it is compared with could not be loaded" }),
-    );
-    return () => {
-      current = false;
-    };
+    if (comparedId === undefined || others.has(comparedId) || reading.current.has(comparedId)) return;
+    reading.current.add(comparedId);
+    setFailures((failed) => new Map([...failed].filter(([id]) => id !== comparedId)));
+    loadShot(comparedId)
+      .then(
+        (other) => setOthers((loaded) => new Map(loaded).set(comparedId, other)),
+        (caught: unknown) => setFailures((failed) => new Map(failed).set(comparedId, caught instanceof Error ? caught.message : "The Shot it is compared with could not be loaded")),
+      )
+      .finally(() => reading.current.delete(comparedId));
     // Only a change of what it is compared with reads one: `others` changes as each arrives.
   }, [comparedId, compared]);
 
@@ -207,6 +208,7 @@ function ShotDetails({ id }: { id: string }) {
 
   const { shot, samples } = data;
   const other = comparedId === undefined ? undefined : others.get(comparedId);
+  const failure = comparedId === undefined ? undefined : failures.get(comparedId);
   const shown = compared !== "nothing" && other ? { ...COMPARED[compared], ...other } : undefined;
   // Only what the Shot has is offered.
   const choices: [Compared, string][] = [];
@@ -307,9 +309,9 @@ function ShotDetails({ id }: { id: string }) {
               <AlertDescription>Its Recipe's Reference Shot could not be read, so it is not offered here: {referenceError}</AlertDescription>
             </Alert>
           )}
-          {compareError !== undefined && compareError.id === comparedId && (
+          {failure !== undefined && (
             <Alert variant="destructive">
-              <AlertDescription>{compareError.message}</AlertDescription>
+              <AlertDescription>{failure}</AlertDescription>
             </Alert>
           )}
           {samples.length > 0 ? (

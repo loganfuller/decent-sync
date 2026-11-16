@@ -179,6 +179,23 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own as
   await expect(comparison).toBeVisible();
   await expect(curves.getByRole("alert")).toHaveCount(0);
 
+  // Chosen as the Shot before it while its read is still under way, it is not read a second time.
+  let reads = 0;
+  await page.route(measurements, async (route) => {
+    reads++;
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    await route.continue();
+  });
+  await page.reload();
+  await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
+  await expect.poll(() => reads).toBe(1);
+  await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
+  await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
+  expect(reads).toBe(1);
+  await page.unroute(measurements);
+  await choice.getByRole("radio", { name: "Reference Shot" }).click();
+  await expect(comparison).toBeVisible();
+
   // The previous Shot instead, one at a time: here the same Shot, named as the previous one.
   await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).toContainText("Previous Shot");
