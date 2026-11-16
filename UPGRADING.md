@@ -22,7 +22,7 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
-## Unreleased
+## 1.10.1
 
 ### Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27
 
