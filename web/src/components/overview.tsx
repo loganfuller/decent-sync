@@ -293,7 +293,7 @@ function OverviewNumbers({ location, machines, period, data, error }: { location
                       Recipe
                     </TableHead>
                     {columns.map((column) => (
-                      <TableHead key={column.id} scope="col" className="h-auto border-l py-2 align-top text-[13px] whitespace-normal text-muted-foreground sm:px-3">
+                      <TableHead key={column.id} scope="col" className="h-auto border-l py-2 align-top text-[13px] wrap-anywhere whitespace-normal text-muted-foreground sm:px-3">
                         {column.name}
                       </TableHead>
                     ))}
@@ -363,7 +363,7 @@ function MachineCard({ column, timeZone }: { column: OverviewColumn; timeZone: s
   return (
     <li className="grid content-start gap-1 rounded-lg border px-3 py-2.5 text-sm">
       <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        <Link to={`/machines/${encodeURIComponent(column.id)}`} className="font-semibold underline-offset-4 hover:underline">
+        <Link to={`/machines/${encodeURIComponent(column.id)}`} className="min-w-0 font-semibold wrap-anywhere underline-offset-4 hover:underline">
           {column.name}
         </Link>
         {machine && <MachineStatus machine={machine} timeZone={timeZone} />}

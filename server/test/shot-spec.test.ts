@@ -42,7 +42,7 @@ import { type TestServer, startTestServer } from "./support/test-server.js";
 // | Spread | B | 30, 30, 30 | 30, 37.81, 37.81 | +0.050278 | out of spec |
 // | Spread | C | 50, 50 | 30, 30 | -0.166667 | two Shots: not judged, beyond the margin |
 // | Wide | A | 26.999 x 3 | 34.2 x 3 | -0.05 | at the margin: within spec |
-// | Wide | B | 30 x 3 | 34.19 x 3 | -0.050278 | out of spec |
+// | Wide | B | 30 x 3 | 18 of 20, 94 of 100, 198 of 200 | -0.06 | out of spec, each Shot against its own target: their median difference, -2 g, is 2% of their median target |
 // | Few | A | 20 | 36 | 0 | one Shot: not judged |
 // | Few | B | 30 x 3 | 36 x 3 | 0 | within spec |
 //
@@ -93,6 +93,8 @@ interface Copy {
   recipe: "Timed" | "Spread" | "Wide" | "Few" | "Stops";
   duration?: number;
   yield?: number;
+  /** Its target yield, 36 g where none is given. */
+  target?: number;
   /** The stop reason recorded; null for none. */
   stop?: string | null;
   unfinished?: true;
@@ -122,7 +124,14 @@ const COPIES: Record<string, Copy> = Object.fromEntries(
     ["spread-b", [30, 37.81, 37.81].map((weighed): Copy => ({ machine: "B", recipe: "Spread", duration: 30, yield: weighed }))],
     ["spread-c", times(2, { machine: "C", recipe: "Spread", duration: 50, yield: 30 })],
     ["wide-a", times(3, { machine: "A", recipe: "Wide", duration: 26.999, yield: 34.2 })],
-    ["wide-b", times(3, { machine: "B", recipe: "Wide", duration: 30, yield: 34.19 })],
+    [
+      "wide-b",
+      [
+        [18, 20],
+        [94, 100],
+        [198, 200],
+      ].map(([weighed, target]): Copy => ({ machine: "B", recipe: "Wide", duration: 30, yield: weighed, target })),
+    ],
     ["few-a", [{ machine: "A", recipe: "Few", duration: 20 }]],
     ["few-b", times(3, { machine: "B", recipe: "Few", duration: 30 })],
     ["stops-a", [...times(8, { machine: "A", recipe: "Stops" }), { machine: "A", recipe: "Stops", stop: "targetVolume" }, { machine: "A", recipe: "Stops", stop: "appStop" }]],
@@ -187,7 +196,7 @@ describe("Out of spec", () => {
           duration: copy.duration ?? 30,
           preheat: 0,
           actual_yield: copy.yield ?? 36,
-          target_yield: 36,
+          target_yield: copy.target ?? 36,
           // An Unfinished Shot never reported pouring, and its scale never read a gram.
           ...(copy.unfinished && { poured: false, time_to_first_drip: null }),
           record: {
@@ -262,6 +271,9 @@ describe("Out of spec", () => {
     expect(groupOf(groups, "Spread", "C").spec.yield).toEqual(FEW_BEYOND);
     expect(groupOf(groups, "Wide", "A").numbers.yieldAgainstTarget).toMatchObject({ shots: 3, median: -1.8 });
     expect(groupOf(groups, "Wide", "A").spec.yield).toEqual(WITHIN);
+    // Each Shot against its own target: 10%, 6% and 1% under, so the median is 6% under and out of spec, where the
+    // median difference over the median target, 2 g of 100, would be within it.
+    expect(groupOf(groups, "Wide", "B").numbers.yieldAgainstTarget).toMatchObject({ shots: 3, median: -2 });
     expect(groupOf(groups, "Wide", "B").spec.yield).toEqual(OUT);
     expect(groupOf(groups, "Few", "A").spec.yield).toEqual(FEW_WITHIN);
   });
@@ -341,7 +353,9 @@ describe("Out of spec", () => {
     expect((await shot("spread-a-1")).spec).toEqual(judged({ yield: { againstTarget: 1.8, outOfSpec: false } }));
     expect((await shot("spread-b-2")).spec).toEqual(judged({ yield: { againstTarget: 1.81, outOfSpec: true } }));
     expect((await shot("wide-a-1")).spec).toEqual(judged({ yield: { againstTarget: -1.8, outOfSpec: false } }));
-    expect((await shot("wide-b-1")).spec).toEqual(judged({ yield: { againstTarget: -1.81, outOfSpec: true } }));
+    // 2 g under a target of 20 is out of spec, and 2 g under one of 200 within it.
+    expect((await shot("wide-b-1")).spec).toEqual(judged({ yield: { againstTarget: -2, outOfSpec: true } }));
+    expect((await shot("wide-b-3")).spec).toEqual(judged({ yield: { againstTarget: -2, outOfSpec: false } }));
     // An Unfinished Shot and a cleaning Shot say which they are, and are not judged, though Timed has a Reference Shot.
     expect((await shot("timed-a-unfinished")).spec).toEqual(judged({ unfinished: true, yield: null }));
     expect((await shot("timed-a-cleaning")).spec).toEqual(judged({ cleaningOrCalibration: true, yield: null }));

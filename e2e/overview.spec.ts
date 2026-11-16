@@ -136,6 +136,9 @@ let lab: { id: string };
 let harbor: { id: string };
 let machines: Record<"left" | "right" | "harbor1" | "depot1", { id: string; token: string }>;
 
+/** A Machine's name of one unbroken word, longer than a phone's column. */
+const LONG_NAME = "HarborDownstairsBackBarSpare3";
+
 /** A phone as wide as the ticket's: 390 px. */
 const PHONE: BrowserContextOptions = { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true };
 
@@ -547,8 +550,9 @@ test("the Machines' status is read again every 5 seconds, and the numbers every 
 });
 
 test("on a phone, with three Machines the page still fits: the table scrolls within its block, and the Recipe column stays in place", async ({ browser, page }) => {
-  // A third Machine at the Harbor, beside its own and the one moved there.
-  const created = await page.request.post("/api/machines", { data: { name: "Harbor 3" } });
+  // A third Machine at the Harbor, beside its own and the one moved there, with a name of one long word, which wraps
+  // within its card and its column rather than widening them.
+  const created = await page.request.post("/api/machines", { data: { name: LONG_NAME } });
   expect(created.status()).toBe(201);
   const { machine } = (await created.json()) as { machine: { id: string } };
   expect((await page.request.post(`/api/machines/${machine.id}/location-history`, { data: { locationId: harbor.id } })).status()).toBe(201);
@@ -559,9 +563,13 @@ test("on a phone, with three Machines the page still fits: the table scrolls wit
     await signInAsAdmin(phone);
     await phone.goto("/");
     const harborTable = table(phone, "Harbor");
-    await expect(harborTable.getByRole("columnheader")).toHaveText(["Recipe", "Harbor 1", "Harbor 3", "Lab Right"]);
+    await expect(harborTable.getByRole("columnheader")).toHaveText(["Recipe", "Harbor 1", LONG_NAME, "Lab Right"]);
     await expect(cards(phone, "Harbor")).toHaveCount(3);
     await expectFits(phone);
+    // The long name wraps within its column's heading and its card: neither is wider than what holds it.
+    for (const holder of [harborTable.getByRole("columnheader", { name: LONG_NAME }), card(phone, "Harbor", LONG_NAME)]) {
+      expect(await holder.evaluate((element) => element.scrollWidth - element.clientWidth)).toBe(0);
+    }
 
     // The table is wider than its block, and scrolls in its own container.
     const scroller = harborTable.locator("xpath=..");
