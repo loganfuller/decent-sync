@@ -76,16 +76,17 @@ Each server has one owner: a household, or a business with all of its sites.
   for those it holds none of.
 - **A Reference Shot for each Recipe.** Make the Shot you just dialled in,
   or one from another Location, such as the lab's, the Shot a Recipe's
-  Shots should go like. Its page shows the Shot's numbers, says where its
-  Profile is another than the Recipe's, and keeps who chose it, or the
-  Machine it was chosen on, in its history. It stays until someone chooses
+  Shots should go like. Its page shows the Shot's pressure, flow and weight
+  curves in small, with its duration, yield against target, rating and grind
+  setting, says where its Profile is another than the Recipe's, and keeps who
+  chose it, or the Machine it was chosen on, in its history. It stays until someone chooses
   another or clears it, and the Shots list marks it. Each tablet at the
   Recipe's Location keeps a copy for a Skin to draw, while the Recipe is in
   a Recipe Slot, and a Skin may choose it there. The Recipe's other
   Shots are read against it in four places: a Shot's page draws its curves
   behind the Shot's own, the Overview says how far each Machine's median
-  duration is from its own, the Recipe's page gives its duration and yield
-  against target under each Machine's numbers of today, and a summary
+  duration is from its own, the Recipe's page does the same beside each
+  Machine's numbers and draws its duration across the trend, and a summary
   grouped by Recipe, through the REST API or an assistant, gives its numbers
   beside the Recipe's. A Shot's duration, and a group's median, more than
   10% from its own is out of spec (below).
@@ -118,7 +119,8 @@ Each server has one owner: a household, or a business with all of its sites.
   hardware no Machine has yet waits under a Pending Machine for an Admin.
 - **Linked to what made it.** Each Shot names its Bean Batch, Grinder,
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
-  and date. Each item's page lists its Shots. A Barista whose name was typed
+  and date. Each item's page counts its Shots, and opens them in the Shots
+  list. A Barista whose name was typed
   "jules" and "Jules" is one choice in the Barista filter, which finds both.
 - **A list that leads with the Shots.** The Shots list keeps its date
   presets in view: Today, Yesterday, 7 days and 30 days, each Location's own
@@ -199,18 +201,31 @@ Each server has one owner: a household, or a business with all of its sites.
   with more the Recipe column stays in place while the cells scroll. Each
   Location's page shows its own block, with the period chosen in its
   heading.
-- **Each Recipe on its page.** A Recipe's page shows how it is pulling.
-  Today, by its Location's day, for each Machine that pulled it: the count
-  of Shots, their median duration and median yield against target, each
-  with the range the middle half fall in, the share that stopped on weight,
-  and how many were unfinished, with its Reference Shot's duration and
-  yield against target under them where it has one, so the Machine that is
-  off stands out. And the last 30 days by day, a line for each Machine with
-  its middle-half band, of its duration, its yield against target or its
-  grind setting, one at a time, so a coffee ageing or a grinder drifting
-  shows. A grind setting is charted where it is a number, so a Recipe whose
-  setting is text has no grind trend. A Machine's count of today, and its
-  name under the chart, open those Shots in the Shots list.
+- **Each Recipe on its page.** A Recipe's page shows how it is pulling
+  before how it is set up. First its Reference Shot beside its numbers by
+  Machine, for today, yesterday or the last 7 days, by its Location's days:
+  for each Machine that pulled it, the count of Shots, their median duration
+  with the range the middle half fall in and how far it is from the
+  Reference Shot's, their yield against target and the share stopped at
+  target, each marked where out of spec, and a last row for how far apart
+  the Machines are, so the Machine that is off stands out. Then the last 30
+  days by day, a line for each Machine with its middle-half band, of its
+  duration, with the Reference Shot's as a dashed line, its yield against
+  target or its grind setting, one at a time, so a coffee ageing or a
+  grinder drifting shows. A grind setting is charted where it is a number,
+  so a Recipe whose setting is text has no grind trend. Under them are the
+  fields the Recipe has set, the rest shown on asking, how many Shots it
+  has in the period, and its history, closed until opened. A Machine's
+  count, and its name under the chart, open those Shots in the Shots list.
+  Edit stays in view, with moving it to a slot, copying, Archiving and
+  deleting in a menu beside it. On a phone the cards stack, and each
+  Machine's numbers are a block of a few lines.
+- **Every Recipe in the Library.** The Library opens on its Recipes: a
+  table for each Location, in Recipe Slot order with those in no slot
+  after, each with its Bean Batch, Profile, dose and yield, Grinder and
+  setting, and its Reference Shot's duration, which opens that Shot, or "No
+  reference", which opens its rated Shots to choose one from. Archived
+  Recipes show on asking. A Location's page lists its own the same way.
 - **Compared at a glance.** A Shot's page opens with how it went, its
   duration and yield marked where out of spec, and its curves over its
   Recipe's Reference Shot's, or the previous Shot's on its Machine.

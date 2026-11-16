@@ -196,12 +196,14 @@ interface Machines {
  * `label`led, the address's parameters it holds, what it is set to, as its
  * chip above the list says it, and its control. It is set where the address
  * has any of its `names`; `value` may be missing while what names it loads.
+ * One with no control is set only by an address that names it, as a Library
+ * item's page opens the list with, and is its chip alone.
  */
 export interface ListFilter {
   label: string;
   names: readonly string[];
   value?: string;
-  control: ReactNode;
+  control?: ReactNode;
 }
 
 /**
@@ -379,7 +381,7 @@ export function RecordFilterBar({
       )}
     </Button>
   );
-  const controls = filters.map((filter) => <div key={filter.label}>{filter.control}</div>);
+  const controls = filters.flatMap((filter) => (filter.control === undefined ? [] : [<div key={filter.label}>{filter.control}</div>]));
 
   return (
     <section aria-label="Filters" className="grid gap-3">

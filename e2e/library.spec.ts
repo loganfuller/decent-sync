@@ -37,7 +37,11 @@ test("the Beans list shows each Bean and the Locations offering it, and a Bean's
   await expect.poll(async () => offeredAt(page, "Washed Heirloom")).toEqual(["Uptown"]);
 
   await page.goto("/");
+  // The Library opens on its Recipes (#547), the first of its lists.
   await page.getByRole("link", { name: "Library", exact: true }).click();
+  await expect(page.getByRole("heading", { name: "Recipes", level: 1 })).toBeVisible();
+  await expect(page.getByRole("navigation", { name: "Library" }).getByRole("link")).toHaveText(["Recipes", "Beans", "Bean Batches", "Grinders", "Profiles", "Baskets", "Tools", "Conflicts"]);
+  await page.getByRole("navigation", { name: "Library" }).getByRole("link", { name: "Beans", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Beans", level: 1 })).toBeVisible();
   // What explains a page or a card is in a tooltip beside its title.
   await expectTip(page.getByRole("main"), "Beans", /^The coffees in the Library\. A Bean entered on a tablet joins the Library/);

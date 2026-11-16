@@ -9,7 +9,7 @@ import { type ConflictView, HistoryService, type VersionView, readHistoryField }
 import { managementEditor } from "./history.js";
 import { readArchived, readContentEdit, readNewRecipe, readRecipeCopy, readReferenceShot, readSlot } from "./item-input.js";
 import { RecipeEditsService } from "./recipe-edits.service.js";
-import { type RecipeDetailsView, type RecipeView, RecipesService, readRecipeId } from "./recipes.service.js";
+import { type RecipeView, RecipesService, readRecipeId } from "./recipes.service.js";
 
 /**
  * Each Location's Recipes, slotted and unslotted, and each Recipe's history
@@ -38,21 +38,21 @@ export class RecipesController {
   /** Creates one at a Location: `{ locationId, slot, content }`, `slot` a number, `next` or null (the default) for none. */
   @AllowStaff()
   @Post("recipes")
-  async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async create(@Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const { locationId, slot, content } = readNewRecipe(body);
     return { recipe: await this.recipes.get(await this.edits.create(locationId, content, slot, managementEditor(session.account.id), session.scope)) };
   }
 
   @AllowStaff()
   @Get("recipes/:id")
-  async get(@Param("id") id: string): Promise<{ recipe: RecipeDetailsView }> {
+  async get(@Param("id") id: string): Promise<{ recipe: RecipeView }> {
     return { recipe: await this.recipes.get(readRecipeId(id)) };
   }
 
   /** Edits its content: `{ content }`, each field to change, null to clear it. */
   @AllowStaff()
   @Patch("recipes/:id")
-  async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async edit(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
     await this.edits.edit(recipeId, readContentEdit("recipe", body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
@@ -61,7 +61,7 @@ export class RecipesController {
   /** Moves it to a slot, swapping with the Recipe there, or to the lowest free one, or takes it out of its slot: `{ slot }`, a number, `next` or null. */
   @AllowStaff()
   @Put("recipes/:id/slot")
-  async place(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async place(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
     await this.edits.place(recipeId, readSlot(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
@@ -75,7 +75,7 @@ export class RecipesController {
    */
   @AllowStaff()
   @Put("recipes/:id/reference-shot")
-  async reference(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async reference(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
     await this.edits.setReferenceShot(recipeId, readReferenceShot(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };
@@ -90,7 +90,7 @@ export class RecipesController {
    */
   @AllowStaff()
   @Post("recipes/:id/copies")
-  async copy(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async copy(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const copied = await this.edits.copy(readRecipeId(id), readRecipeCopy(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(copied) };
   }
@@ -98,7 +98,7 @@ export class RecipesController {
   /** Archives it, which takes it out of its slot, or restores it, in no slot: `{ archived }`. */
   @AllowStaff()
   @Put("recipes/:id/archived")
-  async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeDetailsView }> {
+  async archive(@Param("id") id: string, @Body() body: unknown, @CurrentSession() session: SignedIn): Promise<{ recipe: RecipeView }> {
     const recipeId = readRecipeId(id);
     await this.edits.archive(recipeId, readArchived(body), managementEditor(session.account.id), session.scope);
     return { recipe: await this.recipes.get(recipeId) };

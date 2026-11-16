@@ -4,14 +4,14 @@ import { shotFixture } from "../server/test/support/shot-fixtures.js";
 import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, selectRecipeInDye2 } from "../server/test/support/simulated-dye2.js";
 import { SimulatedTablet, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field, rows } from "./support/locators.js";
+import { openCard, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
 // A Recipe's Reference Shot (#472, ADR-0029): chosen from a Shot's page,
 // which offers the Shot's own Recipe first and then the others the person
 // may edit, says which Recipes it is the Reference Shot of, and is marked in
-// the Shots list; shown on the Recipe's page with its numbers, a note where
+// the Shots list; shown on the Recipe's page with its curves and numbers, a note where
 // its Profile is another than the Recipe's, and cleared there; read by a
 // Viewer, who has no control for it; and its curves drawn behind those of
 // another Shot of the Recipe, on that Shot's page, as it opens (#473, #546). A simulated
@@ -83,18 +83,25 @@ test("from a Shot's page, an Admin makes it its own Recipe's Reference Shot, off
   await expectTip(row, "Reference", "The Reference Shot of Belmont espresso at Belmont, Fixture Ethiopia Espresso at Uptown.");
 });
 
-test("the Recipe's page shows its Reference Shot with its numbers, notes a Profile other than the Recipe's, keeps its choice in its history, and clears it", async ({ page }) => {
+test("the Recipe's page shows its Reference Shot with its curves and numbers, notes a Profile other than the Recipe's, keeps its choice in its history, and clears it", async ({ page }) => {
   const { ethiopia, belmont } = await recipes(page);
   // Pulled with the Ethiopia loaded, it was pulled on its Profile.
   await page.goto(`/library/recipes/${ethiopia}`);
   const card = page.getByRole("region", { name: "Reference Shot" });
-  await expect(field(card, "Machine")).toHaveText("Uptown 1");
-  await expect(field(card, "Location")).toHaveText("Uptown");
-  await expect(field(card, "Dose")).toHaveText("18 g");
-  await expect(field(card, "Yield")).toHaveText("35.9 g");
-  await expect(field(card, "Duration")).toHaveText(/^\d+\.\d s$/);
+  // Its pressure, flow and weight curves in small (#547), each drawn; its duration and its 35.9 g against its target
+  // of 36; that it isn't rated; and when and where it was pulled.
+  for (const curve of ["Pressure", "Flow", "Weight"]) {
+    const drawn = card.getByRole("img", { name: `${curve} curve of the Reference Shot` });
+    await expect(drawn.locator(".recharts-line-curve")).toHaveCount(1);
+    await expect(drawn).toContainText(curve);
+  }
+  await expect(card.getByText(/^\d+\.\d s · −0\.1 g vs target$/)).toBeVisible();
+  await expect(card.getByText(/^Pulled .+ on Uptown 1 at Uptown/)).toBeVisible();
+  await expect(card.getByRole("link", { name: "Uptown 1" })).toBeVisible();
   await expect(card.getByRole("status", { name: "Another Profile" })).toHaveCount(0);
-  await field(card, "Pulled").getByRole("link").click();
+  // Whoever may edit the Recipe is led to its rated Shots to choose another.
+  await expect(card.getByRole("link", { name: "Choose another" })).toHaveAttribute("href", `/shots?recipeId=${ethiopia}&rating=rated`);
+  await card.getByRole("link", { name: "Open its Reference Shot" }).click();
   await expect(page).toHaveURL(new RegExp(`/shots/${SHOT}$`));
 
   // Belmont's names a Profile with a title, which the note names after the Shot's.
@@ -105,7 +112,7 @@ test("the Recipe's page shows its Reference Shot with its numbers, notes a Profi
   await expect(card.getByRole("status", { name: "Another Profile" })).toHaveText(
     `It was pulled on ${belmontRecipe.referenceShot.profile.title}, not the Recipe's Profile, ${belmontRecipe.uses.profile.title}, so its curves describe another program.`,
   );
-  const history = page.getByRole("table", { name: "History" });
+  const history = (await openCard(page, "History")).getByRole("table", { name: "History" });
   await expect(rows(history).first()).toContainText("Reference Shot");
   await expect(rows(history).first().getByRole("link", { name: "The Shot" })).toHaveAttribute("href", `/shots/${SHOT}`);
 
@@ -126,8 +133,10 @@ test("a Viewer reads a Recipe's Reference Shot and the Recipes a Shot is that of
     await expect(valsPage.getByRole("button", { name: "Make it a Reference Shot" })).toHaveCount(0);
     await valsPage.goto(`/library/recipes/${ethiopia}`);
     const card = valsPage.getByRole("region", { name: "Reference Shot" });
-    await expect(field(card, "Machine")).toHaveText("Uptown 1");
+    await expect(card.getByText(/^Pulled .+ on Uptown 1 at Uptown/)).toBeVisible();
     await expect(card.getByRole("button", { name: "About Reference Shot" })).toBeVisible();
+    await expect(card.getByRole("link", { name: "Open its Reference Shot" })).toBeVisible();
+    await expect(card.getByRole("link", { name: "Choose another" })).toHaveCount(0);
     await expect(card.getByRole("button", { name: "Clear its Reference Shot" })).toHaveCount(0);
   });
 });
@@ -251,10 +260,10 @@ test("a Recipe's history names the Machine its Reference Shot was chosen on, whe
 
   await page.goto(`/library/recipes/${ethiopiaId}`);
   const card = page.getByRole("region", { name: "Reference Shot" });
-  await expect(field(card, "Pulled").getByRole("link")).toHaveAttribute("href", `/shots/${LATER_SHOT}`);
-  await expectTip(card, "Reference Shot", /A Skin may choose it on a tablet there too: the Recipe's history then names the Machine it was chosen on\.$/);
+  await expect(card.getByRole("link", { name: "Open its Reference Shot" })).toHaveAttribute("href", `/shots/${LATER_SHOT}`);
+  await expectTip(card, "Reference Shot", /A Skin may choose it on a tablet there too: the Recipe's history then names the Machine it was chosen on\./);
   // The latest change in its history: made on the Machine, where the changes made here name an account.
-  const history = rows(page.getByRole("table", { name: "History" }));
+  const history = rows((await openCard(page, "History")).getByRole("table", { name: "History" }));
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   const uptown1 = machines.find((machine) => machine.name === "Uptown 1")!;
   await expect(history.first().getByRole("cell").nth(1)).toHaveText("Uptown 1");

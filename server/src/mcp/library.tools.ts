@@ -1,6 +1,6 @@
 import { Injectable } from "@nestjs/common";
 import type { McpContext } from "@nestjs/mcp";
-import type { LibraryKind } from "@decent-sync/protocol";
+import { type LibraryKind, MAX_SHOT_RATING } from "@decent-sync/protocol";
 import * as z from "zod";
 import { READ } from "../connected-apps/oauth.js";
 import { type BeanBatchSummary, type BeanBatchView, BeanBatchesService, readBeanBatchId } from "../library/bean-batches.service.js";
@@ -9,7 +9,7 @@ import { type EquipmentSummary, type EquipmentView, EquipmentService, readEquipm
 import { type GrinderSummary, type GrinderView, GrindersService, readGrinderId } from "../library/grinders.service.js";
 import { type ConflictView, HistoryService, MAX_HISTORY_FIELD, type SourceView, type VersionView } from "../library/history.service.js";
 import { type ProfileSummary, type ProfileView, ProfilesService, readProfileId } from "../library/profiles.service.js";
-import { type RecipeDetailsView, type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
+import { type RecipeView, RecipesService, readRecipeId } from "../library/recipes.service.js";
 import { locationNotFound, readLocationId } from "../locations/input.js";
 import { type LocationView, LocationsService, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
@@ -144,10 +144,6 @@ const recipe = z.object({
     })
     .describe("The items its content names, with what names each; one the Library no longer has by its id alone."),
   batchFinished: z.boolean().describe("Whether it isn't Archived and names a Bean Batch that isn't at its Location now: a Recipe whose dial needs the next roast."),
-});
-
-/** A Recipe as get_library_item reads it, and as the tools changing one return it: with its Reference Shot. */
-const recipeItem = recipe.extend({
   referenceShot: z
     .object({
       id: id.describe("The Shot's id, as find_shots and get_shot give it."),
@@ -161,6 +157,8 @@ const recipeItem = recipe.extend({
       targetYield: z.number().nullable().describe("In grams."),
       actualYield: z.number().nullable().describe("Weighed, in grams."),
       duration: z.number().nullable().describe("How long its profile ran, leaving out its Preheat, in seconds."),
+      enjoyment: z.number().nullable().describe(`Its rating, from 0 to ${MAX_SHOT_RATING}, where 0 is unrated.`),
+      grinderSetting: z.string().nullable().describe("Its Grinder's setting, as its Workflow recorded it."),
       profileDiffers: z
         .boolean()
         .describe("Whether it was pulled on another Profile than the Recipe's: the Recipe names a Profile, and the Shot's is another, or matches none in the Library."),
@@ -292,7 +290,7 @@ export const itemOutput = z.object({
   grinder: grinderSummary.extend({ content: content(RECORD_FIELDS) }).optional(),
   basket: equipmentSummary.extend({ locations: decidedAt }).optional(),
   tool: equipmentSummary.extend({ locations: decidedAt }).optional(),
-  recipe: recipeItem.optional(),
+  recipe: recipe.optional(),
 });
 
 const getOutput = itemOutput.extend({
@@ -332,7 +330,7 @@ export class LibraryTools {
   @BudgetedTool({
     name: "find_library_items",
     title: "Find Library items",
-    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot. ${ITEMS} ${PAGED} ${TIMES}`,
+    description: `Finds the Library's items of one kind, a page at a time, as the management interface lists them, by Location, name and whether Archived: Beans, Bean Batches, Profiles, Grinders, Baskets, Tools or Recipes. Recipes come by Location, in Recipe Slot order, then those in no slot, each with its Reference Shot. ${ITEMS} ${PAGED} ${TIMES}`,
     inputSchema: findInput,
     outputSchema: findOutput,
     annotations: { readOnlyHint: true },
@@ -488,7 +486,7 @@ export class LibraryTools {
       }
       case "recipe": {
         const found = await this.recipes.get(readRecipeId(itemId));
-        return { item: { recipe: recipeItemOf(found) }, ref: { kind, id: found.id }, itemLocation: found.location };
+        return { item: { recipe: recipeOf(found) }, ref: { kind, id: found.id }, itemLocation: found.location };
       }
     }
   }
@@ -632,6 +630,7 @@ function equipmentViewOf(item: EquipmentView): NonNullable<GetOutput["basket"]> 
 
 function recipeOf(found: RecipeView): z.infer<typeof recipe> {
   const { bean, beanBatch, profile, grinder, basket, tools } = found.uses;
+  const shot = found.referenceShot;
   return {
     id: found.id,
     name: found.name,
@@ -649,14 +648,7 @@ function recipeOf(found: RecipeView): z.infer<typeof recipe> {
       tools: tools.map((tool) => ({ id: tool.id, name: tool.name })),
     },
     batchFinished: found.batchFinished,
-  };
-}
-
-/** A Recipe with its Reference Shot, which gives its time with the offset of the Location it was pulled at. */
-function recipeItemOf(found: RecipeDetailsView): z.infer<typeof recipeItem> {
-  const shot = found.referenceShot;
-  return {
-    ...recipeOf(found),
+    // Its time is given with the offset of the Location it was pulled at.
     referenceShot: shot && {
       id: shot.id,
       pulledAt: shot.pulledAt && timeAt(shot.pulledAt, shot.location),
@@ -669,6 +661,8 @@ function recipeItemOf(found: RecipeDetailsView): z.infer<typeof recipeItem> {
       targetYield: shot.targetYield,
       actualYield: shot.actualYield,
       duration: shot.duration,
+      enjoyment: shot.enjoyment,
+      grinderSetting: shot.grinderSetting,
       profileDiffers: shot.profileDiffers,
     },
   };

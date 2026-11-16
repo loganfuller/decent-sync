@@ -55,6 +55,8 @@ interface ReferenceShot {
   targetYield: number | null;
   actualYield: number | null;
   duration: number | null;
+  enjoyment: number | null;
+  grinderSetting: string | null;
   profileDiffers: boolean;
 }
 
@@ -77,6 +79,8 @@ interface Version {
 interface ShotView {
   id: string;
   duration: number | null;
+  enjoyment: number | null;
+  grinderSetting: string | null;
   referenceOf?: { id: string; name: string | null; location: { id: string; name: string } | null }[];
 }
 
@@ -206,9 +210,13 @@ describe("Choosing a Recipe's Reference Shot", { timeout: 120_000 }, () => {
       targetYield: 36,
       actualYield: 35.9,
       duration: fixtureShot.duration,
+      // Its rating and its grind setting, as the Shots list gives them of the Shot (#547).
+      enjoyment: fixtureShot.enjoyment,
+      grinderSetting: fixtureShot.grinderSetting,
       profileDiffers: false,
     });
     expect(lab1!.duration).toBeGreaterThan(0);
+    expect(lab1!.grinderSetting).toEqual(expect.any(String));
     expect((await recipe(espresso.id)).referenceShot).toEqual(lab1);
 
     // Replaced by a Shot whose profile matches none in the Library: another than the Recipe's.
@@ -248,9 +256,14 @@ describe("Choosing a Recipe's Reference Shot", { timeout: 120_000 }, () => {
     const read = await recipe(espresso.id);
     expect(read).toMatchObject({ slot: null, content: { yield: 38, grindSetting: 8.4 } });
     expect(read.referenceShot?.id).toBe("belmont-bloom");
-    // The Recipe's Location's list doesn't give it; its own read does.
-    const listed = (await api.get<{ recipes: RecipeView[] }>(`/locations/${belmont.id}/recipes`)).recipes.find((each) => each.id === espresso.id)!;
-    expect(listed).not.toHaveProperty("referenceShot");
+    // The Recipe's Location's list gives each Recipe's as its own read does (#547), another Location's Shot and its
+    // Profile against that Recipe's among them, and null for a Recipe with none.
+    const listed = (await api.get<{ recipes: RecipeView[] }>(`/locations/${belmont.id}/recipes`)).recipes;
+    expect(listed.length).toBeGreaterThan(1);
+    for (const each of listed) expect(each.referenceShot).toEqual((await recipe(each.id)).referenceShot);
+    expect(listed.find((each) => each.id === espresso.id)!.referenceShot).toMatchObject({ id: "belmont-bloom", profileDiffers: false });
+    expect(listed.find((each) => each.id === decaf.id)!.referenceShot).toMatchObject({ id: "lab-unsaved", location: lab, profileDiffers: false });
+    expect((await api.get<{ recipes: RecipeView[] }>(`/locations/${lab.id}/recipes`)).recipes.map((each) => each.referenceShot)).toContain(null);
   });
 
   it("names the Recipes a Shot is the Reference Shot of in its read and its row, only where there are any", async () => {
@@ -346,9 +359,11 @@ describe("Choosing a Recipe's Reference Shot", { timeout: 120_000 }, () => {
 
       const read = await assistant.call<{ recipe: Record_ & { referenceShot: unknown } }>("get_library_item", { kind: "recipe", id: espresso.id });
       expect(comparable(read.recipe.referenceShot)).toEqual(comparable((await recipe(espresso.id)).referenceShot));
-      // find_library_items lists Recipes as the Location's list does, without it.
+      // find_library_items lists Recipes as the Location's list does, each with its own (#547).
       const found = await assistant.call<{ recipes: Record_[] }>("find_library_items", { kind: "recipe", locationId: belmont.id });
-      expect(found.recipes.find((each) => each.id === espresso.id)).not.toHaveProperty("referenceShot");
+      expect(found.recipes.length).toBeGreaterThan(1);
+      for (const each of found.recipes) expect(comparable(each.referenceShot)).toEqual(comparable((await recipe(each.id as string)).referenceShot));
+      expect(found.recipes.find((each) => each.id === espresso.id)!.referenceShot).toMatchObject({ id: "lab-bloom" });
 
       const cleared = await assistant.call<{ recipe: Record_ }>("set_reference_shot", { id: espresso.id, shotId: null });
       expect(cleared.recipe.referenceShot).toBeNull();

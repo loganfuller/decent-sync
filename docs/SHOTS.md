@@ -457,7 +457,8 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     Bean's batches. `profileId`: Shots pulled with that Library Profile.
     `recipeId`: Shots pulled with that Recipe loaded on their Machine, or
     `none` for Shots linked to none. `basketId`: Shots linked to that
-    Basket, or `none`. Each item's page lists its Shots through these. A
+    Basket, or `none`. Each item's page counts its Shots, and opens them in
+    the Shots list, through these. A
     malformed id is a 404.
   - `from` and `to`: a local date (`2026-10-05`) or date and time
     (`2026-10-05T06:00`) without an offset, read on each Shot's own
@@ -1909,26 +1910,44 @@ give an assistant what it shows.
 `web/test/overview.test.ts` and `web/test/relative-time.test.ts` its pure
 parts.
 
-A Recipe's page (`/library/recipes/:id`) shows how it is pulling, in two
-cards under its Reference Shot (`web/src/components/recipe-numbers.tsx`,
-#474), both open, each a read of `GET /api/shots/summary` filtered by the
-Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
-- **Today** asks for the Recipe's Location's day (`from` and `to` the same
-  date, by its time zone's wall clock now, or UTC's for a Recipe at no
-  Location) grouped by `recipe,machine`, with the default numbers: a row
-  for each Machine that pulled it, with its count of Shots, the Unfinished
-  and the cleaning or calibration Shots beside it, the median duration and
-  yield against target, each with the middle half's range, and the share
-  stopped on weight. Grouping by Recipe too brings the Reference Shot's own
-  numbers with each group, and its duration and yield against target are
-  the table's last row, shown while the summary's reference is the one the
-  page's Recipe names, so one cleared on the page goes at once. A Machine's
-  name opens its page, and its count the Shots list with the Recipe, the
-  Machine and the day as filters.
-- **Trend** asks for the 30 days that end with that day, grouped by
-  `machine` and bucketed by day, with `numbers` duration, yield against
-  target and grind setting at once, so choosing another charts it without
-  another read. The number charted is kept in the page's address as
+A Recipe's page (`/library/recipes/:id`) leads with how it is pulling
+(#474, #547): under its name, Recipe Slot and Location, and its Conflicts
+where it has any, a heading with a choice of period, Today, Yesterday or 7
+days, which its address keeps as `period` as the Overview's does; its
+Reference Shot's card beside By Machine; and then Trend
+(`web/src/components/recipe-numbers.tsx`). By Machine and Trend are each a
+read of `GET /api/shots/summary` filtered by the Recipe (`recipeId`),
+loaded again every 30 s. No read was added for them.
+- **Reference Shot** (`ReferenceShotCard` in
+  `web/src/components/reference-shots.tsx`) draws the Shot's pressure, flow
+  and weight curves in small (`SmallCurve` in
+  `web/src/components/curves.tsx`), from its measurements, read once, and
+  gives its duration, its yield against its own target, its rating in
+  stars, when and where it was pulled and its grind setting, from the
+  Recipe's own read, with the note where its Profile is another than the
+  Recipe's. Open leads to the Shot. Whoever may edit the Recipe has Choose
+  another, which opens the Recipe's rated Shots in the Shots list, as a
+  Reference Shot is chosen on a Shot's page, and Clear. A Recipe with none
+  says so, and leads to its rated Shots too.
+- **By Machine** asks for the period's days at the Recipe's Location (by
+  its time zone's wall clock now, or UTC's for a Recipe at no Location)
+  grouped by `recipe,machine`, with the default numbers: a row for each
+  Machine that pulled it, with its count of Shots, the Unfinished and the
+  cleaning or calibration Shots beside it, the median duration with the
+  middle half's range, the duration's difference from the Reference Shot's
+  (a column there only where the server judged one), the median yield
+  against target and the share stopped at target. Each is marked where the
+  group's `spec` judges it out of spec (Out of spec, above), the difference
+  muted otherwise, and a last row says how far apart the Machines are, from
+  `spec.betweenMachines`, marked likewise (`machineNumbers` in
+  `web/src/lib/recipe-numbers.ts`). A Machine's name opens its page, and its
+  count the Shots list with the Recipe, the Machine and the list's preset of
+  the period as filters. Below 640 px each Machine is a block of a few
+  lines, in a list, so nothing scrolls sideways.
+- **Trend** asks for the 30 days that end with today there, grouped by
+  `recipe,machine` and bucketed by day, with `numbers` duration, yield
+  against target and grind setting at once, so choosing another charts it
+  without another read. The number charted is kept in the page's address as
   `trend`, duration as none. It is drawn by the chart the Shots list's
   trend uses (`TrendChart` in `web/src/components/shot-trend.tsx`), given a
   line for each group: each Machine's median as a line with its middle
@@ -1938,34 +1957,61 @@ Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
   a day, a row for each Machine so that eight fit over the chart, and in
   the table Show the numbers opens (`trendRows` in
   `web/src/lib/shot-trend.ts` puts the lines' points into one chart's
-  rows). The time axis spans the 30 days whatever days have Shots. A
-  Machine's name under the chart opens the Shots list with the Recipe, the
-  Machine and the 30 days as filters, and `trend` the number charted, so
-  the list's own trend opens charting the same. The read asks for eight groups, as
-  many as the chart has colors; a line under the chart says so where more
-  Machines pulled the Recipe, as one under Today's table does past the 100
-  groups a page holds.
+  rows). Grouping by Recipe too brings the Reference Shot's own numbers
+  with each group: charting duration, its duration is the chart's dashed,
+  labelled line, drawn while the summary's reference is the one the page's
+  Recipe names, so one cleared on the page goes at once. The time axis
+  spans the 30 days whatever days have Shots. A Machine's name under the
+  chart opens the Shots list with the Recipe, the Machine and its 30 days
+  preset as filters, and `trend` the number charted, so the list's own
+  trend opens charting the same. The read asks for eight groups, as many as
+  the chart has colors; a line under the chart says so where more Machines
+  pulled the Recipe, as one under By Machine's table does past the 100
+  groups a page holds. The choice of number scrolls within its own row
+  where a narrow screen has no room for the three.
 - A day here is the Recipe's Location's, and the Shots of it are those the
   date filters find, each by its own Location's time zone, as a bucket's
   are: a Shot of the Recipe pulled at another Location, which a corrected
   Location History can bring, is counted in that Location's day of the same
-  date.
+  date. The Shots list's presets, which the links open it with, count each
+  Shot's own Location's days back from its own today, so across a midnight
+  between two such Locations the list may differ from the count by that
+  Shot.
 - A Recipe with no Shots in the period says so in each card. A grind
   setting is a number of the summary only where its whole text is a decimal
   number, so a Recipe whose Shots recorded text, such as "1.1.0", has no
   grind trend: the chart says none of the Shots has a grind setting that is
   a number.
-- The latest release has no summary route (ADR-0025), so its instance,
-  answering during a deploy, gives each card an error, which the next read
-  the new release answers clears.
+- The latest release's summary judges nothing and counts no stops at
+  target (ADR-0025), so while its instance answers during a deploy By
+  Machine marks nothing and has no reference column, and a dash stands for
+  stopped at target, until the next read the new release answers. It does
+  name the Recipe's Reference Shot, so the trend's reference line is drawn
+  either way. Its read of a Recipe gives
+  its Reference Shot no rating or grind setting, of which the card then
+  says nothing.
 
-`web/src/lib/recipe-numbers.ts` holds the pure parts (the days, the number
-an address names, the Shots list's address for a Machine), with
-`web/test/recipe-numbers.test.ts`, and `e2e/recipe-numbers.spec.ts` covers
-the cards with a Recipe's Shots stored through simulated tablets on two
-Machines over a month. Neither card gives a rating. One charted there
-would read in stars, as its chart is the Shots list's (`TrendChart`), and
-one added to Today would read through `ratingMedianText` (#532).
+Under them the page shows the Recipe's fields (`RecipeFieldsCard` in
+`web/src/components/recipes.tsx`): those it has set, the steam, hot water
+and flush settings among them only where it holds any, with one button that
+shows the rest, each then a dash, or "Machine's own" for a setting. Then
+its Shots, one line (below), counted over the period chosen, and its
+History, closed until opened (`ItemHistoryCard` with `closed`, a
+`CollapsibleCard`, which reads nothing while closed). Its actions are
+beside its name (`RecipeActions`): Edit, and a More menu holding the rest,
+of which moving it to a slot is also a button from 640 px.
+
+`web/src/lib/recipe-numbers.ts` holds the pure parts (the trend's days, the
+number an address names, the Shots list's address for a Machine, a
+Machine's numbers as its row says them), with
+`web/test/recipe-numbers.test.ts`. `e2e/recipe-numbers.spec.ts` covers By
+Machine and Trend with a Recipe's Shots stored through simulated tablets on
+two Machines over a month, and `e2e/recipe-page.spec.ts` the page's order,
+its Reference Shot's card, what is marked, its fields, its Shots line and
+its History, at a desktop's width and at 390 px. Neither card gives a
+rating of the Recipe's Shots. One charted there would read in stars, as its
+chart is the Shots list's (`TrendChart`), and one added to By Machine would
+read through `ratingMedianText` (#532).
 
 `/shots/:id` shows one Shot, in the order a reader asks (#546;
 `web/src/pages/ShotPage.tsx`, with its cards in
@@ -2088,8 +2134,13 @@ Rating, where they said Enjoyment, and give it in stars too, such as
 "4 stars", with none for a Shot rated 0, as its page says Unrated.
 The Summary and Trend cards give it in stars too (#532, above). The REST
 API and the tools still give ratings from 0 to 10. Each Bean's, Bean Batch's,
-Grinder's, Profile's, Recipe's and Basket's page lists its Shots, ten at a time
-(`web/src/components/item-shots.tsx`).
+Grinder's, Profile's, Recipe's and Basket's page says how many Shots it has, in
+one line with a link that opens them in the Shots list, filtered to it (#547;
+`web/src/components/item-shots.tsx`): a page of one Shot gives the count. The
+list takes a Bean's and a Profile's id from its address too (`beanId`,
+`profileId`), each shown as a chip that removes it, named Library Bean and
+Library Profile, with no control behind the Filters button: its Bean and
+Profile filters there are by what Shots recorded.
 Times are shown in each Shot's Location's time zone, or UTC, labelled, for a
 Shot with no Location. `web/src/lib/curves.ts` turns Decaid's
 measurements into curves, counting time as `elapsedSeconds` does.

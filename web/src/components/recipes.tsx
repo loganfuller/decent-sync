@@ -1,29 +1,32 @@
 import { grindSettingOf } from "@decent-sync/protocol";
+import { ChevronDownIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import { batchName } from "@/components/bean-batches";
 import { ItemConflictsCard, ItemHistoryCard, attributePairs } from "@/components/conflicts";
-import { Field, Fields } from "@/components/fields";
 import { grinderName } from "@/components/grinders";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ItemShotsCard } from "@/components/item-shots";
-import { RecipeTodayCard, RecipeTrendCard } from "@/components/recipe-numbers";
+import { PeriodChoice, PeriodTabs, useOverviewPeriod } from "@/components/overview";
+import { RecipeByMachineCard, RecipeTrendCard } from "@/components/recipe-numbers";
 import { ReferenceShotCard } from "@/components/reference-shots";
-import { ArchiveButton, type Attribute, DeleteButton, FormError, failure, useMayChangeAt } from "@/components/library-forms";
-import { ConfirmButton, formatTime, useLocations } from "@/components/machines";
+import { type Attribute, FormError, failure, useMayChangeAt } from "@/components/library-forms";
+import { ConfirmDialog, formatTime, useLocations } from "@/components/machines";
 import { profilePath, profileTitle } from "@/components/profiles";
-import { OrNone } from "@/components/records";
+import { OrNone, secondsText } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
+import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuSeparator, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TabsContent } from "@/components/ui/tabs";
 import {
   ApiError,
   api,
@@ -36,9 +39,11 @@ import {
   type Recipe,
 } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { ratedShotsPath } from "@/lib/shot-list";
 
 // Each Location's Recipes, DYE2's recipes, in its Recipe Slots or none, each
-// not Archived on every tablet there, and each Recipe's page. An Admin, or
+// not Archived on every tablet there, as its page and the Library's Recipes
+// tab list them, and each Recipe's page. An Admin, or
 // Staff working at its Location, creates and edits a Recipe there with every
 // field DYE2 has but the barista and the drinker, and its steam and hot water
 // modes, which are only what DYE2's stepper shows, moves it between slots,
@@ -73,11 +78,21 @@ function RecipeBadges({ recipe }: { recipe: Recipe }) {
   );
 }
 
-/** Where a Recipe is, such as "Slot 3 at Uptown". */
-function placeText(recipe: Recipe): string {
-  const here = recipe.location?.name ?? "a Location since removed";
-  if (recipe.archived) return `Archived, kept at ${here} in no slot`;
-  return recipe.slot === null ? `In no slot at ${here}` : `Slot ${recipe.slot} at ${here}`;
+/**
+ * Where a Recipe is, under its name: "at Uptown" for one in a Recipe Slot,
+ * which the badge beside its name gives, or that it is in none there, or
+ * Archived, its Location linked to its page.
+ */
+function Place({ recipe }: { recipe: Recipe }) {
+  const here = recipe.location ? (
+    <Link to={`/locations/${recipe.location.id}`} className="underline-offset-4 hover:underline">
+      {recipe.location.name}
+    </Link>
+  ) : (
+    "a Location since removed"
+  );
+  if (recipe.archived) return <>Archived, kept at {here} in no slot</>;
+  return recipe.slot === null ? <>In no slot at {here}</> : <>at {here}</>;
 }
 
 function numberText(value: unknown, unit: string): string | undefined {
@@ -179,7 +194,36 @@ export function LocationRecipesCard({ location, recipes, onChanged }: { location
   );
 }
 
-function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recipe[]; slots: boolean }) {
+/**
+ * A Recipe's Reference Shot as a list of Recipes says it (#547): its
+ * duration, linked to the Shot, or "No reference", linked to the Recipe's
+ * rated Shots in the Shots list, to choose one from. The previous release's
+ * list, as during a deploy, gives none (ADR-0025): a dash.
+ */
+function ReferenceCell({ recipe }: { recipe: Recipe }) {
+  const shot = recipe.referenceShot;
+  if (shot === undefined) return <OrNone>{undefined}</OrNone>;
+  if (shot === null) {
+    return (
+      <Link to={ratedShotsPath(recipe.id)} className="text-muted-foreground underline decoration-dotted underline-offset-4">
+        No reference
+      </Link>
+    );
+  }
+  return (
+    <Link to={`/shots/${encodeURIComponent(shot.id)}`} className="tabular-nums underline underline-offset-4">
+      {secondsText(shot.duration) ?? "Open"}
+    </Link>
+  );
+}
+
+/**
+ * A table of Recipes, as a Location's Recipes card and the Library's
+ * Recipes tab list them: each with its Recipe Slot, where `slots`, its name
+ * linked to its page, its Bean Batch, Profile, dose and yield, Grinder and
+ * setting, its Reference Shot's duration, and what needs attention.
+ */
+export function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recipe[]; slots: boolean }) {
   const { pages } = LIBRARY_KINDS.recipe;
   return (
     <div className="min-w-0 rounded-lg border">
@@ -192,13 +236,18 @@ function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recip
             <TableHead>Profile</TableHead>
             <TableHead>Dose and yield</TableHead>
             <TableHead>Grinder</TableHead>
+            <TableHead>Reference Shot</TableHead>
             <TableHead>Status</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
           {recipes.map((recipe) => (
             <TableRow key={recipe.id}>
-              {slots && <TableCell className="font-medium">{recipe.slot}</TableCell>}
+              {slots && (
+                <TableCell className="font-medium">
+                  <OrNone>{recipe.slot === null ? undefined : String(recipe.slot)}</OrNone>
+                </TableCell>
+              )}
               <TableCell className="font-medium">
                 <ItemLink to={`${pages}/${recipe.id}`}>{recipeName(recipe)}</ItemLink>
               </TableCell>
@@ -213,6 +262,9 @@ function RecipesTable({ label, recipes, slots }: { label: string; recipes: Recip
               </TableCell>
               <TableCell>
                 <OrNone>{grindText(recipe)}</OrNone>
+              </TableCell>
+              <TableCell>
+                <ReferenceCell recipe={recipe} />
               </TableCell>
               <TableCell>
                 <RecipeBadges recipe={recipe} />
@@ -999,10 +1051,23 @@ function ChoiceGroup({ label, items }: { label: string; items: [value: string, t
 /**
  * Moves a Recipe to a slot at its Location, swapping it with the Recipe
  * there, or to the lowest free slot, offered only where one is free; the
- * Recipe keeps its id and history.
+ * Recipe keeps its id and history. It is shown open, by the action that
+ * asks for it, and `onClose` is called as it closes, `onCloseAutoFocus`
+ * then putting the keyboard's focus back, as it has no trigger of its own.
  */
-function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipes: Recipe[]; onMoved(): Promise<void> | void }) {
-  const [open, setOpen] = useState(false);
+function MoveRecipeDialog({
+  recipe,
+  recipes,
+  onMoved,
+  onClose,
+  onCloseAutoFocus,
+}: {
+  recipe: Recipe;
+  recipes: Recipe[];
+  onMoved(): Promise<void> | void;
+  onClose(): void;
+  onCloseAutoFocus(event: Event): void;
+}) {
   const [picked, setPicked] = useState<"next" | "chosen">("chosen");
   const [slotText, setSlotText] = useState("");
   const [error, setError] = useState<string>();
@@ -1021,7 +1086,7 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
     setError(undefined);
     try {
       await api("PUT", `/recipes/${recipe.id}/slot`, { slot: mode === "next" ? "next" : slot });
-      setOpen(false);
+      onClose();
       await onMoved();
     } catch (caught) {
       setError(failure(caught, "The Recipe could not be moved"));
@@ -1031,17 +1096,8 @@ function MoveRecipeDialog({ recipe, recipes, onMoved }: { recipe: Recipe; recipe
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        setError(undefined);
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button variant="outline">{recipe.slot === null ? "Put in a slot" : "Move to a slot"}</Button>
-      </DialogTrigger>
-      <DialogContent>
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{recipe.slot === null ? `Put ${recipeName(recipe)} in a slot` : `Move ${recipeName(recipe)} to a slot`}</DialogTitle>
           <DialogDescription>
@@ -1085,13 +1141,14 @@ const KEEP = "keep";
  * that Location's Grinders, its grind setting kept as a starting point, and
  * its Bean Batch, or another at that Location, or none. It says first what
  * copying adds, offers or shows there. A copy goes to another Location than
- * the Recipe's own.
+ * the Recipe's own. It is shown open, by the action that asks for it, each
+ * time afresh from the Recipe as it is then, and `onClose` is called as it
+ * closes.
  */
-function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choices | undefined }) {
+function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { recipe: Recipe; choices: Choices | undefined; onClose(): void; onCloseAutoFocus(event: Event): void }) {
   const navigate = useNavigate();
   const mayChangeAt = useMayChangeAt();
   const { locations, error: locationsError } = useLocations();
-  const [open, setOpen] = useState(false);
   const [locationId, setLocationId] = useState("");
   const [targetRecipes, setTargetRecipes] = useState<Recipe[]>();
   const [slotMode, setSlotMode] = useState<SlotMode>("next");
@@ -1199,7 +1256,7 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
         grinderId: grinderId === NONE ? null : grinderId,
         ...(batchId === KEEP ? {} : { beanBatchId: batchId === NONE ? null : batchId }),
       });
-      setOpen(false);
+      onClose();
       void navigate(`${LIBRARY_KINDS.recipe.pages}/${copied.id}`);
     } catch (caught) {
       setError(failure(caught, "The Recipe could not be copied"));
@@ -1209,25 +1266,8 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
   }
 
   return (
-    <Dialog
-      open={open}
-      onOpenChange={(next) => {
-        setOpen(next);
-        setError(undefined);
-        // Each opening starts afresh from the Recipe as it is now, which may have been edited since.
-        if (next) {
-          setLocationId("");
-          setSlotMode("next");
-          setSlotText("");
-          setGrinderId(NONE);
-          setBatchId(keptBatch());
-        }
-      }}
-    >
-      <DialogTrigger asChild>
-        <Button variant="outline">Copy to a Location</Button>
-      </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+    <Dialog open onOpenChange={(next) => !next && onClose()}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Copy {recipeName(recipe)} to a Location</DialogTitle>
           <DialogDescription>
@@ -1342,12 +1382,15 @@ function CopyRecipeDialog({ recipe, choices }: { recipe: Recipe; choices: Choice
 }
 
 /**
- * One Recipe: where it is, its fields, its Reference Shot, how it is
- * pulling, today on each Machine and over the last 30 days, its open
- * Conflicts and its history. An Admin, or Staff working at its Location,
- * edits it, moves it to another slot or takes it out of its slot, clears its
- * Reference Shot, and Archives or restores it; an Admin, or Staff, copies it
- * to a Location they change Recipes at.
+ * One Recipe, in the order a reader asks (#547): its name, Recipe Slot and
+ * Location, with its actions; its open Conflicts; how it is pulling, over
+ * a period its address keeps, which is its Reference Shot beside its
+ * numbers by Machine, then its 30-day trend; the fields it has set; how
+ * many Shots it has in the period, which the Shots list opens; and its
+ * history, closed until opened. An Admin, or Staff working at its
+ * Location, edits it, moves it to another slot or takes it out of its
+ * slot, clears its Reference Shot, and Archives or restores it; an Admin,
+ * or Staff, copies it to a Location they change Recipes at.
  */
 export function RecipeDetails({ id }: { id: string }) {
   const mayChangeAt = useMayChangeAt();
@@ -1356,6 +1399,7 @@ export function RecipeDetails({ id }: { id: string }) {
   const staffLocations = useStaffLocationIds();
   const { choices } = useChoices();
   const names = useMemo(() => namesOf(choices), [choices]);
+  const [period, setPeriod] = useOverviewPeriod();
   const [loaded, setLoaded] = useState<{ recipe: Recipe; recipes: Recipe[] }>();
   const [notFound, setNotFound] = useState(false);
   const [error, setError] = useState<string>();
@@ -1385,8 +1429,8 @@ export function RecipeDetails({ id }: { id: string }) {
   if (notFound) {
     return (
       <section className="grid gap-4">
-        <Link to="/locations" className="text-sm text-muted-foreground hover:text-foreground">
-          ← Locations
+        <Link to="/library/recipes" className="text-sm text-muted-foreground hover:text-foreground">
+          ← Recipes
         </Link>
         <p role="alert">There is no such Recipe.</p>
       </section>
@@ -1405,24 +1449,35 @@ export function RecipeDetails({ id }: { id: string }) {
   }
 
   const { recipe, recipes } = loaded;
-  const { location, content, uses } = recipe;
+  const { location } = recipe;
   const title = recipeName(recipe);
   const mayChange = location !== null && mayChangeAt(location.id);
   // A copy goes to another Location the account changes Recipes at: an Admin's any, Staff's their own.
   const mayCopy = isAdmin || [...staffLocations].some((staffLocation) => staffLocation !== location?.id);
-  const path = `/recipes/${encodeURIComponent(id)}`;
-  const toolAttributes = typeof content.toolAttributes === "object" && content.toolAttributes !== null ? (content.toolAttributes as Record<string, unknown>) : {};
 
   return (
-    <section className="grid gap-6">
+    // One column no wider than the page, so a wide table scrolls rather than widening it.
+    <section className="grid grid-cols-1 gap-6">
       <Link to={location ? `/locations/${location.id}` : "/locations"} className="text-sm text-muted-foreground hover:text-foreground">
         ← {location?.name ?? "Locations"}
       </Link>
-      <div className="grid gap-1">
-        <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold">
-          {title} <RecipeBadges recipe={recipe} />
-        </h1>
-        <p className="text-muted-foreground">{placeText(recipe)}</p>
+      <div className="flex flex-wrap items-start justify-between gap-x-4 gap-y-3">
+        <div className="grid gap-1">
+          <div className="flex flex-wrap items-center gap-2">
+            <h1 className="flex flex-wrap items-center gap-2 text-2xl font-semibold wrap-anywhere">
+              {title} <RecipeBadges recipe={recipe} />
+            </h1>
+            {recipe.slot !== null && (
+              <Badge variant="outline" role="img" aria-label={`Slot ${recipe.slot}`} className="rounded-md px-1.5 text-muted-foreground tabular-nums">
+                {recipe.slot}
+              </Badge>
+            )}
+          </div>
+          <p className="text-muted-foreground">
+            <Place recipe={recipe} />
+          </p>
+        </div>
+        <RecipeActions recipe={recipe} recipes={recipes} choices={choices} mayChange={mayChange} mayCopy={mayCopy} onChanged={changed} />
       </div>
       {error && (
         <Alert variant="destructive">
@@ -1436,181 +1491,265 @@ export function RecipeDetails({ id }: { id: string }) {
           </AlertDescription>
         </Alert>
       )}
-
-      {(mayChange || mayCopy) && (
-        <div className="flex flex-wrap items-start gap-2">
-          {mayChange && (
-            <>
-              <RecipeFormDialog location={location} recipes={recipes} recipe={recipe} onSaved={changed} />
-              {!recipe.archived && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={changed} />}
-              {recipe.slot !== null && <TakeOutButton recipe={recipe} onDone={changed} />}
-              <ArchiveButton
-                path={path}
-                name={title}
-                archived={recipe.archived}
-                effect={`removed from every tablet's DYE2 recipes and taken out of its slot; restored, it is written to them again, kept at ${location.name} in no slot`}
-                onDone={changed}
-              />
-            </>
-          )}
-          {mayCopy && <CopyRecipeDialog recipe={recipe} choices={choices} />}
-          <DeleteButton
-            path={path}
-            name={title}
-            back={location ? `/locations/${location.id}` : "/locations"}
-            deletable="a Recipe no Shot was pulled with"
-          />
-        </div>
-      )}
       {!mayChange && mayChangeAnything && (
         <p className="text-sm text-muted-foreground">Only Admins, and Staff working at {location?.name ?? "its Location"}, change its Recipes.</p>
       )}
 
       <ItemConflictsCard kind="recipe" id={id} onResolved={changed} names={names} />
 
-      <Card>
-        <CardHeader>
-          <CardTitleWithInfo title="Recipe">
-            <p>
-              Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.
-            </p>
-          </CardTitleWithInfo>
-        </CardHeader>
-        <CardContent>
-          <Fields label="Recipe">
-            <Field term="Name">
-              <OrNone>{recipe.name ?? undefined}</OrNone>
-            </Field>
-            <Field term="Beverage">
-              <OrNone>{typeof content.beverage === "string" && content.beverage !== "" ? content.beverage : undefined}</OrNone>
-            </Field>
-            <Field term="Bean Batch">
-              {uses.beanBatch ? (
-                <ItemLink to={`${LIBRARY_KINDS.beanBatch.pages}/${uses.beanBatch.id}`}>{usedBatchText(recipe)!}</ItemLink>
-              ) : (
-                <OrNone>{usedBatchText(recipe)}</OrNone>
-              )}
-            </Field>
-            <Field term="Profile">
-              {uses.profile ? <ItemLink to={profilePath(uses.profile.id)}>{profileTitle(uses.profile)}</ItemLink> : <OrNone>{undefined}</OrNone>}
-            </Field>
-            <Field term="Dose">
-              <OrNone>{numberText(content.dose, " g")}</OrNone>
-            </Field>
-            <Field term="Yield">
-              <OrNone>{numberText(content.yield, typeof content.ratio === "number" ? ` g (1:${content.ratio})` : " g")}</OrNone>
-            </Field>
-            <Field term="Grinder">
-              {uses.grinder ? (
-                <ItemLink to={`${LIBRARY_KINDS.grinder.pages}/${uses.grinder.id}`}>{grinderName(uses.grinder)}</ItemLink>
-              ) : (
-                <OrNone>{undefined}</OrNone>
-              )}
-            </Field>
-            <Field term="Grind setting">
-              <OrNone>{grindSettingText(content)}</OrNone>
-            </Field>
-            <Field term="RPM">
-              <OrNone>{numberText(content.rpm, "")}</OrNone>
-            </Field>
-            <Field term="Feed rate">
-              <OrNone>{feedRateText(content)}</OrNone>
-            </Field>
-            <Field term="Brew temperature">
-              <OrNone>{numberText(content.brewTemperature, " °C")}</OrNone>
-            </Field>
-            <Field term="Basket">
-              {uses.basket ? (
-                <ItemLink to={`${LIBRARY_KINDS.basket.pages}/${uses.basket.id}`}>{uses.basket.name ?? "Unnamed Basket"}</ItemLink>
-              ) : (
-                <OrNone>{undefined}</OrNone>
-              )}
-            </Field>
-            <Field term="Tools">
-              {uses.tools.length === 0 ? (
-                <OrNone>{undefined}</OrNone>
-              ) : (
-                <ul className="grid gap-1">
-                  {uses.tools.map((tool) => {
-                    const pairs = attributePairs(toolAttributes[tool.id]) ?? [];
-                    return (
-                      <li key={tool.id}>
-                        <ItemLink to={`${LIBRARY_KINDS.tool.pages}/${tool.id}`}>{tool.name ?? "Unnamed Tool"}</ItemLink>
-                        {pairs.length > 0 && <span className="text-muted-foreground"> ({pairs.map((pair) => `${pair.key}: ${pair.value}`).join(", ")})</span>}
-                      </li>
-                    );
-                  })}
-                </ul>
-              )}
-            </Field>
-            <Field term="Joined">{formatTime(recipe.createdAt)}</Field>
-          </Fields>
-        </CardContent>
-      </Card>
-
-      <ReferenceShotCard recipe={recipe} mayChange={mayChange} onChanged={changed} />
-
-      <RecipeTodayCard recipe={recipe} />
+      <PeriodTabs period={period} onPeriod={setPeriod} className="gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+          <h2 className="text-lg font-semibold">How it is pulling</h2>
+          <PeriodChoice />
+        </div>
+        {/* Side by side from 1024 px, the numbers twice as wide; stacked below it. */}
+        <TabsContent value={period} className="grid grid-cols-1 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(0,2fr)]">
+          <ReferenceShotCard recipe={recipe} mayChange={mayChange} onChanged={changed} />
+          <RecipeByMachineCard recipe={recipe} period={period} />
+        </TabsContent>
+      </PeriodTabs>
 
       <RecipeTrendCard recipe={recipe} />
 
-      <RecipeSettingsCard content={content} />
+      <RecipeFieldsCard recipe={recipe} />
 
-      <ItemShotsCard kind="recipe" id={id} />
+      <ItemShotsCard kind="recipe" id={id} within={{ period, timeZone: location?.timeZone }} />
 
-      <ItemHistoryCard key={changes} kind="recipe" id={id} names={names} />
+      <ItemHistoryCard kind="recipe" id={id} names={names} closed version={changes} />
     </section>
   );
 }
 
-/** Takes a Recipe out of its slot, kept at its Location and on its tablets, and empties the slot there. */
-function TakeOutButton({ recipe, onDone }: { recipe: Recipe; onDone(): void }) {
+/** What a Recipe's actions menu may open: each a dialog of its own. */
+type RecipeAction = "move" | "takeOut" | "copy" | "archive" | "delete";
+
+/**
+ * A Recipe's actions, beside its name (#547): Edit, always in view, and the
+ * rest in a menu, for those who may use each: moving it to a slot, which a
+ * wide screen keeps in view too, taking it out of its slot, copying it to a
+ * Location, Archiving or restoring it, and, for an Admin, deleting it, which
+ * only a Recipe no Shot was pulled with allows. Nothing for an account that
+ * may use none.
+ */
+function RecipeActions({
+  recipe,
+  recipes,
+  choices,
+  mayChange,
+  mayCopy,
+  onChanged,
+}: {
+  recipe: Recipe;
+  recipes: Recipe[];
+  choices: Choices | undefined;
+  mayChange: boolean;
+  mayCopy: boolean;
+  onChanged(): void;
+}) {
+  const isAdmin = useIsAdmin();
+  const navigate = useNavigate();
+  const [action, setAction] = useState<RecipeAction>();
   const [error, setError] = useState<string>();
-  async function takeOut() {
+  const { location } = recipe;
+  const title = recipeName(recipe);
+  const path = `/recipes/${encodeURIComponent(recipe.id)}`;
+  const here = location?.name ?? "its Location";
+  const close = () => setAction(undefined);
+  // A dialog opened from here has no trigger of its own for the keyboard's focus to go back to as it closes: it goes
+  // back to the button that opened it, or, for one opened from the menu, whose items are gone by then, to More.
+  const more = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const open = (next: RecipeAction, from?: HTMLElement) => {
+    setError(undefined);
+    opener.current = from ?? more.current;
+    setAction(next);
+  };
+  const onCloseAutoFocus = (event: Event) => {
+    event.preventDefault();
+    (opener.current?.isConnected ? opener.current : more.current)?.focus();
+  };
+  const confirming = (which: RecipeAction) => ({ open: action === which, onOpenChange: (next: boolean) => !next && close(), onCloseAutoFocus });
+
+  /** Makes a change that has no form of its own, and says why where it is refused. */
+  async function change(request: () => Promise<unknown>, refused: string, done: () => void = onChanged) {
     setError(undefined);
     try {
-      await api("PUT", `/recipes/${recipe.id}/slot`, { slot: null });
-      onDone();
+      await request();
+      done();
     } catch (caught) {
-      setError(failure(caught, "The Recipe could not be taken out of its slot"));
+      setError(failure(caught, refused));
     }
   }
+  const takeOut = () => change(() => api("PUT", `${path}/slot`, { slot: null }), "The Recipe could not be taken out of its slot");
+  const archive = (archived: boolean) => change(() => api("PUT", `${path}/archived`, { archived }), archived ? "It could not be Archived" : "It could not be restored");
+  const remove = () =>
+    change(
+      () => api("DELETE", path),
+      "It could not be deleted",
+      () => void navigate(location ? `/locations/${location.id}` : "/locations"),
+    );
+
+  if (!mayChange && !mayCopy && !isAdmin) return null;
+  const moveLabel = recipe.slot === null ? "Put in a slot" : "Move to a slot";
+  const mayMove = mayChange && !recipe.archived;
   return (
-    <div className="grid gap-2">
+    <div className="grid justify-items-start gap-2 sm:justify-items-end">
+      <div className="flex flex-wrap items-center gap-2">
+        {mayChange && location && <RecipeFormDialog location={location} recipes={recipes} recipe={recipe} onSaved={onChanged} />}
+        {mayMove && (
+          <Button variant="outline" className="max-sm:hidden" onClick={(event) => open("move", event.currentTarget)}>
+            {moveLabel}
+          </Button>
+        )}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button ref={more} variant="outline">
+              More
+              <ChevronDownIcon data-icon="inline-end" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-52">
+            {/* In view beside Edit on a wide screen. */}
+            {mayMove && (
+              <DropdownMenuItem className="sm:hidden" onSelect={() => open("move")}>
+                {moveLabel}
+              </DropdownMenuItem>
+            )}
+            {mayChange && recipe.slot !== null && <DropdownMenuItem onSelect={() => open("takeOut")}>Take out of its slot</DropdownMenuItem>}
+            {mayCopy && <DropdownMenuItem onSelect={() => open("copy")}>Copy to a Location</DropdownMenuItem>}
+            {mayChange && (recipe.archived ? <DropdownMenuItem onSelect={() => void archive(false)}>Restore</DropdownMenuItem> : <DropdownMenuItem onSelect={() => open("archive")}>Archive</DropdownMenuItem>)}
+            {isAdmin && (
+              <>
+                <DropdownMenuSeparator />
+                <DropdownMenuItem variant="destructive" onSelect={() => open("delete")}>
+                  Delete
+                </DropdownMenuItem>
+              </>
+            )}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      </div>
       {error && <FormError error={error} />}
-      <ConfirmButton
-        label="Take out of its slot"
-        title={`Take ${recipeName(recipe)} out of slot ${recipe.slot}?`}
-        description={`Slot ${recipe.slot} is emptied on every tablet at ${recipe.location?.name ?? "its Location"}. The Recipe is kept there in no slot, still found in DYE2's Select Recipe page, to put back in one or Archive.`}
+
+      {/* Each mounted while it is open, so it starts from the Recipe as it is then. */}
+      {action === "move" && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={onChanged} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
+      {action === "copy" && <CopyRecipeDialog recipe={recipe} choices={choices} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
+      <ConfirmDialog
+        {...confirming("takeOut")}
+        title={`Take ${title} out of slot ${recipe.slot}?`}
+        description={`Slot ${recipe.slot} is emptied on every tablet at ${here}. The Recipe is kept there in no slot, still found in DYE2's Select Recipe page, to put back in one or Archive.`}
         confirmLabel="Take it out"
         onConfirm={() => void takeOut()}
+      />
+      <ConfirmDialog
+        {...confirming("archive")}
+        title={`Archive ${title}?`}
+        description={`It is offered nowhere from now on, and removed from every tablet's DYE2 recipes and taken out of its slot; restored, it is written to them again, kept at ${here} in no slot, but kept, so past Shots still name it. It can be restored.`}
+        confirmLabel="Archive"
+        onConfirm={() => void archive(true)}
+      />
+      <ConfirmDialog
+        {...confirming("delete")}
+        variant="destructive"
+        title={`Delete ${title}?`}
+        description="It is deleted from every tablet that holds it, now or once it connects, and cannot be restored. Only a Recipe no Shot was pulled with can be deleted; Archive any other."
+        confirmLabel="Delete"
+        onConfirm={() => void remove()}
       />
     </div>
   );
 }
 
-/** A Recipe's steam, hot water and flush settings, each it does not hold shown as the Machine's own. */
-function RecipeSettingsCard({ content }: { content: Record<string, unknown> }) {
+/** A field of a Recipe as its card shows it: what it is called, its value where the Recipe has set it, and what stands for it where it has not. */
+interface ShownField {
+  term: string;
+  value: ReactNode | undefined;
+  unset?: string;
+}
+
+/**
+ * The fields a Recipe has set (#547), each once: what it names of the
+ * Library, linked, its dial, and the steam, hot water and flush settings it
+ * holds. Those it has not set are left out until asked for, by one control
+ * that says how many there are: each then shows a dash, or, for a setting,
+ * that each Machine keeps its own. Editing offers every field.
+ */
+function RecipeFieldsCard({ recipe }: { recipe: Recipe }) {
+  const [all, setAll] = useState(false);
+  const { content, uses } = recipe;
+  const toolAttributes = typeof content.toolAttributes === "object" && content.toolAttributes !== null ? (content.toolAttributes as Record<string, unknown>) : {};
+  const fields: ShownField[] = [
+    { term: "Beverage", value: typeof content.beverage === "string" && content.beverage !== "" ? content.beverage : undefined },
+    {
+      term: "Bean Batch",
+      value: uses.beanBatch ? <ItemLink to={`${LIBRARY_KINDS.beanBatch.pages}/${uses.beanBatch.id}`}>{usedBatchText(recipe)!}</ItemLink> : usedBatchText(recipe),
+    },
+    { term: "Profile", value: uses.profile ? <ItemLink to={profilePath(uses.profile.id)}>{profileTitle(uses.profile)}</ItemLink> : undefined },
+    { term: "Dose", value: numberText(content.dose, " g") },
+    { term: "Yield", value: numberText(content.yield, typeof content.ratio === "number" ? ` g (1:${content.ratio})` : " g") },
+    { term: "Grinder", value: uses.grinder ? <ItemLink to={`${LIBRARY_KINDS.grinder.pages}/${uses.grinder.id}`}>{grinderName(uses.grinder)}</ItemLink> : undefined },
+    { term: "Grind setting", value: grindSettingText(content) },
+    { term: "RPM", value: numberText(content.rpm, "") },
+    { term: "Feed rate", value: feedRateText(content) },
+    { term: "Brew temperature", value: numberText(content.brewTemperature, " °C") },
+    { term: "Basket", value: uses.basket ? <ItemLink to={`${LIBRARY_KINDS.basket.pages}/${uses.basket.id}`}>{uses.basket.name ?? "Unnamed Basket"}</ItemLink> : undefined },
+    {
+      term: "Tools",
+      value:
+        uses.tools.length === 0 ? undefined : (
+          <ul className="grid gap-1">
+            {uses.tools.map((tool) => {
+              const pairs = attributePairs(toolAttributes[tool.id]) ?? [];
+              return (
+                <li key={tool.id}>
+                  <ItemLink to={`${LIBRARY_KINDS.tool.pages}/${tool.id}`}>{tool.name ?? "Unnamed Tool"}</ItemLink>
+                  {pairs.length > 0 && <span className="text-muted-foreground"> ({pairs.map((pair) => `${pair.key}: ${pair.value}`).join(", ")})</span>}
+                </li>
+              );
+            })}
+          </ul>
+        ),
+    },
+    ...SETTINGS.map((setting) => ({ term: setting.term, value: settingText(setting, content[setting.field]), unset: "Machine's own" })),
+  ];
+  const unset = fields.filter((field) => field.value === undefined).length;
+  const shown = all ? fields : fields.filter((field) => field.value !== undefined);
+
   return (
-    <Card>
+    <Card role="region" aria-label="Recipe">
       <CardHeader>
-        <CardTitleWithInfo title="Steam, hot water and flush">
-          <p>What a Machine loading it takes. A setting it does not hold is left as each Machine has it.</p>
+        <CardTitleWithInfo title="Recipe">
+          <p>
+            Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a
+            Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.
+          </p>
+          <p>
+            Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush
+            setting it holds, and keeps its own of each it does not.
+          </p>
         </CardTitleWithInfo>
       </CardHeader>
-      <CardContent className="grid gap-6 sm:grid-cols-3">
-        {SETTING_GROUPS.map((group) => (
-          <section key={group.name} className="grid content-start gap-2">
-            <h3 className="text-sm font-medium">{group.name}</h3>
-            <Fields label={group.name}>
-              {group.settings.map((setting) => (
-                <Field key={setting.field} term={setting.term}>
-                  {settingText(setting, content[setting.field]) ?? <span className="text-muted-foreground">Machine's own</span>}
-                </Field>
-              ))}
-            </Fields>
-          </section>
-        ))}
+      <CardContent className="grid gap-4">
+        <dl aria-label="Recipe" className="grid grid-cols-2 gap-x-6 gap-y-3 text-sm tabular-nums lg:grid-cols-3">
+          {shown.map(({ term, value, unset: none }) => (
+            <div key={term} className="min-w-0">
+              <dt className="text-[0.8125rem] text-muted-foreground">{term}</dt>
+              <dd className="wrap-anywhere">{value ?? <span className="text-muted-foreground">{none ?? "-"}</span>}</dd>
+            </div>
+          ))}
+          <div className="min-w-0">
+            <dt className="text-[0.8125rem] text-muted-foreground">Joined</dt>
+            <dd>{formatTime(recipe.createdAt)}</dd>
+          </div>
+        </dl>
+        {unset > 0 && (
+          <div>
+            {/* Its words say which way it is set. */}
+            <Button variant="outline" size="sm" onClick={() => setAll(!all)}>
+              {all ? "Hide the fields not set" : `Show the ${unset} ${unset === 1 ? "field" : "fields"} not set`}
+            </Button>
+          </div>
+        )}
       </CardContent>
     </Card>
   );

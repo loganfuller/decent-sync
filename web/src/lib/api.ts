@@ -1192,9 +1192,9 @@ export interface Recipe {
   /** Not Archived, and naming a Bean Batch that is no longer at its Location: its dial needs the next roast. */
   batchFinished: boolean;
   /**
-   * Its Reference Shot (ADR-0029), given by its own read, `GET /api/recipes/:id`, and not by a Location's list: null for
-   * none, as for one whose Pending Machine was dismissed, until that hardware is adopted. Absent from the previous
-   * release's answer during a deploy (ADR-0025).
+   * Its Reference Shot (ADR-0029): null for none, as for one whose Pending Machine was dismissed, until that hardware
+   * is adopted. Absent from a Location's list as the previous release answers it during a deploy (ADR-0025), which
+   * gives it only by a Recipe's own read, `GET /api/recipes/:id`.
    */
   referenceShot?: ReferenceShot | null;
 }
@@ -1217,6 +1217,9 @@ export interface ReferenceShot {
   actualYield: number | null;
   /** In seconds, without its Preheat, as the Shots list shows it. */
   duration: number | null;
+  /** Its rating, 0 to 10, where 0 is unrated, and its Grinder's setting as recorded. Each absent from the previous release's answer during a deploy (ADR-0025). */
+  enjoyment?: number | null;
+  grinderSetting?: string | null;
   /** The Recipe names a Profile, and this Shot's is another, or none in the Library. */
   profileDiffers: boolean;
 }

@@ -2,11 +2,15 @@ import { NavLink } from "react-router";
 import { Badge } from "@/components/ui/badge";
 import type { BatchAtLocation, BeanBatchSummary } from "@/lib/api";
 
-/** The Library's lists, as links between them. */
+/** The Library's lists, as links between them: Recipes first (#547), as the list most come for. */
 export function LibraryNav() {
   const linkClass = ({ isActive }: { isActive: boolean }) => (isActive ? "font-medium" : "text-muted-foreground hover:text-foreground");
   return (
     <nav aria-label="Library" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      {/* `end`, so a Recipe's own page, which is reached from many places, marks no list. */}
+      <NavLink to="/library/recipes" end className={linkClass}>
+        Recipes
+      </NavLink>
       <NavLink to="/library/beans" className={linkClass}>
         Beans
       </NavLink>

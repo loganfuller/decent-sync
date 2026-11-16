@@ -5,7 +5,7 @@ import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, sel
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { chooseFilter, field, filterChip, openCard, rows } from "./support/locators.js";
+import { chooseFilter, field, filterChip, openCard, recipeAction, recipeActions, rows } from "./support/locators.js";
 
 // Shots linked to their Recipe and Basket (tickets #147 and #216): each
 // Recipe's and Basket's page lists its Shots, linked by the `recipeId` their
@@ -24,16 +24,22 @@ type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("each Recipe's and Basket's page lists its Shots, and the Shots list filters by Recipe and by Basket", async ({ page }) => {
+test("each Recipe's and Basket's page counts its Shots and opens them in the Shots list, which filters by Recipe and by Basket", async ({ page }) => {
   const { bar1, one, two } = await lab(page, "Uptown", 49501);
   await pullWith(page, bar1, ETHIOPIA, one, "uptown-ethiopia", 49501);
   await pullWith(page, bar1, BRAZIL, two, "uptown-brazil", 49501);
   const basket = (await recipe(page, two)).content.basketId as string;
 
-  await page.goto(`/library/recipes/${one}`);
-  const recipeShots = page.getByRole("table", { name: "Shots with this Recipe" });
-  await expect(rows(recipeShots)).toHaveCount(1);
-  await rows(recipeShots).first().getByRole("link").first().click();
+  // A Recipe's page says how many Shots it has in the period chosen (#547), and opens them in the Shots list, at its
+  // preset of the same days: the last 7 here, which hold a Shot pulled just now whatever the hour.
+  await page.goto(`/library/recipes/${one}?period=week`);
+  const shots = page.getByRole("region", { name: "Shots" });
+  await expect(shots).toHaveText("Shots1 Shot in the last 7 daysOpen in the Shots list");
+  await expect(shots.getByRole("table")).toHaveCount(0);
+  await shots.getByRole("link", { name: "Open in the Shots list" }).click();
+  await expect(page).toHaveURL(new RegExp(`/shots\\?recipeId=${one}&period=7days$`));
+  await expect(rows(page.getByRole("table", { name: "Shots" }))).toHaveCount(1);
+  await rows(page.getByRole("table", { name: "Shots" })).first().getByRole("link").first().click();
   await expect(page).toHaveURL(/\/shots\/uptown-ethiopia$/);
   // Its Details name its Recipe, in no Recipe Slot, and its title links to it.
   await expect(field(await openCard(page, "Details"), "Recipe")).toHaveText("Fixture Ethiopia Espresso");
@@ -41,9 +47,7 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await expect(page.getByRole("heading", { name: "Fixture Ethiopia Espresso", level: 1 })).toBeVisible();
 
   // The Brazil's Shot, by its Recipe in the Shots list.
-  await page.goto(`/library/recipes/${two}`);
-  await page.getByRole("link", { name: "Filter the Shots list by it" }).click();
-  await expect(page).toHaveURL(new RegExp(`/shots\\?recipeId=${two}$`));
+  await page.goto(`/shots?recipeId=${two}`);
   const list = page.getByRole("table", { name: "Shots" });
   await expect(rows(list)).toHaveCount(1);
   await expect(filterChip(page, "Recipe")).toHaveText("Recipe:Fixture Brazil Espresso, Uptown");
@@ -62,7 +66,9 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await expect(field(details, "Basket")).toHaveText(basketName);
   await field(details, "Basket").getByRole("link").click();
   await expect(page.getByRole("heading", { name: basketName, level: 1 })).toBeVisible();
-  await expect(page.getByRole("table", { name: "Shots with this Basket" }).getByRole("link", { name: /./ }).first()).toBeVisible();
+  // The Basket's page counts the Shot, of any day, and opens it in the Shots list.
+  await expect(shots).toHaveText("Shots1 ShotOpen in the Shots list");
+  await expect(shots.getByRole("link", { name: "Open in the Shots list" })).toHaveAttribute("href", `/shots?basketId=${basket}`);
 });
 
 test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, but not one a Shot was, nor a Basket a Recipe names, and Staff cannot", async ({
@@ -76,14 +82,13 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
   await asStaff(browser, page, location, async (samsPage) => {
     await samsPage.goto(`/library/recipes/${two}`);
     await expect(samsPage.getByRole("heading", { name: "Fixture Brazil Espresso", level: 1 })).toBeVisible();
-    await expect(samsPage.getByRole("button", { name: "Archive", exact: true })).toBeVisible();
-    await expect(samsPage.getByRole("button", { name: "Delete" })).toHaveCount(0);
+    expect(await recipeActions(samsPage)).toEqual(["Take out of its slot", "Archive"]);
     expect((await samsPage.request.delete(`/api/recipes/${two}`)).status()).toBe(403);
   });
 
   // The Recipe a Shot was pulled with stays.
   await page.goto(`/library/recipes/${one}`);
-  await page.getByRole("button", { name: "Delete" }).click();
+  await recipeAction(page, "Delete");
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
   await expect(page.getByRole("alert")).toContainText("A Shot names this Recipe, so it cannot be deleted.");
 
@@ -99,7 +104,7 @@ test("an Admin hard-deletes a Recipe no Shot was pulled with from every tablet, 
 
   // The Recipe no Shot was pulled with goes, from both tablets.
   await page.goto(`/library/recipes/${two}`);
-  await page.getByRole("button", { name: "Delete" }).click();
+  await recipeAction(page, "Delete");
   await page.getByRole("alertdialog").getByRole("button", { name: "Delete" }).click();
   await expect(page).toHaveURL(new RegExp(`/locations/${location.id}$`));
   for (const tablet of [bar1, bar2]) await expect.poll(() => recipeRecords(tablet).some((record) => dye2GlobalIdOf(record) === two)).toBe(false);

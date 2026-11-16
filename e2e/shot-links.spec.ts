@@ -22,7 +22,7 @@ type Record_ = Record<string, unknown>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("a batch's page lists its Shots from both Locations, and the Shots list filters by Bean Batch and by Grinder", async ({ page }) => {
+test("a batch's page counts its Shots from both Locations and opens them in the Shots list, as its Bean's does, and the Shots list filters by Bean Batch and by Grinder", async ({ page }) => {
   const lab = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Roastery lab", timeZone: "America/Chicago" });
   const cafe = await post<{ location: { id: string } }>(page, "/api/locations", { name: "Belmont", timeZone: "America/Chicago" });
   const labTablet = await tabletAt(page, server, "Lab group", lab.location.id, "27001", tabletApi);
@@ -49,16 +49,29 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await expect.poll(async () => ((await (await page.request.get("/api/shots")).json()) as { total: number }).total).toBe(3);
 
   await page.goto(`/library/bean-batches/${batch.id}`);
-  const shots = page.getByRole("table", { name: "Shots with this Bean Batch" });
-  await expect(shots.getByRole("row")).toHaveCount(3);
-  await expect(shots.getByRole("row", { name: /Lab group.*Lab EK43 .* 4 stars$/ })).toBeVisible();
-  await expect(shots.getByRole("row", { name: /Belmont 1.*Belmont Mythos .* 3\.5 stars$/ })).toBeVisible();
-  await expectTip(page.getByRole("region", { name: "Shots" }), "Shots", "The Shots pulled with this Bean Batch on any Machine, newest first, in each Shot's Location's time zone.");
+  // One line (#547): how many Shots it has, and a link that opens them in the Shots list. The table of them is gone.
+  const shots = page.getByRole("region", { name: "Shots" });
+  await expect(shots).toHaveText("Shots2 ShotsOpen in the Shots list");
+  await expect(shots.getByRole("table")).toHaveCount(0);
+  await expectTip(shots, "Shots", "The Shots pulled with this Bean Batch on any Machine. The Shots list lists them, newest first, with their summary and trend.");
 
-  // Its Shots in the Shots list, filtered by it.
-  await page.getByRole("link", { name: "Filter the Shots list by it" }).click();
-  await expect(page).toHaveURL(new RegExp(`/shots\\?beanBatchId=${batch.id}$`));
+  // Its Bean's page counts the same Shots, those of any of its batches, and opens the list by the Bean: a filter the
+  // address alone sets, shown as a chip that removes it.
+  await page.goto(`/library/beans/${bean.id}`);
+  await expect(shots).toHaveText("Shots2 ShotsOpen in the Shots list");
+  await shots.getByRole("link", { name: "Open in the Shots list" }).click();
+  await expect(page).toHaveURL(new RegExp(`/shots\\?beanId=${bean.id}$`));
   const list = page.getByRole("table", { name: "Shots" });
+  await expect(rows(list)).toHaveCount(2);
+  await expect(filterChip(page, "Library Bean")).toHaveText("Library Bean:Linked Sidra");
+  await page.getByRole("button", { name: "Remove the Library Bean filter" }).click();
+  await expect(page).toHaveURL(/\/shots$/);
+  await expect(rows(list)).toHaveCount(3);
+
+  // The batch's Shots in the Shots list, filtered by it.
+  await page.goto(`/library/bean-batches/${batch.id}`);
+  await shots.getByRole("link", { name: "Open in the Shots list" }).click();
+  await expect(page).toHaveURL(new RegExp(`/shots\\?beanBatchId=${batch.id}$`));
   await expect(rows(list)).toHaveCount(2);
   await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Linked Sidra, roasted 2026-10-04");
 
