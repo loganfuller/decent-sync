@@ -689,8 +689,6 @@ export interface SummaryNumbers {
   yieldAgainstTarget: SummaryNumber;
   /** In seconds, without the Preheat, as the list shows it. */
   duration: SummaryNumber;
-  /** Of the Shots that recorded a stop reason, how many there are, and the part Decaid stopped at the target weight, from 0 to 1. */
-  stoppedOnWeight: { shots: number; share: number | null };
   /**
    * Stopped at target (GLOSSARY.md): of the Shots that recorded a stop reason, how many there are, how many Decaid
    * stopped at their target weight or volume, that part of them, from 0 to 1, and how many of the rest stopped each
@@ -799,11 +797,11 @@ export interface SummaryReference {
 }
 
 /**
- * One Shot's own value of each number of a Shot Summary, null where it has none: whether it stopped on weight is true
+ * One Shot's own value of each number of a Shot Summary, null where it has none: whether it stopped at target is true
  * or false, and its last step the step of its Profile it ended in.
  */
 export type ShotNumbers = {
-  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" | "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
 };
 
 /**

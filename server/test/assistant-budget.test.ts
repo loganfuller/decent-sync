@@ -59,7 +59,7 @@ function pagingFirst(text: string, list: string): void {
 const cut = (value: unknown) => typeof value === "string" && value.endsWith(CUT_MARK);
 
 /** Every number summarise_shots gives, asked for at once. */
-const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
 
 /** A Machine's use, as get_machine_use and the REST API's route give it. */
 interface Use {
@@ -268,7 +268,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         groups: [
           {
             counts: { shots: 60, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
-            numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedOnWeight: { shots: 60, share: 1 }, stoppedAtTarget: { shots: 60, share: 1, atTarget: 60 } },
+            numbers: { yieldAgainstTarget: { shots: 60, median: -0.1 }, duration: { shots: 60 }, stoppedAtTarget: { shots: 60, share: 1, atTarget: 60 } },
             spec: { yield: { judgement: "withinSpec", beyondMargin: false }, stoppedAtTarget: { judgement: "withinSpec", beyondMargin: false } },
           },
         ],
@@ -675,16 +675,16 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           api.get<{ groups: SummaryGroup[]; total: number; offset: number }>(`/shots/summary?${new URLSearchParams({ ...day, groupBy: groupBy.join(), limit: String(limit), offset: String(offset) })}`);
         const first = await assistant.callWithinBudget<Page & { groups: SummaryGroup[] }>("summarise_shots", { ...day, groupBy, limit: 50 });
         pagingFirst(first.text, "groups");
-        // About 1,070 characters a group, 135 of them its Reference Shot, 300 its ids and 215 its judgement against the
-        // margins (#543), so a page of 50 ends at 42, uncut.
-        const FITS = 42;
+        // About 1,005 characters a group, 110 of them its Reference Shot, 300 its ids and 215 its judgement against the
+        // margins (#543), so a page of 50 ends at 44, uncut.
+        const FITS = 44;
         expect(first.result).not.toHaveProperty("cut");
         expect(first.result).toEqual({ ...toolSummary(await rest(0, FITS)), more: true });
         expect(first.result).toMatchObject({ total: 55, offset: 0, more: true });
         expect(first.result.groups).toHaveLength(FITS);
         // Each group's Reference Shot, with its own value of each of the default numbers, to hundredths.
         expect(first.result.groups.map((group) => group.reference)).toEqual(
-          Array.from({ length: FITS }, (_, n) => ({ id: `copied-${String(n + 1).padStart(2, "0")}`, numbers: { yieldAgainstTarget: -0.1, duration: 23.55, stoppedOnWeight: true, stoppedAtTarget: true } })),
+          Array.from({ length: FITS }, (_, n) => ({ id: `copied-${String(n + 1).padStart(2, "0")}`, numbers: { yieldAgainstTarget: -0.1, duration: 23.55, stoppedAtTarget: true } })),
         );
         // Its one Shot is its Recipe's Reference Shot, at no difference from itself, and too few to judge.
         expect(first.result.groups[0]!.spec).toEqual({
@@ -705,7 +705,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(recorded.result).toMatchObject({ total: 55, more: true, groups: expect.arrayContaining([expect.objectContaining({ by: { barista: "Barista 01", profile: "Blooming espresso 01" } })]) });
         expect(recorded.result.groups).toHaveLength(50);
 
-        // Every number at once: about 1,800 characters a group, 330 of them its Reference Shot's, so a page of 50 ends
+        // Every number at once: about 1,740 characters a group, 305 of them its Reference Shot's, so a page of 50 ends
         // sooner, uncut, each page as the REST API gives those groups, and every group on some page once.
         const recipes: string[] = [];
         const lengths: number[] = [];
@@ -726,8 +726,8 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           if (!result.more) break;
         }
         expect([...recipes].sort()).toEqual([...made.recipes!].sort());
-        // 24 of them a page, and the other 7 on the third.
-        expect(lengths).toEqual([24, 24, 7]);
+        // 25 of them a page, and the other 5 on the third.
+        expect(lengths).toEqual([25, 25, 5]);
       });
 
       it("summarises a month of Shots by day and two groupings, each group with its 30 days whole, its pages ending sooner to fit, as the REST API does", async () => {
@@ -784,14 +784,14 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
           for (const group of groups) expect(group.buckets.every(({ counts }) => counts.shots === 3)).toBe(true);
           return lengths;
         };
-        // The default numbers: about 380 characters a day, 11,500 a group, so a page of 50 ends at 3 groups, and the
-        // other 5 follow on two more.
-        expect(await pages(undefined)).toEqual([3, 3, 2]);
-        // Every number at once: about 960 characters a day, 29,000 a group, so a page holds one group, its 30 days.
+        // The default numbers: about 340 characters a day, 10,300 a group, so a page of 50 ends at 4 groups, and the
+        // other 4 follow on one more.
+        expect(await pages(undefined)).toEqual([4, 4]);
+        // Every number at once: about 920 characters a day, 27,700 a group, so a page holds one group, its 30 days.
         expect(await pages(EVERY_NUMBER)).toEqual([1, 1, 1, 1, 1, 1, 1, 1]);
 
         // A group can't be split, so one whose buckets alone are over the budget is refused, saying what would fit:
-        // both months by day with every number, 60 days of about 960 characters each. Each of those does fit.
+        // both months by day with every number, 60 days of about 920 characters each. Each of those does fit.
         const both = { from: "2026-09-01", to: "2026-10-30", groupBy: ["recipe", "machine"], limit: 50 };
         const refused = await assistant.client.callTool({ name: "summarise_shots", arguments: { ...both, bucket: "day", numbers: EVERY_NUMBER, offset: 3 } });
         expect(refused.isError).toBe(true);
@@ -1387,7 +1387,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(group.reference!.id).toBe("haunted-numbers-00");
         expect(Object.keys(group.reference!.numbers)).toEqual(EVERY_NUMBER);
         // Its grind setting is text, so it has none; it ended in the first step.
-        expect(group.reference!.numbers).toMatchObject({ grindSetting: null, rating: 8, tds: 9.5, ratio: 1.99, stoppedOnWeight: true, lastStep: { frame: 0 } });
+        expect(group.reference!.numbers).toMatchObject({ grindSetting: null, rating: 8, tds: 9.5, ratio: 1.99, stoppedAtTarget: true, lastStep: { frame: 0 } });
         expect(cut((group.reference!.numbers.lastStep as { name: string }).name)).toBe(true);
       }
     });

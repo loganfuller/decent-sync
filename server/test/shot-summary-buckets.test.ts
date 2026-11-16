@@ -61,7 +61,7 @@ interface By {
 
 interface Figures {
   counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
-  numbers: { yieldAgainstTarget: SummaryNumber; duration: SummaryNumber; stoppedOnWeight: { shots: number; share: number | null } };
+  numbers: { yieldAgainstTarget: SummaryNumber; duration: SummaryNumber; stoppedAtTarget: { shots: number; share: number | null } };
 }
 
 interface Bucket extends Figures {
@@ -93,9 +93,9 @@ const number = (shots: number, median: number, p25 = median, p75 = median): Summ
 const counts = (shots: number, cleaning = 0) => ({ shots, unfinished: 0, cleaningAndCalibration: cleaning, awaitingValues: 0 });
 
 /** One Shot of shot-espresso.json: 0.1 g under its target, 23.549 s, stopped on weight. */
-const ESPRESSO: Figures = { counts: counts(1), numbers: { yieldAgainstTarget: number(1, -0.1), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 1 } } };
+const ESPRESSO: Figures = { counts: counts(1), numbers: { yieldAgainstTarget: number(1, -0.1), duration: number(1, 23.549), stoppedAtTarget: { shots: 1, share: 1 } } };
 /** One of shot-preheat.json: 1.3 g under, 25.833 s. */
-const PREHEAT: Figures = { counts: counts(1), numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedOnWeight: { shots: 1, share: 1 } } };
+const PREHEAT: Figures = { counts: counts(1), numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedAtTarget: { shots: 1, share: 1 } } };
 
 /** Resolves once `holds` does, as expect.poll, which a hook can't call, waits. */
 async function until(holds: () => Promise<boolean>, timeoutMs = 60_000): Promise<void> {
@@ -213,7 +213,7 @@ describe("Shot Summaries by day and week", () => {
           numbers: {
             yieldAgainstTarget: exactNumber(numbers.yieldAgainstTarget),
             duration: exactNumber(numbers.duration),
-            stoppedOnWeight: { shots: numbers.stoppedOnWeight.shots, share: exact(numbers.stoppedOnWeight.share) },
+            stoppedAtTarget: { shots: numbers.stoppedAtTarget.shots, share: exact(numbers.stoppedAtTarget.share) },
           },
         })),
       })),
@@ -232,7 +232,7 @@ describe("Shot Summaries by day and week", () => {
       // 4.095, two of 23.549 and two of 25.833.
       duration: number(5, 23.549, 23.549, 25.833),
       // All but the one its Machine ended.
-      stoppedOnWeight: { shots: 5, share: 0.8 },
+      stoppedAtTarget: { shots: 5, share: 0.8 },
     },
   };
 
@@ -251,11 +251,11 @@ describe("Shot Summaries by day and week", () => {
               start: "2026-02-15",
               counts: counts(3),
               // −1.3 and two of −0.1; two of 23.549 and 25.833.
-              numbers: { yieldAgainstTarget: number(3, -0.1, -0.7, -0.1), duration: number(3, 23.549, 23.549, 24.691), stoppedOnWeight: { shots: 3, share: 1 } },
+              numbers: { yieldAgainstTarget: number(3, -0.1, -0.7, -0.1), duration: number(3, 23.549, 23.549, 24.691), stoppedAtTarget: { shots: 3, share: 1 } },
             },
             // The Monday: one bucket of Shots pulled from 15:30 on UTC's Sunday, the Harbor's, to 21:00 on its Monday, the Lab's.
             { start: "2026-02-16", ...MONDAY },
-            { start: "2026-02-19", counts: counts(1), numbers: { yieldAgainstTarget: number(1, 0.5), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 1 } } },
+            { start: "2026-02-19", counts: counts(1), numbers: { yieldAgainstTarget: number(1, 0.5), duration: number(1, 23.549), stoppedAtTarget: { shots: 1, share: 1 } } },
             UNTIMED,
           ],
         },
@@ -278,7 +278,7 @@ describe("Shot Summaries by day and week", () => {
               counts: counts(4),
               // −1.3 and three of −0.1: the 25th percentile three quarters of the way from −1.3 to −0.1. Three of 23.549 and
               // 25.833: the 75th a quarter of the way from 23.549 to 25.833.
-              numbers: { yieldAgainstTarget: number(4, -0.1, -0.4, -0.1), duration: number(4, 23.549, 23.549, 24.12), stoppedOnWeight: { shots: 4, share: 1 } },
+              numbers: { yieldAgainstTarget: number(4, -0.1, -0.4, -0.1), duration: number(4, 23.549, 23.549, 24.12), stoppedAtTarget: { shots: 4, share: 1 } },
             },
             {
               // The week of 16 February: its Monday's and the Lab's Thursday's, the Harbor's first pulled on UTC's Sunday.
@@ -290,7 +290,7 @@ describe("Shot Summaries by day and week", () => {
                 yieldAgainstTarget: number(6, -0.7, -1.3, 0.35),
                 // 4.095, three of 23.549 and two of 25.833: the 75th three quarters of the way from 23.549 to 25.833.
                 duration: number(6, 23.549, 23.549, 25.262),
-                stoppedOnWeight: { shots: 6, share: 0.833333 },
+                stoppedAtTarget: { shots: 6, share: 0.833333 },
               },
             },
             UNTIMED,
@@ -329,7 +329,7 @@ describe("Shot Summaries by day and week", () => {
               start: "2026-02-16",
               counts: counts(2),
               // −6 and −0.1; 4.095 and 23.549.
-              numbers: { yieldAgainstTarget: number(2, -3.05, -4.525, -1.575), duration: number(2, 13.822, 8.9585, 18.6855), stoppedOnWeight: { shots: 2, share: 1 } },
+              numbers: { yieldAgainstTarget: number(2, -3.05, -4.525, -1.575), duration: number(2, 13.822, 8.9585, 18.6855), stoppedAtTarget: { shots: 2, share: 1 } },
             },
           ],
         },
@@ -342,9 +342,9 @@ describe("Shot Summaries by day and week", () => {
               start: "2026-02-16",
               counts: counts(2, 1),
               // −1.3 and 2.4; 23.549 and 25.833; one of the two stopped on weight.
-              numbers: { yieldAgainstTarget: number(2, 0.55, -0.375, 1.475), duration: number(2, 24.691, 24.12, 25.262), stoppedOnWeight: { shots: 2, share: 0.5 } },
+              numbers: { yieldAgainstTarget: number(2, 0.55, -0.375, 1.475), duration: number(2, 24.691, 24.12, 25.262), stoppedAtTarget: { shots: 2, share: 0.5 } },
             },
-            { start: "2026-02-19", counts: counts(1), numbers: { yieldAgainstTarget: number(1, 0.5), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 1 } } },
+            { start: "2026-02-19", counts: counts(1), numbers: { yieldAgainstTarget: number(1, 0.5), duration: number(1, 23.549), stoppedAtTarget: { shots: 1, share: 1 } } },
           ],
         },
         { by: { location: null }, buckets: [{ start: "2026-02-15", ...ESPRESSO }, { start: "2026-02-16", ...PREHEAT }, UNTIMED] },
@@ -415,7 +415,7 @@ describe("Shot Summaries by day and week", () => {
       [1, 2.027778],
     ]);
     // By week, with every other number: each bucket's are of its own Shots.
-    const every = "yieldAgainstTarget,duration,stoppedOnWeight,stoppedAtTarget,ratio,peakPressure,peakFlow,rating,grindSetting,tds,extractionYield,timeToFirstDrip,lastStep";
+    const every = "yieldAgainstTarget,duration,stoppedAtTarget,ratio,peakPressure,peakFlow,rating,grindSetting,tds,extractionYield,timeToFirstDrip,lastStep";
     const weeks = (await api.get<{ groups: { buckets: { start: string; numbers: Record<string, { shots: number }> }[] }[] }>(`/shots/summary?${new URLSearchParams({ bucket: "week", locationId: lab.id, numbers: every })}`))
       .groups[0]!.buckets;
     expect(weeks.map(({ start, numbers }) => [start, Object.keys(numbers).join(), numbers.grindSetting!.shots, numbers.timeToFirstDrip!.shots, numbers.lastStep!.shots])).toEqual([
@@ -443,7 +443,7 @@ describe("Shot Summaries by day and week", () => {
     // Before its buckets, as the REST API gives it.
     expect(Object.keys((await api.get<{ groups: Fields[] }>("/shots/summary?bucket=day&groupBy=recipe")).groups[0]!)).toEqual(["by", "reference", "buckets"]);
     // Its own values of the numbers asked for, the default three, whichever bucket it is in.
-    expect(house!.reference).toEqual({ id: "lab-monday", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: true, stoppedAtTarget: true } });
+    expect(house!.reference).toEqual({ id: "lab-monday", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedAtTarget: true } });
     expect(house!.buckets.map((bucket) => Object.keys(bucket))).toEqual(Array.from({ length: 4 }, () => ["start", "counts", "numbers"]));
     expect(house!.buckets.map(({ start }) => start)).toEqual(["2026-02-10", "2026-02-15", "2026-02-16", "2026-02-19"]);
     // The Shots pulled with no Recipe have none.

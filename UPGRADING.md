@@ -22,6 +22,18 @@ Each release's notes on GitHub start with its section here. Notes for the next
 release wait under Unreleased until it is tagged (see docs/DEVELOPMENT.md,
 Releasing).
 
+## Unreleased
+
+### A Shot Summary no longer gives stoppedOnWeight
+
+The REST API's `GET /api/shots/summary` and the MCP endpoint's
+`summarise_shots` no longer give `stoppedOnWeight`, the share of Shots their
+target weight stopped, which the management interface stopped reading in
+1.11.0. A request that names it in `numbers` is refused, as one naming any
+number the server doesn't know is. A script or assistant that read it reads
+`stoppedAtTarget` instead, which counts a stop at the target volume too and
+says how the rest stopped (`GLOSSARY.md`, Stopped at target).
+
 ## 1.10.1
 
 ### Tablets need Decaid v0.9.2, DYE2 v0.1.40 and Streamline v0.2.27

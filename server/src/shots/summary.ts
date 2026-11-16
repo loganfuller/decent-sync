@@ -83,8 +83,6 @@ export interface SummaryNumbers {
   yieldAgainstTarget: SummaryNumber;
   /** How long each Shot's profile ran, in seconds: the recording less its Preheat, as the Shots list shows it (`shownDuration`). */
   duration: SummaryNumber;
-  /** Among the Shots that recorded a stop reason, those Decaid stopped at the target weight (`targetWeight`). */
-  stoppedOnWeight: SummaryShare;
   /** Among the Shots that recorded a stop reason, those Decaid stopped at their target, its weight or its volume, and how the rest stopped. */
   stoppedAtTarget: StoppedAtTarget;
   /** Yield weighed over dose weighed; a Shot whose dose is 0 or missing, or that weighed no yield, has no value. */
@@ -109,19 +107,17 @@ export interface SummaryNumbers {
  * What one Shot has of each number, as a Recipe's Reference Shot gives them
  * (`SummaryReference`): its own value, null where it has none, as a Shot
  * with no value of a number is not counted in a group's. Whether it stopped
- * on weight, and at its target, are each true or false, null where it
- * recorded no stop reason, and its last step the step of its Profile it
- * ended in.
+ * at its target is true or false, null where it recorded no stop reason,
+ * and its last step the step of its Profile it ended in.
  */
 export type ShotNumbers = {
-  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" | "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
 };
 
 /** The numbers a summary can give, in the order a group gives them. */
 export const NUMBERS = [
   "yieldAgainstTarget",
   "duration",
-  "stoppedOnWeight",
   "stoppedAtTarget",
   "ratio",
   "peakPressure",
@@ -135,12 +131,8 @@ export const NUMBERS = [
 ] as const satisfies readonly (keyof SummaryNumbers)[];
 export type NumberName = (typeof NUMBERS)[number];
 
-/**
- * The numbers a summary gives where none are named: with the count, what the
- * Overview reads (#465, #543). `stoppedOnWeight` stays among them for the
- * latest release's pages, which read it (ADR-0025), until #559 removes it.
- */
-export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"];
+/** The numbers a summary gives where none are named: with the count, what the Overview reads (#465, #543). */
+export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedAtTarget"];
 
 /**
  * What a summary's Shots are grouped by (#465, Groupings), each by what the
@@ -462,19 +454,6 @@ function numberSql(name: NumberName): NumberSql {
       return medianSql(name, SHOT_VALUES.yieldAgainstTarget);
     case "duration":
       return medianSql(name, SHOT_VALUES.duration);
-    case "stoppedOnWeight":
-      return {
-        columns: { stopReason: SHOT_VALUES.stopReason },
-        aggregates: (covered) => [
-          Prisma.sql`count(shot."stopReason") FILTER (WHERE ${covered})::int AS "stopShots"`,
-          Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot."stopReason" = 'targetWeight')::int AS "stoppedOnWeight"`,
-        ],
-        read: (row) => {
-          const shots = row.stopShots as number;
-          return { shots, share: shots === 0 ? null : (row.stoppedOnWeight as number) / shots } satisfies SummaryShare;
-        },
-        own: (shot) => (shot.stopReason === null ? null : shot.stopReason === "targetWeight"),
-      };
     case "stoppedAtTarget": {
       // Each kind's Shots under its own name, and the rest as what is left of those that recorded a reason.
       const kinds = { AtTarget: AT_TARGET_REASONS, ByHand: STOP_KINDS.byHand, MachineEnded: STOP_KINDS.machineEnded, Error: STOP_KINDS.error };
@@ -603,7 +582,7 @@ function specOf(row: Record<string, unknown>, referenceDuration: number | null |
   };
 }
 
-/** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default four. */
+/** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default three. */
 export function readNumbers(query: Record<string, unknown>): NumberName[] {
   const problems: string[] = [];
   const given = queryValue(query, "numbers", problems);
