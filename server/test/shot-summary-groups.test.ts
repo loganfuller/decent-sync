@@ -664,7 +664,7 @@ describe("Shot Summaries by group", () => {
     const given = (await api.get<Summary>(`/shots/summary?${new URLSearchParams({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: every })}`)).groups[0]!.reference!;
     expect(given.numbers).toMatchObject({ duration: read.duration, peakPressure: read.peakPressure, peakFlow: read.peakFlow, timeToFirstDrip: read.timeToFirstDrip, lastStep: read.lastStep });
     expect((read.actualYield as number) - (read.targetYield as number)).toBeCloseTo(given.numbers.yieldAgainstTarget as number, 9);
-    // Only the numbers asked for, in one order: the default four where none are named.
+    // Only the numbers asked for, in one order: the default three where none are named.
     const { yieldAgainstTarget, duration, stoppedAtTarget, ratio, lastStep } = PREHEAT_OWN;
     const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedAtTarget } };
     expect((await references({ groupBy: "recipe", recipeId: recipes.labHouse.id }))[0]![1]).toEqual(defaults);

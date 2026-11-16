@@ -582,7 +582,7 @@ function specOf(row: Record<string, unknown>, referenceDuration: number | null |
   };
 }
 
-/** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default four. */
+/** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default three. */
 export function readNumbers(query: Record<string, unknown>): NumberName[] {
   const problems: string[] = [];
   const given = queryValue(query, "numbers", problems);
