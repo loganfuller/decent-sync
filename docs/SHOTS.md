@@ -1287,7 +1287,7 @@ Machines and each Shot within spec or out of spec against three margins
   summary gives `yieldAgainstTarget`, `duration`, `stoppedOnWeight` and
   `stoppedAtTarget`: with the count, what the Overview reads (#465, #543).
   `stoppedOnWeight` stays among them for the latest release's pages, which
-  read it (ADR-0025), until a later release removes it. A group gives those named,
+  read it (ADR-0025), until #559 removes it. A group gives those named,
   in the order below, and only those are read, so a number read from each
   Shot's record costs only a summary that asks for it.
   - `yieldAgainstTarget`: the yield weighed less the target yield
