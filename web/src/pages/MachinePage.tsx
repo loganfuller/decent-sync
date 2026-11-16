@@ -68,6 +68,18 @@ const TABS = [
 type Tab = (typeof TABS)[number]["tab"];
 
 /**
+ * The address's query for a tab: the one it has with `tab` naming the tab, or
+ * not there for Now, so what else it keeps, as the period Now's Shots card
+ * shows, is still chosen on coming back.
+ */
+function tabSearch(params: URLSearchParams, tab: Tab): string {
+  const next = new URLSearchParams(params);
+  if (tab === "now") next.delete("tab");
+  else next.set("tab", tab);
+  return next.size > 0 ? `?${next}` : "";
+}
+
+/**
  * One Machine (#545). Above its tabs, whichever is open: its name and
  * whether it is online; a line with what it is doing, its last Shot and
  * where it is; links to its Shots and Steam Records; and what needs
@@ -196,7 +208,7 @@ function MachineDetails({ id }: { id: string }) {
             {TABS.map(({ tab: each, label }) => (
               <Link
                 key={each}
-                to={{ search: each === "now" ? "" : `?tab=${each}` }}
+                to={{ search: tabSearch(params, each) }}
                 aria-current={each === tab ? "page" : undefined}
                 className={cn(
                   "-mb-px border-b-2 py-2",

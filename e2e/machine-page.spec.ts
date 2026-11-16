@@ -302,6 +302,12 @@ test("Now's Shots card gives the Machine's Shots by Recipe over a period, marked
   await expect(rows(yesterday).getByRole("link", { name: "1 Shot of Decaf" })).toHaveAttribute("href", `/shots?recipeId=${recipes.decaf}&machineId=${machines.right.id}&period=yesterday`);
   await page.goto(`/machines/${machines.right.id}?period=week`);
   await expect(right.getByRole("tab", { name: "7 days" })).toHaveAttribute("aria-selected", "true");
+  // And keeps through a look at another tab.
+  await openMachineTab(page, "Setup");
+  await expect(page).toHaveURL(`/machines/${machines.right.id}?period=week&tab=setup`);
+  await openMachineTab(page, "Now");
+  await expect(page).toHaveURL(`/machines/${machines.right.id}?period=week`);
+  await expect(right.getByRole("tab", { name: "7 days" })).toHaveAttribute("aria-selected", "true");
   await expect(rows(right.getByRole("table", { name: "Shots by Recipe in the last 7 days" })).getByRole("rowheader")).toHaveText([reads("1 Decaf"), reads("2 House"), "Guest", "No Recipe loaded"], {
     useInnerText: true,
   });
