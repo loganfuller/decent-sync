@@ -76,7 +76,9 @@ function tabSearch(params: URLSearchParams, tab: Tab): string {
   const next = new URLSearchParams(params);
   if (tab === "now") next.delete("tab");
   else next.set("tab", tab);
-  return next.size > 0 ? `?${next}` : "";
+  // Its text, not its `size`, which the oldest browsers the build targets don't have.
+  const query = next.toString();
+  return query ? `?${query}` : "";
 }
 
 /**
