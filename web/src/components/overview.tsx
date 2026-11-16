@@ -133,20 +133,26 @@ interface Numbers {
  */
 async function readNumbers(location: Pick<Location, "id" | "timeZone">, period: Period): Promise<Numbers> {
   const days = periodDays(period, location.timeZone);
-  const page = async (offset: number) => {
-    const query = new URLSearchParams({ locationId: location.id, from: days.from, to: days.to, groupBy: "recipe,machine", limit: String(PAGE), offset: String(offset) });
-    return api<ShotSummary>("GET", `/shots/summary?${query}`);
-  };
-  const [{ recipes }, first] = await Promise.all([api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(location.id)}/recipes`), page(0)]);
+  const [{ recipes }, groups] = await Promise.all([
+    api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(location.id)}/recipes`),
+    readSummaryGroups({ locationId: location.id, from: days.from, to: days.to, groupBy: "recipe,machine" }),
+  ]);
+  const elsewhere = new Set(groups.flatMap(({ by }) => (by.recipe && !recipes.some((recipe) => recipe.id === by.recipe!.id) ? [by.recipe.id] : [])));
+  const others = await Promise.all([...elsewhere].map(async (id) => (await api<{ recipe: Recipe }>("GET", `/recipes/${encodeURIComponent(id)}`)).recipe));
+  return { period, ...days, recipes: [...recipes, ...others], groups };
+}
+
+/** Every group of a Shot Summary with these filters and grouping, a page after another until it has them all. */
+export async function readSummaryGroups(filters: Record<string, string>): Promise<SummaryGroup[]> {
+  const page = (offset: number) => api<ShotSummary>("GET", `/shots/summary?${new URLSearchParams({ ...filters, limit: String(PAGE), offset: String(offset) })}`);
+  const first = await page(0);
   const groups = [...first.groups];
   while (groups.length < first.total) {
     const next = await page(groups.length);
     if (next.groups.length === 0) break;
     groups.push(...next.groups);
   }
-  const elsewhere = new Set(groups.flatMap(({ by }) => (by.recipe && !recipes.some((recipe) => recipe.id === by.recipe!.id) ? [by.recipe.id] : [])));
-  const others = await Promise.all([...elsewhere].map(async (id) => (await api<{ recipe: Recipe }>("GET", `/recipes/${encodeURIComponent(id)}`)).recipe));
-  return { period, ...days, recipes: [...recipes, ...others], groups };
+  return groups;
 }
 
 /**

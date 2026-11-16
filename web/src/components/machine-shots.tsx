@@ -2,14 +2,14 @@ import { useCallback } from "react";
 import { Link } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { SlotBadge } from "@/components/machines";
-import { PeriodChoice, PeriodTabs, useOverviewPeriod } from "@/components/overview";
+import { PeriodChoice, PeriodTabs, readSummaryGroups, useOverviewPeriod } from "@/components/overview";
 import { OrNone } from "@/components/records";
 import { SpecMark } from "@/components/spec-mark";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { TabsContent } from "@/components/ui/tabs";
-import { type Machine, type Recipe, type ShotSummary, api } from "@/lib/api";
+import { type Machine, type Recipe, api } from "@/lib/api";
 import { type OverviewRow, PERIODS, type SpecLine, coveredText, overviewRows } from "@/lib/overview";
 import { type Judged, machineNumbers, machineShotsPath } from "@/lib/recipe-numbers";
 import { ratedShotsPath } from "@/lib/shot-list";
@@ -22,9 +22,6 @@ import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 // each Machine's (#547). It is the Shot Summary of the Machine's Shots,
 // grouped by Recipe and then Machine, over the Shots list's date preset of
 // the period, so a Recipe's count opens exactly the Shots it counts.
-
-/** The most groups one read of a summary gives (`readPage` in the server's pagination.ts). */
-const PAGE = 100;
 
 /** A number that is marked, being out of spec, or as it is otherwise; a dash for none. */
 function JudgedNumber({ judged }: { judged: Judged | undefined }) {
@@ -59,14 +56,13 @@ export function MachineShotsCard({ machine }: { machine: Machine }) {
   const locationId = machine.location?.id;
   const load = useCallback(async () => {
     const { shots: preset } = PERIODS.find((each) => each.period === period)!;
-    // By Machine too, which has the server judge the Machine's Shots of each Recipe against its Reference Shot.
-    const query = new URLSearchParams({ machineId: id, period: preset, groupBy: "recipe,machine", limit: String(PAGE) });
-    const [summary, recipes] = await Promise.all([
-      api<ShotSummary>("GET", `/shots/summary?${query}`),
+    const [groups, recipes] = await Promise.all([
+      // By Machine too, which has the server judge the Machine's Shots of each Recipe against its Reference Shot. Every page of it, as the Overview reads its own.
+      readSummaryGroups({ machineId: id, period: preset, groupBy: "recipe,machine" }),
       // For the Recipe Slots at the Location it is at, which order its rows.
       locationId === undefined ? [] : api<{ recipes: Recipe[] }>("GET", `/locations/${encodeURIComponent(locationId)}/recipes`).then((read) => read.recipes),
     ]);
-    return { period, summary, recipes };
+    return { period, groups, recipes };
   }, [id, locationId, period]);
   const polled = usePolled(load, DETAILS_POLL_MS);
   // One period's numbers never stand under another's name while the next load is on its way.
@@ -74,7 +70,7 @@ export function MachineShotsCard({ machine }: { machine: Machine }) {
   const { error } = polled;
   const { pulled, shots: preset } = PERIODS.find((each) => each.period === period)!;
   const rows = data
-    ? overviewRows(data.summary.groups, data.recipes, locationId ?? "").flatMap((row) => {
+    ? overviewRows(data.groups, data.recipes, locationId ?? "").flatMap((row) => {
         const group = row.cells.get(id);
         return group ? [{ row, group, numbers: machineNumbers(group), to: machineShotsPath(row.recipe?.id ?? "none", id, preset) }] : [];
       })
@@ -99,7 +95,7 @@ export function MachineShotsCard({ machine }: { machine: Machine }) {
               </p>
               <p>A Recipe's count opens its Shots in the Shots list. The numbers are read again every 30 seconds.</p>
             </CardTitleWithInfo>
-            {data && <p className="text-sm text-muted-foreground tabular-nums">{coveredText(data.summary.groups, period)}</p>}
+            {data && <p className="text-sm text-muted-foreground tabular-nums">{coveredText(data.groups, period)}</p>}
           </div>
           <PeriodChoice />
         </CardHeader>
@@ -182,11 +178,6 @@ export function MachineShotsCard({ machine }: { machine: Machine }) {
                   ))}
                 </ul>
               </>
-            )}
-            {data && data.summary.total > data.summary.groups.length && (
-              <p className="text-xs text-muted-foreground">
-                These are the first {data.summary.groups.length} Recipes by name, of {data.summary.total} it pulled.
-              </p>
             )}
           </TabsContent>
         </CardContent>

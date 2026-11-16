@@ -2020,7 +2020,9 @@ days, kept in the page's address as `period`. It asks
 `GET /api/shots/summary` for the Machine's Shots, by `machineId`, over the
 Shots list's date preset of the period (`period`), so each Shot's own
 Location's days, grouped by `recipe,machine`, which has the server judge
-the Machine's Shots of each Recipe against its Reference Shot, every 30 s.
+the Machine's Shots of each Recipe against its Reference Shot, every 30 s,
+every page of it, through the read the Overview's blocks use
+(`readSummaryGroups`).
 A row gives the Recipe, with its Recipe Slot at the Location the Machine is
 at now, from that Location's Recipes; the count, linked to those Shots in
 the Shots list by the same Recipe, Machine and preset, with any Unfinished
