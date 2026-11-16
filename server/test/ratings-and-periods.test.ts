@@ -204,10 +204,12 @@ describe("the rating filter and the periods of record lists", () => {
       const { answer, expected } = await readInPeriod(period, () => shotIds({ period }));
       expect(answer, period).toEqual(expected);
     }
-    // Today holds the Shot pulled now at every site, though no two of them are on the same date, and not the one pulled
-    // a minute before each site's midnight; the 7 days hold each site's sixth day back and not its seventh.
+    // Today holds the Shot pulled now at each site, though no two of them are on the same date, and not the one pulled
+    // a minute before each site's midnight; the 7 days hold each site's sixth day back and not its seventh. A site whose
+    // midnight has passed since its Shot was pulled has it in yesterday, which the periods above followed: the sites'
+    // midnights are hours apart, so at most one has.
     const { answer: today } = await readInPeriod("today", () => shotIds({ period: "today" }));
-    expect(today).toEqual(expect.arrayContaining(["east-now", "west-now", "roaming-now"]));
+    expect(today.filter((id) => id.endsWith("-now")).length).toBeGreaterThanOrEqual(2);
     expect(new Set(["east", "west", "roaming"].map((site) => Temporal.Now.plainDateISO(sites[site as Site].timeZone).toString())).size).toBeGreaterThan(1);
 
     // Beside the list's other filters, and in a summary.

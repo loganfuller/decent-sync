@@ -32,9 +32,9 @@ export async function openCard(page: Page, name: string): Promise<Locator> {
   return card;
 }
 
-/** The table's rows, leaving out its header row. */
+/** The table's rows, leaving out its header row and any row that only heads a group of rows, as a day's heading in the Shots list. */
 export function rows(table: Locator): Locator {
-  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") });
+  return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") }).filter({ has: table.page().getByRole("cell") });
 }
 
 /** The Machine's row in the Machines list. */

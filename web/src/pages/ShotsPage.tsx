@@ -164,15 +164,13 @@ function ShotRows({ shots, list }: { shots: ListedShot[]; list: RecordList<ShotP
               <TableHead>Barista</TableHead>
             </TableRow>
           </TableHeader>
-          <TableBody>
-            {groups.map((group, index) => (
-              <DayRows key={`${index} ${group.heading}`} heading={group.heading}>
-                {group.shots.map((shot) => (
-                  <ShotRow key={shot.id} shot={shot} state={state} located={located} />
-                ))}
-              </DayRows>
-            ))}
-          </TableBody>
+          {groups.map((group, index) => (
+            <DayRows key={`${index} ${group.heading}`} heading={group.heading}>
+              {group.shots.map((shot) => (
+                <ShotRow key={shot.id} shot={shot} state={state} located={located} />
+              ))}
+            </DayRows>
+          ))}
         </Table>
       </div>
       <div role="group" aria-label="Shots" className="overflow-hidden rounded-lg border lg:hidden">
@@ -191,17 +189,18 @@ function ShotRows({ shots, list }: { shots: ListedShot[]; list: RecordList<ShotP
   );
 }
 
-/** A day's rows of the table, under its heading. */
+/** A day's rows of the table, a group of its own, under the heading that names it. */
 function DayRows({ heading, children }: { heading: string; children: ReactNode }) {
   return (
-    <>
+    // A day's last row keeps its line where another day follows.
+    <TableBody className="not-last:[&_tr:last-child]:border-b">
       <TableRow className="bg-muted/50 hover:bg-muted/50">
-        <TableHead colSpan={9} scope="colgroup" className="h-8 text-[0.8125rem]">
+        <TableHead colSpan={9} scope="rowgroup" className="h-8 text-[0.8125rem]">
           {heading}
         </TableHead>
       </TableRow>
       {children}
-    </>
+    </TableBody>
   );
 }
 
