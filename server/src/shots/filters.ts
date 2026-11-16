@@ -1,3 +1,4 @@
+import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 import { BadRequestException } from "@nestjs/common";
 import { Prisma } from "../generated/prisma/client.js";
 import { readBeanBatchId } from "../library/bean-batches.service.js";
@@ -42,7 +43,22 @@ export interface ShotFilters extends RecordFilters {
   beanId?: string;
   /** A Library Profile's id, which is Decaid's: Shots pulled with it (`shotProfileSql`). */
   profileId?: string;
+  /** By its rating (`RATINGS`): rated, unrated, or a least number of stars. */
+  rating?: Rating;
 }
+
+/**
+ * What a Shots list is narrowed to by rating (#544): `rated`, Shots rated
+ * above 0; `unrated`, the rest, as DYE2 writes 0 for no stars and a Shot may
+ * record none; or a least number of stars of five, from 2, each two points
+ * of Decaid's rating from 0 to 10, as a Shot Summary's rating reads one
+ * (`SummaryNumbers.rating`).
+ */
+export const RATINGS = ["rated", "unrated", "2", "3", "4", "5"] as const;
+export type Rating = (typeof RATINGS)[number];
+
+/** How many of Decaid's points a star of five is. */
+const POINTS_A_STAR = MAX_SHOT_RATING / 5;
 
 const TEXT_FILTERS = ["coffeeRoaster", "coffeeName", "barista", "profileTitle"] as const;
 
@@ -120,6 +136,9 @@ export function readShotFilters(query: Record<string, unknown>): ShotFilters {
   if (beanId !== undefined) filters.beanId = readBeanId(beanId);
   const profileId = queryValue(query, "profileId", problems);
   if (profileId !== undefined) filters.profileId = readProfileId(profileId);
+  const rating = queryValue(query, "rating", problems);
+  if ((RATINGS as readonly string[]).includes(rating!)) filters.rating = rating as Rating;
+  else if (rating !== undefined) problems.push("Enter rating as rated, unrated, or a least number of stars from 2 to 5");
   if (problems.length > 0) throw new BadRequestException([...new Set(problems)]);
   return filters;
 }
@@ -156,6 +175,9 @@ export function shotFilterSql(filters: ShotFilters): Prisma.Sql {
     conditions.push(Prisma.sql`s.library_batch_id IN (SELECT id FROM bean_batches WHERE bean_id = ${filters.beanId}::uuid)`);
   }
   if (filters.profileId !== undefined) conditions.push(shotPulledWithSql("s", filters.profileId));
+  if (filters.rating === "rated") conditions.push(Prisma.sql`s.enjoyment > 0`);
+  else if (filters.rating === "unrated") conditions.push(Prisma.sql`coalesce(s.enjoyment, 0) <= 0`);
+  else if (filters.rating !== undefined) conditions.push(Prisma.sql`s.enjoyment >= ${Number(filters.rating) * POINTS_A_STAR}`);
   if (filters.recipeId === null) conditions.push(Prisma.sql`${shotRecipeSql("s")} IS NULL`);
   else if (filters.recipeId !== undefined) conditions.push(Prisma.sql`s.recipe_id = ${filters.recipeId}::uuid AND ${shotRecipeSql("s")} IS NOT NULL`);
   return Prisma.join(conditions, " AND ");

@@ -1,6 +1,6 @@
 import { BadRequestException } from "@nestjs/common";
 import * as z from "zod";
-import type { RecordFilters } from "../record-filters.js";
+import { PERIOD_NAMES, PERIOD_OR_TIMES, type Period, type RecordFilters } from "../record-filters.js";
 
 // Times through the MCP endpoint (#405): they go in and out as ISO 8601 with
 // offsets, and a date given for a day means each Location's day in its own
@@ -23,15 +23,32 @@ export function timeBound(description: string, day = RECORDS_DAY) {
     .describe(`${description} ${day} A time with its offset, such as 2026-11-06T14:30:00-05:00, is that moment everywhere.`);
 }
 
+/** A record list's period (`PERIODS` in record-filters.ts), in place of a time range; `what` names its records. */
+export function periodBound(what: string) {
+  return z
+    .enum(PERIOD_NAMES)
+    .optional()
+    .describe(`${what} today, yesterday, or in the 7 or 30 days that end with today: each Location's own days now, in its time zone, and UTC's for a record whose Location is unknown. In place of from and to.`);
+}
+
 /**
  * The bounds of a record list's time range, as its filters: a date as the
  * REST API's filters read it (`readRecordFilters`), from the start of that
  * day at each record's Location, and `to` through its end; a moment as
- * itself, `from` at or after it and `to` before it.
+ * itself, `from` at or after it and `to` before it. A `period` goes as the
+ * REST API reads one, and is refused beside either bound, as it refuses it.
  */
-export function timeRange(from: string | undefined, to: string | undefined): { query: Record<string, string>; filters: Pick<RecordFilters, "fromAt" | "untilAt"> } {
+export function timeRange(
+  from: string | undefined,
+  to: string | undefined,
+  period?: Period,
+): { query: Record<string, string>; filters: Pick<RecordFilters, "fromAt" | "untilAt"> } {
   const query: Record<string, string> = {};
   const filters: Pick<RecordFilters, "fromAt" | "untilAt"> = {};
+  if (period !== undefined) {
+    if (from !== undefined || to !== undefined) throw new BadRequestException(PERIOD_OR_TIMES);
+    query.period = period;
+  }
   if (from !== undefined) {
     if (DAY.test(from)) query.from = from;
     else filters.fromAt = moment("from", from);
