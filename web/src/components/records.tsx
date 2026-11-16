@@ -125,8 +125,17 @@ export function RecordCard({ title, description, fields, empty }: { title: strin
   );
 }
 
-/** A record's samples as a table, for reading exact values, with those in a shaded phase, such as a Shot's Preheat, marked and, when asked, its steps named. */
-export function MeasurementsTable<C extends string>({
+/** A record's samples as a table, for reading exact values, shown on asking, with how many there are beside its button. */
+export function MeasurementsTable<C extends string>(props: { curves: Record<C, CurveInfo>; samples: Sample<C>[]; steps?: boolean }) {
+  return (
+    <RecordCollapsible label="Measurements as a table" description={`${props.samples.length} samples, as recorded.`}>
+      <Measurements {...props} />
+    </RecordCollapsible>
+  );
+}
+
+/** A record's samples as a table, with those in a shaded phase, such as a Shot's Preheat, marked and, when asked, its steps named. */
+export function Measurements<C extends string>({
   curves,
   samples,
   steps = false,
@@ -138,53 +147,56 @@ export function MeasurementsTable<C extends string>({
 }) {
   const shown = Object.keys(curves) as C[];
   return (
-    <RecordCollapsible label="Measurements as a table" description={`${samples.length} samples, as recorded.`}>
-      <div className="max-h-[32rem] overflow-auto rounded-lg border">
-        <Table aria-label="Measurements">
-          <TableHeader>
-            <TableRow>
-              <TableHead>Time</TableHead>
-              {steps && <TableHead>Step</TableHead>}
+    <div className="max-h-[32rem] overflow-auto rounded-lg border">
+      <Table aria-label="Measurements">
+        <TableHeader>
+          <TableRow>
+            <TableHead>Time</TableHead>
+            {steps && <TableHead>Step</TableHead>}
+            {shown.map((curve) => (
+              <TableHead key={curve}>
+                {curves[curve].label} ({curves[curve].unit})
+              </TableHead>
+            ))}
+          </TableRow>
+        </TableHeader>
+        <TableBody className="tabular-nums">
+          {samples.map((sample, index) => (
+            <TableRow key={index}>
+              <TableCell className="whitespace-nowrap">
+                {sample.seconds.toFixed(2)} s
+                {sample.shade && (
+                  <Badge variant="secondary" className="ml-2">
+                    {sample.shade}
+                  </Badge>
+                )}
+              </TableCell>
+              {steps && <TableCell className="whitespace-nowrap">{sample.step?.name}</TableCell>}
               {shown.map((curve) => (
-                <TableHead key={curve}>
-                  {curves[curve].label} ({curves[curve].unit})
-                </TableHead>
+                <TableCell key={curve}>
+                  <OrNone>{numberText(sample.values[curve])}</OrNone>
+                </TableCell>
               ))}
             </TableRow>
-          </TableHeader>
-          <TableBody className="tabular-nums">
-            {samples.map((sample, index) => (
-              <TableRow key={index}>
-                <TableCell className="whitespace-nowrap">
-                  {sample.seconds.toFixed(2)} s
-                  {sample.shade && (
-                    <Badge variant="secondary" className="ml-2">
-                      {sample.shade}
-                    </Badge>
-                  )}
-                </TableCell>
-                {steps && <TableCell className="whitespace-nowrap">{sample.step?.name}</TableCell>}
-                {shown.map((curve) => (
-                  <TableCell key={curve}>
-                    <OrNone>{numberText(sample.values[curve])}</OrNone>
-                  </TableCell>
-                ))}
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
+  );
+}
+
+/** The record as its tablet sent it, but its measurements, shown on asking. */
+export function RecordAsSent({ record }: { record: Record<string, unknown> }) {
+  return (
+    <RecordCollapsible label="Record as sent" description="Everything its tablet sent about it, but its measurements.">
+      <SentRecord record={record} />
     </RecordCollapsible>
   );
 }
 
-/** The record as its tablet sent it, but its measurements. */
-export function RecordAsSent({ record }: { record: Record<string, unknown> }) {
-  return (
-    <RecordCollapsible label="Record as sent" description="Everything its tablet sent about it, but its measurements.">
-      <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(record, null, 2)}</pre>
-    </RecordCollapsible>
-  );
+/** A record as sent, in a box a long line of it scrolls in. */
+export function SentRecord({ record }: { record: Record<string, unknown> }) {
+  return <pre className="max-h-[32rem] overflow-auto rounded-md bg-muted p-3 text-xs">{JSON.stringify(record, null, 2)}</pre>;
 }
 
 function RecordCollapsible({ label, description, children }: { label: string; description: string; children: ReactNode }) {

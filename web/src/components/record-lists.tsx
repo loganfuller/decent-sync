@@ -3,6 +3,7 @@ import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useStat
 import { useLocation, useSearchParams } from "react-router";
 import { InfoTip } from "@/components/info-tip";
 import { describeHardware, useLocations } from "@/components/machines";
+import { Segmented, SegmentedItem } from "@/components/segmented";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -12,7 +13,6 @@ import { Input } from "@/components/ui/input";
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Sheet, SheetClose, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
-import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Select,
   SelectContent,
@@ -390,7 +390,7 @@ export function RecordFilterBar({
       )}
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex items-center gap-2 max-sm:w-full">
-          <ToggleGroup type="single" aria-label="Dates" value={dates} onValueChange={chooseDates} spacing={0} className="h-8 gap-0.5 rounded-lg bg-muted p-[3px] max-sm:flex-1">
+          <Segmented label="Dates" value={dates} onValueChange={chooseDates} className="max-sm:flex-1">
             {PERIODS.map((each) => (
               <DatesItem key={each.period} value={each.period}>
                 {each.label}
@@ -400,7 +400,7 @@ export function RecordFilterBar({
               <CalendarIcon className="sm:hidden" />
               <span className="max-sm:sr-only">Custom</span>
             </DatesItem>
-          </ToggleGroup>
+          </Segmented>
           <InfoTip label="About dates and times">
             <p>
               Today, Yesterday, 7 days and 30 days are each {noun}'s Location's own days, counted back from its own today, or UTC's for a {noun} with
@@ -471,15 +471,12 @@ export function RecordFilterBar({
   );
 }
 
-/** One of the date presets, in the segmented control they make. */
+/** One of the date presets, in the segmented control they make: on a narrow screen they share its width. */
 function DatesItem({ value, className, children }: { value: string; className?: string; children: ReactNode }) {
   return (
-    <ToggleGroupItem
-      value={value}
-      className={`h-full min-w-0 rounded-md! px-2.5 text-foreground/60 hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm max-sm:flex-1 max-sm:px-1 dark:data-[state=on]:bg-input/30 ${className ?? ""}`}
-    >
+    <SegmentedItem value={value} className={`max-sm:flex-1 max-sm:px-1 ${className ?? ""}`}>
       {children}
-    </ToggleGroupItem>
+    </SegmentedItem>
   );
 }
 

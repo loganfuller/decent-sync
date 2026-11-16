@@ -5,7 +5,7 @@ import { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
-import { chooseFilter, field, filterChip, rows } from "./support/locators.js";
+import { chooseFilter, field, filterChip, openCard, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Shots linked to the Library (ticket #92): each Library item's page lists
@@ -79,12 +79,18 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await expect(unlinked).toBeVisible();
   await expect(rows(list)).toHaveCount(1);
   await unlinked.getByRole("link").first().click();
-  await expect(field(page.getByLabel("Shot", { exact: true }), "Bean Batch")).toHaveText("Not in the Library");
+  // Its tablet named a batch by an id the Library has none for: its page says it is not linked, and shows no id.
+  const unlinkedDetails = await openCard(page, "Details");
+  await expect(field(unlinkedDetails, "Bean Batch")).toHaveText("Not linked");
+  await expect(unlinkedDetails).not.toContainText("a-batch-the-library-lacks");
 
   // A linked Shot's page links to what it used.
   await page.goto("/shots/lab-linked");
-  await expect(field(page.getByLabel("Shot", { exact: true }), "Grinder")).toHaveText("Lab EK43");
-  await page.getByRole("link", { name: "Linked Sidra, roasted 2026-10-04" }).click();
+  const details = await openCard(page, "Details");
+  await expect(field(details, "Grinder").getByRole("link", { name: "Lab EK43" })).toHaveAttribute("href", `/library/grinders/${labGrinder.id}`);
+  // The Library's Grinder by its name now, with the model the Shot recorded, which is another, and its grind setting.
+  await expect(field(details, "Grinder")).toHaveText("Lab EK43 (recorded as DF64 v2) at 8");
+  await details.getByRole("link", { name: "Linked Sidra, roasted 2026-10-04" }).click();
   await expect(page.getByRole("heading", { name: "Linked Sidra, roasted 2026-10-04", level: 1 })).toBeVisible();
 });
 

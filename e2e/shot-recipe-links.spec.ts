@@ -5,7 +5,7 @@ import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, sel
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { chooseFilter, field, filterChip, rows } from "./support/locators.js";
+import { chooseFilter, field, filterChip, openCard, rows } from "./support/locators.js";
 
 // Shots linked to their Recipe and Basket (tickets #147 and #216): each
 // Recipe's and Basket's page lists its Shots, linked by the `recipeId` their
@@ -35,9 +35,9 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await expect(rows(recipeShots)).toHaveCount(1);
   await rows(recipeShots).first().getByRole("link").first().click();
   await expect(page).toHaveURL(/\/shots\/uptown-ethiopia$/);
-  const shot = page.getByLabel("Shot", { exact: true });
-  await expect(field(shot, "Recipe")).toHaveText("Fixture Ethiopia Espresso");
-  await field(shot, "Recipe").getByRole("link").click();
+  // Its Details name its Recipe, in no Recipe Slot, and its title links to it.
+  await expect(field(await openCard(page, "Details"), "Recipe")).toHaveText("Fixture Ethiopia Espresso");
+  await page.getByRole("heading", { level: 1 }).getByRole("link", { name: "Fixture Ethiopia Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Fixture Ethiopia Espresso", level: 1 })).toBeVisible();
 
   // The Brazil's Shot, by its Recipe in the Shots list.
@@ -56,8 +56,11 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await expect(page).toHaveURL(new RegExp(`basketId=${basket}`));
   await expect(list.getByRole("link", { name: /./ }).first()).toBeVisible();
   await page.goto(`/shots/uptown-brazil`);
-  await expect(field(page.getByLabel("Shot", { exact: true }), "Basket")).toHaveText(basketName);
-  await field(page.getByLabel("Shot", { exact: true }), "Basket").getByRole("link").click();
+  // The Brazil's Shot names the Recipe Slot the Brazil is in, and links to its Basket.
+  const details = await openCard(page, "Details");
+  await expect(field(details, "Recipe")).toHaveText("Fixture Brazil Espresso (slot 2)");
+  await expect(field(details, "Basket")).toHaveText(basketName);
+  await field(details, "Basket").getByRole("link").click();
   await expect(page.getByRole("heading", { name: basketName, level: 1 })).toBeVisible();
   await expect(page.getByRole("table", { name: "Shots with this Basket" }).getByRole("link", { name: /./ }).first()).toBeVisible();
 });

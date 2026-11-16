@@ -23,6 +23,14 @@ import {
 const THIS_RECORD = { light: "#2a78d6", dark: "#3987e5" };
 const PREVIOUS_RECORD = { light: "#eb6834", dark: "#d95926" };
 
+/**
+ * The line a record's curves are drawn with, as a mark beside its name where the two records are named apart from the
+ * charts, such as a comparison's table: in the colors above.
+ */
+export function CurveMark({ of }: { of: "current" | "previous" }) {
+  return <span aria-hidden className={`h-0.5 w-3.5 shrink-0 rounded-full ${of === "current" ? "bg-[#2a78d6] dark:bg-[#3987e5]" : "bg-[#eb6834] dark:bg-[#d95926]"}`} />;
+}
+
 /** Legends and tooltips name the series in this order, whichever are drawn. */
 const ORDER: Record<string, number> = { current: 0, target: 1, previous: 2 };
 const byOrder = (item: { dataKey?: unknown }) => ORDER[String(item.dataKey)] ?? 3;

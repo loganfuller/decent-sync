@@ -3,7 +3,7 @@ import { derivedShot, preheatShotFixture, shotFixture, withShots } from "../serv
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { chooseFilter, datesPreset, field } from "./support/locators.js";
+import { chooseFilter, datesPreset, field, openCard } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
 
 // Shots in the management interface, as an Admin whose browser is in Tokyo
@@ -149,7 +149,9 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
   await expect(rows(page)).toHaveCount(2);
   await page.getByRole("link", { name: "Feb 10, 2026, 6:30 AM MST" }).click();
 
-  await expect(page.getByRole("heading", { name: "Shot pulled Feb 10, 2026, 6:30 AM MST", level: 1 })).toBeVisible();
+  // Pulled with no Recipe loaded, which its title says in the Recipe's place, over its time at its Location.
+  await expect(page.getByRole("heading", { name: "No Recipe loaded on Lab 1", level: 1 })).toBeVisible();
+  await expect(page.getByText("Feb 10, 2026, 6:30 AM MST · Lab", { exact: true })).toBeVisible();
   const curves = page.getByRole("region", { name: "Curves" });
   for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
     const chart = curves.getByRole("figure", { name, exact: true });
@@ -157,43 +159,64 @@ test("a Shot's page shows its curves and everything recorded, and compares it wi
     await expect(chart).toContainText("This Shot");
   }
   await expect(curves.getByRole("figure", { name: "Pressure" })).toContainText("Target");
+  // With no Recipe it has no Reference Shot, so it opens compared with nothing.
+  await expect(curves.getByRole("radiogroup", { name: "Compare with" }).getByRole("radio")).toHaveText(["Previous Shot on this Machine", "Nothing"]);
+  await expect(curves.getByRole("radio", { name: "Nothing" })).toBeChecked();
   await expect(curves.getByText("Previous Shot", { exact: true })).toHaveCount(0);
-  await expect(field(page.getByRole("region", { name: "Machine at the time" }), "Serial")).toHaveText("10021");
-  await expect(field(page.getByRole("region", { name: "Workflow" }), "Grind setting")).toHaveText("7.5");
-  await expect(field(page.getByRole("region", { name: "Workflow" }), "Burrs")).toHaveText("SSP MP");
-  await expect(field(page.getByRole("region", { name: "Annotations" }), "Yield weighed")).toHaveText("35.9 g");
-  // The scale's last reading in its curves, before the stop, beside the yield Decaid weighed once the flow settled.
-  await expect(field(page.getByRole("region", { name: "Annotations" }), "Last weight recorded")).toHaveText("32.5 g at 23.5 s");
-  // Beside it, when its scale first read 1 g or more, 21.45 s into its profile, and its weight flow at that last reading.
-  await expect(field(page.getByRole("region", { name: "Annotations" }), "Time to first drip")).toHaveText("21.4 s");
-  await expect(field(page.getByRole("region", { name: "Annotations" }), "Flow at the stop")).toHaveText("3.22 g/s");
+  const went = page.getByRole("region", { name: "How it went" });
+  await expect(field(went, "Yield")).toHaveText("35.9 g");
+  await expect(field(went, "Dose")).toHaveText("18 g");
+  await expect(field(went, "Stopped")).toHaveText("At its target weight");
   await expectTip(curves, "Curves", CURVES_TIP);
+
+  // Everything else, once, in Details, closed until opened.
+  const details = await openCard(page, "Details");
+  await expect(field(details, "Machine, as recorded")).toHaveText("DE1Pro, serial 10021, firmware 1333, flow calibration 1.1");
+  await expect(field(details, "Grinder")).toHaveText("DF64 v2 at 7.5");
+  await expect(field(details, "Burrs")).toHaveText("SSP MP");
+  await expect(field(details, "Barista")).toHaveText("Ann");
+  // The scale's last reading in its curves, before the stop, beside the yield Decaid weighed once the flow settled.
+  await expect(field(details, "Last weight recorded")).toHaveText("32.5 g at 23.5 s");
+  // Beside it, when its scale first read 1 g or more, 21.45 s into its profile, and its weight flow at that last reading.
+  await expect(field(details, "Time to first drip")).toHaveText("21.4 s");
+  await expect(field(details, "Flow at the stop")).toHaveText("3.22 g/s");
   await expectTip(
-    page.getByRole("region", { name: "Annotations" }),
-    "Annotations",
-    "How it turned out, as recorded on the tablet. The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield weighed, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
+    details,
+    "Details",
+    "What it was pulled with and what its Machine and scale measured, as recorded on its tablet. A Recipe Slot is the one its Recipe is in now. Times on this page are in Lab's time zone, America/Denver." +
+      "The time to first drip is from the start of its profile to the scale's first reading of 1 g or more. The last weight recorded is the scale's last reading in its curves: just before the stop, as Decaid records none after it, or earlier where the scale dropped out. So the yield, which Decaid weighs until the flow settles, less it is roughly what dripped after the stop, unless the yield was edited on the tablet. The flow at the stop is the scale's weight flow at that last reading, the rate coffee was landing in the cup.",
   );
 
-  await curves.getByRole("radio", { name: "The previous Shot on Lab 1" }).check();
+  await curves.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
   for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
     await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Previous Shot");
   }
+  // Under the curves, the two Shots side by side.
   const comparison = curves.getByRole("table", { name: "Comparison with the previous Shot" });
-  await expect(comparison.getByRole("row", { name: /^Pulled/ }).getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST"]);
-  await expect(comparison.getByRole("row", { name: /^Grind setting/ }).getByRole("cell")).toHaveText(["7.5", "8"]);
+  await expect(comparison.getByRole("columnheader")).toHaveText(["", "Duration", "Yield", "Time to first drip", "Peak pressure", "Grind setting"]);
+  await expect(comparison.getByRole("row", { name: /^This Shot/ }).getByRole("cell").last()).toHaveText("7.5");
+  await expect(comparison.getByRole("row", { name: /^Previous Shot/ }).getByRole("cell").last()).toHaveText("8");
 
   await comparison.getByRole("link", { name: "Previous Shot" }).click();
-  await expect(page.getByRole("heading", { name: "Shot pulled Feb 10, 2026, 6:00 AM MST", level: 1 })).toBeVisible();
+  await expect(page.getByText("Feb 10, 2026, 6:00 AM MST · Lab", { exact: true })).toBeVisible();
   // The first Shot on Lab 1 has none before it.
   await expect(page.getByText("There is no earlier Shot on Lab 1 to compare it with.")).toBeVisible();
 
-  // An inferred Shot says so.
+  // An inferred Shot says so, above how it went.
   await page.goto("/shots");
   await page.getByRole("link", { name: "Feb 11, 2026, 9:00 AM CST" }).click();
-  await expect(page.getByRole("alert").filter({ hasText: "Inferred credit" })).toContainText(
+  const inferred = page.getByRole("alert").filter({ hasText: "Inferred credit" });
+  await expect(inferred).toContainText(
     "This Shot recorded no machine hardware, so it is credited to Uptown 1, whose tablet reported it. Its Location, Uptown, comes from that Machine's Location History, so it is inferred too.",
   );
-  await expect(page.getByRole("region", { name: "Machine at the time" })).toContainText("It recorded no machine hardware.");
+  expect((await inferred.boundingBox())!.y).toBeLessThan((await went.boundingBox())!.y);
+  await expect(field(await openCard(page, "Details"), "Machine, as recorded")).toHaveText("It recorded no machine hardware");
+
+  // One a Pending Machine holds names its hardware, and says what holds it.
+  await page.goto("/shots/held-shot");
+  await expect(page.getByRole("heading", { name: "No Recipe loaded on Bengle serial 10029", level: 1 })).toBeVisible();
+  await expect(page.getByRole("main").getByText("Pending Machine", { exact: true })).toBeVisible();
+  await expect(page.getByText("Jan 20, 2026, 3:00 PM UTC · No Location, times in UTC", { exact: true })).toBeVisible();
 
   // Back to the list as it was left.
   await page.goto("/shots?barista=Ann");
@@ -284,18 +307,19 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
 
   // With no scale, it shows no last weight, time to first drip or flow at the stop.
   await page.goto("/shots/preheat-no-scale");
-  const scaleless = page.getByRole("region", { name: "Annotations" });
-  await expect(field(scaleless, "Yield weighed")).toHaveText("34.7 g");
+  await expect(field(page.getByRole("region", { name: "How it went" }), "Yield")).toHaveText("34.7 g");
+  const scaleless = await openCard(page, "Details");
+  await expect(field(scaleless, "Peak pressure")).toHaveText(/ bar$/);
   for (const none of ["Last weight recorded", "Time to first drip", "Flow at the stop"]) await expect(field(scaleless, none)).toHaveCount(0);
 
   await page.goto("/shots/preheat-shot");
   // From the first sample after Preheat, not the 33.2 s since the recording started.
   await expect(field(page, "Duration")).toHaveText("25.8 s");
   // Counted from there too: its scale first read 1 g 7.945 s into its profile, and its last reading landed at 2.82 g/s.
-  const annotations = page.getByRole("region", { name: "Annotations" });
-  await expect(field(annotations, "Time to first drip")).toHaveText("7.9 s");
-  await expect(field(annotations, "Last weight recorded")).toHaveText("32.4 g at 25.8 s");
-  await expect(field(annotations, "Flow at the stop")).toHaveText("2.82 g/s");
+  const details = await openCard(page, "Details");
+  await expect(field(details, "Time to first drip")).toHaveText("7.9 s");
+  await expect(field(details, "Last weight recorded")).toHaveText("32.4 g at 25.8 s");
+  await expect(field(details, "Flow at the stop")).toHaveText("2.82 g/s");
   const curves = page.getByRole("region", { name: "Curves" });
   for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
     const chart = curves.getByRole("figure", { name, exact: true });
@@ -314,7 +338,7 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
 
   // Compared, both Shots are aligned at 0 s, each with its own Preheat before it: the previous Shot's
   // starts at -4.4 s and its profile ends at 23.5 s, this one's at -7.4 s and 25.8 s.
-  await curves.getByRole("radio", { name: "The previous Shot on Preheater" }).check();
+  await curves.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
   const pressure = curves.getByRole("figure", { name: "Pressure" });
   await expect(pressure).toContainText("Previous Shot");
   // The previous Shot's own step change, at 21.4 s, is not marked.
@@ -345,15 +369,16 @@ test("a Shot's Preheat is shaded and labelled before 0 s, left out of its durati
     if (step) await expect(tooltip).toContainText(new RegExp(`\\d s, ${step}This Shot`));
   }
 
-  await curves.getByRole("button", { name: "Measurements as a table" }).click();
-  const measurements = curves.getByRole("table", { name: "Measurements" }).getByRole("row").filter({ has: page.getByRole("cell") });
+  // Its measurements, in a card of their own, closed until opened.
+  const table = (await openCard(page, "Measurements")).getByRole("table", { name: "Measurements" });
+  const measurements = table.getByRole("row").filter({ has: page.getByRole("cell") });
   await expect(measurements).toHaveCount(168);
   await expect(measurements.first().getByRole("cell").first()).toHaveText("-7.36 sPreheat");
   await expect(measurements.nth(42).getByRole("cell").first()).toHaveText(/^-0\.\d\d sPreheat$/);
   await expect(measurements.nth(43).getByRole("cell").first()).toHaveText("0.00 s");
   await expect(measurements.filter({ hasText: "Preheat" })).toHaveCount(43);
   // Each sample's step, after the time: none in Preheat.
-  await expect(curves.getByRole("table", { name: "Measurements" }).getByRole("columnheader").nth(1)).toHaveText("Step");
+  await expect(table.getByRole("columnheader").nth(1)).toHaveText("Step");
   for (const [n, step] of [[0, ""], [42, ""], [43, "Prefill"], [67, "Compressing"], [126, "Pressurize"], [127, "Extraction"]] as const) {
     await expect(measurements.nth(n).getByRole("cell").nth(1)).toHaveText(step);
   }
@@ -372,7 +397,7 @@ test("a Shot's record as sent scrolls a long line in its box, leaving the page a
   await expect(pressure.locator(".recharts-line")).not.toHaveCount(0);
   const width = (await pressure.boundingBox())!.width;
 
-  await page.getByRole("button", { name: "Record as sent" }).click();
+  await openCard(page, "Record as sent");
   const sent = page.locator("pre").filter({ hasText: "let the lever decline" });
   await expect(sent).toBeVisible();
   expect(await sent.evaluate((pre) => pre.scrollWidth > pre.clientWidth)).toBe(true);
