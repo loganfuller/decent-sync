@@ -189,6 +189,17 @@ test("the Library opens on every Location's Recipes, in Recipe Slot order with t
   await expect(slots.getByRole("columnheader")).toHaveText(["Slot", "Recipe", "Bean Batch", "Profile", "Dose and yield", "Grinder", "Reference Shot", "Status"]);
   await expect(rows(slots)).toHaveText([/^1Decaf-+No reference$/, /^2House.*23\.5 s$/]);
   await expect(slots.getByRole("link", { name: "23.5 s" })).toHaveAttribute("href", "/shots/left-house-1");
+
+  // An Archived Recipe keeps its Reference Shot, which may be cleared, but none is chosen for it until it is restored:
+  // its card offers no other.
+  expect((await page.request.put(`/api/recipes/${recipes.guest}/archived`, { data: { archived: false } })).status()).toBe(200);
+  expect((await page.request.put(`/api/recipes/${recipes.guest}/reference-shot`, { data: { shotId: "right-guest" } })).status()).toBe(200);
+  expect((await page.request.put(`/api/recipes/${recipes.guest}/archived`, { data: { archived: true } })).status()).toBe(200);
+  await page.goto(`/library/recipes/${recipes.guest}`);
+  const reference = page.getByRole("region", { name: "Reference Shot" });
+  await expect(reference.getByRole("link", { name: "Open its Reference Shot" })).toHaveAttribute("href", "/shots/right-guest");
+  await expect(reference.getByRole("button", { name: "Clear its Reference Shot" })).toBeVisible();
+  await expect(reference.getByRole("link", { name: "Choose another" })).toHaveCount(0);
 });
 
 test("on a phone the page's cards stack, By Machine is a block for each Machine, the trend's choice of number scrolls within its own row, and nothing else scrolls sideways", async ({ page, browser }) => {

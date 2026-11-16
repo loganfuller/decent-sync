@@ -105,7 +105,7 @@ function ReferenceCurves({ shotId }: { shotId: string }) {
  * target, its rating, when and where it was pulled and its grind setting,
  * with a note where its Profile is another than the Recipe's, and a way to
  * open it. Whoever may edit the Recipe is led to its rated Shots to choose
- * another, and clears it here. A Recipe with none says so, and leads to
+ * another, unless it is Archived, and clears it here. A Recipe with none says so, and leads to
  * its rated Shots too.
  */
 export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Recipe; mayChange: boolean; onChanged(): void }) {
@@ -185,9 +185,12 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
               </Button>
               {mayChange && (
                 <>
-                  <Button asChild variant="outline">
-                    <Link to={ratedShotsPath(recipe.id)}>Choose another</Link>
-                  </Button>
+                  {/* An Archived Recipe's may be cleared, but none is chosen for it until it is restored. */}
+                  {!recipe.archived && (
+                    <Button asChild variant="outline">
+                      <Link to={ratedShotsPath(recipe.id)}>Choose another</Link>
+                    </Button>
+                  )}
                   <ConfirmButton
                     label="Clear"
                     ariaLabel="Clear its Reference Shot"

@@ -51,6 +51,8 @@ export async function recipeAction(page: Page, name: string): Promise<void> {
 /** The actions a Recipe's More menu offers the account, read with the menu open and closed again after. */
 export async function recipeActions(page: Page): Promise<string[]> {
   await page.getByRole("main").getByRole("button", { name: "More", exact: true }).click();
+  // Read once the menu is open: a read of its items doesn't wait for them.
+  await expect(page.getByRole("menu")).toBeVisible();
   const items = await page.getByRole("menuitem").filter({ visible: true }).allTextContents();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("menu")).toHaveCount(0);

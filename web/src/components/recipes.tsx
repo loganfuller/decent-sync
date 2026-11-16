@@ -1744,7 +1744,8 @@ function RecipeFieldsCard({ recipe }: { recipe: Recipe }) {
         </dl>
         {unset > 0 && (
           <div>
-            <Button variant="outline" size="sm" aria-pressed={all} onClick={() => setAll(!all)}>
+            {/* Its words say which way it is set. */}
+            <Button variant="outline" size="sm" onClick={() => setAll(!all)}>
               {all ? "Hide the fields not set" : `Show the ${unset} ${unset === 1 ? "field" : "fields"} not set`}
             </Button>
           </div>

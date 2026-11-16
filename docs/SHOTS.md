@@ -1982,11 +1982,12 @@ loaded again every 30 s. No read was added for them.
   number, so a Recipe whose Shots recorded text, such as "1.1.0", has no
   grind trend: the chart says none of the Shots has a grind setting that is
   a number.
-- The latest release's summary judges nothing, counts no stops at target
-  and names no Reference Shot (ADR-0025), so while its instance answers
-  during a deploy By Machine marks nothing and has no reference column, a
-  dash stands for stopped at target, and the trend has no reference line,
-  until the next read the new release answers. Its read of a Recipe gives
+- The latest release's summary judges nothing and counts no stops at
+  target (ADR-0025), so while its instance answers during a deploy By
+  Machine marks nothing and has no reference column, and a dash stands for
+  stopped at target, until the next read the new release answers. It does
+  name the Recipe's Reference Shot, so the trend's reference line is drawn
+  either way. Its read of a Recipe gives
   its Reference Shot no rating or grind setting, of which the card then
   says nothing.
 
