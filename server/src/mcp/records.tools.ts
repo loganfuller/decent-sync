@@ -379,7 +379,6 @@ const summaryReference = z
       .object({
         yieldAgainstTarget: ownNumber,
         duration: ownNumber,
-        stoppedOnWeight: z.boolean().nullable().optional().describe("Whether targetWeight stopped it; null where it recorded no stop reason."),
         stoppedAtTarget: z.boolean().nullable().optional().describe("Whether it stopped at its target; null where it recorded no stop reason."),
         ratio: ownNumber,
         peakPressure: ownNumber,
@@ -406,13 +405,6 @@ const summaryCounts = z.object({
 const summaryNumbers = z.object({
   yieldAgainstTarget: summaryNumber("Each Shot's yield as weighed less its target yield, in grams, negative under target."),
   duration: summaryNumber("How long each Shot's profile ran, leaving out its Preheat, in seconds."),
-  stoppedOnWeight: z
-    .object({
-      shots: z.number().describe("How many Shots recorded a stop reason."),
-      share: z.number().nullable().describe("The part of them stopped by targetWeight, from 0 to 1; null where none recorded one."),
-    })
-    .optional()
-    .describe("The share of Shots that stopped on weight; given only when asked for."),
   stoppedAtTarget: z
     .object({
       shots: z.number().describe("How many Shots recorded a stop reason."),
@@ -568,7 +560,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "summarise_shots",
     title: "Summarise Shots",
-    description: `Summarises the Shots find_shots finds for the same filters: how many and how they went, as one group or, with groupBy, by group. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured, and counts.cleaningAndCalibration, by the profile's type recorded. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots await their timeToFirstDrip and lastStep; they count as poured. numbers gives those it names: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat; ratio, yield over dose weighed, none where the dose is 0 or missing; rating (enjoyment), 0 to 10, two points a star of five, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the setting recorded is wholly a decimal number, such as 8.8, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: few say little. They are null where none had. stoppedAtTarget is the share, 0 to 1, of the Shots that recorded a stop reason that were ${STOPPED_AT_TARGET}, with shots, how many recorded one, atTarget, and how many of the rest stopped byHand, in Decaid's app or through its API, machineEnded, error and other; stoppedOnWeight is targetWeight's share alone. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} By recipe, a group whose Recipe has a Reference Shot gives reference: that Shot's id and, as numbers, its own value of each number, a share as true or false and lastStep as one step. ${GROUP_SPEC} ${SHOT_BUCKETS} Pages and match are as find_shots'.`,
+    description: `Summarises the Shots find_shots finds for the same filters: how many and how they went, as one group or, with groupBy, by group. counts.shots is how many Shots a group's numbers cover. Left out of every number and counted apart are counts.unfinished, its Unfinished Shots, in which nothing poured, and counts.cleaningAndCalibration, by the profile's type recorded. The three add up to find_shots' total for the same filters and the group's. counts.awaitingValues is how many of counts.shots await their timeToFirstDrip and lastStep; they count as poured. numbers gives those it names: yieldAgainstTarget, yield weighed less target, in grams, negative under, none where the target is 0 or missing; duration in seconds, peakPressure in bar and peakFlow in ml/s, each leaving out the Preheat; ratio, yield over dose weighed, none where the dose is 0 or missing; rating (enjoyment), 0 to 10, two points a star of five, where above 0, as 0 is unrated, with rated, the share of counts.shots rated; grindSetting, where the setting recorded is wholly a decimal number, such as 8.8, with its lowest and highest; tds (total dissolved solids) and extractionYield, in %, as recorded; and timeToFirstDrip, seconds from the profile's start to the scale's first reading of 1 g or more. Each is a median with p25 and p75, between which the middle half fall, and shots, how many Shots had a value: few say little. They are null where none had. stoppedAtTarget is the share, 0 to 1, of the Shots that recorded a stop reason that were ${STOPPED_AT_TARGET}, with shots, how many recorded one, atTarget, and how many of the rest stopped byHand, in Decaid's app or through its API, machineEnded, error and other. lastStep gives shots, how many ended in a step of their Profile, and mostCommon, the ${LAST_STEPS} steps most of them ended in, each with its frame, from 0, name and shots. ${SHOT_GROUPS} By recipe, a group whose Recipe has a Reference Shot gives reference: that Shot's id and, as numbers, its own value of each number, a share as true or false and lastStep as one step. ${GROUP_SPEC} ${SHOT_BUCKETS} Pages and match are as find_shots'.`,
     inputSchema: summariseShotsInput,
     outputSchema: summariseShotsOutput,
     annotations: { readOnlyHint: true },

@@ -992,7 +992,6 @@ describe("reading Shots and Steam Records through an assistant", () => {
         // −0.1 and 2.5, and 23.549 s twice.
         yieldAgainstTarget: { shots: 2, median: 1.2, p25: 0.55, p75: 1.85 },
         duration: { shots: 2, median: 23.55, p25: 23.55, p75: 23.55 },
-        stoppedOnWeight: { shots: 2, share: 0.5 },
         stoppedAtTarget: { shots: 2, share: 0.5, atTarget: 1, byHand: 0, machineEnded: 1, error: 0, other: 0 },
       },
       // Two Shots are too few to judge: their yields' median, 1.2 g over 36, is within the margin, and half stopped at target.
@@ -1018,7 +1017,6 @@ describe("reading Shots and Steam Records through an assistant", () => {
       numbers: {
         yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null },
         duration: { shots: 0, median: null, p25: null, p75: null },
-        stoppedOnWeight: { shots: 0, share: null },
         stoppedAtTarget: { shots: 0, share: null, atTarget: 0, byHand: 0, machineEnded: 0, error: 0, other: 0 },
       },
       spec: { yield: { judgement: "notJudged", beyondMargin: null }, stoppedAtTarget: { judgement: "notJudged", beyondMargin: null } },
@@ -1133,7 +1131,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
   });
 
   it("gives the numbers asked for as the REST API does, whole and by group", async () => {
-    const every = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+    const every = ["yieldAgainstTarget", "duration", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
     for (const groupBy of [[], ["machine"], ["recipe", "barista"]]) {
       for (const numbers of [every, ["lastStep", "ratio"]]) {
         const summarised = await assistant.call<{ groups: SummaryGroup[] } & Page>("summarise_shots", { groupBy, numbers, limit: 50 });
@@ -1151,8 +1149,8 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(whole!.counts).toMatchObject({ unfinished: 1, awaitingValues: 0 });
     expect(whole!.numbers.lastStep!.shots).toBe(whole!.counts.shots);
     expect(whole!.numbers.timeToFirstDrip!.shots).toBe(whole!.counts.shots - 1);
-    // The default: yield against target, duration and stopped on weight.
-    expect(Object.keys((await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", {})).groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"]);
+    // The default: yield against target, duration and stopped at target.
+    expect(Object.keys((await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", {})).groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedAtTarget"]);
 
     expect(await toolError("summarise_shots", { numbers: ["ratio", "ratio"] })).toBe("Give each number once");
     expect(await toolError("summarise_shots", { numbers: [] })).toContain("numbers");

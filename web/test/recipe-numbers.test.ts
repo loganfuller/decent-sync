@@ -89,7 +89,7 @@ describe("a Machine's numbers of a Recipe", () => {
   });
 
   it("mark nothing of the previous release's answer, which judges nothing and counts no stops at target", () => {
-    const previous = machineNumbers(group({ numbers: { duration: number(29.4, 27.1, 33.1), yieldAgainstTarget: number(3, 2, 4), stoppedOnWeight: { shots: 12, share: 0.5 } } }));
+    const previous = machineNumbers(group({ numbers: { duration: number(29.4, 27.1, 33.1), yieldAgainstTarget: number(3, 2, 4) } }));
     expect(previous).toEqual({ duration: { median: "29.4 s", range: "27.1–33.1" }, against: undefined, yield: { text: "+3.0 g", marked: false }, leftOut: [] });
   });
 });

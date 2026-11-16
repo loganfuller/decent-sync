@@ -9,10 +9,7 @@ import { starCountText, starsOf, starsText } from "./rating";
 
 /**
  * The numbers the Shots list offers of a summary, as the REST API names
- * them, in the order it shows them. Stopped at target stands where stopped
- * on weight did (#544), which the REST API still gives until #559 removes
- * it: an address that names it is read as one naming a number this build
- * doesn't know.
+ * them, in the order it shows them.
  */
 export const NUMBERS = [
   "yieldAgainstTarget",

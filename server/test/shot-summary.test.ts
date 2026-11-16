@@ -35,7 +35,7 @@ interface SummaryNumber {
 
 interface Group {
   counts: { shots: number; unfinished: number; cleaningAndCalibration: number; awaitingValues: number };
-  numbers: { yieldAgainstTarget: SummaryNumber; duration: SummaryNumber; stoppedOnWeight: { shots: number; share: number | null } };
+  numbers: { yieldAgainstTarget: SummaryNumber; duration: SummaryNumber; stoppedAtTarget: { shots: number; share: number | null } };
 }
 
 type Fields = Record<string, unknown>;
@@ -163,12 +163,12 @@ describe("Shot Summaries", () => {
       numbers: {
         yieldAgainstTarget: number(numbers.yieldAgainstTarget),
         duration: number(numbers.duration),
-        stoppedOnWeight: { shots: numbers.stoppedOnWeight.shots, share: exact(numbers.stoppedOnWeight.share) },
+        stoppedAtTarget: { shots: numbers.stoppedAtTarget.shots, share: exact(numbers.stoppedAtTarget.share) },
       },
     };
   }
 
-  it("counts the Shots its numbers cover and the cleaning and calibration Shots left out, and gives yield against target and duration as a median with its quartiles, and the share stopped on weight, each with the Shots it rests on", async () => {
+  it("counts the Shots its numbers cover and the cleaning and calibration Shots left out, and gives yield against target and duration as a median with its quartiles, and the share stopped at target, each with the Shots it rests on", async () => {
     expect(await summary()).toEqual({
       // Every Shot but the cleaning and the calibration one, whose type is matched ignoring case. One that recorded no
       // type counts, as does a pourover.
@@ -180,7 +180,7 @@ describe("Shot Summaries", () => {
         // 4.095, six of 23.549 and two of 25.833.
         duration: { shots: 9, median: 23.549, p25: 23.549, p75: 23.549 },
         // Of the eight that recorded a stop reason, all but the one its Machine ended.
-        stoppedOnWeight: { shots: 8, share: 0.875 },
+        stoppedAtTarget: { shots: 8, share: 0.875 },
       },
     });
     expect(await listTotal()).toBe(11);
@@ -191,7 +191,7 @@ describe("Shot Summaries", () => {
       numbers: {
         yieldAgainstTarget: { shots: 2, median: -1.15, p25: -1.225, p75: -1.075 },
         duration: { shots: 2, median: 24.691, p25: 24.12, p75: 25.262 },
-        stoppedOnWeight: { shots: 2, share: 1 },
+        stoppedAtTarget: { shots: 2, share: 1 },
       },
     });
   });
@@ -209,7 +209,7 @@ describe("Shot Summaries", () => {
         yieldAgainstTarget: { shots: 6, median: -0.55, p25: -1.225, p75: 0.35 },
         // 4.095, five of 23.549 and 25.833.
         duration: { shots: 7, median: 23.549, p25: 23.549, p75: 23.549 },
-        stoppedOnWeight: { shots: 6, share: 0.833333 },
+        stoppedAtTarget: { shots: 6, share: 0.833333 },
       },
     });
     expect(await listTotal(day)).toBe(9);
@@ -217,7 +217,7 @@ describe("Shot Summaries", () => {
     // Times too: 13:00 to 15:00 at the Lab holds only its cleaning and calibration Shots, so there is no number.
     expect(await summary({ from: "2026-02-10T13:00", to: "2026-02-10T15:00" })).toEqual({
       counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
-      numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedOnWeight: { shots: 0, share: null } },
+      numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedAtTarget: { shots: 0, share: null } },
     });
   });
 
@@ -268,7 +268,7 @@ describe("Shot Summaries", () => {
 
     expect(await summary({ barista: "Nobody" })).toEqual({
       counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
-      numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedOnWeight: { shots: 0, share: null } },
+      numbers: { yieldAgainstTarget: NONE, duration: NONE, stoppedAtTarget: { shots: 0, share: null } },
     });
   });
 
@@ -312,7 +312,7 @@ describe("Shot Summaries", () => {
     // −6, −1.3, −0.1, 0.5 and 2.4; and of the five that recorded a stop reason, all but the one its Machine ended.
     expect(before).toMatchObject({
       counts: { shots: 6, unfinished: 0, cleaningAndCalibration: 2, awaitingValues: 0 },
-      numbers: { yieldAgainstTarget: { shots: 5, median: -0.1, p25: -1.3, p75: 0.5 }, stoppedOnWeight: { shots: 5, share: 0.8 } },
+      numbers: { yieldAgainstTarget: { shots: 5, median: -0.1, p25: -1.3, p75: 0.5 }, stoppedAtTarget: { shots: 5, share: 0.8 } },
     });
     // A record may hold any number: these two are stored, and their difference fits no float8. One is a cleaning Shot.
     labTablet.pullShot(shotOf("lab-beyond", "2026-02-12T15:00:00Z", LAB_SERIAL, { actualYield: 1e308, targetYield: -1e308, stopReason: "\t\n" }));

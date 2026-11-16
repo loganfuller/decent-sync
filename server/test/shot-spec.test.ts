@@ -282,8 +282,6 @@ describe("Out of spec", () => {
     const { groups } = await summary();
     const a = groupOf(groups, "Stops", "A");
     expect(a.numbers.stoppedAtTarget).toEqual({ shots: 10, share: 0.9, atTarget: 9, byHand: 1, machineEnded: 0, error: 0, other: 0 });
-    // The number the latest release's pages read counts the weight stops alone, as it did.
-    expect(a.numbers.stoppedOnWeight).toEqual({ shots: 10, share: 0.8 });
     expect(a.spec.stoppedAtTarget).toEqual(WITHIN);
     const b = groupOf(groups, "Stops", "B");
     // Ten Shots, of which one recorded nothing: an API stop is by hand, a dropped connection an error, and Decaid's other reasons anything else.
@@ -297,7 +295,7 @@ describe("Out of spec", () => {
 
   it("gives stopped at target where no numbers are named and when asked for alone, and judges a group whichever numbers are named", async () => {
     const { groups } = await summary();
-    expect(Object.keys(groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"]);
+    expect(Object.keys(groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedAtTarget"]);
     const named = await summary({ numbers: "stoppedAtTarget" });
     expect(Object.keys(named.groups[0]!.numbers)).toEqual(["stoppedAtTarget"]);
     expect(groupOf(named.groups, "Timed", "A").reference).toEqual({ id: "timed-ref", numbers: { stoppedAtTarget: true } });

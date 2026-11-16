@@ -1306,12 +1306,10 @@ Machines and each Shot within spec or out of spec against three margins
 - **The numbers,** each of the Shots covered. `numbers` names those a
   summary gives: in the REST route one or more separated by a comma, such
   as `numbers=ratio,rating`, each once, and in the tool a list. Without it a
-  summary gives `yieldAgainstTarget`, `duration`, `stoppedOnWeight` and
-  `stoppedAtTarget`: with the count, what the Overview reads (#465, #543).
-  `stoppedOnWeight` stays among them for the latest release's pages, which
-  read it (ADR-0025), until #559 removes it. A group gives those named,
-  in the order below, and only those are read, so a number read from each
-  Shot's record costs only a summary that asks for it.
+  summary gives `yieldAgainstTarget`, `duration` and `stoppedAtTarget`: with
+  the count, what the Overview reads (#465, #543). A group gives those
+  named, in the order below, and only those are read, so a number read from
+  each Shot's record costs only a summary that asks for it.
   - `yieldAgainstTarget`: the yield weighed less the target yield
     (`actual_yield`, `target_yield`), in grams, negative under target. A
     Shot whose target is 0 or missing, or that weighed no yield, has no
@@ -1321,24 +1319,20 @@ Machines and each Shot within spec or out of spec against three margins
   - `duration`: the recording's duration less its Preheat, in seconds to the
     millisecond, as the list shows it (`shownDuration`); the whole recording
     for a Shot of an earlier curves revision, until it is computed again.
-  - `stoppedOnWeight`: `{ shots, share }`, how many Shots recorded a stop
-    reason (`stopReason`, with more in it than spaces, tabs and line ends;
-    Decaid writes one of its stop reasons' names or nothing), and the part
-    of them, from 0 to 1, whose reason is `targetWeight`; `share` is null
-    where none recorded one.
   - `stoppedAtTarget` (`GLOSSARY.md`, Stopped at target): `{ shots, share,
     atTarget, byHand, machineEnded, error, other }`. `shots` is how many
-    Shots recorded a stop reason, as `stoppedOnWeight`'s; `atTarget` how
-    many of them Decaid stopped at their target, its weight on the scale
-    (`targetWeight`) or, with no scale, its volume (`targetVolume`), and
-    `share` that part of them, null where none recorded one. The rest are
-    counted by how they stopped: `byHand`, the Stop button in Decaid's own
-    app or a stop through its API, as a Skin's (`appStop`, `apiStop`);
-    `machineEnded`, the Machine ending the Shot itself, as its profile ran
-    out; `error`, an error state or a dropped connection (`error`,
-    `disconnected`); and `other`, any other reason. The five add up to
-    `shots`. The kinds are `STOP_KINDS` in `server/src/shots/spec.ts`, of
-    Decaid's `ShotDecisionReason`
+    Shots recorded a stop reason (`stopReason`, with more in it than spaces,
+    tabs and line ends; Decaid writes one of its stop reasons' names or
+    nothing); `atTarget` how many of them Decaid stopped at their target,
+    its weight on the scale (`targetWeight`) or, with no scale, its volume
+    (`targetVolume`), and `share` that part of them, null where none
+    recorded one. The rest are counted by how they stopped: `byHand`, the
+    Stop button in Decaid's own app or a stop through its API, as a Skin's
+    (`appStop`, `apiStop`); `machineEnded`, the Machine ending the Shot
+    itself, as its profile ran out; `error`, an error state or a dropped
+    connection (`error`, `disconnected`); and `other`, any other reason. The
+    five add up to `shots`. The kinds are `STOP_KINDS` in
+    `server/src/shots/spec.ts`, of Decaid's `ShotDecisionReason`
     (`decaid:lib/src/models/data/shot_state_event.dart`, the same at v0.9.1
     and v0.9.2).
   - `ratio`: the yield weighed over the dose weighed (`actual_yield`,
@@ -1366,7 +1360,7 @@ Machines and each Shot within spec or out of spec against three margins
     (`annotations.drinkTds`, `annotations.drinkEy`), in %, where the record
     holds a number; text there has no value, as the Shot page shows none.
   - `timeToFirstDrip`: as the Shot keeps it (`time_to_first_drip`, above).
-  - Each of those but `stoppedOnWeight` and `stoppedAtTarget` is `{ shots, median, p25, p75 }`:
+  - Each of those but `stoppedAtTarget` is `{ shots, median, p25, p75 }`:
     how many Shots had a value, their median, and the 25th and 75th
     percentiles, between which the middle half of them fall. A percentile
     is interpolated between the two Shots nearest it (PostgreSQL's
@@ -1402,8 +1396,8 @@ Machines and each Shot within spec or out of spec against three margins
     of them holds it.
   - A value is the Shot's own, worked out as each Shot's is for the group's
     numbers (`NumberSql.own`), null where it has none or one too large to
-    count: `stoppedOnWeight` and `stoppedAtTarget` are each true or false,
-    null where it recorded no stop reason, `lastStep` is `{ frame, name }`,
+    count: `stoppedAtTarget` is true or false, null where it recorded no
+    stop reason, `lastStep` is `{ frame, name }`,
     and each other a number.
   - It is read in the summary's one statement, for the groups on the page
     alone, each by its id (`reference_shot_id`), so it is of the same
@@ -1765,7 +1759,7 @@ median with the middle half's range, such as "26.0 s (25.6–26.6)" and
 stopped at target (#544), with how the rest stopped under it, such as "2 by
 hand · 1 ended by the Machine". Stopped on weight, which it took the place
 of, is offered no longer, and an address that names it is read as one
-naming a number the page doesn't know; the REST API gives it until #559.
+naming a number the page doesn't know.
 What the server judges out of spec is marked, with the triangle (Shot
 Summaries, Out of spec): the yield against target and the share stopped at
 target themselves, and, where the filters name one Recipe that has a

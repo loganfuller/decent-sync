@@ -71,7 +71,7 @@ interface By {
 interface Numbers {
   yieldAgainstTarget: SummaryNumber;
   duration: SummaryNumber;
-  stoppedOnWeight: { shots: number; share: number | null };
+  stoppedAtTarget: { shots: number; share: number | null };
 }
 
 interface Group {
@@ -115,7 +115,7 @@ const HARBOR_SERIAL = "47803";
 const UNKNOWN_SERIAL = "47809";
 
 const GROUPINGS = ["location", "machine", "recipe", "bean", "beanBatch", "profile", "grinder", "basket", "barista"] as const;
-const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
 
 /**
  * One Shot of shot-espresso.json's own value of each number, worked out by
@@ -125,7 +125,6 @@ const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stop
 const ESPRESSO_OWN = {
   yieldAgainstTarget: -0.1,
   duration: 23.549,
-  stoppedOnWeight: true,
   stoppedAtTarget: true,
   ratio: 1.994444,
   peakPressure: 9.004639,
@@ -141,7 +140,6 @@ const ESPRESSO_OWN = {
 const PREHEAT_OWN = {
   yieldAgainstTarget: -1.3,
   duration: 25.833,
-  stoppedOnWeight: true,
   stoppedAtTarget: true,
   ratio: 2.16875,
   peakPressure: 8.012207,
@@ -158,9 +156,9 @@ const PREHEAT_OWN = {
 const number = (shots: number, median: number, p25 = median, p75 = median): SummaryNumber => ({ shots, median, p25, p75 });
 
 /** The numbers of one Shot of shot-espresso.json: 0.1 g under its target, 23.549 s, stopped on weight. */
-const ONE_ESPRESSO: Numbers = { yieldAgainstTarget: number(1, -0.1), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 1 } };
+const ONE_ESPRESSO: Numbers = { yieldAgainstTarget: number(1, -0.1), duration: number(1, 23.549), stoppedAtTarget: { shots: 1, share: 1 } };
 /** The numbers of one of shot-espresso.json and one of shot-preheat.json: −1.3 and −0.1, and 23.549 s and 25.833 s. */
-const ESPRESSO_AND_PREHEAT: Numbers = { yieldAgainstTarget: number(2, -0.7, -1, -0.4), duration: number(2, 24.691, 24.12, 25.262), stoppedOnWeight: { shots: 2, share: 1 } };
+const ESPRESSO_AND_PREHEAT: Numbers = { yieldAgainstTarget: number(2, -0.7, -1, -0.4), duration: number(2, 24.691, 24.12, 25.262), stoppedAtTarget: { shots: 2, share: 1 } };
 
 /** Resolves once `holds` does, as expect.poll, which a hook can't call, waits. */
 async function until(holds: () => Promise<boolean>, timeoutMs = 60_000): Promise<void> {
@@ -369,7 +367,7 @@ describe("Shot Summaries by group", () => {
         numbers: {
           yieldAgainstTarget: exactNumber(numbers.yieldAgainstTarget),
           duration: exactNumber(numbers.duration),
-          stoppedOnWeight: { shots: numbers.stoppedOnWeight.shots, share: exact(numbers.stoppedOnWeight.share) },
+          stoppedAtTarget: { shots: numbers.stoppedAtTarget.shots, share: exact(numbers.stoppedAtTarget.share) },
         },
       })),
     };
@@ -398,7 +396,7 @@ describe("Shot Summaries by group", () => {
             // 4.095, two of 23.549 and 25.833.
             duration: number(4, 23.549, 18.6855, 24.12),
             // All but the one its Machine ended.
-            stoppedOnWeight: { shots: 4, share: 0.75 },
+            stoppedAtTarget: { shots: 4, share: 0.75 },
           },
         },
         {
@@ -408,7 +406,7 @@ describe("Shot Summaries by group", () => {
             // −1.3, −0.1 and 0.5, and two of 23.549 and 25.833; one recorded no stop reason.
             yieldAgainstTarget: number(3, -0.1, -0.7, 0.2),
             duration: number(3, 23.549, 23.549, 24.691),
-            stoppedOnWeight: { shots: 2, share: 1 },
+            stoppedAtTarget: { shots: 2, share: 1 },
           },
         },
         { by: machine(harbor1), counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ESPRESSO_AND_PREHEAT },
@@ -433,18 +431,18 @@ describe("Shot Summaries by group", () => {
       {
         by: by(recipes.labHouse, right),
         counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
-        numbers: { yieldAgainstTarget: number(2, 0.2, 0.05, 0.35), duration: number(2, 23.549), stoppedOnWeight: { shots: 2, share: 1 } },
+        numbers: { yieldAgainstTarget: number(2, 0.2, 0.05, 0.35), duration: number(2, 23.549), stoppedAtTarget: { shots: 2, share: 1 } },
       },
     ];
     const harborHouse: Group[] = [{ by: by(recipes.harborHouse, harbor1), counts: { shots: 2, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ESPRESSO_AND_PREHEAT }];
     const groups: Group[] = [
       // 2.4 g over, ended by its Machine.
-      { by: by(recipes.decaf, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, 2.4), duration: number(1, 23.549), stoppedOnWeight: { shots: 1, share: 0 } } },
+      { by: by(recipes.decaf, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, 2.4), duration: number(1, 23.549), stoppedAtTarget: { shots: 1, share: 0 } } },
       // It recorded no stop reason.
-      { by: by(recipes.decaf, right), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedOnWeight: { shots: 0, share: null } } },
+      { by: by(recipes.decaf, right), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -1.3), duration: number(1, 25.833), stoppedAtTarget: { shots: 0, share: null } } },
       ...(recipes.labHouse.id < recipes.harborHouse.id ? [...labHouse, ...harborHouse] : [...harborHouse, ...labHouse]),
       // The Shot pulled an hour after its Machine unloaded the Recipe it names, 6 g under, and the cleaning Shot.
-      { by: by(null, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -6), duration: number(1, 4.095), stoppedOnWeight: { shots: 1, share: 1 } } },
+      { by: by(null, left), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 1, awaitingValues: 0 }, numbers: { yieldAgainstTarget: number(1, -6), duration: number(1, 4.095), stoppedAtTarget: { shots: 1, share: 1 } } },
       { by: by(null, null), counts: { shots: 1, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 }, numbers: ONE_ESPRESSO },
     ];
     expect(await summary({ groupBy: "recipe,machine" })).toEqual({ groups, total: 7, limit: 20, offset: 0 });
@@ -667,8 +665,8 @@ describe("Shot Summaries by group", () => {
     expect(given.numbers).toMatchObject({ duration: read.duration, peakPressure: read.peakPressure, peakFlow: read.peakFlow, timeToFirstDrip: read.timeToFirstDrip, lastStep: read.lastStep });
     expect((read.actualYield as number) - (read.targetYield as number)).toBeCloseTo(given.numbers.yieldAgainstTarget as number, 9);
     // Only the numbers asked for, in one order: the default four where none are named.
-    const { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget, ratio, lastStep } = PREHEAT_OWN;
-    const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget } };
+    const { yieldAgainstTarget, duration, stoppedAtTarget, ratio, lastStep } = PREHEAT_OWN;
+    const defaults = { id: "harbor-house-2", numbers: { yieldAgainstTarget, duration, stoppedAtTarget } };
     expect((await references({ groupBy: "recipe", recipeId: recipes.labHouse.id }))[0]![1]).toEqual(defaults);
     const asked = (await references({ groupBy: "recipe", recipeId: recipes.labHouse.id, numbers: "lastStep,ratio" }))[0]![1]!;
     expect(asked).toEqual({ id: "harbor-house-2", numbers: { ratio, lastStep } });
@@ -695,15 +693,15 @@ describe("Shot Summaries by group", () => {
     for (const groupBy of ["machine", "location,barista"]) expect((await references({ groupBy })).every(([, reference]) => reference === null), groupBy).toBe(true);
     expect(await references({})).toEqual([[{}, null]]);
 
-    // Whether it stopped on weight, and at its target, is its own: none where it recorded no stop reason, and not where its Machine ended it.
+    // Whether it stopped at its target is its own: none where it recorded no stop reason, and not where its Machine ended it.
     const ofDecaf = async () => (await references({ groupBy: "recipe", recipeId: recipes.decaf.id }))[0]![1];
     await choose(recipes.decaf, "right-decaf");
-    expect(await ofDecaf()).toEqual({ id: "right-decaf", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: null, stoppedAtTarget: null } });
+    expect(await ofDecaf()).toEqual({ id: "right-decaf", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedAtTarget: null } });
     await choose(recipes.decaf, "left-decaf");
-    expect(await ofDecaf()).toEqual({ id: "left-decaf", numbers: { yieldAgainstTarget: 2.4, duration: 23.549, stoppedOnWeight: false, stoppedAtTarget: false } });
+    expect(await ofDecaf()).toEqual({ id: "left-decaf", numbers: { yieldAgainstTarget: 2.4, duration: 23.549, stoppedAtTarget: false } });
     // A cleaning Shot, left out of every group's numbers, gives its own as a Reference Shot.
     await choose(recipes.decaf, "left-cleaning");
-    expect(await ofDecaf()).toEqual({ id: "left-cleaning", numbers: { yieldAgainstTarget: -0.1, duration: 23.549, stoppedOnWeight: true, stoppedAtTarget: true } });
+    expect(await ofDecaf()).toEqual({ id: "left-cleaning", numbers: { yieldAgainstTarget: -0.1, duration: 23.549, stoppedAtTarget: true } });
     // Cleared, the Recipe gives none again.
     await choose(recipes.decaf, null);
     expect(await ofDecaf()).toBeNull();
