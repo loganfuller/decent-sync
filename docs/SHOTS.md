@@ -1271,10 +1271,10 @@ Machines and each Shot within spec or out of spec against three margins
   - **Through an assistant,** `summarise_shots` takes `bucket` and gives the
     same. The budget's guard ends a page of groups sooner to fit (ADR-0028),
     never a group's buckets: 30 days by day by Recipe and Machine, about
-    380 characters a day at the default numbers, fill a page at 3 groups,
-    and with every number, about 960 a day, at one. A single group can't be
-    shortened, so one of more than about 115 days at the default numbers, or
-    45 with every number, is over the budget: a summary of every Shot by
+    340 characters a day at the default numbers, fill a page at 4 groups,
+    and with every number, about 920 a day, at one. A single group can't be
+    shortened, so one of more than about 125 days at the default numbers, or
+    47 with every number, is over the budget: a summary of every Shot by
     day reaches that on any server a few months old. The tool refuses a
     page whose first group alone can't fit (`overBudget` in
     `server/src/mcp/budget.ts`), saying to give `from` and `to` for a
@@ -1287,8 +1287,9 @@ Machines and each Shot within spec or out of spec against three margins
     group, 293 ms without a bucket, 308 ms by day (365 buckets) and 305 ms
     by week; by Recipe and Machine, 353 ms without, 404 ms by day and 387 ms
     by week; and with every number, by Recipe and Machine, 812 ms without
-    and 900 ms by day. A year by day in five groups is 440,000 characters
-    of JSON at the default numbers.
+    and 900 ms by day. A year by day in five groups was 440,000 characters
+    of JSON at the default numbers then, about 370,000 without the
+    `stoppedOnWeight` #559 removed.
 - **Baristas.** A Barista is who a Shot's name for one names (`barista`,
   its Workflow's `context.baristaName`): the name without its case or the
   blanks around it, which are spaces, tabs and line ends (`baristaKeySql`
@@ -1397,8 +1398,7 @@ Machines and each Shot within spec or out of spec against three margins
   - A value is the Shot's own, worked out as each Shot's is for the group's
     numbers (`NumberSql.own`), null where it has none or one too large to
     count: `stoppedAtTarget` is true or false, null where it recorded no
-    stop reason, `lastStep` is `{ frame, name }`,
-    and each other a number.
+    stop reason, `lastStep` is `{ frame, name }`, and each other a number.
   - It is read in the summary's one statement, for the groups on the page
     alone, each by its id (`reference_shot_id`), so it is of the same
     moment as the numbers beside it.

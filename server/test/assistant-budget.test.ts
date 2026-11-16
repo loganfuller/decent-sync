@@ -1387,7 +1387,7 @@ describe("every read tool's response within the budget", { timeout: 240_000 }, (
         expect(group.reference!.id).toBe("haunted-numbers-00");
         expect(Object.keys(group.reference!.numbers)).toEqual(EVERY_NUMBER);
         // Its grind setting is text, so it has none; it ended in the first step.
-        expect(group.reference!.numbers).toMatchObject({ grindSetting: null, rating: 8, tds: 9.5, ratio: 1.99, lastStep: { frame: 0 } });
+        expect(group.reference!.numbers).toMatchObject({ grindSetting: null, rating: 8, tds: 9.5, ratio: 1.99, stoppedAtTarget: true, lastStep: { frame: 0 } });
         expect(cut((group.reference!.numbers.lastStep as { name: string }).name)).toBe(true);
       }
     });
