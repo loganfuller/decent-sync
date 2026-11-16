@@ -228,7 +228,7 @@ export class SettingsEditsService {
    * one edit.
    */
   async list(machineId: string, page: Page, scope: Scope): Promise<{ settingsEdits: SettingsEditView[]; total: number } & Page> {
-    const [edits, total, notConfirmed] = await this.prisma.$transaction(
+    const [edits, total] = await this.prisma.$transaction(
       async (tx) => {
         if ((await tx.machine.count({ where: { id: machineId } })) === 0) throw machineNotFound();
         const edits = await tx.settingsEdit.findMany({
@@ -238,17 +238,52 @@ export class SettingsEditsService {
           take: page.limit,
           skip: page.offset,
         });
-        const unanswered = edits.filter((edit) => edit.answeredAt === null).map((edit) => edit.id);
-        const notConfirmed =
-          unanswered.length === 0
-            ? []
-            : await tx.$queryRaw<{ id: string }[]>`
-                SELECT id FROM settings_edits WHERE id = ANY(${unanswered}::uuid[]) AND answered_at IS NULL AND ${this.noLongerAwaited()}`;
-        return [edits, await tx.settingsEdit.count({ where: { machineId } }), new Set(notConfirmed.map((edit) => edit.id))] as const;
+        return [await this.views(tx, edits, scope), await tx.settingsEdit.count({ where: { machineId } })] as const;
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
-    return { settingsEdits: edits.map((edit) => view(edit, scope, notConfirmed.has(edit.id))), total, ...page };
+    return { settingsEdits: edits, total, ...page };
+  }
+
+  /**
+   * Every edit of the Machine, newest first, by its id, collection and when
+   * it was made, narrowed to `collections`, where given, and to those made
+   * from `from` and before `to`: what its Settings History is merged with
+   * (`SettingsHistoryService.withEdits`), read in that read's transaction.
+   */
+  made(
+    tx: Prisma.TransactionClient,
+    machineId: string,
+    filters: { collections?: readonly string[]; from?: Date; to?: Date },
+  ): Promise<{ id: string; collection: string; madeAt: Date }[]> {
+    return tx.settingsEdit.findMany({
+      where: {
+        machineId,
+        ...(filters.collections && { collection: { in: [...filters.collections] } }),
+        madeAt: { ...(filters.from && { gte: filters.from }), ...(filters.to && { lt: filters.to }) },
+      },
+      select: { id: true, collection: true, madeAt: true },
+      orderBy: [{ madeAt: "desc" }, { id: "desc" }],
+    });
+  }
+
+  /** The edits of these ids, each as the REST API gives it, by its id, read in the caller's transaction as `list` reads a page. */
+  async viewsOf(tx: Prisma.TransactionClient, ids: readonly string[], scope: Scope): Promise<Map<string, SettingsEditView>> {
+    if (ids.length === 0) return new Map();
+    const edits = await tx.settingsEdit.findMany({ where: { id: { in: [...ids] } }, include: withAccount });
+    return new Map((await this.views(tx, edits, scope)).map((edit) => [edit.id, edit]));
+  }
+
+  /** Each edit as the REST API gives it, those still unanswered judged not confirmed or not in the transaction's snapshot. */
+  private async views(tx: Prisma.TransactionClient, edits: StoredEdit[], scope: Scope): Promise<SettingsEditView[]> {
+    const unanswered = edits.filter((edit) => edit.answeredAt === null).map((edit) => edit.id);
+    const notConfirmed =
+      unanswered.length === 0
+        ? []
+        : await tx.$queryRaw<{ id: string }[]>`
+            SELECT id FROM settings_edits WHERE id = ANY(${unanswered}::uuid[]) AND answered_at IS NULL AND ${this.noLongerAwaited()}`;
+    const ids = new Set(notConfirmed.map((edit) => edit.id));
+    return edits.map((edit) => view(edit, scope, ids.has(edit.id)));
   }
 
   /**

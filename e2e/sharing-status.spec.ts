@@ -4,7 +4,7 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
-// A Machine's page shows its sharing status: how many changes are waiting for
+// A Machine's page shows its sharing status, on its Setup tab: how many changes are waiting for
 // its tablet, the last change it applied, and the writes it refused, with
 // Decaid's answer. A simulated tablet running the built plugin, whose Decaid
 // refuses one Bean; hardware ids are made up.
@@ -37,7 +37,7 @@ test("a Machine's page shows the changes waiting for its tablet, the last it app
 
   // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("None: its tablet is up to date")).toBeVisible();
   await expect(sharing.getByText(/^Bean Batch .* written, /)).toBeVisible();
@@ -81,7 +81,7 @@ test("a Machine's page shows a DYE2 list its tablet holds in a shape not recogni
   });
   await tablet.waitForLog(/^Connected to /);
 
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   const lists = sharing.getByRole("group", { name: "DYE2 lists not written" });
   await expect(lists).toContainText("DYE2 lists it stopped writing");

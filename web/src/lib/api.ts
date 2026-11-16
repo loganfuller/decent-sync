@@ -401,14 +401,6 @@ export interface SettingsEdit {
   readBack: Record<string, unknown> | null;
 }
 
-/** A page of a Machine's Settings Edits, newest first. */
-export interface SettingsEditPage {
-  settingsEdits: SettingsEdit[];
-  total: number;
-  limit: number;
-  offset: number;
-}
-
 /** One field's change in a Machine's Settings History, as compared: a wake schedule's fields, a sensor calibration's measured value, a paired device without how it is connected. */
 export interface SettingsHistoryField {
   /** A field's name, as Decaid names it; `schedules/<id>` for a wake schedule; a target of the sensor calibration; a plugin's, paired device's or sensor's id. */
@@ -421,19 +413,23 @@ export interface SettingsHistoryField {
   backAt: string | null;
 }
 
-/** A change of one of a Machine's collections, as its Settings History keeps it. */
-export interface SettingsHistoryChange {
-  /** The value's id; a read-back holding an edit's changes and others gives two changes of one id. */
-  id: string;
-  receivedAt: string;
+/**
+ * An entry of a Machine's Settings History with its Settings Edits (#545): a
+ * change, with the Settings Edit that made it, if one did, or a Settings
+ * Edit that changed nothing.
+ */
+export interface SettingsHistoryEntry {
+  /** When the server received the change, or when a Settings Edit that changed nothing was made. */
+  at: string;
   collection: string;
-  /** The Settings Edit that made it, and who made it, named to Admins only; null for a change made outside Decent Sync. */
-  settingsEdit: { id: string; account: { id: string; name: string | null } | null; connectedApp: { id: string; name: string; host: string } | null } | null;
-  fields: SettingsHistoryField[];
+  /** The change, by its value's id; null for a Settings Edit that changed nothing. */
+  change: { id: string; fields: SettingsHistoryField[] } | null;
+  /** The Settings Edit that made the change, or that changed nothing, with what came of it; null for a change made outside Decent Sync. */
+  settingsEdit: SettingsEdit | null;
 }
 
-export interface SettingsHistoryPage {
-  changes: SettingsHistoryChange[];
+export interface SettingsHistoryEntryPage {
+  entries: SettingsHistoryEntry[];
   total: number;
   limit: number;
   offset: number;

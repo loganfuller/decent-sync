@@ -416,22 +416,29 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   own definitions of an edit the page's allow (`refusedByOtherDefinitions`)
   says the Tablet's plugin must update before it takes the change, rather
   than repeating the plugin's reason, such as a step the page no longer has.
-- **The Settings Edits card** (`web/src/components/settings-edit-log.tsx`)
-  lists the Machine's edits, newest first, 20 a page: when each was made, who
-  made it ("You" for the account's own, the account's name to Admins, and
-  otherwise "An account", as the Library's history shows Staff, followed by
-  ", through <app>" for one made through a Connected App), its section,
-  each field's value in the report it was made over and the value asked for,
-  and its outcome, a late answer marked so. A wake schedule's edit names its
-  action first, as asked, such as "Change the wake schedule at 06:30", then
-  each field changed, or for an add each field it set, in the schedule's
-  order. The section's status names it the same way while pending, and as
-  done, such as "Wake schedule at 06:30 changed", once applied. It is shown
-  closed, as is the Settings History card, since most who read the page need
-  neither, and loads nothing until opened. Open, it loads every 30 s, and
-  again as an edit made on the page is answered. A time of
+- **The Settings History card** (`web/src/components/settings-history.tsx`)
+  lists the Machine's edits among the changes its Tablet reported (ticket
+  [#545](https://github.com/loganfuller/decent-sync/issues/545), Settings
+  History, below), in place of a Settings Edits card of their own: an edit
+  that made a change is that change's row, with who made it ("You" for the
+  account's own, the account's name to Admins, and otherwise "An account", as
+  the Library's history shows Staff, followed by ", through <app>" for one
+  made through a Connected App) and its outcome, a late answer marked so. An
+  edit that changed nothing, being pending, refused, not confirmed or put
+  back by the Machine, is listed at the time it was made, a row for each
+  field it set, with the value asked for and the value in the report it was
+  made over, and its outcome. A wake schedule's is one row, named by its
+  time as reported, with what it asked: to add it, with each field it set,
+  to change it, with each field changed, or to delete it. The section's
+  status names a wake schedule's edit as asked while pending, such as
+  "Change the wake schedule at 06:30", and as done, such as "Wake schedule at
+  06:30 changed", once applied. The card is shown closed, since most who read
+  the page do not need it, and loads nothing until opened. Open, it loads
+  every 30 s, and again as an edit made on the page is answered. A time of
   day there is the Tablet's own, written without its offset, as an edit
-  does not keep the offset it was made in.
+  does not keep the offset it was made in. `GET
+  /api/machines/:id/settings-edits` stays for the REST API's other clients,
+  the previous release's page (ADR-0025) and `list_settings_edits`.
 
 `server/test/settings-edits.test.ts` covers this through Seam 1, with the
 built plugin on two instances sharing PostgreSQL,
@@ -641,8 +648,8 @@ disconnects mid-read, and 504 if it doesn't answer in time.
 ## Plugins and Skins
 
 Ticket [#236](https://github.com/loganfuller/decent-sync/issues/236) reports
-the DYE2 and Streamline on each tablet, which the Machine page's Versions card
-shows. They are only shown: nothing is refused at `hello` or flagged below
+the DYE2 and Streamline on each tablet, which the Machine page's Hardware and
+software card shows. They are only shown: nothing is refused at `hello` or flagged below
 ADR-0017's minimums.
 
 `plugins` is Decaid's plugin list as sent: each plugin's manifest with
@@ -840,7 +847,8 @@ latest value's `received_at`), and its source. Ticket
 
 `SettingsHistoryService` (`server/src/collections/settings-history.service.ts`)
 reads a Machine's history two ways, for the REST API and the MCP endpoint
-alike (ADR-0026):
+alike (ADR-0026), and its changes a third way for the Machine's page, with
+its Settings Edits:
 
 - **Its changes,** newest first, worked out by `settingsHistoryChanges`
   (`protocol/src/settings-history.ts`) from each collection's values in the
@@ -873,6 +881,25 @@ alike (ADR-0026):
   gives none though the Machine held a value then. As the history keeps
   only reports with a value and their changes, what it compares none of,
   such as the Tablet's battery, may have changed since without being kept.
+- **With its Settings Edits** (`withEdits`, ticket
+  [#545](https://github.com/loganfuller/decent-sync/issues/545)): the
+  changes above, each with the Settings Edit that made it whole, so with
+  what came of it, and each of the Machine's Settings Edits that changed
+  nothing, placed by when it was made. An edit changed nothing where no
+  change of its collection names it: one still pending, refused or not
+  confirmed, or one answered whose read-back held nothing new of the fields
+  it set, as when the Machine put a value back. So an edit that made a
+  change is listed once, as that change, whatever its outcome, a not
+  confirmed one whose read-back still arrived included; and every edit is
+  listed at least once while no filter leaves it out. The two lists are
+  merged newest first, each keeping its own order, a change going before an
+  edit made no later than the change was received. They are read in one
+  repeatable-read transaction, so an edit whose read-back arrives meanwhile
+  is a change or an edit that has changed nothing yet, never both or
+  neither. `editsOnly` leaves out the changes made outside Decent Sync. An
+  assistant has the same through `list_settings_history`, whose changes name
+  their edit by its id, and `list_settings_edits`, which gives every edit
+  with its outcome, so the MCP endpoint has no tool of its own for it.
 
 ## REST API
 
@@ -899,6 +926,21 @@ Machine that takes their hardware over. Staff read them as Admins do.
   with their offsets, by when each change was received; `includeBrief`,
   `true` or `false` (the default); and `limit` (1 to 100, 20 if not given)
   and `offset`. Viewers read it too.
+- `GET /api/machines/:id/settings-history/with-edits` returns `{ entries,
+  total, limit, offset }`, the Settings History with the Machine's Settings
+  Edits, newest first, as its page lists them (ticket
+  [#545](https://github.com/loganfuller/decent-sync/issues/545); Reading the
+  Settings History, above). Each entry is `{ at, collection, change,
+  settingsEdit }`. A change has `change: { id, fields }`, as the list above
+  gives them, `at` when it was received, and `settingsEdit` the whole Settings
+  Edit that made it, as `GET /api/machines/:id/settings-edits/:editId` gives
+  it, so with its outcome, or null for a change made outside Decent Sync. A
+  Settings Edit that changed nothing has `change: null` and `at` when it was
+  made. It takes the list's `collection`, `from`, `to`, `includeBrief`,
+  `limit` and `offset`, the times narrowing a change by when it was received
+  and such an edit by when it was made, and `editsOnly`, `true` or `false`
+  (the default), which leaves out the changes made outside Decent Sync.
+  Viewers read it too.
 - `GET /api/machines/:id/tablet-versions` returns `{ tabletVersions: { dye2,
   streamline } }` (Plugins and Skins, above), each with a `status`:
   `notReported` until its collection is reported, `notInstalled`, and for
@@ -929,15 +971,20 @@ Machine that takes their hardware over. Staff read them as Admins do.
   of `receivedAt`.
   Everything else paired, such as the machine itself, is in `others`.
 
-The Machine page shows the DYE2 and Streamline in its Versions card, which
-keeps the last reported while the Machine is offline, the paired devices, the
+The Machine page (ticket
+[#545](https://github.com/loganfuller/decent-sync/issues/545)) shows these on
+two of its tabs, each loading what it shows only while it is open, every 30 s
+rather than every 5 s as the Machine's status is. Its Settings tab shows the
 Machine Settings and Tablet Settings by their field definitions (Settings
 fields, above), the steam, hot water and flush settings of the current
-Workflow, its Settings History, a row per field changed, with brief changes
-shown on asking, and how many of each library collection its tablet reported,
-loaded every 30 s rather than every 5 s as the Machine's status is. Through
+Workflow, the paired devices, and its Settings History with its Settings
+Edits, a row per field changed, with brief changes shown on asking and a
+control that narrows it to what was made through a Settings Edit. Its Setup
+tab shows the DYE2 and Streamline in its Hardware and software card, which
+keeps the last reported while the Machine is offline, and how many of each
+library collection its tablet reported. Through
 the MCP endpoint, `get_machine` gives the Machine Settings, the Tablet
-Settings and the Versions card's rows, and `get_machine_reports` (ticket
+Settings and the DYE2 and Streamline, and `get_machine_reports` (ticket
 [#441](https://github.com/loganfuller/decent-sync/issues/441)) gives
 `scaleInfo`, `sensors`, `plugins` and `skins` with the `available`,
 `reportedAt`, `receivedAt` and `value` that
@@ -949,7 +996,8 @@ reported.
 plugin and raw frames on two instances sharing PostgreSQL,
 `server/test/settings-history.test.ts` the Settings History, with
 `protocol/test/settings-history.test.ts` its projection and its changes,
-`server/test/settings-history-reads.test.ts` its REST reads,
+`server/test/settings-history-reads.test.ts` its REST reads, the one with its
+Settings Edits among them,
 `server/test/assistant-machines.test.ts` and `assistant-budget.test.ts`
 `list_settings_history`, `get_machine` with a time and `get_machine_reports`,
 `server/test/machine-settings-while-busy.test.ts` the reads from the machine

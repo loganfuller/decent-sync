@@ -32,6 +32,17 @@ export async function openCard(page: Page, name: string): Promise<Locator> {
   return card;
 }
 
+/**
+ * Opens one of a Machine's page's tabs (#545), Now, Activity, Settings or
+ * Setup, by its link, and waits until it is the one open. A card is on one
+ * tab only, and is mounted only while its tab is open.
+ */
+export async function openMachineTab(page: Page, name: "Now" | "Activity" | "Settings" | "Setup"): Promise<void> {
+  const tab = page.getByRole("navigation", { name: "Machine" }).getByRole("link", { name, exact: true });
+  await tab.click();
+  await expect(tab).toHaveAttribute("aria-current", "page");
+}
+
 /** That a Recipe's page says it is in this Recipe Slot at this Location: the badge beside its name, and the line under it. */
 export async function expectSlot(page: Page, slot: number, location: string): Promise<void> {
   await expect(page.getByRole("main").getByRole("img", { name: `Slot ${slot}`, exact: true })).toBeVisible();

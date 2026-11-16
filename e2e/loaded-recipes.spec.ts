@@ -6,13 +6,13 @@ import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field, openCard, rows } from "./support/locators.js";
+import { openMachineTab, rows } from "./support/locators.js";
 
 // Each Machine's Loaded Recipe in the management interface (tickets #145 and
 // #216): a recipe applied in DYE2 on a simulated tablet running the built
-// plugin, in a Recipe Slot or not, shows on its Machine's page and its
-// Location's page, and the Machine's Activity card lists those it had
-// loaded today, with when each was loaded and unloaded; a
+// plugin, in a Recipe Slot or not, shows in its Machine's Workflow, on the
+// Now tab of its page, and on its Location's page, and the Machine's
+// Activity tab lists those it had loaded today, with when each was loaded and unloaded; a
 // change on one Machine reaches the Recipe and the other Machine that has it
 // loaded. The tablet is DYE2 v0.1.26's recording's
 // (server/test/fixtures/decaid/dye2-v0.1.26/), as DYE2 v0.1.33 leaves it. Serials are made up, from
@@ -28,7 +28,7 @@ const BRAZIL = "2";
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machine's page and its Location's, in its slot or in none, until the profile changes", async ({ page }) => {
-  // Uptown is where no day begins while this runs, as the Activity card lists today's Loaded Recipes.
+  // Uptown is where no day begins while this runs, as the Activity tab lists today's Loaded Recipes.
   const { zone, zoneName } = farFromMidnight();
   const location = await createLocation(page, "Uptown", zone);
   // The recording's tablet, with its library, Workflow and eight recipes, its beans' names starting with the scenario's.
@@ -39,15 +39,14 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
   await page.goto(`/machines/${bar1.id}`);
-  const loaded = page.getByRole("region", { name: "Loaded Recipe" });
-  await expect(loaded).toContainText("No Recipe is loaded.");
+  const loaded = loadedRecipe(page);
+  await expect(loaded).toHaveText("No Recipe is loaded.");
 
   expect((await (await openDye2Dashboard(bar1.tablet)).applyRecipe(BRAZIL)).workflow?.status).toBe(200);
-  const now = loaded.getByLabel("Loaded now");
-  await afterStatusPolls(page, () => expect(field(now, "Recipe")).toHaveText("Fixture Brazil EspressoSlot 2", { timeout: CHECK_MS }));
-  await expect(field(now, "Since")).toHaveText(/^\w{3} \d+, \d{4}/);
-  // Those it had loaded are in its Activity card, not here.
-  await expect(loaded.getByRole("table")).toHaveCount(0);
+  await afterStatusPolls(page, () => expect(loaded).toHaveText(loadedFrom("Fixture Brazil Espresso", "Slot 2"), { timeout: CHECK_MS }));
+  await expect(loaded.getByRole("link", { name: "Fixture Brazil Espresso" })).toHaveAttribute("href", /^\/library\/recipes\//);
+  // Those it had loaded are on its Activity tab, not here.
+  await expect(page.getByRole("region", { name: "Workflow" }).getByRole("table")).toHaveCount(0);
   let history = await loadedToday(page);
   await expect(rows(history)).toHaveCount(1);
   await expect(rows(history).first()).toContainText("Still loaded");
@@ -64,7 +63,7 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   // The Ethiopia's recipe, in no slot, applied from DYE2's Select Recipe page.
   expect((await selectRecipeInDye2(bar1.tablet, ETHIOPIA)).applied?.workflow?.status).toBe(200);
   await page.goto(`/machines/${bar1.id}`);
-  await expect(field(now, "Recipe")).toHaveText("Fixture Ethiopia EspressoNo slot");
+  await expect(loaded).toHaveText(loadedFrom("Fixture Ethiopia Espresso", "No slot"));
   history = await loadedToday(page);
   await expect(rows(history)).toHaveCount(2);
   await expect(rows(history).getByRole("cell").filter({ hasText: /^Fixture/ })).toHaveText(["Fixture Ethiopia EspressoNo slot", "Fixture Brazil EspressoSlot 2"]);
@@ -73,7 +72,7 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   const classic = (dye2Library()["/profiles"] as { profile: Record_ }[]).find((record) => record.profile.title === "Classic Italian espresso")!.profile;
   await bar1.tablet.changeSettings({ profile: classic });
   await page.goto(`/machines/${bar1.id}`);
-  await expect(loaded).toContainText("No Recipe is loaded.");
+  await expect(loaded).toHaveText("No Recipe is loaded.");
   history = await loadedToday(page);
   await expect(rows(history)).toHaveCount(2);
   await expect(rows(history).first()).not.toContainText("Still loaded");
@@ -96,11 +95,12 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
   // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
   await page.goto(`/machines/${bar2.id}`);
-  await expect(field(page.getByRole("region", { name: "Loaded Recipe" }).getByLabel("Loaded now"), "Recipe")).toHaveText("Fixture Brazil EspressoSlot 2");
+  await expect(loadedRecipe(page)).toHaveText(loadedFrom("Fixture Brazil Espresso", "Slot 2"));
 
   // The plugin on Belmont 1 has DYE2 save the change into the recipe, and the server writes it into Belmont 2's Workflow.
   await bar1.tablet.changeSettings({ context: { grinderSetting: "2.8" } });
   await expect.poll(() => (bar2.tablet.workflow().context as Record_).grinderSetting).toBe("2.8");
+  await openMachineTab(page, "Setup");
   const sharing = page.getByRole("region", { name: "Sharing" });
   await afterStatusPolls(page, () => expect(sharing.getByText("Its Workflow written, or cleared of, the Recipe Fixture Brazil Espresso")).toBeVisible({ timeout: CHECK_MS }));
   await sharing.getByRole("link", { name: "Fixture Brazil Espresso" }).click();
@@ -108,9 +108,20 @@ test("a grind changed on one Machine reaches the Recipe's page, and the Workflow
   await expect(page.getByText("2.8", { exact: true }).first()).toBeVisible();
 });
 
-/** The Loaded Recipes the Machine page's Activity card lists for today, latest loaded first, the card opened on them. */
+/** The line in the Workflow, on a Machine page's Now tab, naming the Recipe it was loaded from, or that none is loaded. */
+function loadedRecipe(page: Page): Locator {
+  return page.getByRole("region", { name: "Workflow" }).getByRole("group", { name: "Loaded Recipe" });
+}
+
+/** What that line reads for a Recipe loaded, with its slot ("Slot 2", "No slot"), since a date. */
+function loadedFrom(recipe: string, slot: string): RegExp {
+  return new RegExp(`^Loaded from\\s*${recipe}\\s*${slot}\\s*since \\w{3} \\d+, \\d{4}`);
+}
+
+/** The Loaded Recipes the Machine page's Activity tab lists for today, latest loaded first, opened on them. */
 async function loadedToday(page: Page): Promise<Locator> {
-  const activity = await openCard(page, "Activity");
+  await openMachineTab(page, "Activity");
+  const activity = page.getByRole("region", { name: "On one day" });
   await activity.getByRole("tab", { name: "Loaded Recipes" }).click();
   return activity.getByRole("table", { name: "Loaded Recipes that day" });
 }

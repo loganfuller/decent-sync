@@ -1,7 +1,7 @@
 import { expect, type Browser, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
 import { admin, createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
-import { machineRow } from "./support/locators.js";
+import { machineRow, openMachineTab } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Inviting people: an Admin creates a one-time link and sends it themselves;
@@ -73,11 +73,12 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
   const machines = samsPage.getByRole("table", { name: "Machines" }).getByRole("row");
   // A header row, then the three Machines.
   await expect(machines).toHaveCount(4);
-  await expect(samsPage.getByRole("heading", { name: "New Machine" })).toHaveCount(0);
+  await expect(samsPage.getByRole("button", { name: "New Machine" })).toHaveCount(0);
 
   // Sam cannot move a Machine at the Lab.
   await samsPage.getByRole("link", { name: "Lab 1", exact: true }).click();
   await expect(samsPage.getByRole("heading", { name: "Lab 1", level: 1 })).toBeVisible();
+  await openMachineTab(samsPage, "Setup");
   const location = samsPage.getByRole("region", { name: "Location" });
   await expect(location.getByText("You can move it only while it is at a Location you work at.")).toBeVisible();
   await expect(location.getByRole("form", { name: "Move" })).toHaveCount(0);
@@ -86,6 +87,7 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
   await samsPage.getByRole("link", { name: "← Machines" }).click();
   await samsPage.getByRole("link", { name: "Uptown 1", exact: true }).click();
   await expect(samsPage.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
+  await openMachineTab(samsPage, "Setup");
   await expect(samsPage.getByRole("heading", { name: "Token" })).toHaveCount(0);
   const move = samsPage.getByRole("region", { name: "Location" }).getByRole("form", { name: "Move" });
   await move.getByRole("combobox", { name: "Move to" }).click();
@@ -100,7 +102,7 @@ test("an Admin invites a Staff member, who accepts, is signed in and sees which 
 
   // Ada sees the move.
   await page.goto("/machines");
-  await expect(machineRow(page, "Uptown 1").getByRole("cell").nth(2)).toHaveText("Belmont");
+  await expect(machineRow(page, "Uptown 1").getByRole("cell").nth(1)).toHaveText("Belmont");
 });
 
 test("an invite link already used says it can no longer be used", async ({ browser }) => {

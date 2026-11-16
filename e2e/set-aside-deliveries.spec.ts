@@ -4,11 +4,11 @@ import { SimulatedTablet, de1ProOnDecaid092, settingsFor } from "../server/test/
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
-import { field, machineRow } from "./support/locators.js";
+import { machineRow, openMachineTab } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Deliveries from a Machine's tablet that the server could not store, on the
-// Machine's page, as an Admin. A simulated tablet running the built plugin
+// Setup tab of the Machine's page, as an Admin. A simulated tablet running the built plugin
 // sends the test tablet's Shot and one derived from it with a NUL in its
 // notes, which PostgreSQL cannot hold (see the fixtures' README); its serial
 // is the fixtures' made-up 10001.
@@ -30,6 +30,7 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Bar 1").getByRole("link", { name: "Bar 1" }).click();
+  await openMachineTab(page, "Setup");
   const setAside = page.getByRole("region", { name: "Deliveries set aside" });
   // Loaded every 30 s, as is all but the Machine's status.
   await afterDetailsPolls(page, () => expect(setAside).toContainText("1 delivery from its tablet could not be stored", { timeout: CHECK_MS }));
@@ -39,8 +40,10 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
   // How many were set aside, and that sending them again would fail, stay on the page; what setting one aside means is in a tooltip.
   await expect(setAside).toContainText("1 delivery from its tablet could not be stored, and would fail the same way if sent again.");
   await expectTip(setAside, "Deliveries set aside", "Each was set aside as sent, so what the tablet sent after it was still stored.");
-  // Stored after it: the Shot pulled on Oct 4.
-  await expect(field(page, "Last Shot")).toHaveText(/^Oct 4, 2026, /);
+  // Stored after it: the Shot pulled on Oct 4, the last Shot in the line above the tabs, its exact time in a tooltip.
+  const lastShot = page.getByRole("group", { name: "Status" }).getByRole("button", { name: /^Oct 4\b/ });
+  await lastShot.hover();
+  await expect(page.getByRole("tooltip")).toHaveText(/^Oct 4, 2026, /);
   // Never what it carried.
   expect(await page.content()).not.toContain("Jammy");
 });
@@ -48,9 +51,14 @@ test("a Shot that cannot be stored is listed on its Machine's page, without what
 test("a Machine with nothing set aside lists none", async ({ page }) => {
   await createMachine(page, "Bar 2");
   await page.goto("/machines");
-  const read = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/set-aside-deliveries") && response.ok());
   await machineRow(page, "Bar 2").getByRole("link", { name: "Bar 2" }).click();
-  await read;
   await expect(page.getByRole("heading", { name: "Bar 2", level: 1 })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Deliveries set aside" })).toHaveCount(0);
+  const read = page.waitForResponse((response) => new URL(response.url()).pathname.endsWith("/set-aside-deliveries") && response.ok());
+  await openMachineTab(page, "Setup");
+  await read;
+  // The card always shows on Setup, saying there are none, without a table.
+  const setAside = page.getByRole("region", { name: "Deliveries set aside" });
+  await expect(setAside).toContainText("None");
+  await expect(setAside).not.toContainText("could not be stored");
+  await expect(setAside.getByRole("table")).toHaveCount(0);
 });

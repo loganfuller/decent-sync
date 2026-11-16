@@ -3,7 +3,7 @@ import { RawConnection, helloWith } from "../server/test/support/simulated-table
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field, machineRow } from "./support/locators.js";
+import { field, machineRow, openMachineTab } from "./support/locators.js";
 
 // Machines at Locations, as an Admin whose browser is in Tokyo while the
 // Locations are in the US: Location History times are shown and entered in
@@ -19,7 +19,9 @@ test("a machine entry created at a Location shows it in the Machines list and on
   await createLocation(page, "Belmont", "America/Chicago");
 
   await page.goto("/machines");
-  const form = page.getByRole("form", { name: "New Machine" });
+  const newMachine = page.getByRole("main").getByRole("button", { name: "New Machine", exact: true });
+  await newMachine.click();
+  const form = page.getByRole("dialog", { name: "New Machine" }).getByRole("form", { name: "New Machine" });
   await expect(form.getByRole("combobox", { name: "Location" })).toHaveText("No Location");
   await form.getByLabel("Name").fill("Lab 1");
   await form.getByRole("combobox", { name: "Location" }).click();
@@ -27,7 +29,8 @@ test("a machine entry created at a Location shows it in the Machines list and on
   await form.getByRole("button", { name: "Create Machine" }).click();
   await expect(page.getByRole("region", { name: "Token for Lab 1" })).toBeVisible();
   await expect(locationCell(page, "Lab 1")).toHaveText("Lab");
-  // Ready for the next one, which starts unassigned.
+  // The next one starts unassigned.
+  await newMachine.click();
   await expect(form.getByRole("combobox", { name: "Location" })).toHaveText("No Location");
   await form.getByLabel("Name").fill("Spare");
   await form.getByRole("button", { name: "Create Machine" }).click();
@@ -35,6 +38,9 @@ test("a machine entry created at a Location shows it in the Machines list and on
 
   await page.getByRole("link", { name: "Lab 1", exact: true }).click();
   await expect(page.getByRole("heading", { name: "Lab 1", level: 1 })).toBeVisible();
+  // Where it is shows above the tabs, and on the Setup tab with since when.
+  await expect(page.getByRole("group", { name: "Status" }).getByRole("link", { name: "Lab", exact: true })).toBeVisible();
+  await openMachineTab(page, "Setup");
   await expect(field(page, "Location")).toHaveText("Lab");
   await expect(field(page, "Since")).toContainText(/M[DS]T$/);
   await expect(history(page).getByRole("listitem")).toHaveCount(1);
@@ -43,6 +49,7 @@ test("a machine entry created at a Location shows it in the Machines list and on
 test("moving a Machine between Locations, and correcting when it moved, shows in its Location History", async ({ page }) => {
   await page.goto("/machines");
   await page.getByRole("link", { name: "Lab 1", exact: true }).click();
+  await openMachineTab(page, "Setup");
   const location = page.getByRole("region", { name: "Location" });
 
   const move = location.getByRole("form", { name: "Move" });
@@ -97,6 +104,7 @@ test("moving a Machine between Locations, and correcting when it moved, shows in
 test("a mistaken move is removed, and an entry's Location corrected without changing its time", async ({ page }) => {
   await page.goto("/machines");
   await page.getByRole("link", { name: "Lab 1", exact: true }).click();
+  await openMachineTab(page, "Setup");
   const move = page.getByRole("region", { name: "Location" }).getByRole("form", { name: "Move" });
   await move.getByRole("combobox", { name: "Move to" }).click();
   await page.getByRole("option", { name: "Belmont" }).click();
@@ -146,6 +154,7 @@ test("a mistaken move is removed, and an entry's Location corrected without chan
 test("an unassigned Machine is assigned its first Location", async ({ page }) => {
   await page.goto("/machines");
   await page.getByRole("link", { name: "Spare", exact: true }).click();
+  await openMachineTab(page, "Setup");
   await expect(field(page, "Location")).toHaveText("No Location");
   await expect(history(page)).toHaveCount(0);
 
@@ -195,9 +204,9 @@ async function storedHistory(page: Page, id: string) {
   return machine.locationHistory.map((entry) => [entry.location.name, entry.effectiveFrom]);
 }
 
-/** A Machine's Location in the Machines list, the third column. */
+/** A Machine's Location in the Machines list, the second column. */
 function locationCell(page: Page, name: string) {
-  return machineRow(page, name).getByRole("cell").nth(2);
+  return machineRow(page, name).getByRole("cell").nth(1);
 }
 
 function history(page: Page) {
@@ -215,7 +224,7 @@ test("a time the clocks repeat keeps its moment when only the Location is correc
   });
   expect(arrived.status()).toBe(200);
 
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   const entries = history(page).getByRole("listitem");
   await expect(entries.nth(0)).toContainText("From Nov 2, 2025, 1:30 AM EST");
   await history(page).getByRole("button", { name: "Correct arrival at Harbor" }).click();
@@ -267,7 +276,7 @@ test("an open correction follows another Admin's change to its entry, and saving
 
   // The page's clock runs as usual until the test moves it on.
   await page.clock.install();
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   await history(page).getByRole("button", { name: "Correct arrival at Uptown" }).click();
   const form = history(page).getByRole("form");
   await expect(form.getByLabel("Arrived")).toHaveValue("2026-01-10T09:00");

@@ -1,4 +1,4 @@
-import { type Page, expect, test } from "@playwright/test";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 import { liveFixture } from "../server/test/support/live-fixtures.js";
 import type { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -21,6 +21,11 @@ test.use({ timezoneId: "America/New_York" });
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
 const connectedTablet = connectedTabletOn(server);
+
+/** The link to the Machine's last Shot, in the Status line under its page's heading. */
+function lastShotLink(page: Page): Locator {
+  return page.getByRole("main").getByRole("group", { name: "Status" }).locator('a[href^="/shots/"]');
+}
 
 /** Idle snapshots the Machine goes on sending after a shot, which reach the page once its stream is open again. */
 async function goOnIdling(tablet: SimulatedTablet): Promise<void> {
@@ -82,7 +87,7 @@ test("the Machine's Shots are linked, not a later shot's Shot, where a whole sho
   tablet.pullShot(shotOf("shot-later-unseen", "28006", new Date()));
   await lastShotIs(page, machine.id, "shot-later-unseen");
   await setTabHidden(page, false);
-  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-later-unseen");
+  await expect(lastShotLink(page)).toHaveAttribute("href", "/shots/shot-later-unseen");
   await goOnIdling(tablet);
   await expect(curves.getByRole("link", { name: "Find its Shot among the Machine's" })).toHaveAttribute("href", `/shots?machineId=${machine.id}`);
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveCount(0);

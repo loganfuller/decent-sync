@@ -54,7 +54,7 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
   await expect(worksAt).toHaveText([/^Belmont/, /^Lab/, /^Uptown/]);
 
   // Sam is about to move Uptown 1 to Belmont when Ada takes Belmont away.
-  await samsPage.goto(`/machines/${uptown1.id}`);
+  await samsPage.goto(`/machines/${uptown1.id}?tab=setup`);
   const move = samsPage.getByRole("region", { name: "Location" }).getByRole("form", { name: "Move" });
   await move.getByRole("combobox", { name: "Move to" }).click();
   await expect(samsPage.getByRole("option")).toHaveText(["Belmont", "Lab"]);
@@ -86,7 +86,8 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
   await expect(samsPage.getByRole("heading", { name: "New Location" })).toBeVisible();
   const samsOtherTab = await samsPage.context().newPage();
   await samsOtherTab.goto("/machines");
-  const newMachine = samsOtherTab.getByRole("form", { name: "New Machine" });
+  await samsOtherTab.getByRole("button", { name: "New Machine" }).click();
+  const newMachine = samsOtherTab.getByRole("dialog", { name: "New Machine" }).getByRole("form", { name: "New Machine" });
   await expect(newMachine).toBeVisible();
 
   // And Staff at Uptown again: each tab drops the Admin's controls at its next request that only an Admin may make.
@@ -99,7 +100,8 @@ test("an Admin changes a Staff member's Locations and role, which their open ses
 
   await newMachine.getByLabel("Name").fill("Uptown 2");
   await newMachine.getByRole("button", { name: "Create Machine" }).click();
-  await expect(samsOtherTab.getByRole("heading", { name: "New Machine" })).toHaveCount(0);
+  await expect(samsOtherTab.getByRole("dialog", { name: "New Machine" })).toHaveCount(0);
+  await expect(samsOtherTab.getByRole("button", { name: "New Machine" })).toHaveCount(0);
   await expect(samsOtherTab.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Accounts" })).toHaveCount(0);
 
   await samsNav.getByRole("link", { name: "Accounts" }).click();
@@ -233,7 +235,7 @@ test("a refusal that arrives while a session read is under way is answered by a 
 
   // Sam, an Admin, has Uptown 1's page open when made Staff at Uptown and the Lab.
   const samsPage = await signedInPage(browser);
-  await samsPage.goto(`/machines/${uptown1.id}`);
+  await samsPage.goto(`/machines/${uptown1.id}?tab=setup`);
   await expect(samsPage.getByRole("heading", { name: "Token" })).toBeVisible();
   await setAccess(page, sam.email, { role: "staff", locationIds: [uptown, lab] });
 
@@ -265,16 +267,18 @@ test("a session read answered before signing out does not sign the person back i
   await setAccess(page, sam.email, { role: "admin", locationIds: [] });
   const samsPage = await signedInPage(browser);
   await samsPage.goto("/machines");
-  const form = samsPage.getByRole("form", { name: "New Machine" });
+  await samsPage.getByRole("button", { name: "New Machine" }).click();
+  const form = samsPage.getByRole("dialog", { name: "New Machine" }).getByRole("form", { name: "New Machine" });
   await expect(form).toBeVisible();
   await setAccess(page, sam.email, { role: "staff", locationIds: [await locationId(page, "Uptown")] });
 
   // Creating a Machine is refused. The server answers the session read that follows, but the page gets the answer
-  // only after Sam has gone home, which doesn't poll, and signed out.
+  // only after Sam has closed the dialog, gone home, which doesn't poll, and signed out.
   const read = await holdNextGet(samsPage, "/session", { answerNow: true });
   await form.getByLabel("Name").fill("Uptown 3");
   await form.getByRole("button", { name: "Create Machine" }).click();
   await read.held;
+  await samsPage.getByRole("dialog", { name: "New Machine" }).getByRole("button", { name: "Cancel" }).click();
   await samsPage.getByRole("link", { name: "Decent Sync" }).click();
   await expect(samsPage.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
   await signOut(samsPage, sam.name);

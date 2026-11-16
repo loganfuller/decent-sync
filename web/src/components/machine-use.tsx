@@ -1,6 +1,6 @@
 import { CalendarIcon, ChevronDownIcon } from "lucide-react";
 import { Fragment, useCallback, useRef, useState } from "react";
-import { Bar, BarChart, type BarShapeProps, CartesianGrid, Rectangle, XAxis, YAxis } from "recharts";
+import { Bar, BarChart, type BarShapeProps, CartesianGrid, DefaultZIndexes, Rectangle, XAxis, YAxis, ZIndexLayer, usePlotArea } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
@@ -43,11 +43,15 @@ const DATE = new Intl.DateTimeFormat(undefined, { dateStyle: "medium" });
  * faded, until the new range's arrives, and goes if that can't be read, so
  * no figures stand under days they aren't of, and no error of a range since
  * left stands over the one chosen.
+ *
+ * `day` is the one day the Activity tab has chosen (#545), which its lists
+ * under this card show: the day whose hours are charted by hour, and, by
+ * day, the bar that stands out. Choosing a day's bar, or a day by hour,
+ * chooses it (`onDay`).
  */
-export function MachineUseCard({ machineId }: { machineId: string }) {
+export function MachineUseCard({ machineId, day, onDay }: { machineId: string; day: string | undefined; onDay(day: string): void }) {
   const [by, setBy] = useState<MachineUse["by"]>("day");
   const [range, setRange] = useState<{ from?: string; to?: string }>({});
-  const [day, setDay] = useState<string>();
   const query = new URLSearchParams(by === "day" ? { ...(range.from && { from: range.from }), ...(range.to && { to: range.to }) } : { by, ...(day && { from: day, to: day }) }).toString();
   // Each answer names the range it was asked for, and `failed` the range the error shown is of, so neither figures nor
   // an error of a range since changed are shown as the new one's. Only the latest load says which range failed, as
@@ -76,6 +80,7 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
         <CardTitleWithInfo title="Use">
           <p>How much this Machine was used in each day, or each hour of one day, at the Location it was at then.</p>
           <p>Every Shot counts, cleaning and calibration Shots too. A flush or a hot water pour is one visit to that Machine State, counted where it began.</p>
+          <p>Choosing a day's bar shows what happened on it that day, under this card.</p>
           <p>
             A Machine State lasts until the next one its tablet reports, so a Machine whose tablet was off counts as in its last state until the tablet is back.
             Monitoring will correct this.
@@ -98,7 +103,7 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
                 <DayField id="use-to" label="To" value={range.to ?? read.last} onChange={(to) => setRange((chosen) => ({ ...chosen, to }))} />
               </>
             ) : (
-              <DayField id="use-day" label="Day" value={day ?? read.first} onChange={setDay} />
+              <DayField id="use-day" label="Day" value={day ?? read.first} onChange={onDay} />
             )}
           </div>
           <TabsContent value={by} className="grid gap-4">
@@ -109,7 +114,7 @@ export function MachineUseCard({ machineId }: { machineId: string }) {
             )}
             {use && (current || !error) && (
               <div className={current ? "grid gap-4" : "grid gap-4 opacity-50"} aria-busy={!current}>
-                <UseFigures use={use} />
+                <UseFigures use={use} day={day} onDay={onDay} />
               </div>
             )}
           </TabsContent>
@@ -155,11 +160,18 @@ export function DayField({ id, label, value, onChange }: { id: string; label: st
   );
 }
 
-/** A range's use: each count's total beside its color, the counts charted by day or hour, the time in each Machine State, and the numbers as a table on asking. */
-function UseFigures({ use }: { use: MachineUse }) {
+/**
+ * A range's use: each count's total beside its color, the counts charted by
+ * day or hour, the time in each Machine State, and the numbers as a table on
+ * asking. Charted by day, a day's bar chooses that day (`onDay`), as does its
+ * button in the table of numbers, and the day chosen stands out.
+ */
+function UseFigures({ use, day, onDay }: { use: MachineUse; day: string | undefined; onDay(day: string): void }) {
   const totals = countTotals(use.buckets);
   const unit = use.by === "day" ? "day" : "hour";
   if (use.buckets.length === 0) return <p className="text-sm text-muted-foreground">Nothing to count yet: these days are still to come.</p>;
+  const byDay = use.by === "day";
+  const chosen = byDay ? use.buckets.findIndex((bucket) => bucket.date === day) : -1;
 
   return (
     <>
@@ -173,9 +185,11 @@ function UseFigures({ use }: { use: MachineUse }) {
         ))}
       </dl>
       <figure aria-label={`Use by ${unit}`}>
-        <ChartContainer config={CHART} className="aspect-auto h-56 w-full">
+        {/* The layer a click lands in takes focus, with a ring around the whole plot, which says nothing here: the day chosen is shaded. */}
+        <ChartContainer config={CHART} className="aspect-auto h-56 w-full [&_[class*=recharts-zIndex-layer]]:outline-hidden">
           <BarChart data={use.buckets.map((bucket) => ({ ...bucket, label: bucketLabel(bucket) }))} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
             <CartesianGrid vertical={false} />
+            {chosen !== -1 && <DayColumns days={use.buckets.length} chosen={chosen} />}
             {/* Every day or hour named where they fit, and otherwise every second or third, evenly. */}
             <XAxis dataKey="label" tickLine={false} axisLine={false} interval="equidistantPreserveStart" minTickGap={8} />
             <YAxis width={32} tickLine={false} axisLine={false} allowDecimals={false} />
@@ -195,13 +209,46 @@ function UseFigures({ use }: { use: MachineUse }) {
                 shape={(props: BarShapeProps) => <Rectangle {...props} radius={topCount(props.payload as UseBucket) === key ? [4, 4, 0, 0] : 0} />}
               />
             ))}
+            {byDay && <DayColumns days={use.buckets.length} onChoose={(index) => onDay(use.buckets[index]!.date)} />}
           </BarChart>
         </ChartContainer>
       </figure>
       <StateTimes buckets={use.buckets} />
-      <Numbers use={use} />
+      <Numbers use={use} day={day} onDay={onDay} />
     </>
   );
+}
+
+/**
+ * The chart's plot as its days' columns, each as wide as the others, as a
+ * band axis shares it out. With `chosen`, that day's column is shaded, under
+ * the bars. With `onChoose`, the whole plot takes a click or a tap, in a
+ * layer over the bars, which the chart otherwise draws above anything else
+ * given it, and says which day's column it fell in: on its bar or anywhere
+ * else in the column, as a quiet day hardly has a bar, and from where the
+ * pointer is, as a tap comes with no hover before it for the chart to have
+ * read.
+ */
+function DayColumns({ days, chosen, onChoose }: { days: number; chosen?: number; onChoose?(index: number): void }) {
+  const plot = usePlotArea();
+  if (!plot || days === 0) return null;
+  if (onChoose) {
+    return (
+      <ZIndexLayer zIndex={DefaultZIndexes.label + 1}>
+        <rect
+          {...plot}
+          fill="transparent"
+          className="cursor-pointer"
+          onClick={(event) => {
+            const box = event.currentTarget.getBoundingClientRect();
+            onChoose(Math.min(days - 1, Math.max(0, Math.floor(((event.clientX - box.left) / box.width) * days))));
+          }}
+        />
+      </ZIndexLayer>
+    );
+  }
+  const width = plot.width / days;
+  return chosen === undefined ? null : <rect x={plot.x + chosen * width} y={plot.y} width={width} height={plot.height} className="fill-muted" />;
 }
 
 /** The count a day's or hour's stack ends with: the last, in the order they are stacked, that isn't nothing. */
@@ -261,8 +308,12 @@ function StateTimes({ buckets }: { buckets: readonly UseBucket[] }) {
   );
 }
 
-/** Every number the chart draws and its tooltips give, as a table, shown on asking. */
-function Numbers({ use }: { use: MachineUse }) {
+/**
+ * Every number the chart draws and its tooltips give, as a table, shown on
+ * asking. By day, each day is a button that chooses it, as its bar does, for
+ * a keyboard or a screen reader, which the chart's bars don't serve.
+ */
+function Numbers({ use, day, onDay }: { use: MachineUse; day: string | undefined; onDay(day: string): void }) {
   const [open, setOpen] = useState(false);
   const unit = use.by === "day" ? "Day" : "Hour";
   return (
@@ -291,7 +342,15 @@ function Numbers({ use }: { use: MachineUse }) {
           <TableBody>
             {use.buckets.map((bucket) => (
               <TableRow key={`${bucket.date} ${bucket.hour}`}>
-                <TableCell className="whitespace-nowrap">{use.by === "day" ? bucketTitle(bucket) : bucketLabel(bucket)}</TableCell>
+                <TableCell className="whitespace-nowrap">
+                  {use.by === "day" ? (
+                    <Button variant="link" size="sm" className="h-auto p-0 text-foreground" aria-pressed={bucket.date === day} onClick={() => onDay(bucket.date)}>
+                      {bucketTitle(bucket)}
+                    </Button>
+                  ) : (
+                    bucketLabel(bucket)
+                  )}
+                </TableCell>
                 {USE_COUNTS.map(({ key }) => (
                   <TableCell key={key} className="text-right tabular-nums">
                     {bucket[key]}

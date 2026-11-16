@@ -7,9 +7,11 @@ import {
   settingsHistoryChanges,
 } from "@decent-sync/protocol";
 import type { Scope } from "../accounts/scope.js";
+import { Prisma } from "../generated/prisma/client.js";
 import { readTime } from "../machines/input.js";
 import { machineNotFound } from "../machines/input.js";
 import { PrismaService } from "../prisma.service.js";
+import { type SettingsEditView, SettingsEditsService } from "../settings-edits/settings-edits.service.js";
 import type { CollectionView } from "./collections.service.js";
 
 // Reading a Machine's Settings History (#433), which settings-history.ts
@@ -17,7 +19,9 @@ import type { CollectionView } from "./collections.service.js";
 // value before it, as `settingsHistoryChanges` compares and folds them, and
 // its collections as last received at or before a time. A history's order is
 // the order its rows were written, by id, which a report is compared in
-// (COLLECTIONS.md, Settings History).
+// (COLLECTIONS.md, Settings History). Its changes are also read merged with
+// the Machine's Settings Edits that changed nothing (#545), as its page
+// lists them.
 
 /** What a list of a Machine's Settings History's changes is narrowed to. */
 export interface SettingsHistoryFilters {
@@ -80,7 +84,42 @@ export interface SettingsHistoryPage {
   offset: number;
 }
 
+/** What a list of a Machine's Settings History with its Settings Edits is narrowed to. */
+export interface SettingsHistoryWithEditsFilters extends SettingsHistoryFilters {
+  /** Whether to list only what was made through a Settings Edit: the changes one made, and the edits that changed nothing. */
+  editsOnly: boolean;
+}
+
+/**
+ * An entry of a Machine's Settings History with its Settings Edits: a change,
+ * with the Settings Edit that made it, if one did, or a Settings Edit that
+ * changed nothing.
+ */
+export interface SettingsHistoryEntryView {
+  /** When the server received the change, or, for a Settings Edit that changed nothing, when it was made; by PostgreSQL's clock. */
+  at: string;
+  collection: string;
+  /** The change, by the id of the value whose change it is; null for a Settings Edit that changed nothing. */
+  change: { id: string; fields: SettingsHistoryFieldView[] } | null;
+  /**
+   * The Settings Edit that made the change, or that changed nothing, as the
+   * REST API gives a Settings Edit, with what came of it; null for a change
+   * made outside Decent Sync.
+   */
+  settingsEdit: SettingsEditView | null;
+}
+
+export interface SettingsHistoryWithEditsPage {
+  entries: SettingsHistoryEntryView[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
 type Page = { limit: number; offset: number };
+
+/** The client a read is made through: the service's own, or a transaction's. */
+type Db = PrismaService | Prisma.TransactionClient;
 
 /** A value of the history, as read to work out its changes. */
 interface Row {
@@ -107,7 +146,10 @@ interface Found {
  */
 @Injectable()
 export class SettingsHistoryService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly edits: SettingsEditsService,
+  ) {}
 
   /**
    * A page of the Machine's changes, newest first, with how many match. Each
@@ -117,31 +159,8 @@ export class SettingsHistoryService {
    * each collection, its baseline, is no change.
    */
   async changes(machineId: string, filters: SettingsHistoryFilters, page: Page, scope: Scope): Promise<SettingsHistoryPage> {
-    await this.requireMachine(machineId);
-    // Each once, however often it is named.
-    const names = [...new Set(filters.collections ?? SETTINGS_HISTORY_COLLECTIONS)];
-    const rows = await this.prisma.$queryRaw<Row[]>`
-      SELECT id, name, value, received_at AS "receivedAt", settings_edit_id AS "settingsEditId", edited_fields AS "editedFields"
-      FROM settings_history
-      WHERE machine_id = ${machineId}::uuid AND name = ANY(${names}::text[])
-      ORDER BY id`;
-    const found: Found[] = [];
-    for (const collection of names) {
-      const values = rows.filter((row) => row.name === collection);
-      const changes = settingsHistoryChanges(
-        collection,
-        values.map((row) => ({ value: row.value, receivedAt: row.receivedAt.getTime(), settingsEditId: row.settingsEditId, editedFields: row.editedFields ?? [] })),
-      );
-      for (const { index, settingsEditId, fields } of changes) {
-        const row = values[index]!;
-        if (filters.from && row.receivedAt < filters.from) continue;
-        if (filters.to && row.receivedAt >= filters.to) continue;
-        const shown = filters.includeBrief ? fields : fields.filter((field) => field.backAt === null);
-        if (shown.length > 0) found.push({ row, collection, settingsEditId, fields: shown });
-      }
-    }
-    // Newest first, as written; a read-back's own changes before those made outside it.
-    found.sort((a, b) => Number(b.row.id - a.row.id) || (a.settingsEditId === null ? 1 : 0) - (b.settingsEditId === null ? 1 : 0));
+    await this.requireMachine(this.prisma, machineId);
+    const { found } = await this.found(this.prisma, machineId, filters);
     const shown = found.slice(page.offset, page.offset + page.limit);
     const sources = await this.sources(shown, scope);
     return {
@@ -150,11 +169,99 @@ export class SettingsHistoryService {
         receivedAt: row.receivedAt.toISOString(),
         collection,
         settingsEdit: settingsEditId === null ? null : (sources.get(settingsEditId) ?? null),
-        fields: fields.map(({ field, change, before, after, backAt }) => ({ field, change, before, after, backAt: backAt === null ? null : new Date(backAt).toISOString() })),
+        fields: fields.map(fieldView),
       })),
       total: found.length,
       ...page,
     };
+  }
+
+  /**
+   * A page of the Machine's Settings History with its Settings Edits (#545),
+   * newest first, with how many entries match: its changes, as `changes`
+   * lists them, each with the Settings Edit that made it whole, so with what
+   * came of it; and each Settings Edit that changed nothing, placed by when
+   * it was made: one still pending, refused or not confirmed, or one whose
+   * read-back held nothing new of what it set, as when the Machine put a
+   * value back. A Settings Edit that made a change is listed only as that
+   * change. `editsOnly` leaves out the changes made outside Decent Sync.
+   * The collections and the times narrow both; brief changes are none of a
+   * Settings Edit's.
+   *
+   * The history and the edits are read from one snapshot, so an edit whose
+   * read-back arrives meanwhile is listed once, as a change or as an edit
+   * that has changed nothing yet.
+   */
+  async withEdits(machineId: string, filters: SettingsHistoryWithEditsFilters, page: Page, scope: Scope): Promise<SettingsHistoryWithEditsPage> {
+    return this.prisma.$transaction(
+      async (tx) => {
+        await this.requireMachine(tx, machineId);
+        const { found, madeBy } = await this.found(tx, machineId, filters);
+        const changes = filters.editsOnly ? found.filter((change) => change.settingsEditId !== null) : found;
+        const unchanged = (await this.edits.made(tx, machineId, filters)).filter((edit) => !madeBy.has(edit.id));
+        // Each list is newest first, and stays in its own order: a change goes before an edit made no later than it was received.
+        const merged: ({ change: Found } | { edit: (typeof unchanged)[number] })[] = [];
+        let next = 0;
+        for (const change of changes) {
+          while (next < unchanged.length && unchanged[next]!.madeAt > change.row.receivedAt) merged.push({ edit: unchanged[next++]! });
+          merged.push({ change });
+        }
+        for (; next < unchanged.length; next++) merged.push({ edit: unchanged[next]! });
+        const shown = merged.slice(page.offset, page.offset + page.limit);
+        const ids = shown.flatMap((entry) => ("edit" in entry ? [entry.edit.id] : entry.change.settingsEditId === null ? [] : [entry.change.settingsEditId]));
+        const views = await this.edits.viewsOf(tx, [...new Set(ids)], scope);
+        return {
+          entries: shown.map((entry): SettingsHistoryEntryView => {
+            if ("edit" in entry) return { at: entry.edit.madeAt.toISOString(), collection: entry.edit.collection, change: null, settingsEdit: views.get(entry.edit.id) ?? null };
+            const { row, collection, settingsEditId, fields } = entry.change;
+            return {
+              at: row.receivedAt.toISOString(),
+              collection,
+              change: { id: String(row.id), fields: fields.map(fieldView) },
+              settingsEdit: settingsEditId === null ? null : (views.get(settingsEditId) ?? null),
+            };
+          }),
+          total: merged.length,
+          ...page,
+        };
+      },
+      { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
+    );
+  }
+
+  /**
+   * The Machine's changes that match the filters, newest first, as written,
+   * a read-back's own changes before those made outside it; and `madeBy`,
+   * the Settings Edits that made any change of the collections read,
+   * whenever it was received.
+   */
+  private async found(db: Db, machineId: string, filters: SettingsHistoryFilters): Promise<{ found: Found[]; madeBy: Set<string> }> {
+    // Each once, however often it is named.
+    const names = [...new Set(filters.collections ?? SETTINGS_HISTORY_COLLECTIONS)];
+    const rows = await db.$queryRaw<Row[]>`
+      SELECT id, name, value, received_at AS "receivedAt", settings_edit_id AS "settingsEditId", edited_fields AS "editedFields"
+      FROM settings_history
+      WHERE machine_id = ${machineId}::uuid AND name = ANY(${names}::text[])
+      ORDER BY id`;
+    const found: Found[] = [];
+    const madeBy = new Set<string>();
+    for (const collection of names) {
+      const values = rows.filter((row) => row.name === collection);
+      const changes = settingsHistoryChanges(
+        collection,
+        values.map((row) => ({ value: row.value, receivedAt: row.receivedAt.getTime(), settingsEditId: row.settingsEditId, editedFields: row.editedFields ?? [] })),
+      );
+      for (const { index, settingsEditId, fields } of changes) {
+        if (settingsEditId !== null) madeBy.add(settingsEditId);
+        const row = values[index]!;
+        if (filters.from && row.receivedAt < filters.from) continue;
+        if (filters.to && row.receivedAt >= filters.to) continue;
+        const shown = filters.includeBrief ? fields : fields.filter((field) => field.backAt === null);
+        if (shown.length > 0) found.push({ row, collection, settingsEditId, fields: shown });
+      }
+    }
+    found.sort((a, b) => Number(b.row.id - a.row.id) || (a.settingsEditId === null ? 1 : 0) - (b.settingsEditId === null ? 1 : 0));
+    return { found, madeBy };
   }
 
   /**
@@ -167,7 +274,7 @@ export class SettingsHistoryService {
    * that value was last reported.
    */
   async asOf<Name extends SettingsHistoryCollection>(machineId: string, names: readonly Name[], at: Date): Promise<Record<Name, CollectionView | null>> {
-    await this.requireMachine(machineId);
+    await this.requireMachine(this.prisma, machineId);
     const rows = await this.prisma.$queryRaw<{ name: Name; value: CollectionView["value"]; receivedAt: Date; utcOffsetMinutes: number | null }[]>`
       SELECT DISTINCT ON (name) name, value, received_at AS "receivedAt", utc_offset_minutes AS "utcOffsetMinutes"
       FROM settings_history
@@ -205,9 +312,14 @@ export class SettingsHistoryService {
     );
   }
 
-  private async requireMachine(id: string): Promise<void> {
-    if ((await this.prisma.machine.count({ where: { id } })) === 0) throw machineNotFound();
+  private async requireMachine(db: Db, id: string): Promise<void> {
+    if ((await db.machine.count({ where: { id } })) === 0) throw machineNotFound();
   }
+}
+
+/** A field's change as the REST API gives it. */
+function fieldView({ field, change, before, after, backAt }: HistoryFieldChange): SettingsHistoryFieldView {
+  return { field, change, before, after, backAt: backAt === null ? null : new Date(backAt).toISOString() };
 }
 
 /**
@@ -238,6 +350,17 @@ export function readSettingsHistoryFilters(query: Record<string, unknown>): Sett
   }
   if (problems.length > 0) throw new BadRequestException(problems);
   return filters;
+}
+
+/**
+ * A list of a Machine's Settings History with its Settings Edits, from its
+ * query: what `readSettingsHistoryFilters` reads, and `editsOnly`, true or
+ * false.
+ */
+export function readSettingsHistoryWithEditsFilters(query: Record<string, unknown>): SettingsHistoryWithEditsFilters {
+  const filters = readSettingsHistoryFilters(query);
+  if (query.editsOnly !== undefined && query.editsOnly !== "true" && query.editsOnly !== "false") throw new BadRequestException(["Enter editsOnly as true or false"]);
+  return { ...filters, editsOnly: query.editsOnly === "true" };
 }
 
 /** A collection's time as of which to read it, from a query, a moment with its offset; undefined if none is given. */

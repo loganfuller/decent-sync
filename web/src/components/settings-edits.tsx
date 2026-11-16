@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { useIsAdmin } from "@/auth";
+import { useAuth, useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -49,6 +49,18 @@ const PENDING_POLL_MS = 1_000;
 const NOT_CONFIRMED_POLL_MS = 5_000;
 
 /**
+ * Who made an edit: "You" for one's own; named to Admins; otherwise as the
+ * Library's history shows Staff another account; and the Connected App, such
+ * as an assistant, it was made through, by the name the app gave itself.
+ */
+export function MadeBy({ account, connectedApp }: { account: SettingsEdit["account"]; connectedApp: SettingsEdit["connectedApp"] }) {
+  const { state } = useAuth();
+  if (account === null) return <span className="text-muted-foreground">An account since removed</span>;
+  const who = state.status === "signed-in" && state.account.id === account.id ? "You" : (account.name ?? "An account");
+  return connectedApp ? <>{who}, through {connectedApp.name}</> : <>{who}</>;
+}
+
+/**
  * The fields of a section the signed-in account may change, each reported
  * in its latest report: for an Admin every editable field, for Staff at the
  * Machine's Location those marked for Staff, and none where Settings Edits
@@ -94,7 +106,7 @@ export function shownValue(name: string, path: string, value: unknown, utcOffset
  * Each field's value, as "Label: value", joined. A wake schedule's, where
  * `scheduled`, are its fields in their order, leaving out its id.
  */
-function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null, scheduled = false): string {
+export function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null, scheduled = false): string {
   const paths = scheduled ? WAKE_SCHEDULE_FIELDS.map((field) => field.path).filter((path) => path in values) : Object.keys(values);
   return paths.map((path) => `${labelOf(name, path, scheduled)}: ${shownValue(name, path, values[path], utcOffsetMinutes, scheduled)}`).join("; ");
 }

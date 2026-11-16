@@ -1,5 +1,8 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useState } from "react";
+import { Link } from "react-router";
 import { machineStateText, nameMachineState } from "@decent-sync/protocol";
+import { RelativeTime } from "@/components/relative-time";
+import { SpecMark } from "@/components/spec-mark";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import {
   AlertDialog,
@@ -26,8 +29,9 @@ import {
   type MachineState,
   type PendingMachine,
 } from "@/lib/api";
+import { lastShotMarks, offlineKind } from "@/lib/overview";
 
-// Pieces the Machines list and Machine page share.
+// Pieces the Machines list, the Machine page and the Overview's status cards share.
 
 const TIME = new Intl.DateTimeFormat(undefined, { dateStyle: "medium", timeStyle: "medium" });
 
@@ -83,14 +87,78 @@ export function describeMachineState({ state, substate }: Pick<MachineState, "st
   return machineStateText(nameMachineState(state, substate));
 }
 
-/** When the Machine's last Shot was pulled, or that it has none. */
-export function lastShotText(machine: Machine): string {
-  if (!machine.lastShot) return "None";
-  return machine.lastShot.pulledAt ? formatTime(machine.lastShot.pulledAt) : "Time not known";
+/**
+ * Whether a Machine is online, as the Overview's status card, the Machines
+ * list and its own page say it (#543, #545). Offline reads louder than
+ * online: one that went offline awake is marked, and one that went offline
+ * asleep, as a Machine left for the night does, is muted, as is one no
+ * tablet has ever connected for (`offlineKind`).
+ */
+export function StatusBadge({ machine }: { machine: Machine }) {
+  if (machine.online) return <Badge>Online</Badge>;
+  const kind = offlineKind(machine);
+  if (kind === "awake") {
+    return (
+      <SpecMark label={null} className="rounded-4xl px-2 text-xs">
+        Offline
+      </SpecMark>
+    );
+  }
+  return (
+    <Badge variant="outline" className="text-muted-foreground">
+      {kind === "asleep" ? "Offline, asleep" : "Offline"}
+    </Badge>
+  );
 }
 
-export function StatusBadge({ machine }: { machine: Machine }) {
-  return machine.online ? <Badge>Online</Badge> : <Badge variant="outline">Offline</Badge>;
+/** When an offline Machine was last seen, as how long ago, by `timeZone`'s clock, or that no tablet has ever connected for it. */
+export function LastSeen({ machine, timeZone }: { machine: Machine; timeZone?: string }) {
+  if (machine.lastSeenAt === null) return <>Never connected</>;
+  return (
+    <>
+      Last seen <RelativeTime at={machine.lastSeenAt} timeZone={timeZone} />
+    </>
+  );
+}
+
+/**
+ * A Machine's last Shot: how long ago, by `timeZone`'s clock, then its
+ * Recipe and duration, linked to the Shot, and what of it is out of spec,
+ * marked (#543). `lead` is what goes before the time, as "Last Shot" where
+ * no heading says so.
+ */
+export function LastShot({ machine, timeZone, lead }: { machine: Machine; timeZone?: string; lead?: string }) {
+  const last = machine.lastShot;
+  if (!last) return <span className="text-muted-foreground">No Shots yet</span>;
+  // The previous release's answer during a deploy gives neither its Recipe nor its duration (ADR-0025): the link is the Shot alone.
+  const named = last.recipe === undefined ? ["Open"] : [last.recipe?.name ?? (last.recipe ? "Unnamed Recipe" : "No Recipe"), ...(last.duration != null ? [`${last.duration.toFixed(1)} s`] : [])];
+  return (
+    <span className="inline-flex flex-wrap items-center gap-x-1.5 gap-y-1">
+      <span className="text-muted-foreground">
+        {lead && `${lead} `}
+        {last.pulledAt ? <RelativeTime at={last.pulledAt} timeZone={timeZone} /> : "at a time not known"}
+      </span>
+      <Link to={`/shots/${encodeURIComponent(last.id)}`} className="tabular-nums underline-offset-4 hover:underline">
+        {named.join(" · ")}
+      </Link>
+      {last.spec?.unfinished && <span className="text-muted-foreground">Unfinished</span>}
+      {last.spec?.cleaningOrCalibration && <span className="text-muted-foreground">Cleaning or calibration</span>}
+      {lastShotMarks(last.spec).map((mark) => (
+        <SpecMark key={mark} className="tabular-nums">
+          {mark}
+        </SpecMark>
+      ))}
+    </span>
+  );
+}
+
+/** A Recipe Slot's number, in the small square that stands before a Recipe's name. */
+export function SlotBadge({ slot }: { slot: number }) {
+  return (
+    <Badge variant="outline" aria-label={`Slot ${slot}`} className="rounded-md px-1.5 text-muted-foreground tabular-nums">
+      {slot}
+    </Badge>
+  );
 }
 
 const IDENTIFICATION_LABELS: Record<Exclude<Identification, "identified">, string> = {

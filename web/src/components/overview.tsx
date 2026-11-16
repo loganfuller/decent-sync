@@ -2,8 +2,7 @@ import { type CSSProperties, type ReactNode, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { CaptureOnlyBadge } from "@/components/machine-sharing";
-import { describeMachineState } from "@/components/machines";
-import { RelativeTime } from "@/components/relative-time";
+import { LastSeen, LastShot, SlotBadge, StatusBadge, describeMachineState } from "@/components/machines";
 import { SpecMark } from "@/components/spec-mark";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -22,8 +21,6 @@ import {
   cellLines,
   coveredText,
   daysSinceRoast,
-  lastShotMarks,
-  offlineKind,
   overviewColumns,
   overviewRows,
   periodDays,
@@ -380,7 +377,9 @@ function MachineCard({ column, timeZone }: { column: OverviewColumn; timeZone: s
       </div>
       {machine && (
         <>
-          <LastShot machine={machine} timeZone={timeZone} />
+          <div>
+            <LastShot machine={machine} timeZone={timeZone} lead="Last Shot" />
+          </div>
           <LoadedRecipe machine={machine} />
           {!column.here && <div className="text-muted-foreground">Now at {machine.location?.name ?? "no Location"}</div>}
         </>
@@ -390,65 +389,17 @@ function MachineCard({ column, timeZone }: { column: OverviewColumn; timeZone: s
 }
 
 /**
- * Whether a Machine is online, and its Machine State; or, offline, how
- * (`offlineKind`), with when it was last seen. Offline reads louder than
- * online: one that went offline awake is marked, and one that went offline
- * asleep, as a Machine left for the night does, is muted.
+ * Whether a Machine is online (`StatusBadge`), and beside it its Machine
+ * State, or, offline, when it was last seen.
  */
 function MachineStatus({ machine, timeZone }: { machine: Machine; timeZone: string }) {
-  if (machine.online) {
-    return (
-      <>
-        <Badge>Online</Badge>
-        <span className="text-muted-foreground">{machine.machineState ? describeMachineState(machine.machineState) : "State not reported"}</span>
-      </>
-    );
-  }
-  const kind = offlineKind(machine);
   return (
     <>
-      {kind === "awake" ? (
-        <SpecMark label={null} className="rounded-4xl px-2 text-xs">
-          Offline
-        </SpecMark>
-      ) : (
-        <Badge variant="outline" className="text-muted-foreground">
-          {kind === "asleep" ? "Offline, asleep" : "Offline"}
-        </Badge>
-      )}
+      <StatusBadge machine={machine} />
       <span className="text-muted-foreground">
-        {machine.lastSeenAt === null ? (
-          "Never connected"
-        ) : (
-          <>
-            Last seen <RelativeTime at={machine.lastSeenAt} timeZone={timeZone} />
-          </>
-        )}
+        {machine.online ? machine.machineState ? describeMachineState(machine.machineState) : "State not reported" : <LastSeen machine={machine} timeZone={timeZone} />}
       </span>
     </>
-  );
-}
-
-/** A Machine's last Shot on its status card: how long ago, then its Recipe and duration, linked to the Shot, and what of it is out of spec, marked. */
-function LastShot({ machine, timeZone }: { machine: Machine; timeZone: string }) {
-  const last = machine.lastShot;
-  if (!last) return <div className="text-muted-foreground">No Shots yet</div>;
-  // The previous release's answer during a deploy gives neither its Recipe nor its duration (ADR-0025): the link is the Shot alone.
-  const named = last.recipe === undefined ? ["Open"] : [last.recipe?.name ?? (last.recipe ? "Unnamed Recipe" : "No Recipe"), ...(last.duration != null ? [`${last.duration.toFixed(1)} s`] : [])];
-  return (
-    <div className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-      <span className="text-muted-foreground">Last Shot {last.pulledAt ? <RelativeTime at={last.pulledAt} timeZone={timeZone} /> : "at a time not known"}</span>
-      <Link to={`/shots/${encodeURIComponent(last.id)}`} className="tabular-nums underline-offset-4 hover:underline">
-        {named.join(" · ")}
-      </Link>
-      {last.spec?.unfinished && <span className="text-muted-foreground">Unfinished</span>}
-      {last.spec?.cleaningOrCalibration && <span className="text-muted-foreground">Cleaning or calibration</span>}
-      {lastShotMarks(last.spec).map((mark) => (
-        <SpecMark key={mark} className="tabular-nums">
-          {mark}
-        </SpecMark>
-      ))}
-    </div>
   );
 }
 
@@ -484,11 +435,7 @@ function RecipeHeading({ row, locationId, today, between }: { row: OverviewRow; 
   return (
     <div className="grid gap-1">
       <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-        {row.slot !== null && (
-          <Badge variant="outline" aria-label={`Slot ${row.slot}`} className="rounded-md px-1.5 text-muted-foreground tabular-nums">
-            {row.slot}
-          </Badge>
-        )}
+        {row.slot !== null && <SlotBadge slot={row.slot} />}
         <Link to={`/library/recipes/${encodeURIComponent(recipe.id)}`} className="font-semibold wrap-anywhere underline-offset-4 hover:underline">
           {recipe.name ?? "Unnamed Recipe"}
         </Link>

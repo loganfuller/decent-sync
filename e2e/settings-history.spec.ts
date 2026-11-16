@@ -3,10 +3,10 @@ import { expect, type Locator, test } from "@playwright/test";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
-import { openCard, rows } from "./support/locators.js";
+import { openCard, openMachineTab, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
-// A Machine's Settings History on its page (#433). A raw connection reports
+// A Machine's Settings History on its page's Settings tab (#433, #545). A raw connection reports
 // its collections, shaped as Decaid reports them (COLLECTIONS.md), and
 // answers a Settings Edit as the plugin does; when the server received each
 // is then set in PostgreSQL, so the page shows set times. Serials are made up.
@@ -62,22 +62,23 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
   }
 
   await page.goto(`/machines/${id}`);
+  await openMachineTab(page, "Settings");
   const history = await openCard(page, "Settings History");
-  await expectTip(history, "Settings History", /^Each change of what the Machine's Tablet reported.+tied to no person\.A change is received about 30 to 60 seconds after/);
-  await expect(history.getByRole("columnheader")).toHaveText(["Received", "Section", "Field", "Change", "Made by"]);
+  await expectTip(history, "Settings History", /^Each change of what the Machine's Tablet reported.+tied to no person\.A Settings Edit that changed nothing is listed too.+A change is received about 30 to 60 seconds after/);
+  await expect(history.getByRole("columnheader")).toHaveText(["When", "Section", "Field", "Change", "Made by", "Outcome"]);
   await expectRows(history, [
-    ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "Settings Edit by You"],
+    ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
   ]);
 
   await history.getByLabel("Show brief changes").check();
   await expectRows(history, [
-    ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:35:00 AM", "Paired devices", "Mock Scale", "Briefly removed, back at Nov 8, 2026, 4:35:15 AM", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:30:00 AM", "Machine Settings: Advanced", "Refill kit", "Briefly Force Off to Auto-Detect, back at Nov 8, 2026, 4:30:30 AM", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync"],
-    ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "Settings Edit by You"],
+    ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:35:00 AM", "Paired devices", "Mock Scale", "Briefly removed, back at Nov 8, 2026, 4:35:15 AM", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:30:00 AM", "Machine Settings: Advanced", "Refill kit", "Briefly Force Off to Auto-Detect, back at Nov 8, 2026, 4:30:30 AM", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
   ]);
 });
 

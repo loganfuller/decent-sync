@@ -244,27 +244,45 @@ Each server has one owner: a household, or a business with all of its sites.
 
 ### Machines, from anywhere
 
-- **Live View.** Watch what a Machine is doing and measuring, and the curves of
-  a shot or steaming as it runs.
-- **Use, by day and by hour.** Each Machine's page charts how many Shots,
+- **A page in four tabs.** Each Machine's page opens on Now, with Activity,
+  Settings and Setup beside it, and a link opens on the tab it names. Above
+  the tabs, whichever is open: the Machine's name and whether it is online,
+  what it is doing, its last Shot, marked where it was out of spec, its
+  Location, links to its Shots and Steam Records, and anything that needs
+  attention, such as a refused connection.
+- **Now.** Its Live View: what the Machine is doing and measuring, and the
+  curves of a shot or steaming as it runs. The Workflow it is set up to pull
+  next, with the Recipe it was loaded from. And how its Shots are landing,
+  Recipe by Recipe, today, yesterday or over 7 days: how many, their median
+  duration against the Recipe's Reference Shot's, their yield against target
+  and the share stopped at target, marked where out of spec.
+- **Use, by day and by hour.** Its Activity tab charts how many Shots,
   Steam Records, flushes and hot water pours it made each day, for the last
   14 days or any range of up to 31, or each hour of one day, with how long it
   spent in each Machine State: idle, asleep, needing water and the rest. A
   day is its Location's own. For now, a Machine whose tablet was off counts
   as in its last state until the tablet is back.
-- **What happened, day by day.** Each Machine's page lists a chosen day's
-  activity, today's unless you choose another: its dial-in trail, each
+- **What happened, day by day.** Under its use, the Activity tab lists a
+  chosen day's activity, today's unless you choose another, as by choosing
+  that day's bar in the chart: its dial-in trail, each
   Recipe loaded or unloaded and what was changed between them, from what to
   what and by whom, with links to the Recipe, Profile, Bean Batch, Grinder
   and Basket named; the Recipes it had loaded; and its Machine States.
 - **Remote settings.** While a Machine's tablet is connected, edit the
   Machine's settings, wake schedules included, and the tablet's Decaid
-  settings. Each Settings Edit is listed with who made it and what came of it.
-- **Settings History.** Each Machine's page lists every change of its settings,
-  plugins, Skins, paired devices and sensors, whatever made it, naming who made
-  a Settings Edit's.
-- **The whole picture.** Each Machine's page shows what it is set up to pull
-  next, its scale, sensors and calibration, and the plugin release it runs.
+  settings, on its Settings tab.
+- **Settings History.** The Settings tab lists every change of the Machine's
+  settings, plugins, Skins, paired devices and sensors, whatever made it,
+  naming who made a Settings Edit's and what came of it. A Settings Edit that
+  changed nothing, as one refused or not confirmed, is listed too, and the
+  list narrows to Settings Edits alone.
+- **Setup.** Its Setup tab holds what is looked at seldom: its hardware,
+  firmware and tablets, the Decaid, plugin, DYE2 and Streamline it runs, its
+  Location and where it has been, whether it shares the Library, and its
+  token.
+- **All the Machines at a glance.** The Machines list gives each Machine's
+  Location, whether it is online, what it is doing, its last Shot, marked
+  where it was out of spec, and its Loaded Recipe.
 - **On your phone.** The management interface fits a phone's screen, in light
   or dark.
 

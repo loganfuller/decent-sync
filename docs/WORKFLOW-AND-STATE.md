@@ -863,7 +863,7 @@ that takes their hardware over. Staff read them as Admins do.
 - `GET /api/machines/:id/loaded-recipes?limit=20&offset=0` returns
   `{ entries, total, limit, offset }`, its Loaded Recipes, latest first, each
   as `loadedRecipe` is, with `unloadedAt` the time it was unloaded. Limit is
-  1–100. The Machine page no longer reads it, as its Activity card lists
+  1–100. The Machine page no longer reads it, as its Activity tab lists
   them by day through `activity`, below: it stays for the REST API's other
   clients and for the previous release's page (ADR-0025).
 - `GET /api/machines/:id/workflow-events?limit=20&offset=0` and
@@ -967,11 +967,14 @@ paged routes above are as they were.
   kind, and the ids the REST API's lists key a Loaded Recipe and a Machine
   State by; and it pages by `offset` and `more`, with at most 50 a page.
 
-The Machine page's Activity card (`web/src/components/machine-activity.tsx`)
-is shown closed until it is opened, as its Settings Edits and Settings
-History are, and reads nothing while closed. Open, it
+The Machine page's Activity tab (ticket
+[#545](https://github.com/loganfuller/decent-sync/issues/545)) holds its Use
+card (A Machine's use, below) and, under it, its On one day card
+(`web/src/components/machine-activity.tsx`), which reads nothing until the
+tab is opened. It
 lists one day, today at the Location the Machine is at until another is
-chosen, as a date for `from` and `to`: the dial-in trail, the Loaded Recipes
+chosen, there or by choosing that day's bar in Use, as a date for `from`
+and `to`: the dial-in trail, the Loaded Recipes
 or the Machine States, one list at a time, 20 to a page, loaded every 30 s.
 A trail entry shows what it is, each field that changed, from what to what,
 the Recipe loaded then and who made it, the Library items it names linked
@@ -1049,16 +1052,22 @@ chosen, or by hour of a chosen day, with each count's total and the time in
 each Machine State over the days or hours shown, Decaid's states of one name
 together (`web/src/lib/machine-use.ts`). Pointing at a day or hour gives its
 counts and times, and Show the numbers gives them all as a table. It is
-loaded every 30 s.
+loaded every 30 s. The Activity tab keeps one chosen day for this card and
+the day's lists under it: charted by day, choosing a day's column, anywhere
+in it, or its date in the table of numbers, chooses that day, which is
+shaded; charted by hour, the day whose hours are charted is that day.
 
-The Machines list shows each Machine's state and last Shot; the Machine page
-also shows its current Workflow, its fields read as a Shot's page reads its
-own (`workflowParts`), the
+The Machines list shows each Machine's Machine State, an offline one's as it
+was when last seen, its last Shot and its Loaded Recipe with its Recipe
+Slot; the Machine page shows its Machine State and last Shot above its
+tabs, and on its Now tab its current Workflow, its fields read as a Shot's
+page reads its own (`workflowParts`), the
 brew temperature read from its profile's first step as Streamline's Brew tile
 reads it (`web/src/components/workflow.tsx`, tested in
 `web/test/workflow.test.ts`), loaded every 30 s rather than every 5 s as the
-state is, and its Loaded Recipe, as its status gives it. Those it had
-loaded are listed by day in its Activity card (A Machine's activity, above).
+state is, with its Loaded Recipe, as its status gives it, named in the same
+card with its Recipe Slot and since when. Those it had
+loaded are listed by day on its Activity tab (A Machine's activity, above).
 Each Location's page lists its Machines and the Recipe each has loaded.
 
 `server/test/machine-events.test.ts` covers this through Seam 1, with the
@@ -1071,7 +1080,7 @@ the trail through `get_machine_activity` on simulated tablets in
 `server/test/assistant-machines.test.ts`,
 `server/test/machine-activity.test.ts` a Machine's activity through the REST
 API against `get_machine_activity` on simulated tablets,
-`web/test/machine-activity.test.ts` how the Activity card words it and
+`web/test/machine-activity.test.ts` how the On one day card words it and
 `e2e/machine-activity.spec.ts` the card,
 `server/test/machine-use.test.ts` a Machine's use through the REST API on
 simulated tablets, `server/test/machine-use-spans.test.ts` its days and

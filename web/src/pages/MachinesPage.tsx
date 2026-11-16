@@ -3,21 +3,23 @@ import { Link } from "react-router";
 import { useIsAdmin } from "@/auth";
 import {
   IdentificationBadge,
+  LastSeen,
+  LastShot,
   type MachineEntry,
   MachineEntryForm,
   PendingMachineActions,
+  SlotBadge,
   StatusBadge,
   describeHardware,
   describeMachineState,
   formatTime,
-  lastShotText,
-  machineModel,
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
-import { CardTitleWithInfo, InfoTip, PageTitleWithInfo } from "@/components/info-tip";
+import { InfoTip, PageTitleWithInfo } from "@/components/info-tip";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
-import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogTrigger } from "@/components/ui/dialog";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { api, type IssuedToken, type Machine, type PendingMachine } from "@/lib/api";
 import { usePolled } from "@/lib/use-polled";
@@ -29,7 +31,9 @@ interface Machines {
 
 /**
  * Machines and their status, creating machine entries, and resolving Pending
- * Machines. Staff see all of it, but only Admins create or resolve anything.
+ * Machines (#545). The Machines lead: a new machine entry is made from the
+ * New Machine button beside the title, which opens its form. Staff see all
+ * of it, but only Admins create or resolve anything.
  */
 export function MachinesPage() {
   const isAdmin = useIsAdmin();
@@ -44,8 +48,11 @@ export function MachinesPage() {
   // Kept here, not with the form or Pending Machine that issued it, which a reload may remove.
   const [issued, setIssued] = useState<IssuedToken>();
 
+  const [creating, setCreating] = useState(false);
+
   async function create(entry: MachineEntry) {
     setIssued(await api<IssuedToken>("POST", "/machines", entry));
+    setCreating(false);
     await reload();
   }
 
@@ -59,13 +66,31 @@ export function MachinesPage() {
 
   return (
     <section className="grid gap-6">
-      <div className="grid gap-1">
+      <div className="flex flex-wrap items-center justify-between gap-3">
         <PageTitleWithInfo title="Machines">
           <p>
             The machines that sync with this server. A machine joins when someone enters its token in the Decent Sync
             plugin on its tablet.
           </p>
         </PageTitleWithInfo>
+        {isAdmin && (
+          <Dialog open={creating} onOpenChange={setCreating}>
+            <DialogTrigger asChild>
+              <Button>New Machine</Button>
+            </DialogTrigger>
+            {/* Its content mounts as it opens, so the form starts empty each time. */}
+            <DialogContent className="sm:max-w-md">
+              <DialogHeader>
+                <DialogTitle>New Machine</DialogTitle>
+                <DialogDescription>
+                  Its hardware is recorded from the first connection with its token. It is at its Location from now; correct when it arrived on
+                  its page to credit earlier Shots there.
+                </DialogDescription>
+              </DialogHeader>
+              <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} onCancel={() => setCreating(false)} />
+            </DialogContent>
+          </Dialog>
+        )}
       </div>
 
       {/* Keyed, so a new token never inherits the last one's "Copied". */}
@@ -88,20 +113,6 @@ export function MachinesPage() {
         />
       )}
 
-      {isAdmin && (
-        <Card className="max-w-xl">
-          <CardHeader>
-            <CardTitleWithInfo title="New Machine">
-              <p>Its hardware is recorded from the first connection with its token.</p>
-            </CardTitleWithInfo>
-            <CardDescription>It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <MachineEntryForm label="New Machine" submitLabel="Create Machine" onSubmit={create} />
-          </CardContent>
-        </Card>
-      )}
-
       {data?.machines.length === 0 && <p className="text-muted-foreground">No Machines yet.</p>}
       {data && data.machines.length > 0 && <MachineTable machines={data.machines} />}
 
@@ -119,6 +130,16 @@ export function MachinesPage() {
   );
 }
 
+/**
+ * The Machines, a row each: its name, linked to its page; its Location;
+ * whether it is online, as the Overview's status card reads it, with when an
+ * offline one was last seen; its Machine State, an offline one's as it was
+ * when last seen; its last Shot, as how long ago, with its Recipe and
+ * duration, linked to the Shot, and a mark for whatever of it is out of
+ * spec; its Loaded Recipe with its Recipe Slot; and what needs attention.
+ * Its times are by its Location's clock, or the browser's while it is at
+ * none.
+ */
 function MachineTable({ machines }: { machines: Machine[] }) {
   return (
     <div className="min-w-0 rounded-lg border">
@@ -126,45 +147,72 @@ function MachineTable({ machines }: { machines: Machine[] }) {
         <TableHeader>
           <TableRow>
             <TableHead>Name</TableHead>
-            <TableHead>Model</TableHead>
             <TableHead>Location</TableHead>
             <TableHead>Status</TableHead>
-            <TableHead>State</TableHead>
-            <TableHead>Last seen</TableHead>
+            <TableHead>Machine State</TableHead>
             <TableHead>Last Shot</TableHead>
+            <TableHead>Loaded Recipe</TableHead>
             <TableHead>Attention</TableHead>
           </TableRow>
         </TableHeader>
         <TableBody>
-          {machines.map((machine) => (
-            <TableRow key={machine.id}>
-              <TableCell className="font-medium">
-                <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
-                  {machine.name}
-                </Link>
-              </TableCell>
-              <TableCell>{machineModel(machine) ?? <span className="text-muted-foreground">Not reported</span>}</TableCell>
-              <TableCell>{machine.location?.name ?? <span className="text-muted-foreground">No Location</span>}</TableCell>
-              <TableCell>
-                <StatusBadge machine={machine} />
-              </TableCell>
-              <TableCell>
-                {machine.machineState ? (
-                  describeMachineState(machine.machineState)
-                ) : (
-                  <span className="text-muted-foreground">Not reported</span>
-                )}
-              </TableCell>
-              <TableCell>{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</TableCell>
-              <TableCell>{lastShotText(machine)}</TableCell>
-              <TableCell>
-                <div className="flex flex-wrap gap-1">
-                  <IdentificationBadge identification={machine.identification} />
-                  {machine.lastRefusal && <Badge variant="destructive">Refused</Badge>}
-                </div>
-              </TableCell>
-            </TableRow>
-          ))}
+          {machines.map((machine) => {
+            const timeZone = machine.location?.timeZone;
+            const state = machine.machineState && describeMachineState(machine.machineState);
+            const loaded = machine.loadedRecipe?.recipe;
+            return (
+              <TableRow key={machine.id}>
+                <TableCell className="font-medium">
+                  <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
+                    {machine.name}
+                  </Link>
+                </TableCell>
+                <TableCell>
+                  {machine.location ? (
+                    <Link to={`/locations/${encodeURIComponent(machine.location.id)}`} className="underline-offset-4 hover:underline">
+                      {machine.location.name}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">No Location</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="grid justify-items-start gap-1">
+                    <StatusBadge machine={machine} />
+                    {!machine.online && (
+                      <span className="text-xs text-muted-foreground">
+                        <LastSeen machine={machine} timeZone={timeZone} />
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell>
+                  {state ? machine.online ? state : <span className="text-muted-foreground">{state} when last seen</span> : <span className="text-muted-foreground">Not reported</span>}
+                </TableCell>
+                <TableCell>
+                  <LastShot machine={machine} timeZone={timeZone} />
+                </TableCell>
+                <TableCell>
+                  {loaded ? (
+                    <span className="inline-flex items-center gap-2">
+                      {loaded.archived ? <Badge variant="secondary">Archived</Badge> : loaded.slot !== null && <SlotBadge slot={loaded.slot} />}
+                      <Link to={`/library/recipes/${encodeURIComponent(loaded.id)}`} className="underline-offset-4 hover:underline">
+                        {loaded.name ?? "Unnamed Recipe"}
+                      </Link>
+                    </span>
+                  ) : (
+                    <span className="text-muted-foreground">None</span>
+                  )}
+                </TableCell>
+                <TableCell>
+                  <div className="flex flex-wrap gap-1">
+                    <IdentificationBadge identification={machine.identification} />
+                    {machine.lastRefusal && <Badge variant="destructive">Refused</Badge>}
+                  </div>
+                </TableCell>
+              </TableRow>
+            );
+          })}
         </TableBody>
       </Table>
     </div>
