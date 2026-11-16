@@ -242,7 +242,7 @@ test("the Live View of an offline Machine is one line, and of one that stops sen
   const tablet = await connectedTablet(token, "27006");
   await expect.poll(() => tablet.delivered).toContainEqual({ type: "liveStart" });
   // Once a poll has found it online: a frame that came before a poll found it offline would be offline.
-  await expect(field(page.getByLabel("Status", { exact: true }), "Status")).toHaveText("Online");
+  await expect(page.getByRole("main").getByText("Online", { exact: true })).toBeVisible();
   const state = card.getByRole("group", { name: "Machine State" });
   tablet.reportSnapshot(first(shot, "espresso", "pouring"));
   await expect(field(state, "Machine State")).toHaveText("Pulling a shot Pouring");
@@ -432,15 +432,16 @@ test("the Live View follows Tablets taking its Machine over: it drops what the l
   await expect(field(state, "Machine State")).toHaveText("Asleep");
 
   // The answer naming the second Tablet arrives: asked for before the third's frames came, it drops none of them.
+  // The page names the Tablet its latest answer says took over in the alert above its tabs, beside the Live View.
   release();
-  const current = page.getByLabel("Current tablet", { exact: true });
-  await expect(field(current, "Tablet id")).toHaveText(secondId);
+  const tookOver = field(page.getByLabel("Takeover", { exact: true }), "Took over");
+  await expect(tookOver).toContainText(`Tablet ${secondId} `);
   await expect(field(state, "Machine State")).toHaveText("Asleep");
   await page.unroute(polls);
 
   // The next poll finds the third Tablet holding the Machine, and keeps its frames too: asleep, not stale.
   await page.clock.fastForward(5_000);
-  await expect(field(current, "Tablet id")).toHaveText(await holderOf());
+  await expect(tookOver).toContainText(`Tablet ${await holderOf()} `);
   await expect(field(state, "Machine State")).toHaveText("Asleep");
   await page.clock.fastForward(5_500);
   await expect(card).toContainText(new RegExp(`Asleep since ${SHOWN_TIME}`));

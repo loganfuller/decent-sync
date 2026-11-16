@@ -3,7 +3,7 @@ import { derivedShot, shotFixture, withShots } from "../server/test/support/shot
 import { NO_DYE2_LISTS } from "../server/test/support/simulated-tablet.js";
 import { derivedSteam, withSteams } from "../server/test/support/steam-fixtures.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { openAccountMenu } from "./support/locators.js";
+import { openAccountMenu, openMachineTab } from "./support/locators.js";
 import { admin, createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 
@@ -31,6 +31,16 @@ const PAGES: { link: string; heading: string; loaded: (page: Page) => Locator }[
   { link: "Machines", heading: "Machines", loaded: (page) => page.getByRole("table", { name: "Machines" }) },
   { link: "Locations", heading: "Locations", loaded: (page) => page.getByRole("list", { name: "Locations" }) },
   { link: "Accounts", heading: "Accounts", loaded: (page) => page.getByRole("table", { name: "Accounts" }) },
+];
+
+/** Each tab of a Machine's page (#545), and what shows once its content has loaded. */
+const MACHINE_TABS: ["Now" | "Activity" | "Settings" | "Setup", (page: Page) => Locator][] = [
+  // Shown once its tablet's Workflow has been read.
+  ["Now", (page) => page.getByRole("region", { name: "Workflow" })],
+  ["Activity", (page) => page.getByRole("region", { name: "On one day" }).getByRole("table")],
+  ["Settings", (page) => page.getByRole("table", { name: "Paired devices" })],
+  // Shown once the library its tablet reported has been read.
+  ["Setup", (page) => page.getByRole("region", { name: "Library" })],
 ];
 
 let uptownId: string;
@@ -108,8 +118,8 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
 
 /**
  * Goes from page to page through the menu, checking each fits the phone's
- * width once loaded, and the Machine's page from the Machines list, then signs
- * out from the menu.
+ * width once loaded, and each tab of the Machine's page from the Machines
+ * list, then signs out from the menu.
  */
 async function visitEachPage(page: Page, account: { name: string; links: string[] }) {
   await page.goto("/");
@@ -133,8 +143,11 @@ async function visitEachPage(page: Page, account: { name: string; links: string[
     if (link === "Machines") {
       await page.getByRole("link", { name: "Uptown 1" }).click();
       await expect(page.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
-      await expect(page.getByRole("table", { name: "Paired devices" })).toBeVisible();
-      await expectFits(page);
+      for (const [tab, loaded] of MACHINE_TABS) {
+        await openMachineTab(page, tab);
+        await expect(loaded(page)).toBeVisible();
+        await expectFits(page);
+      }
     }
     if (link === "Locations") {
       // The Location's page, whose Overview block has its choice of period beside its title.

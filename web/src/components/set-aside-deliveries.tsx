@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -23,7 +24,8 @@ const DELIVERY_TYPES: Record<string, string> = {
 /**
  * The deliveries from the Machine's tablet that the server could not store,
  * and set aside, latest first, a page at a time: when, what and why, never
- * what they carried. Shown only if there are any.
+ * what they carried; or that there are none. It stands out only while
+ * there are any.
  */
 export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
   const [offset, setOffset] = useState(0);
@@ -42,7 +44,18 @@ export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
     ) : null;
   }
   const { page } = data;
-  if (page.total === 0) return null;
+  if (page.total === 0) {
+    return (
+      <Card role="region" aria-label="Deliveries set aside">
+        <CardHeader>
+          <CardTitleWithInfo title="Deliveries set aside">
+            <p>A delivery from its tablet that the server could not store, and would fail the same way if sent again, is set aside as sent, and listed here.</p>
+          </CardTitleWithInfo>
+          <CardDescription>None</CardDescription>
+        </CardHeader>
+      </Card>
+    );
+  }
   const first = data.offset + 1;
   const last = data.offset + page.deliveries.length;
   return (
@@ -57,6 +70,7 @@ export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
+        <ScrollsSideways />
         <Table aria-label="Deliveries set aside">
           <TableHeader>
             <TableRow>

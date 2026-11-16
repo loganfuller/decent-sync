@@ -6,7 +6,7 @@ import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { recordTime } from "@/components/records";
 import { RatingStar } from "@/components/shots";
-import { MadeBy } from "@/components/settings-edit-log";
+import { MadeBy } from "@/components/settings-edits";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";

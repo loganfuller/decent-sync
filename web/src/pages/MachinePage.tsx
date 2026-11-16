@@ -1,17 +1,19 @@
 import { type FormEvent, useCallback, useEffect, useId, useState } from "react";
-import { Link, useParams } from "react-router";
+import { Link, useParams, useSearchParams } from "react-router";
 import { useIsAdmin, useMayChange, useStaffLocationIds } from "@/auth";
 import {
   ConfirmButton,
   IdentificationBadge,
+  LastSeen,
+  LastShot,
   bindingOf,
   isRealSerial,
   sameHardware,
   PendingMachineActions,
   StatusBadge,
   describeHardware,
+  describeMachineState,
   formatTime,
-  lastShotText,
   needsHardware,
   useLocations,
 } from "@/components/machines";
@@ -19,13 +21,13 @@ import { TokenNotice } from "@/components/TokenNotice";
 import { Field, Fields } from "@/components/fields";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { LiveViewCard } from "@/components/live-view";
-import { LoadedRecipeCard } from "@/components/loaded-recipes";
+import { LoadedRecipeLink } from "@/components/loaded-recipes";
 import { MachineActivityCard } from "@/components/machine-activity";
 import { LibraryCard, PairedDevicesCard, SETTINGS, SettingsCard } from "@/components/machine-collections";
 import { CaptureOnlyBadge, MachineSharingCard } from "@/components/machine-sharing";
+import { MachineShotsCard } from "@/components/machine-shots";
 import { MachineUseCard } from "@/components/machine-use";
 import { SetAsideDeliveriesCard } from "@/components/set-aside-deliveries";
-import { SettingsEditsCard } from "@/components/settings-edit-log";
 import { SettingsHistoryCard } from "@/components/settings-history";
 import { workflowFields } from "@/components/workflow";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -52,36 +54,55 @@ import {
   type TakeoverConnection,
   type WorkflowEvent,
 } from "@/lib/api";
-import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
+import { DETAILS_POLL_MS, usePolled, useReloadOn } from "@/lib/use-polled";
+import { cn } from "@/lib/utils";
 import { formatInZone, fromZonedInput, toZonedInput } from "@/lib/zoned-time";
 
-/** What a Machine's tablet reported besides its status, which changes less often. */
-interface Reports {
-  /** Its current Workflow, or null until its tablet reports one. */
-  workflow: WorkflowEvent | null;
-  pairedDevices: PairedDevices;
-  /** The DYE2 and Streamline on its tablet. */
-  tabletVersions: TabletVersions;
-  /** The collections its tablet has reported, without their values. */
-  collections: CollectionSummary[];
-  settings: Record<keyof typeof SETTINGS, Collection | null>;
+/** The page's tabs, as its address names them, in the order it offers them: the first is open where the address names none. */
+const TABS = [
+  { tab: "now", label: "Now" },
+  { tab: "activity", label: "Activity" },
+  { tab: "settings", label: "Settings" },
+  { tab: "setup", label: "Setup" },
+] as const;
+type Tab = (typeof TABS)[number]["tab"];
+
+/**
+ * The address's query for a tab: the one it has with `tab` naming the tab, or
+ * not there for Now, so what else it keeps, as the period Now's Shots card
+ * shows, is still chosen on coming back.
+ */
+function tabSearch(params: URLSearchParams, tab: Tab): string {
+  const next = new URLSearchParams(params);
+  if (tab === "now") next.delete("tab");
+  else next.set("tab", tab);
+  // Its text, not its `size`, which the oldest browsers the build targets don't have.
+  const query = next.toString();
+  return query ? `?${query}` : "";
 }
 
 /**
- * One Machine: its identity, versions and status, deliveries from its tablet
- * set aside, its Live View, how much it was used by day and by hour, what
- * happened on it over a chosen day, shown on asking, its
- * tablets, its Loaded Recipe, its Workflow,
- * paired devices, settings and library,
- * its Location, its token, and resolving its identity. Staff see all of it,
- * and can move it between the Locations they work at; every other change is
- * for Admins.
+ * One Machine (#545). Above its tabs, whichever is open: its name and
+ * whether it is online; a line with what it is doing, its last Shot and
+ * where it is; links to its Shots and Steam Records; and what needs
+ * attention: a refused connection, a takeover, a mismatch, hardware to enter
+ * or confirm, and a new token. Then four tabs, the one open kept in the
+ * address as `tab`, so a link opens on it:
+ * - Now: its Live View, its Workflow with the Loaded Recipe it was loaded
+ *   from, and how its Shots are landing by Recipe;
+ * - Activity: how much it was used, and what happened on it over a day;
+ * - Settings: its settings, with their edits, its paired devices and its
+ *   Settings History;
+ * - Setup: its hardware and software, its Location, its sharing, the
+ *   library its tablet reported, its token and deliveries set aside.
+ * Staff see all of it, and can move it between the Locations they work at;
+ * every other change is for Admins.
  *
- * The Machine itself, with its status, is loaded every few seconds; the rest
- * changes less often, and is loaded less often. A change made here loads
- * again at once all it can change: the Machine, what its tablet reported and
- * a mismatch's Pending Machine. No change made here alters the deliveries set
- * aside, which keep their own interval.
+ * The Machine itself, with its status, is loaded every few seconds, whatever
+ * tab is open. A tab loads what it shows only while it is open, and less
+ * often: the Live View's stream runs only while Now is. A change made on
+ * the page loads again at once all it can change: the Machine, a mismatch's
+ * Pending Machine and what the open tab shows of its tablet's reports.
  */
 export function MachinePage() {
   const { id = "" } = useParams();
@@ -91,6 +112,8 @@ export function MachinePage() {
 
 function MachineDetails({ id }: { id: string }) {
   const isAdmin = useIsAdmin();
+  const [params] = useSearchParams();
+  const tab: Tab = TABS.find((each) => each.tab === params.get("tab"))?.tab ?? "now";
   const [notFound, setNotFound] = useState(false);
   const path = `/machines/${encodeURIComponent(id)}`;
   // With when the page asked for it, by its own clock, which the Live View orders its frames against.
@@ -106,24 +129,6 @@ function MachineDetails({ id }: { id: string }) {
     }
   }, [path]);
   const status = usePolled(loadMachine);
-  const loadReports = useCallback(async (): Promise<Reports> => {
-    const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
-    const [{ workflow }, { pairedDevices }, { tabletVersions }, { collections }, settings] = await Promise.all([
-      api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
-      api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
-      api<{ tabletVersions: TabletVersions }>("GET", `${path}/tablet-versions`),
-      api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
-      Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
-    ]);
-    return {
-      workflow,
-      pairedDevices,
-      tabletVersions,
-      collections,
-      settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as Reports["settings"],
-    };
-  }, [path]);
-  const reports = usePolled(loadReports, DETAILS_POLL_MS);
   // The Pending Machine holding a mismatch's hardware, loaded as soon as the Machine's status names one.
   const pendingId = status.data?.machine.mismatch?.pendingMachineId ?? null;
   // Each answer names the id it was for, so one for an id the status no longer names is never shown.
@@ -140,30 +145,15 @@ function MachineDetails({ id }: { id: string }) {
   }, [pendingId]);
   const pending = usePolled(loadPending, DETAILS_POLL_MS);
   const { reload: reloadStatus } = status;
-  const { reload: reloadReports } = reports;
-  // Counts the edits answered on this page, so the Settings Edits card loads them again as each is.
-  const [editsAnswered, setEditsAnswered] = useState(0);
-  const answered = useCallback(async () => {
-    setEditsAnswered((count) => count + 1);
-    await reloadReports();
-  }, [reloadReports]);
   const { reload: reloadPending } = pending;
+  // Counts the changes made on the page, so the open tab loads again what it shows of the tablet's reports as each is made.
+  const [changed, setChanged] = useState(0);
   const reload = useCallback(async () => {
-    await Promise.all([reloadStatus(), reloadReports(), reloadPending()]);
-  }, [reloadStatus, reloadReports, reloadPending]);
-  const error = status.error ?? reports.error ?? pending.error;
+    setChanged((count) => count + 1);
+    await Promise.all([reloadStatus(), reloadPending()]);
+  }, [reloadStatus, reloadPending]);
+  const error = status.error ?? pending.error;
   const [issued, setIssued] = useState<IssuedToken>();
-  const [actionError, setActionError] = useState<string>();
-
-  async function reissue() {
-    setActionError(undefined);
-    try {
-      setIssued(await api<IssuedToken>("POST", `/machines/${encodeURIComponent(id)}/token`));
-      await reload();
-    } catch (caught) {
-      setActionError(caught instanceof Error ? caught.message : "Something went wrong");
-    }
-  }
 
   function created(token: IssuedToken) {
     setIssued(token);
@@ -180,12 +170,14 @@ function MachineDetails({ id }: { id: string }) {
   }
 
   const machine = status.data?.machine;
-  const data = reports.data;
   // Undefined while the Pending Machine the status names is loading.
   const pendingMachine = pendingId === null ? null : pending.data?.id === pendingId ? pending.data.pendingMachine : undefined;
   return (
-    <section className="grid gap-6">
-      <BackLink />
+    <section className="grid grid-cols-1 gap-6">
+      <div className="grid gap-2.5">
+        <BackLink />
+        {machine && <MachineHeading machine={machine} />}
+      </div>
       {error && (
         <Alert variant="destructive">
           <AlertDescription>{error}</AlertDescription>
@@ -195,13 +187,6 @@ function MachineDetails({ id }: { id: string }) {
       {issued && <TokenNotice key={issued.token} issued={issued} onDone={() => setIssued(undefined)} />}
       {machine && (
         <>
-          <div className="flex flex-wrap items-center gap-3">
-            <h1 className="text-2xl font-semibold">{machine.name}</h1>
-            <StatusBadge machine={machine} />
-            <IdentificationBadge identification={machine.identification} />
-            <CaptureOnlyBadge machine={machine} />
-          </div>
-
           {machine.lastRefusal && (
             <Alert variant="destructive">
               <AlertTitle>A connection was refused at {formatTime(machine.lastRefusal.at)}</AlertTitle>
@@ -220,126 +205,363 @@ function MachineDetails({ id }: { id: string }) {
             ) : (
               <ConfirmHardware machine={machine} onSaved={reload} />
             ))}
-          <SetAsideDeliveriesCard machineId={machine.id} />
-          <LiveViewCard machine={machine} askedAt={status.data!.askedAt} profile={data?.workflow?.workflow.profile} />
 
-          <div className="grid gap-4 md:grid-cols-2">
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <h2>Identity</h2>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Fields label="Identity">
-                  <Field term="Model">{machine.model ?? notReported(machine, "model")}</Field>
-                  <Field term="Serial">{machine.serial ?? notReported(machine, "serial")}</Field>
-                  <Field term="Identification">{identificationText(machine)}</Field>
-                  <Field term="Connection id">{machine.connectionId ?? "None reported"}</Field>
-                  <Field term="Aliases">{machine.aliases.length > 0 ? machine.aliases.join(", ") : "None"}</Field>
-                </Fields>
-              </CardContent>
-            </Card>
+          <nav aria-label="Machine" className="flex gap-5 border-b text-sm sm:gap-6">
+            {TABS.map(({ tab: each, label }) => (
+              <Link
+                key={each}
+                to={{ search: tabSearch(params, each) }}
+                aria-current={each === tab ? "page" : undefined}
+                className={cn(
+                  "-mb-px border-b-2 py-2",
+                  each === tab ? "border-foreground font-semibold" : "border-transparent font-medium text-muted-foreground hover:text-foreground",
+                )}
+              >
+                {label}
+              </Link>
+            ))}
+          </nav>
 
-            <Card>
-              <CardHeader>
-                <CardTitle>
-                  <h2>Status</h2>
-                </CardTitle>
-              </CardHeader>
-              <CardContent>
-                <Fields label="Status">
-                  <Field term="Status">{machine.online ? "Online" : "Offline"}</Field>
-                  <Field term="Last seen">{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</Field>
-                  <Field term="Last Shot">
-                    {machine.lastShot ? (
-                      <Link to={`/shots/${encodeURIComponent(machine.lastShot.id)}`} className="underline underline-offset-4">
-                        {lastShotText(machine)}
-                      </Link>
-                    ) : (
-                      lastShotText(machine)
-                    )}
-                  </Field>
-                  <Field term="Shots">
-                    <Link to={`/shots?machineId=${machine.id}`} className="underline underline-offset-4">
-                      All its Shots
-                    </Link>
-                  </Field>
-                  <Field term="Steam Records">
-                    <Link to={`/steam-records?machineId=${machine.id}`} className="underline underline-offset-4">
-                      All its Steam Records
-                    </Link>
-                  </Field>
-                </Fields>
-              </CardContent>
-            </Card>
-
-            <Card>
-              <CardHeader>
-                <CardTitleWithInfo title="Versions">
-                  <p>As last reported by its Tablet.</p>
-                </CardTitleWithInfo>
-              </CardHeader>
-              <CardContent>
-                <Fields label="Versions">
-                  <Field term="Firmware">{firmwareText(machine)}</Field>
-                  <Field term="Decaid">{machine.decaidVersion ?? "Not reported"}</Field>
-                  <Field term="Plugin">{machine.pluginVersion ?? "Not reported"}</Field>
-                  {/* Loaded with what its tablet reported, less often than the Machine's status. */}
-                  <Field term="DYE2">{data ? dye2Text(data.tabletVersions.dye2) : "Loading"}</Field>
-                  <Field term="Streamline">{data ? streamlineText(data.tabletVersions.streamline) : "Loading"}</Field>
-                </Fields>
-              </CardContent>
-            </Card>
-
-            {isAdmin && (
-              <Card>
-                <CardHeader>
-                  <CardTitleWithInfo title="Token">
-                    <p>Issue a new token if a tablet is lost or its token was shared. The current token stops working.</p>
-                  </CardTitleWithInfo>
-                </CardHeader>
-                <CardContent className="grid gap-3">
-                  {actionError && (
-                    <Alert variant="destructive">
-                      <AlertDescription>{actionError}</AlertDescription>
-                    </Alert>
-                  )}
-                  <div>
-                    <ConfirmButton
-                      label="Issue new token"
-                      title={`Issue a new token for ${machine.name}?`}
-                      description="The current token stops working at once: a tablet using it is disconnected, and cannot connect again until the new token is entered in its plugin's settings."
-                      confirmLabel="Issue new token"
-                      variant="destructive"
-                      onConfirm={() => void reissue()}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            )}
-          </div>
-
-          <MachineUseCard machineId={machine.id} />
-          <MachineActivityCard machine={machine} />
-          <MachineTablets machine={machine} />
-          <LoadedRecipeCard machine={machine} />
-          {/* Shown once loaded: the status above does not wait for them. */}
-          {data && (
-            <>
-              <MachineWorkflow current={data.workflow} />
-              <PairedDevicesCard devices={data.pairedDevices} />
-              <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={answered} />
-              <SettingsEditsCard machineId={machine.id} answered={editsAnswered} />
-              <SettingsHistoryCard machineId={machine.id} answered={editsAnswered} />
-              <LibraryCard collections={data.collections} />
-            </>
+          {/* Each mounted only while it is open, so it loads, and the Live View streams, only then. */}
+          {tab === "now" && <NowTab machine={machine} askedAt={status.data!.askedAt} changed={changed} />}
+          {tab === "activity" && <ActivityTab machine={machine} />}
+          {tab === "settings" && <SettingsTab machine={machine} changed={changed} />}
+          {tab === "setup" && (
+            <SetupTab
+              machine={machine}
+              isAdmin={isAdmin}
+              changed={changed}
+              onChanged={reload}
+              onIssued={(token) => {
+                setIssued(token);
+                return reload();
+              }}
+            />
           )}
-          <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={reload} />
-          <MachineSharingCard machine={machine} isAdmin={isAdmin} onChanged={reload} />
         </>
       )}
     </section>
+  );
+}
+
+/**
+ * What heads the page, whichever tab is open: the Machine's name, with
+ * whether it is online and anything about its identity or sharing to flag;
+ * links to its Shots and Steam Records; and one line with what it is doing,
+ * or, offline, when it was last seen and what it was doing then, its last
+ * Shot, marked where out of spec, and where it is. Its times are by its
+ * Location's clock, or the browser's while it is at none.
+ */
+function MachineHeading({ machine }: { machine: Machine }) {
+  const timeZone = machine.location?.timeZone;
+  const state = machine.machineState && describeMachineState(machine.machineState);
+  return (
+    <>
+      <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2">
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <h1 className="text-2xl font-semibold wrap-anywhere">{machine.name}</h1>
+          <StatusBadge machine={machine} />
+          <IdentificationBadge identification={machine.identification} />
+          <CaptureOnlyBadge machine={machine} />
+        </div>
+        <div className="flex items-center gap-4 text-sm font-medium">
+          <Link to={`/shots?machineId=${machine.id}`} className="underline-offset-4 hover:underline">
+            Shots
+          </Link>
+          <Link to={`/steam-records?machineId=${machine.id}`} className="underline-offset-4 hover:underline">
+            Steam Records
+          </Link>
+        </div>
+      </div>
+      <div role="group" aria-label="Status" className="flex flex-wrap items-center gap-x-1.5 gap-y-1 text-sm">
+        <span>
+          {machine.online ? (
+            (state ?? "State not reported")
+          ) : (
+            <>
+              <LastSeen machine={machine} timeZone={timeZone} />
+              {machine.lastSeenAt !== null && state && `, ${state} then`}
+            </>
+          )}
+        </span>
+        <span aria-hidden="true">·</span>
+        <LastShot machine={machine} timeZone={timeZone} lead="Last Shot" />
+        <span aria-hidden="true" className="text-muted-foreground">
+          ·
+        </span>
+        {machine.location ? (
+          <Link to={`/locations/${encodeURIComponent(machine.location.id)}`} className="text-muted-foreground underline-offset-4 hover:underline">
+            {machine.location.name}
+          </Link>
+        ) : (
+          <span className="text-muted-foreground">No Location</span>
+        )}
+      </div>
+    </>
+  );
+}
+
+/** What a tab shows while what it reads of the tablet's reports can't be read, or hasn't been yet. */
+function Reading({ error }: { error: string | undefined }) {
+  if (!error) return <p className="text-sm text-muted-foreground">Loading</p>;
+  return (
+    <Alert variant="destructive">
+      <AlertDescription>{error}</AlertDescription>
+    </Alert>
+  );
+}
+
+/**
+ * Now: the Machine's Live View; its Workflow, as its tablet last reported
+ * it, loaded every 30 s, with the Loaded Recipe it was loaded from; and its
+ * Shots by Recipe.
+ */
+function NowTab({ machine, askedAt, changed }: { machine: Machine; askedAt: number; changed: number }) {
+  const path = `/machines/${encodeURIComponent(machine.id)}`;
+  const load = useCallback(async () => (await api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`)).workflow, [path]);
+  const { data: workflow, error, reload } = usePolled(load, DETAILS_POLL_MS);
+  useReloadOn(changed, reload);
+  return (
+    <>
+      <LiveViewCard machine={machine} askedAt={askedAt} profile={workflow?.workflow.profile} />
+      {/* Shown once loaded: the Live View does not wait for it. A read that fails says so, over the Workflow read before it. */}
+      {(error || workflow === undefined) && <Reading error={error} />}
+      {workflow !== undefined && <MachineWorkflow machine={machine} current={workflow} />}
+      <MachineShotsCard machine={machine} />
+    </>
+  );
+}
+
+/**
+ * Activity: how much the Machine was used, by day or by hour of one day,
+ * then what happened on it over one day. The two share that day: choosing a
+ * day's bar in Use shows that day's lists, and its hours where Use is by
+ * hour. Today, at the Location the Machine is at, until one is chosen.
+ */
+function ActivityTab({ machine }: { machine: Machine }) {
+  const [day, setDay] = useState<string>();
+  return (
+    <>
+      <MachineUseCard machineId={machine.id} day={day} onDay={setDay} />
+      <MachineActivityCard machine={machine} day={day} onDay={setDay} />
+    </>
+  );
+}
+
+/** What the Settings tab reads of what the Machine's tablet reported. */
+interface SettingsReports {
+  /** Its current Workflow, whose steam, hot water and rinse settings the Settings card lists, or null until its tablet reports one. */
+  workflow: WorkflowEvent | null;
+  pairedDevices: PairedDevices;
+  settings: Record<keyof typeof SETTINGS, Collection | null>;
+}
+
+/**
+ * Settings: the Machine's settings, with their edits, its paired devices,
+ * and its Settings History, which lists each Settings Edit too. What its
+ * tablet reported is loaded every 30 s, and again as an edit made here is
+ * answered.
+ */
+function SettingsTab({ machine, changed }: { machine: Machine; changed: number }) {
+  const path = `/machines/${encodeURIComponent(machine.id)}`;
+  const load = useCallback(async (): Promise<SettingsReports> => {
+    const settingNames = Object.keys(SETTINGS) as (keyof typeof SETTINGS)[];
+    const [{ workflow }, { pairedDevices }, settings] = await Promise.all([
+      api<{ workflow: WorkflowEvent | null }>("GET", `${path}/workflow`),
+      api<{ pairedDevices: PairedDevices }>("GET", `${path}/paired-devices`),
+      Promise.all(settingNames.map((name) => api<{ collection: Collection | null }>("GET", `${path}/collections/${name}`))),
+    ]);
+    return { workflow, pairedDevices, settings: Object.fromEntries(settingNames.map((name, index) => [name, settings[index]!.collection])) as SettingsReports["settings"] };
+  }, [path]);
+  const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
+  useReloadOn(changed, reload);
+  // Counts the edits answered here, so the Settings History loads them again as each is.
+  const [editsAnswered, setEditsAnswered] = useState(0);
+  const answered = useCallback(async () => {
+    setEditsAnswered((count) => count + 1);
+    await reload();
+  }, [reload]);
+  return (
+    <>
+      {data ? (
+        <>
+          {error && <Reading error={error} />}
+          <SettingsCard machine={machine} settings={data.settings} workflow={data.workflow} onReported={answered} />
+          <PairedDevicesCard devices={data.pairedDevices} />
+        </>
+      ) : (
+        <Reading error={error} />
+      )}
+      <SettingsHistoryCard machineId={machine.id} answered={editsAnswered} />
+    </>
+  );
+}
+
+/** What the Setup tab reads of what the Machine's tablet reported. */
+interface SetupReports {
+  /** The DYE2 and Streamline on its tablet. */
+  tabletVersions: TabletVersions;
+  /** The collections its tablet has reported, without their values. */
+  collections: CollectionSummary[];
+}
+
+/**
+ * Setup: the Machine's hardware and software, its Location with its Location
+ * History, its sharing, the library its tablet reported, its token, for an
+ * Admin, and the deliveries set aside. What its tablet reported is loaded
+ * every 30 s, and again after a change made on the page.
+ */
+function SetupTab({
+  machine,
+  isAdmin,
+  changed,
+  onChanged,
+  onIssued,
+}: {
+  machine: Machine;
+  isAdmin: boolean;
+  changed: number;
+  onChanged(): Promise<void>;
+  onIssued(token: IssuedToken): Promise<void>;
+}) {
+  const path = `/machines/${encodeURIComponent(machine.id)}`;
+  const load = useCallback(async (): Promise<SetupReports> => {
+    const [{ tabletVersions }, { collections }] = await Promise.all([
+      api<{ tabletVersions: TabletVersions }>("GET", `${path}/tablet-versions`),
+      api<{ collections: CollectionSummary[] }>("GET", `${path}/collections`),
+    ]);
+    return { tabletVersions, collections };
+  }, [path]);
+  const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
+  useReloadOn(changed, reload);
+  return (
+    <>
+      {error && <Reading error={error} />}
+      <HardwareAndSoftware machine={machine} versions={data?.tabletVersions} />
+      <MachineLocation machine={machine} isAdmin={isAdmin} onChanged={onChanged} />
+      <MachineSharingCard machine={machine} isAdmin={isAdmin} onChanged={onChanged} />
+      {data && <LibraryCard collections={data.collections} />}
+      {isAdmin && <MachineToken machine={machine} onIssued={onIssued} />}
+      <SetAsideDeliveriesCard machineId={machine.id} />
+    </>
+  );
+}
+
+/**
+ * The Machine's hardware, the software on it and its tablet, and the
+ * tablets its connections came from: what its Identity, Versions and Tablets
+ * cards held, with when it was last seen. A tablet is known by the id its
+ * plugin keeps in Decaid's data, so a reset or replaced tablet shows up as a
+ * new one. DYE2 and Streamline are loaded with what its tablet reported,
+ * less often than the Machine's status.
+ */
+function HardwareAndSoftware({ machine, versions }: { machine: Machine; versions: TabletVersions | undefined }) {
+  const seen = (tablet: Tablet) => `First seen ${formatTime(tablet.firstSeenAt)}, last seen ${formatTime(tablet.lastSeenAt)}`;
+  return (
+    <Card role="region" aria-label="Hardware and software">
+      <CardHeader>
+        <CardTitleWithInfo title="Hardware and software">
+          <p>Its versions are as last reported by its Tablet.</p>
+          <p>
+            Its tablets are those its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new one;
+            restoring a Decaid backup can bring back the tablet it came from.
+          </p>
+        </CardTitleWithInfo>
+      </CardHeader>
+      <CardContent className="grid gap-6">
+        <div className="grid gap-6 md:grid-cols-2">
+          <section className="grid content-start gap-2">
+            <h3 className="font-medium">Hardware</h3>
+            <Fields label="Hardware">
+              <Field term="Model">{machine.model ?? notReported(machine, "model")}</Field>
+              <Field term="Serial">{machine.serial ?? notReported(machine, "serial")}</Field>
+              <Field term="Identification">{identificationText(machine)}</Field>
+              <Field term="Connection id">{machine.connectionId ?? "None reported"}</Field>
+              <Field term="Aliases">{machine.aliases.length > 0 ? machine.aliases.join(", ") : "None"}</Field>
+              <Field term="Last seen">{machine.lastSeenAt ? formatTime(machine.lastSeenAt) : "Never"}</Field>
+            </Fields>
+          </section>
+          <section className="grid content-start gap-2">
+            <h3 className="font-medium">Software</h3>
+            <Fields label="Software">
+              <Field term="Firmware">{firmwareText(machine)}</Field>
+              <Field term="Decaid">{machine.decaidVersion ?? "Not reported"}</Field>
+              <Field term="Plugin">{machine.pluginVersion ?? "Not reported"}</Field>
+              <Field term="DYE2">{versions ? dye2Text(versions.dye2) : "Loading"}</Field>
+              <Field term="Streamline">{versions ? streamlineText(versions.streamline) : "Loading"}</Field>
+            </Fields>
+          </section>
+        </div>
+        <section className="grid gap-2">
+          <h3 className="font-medium">Tablet</h3>
+          {machine.tablet ? (
+            <Fields label="Tablet">
+              <Field term="Tablet id">
+                <span className="font-mono">{machine.tablet.id}</span>
+              </Field>
+              <Field term="First seen">{formatTime(machine.tablet.firstSeenAt)}</Field>
+              <Field term="Last seen">{formatTime(machine.tablet.lastSeenAt)}</Field>
+            </Fields>
+          ) : (
+            <p className="text-sm text-muted-foreground">No tablet has connected yet.</p>
+          )}
+        </section>
+        {machine.earlierTablets.length > 0 && (
+          <section className="grid gap-2">
+            <h3 className="font-medium">Earlier tablets</h3>
+            <ol aria-label="Earlier tablets" className="grid max-w-2xl divide-y rounded-lg border">
+              {machine.earlierTablets.map((tablet) => (
+                <li key={tablet.id} className="grid gap-0.5 p-4">
+                  <span className="font-mono text-sm wrap-anywhere">{tablet.id}</span>
+                  <span className="text-sm text-muted-foreground">{seen(tablet)}</span>
+                </li>
+              ))}
+            </ol>
+          </section>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
+/** Issuing the Machine a new token, which an Admin confirms: the page shows it above its tabs, the only time it is shown. */
+function MachineToken({ machine, onIssued }: { machine: Machine; onIssued(token: IssuedToken): Promise<void> }) {
+  const [error, setError] = useState<string>();
+
+  async function reissue() {
+    setError(undefined);
+    try {
+      await onIssued(await api<IssuedToken>("POST", `/machines/${encodeURIComponent(machine.id)}/token`));
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Something went wrong");
+    }
+  }
+
+  return (
+    <Card role="region" aria-label="Token">
+      <CardHeader>
+        <CardTitleWithInfo title="Token">
+          <p>Issue a new token if a tablet is lost or its token was shared. The current token stops working.</p>
+        </CardTitleWithInfo>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        {error && (
+          <Alert variant="destructive">
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
+        )}
+        <div>
+          <ConfirmButton
+            label="Issue new token"
+            title={`Issue a new token for ${machine.name}?`}
+            description="The current token stops working at once: a tablet using it is disconnected, and cannot connect again until the new token is entered in its plugin's settings."
+            confirmLabel="Issue new token"
+            variant="destructive"
+            onConfirm={() => void reissue()}
+          />
+        </div>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -454,66 +676,42 @@ function TakeoverAlert({ takeover }: { takeover: Takeover }) {
 }
 
 /**
- * The tablets the Machine's connections came from: its latest connection's,
- * then earlier ones. A tablet is known by the id its plugin keeps in Decaid's
- * data, so a reset or replaced tablet shows up as a new one.
+ * What the Machine is set up to do next, from the Workflow its tablet last
+ * reported, and the Loaded Recipe it was loaded from, the Recipe its tablet
+ * last applied (ADR-0022), with its Recipe Slot and since when, as the
+ * Machine's status gives it. The Recipes it had loaded before are listed by
+ * day on its Activity tab.
  */
-function MachineTablets({ machine }: { machine: Machine }) {
-  const seen = (tablet: Tablet) => `First seen ${formatTime(tablet.firstSeenAt)}, last seen ${formatTime(tablet.lastSeenAt)}`;
-  return (
-    <Card role="region" aria-label="Tablets">
-      <CardHeader>
-        <CardTitleWithInfo title="Tablets">
-          <p>
-            The tablets its connections came from. Resetting a tablet's Decaid data, or replacing the tablet, makes a new one;
-            restoring a Decaid backup can bring back the tablet it came from.
-          </p>
-        </CardTitleWithInfo>
-      </CardHeader>
-      <CardContent className="grid gap-6">
-        {machine.tablet ? (
-          <Fields label="Current tablet">
-            <Field term="Tablet id">
-              <span className="font-mono">{machine.tablet.id}</span>
-            </Field>
-            <Field term="First seen">{formatTime(machine.tablet.firstSeenAt)}</Field>
-            <Field term="Last seen">{formatTime(machine.tablet.lastSeenAt)}</Field>
-          </Fields>
-        ) : (
-          <p className="text-sm text-muted-foreground">No tablet has connected yet.</p>
-        )}
-        {machine.earlierTablets.length > 0 && (
-          <section className="grid gap-2">
-            <h3 className="font-medium">Earlier tablets</h3>
-            <ol aria-label="Earlier tablets" className="grid max-w-2xl divide-y rounded-lg border">
-              {machine.earlierTablets.map((tablet) => (
-                <li key={tablet.id} className="grid gap-0.5 p-4">
-                  <span className="font-mono text-sm wrap-anywhere">{tablet.id}</span>
-                  <span className="text-sm text-muted-foreground">{seen(tablet)}</span>
-                </li>
-              ))}
-            </ol>
-          </section>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
-/** What the Machine is set up to do next, from the Workflow its tablet last reported. */
-function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
+function MachineWorkflow({ machine, current }: { machine: Machine; current: WorkflowEvent | null }) {
   const fields = current ? workflowFields(current.workflow) : [];
+  const loaded = machine.loadedRecipe;
   return (
     <Card role="region" aria-label="Workflow">
       <CardHeader>
         <CardTitleWithInfo title="Workflow">
           <p>{current ? `What it is set up to pull next, as its tablet reported at ${formatTime(current.observedAt)}.` : "What it is set up to pull next."}</p>
+          <p>
+            Its Loaded Recipe is the Recipe its tablet last applied, in DYE2 or on Streamline's strip, which every change on the machine is
+            saved into. Changing the profile there, or applying a favourite, unloads it. Its Activity lists the Recipes it had loaded, day by
+            day.
+          </p>
         </CardTitleWithInfo>
         {!current && <CardDescription>Its tablet has not reported it yet.</CardDescription>}
       </CardHeader>
-      {current && (
-        <CardContent>
-          {fields.length > 0 ? (
+      <CardContent className="grid gap-4">
+        {loaded ? (
+          <p role="group" aria-label="Loaded Recipe" className="flex flex-wrap items-center gap-x-2 gap-y-1 text-sm">
+            <span className="text-muted-foreground">Loaded from</span>
+            <LoadedRecipeLink loaded={loaded} />
+            <span className="text-muted-foreground">since {formatTime(loaded.loadedAt)}</span>
+          </p>
+        ) : (
+          <p role="group" aria-label="Loaded Recipe" className="text-sm text-muted-foreground">
+            No Recipe is loaded.
+          </p>
+        )}
+        {current &&
+          (fields.length > 0 ? (
             <Fields label="Workflow">
               {fields.map(([term, value]) => (
                 <Field key={term} term={term}>
@@ -523,9 +721,8 @@ function MachineWorkflow({ current }: { current: WorkflowEvent | null }) {
             </Fields>
           ) : (
             <p className="text-sm text-muted-foreground">This Workflow has none of the parts shown here.</p>
-          )}
-        </CardContent>
-      )}
+          ))}
+      </CardContent>
     </Card>
   );
 }

@@ -70,3 +70,16 @@ export function usePolled<T>(load: () => Promise<T>, intervalMs = STATUS_POLL_MS
 
   return { data, error, reload };
 }
+
+/**
+ * Loads again whenever `signal` changes, as a count of the changes made
+ * elsewhere on the page does: the first load is `usePolled`'s own.
+ */
+export function useReloadOn(signal: number, reload: () => Promise<void>): void {
+  const seen = useRef(signal);
+  useEffect(() => {
+    if (seen.current === signal) return;
+    seen.current = signal;
+    void reload();
+  }, [signal, reload]);
+}

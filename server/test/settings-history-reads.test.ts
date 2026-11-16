@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AdminApi, type CreatedMachine, type LocationView, acceptInvite } from "./support/admin-api.js";
 import { RawConnection, helloWith } from "./support/simulated-tablet.js";
+import { runAsSteps } from "./support/steps.js";
 import { startTestServer, type TestServer } from "./support/test-server.js";
 
 // Seam 1 for ticket #433: a Machine's Settings History read through the REST
@@ -9,8 +10,9 @@ import { startTestServer, type TestServer } from "./support/test-server.js";
 // a real server. The history is recorded from raw frames, as #432 records it
 // (settings-history.test.ts); when each value was received is then set in
 // PostgreSQL, as something the server is not told of, where a test needs
-// times further apart than it can wait. Values are made up, shaped as Decaid
-// reports them (COLLECTIONS.md); serials are made up.
+// times further apart than it can wait. And for ticket #545, the history
+// read with the Machine's Settings Edits, as its page lists them. Values are
+// made up, shaped as Decaid reports them (COLLECTIONS.md); serials are made up.
 
 interface FieldChange {
   field: string;
@@ -28,6 +30,28 @@ interface Change {
 }
 interface Page {
   changes: Change[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+/** A Settings Edit as the REST API gives it, as far as these tests read it. */
+interface Edit {
+  id: string;
+  collection: string;
+  fields: Record<string, unknown>;
+  account: { id: string; name: string | null } | null;
+  outcome: "applied" | "adjusted" | "refused" | "notConfirmed" | null;
+  adjusted: { field: string; holds?: unknown }[];
+  refusal: { reason: string; current?: Record<string, unknown> | null } | null;
+}
+interface Entry {
+  at: string;
+  collection: string;
+  change: { id: string; fields: FieldChange[] } | null;
+  settingsEdit: Edit | null;
+}
+interface EntryPage {
+  entries: Entry[];
   total: number;
   limit: number;
   offset: number;
@@ -298,5 +322,109 @@ describe("a Machine's Settings History through the REST API", () => {
     // A range ending before the change back still folds it.
     expect(await changes(machine, { to: minutes(40.5) })).toMatchObject({ total: 2 });
     expect(await changes(machine, { to: minutes(40.5), includeBrief: "true" })).toMatchObject({ total: 5 });
+  });
+
+  describe("a Machine's Settings History with its Settings Edits", () => {
+    // One scenario: its first step makes the edits, and its second closes the connection the rest read after.
+    runAsSteps();
+    let machine: CreatedMachine;
+    let raw: RawConnection;
+    const made: Record<"applied" | "refused" | "putBack" | "unanswered", Edit> = {} as never;
+    const editsPath = () => `/machines/${machine.machine.id}/settings-edits`;
+    const entries = (query: Record<string, string | string[]> = {}, by = api) => by.get<EntryPage>(historyPath(machine, query).replace("/settings-history", "/settings-history/with-edits"));
+    const edit = async (id: string, by = api) => (await by.get<{ settingsEdit: Edit }>(`${editsPath()}/${id}`)).settingsEdit;
+    /** Makes an edit, and resolves once the Machine's connection has been sent it. */
+    async function make(body: { collection: string; fields: Record<string, unknown>; expected: Record<string, unknown> }, by = api): Promise<Edit> {
+      const { settingsEdit } = await by.send<{ settingsEdit: Edit }>("POST", editsPath(), body, 201);
+      await expect.poll(() => raw.messages.some((message) => (message as Frame).type === "settingsEdit" && (message as Frame).id === settingsEdit.id)).toBe(true);
+      return settingsEdit;
+    }
+
+    it("takes edits that are applied, refused and put back by the Machine, a change made on the tablet, and an edit never answered", async () => {
+      const cafe = await api.createLocation("Edits cafe", "America/Toronto");
+      machine = await api.createMachine("Settings with edits", cafe.id);
+      raw = await connect(machine);
+      await raw.deliver(report("machineSettings", MACHINE));
+      await raw.deliver(report("advancedSettings", ADVANCED));
+      await api.waitForOnline(machine);
+
+      // Applied: its read-back holds the fan as asked.
+      made.applied = await make({ collection: "machineSettings", fields: { fan: 45 }, expected: { fan: 50 } });
+      await raw.deliver(report("machineSettings", { ...MACHINE, fan: 45 }, { settingsEditId: made.applied.id }));
+      await raw.deliver({ type: "settingsEdited", id: made.applied.id, outcome: "written", values: { fan: 45 } });
+      // Then the steam purge mode is changed on the tablet.
+      await raw.deliver(report("machineSettings", { ...MACHINE, fan: 45, steamPurgeMode: 1 }));
+      // Refused by the plugin, as changed since the value its maker gave as shown: a Staff member's.
+      const sam = await api.staffAt("history-entries-sam@example.com", cafe);
+      made.refused = await make({ collection: "machineSettings", fields: { fan: 30 }, expected: { fan: 50 } }, sam);
+      await raw.deliver({ type: "settingsEdited", id: made.refused.id, outcome: "refused", reason: "changedSince", values: { fan: 45 } });
+      // Written, but the Machine holds the idle temperature it held before: its read-back is no change.
+      made.putBack = await make({ collection: "advancedSettings", fields: { heaterIdleTemp: 98 }, expected: { heaterIdleTemp: 99 } });
+      await raw.deliver(report("advancedSettings", ADVANCED, { settingsEditId: made.putBack.id }));
+      await raw.deliver({ type: "settingsEdited", id: made.putBack.id, outcome: "written", values: { heaterIdleTemp: 99 } });
+      // Never answered.
+      made.unanswered = await make({ collection: "machineSettings", fields: { fan: 40 }, expected: { fan: 45 } });
+    });
+
+    it("lists an edit awaiting its answer as pending, and as not confirmed once its connection has closed", async () => {
+      expect((await entries()).entries[0]).toMatchObject({ collection: "machineSettings", change: null, settingsEdit: { id: made.unanswered.id, outcome: null } });
+      await raw.close();
+      await expect.poll(async () => (await entries()).entries[0]!.settingsEdit?.outcome).toBe("notConfirmed");
+    });
+
+    it("lists each change once, an applied edit's with the edit and a tablet's with no person, and each edit that changed nothing with what came of it", async () => {
+      const page = await entries();
+      expect(page).toMatchObject({ total: 5, limit: 20, offset: 0 });
+      const adminId = (await api.get<{ account: { id: string } }>("/session")).account.id;
+      expect(page.entries).toMatchObject([
+        { collection: "machineSettings", change: null, settingsEdit: { id: made.unanswered.id, outcome: "notConfirmed", fields: { fan: 40 } } },
+        // Put back by the Machine, which holds what it held.
+        { collection: "advancedSettings", change: null, settingsEdit: { id: made.putBack.id, outcome: "adjusted", adjusted: [{ field: "heaterIdleTemp", holds: 99 }] } },
+        { collection: "machineSettings", change: null, settingsEdit: { id: made.refused.id, outcome: "refused", refusal: { reason: "changedSince", current: { fan: 45 } } } },
+        { collection: "machineSettings", change: { fields: [{ field: "steamPurgeMode", change: "changed", before: 0, after: 1, backAt: null }] }, settingsEdit: null },
+        {
+          collection: "machineSettings",
+          change: { fields: [{ field: "fan", change: "changed", before: 50, after: 45, backAt: null }] },
+          settingsEdit: { id: made.applied.id, outcome: "applied", account: { id: adminId, name: "Ada Admin" } },
+        },
+      ]);
+      // Each edit is as it reads alone, and each entry's time is its change's, or when its edit was made.
+      for (const entry of page.entries) if (entry.settingsEdit) expect(entry.settingsEdit).toEqual(await edit(entry.settingsEdit.id));
+      const history = await changes(machine);
+      expect(page.entries.filter((entry) => entry.change).map((entry) => [entry.change!.id, entry.at])).toEqual(history.changes.map((change) => [change.id, change.receivedAt]));
+      for (const entry of page.entries.filter((each) => !each.change)) expect(entry.at).toBe((entry.settingsEdit as Edit & { madeAt: string }).madeAt);
+      const times = page.entries.map((entry) => Date.parse(entry.at));
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+      // Staff read it too, each maker by id only.
+      const staff = await api.staffAt("history-entries-staff@example.com", elsewhere);
+      expect((await entries({}, staff)).entries.map((entry) => entry.settingsEdit?.account?.name ?? null)).toEqual([null, null, null, null, null]);
+    });
+
+    it("narrows it to what was made through a Settings Edit, to collections and to a range of times, and pages over the merged list", async () => {
+      const all = (await entries()).entries;
+      const edits = await entries({ editsOnly: "true" });
+      expect(edits.total).toBe(4);
+      expect(edits.entries).toEqual(all.filter((entry) => entry.settingsEdit !== null));
+      expect(await entries({ limit: "2", offset: "1" })).toEqual({ entries: all.slice(1, 3), total: 5, limit: 2, offset: 1 });
+      expect(await entries({ limit: "2", offset: "4" })).toEqual({ entries: all.slice(4), total: 5, limit: 2, offset: 4 });
+      expect(await entries({ editsOnly: "true", limit: "1", offset: "3" })).toEqual({ entries: [all[4]], total: 4, limit: 1, offset: 3 });
+      expect((await entries({ collection: "advancedSettings" })).entries).toEqual([all[1]]);
+      expect(await entries({ collection: "presenceSettings" })).toMatchObject({ total: 0, entries: [] });
+      // From is included and to is not: from the refused edit to just before the last one.
+      expect((await entries({ from: all[2]!.at, to: all[0]!.at })).entries).toEqual(all.slice(1, 3));
+    });
+
+    it("refuses a filter it can't read, and an unknown Machine", async () => {
+      const refused = async (path: string, status: number, message: RegExp) => {
+        const response = await api.call("GET", path);
+        expect(response.status, path).toBe(status);
+        expect(JSON.stringify(await response.json()), path).toMatch(message);
+      };
+      const base = `/machines/${machine.machine.id}/settings-history/with-edits`;
+      await refused(`${base}?editsOnly=yes`, 400, /editsOnly as true or false/);
+      await refused(`${base}?collection=beans`, 400, /Choose each collection/);
+      await refused(`${base}?limit=101`, 400, /between 1 and 100/);
+      await refused(`/machines/${randomUUID()}/settings-history/with-edits`, 404, /No such Machine/);
+    });
   });
 });

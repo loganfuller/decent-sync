@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router";
-import { CollapsibleCard } from "@/components/collapsible-card";
+import { CardTitleWithInfo } from "@/components/info-tip";
 import { LoadedRecipeLink } from "@/components/loaded-recipes";
 import { DayField } from "@/components/machine-use";
 import { describeMachineState } from "@/components/machines";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { CardContent } from "@/components/ui/card";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { type LoadedRecipe, type Machine, type MachineActivity, type MachineStateEvent, type TrailEntry, type TrailRecipe, api } from "@/lib/api";
 import { ACTIVITY_KINDS, type ActivityKind, TRAIL_KINDS, type TrailValue, dateIn, madeBy, trailLines, whenText } from "@/lib/machine-activity";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 
-// What happened on a Machine over a chosen day (#476), on its page: its
+// What happened on a Machine over a chosen day (#476, #545), on its page: its
 // Workflow changes as a dial-in trail, its Loaded Recipes and its Machine
 // States, each latest first, a page at a time, as `get_machine_activity`
 // gives an assistant the same from the same service.
@@ -31,20 +32,26 @@ const NOTHING: Record<ActivityKind, string> = {
 type When = (at: string) => string;
 
 /**
- * A Machine's activity over one day. Shown closed until opened, as the
- * Settings Edits and Settings History cards are, as most who read the page
- * do not need it: it loads nothing while closed, and starts at today's
- * dial-in trail each time it is opened.
+ * What happened on a Machine over one day, on its Activity tab (#545), under
+ * its Use: `day` is the day the tab has chosen, as by a bar of Use, and
+ * today, at the Location the Machine is at, until one is; choosing one here
+ * chooses it for both (`onDay`). The day is the Location's the Machine was
+ * at then, as the server reads a date, and each time is shown on that
+ * Location's wall clock, the browser's own time zone playing no part. One
+ * list is shown at a time, and only that one is loaded, again every 30 s.
  */
-export function MachineActivityCard({ machine }: { machine: Machine }) {
+export function MachineActivityCard({ machine, day: chosen, onDay }: { machine: Machine; day: string | undefined; onDay(day: string): void }) {
+  const [kind, setKind] = useState<ActivityKind>("workflowChanges");
+  const day = chosen ?? dateIn(machine.location?.timeZone);
+  const when: When = (at) => whenText(at, day, machine.locationHistory);
+
   return (
-    <CollapsibleCard
-      title="Activity"
-      info={
-        <>
+    <Card role="region" aria-label="On one day">
+      <CardHeader>
+        <CardTitleWithInfo title="On one day">
           <p>
             What happened on this Machine over one day, latest first: what changed in its Workflow, the Recipes it had loaded and its Machine States. The day is
-            that of the Location it was at then, and so is each time, by its tablet's clock.
+            that of the Location it was at then, and so is each time, by its tablet's clock. Choosing a day's bar in Use shows that day here.
           </p>
           <p>
             The dial-in trail lists each Recipe loaded or unloaded and what changed between them, from what to what. Changes within 5 seconds of each other from
@@ -54,50 +61,30 @@ export function MachineActivityCard({ machine }: { machine: Machine }) {
             Where its tablet had reported any by then, each list ends with what was in effect as the day began, which dates from before it. The trail's last entry
             is a Workflow whole: that one, or else the first of the day. A Machine State lasts until the next one its tablet reports.
           </p>
-        </>
-      }
-    >
-      <ActivityLists machine={machine} />
-    </CollapsibleCard>
-  );
-}
-
-/**
- * The day and its lists, while their card is open: today, at the Location
- * the Machine is at, until another is chosen. The day is the Location's the
- * Machine was at then, as the server reads a date, and each time is shown on
- * that Location's wall clock, the browser's own time zone playing no part.
- * One list is shown at a time, and only that one is loaded, again every
- * 30 s.
- */
-function ActivityLists({ machine }: { machine: Machine }) {
-  const [kind, setKind] = useState<ActivityKind>("workflowChanges");
-  const [chosen, setChosen] = useState<string>();
-  const day = chosen ?? dateIn(machine.location?.timeZone);
-  const when: When = (at) => whenText(at, day, machine.locationHistory);
-
-  return (
-    <CardContent>
-      <Tabs value={kind} onValueChange={(value) => setKind(ACTIVITY_KINDS.find((found) => found.kind === value)?.kind ?? "workflowChanges")} className="gap-4">
-        <div className="flex flex-wrap items-end gap-3">
-          {/* On a row of its own on a phone, where the day chosen doesn't fit beside it. */}
-          <div className="max-sm:basis-full">
-            <TabsList>
-              {ACTIVITY_KINDS.map(({ kind: value, label }) => (
-                <TabsTrigger key={value} value={value}>
-                  {label}
-                </TabsTrigger>
-              ))}
-            </TabsList>
+        </CardTitleWithInfo>
+      </CardHeader>
+      <CardContent>
+        <Tabs value={kind} onValueChange={(value) => setKind(ACTIVITY_KINDS.find((found) => found.kind === value)?.kind ?? "workflowChanges")} className="gap-4">
+          <div className="flex flex-wrap items-end gap-3">
+            {/* On a row of its own on a phone, where the day chosen doesn't fit beside it. */}
+            <div className="max-sm:basis-full">
+              <TabsList>
+                {ACTIVITY_KINDS.map(({ kind: value, label }) => (
+                  <TabsTrigger key={value} value={value}>
+                    {label}
+                  </TabsTrigger>
+                ))}
+              </TabsList>
+            </div>
+            <DayField id="activity-day" label="Day" value={day} onChange={onDay} />
           </div>
-          <DayField id="activity-day" label="Day" value={day} onChange={setChosen} />
-        </div>
-        <TabsContent value={kind}>
-          {/* Keyed, so a list starts at its latest page for each day and kind, and shows nothing read for another. */}
-          <ActivityList key={`${kind} ${day}`} machineId={machine.id} kind={kind} day={day} when={when} />
-        </TabsContent>
-      </Tabs>
-    </CardContent>
+          <TabsContent value={kind}>
+            {/* Keyed, so a list starts at its latest page for each day and kind, and shows nothing read for another. */}
+            <ActivityList key={`${kind} ${day}`} machineId={machine.id} kind={kind} day={day} when={when} />
+          </TabsContent>
+        </Tabs>
+      </CardContent>
+    </Card>
   );
 }
 
@@ -156,52 +143,55 @@ function ActivityList({ machineId, kind, day, when }: { machineId: string; kind:
 /** The dial-in trail: when each entry began, what it is, what changed, from what to what, the Recipe loaded then, and who made it. */
 function Trail({ entries, when }: { entries: TrailEntry[]; when: When }) {
   return (
-    <Table aria-label="Dial-in trail">
-      <TableHeader>
-        <TableRow>
-          <TableHead>When</TableHead>
-          <TableHead>What</TableHead>
-          <TableHead>Changes</TableHead>
-          <TableHead>Loaded Recipe</TableHead>
-          <TableHead>Made by</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {entries.map((entry, n) => (
-          // Each cell from the top, as the Workflow in effect runs to many lines.
-          <TableRow key={`${entry.observedAt} ${n}`}>
-            <TableCell className="align-top">{when(entry.observedAt)}</TableCell>
-            <TableCell className="align-top whitespace-normal">
-              {TRAIL_KINDS[entry.kind]}
-              {entry.replaced && (
-                <>
-                  , replacing <RecipeLink recipe={entry.replaced} />
-                </>
-              )}
-            </TableCell>
-            <TableCell className="min-w-56 align-top whitespace-normal">
-              <ul className="grid gap-0.5">
-                {trailLines(entry).map(({ label, before, after }) => (
-                  <li key={label}>
-                    <span className="text-muted-foreground">{label}:</span>{" "}
-                    {before && (
-                      <>
-                        <Value value={before} /> to{" "}
-                      </>
-                    )}
-                    <Value value={after} />
-                  </li>
-                ))}
-              </ul>
-            </TableCell>
-            <TableCell className="align-top whitespace-normal">
-              {entry.loadedRecipe ? <RecipeLink recipe={entry.loadedRecipe} /> : <span className="text-muted-foreground">None</span>}
-            </TableCell>
-            <TableCell className="align-top whitespace-normal">{madeBy(entry)}</TableCell>
+    <div className="grid gap-2">
+      <ScrollsSideways />
+      <Table aria-label="Dial-in trail">
+        <TableHeader>
+          <TableRow>
+            <TableHead>When</TableHead>
+            <TableHead>What</TableHead>
+            <TableHead>Changes</TableHead>
+            <TableHead>Loaded Recipe</TableHead>
+            <TableHead>Made by</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {entries.map((entry, n) => (
+            // Each cell from the top, as the Workflow in effect runs to many lines.
+            <TableRow key={`${entry.observedAt} ${n}`}>
+              <TableCell className="align-top">{when(entry.observedAt)}</TableCell>
+              <TableCell className="align-top whitespace-normal">
+                {TRAIL_KINDS[entry.kind]}
+                {entry.replaced && (
+                  <>
+                    , replacing <RecipeLink recipe={entry.replaced} />
+                  </>
+                )}
+              </TableCell>
+              <TableCell className="min-w-56 align-top whitespace-normal">
+                <ul className="grid gap-0.5">
+                  {trailLines(entry).map(({ label, before, after }) => (
+                    <li key={label}>
+                      <span className="text-muted-foreground">{label}:</span>{" "}
+                      {before && (
+                        <>
+                          <Value value={before} /> to{" "}
+                        </>
+                      )}
+                      <Value value={after} />
+                    </li>
+                  ))}
+                </ul>
+              </TableCell>
+              <TableCell className="align-top whitespace-normal">
+                {entry.loadedRecipe ? <RecipeLink recipe={entry.loadedRecipe} /> : <span className="text-muted-foreground">None</span>}
+              </TableCell>
+              <TableCell className="align-top whitespace-normal">{madeBy(entry)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -236,12 +226,13 @@ function LoadedRecipes({ entries, when }: { entries: LoadedRecipe[]; when: When 
       </TableHeader>
       <TableBody>
         {entries.map((entry) => (
+          // Its times wrap, so its three columns fit a phone.
           <TableRow key={entry.id}>
-            <TableCell>
+            <TableCell className="whitespace-normal">
               <LoadedRecipeLink loaded={entry} />
             </TableCell>
-            <TableCell>{when(entry.loadedAt)}</TableCell>
-            <TableCell>{entry.unloadedAt ? when(entry.unloadedAt) : "Still loaded"}</TableCell>
+            <TableCell className="whitespace-normal">{when(entry.loadedAt)}</TableCell>
+            <TableCell className="whitespace-normal">{entry.unloadedAt ? when(entry.unloadedAt) : "Still loaded"}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -263,7 +254,7 @@ function MachineStates({ entries, when }: { entries: MachineStateEvent[]; when: 
         {entries.map((entry) => (
           <TableRow key={entry.id}>
             <TableCell>{when(entry.observedAt)}</TableCell>
-            <TableCell>{describeMachineState(entry)}</TableCell>
+            <TableCell className="whitespace-normal">{describeMachineState(entry)}</TableCell>
           </TableRow>
         ))}
       </TableBody>

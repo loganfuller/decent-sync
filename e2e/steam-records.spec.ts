@@ -116,7 +116,7 @@ test("filters by Location, Machine and date narrow the list, with dates read in 
   await pending.getByRole("link", { name: "Review the Steam Records it holds" }).click();
   await expect(column(page, 1)).toHaveText(["Jan 20, 2026, 3:00 PM UTC"]);
   await page.goto(`/machines/${await machineId(page, "Uptown 1")}`);
-  await page.getByRole("link", { name: "All its Steam Records" }).click();
+  await page.getByRole("main").getByRole("link", { name: "Steam Records", exact: true }).click();
   await expect(column(page, 1)).toHaveText(["Feb 11, 2026, 9:00 AM CST", "Feb 10, 2026, 6:30 AM CST"]);
 });
 

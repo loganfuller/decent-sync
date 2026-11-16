@@ -4,11 +4,11 @@ import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/supp
 import { derivedSteam, steamFixture, withSteams } from "../server/test/support/steam-fixtures.js";
 import { chooseDate, farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field, rows } from "./support/locators.js";
+import { field, openMachineTab, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
-// A Machine's use on its page (#475), as an Admin: the chart by day, for the
+// A Machine's use on its page's Activity tab (#475, #545), as an Admin: the chart by day, for the
 // last 14 days, the switch to one day by hour, another range chosen, and the
 // note about a tablet that was off. A simulated tablet running the built
 // plugin backfills two Shots and a Steam Record derived from ones Decaid
@@ -68,6 +68,7 @@ test("a Machine's page charts its use by day for the last 14 days, with each cou
   machineId = await adopt(page, "Lab 1", lab.id);
 
   await page.goto(`/machines/${machineId}`);
+  await openMachineTab(page, "Activity");
   const use = page.getByRole("region", { name: "Use" });
   await expect(use.getByRole("tab", { name: "By day" })).toHaveAttribute("aria-selected", "true");
   await expect(use.getByRole("figure", { name: "Use by day" })).toBeVisible();
@@ -105,6 +106,7 @@ test("a Machine's page charts its use by day for the last 14 days, with each cou
 
 test("the chart switches to one day by hour, today until another day is chosen, and back", async ({ page }) => {
   await page.goto(`/machines/${machineId}`);
+  await openMachineTab(page, "Activity");
   const use = page.getByRole("region", { name: "Use" });
   await use.getByRole("tab", { name: "By hour" }).click();
   await expect(use.getByRole("figure", { name: "Use by hour" })).toBeVisible();
@@ -140,6 +142,7 @@ test("the chart switches to one day by hour, today until another day is chosen, 
 
 test("another range is chosen by its first and last day, and one longer than 31 days is refused, with no figures left under it", async ({ page }) => {
   await page.goto(`/machines/${machineId}`);
+  await openMachineTab(page, "Activity");
   const use = page.getByRole("region", { name: "Use" });
   await use.getByRole("button", { name: "Show the numbers" }).click();
   const table = use.getByRole("table", { name: "Use by day" });

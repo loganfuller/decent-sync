@@ -2013,6 +2013,30 @@ rating of the Recipe's Shots. One charted there would read in stars, as its
 chart is the Shots list's (`TrendChart`), and one added to By Machine would
 read through `ratingMedianText` (#532).
 
+A Machine's page has the same numbers the other way round (#545;
+`web/src/components/machine-shots.tsx`): the Shots card on its Now tab, a
+row for each Recipe the Machine pulled today, yesterday or in the last 7
+days, kept in the page's address as `period`. It asks
+`GET /api/shots/summary` for the Machine's Shots, by `machineId`, over the
+Shots list's date preset of the period (`period`), so each Shot's own
+Location's days, grouped by `recipe,machine`, which has the server judge
+the Machine's Shots of each Recipe against its Reference Shot, every 30 s,
+every page of it, through the read the Overview's blocks use
+(`readSummaryGroups`).
+A row gives the Recipe, with its Recipe Slot at the Location the Machine is
+at now, from that Location's Recipes; the count, linked to those Shots in
+the Shots list by the same Recipe, Machine and preset, with any Unfinished
+and cleaning or calibration Shots beside it; the median duration with the
+middle half's range; its difference from the Reference Shot's, or "No
+reference", linked to the Recipe's rated Shots; the yield against target;
+and the share stopped at target, each marked where the group's `spec` has
+it out of spec (`machineNumbers`). Rows are ordered as the Overview's
+(`overviewRows`): Recipe Slots first, then the other Recipes, then the
+Shots pulled with no Recipe loaded. Below 640 px each Recipe is a block of
+a few lines. No read was added for it, and `summarise_shots` gives an
+assistant the same, so no MCP tool changes. `e2e/machine-page.spec.ts`
+covers it with the Overview's seeded Shots (`e2e/support/judged-shots.ts`).
+
 `/shots/:id` shows one Shot, in the order a reader asks (#546;
 `web/src/pages/ShotPage.tsx`, with its cards in
 `web/src/components/shot-page.tsx`): which Shot it is, how it went, its

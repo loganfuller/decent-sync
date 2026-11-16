@@ -1,6 +1,6 @@
 import { type Browser, expect, type Locator, type Page, test } from "@playwright/test";
 import { useFreshServer } from "./support/fresh-server.js";
-import { machineRow, openCard, rows } from "./support/locators.js";
+import { machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { tabletAt } from "./support/tablets.js";
 import { expectTip } from "./support/tooltips.js";
@@ -92,14 +92,23 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
    */
   const PAGES: { path: string; loaded: (page: Page) => Locator; staffHave?: string; closed?: string[]; filters?: RegExp[] }[] = [
     { path: "/machines", loaded: (page) => machineRow(page, "Uptown 1") },
+    // A Machine's page, a tab at a time (#545): only the open tab's cards are on the page.
+    { path: `/machines/${machineId}`, loaded: (page) => page.getByRole("region", { name: "Workflow" }).getByRole("term").first() },
     {
-      path: `/machines/${machineId}`,
+      path: `/machines/${machineId}?tab=activity`,
+      loaded: (page) => page.getByRole("region", { name: "On one day" }).getByRole("table"),
+      // The days its Use card counts and its table of them, and the day its On one day card lists, which a Viewer chooses as anyone does.
+      filters: [/^button (From|To|Day|Show the numbers)$/],
+    },
+    {
+      path: `/machines/${machineId}?tab=settings`,
       loaded: (page) => page.getByRole("region", { name: "General", exact: true }).getByRole("term").first(),
       staffHave: "button Edit General",
-      closed: ["Activity", "Settings Edits", "Settings History"],
-      // The days its Use card counts and its table of them, and the day its Activity card lists, which a Viewer chooses as anyone does.
-      filters: [/^checkbox Show brief changes$/, /^button Hide (Activity|Settings (Edits|History))$/, /^button (From|To|Day|Show the numbers)$/],
+      closed: ["Settings History"],
+      // Which of its Settings History it lists, which a Viewer chooses as anyone does.
+      filters: [/^checkbox Show brief changes$/, /^button Hide Settings History$/, /^radio (All changes|Settings Edits)$/],
     },
+    { path: `/machines/${machineId}?tab=setup`, loaded: (page) => page.getByRole("region", { name: "Location" }).getByRole("definition").first() },
     { path: "/library/beans", loaded: (page) => rows(page.getByRole("table", { name: "Beans" })).first(), staffHave: "button New Bean" },
     { path: `/library/beans/${ids.bean}`, loaded: (page) => page.getByRole("table", { name: "Batches" }), staffHave: "button Edit the coffee" },
     { path: "/library/bean-batches", loaded: (page) => rows(page.getByRole("table", { name: "Bean Batches" })).first(), staffHave: "button New batch" },
@@ -146,11 +155,13 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
       await valsPage.goto(path);
       await expect(rows(valsPage.getByRole("table", { name: "Locations" })).getByRole("cell")).toHaveText(["Uptown", "Yes", /./]);
     }
-    // The Machine's Location, its Settings and its Live View.
+    // The Machine's Live View, its Settings and its Location, each on its tab.
     await valsPage.goto(`/machines/${machineId}`);
-    await expect(valsPage.getByRole("region", { name: "Location" }).getByRole("definition").first()).toHaveText("Uptown");
     await expect(valsPage.getByRole("region", { name: "Live View" })).toBeVisible();
+    await openMachineTab(valsPage, "Settings");
     await expect(valsPage.getByRole("region", { name: "General", exact: true }).getByRole("term").first()).toBeVisible();
+    await openMachineTab(valsPage, "Setup");
+    await expect(valsPage.getByRole("region", { name: "Location" }).getByRole("definition").first()).toHaveText("Uptown");
 
     // The menu says so too, on a narrow screen.
     await valsPage.setViewportSize({ width: 393, height: 852 });
@@ -209,7 +220,7 @@ async function libraryIds(page: Page): Promise<Record<"bean" | "batch" | "grinde
  */
 async function changingControls(page: Page, filters: RegExp[] = []): Promise<string[]> {
   const snapshot = await page.getByRole("main").ariaSnapshot();
-  const controls = [...snapshot.matchAll(/^\s*- (button|switch|checkbox|textbox|searchbox|spinbutton|combobox|radio|slider)(?: "((?:[^"\\]|\\.)*)")?/gm)];
+  const controls = [...snapshot.matchAll(/^\s*- (button|switch|checkbox|textbox|searchbox|spinbutton|combobox|radio|slider)\b(?: "((?:[^"\\]|\\.)*)")?/gm)];
   return controls
     .map(([, role, name]) => `${role} ${name ?? ""}`.trim())
     .filter((control) => !/^button About /.test(control) && !filters.some((filter) => filter.test(control)));

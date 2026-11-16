@@ -1,5 +1,5 @@
 import { type FormEvent, type ReactNode, useEffect, useId, useRef, useState } from "react";
-import { useIsAdmin } from "@/auth";
+import { useAuth, useIsAdmin } from "@/auth";
 import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -47,6 +47,18 @@ const PENDING_POLL_MS = 1_000;
 
 /** How often an edit not confirmed is read again, as an answer may still arrive late, and may never. */
 const NOT_CONFIRMED_POLL_MS = 5_000;
+
+/**
+ * Who made an edit: "You" for one's own; named to Admins; otherwise as the
+ * Library's history shows Staff another account; and the Connected App, such
+ * as an assistant, it was made through, by the name the app gave itself.
+ */
+export function MadeBy({ account, connectedApp }: { account: SettingsEdit["account"]; connectedApp: SettingsEdit["connectedApp"] }) {
+  const { state } = useAuth();
+  if (account === null) return <span className="text-muted-foreground">An account since removed</span>;
+  const who = state.status === "signed-in" && state.account.id === account.id ? "You" : (account.name ?? "An account");
+  return connectedApp ? <>{who}, through {connectedApp.name}</> : <>{who}</>;
+}
 
 /**
  * The fields of a section the signed-in account may change, each reported

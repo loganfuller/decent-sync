@@ -1,4 +1,4 @@
-import { expect, test } from "@playwright/test";
+import { type Locator, type Page, expect, test } from "@playwright/test";
 import { liveFixture, machineDisconnects } from "../server/test/support/live-fixtures.js";
 import { RawConnection, helloWith } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
@@ -26,12 +26,17 @@ test.beforeEach(({ page }) => signInAsAdmin(page));
 
 const connectedTablet = connectedTabletOn(server);
 
+/** The link to the Machine's last Shot, in the Status line under its page's heading. */
+function lastShotLink(page: Page): Locator {
+  return page.getByRole("main").getByRole("group", { name: "Status" }).locator('a[href^="/shots/"]');
+}
+
 test("a shot's curves grow as it runs, then link its Shot once it arrives, not one before it, and keep that link", async ({ page }) => {
   const { machine, token } = await createMachine(page, "Bar 1");
   const tablet = await connectedTablet(token, "28001");
   tablet.pullShot(shotOf("shot-before", "28001", new Date(Date.now() - 3_600_000)));
   const card = await openMachinePage(page, machine.id, tablet);
-  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-before");
+  await expect(lastShotLink(page)).toHaveAttribute("href", "/shots/shot-before");
 
   const frames = liveFixture("shot.json");
   const replay = tablet.replayLive(frames, { speed: SPEED });
@@ -59,7 +64,7 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   await expect(curves.getByText("Waiting for its Shot")).toBeVisible();
   // The page loads the Machine again, its last Shot the one just before: it isn't linked.
   await page.waitForResponse((response) => new URL(response.url()).pathname === `/api/machines/${machine.id}` && response.ok());
-  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-just-before");
+  await expect(lastShotLink(page)).toHaveAttribute("href", "/shots/shot-just-before");
   await expect(curves.getByRole("link")).toHaveCount(0);
 
   tablet.pullShot(shotOf("shot-live", "28001", new Date()));
@@ -71,7 +76,7 @@ test("a shot's curves grow as it runs, then link its Shot once it arrives, not o
   await tablet.replayLive(frames, { speed: SPEED }).to();
   tablet.pullShot(shotOf("shot-unseen", "28001", new Date()));
   await setTabHidden(page, false);
-  await expect(field(page, "Last Shot").getByRole("link")).toHaveAttribute("href", "/shots/shot-unseen");
+  await expect(lastShotLink(page)).toHaveAttribute("href", "/shots/shot-unseen");
   await expect(ticks(curves, "Pressure")).toHaveText(["0 s", "10 s", "20 s", "30 s"]);
   await expect(curves.getByRole("link", { name: "Open its Shot" })).toHaveAttribute("href", "/shots/shot-live");
 

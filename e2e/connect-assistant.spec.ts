@@ -14,8 +14,8 @@ import { admin, createLocation, createMachine, signInAsAdmin } from "./support/s
 // sends the browser back to the app; and it fits a phone, where assistants'
 // apps open it. The app is a loopback test app named "Claude", as any page
 // could name itself. A change made through it is shown in its item's history
-// as made through it (#411), and a Settings Edit made through it on its
-// Machine's Settings Edits card (#413).
+// as made through it (#411), and a Settings Edit made through it in its
+// Machine's Settings History (#413).
 const server = useFreshServer({ env: ASSISTANT_ENV });
 
 let app: TestApp;
@@ -141,7 +141,7 @@ test("a change made through it is shown in the item's history as yours, through 
   await expect(history.nth(2)).toContainText("NameAssistant Guji");
 });
 
-test("a Settings Edit made through it is shown on the Machine's Settings Edits card as yours, through it", async ({ page }) => {
+test("a Settings Edit made through it is shown in the Machine's Settings History as yours, through it", async ({ page }) => {
   const { verifier, challenge } = pkce();
   await page.goto(authorizationUrl(server.url(), app, challenge));
   await page.getByRole("radiogroup", { name: "What it may do" }).getByRole("radio", { name: "Read and change" }).click();
@@ -166,11 +166,14 @@ test("a Settings Edit made through it is shown on the Machine's Settings Edits c
   const response = await page.request.post(`/api/machines/${machine.id}/settings-edits`, { data: { collection: "machineSettings", fields: { steamPurgeMode: 1 }, expected: { steamPurgeMode: 0 } } });
   expect(response.status()).toBe(201);
 
-  await page.goto(`/machines/${machine.id}`);
-  const edits = rows((await openCard(page, "Settings Edits")).getByRole("table", { name: "Settings Edits" }));
-  await expect(edits.locator("td:nth-child(2)")).toHaveText(["You", "You, through Claude"]);
-  await expect(edits.nth(1).locator("td:nth-child(4)")).toHaveText("Fan threshold: 50 °C to 45 °C");
-  await expect(edits.locator("td:nth-child(5)")).toHaveText(["Applied", "Applied"]);
+  await page.goto(`/machines/${machine.id}?tab=settings`);
+  const history = await openCard(page, "Settings History");
+  await history.getByRole("radiogroup", { name: "Which changes" }).getByRole("radio", { name: "Settings Edits" }).click();
+  const edits = rows(history.getByRole("table", { name: "Settings History" }));
+  await expect(edits.locator("td:nth-child(5)")).toHaveText(["You", "You, through Claude"]);
+  await expect(edits.nth(1).locator("td:nth-child(3)")).toHaveText("Fan threshold");
+  await expect(edits.nth(1).locator("td:nth-child(4)")).toHaveText("50 °C to 45 °C");
+  await expect(edits.locator("td:nth-child(6)")).toHaveText(["Applied", "Applied"]);
 });
 
 test("denying it sends the app access_denied, and the request can't be answered again", async ({ page }) => {

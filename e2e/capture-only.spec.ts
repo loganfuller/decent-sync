@@ -5,8 +5,8 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
 
 // A Machine's page shows whether it is a Capture-only Machine, and why: it
-// has no Location, or an Admin turned its sharing off, which an Admin does
-// there, and turns back on, so it joins its Location again, whose state
+// has no Location, or an Admin turned its sharing off, which an Admin does on its Setup tab,
+// and turns back on, so it joins its Location again, whose state
 // wins; Staff see why, but have no switch. A simulated tablet running the
 // built plugin; hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
@@ -17,7 +17,7 @@ test.beforeEach(({ page }) => signInAsAdmin(page));
 
 test("a Machine with no Location shows it is capture-only because it has none", async ({ page }) => {
   const { machine } = await createMachine(page, "Home machine");
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   await expect(page.getByRole("heading", { name: "Home machine", level: 1 })).toBeVisible();
   await expect(page.getByText("Capture-only", { exact: true }).first()).toBeVisible();
   const sharing = page.getByRole("region", { name: "Sharing" });
@@ -37,7 +37,7 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   const batch = await page.request.post("/api/bean-batches", { data: { beanId: bean.id, content: { roastDate: "2026-10-05" }, locations: [{ locationId: uptown.id }] } });
   expect(batch.status()).toBe(201);
   await expect.poll(() => tablet.beans().map((record) => record.name)).toEqual(["House Blend"]);
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
   const sharing = page.getByRole("region", { name: "Sharing" });
   await expect(sharing.getByText("Shared at Uptown")).toBeVisible();
   await expect(page.getByText("Capture-only", { exact: true })).toHaveCount(0);
@@ -55,7 +55,7 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
   await expect(card.getByText("Capture-only", { exact: true })).toBeVisible();
   await expect(page.getByRole("region", { name: "Steam and rinse" })).toHaveCount(0);
   await expect(page.getByRole("switch")).toHaveCount(0);
-  await page.goto(`/machines/${machine.id}`);
+  await page.goto(`/machines/${machine.id}?tab=setup`);
 
   // Staff working at Uptown see why, but have no switch.
   const response = await page.request.post("/api/invites", { data: { email: sam.email, role: "staff", locationIds: [uptown.id] } });
@@ -66,7 +66,7 @@ test("an Admin turns a Machine's sharing off on its page, making it capture-only
     const accepted = await samsBrowser.request.post(`/api/invite-links/${new URL(link).pathname.split("/").at(-1)}/accept`, { data: sam });
     expect(accepted.status()).toBe(201);
     const samsPage = await samsBrowser.newPage();
-    await samsPage.goto(`/machines/${machine.id}`);
+    await samsPage.goto(`/machines/${machine.id}?tab=setup`);
     const samsSharing = samsPage.getByRole("region", { name: "Sharing" });
     await expect(samsSharing.getByText("An Admin turned its sharing off.")).toBeVisible();
     await expect(samsSharing.getByRole("switch")).toHaveCount(0);

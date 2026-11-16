@@ -6,7 +6,14 @@ import { readMachineId } from "../machines/input.js";
 import { readQueryPage } from "../pagination.js";
 import { type CollectionSummary, type CollectionView, CollectionsService } from "./collections.service.js";
 import type { PairedDevicesView } from "./paired-devices.js";
-import { type SettingsHistoryPage, SettingsHistoryService, readAsOf, readSettingsHistoryFilters } from "./settings-history.service.js";
+import {
+  type SettingsHistoryPage,
+  SettingsHistoryService,
+  type SettingsHistoryWithEditsPage,
+  readAsOf,
+  readSettingsHistoryFilters,
+  readSettingsHistoryWithEditsFilters,
+} from "./settings-history.service.js";
 import type { TabletVersionsView } from "./tablet-versions.js";
 
 /**
@@ -55,6 +62,19 @@ export class CollectionsController {
   @Get(":id/settings-history")
   async settingsHistory(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<SettingsHistoryPage> {
     return this.history.changes(readMachineId(id), readSettingsHistoryFilters(query), readQueryPage(query), scope);
+  }
+
+  /**
+   * The Machine's Settings History with its Settings Edits, newest first, a
+   * page at a time, as its page lists them (#545): each change, with the
+   * Settings Edit that made it whole, and each Settings Edit that changed
+   * nothing, being pending, refused, not confirmed or put back by the
+   * Machine, each with what came of it. Narrowed as the changes are, and to
+   * what was made through a Settings Edit with `editsOnly=true`.
+   */
+  @Get(":id/settings-history/with-edits")
+  async settingsHistoryWithEdits(@Param("id") id: string, @Query() query: Record<string, unknown>, @CurrentScope() scope: Scope): Promise<SettingsHistoryWithEditsPage> {
+    return this.history.withEdits(readMachineId(id), readSettingsHistoryWithEditsFilters(query), readQueryPage(query), scope);
   }
 
   /** The Machine's paired scale, auxiliary scale and sensors, with their model, firmware and battery level. */

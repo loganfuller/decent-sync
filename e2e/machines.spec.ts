@@ -12,7 +12,7 @@ import {
 import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createMachine, signInAsAdmin } from "./support/seed.js";
-import { field, machineRow } from "./support/locators.js";
+import { field, machineRow, openMachineTab } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Machines in the management interface, as an Admin, with Seam 1's simulated
@@ -39,13 +39,16 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   await expect(page.getByRole("heading", { name: "Machines", level: 1 })).toBeVisible();
   await expect(page.getByText("No Machines yet.")).toBeVisible();
   await expectTip(page.getByRole("main"), "Machines", /^The machines that sync with this server\./);
-  await expectTip(page.getByRole("main"), "New Machine", "Its hardware is recorded from the first connection with its token.");
-  // What to do once its earlier Shots arrive stays on the page.
-  await expect(page.getByText("It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.")).toBeVisible();
+  // The New Machine form is in a dialog opened from beside the title, which says what to do once its earlier Shots arrive.
+  await page.getByRole("main").getByRole("button", { name: "New Machine", exact: true }).click();
+  const dialog = page.getByRole("dialog", { name: "New Machine" });
+  await expect(dialog).toContainText("Its hardware is recorded from the first connection with its token.");
+  await expect(dialog).toContainText("It is at its Location from now; correct when it arrived on its page to credit earlier Shots there.");
 
-  const form = page.getByRole("form", { name: "New Machine" });
+  const form = dialog.getByRole("form", { name: "New Machine" });
   await form.getByLabel("Name").fill("Lab");
   await form.getByRole("button", { name: "Create Machine" }).click();
+  await expect(dialog).toHaveCount(0);
 
   const notice = page.getByRole("region", { name: "Token for Lab" });
   await expect(notice).toContainText("It will not be shown again");
@@ -60,7 +63,7 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
 
   const row = machineRow(page, "Lab");
   await expect(row).toContainText("Offline");
-  await expect(row).toContainText("Never");
+  await expect(row).toContainText("Never connected");
   await expect(row).toContainText("Hardware not reported");
 
   // Someone at the machine enters what was copied in the plugin's settings.
@@ -69,9 +72,8 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
   labTablet = server.keep(() => loadTablet(lab));
   await afterStatusPolls(page, async () => {
     await expect(row).toContainText("Online", { timeout: CHECK_MS });
-    await expect(row).toContainText("DE1Pro", { timeout: CHECK_MS });
+    await expect(row).not.toContainText("Hardware not reported", { timeout: CHECK_MS });
   });
-  await expect(row).not.toContainText("Hardware not reported");
 
   // Once dismissed, the token is gone for good.
   await notice.getByRole("button", { name: "Done" }).click();
@@ -82,21 +84,23 @@ test("creating a Machine shows its token once, and a tablet using it shows the M
 
   await machineRow(page, "Lab").getByRole("link", { name: "Lab" }).click();
   await expect(page.getByRole("heading", { name: "Lab", level: 1 })).toBeVisible();
-  await expect(field(page, "Model")).toHaveText("DE1Pro");
-  await expect(field(page, "Serial")).toHaveText("10001");
-  await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
-  await expect(field(page, "Connection id")).toHaveText("00:00:5E:00:53:01");
-  await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:01");
+  await expect(statusBadge(page)).toHaveText("Online");
+  await openMachineTab(page, "Setup");
+  await expect(field(hardware(page), "Model")).toHaveText("DE1Pro");
+  await expect(field(hardware(page), "Serial")).toHaveText("10001");
+  await expect(field(hardware(page), "Identification")).toHaveText("Identified by its model and serial");
+  await expect(field(hardware(page), "Connection id")).toHaveText("00:00:5E:00:53:01");
+  await expect(field(hardware(page), "Aliases")).toHaveText("00:00:5E:00:53:01");
+  await expect(field(hardware(page), "Last seen")).not.toHaveText("Never");
   await expect(field(page, "Decaid")).toHaveText("0.9.2+3191");
   await expect(field(page, "Plugin")).toHaveText(/^\d+\.\d+\.\d+/);
-  await expect(field(page, "Status")).toHaveText("Online");
 
   // The tablet its connection came from, known by the id the plugin keeps in Decaid's plugin storage.
-  const tablets = page.getByRole("region", { name: "Tablets" });
-  await expect(field(tablets, "Tablet id")).toHaveText(String(labTablet.storage.read("tabletId")));
-  await expect(field(tablets, "First seen")).not.toBeEmpty();
-  await expect(field(tablets, "Last seen")).not.toBeEmpty();
-  await expect(tablets.getByRole("list", { name: "Earlier tablets" })).toHaveCount(0);
+  const tablet = page.locator('dl[aria-label="Tablet"]');
+  await expect(field(tablet, "Tablet id")).toHaveText(String(labTablet.storage.read("tabletId")));
+  await expect(field(tablet, "First seen")).not.toBeEmpty();
+  await expect(field(tablet, "Last seen")).not.toBeEmpty();
+  await expect(page.getByRole("region", { name: "Hardware and software" }).getByRole("list", { name: "Earlier tablets" })).toHaveCount(0);
 });
 
 let uptown: { serverUrl: string; token: string };
@@ -120,7 +124,7 @@ test("a mismatch is resolved by creating a machine entry for the reported hardwa
   const notice = page.getByRole("region", { name: "Token for Uptown 1" });
   await expect(notice).toContainText("It will not be shown again");
   const token = await notice.getByRole("textbox", { name: "Token" }).inputValue();
-  await expect(machineRow(page, "Uptown 1")).toContainText("DE1Pro");
+  await expect(machineRow(page, "Uptown 1")).toBeVisible();
   await expect(page.getByRole("list", { name: "Pending Machines", exact: true })).toHaveCount(0);
 
   // Lab's page now names the Machine that has the hardware.
@@ -133,8 +137,10 @@ test("a mismatch is resolved by creating a machine entry for the reported hardwa
   uptownTablet = server.keep(() => loadTablet(uptown, { api: derivedDe1Pro({ serial: "10002", connectionId: "00:00:5E:00:53:02" }) }));
   await page.getByRole("region", { name: "Mismatch" }).getByRole("link", { name: "Uptown 1" }).click();
   await expect(page.getByRole("heading", { name: "Uptown 1", level: 1 })).toBeVisible();
-  await expect(field(page, "Status")).toHaveText("Online");
-  await expect(field(page, "Serial")).toHaveText("10002");
+  await expect(statusBadge(page)).toHaveText("Online");
+  await openMachineTab(page, "Setup");
+  await expect(field(hardware(page), "Model")).toHaveText("DE1Pro");
+  await expect(field(hardware(page), "Serial")).toHaveText("10002");
   await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
 });
 
@@ -149,6 +155,7 @@ test("a mismatch is resolved by dismissing the reported hardware, which refuses 
   const mismatch = page.getByRole("region", { name: "Mismatch" });
   await expect(mismatch).toContainText("No machine entry covers DE1Pro serial 10003");
   // The firmware the server holds is the other hardware's, and says so.
+  await openMachineTab(page, "Setup");
   await expect(field(page, "Firmware")).toContainText("from DE1Pro serial 10003");
   await mismatch.getByRole("button", { name: "Dismiss" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Dismiss DE1Pro serial 10003?" });
@@ -182,10 +189,11 @@ test("an Unidentified Machine is identified by entering its model and serial", a
   const row = machineRow(page, "Home");
   await expect(row).toContainText("Online");
   await expect(row).toContainText("Unidentified");
-  await expect(row).toContainText("DE1");
 
   await row.getByRole("link", { name: "Home" }).click();
-  await expect(field(page, "Serial")).toHaveText('None (its machine reports "0")');
+  await openMachineTab(page, "Setup");
+  await expect(field(hardware(page), "Model")).toHaveText("DE1");
+  await expect(field(hardware(page), "Serial")).toHaveText('None (its machine reports "0")');
   const form = page.getByRole("form", { name: "Enter hardware" });
   // What the machine reported is chosen to start with.
   await expect(form.getByRole("combobox", { name: "Model" })).toHaveText("DE1");
@@ -198,10 +206,10 @@ test("an Unidentified Machine is identified by entering its model and serial", a
   await form.getByLabel("Serial").fill("10010");
   await form.getByRole("button", { name: "Save hardware" }).click();
   await expect(page.getByRole("region", { name: "Unidentified Machine" })).toHaveCount(0);
-  await expect(field(page, "Model")).toHaveText("DE1Plus");
-  await expect(field(page, "Serial")).toHaveText("10010");
-  await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
-  await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:20");
+  await expect(field(hardware(page), "Model")).toHaveText("DE1Plus");
+  await expect(field(hardware(page), "Serial")).toHaveText("10010");
+  await expect(field(hardware(page), "Identification")).toHaveText("Identified by its model and serial");
+  await expect(field(hardware(page), "Aliases")).toHaveText("00:00:5E:00:53:20");
 });
 
 test("a bound Machine connecting from a machine without a serial can be confirmed as its own hardware", async ({ page }) => {
@@ -216,12 +224,13 @@ test("a bound Machine connecting from a machine without a serial can be confirme
   await expect(unidentified).toContainText("from connection id 00:00:5E:00:53:31");
   // The server accepts only the bound hardware, so no form offers other hardware.
   await expect(unidentified.getByRole("form")).toHaveCount(0);
+  await openMachineTab(page, "Setup");
   await expect(field(page, "Firmware")).toContainText("from DE1Pro serial 0");
 
   await unidentified.getByRole("button", { name: "Confirm it is DE1Pro serial 10002" }).click();
   await expect(unidentified).toHaveCount(0);
-  await expect(field(page, "Identification")).toHaveText("Identified by its model and serial");
-  await expect(field(page, "Aliases")).toHaveText("00:00:5E:00:53:02, 00:00:5E:00:53:31");
+  await expect(field(hardware(page), "Identification")).toHaveText("Identified by its model and serial");
+  await expect(field(hardware(page), "Aliases")).toHaveText("00:00:5E:00:53:02, 00:00:5E:00:53:31");
 });
 
 test("reissuing a token shows the new token once, and the old token can no longer connect", async ({ page }) => {
@@ -229,8 +238,9 @@ test("reissuing a token shows the new token once, and the old token can no longe
   await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Home").getByRole("link", { name: "Home" }).click();
-  await expect(field(page, "Status")).toHaveText("Online");
+  await expect(statusBadge(page)).toHaveText("Online");
 
+  await openMachineTab(page, "Setup");
   await page.getByRole("button", { name: "Issue new token" }).click();
   const dialog = page.getByRole("alertdialog", { name: "Issue a new token for Home?" });
   await expect(dialog).toContainText("The current token stops working at once");
@@ -252,7 +262,7 @@ test("reissuing a token shows the new token once, and the old token can no longe
   expect(token).not.toBe(replaced);
 
   // The tablet still using the old token is disconnected, and its reconnects are refused.
-  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Offline", { timeout: CHECK_MS }));
+  await afterStatusPolls(page, () => expect(statusBadge(page)).toHaveText(/^Offline/, { timeout: CHECK_MS }));
   const raw = await RawConnection.open(server.url());
   raw.send(helloWith(home.token, { machine: { model: "DE1Plus", serial: "10010" }, connectionId: "00:00:5E:00:53:20" }));
   expect(await raw.closed).toEqual({ code: CLOSE_CODES.bad_token, reason: "bad_token" });
@@ -265,13 +275,13 @@ test("reissuing a token shows the new token once, and the old token can no longe
   await notice.getByRole("button", { name: "Done" }).click();
   await expect(notice).toHaveCount(0);
   await page.reload();
-  await expect(field(page, "Status")).toBeVisible();
+  await expect(statusBadge(page)).toBeVisible();
   await expectTokenNotShown(page, token);
 
   // With the new token entered, the Machine is back.
   await homeTablet.unload();
   loadTablet({ serverUrl: home.serverUrl, token }, { api: derivedDe1Pro({ model: "DE1", serial: "0", connectionId: "00:00:5E:00:53:20" }) });
-  await afterStatusPolls(page, () => expect(field(page, "Status")).toHaveText("Online", { timeout: CHECK_MS }));
+  await afterStatusPolls(page, () => expect(statusBadge(page)).toHaveText("Online", { timeout: CHECK_MS }));
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toHaveCount(0);
 });
 
@@ -299,8 +309,9 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   await page.clock.install();
   await page.goto("/machines");
   await machineRow(page, "Reset tablet").getByRole("link", { name: "Reset tablet" }).click();
-  const tablets = page.getByRole("region", { name: "Tablets" });
-  await expect(field(tablets, "Tablet id")).toHaveText(first);
+  await openMachineTab(page, "Setup");
+  const tablet = page.locator('dl[aria-label="Tablet"]');
+  await expect(field(tablet, "Tablet id")).toHaveText(first);
 
   // Resetting Decaid's data loses the plugin's storage, and with it the tablet's id.
   await before.unload();
@@ -310,9 +321,9 @@ test("a tablet whose Decaid data was reset shows up on its Machine's page as a n
   const second = String(storage.read("tabletId"));
   expect(second).not.toBe(first);
 
-  const earlier = tablets.getByRole("list", { name: "Earlier tablets" }).getByRole("listitem");
+  const earlier = page.getByRole("region", { name: "Hardware and software" }).getByRole("list", { name: "Earlier tablets" }).getByRole("listitem");
   await afterStatusPolls(page, async () => {
-    await expect(field(tablets, "Tablet id")).toHaveText(second, { timeout: CHECK_MS });
+    await expect(field(tablet, "Tablet id")).toHaveText(second, { timeout: CHECK_MS });
     await expect(earlier).toHaveCount(1, { timeout: CHECK_MS });
   });
   await expect(earlier).toContainText(first);
@@ -343,7 +354,7 @@ test("the Machine page shows when another tablet took it over, and from where, a
     `Tablet ${String(onMachine.read("tabletId"))} at 127.0.0.1, connection id 00:00:5E:00:53:40, plugin `,
   );
   await expect(page.getByRole("alert").filter({ hasText: "A connection was refused" })).toHaveCount(0);
-  await expect(field(page, "Status")).toHaveText("Online");
+  await expect(statusBadge(page)).toHaveText("Online");
 });
 
 test("the Machine page shows a mismatch and its status while what its tablet reported cannot be read, and none held once its Pending Machine is gone", async ({ page }) => {
@@ -360,7 +371,7 @@ test("the Machine page shows a mismatch and its status while what its tablet rep
   await page.goto("/machines");
   await machineRow(page, "Unread").getByRole("link", { name: "Unread" }).click();
   await expect(page.getByRole("alert").filter({ hasText: "Not readable right now" })).toBeVisible();
-  await expect(field(page, "Status")).toHaveText("Online");
+  await expect(statusBadge(page)).toHaveText("Online");
   const mismatch = page.getByRole("region", { name: "Mismatch" });
   await expect(mismatch).toContainText("No machine entry covers DE1Pro serial 10051, so what the tablet sends is held as a Pending Machine.");
   await expect(mismatch.getByRole("button", { name: "Dismiss" })).toBeVisible();
@@ -375,6 +386,16 @@ test("the Machine page shows a mismatch and its status while what its tablet rep
   await expect(mismatch.getByRole("button", { name: "Dismiss" })).toHaveCount(0);
   await expect(page.getByRole("alert").filter({ hasText: "No such Pending Machine" })).toHaveCount(0);
 });
+
+/** The badge beside a Machine's name on its page saying whether it is online: "Online", "Offline" or "Offline, asleep". */
+function statusBadge(page: Page) {
+  return page.getByRole("heading", { level: 1 }).locator("xpath=following-sibling::*[1]");
+}
+
+/** The Hardware list on a Machine's Setup tab. */
+function hardware(page: Page) {
+  return page.locator('dl[aria-label="Hardware"]');
+}
 
 /** Checks the page shows no token: no token notice, and the token nowhere in its text or fields. */
 async function expectTokenNotShown(page: Page, token: string) {

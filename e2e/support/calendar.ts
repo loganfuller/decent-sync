@@ -1,6 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 
-// Days on the Machine page's Use and Activity cards: a Location whose day
+// Days on the Machine page's Use and On one day cards: a Location whose day
 // doesn't turn while a spec runs, and the calendar a card's date field opens.
 
 /**
