@@ -67,8 +67,8 @@ export function ShotProfile({ shot }: { shot: Pick<ListedShot, "profile" | "prof
 }
 
 /**
- * A Shot's rating as stars (#544): five, filled as far as the rating as it
- * is, so one of 3.5 stars has three and a half, and what is drawn agrees
+ * A Shot's rating as stars (#544): five, filled as far as the rating
+ * reaches, so one of 3.5 stars has three and a half, and what is drawn agrees
  * with the rating filter, which counts the rating itself: a Shot drawn with
  * fewer than four is not among "4 stars or more". Named by the rating, such
  * as "3.5 stars"; a dash for a Shot not rated.

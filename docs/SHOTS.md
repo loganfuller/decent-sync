@@ -1737,9 +1737,9 @@ px a Shot is a row of a table:
 - under its duration, how it stopped, in words, only where it was not at
   its target: "stopped by hand", "ended by the Machine", "stopped by an
   error", or the reason recorded (`stopNote`);
-- its rating as five stars, filled as far as the rating as it is, so 3.5
-  stars are three and a half, which agrees with the rating filter, and
-  named by it, and its Barista.
+- its rating as five stars, filled as far as the rating reaches, so 3.5
+  stars draw as three and a half, as the rating filter counts them, with
+  the rating as their name; and its Barista.
 
 An Unfinished Shot's row is muted, and carries no mark, as the server
 judges none of it. Below 1024 px each Shot is two lines, the whole of it
