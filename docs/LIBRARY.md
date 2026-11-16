@@ -2388,7 +2388,7 @@ Every endpoint requires the account session; Staff read them as Admins do.
 - `GET /api/locations/:id/recipes` returns `{ recipes }`, the Location's
   Recipes: those in its slots, in slot order, then the rest, by name,
   ignoring case, each `{ id, name, location, slot, archived, createdAt,
-  content, uses, batchFinished }`: `slot` its Recipe Slot, null for none,
+  content, uses, batchFinished, referenceShot }`: `slot` its Recipe Slot, null for none,
   `content` its content in the Library's terms (Taking in a tablet's
   recipes, above), `uses` the items it names, `{ bean, beanBatch, profile,
   grinder, basket, tools }`, each with what names it (a Bean's roaster and
@@ -2397,13 +2397,16 @@ Every endpoint requires the account session; Staff read them as Admins do.
   Tool's name), null where it names none, and one the Library no longer has
   named by its id alone; and `batchFinished` whether it is in a slot and
   names a batch not at its Location now, finished there or Archived. 404
-  for no such Location. `GET /api/recipes/:id` returns `{ recipe }`, the
-  same with its Reference Shot, `referenceShot`, `{ id, pulledAt, machine,
-  location, profileTitle, profile, targetDose, actualDose, targetYield,
-  actualYield, duration, profileDiffers }`, as the Shots list gives those
-  of the Shot, and `profileDiffers` whether the Recipe names a Profile and
-  the Shot's is another or none in the Library; null for none, or for one
-  the Shots list no longer lists; or 404. Each route changing a Recipe
+  for no such Location. `referenceShot` is its Reference Shot, `{ id,
+  pulledAt, machine, location, profileTitle, profile, targetDose,
+  actualDose, targetYield, actualYield, duration, enjoyment,
+  grinderSetting, profileDiffers }`, as the Shots list gives those of the
+  Shot, and `profileDiffers` whether the Recipe names a Profile and the
+  Shot's is another or none in the Library; null for none, or for one the
+  Shots list no longer lists. A Location's list gives it from the release
+  after 1.10.1 (#547), with its `enjoyment` and `grinderSetting`, for the
+  lists of Recipes that show its duration; before, only a Recipe's own
+  read did. `GET /api/recipes/:id` returns `{ recipe }`, the same; or 404. Each route changing a Recipe
   returns it so. `GET /api/recipes/:id/history` and `GET
   /api/recipes/:id/conflicts` are an item's (below); a version that moved
   it sets `slot` at its Location, null out of any, and one that chose or
@@ -2519,8 +2522,19 @@ offered, its batches and its likely duplicates, each batch's page its roast,
 the Locations it is at with its remaining weight at each, and where it was
 finished, each Grinder's page its Location and what it is, and each
 Profile's page where it is shown, its steps and the Profile it was saved
-from. Each item's page notes its open Conflicts, if it has any, and shows its
-Shots (`web/src/components/item-shots.tsx`) and its history, and the
+from. It opens on its Recipes (`/library/recipes`,
+`web/src/pages/RecipesPage.tsx`, #547), the first of its lists: every
+Location's, a table for each Location (`RecipesTable` in
+`web/src/components/recipes.tsx`, which a Location's Recipes card shares),
+in Recipe Slot order with those in no slot after, each with its Bean Batch,
+Profile, dose and yield, Grinder and setting, its Reference Shot's
+duration, linked to that Shot, or "No reference", linked to its rated
+Shots, and what needs attention; Archived Recipes show once Show archived
+is ticked, which the address keeps as `archived`. It reads each Location's
+list, and no route was added for it.
+Each item's page notes its open Conflicts, if it has any, and shows how
+many Shots it has, with a link that opens them in the Shots list
+(`web/src/components/item-shots.tsx`), and its history, and the
 Library's Conflicts page lists every open Conflict, the latest first, with
 the losing value and the value now, and where and when each came from. A
 Conflict is used or dismissed from either, by an account that may

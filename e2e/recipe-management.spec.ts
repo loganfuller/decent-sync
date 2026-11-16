@@ -5,7 +5,7 @@ import { NO_DYE2_LISTS, SimulatedTablet, derivedProfile } from "../server/test/s
 import { useFreshServer } from "./support/fresh-server.js";
 import { tabletAt } from "./support/tablets.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field, rows } from "./support/locators.js";
+import { expectSlot, field, openCard, recipeAction, recipeActions, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Recipes in the management interface (ticket #143): each Location's Recipe
@@ -83,18 +83,26 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await form.getByRole("button", { name: "Create" }).click();
 
     await expect(samsPage.getByRole("heading", { name: "Lab Guji", level: 1 })).toBeVisible();
-    await expect(samsPage.getByText("Slot 3 at Roastery lab")).toBeVisible();
+    await expectSlot(samsPage, 3, "Roastery lab");
     const main = samsPage.getByRole("main");
-    await expectTip(main, "Recipe", "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.");
-    await expectTip(main, "Steam, hot water and flush", "What a Machine loading it takes. A setting it does not hold is left as each Machine has it.");
-    const details = samsPage.getByLabel("Recipe", { exact: true });
+    await expectTip(
+      main,
+      "Recipe",
+      "Its dial as saved on tablets or here, with the edits made since, which reach every tablet at its Location. It is the whole Shot: a Machine that loads it is left with none of what it holds none of here, such as a Grinder or Basket.Only the fields it has set are shown, until the rest are asked for. A Machine loading it takes each steam, hot water and flush setting it holds, and keeps its own of each it does not.",
+    );
+    const details = samsPage.getByRole("region", { name: "Recipe", exact: true });
     await expect(field(details, "Profile")).toHaveText("Uptown Bloom");
     await expect(field(details, "Bean Batch")).toHaveText("Guji, roasted 2026-10-01");
     await expect(field(details, "Grind setting")).toHaveText("1.1.0");
     await expect(field(details, "Feed rate")).toHaveText("MF");
     await expect(details.locator("dt", { hasText: "Shown on the dashboard" })).toHaveCount(0);
-    // A new Recipe holds no steam, hot water or flush setting.
-    await expect(field(samsPage.getByLabel("Flush", { exact: true }), "Flush time")).toHaveText("Machine's own");
+    // A new Recipe holds no steam, hot water or flush setting: none is shown until the fields not set are asked for.
+    await expect(details.getByRole("term").filter({ hasText: /^Flush time$/ })).toHaveCount(0);
+    await details.getByRole("button", { name: /^Show the \d+ fields not set$/ }).click();
+    await expect(field(details, "Flush time")).toHaveText("Machine's own");
+    await expect(field(details, "RPM")).toHaveText("-");
+    await details.getByRole("button", { name: "Hide the fields not set" }).click();
+    await expect(details.getByRole("term").filter({ hasText: /^Flush time$/ })).toHaveCount(0);
 
     await samsPage.getByRole("button", { name: "Edit the Recipe" }).click();
     const edit = samsPage.getByRole("form", { name: "Edit Lab Guji" });
@@ -126,7 +134,8 @@ test("Staff create a Recipe in slot 3 of the nine at their Location with a batch
     await expect(samsPage.getByRole("heading", { name: "Uptown Espresso", level: 1 })).toBeVisible();
     await expect(samsPage.getByText("Only Admins, and Staff working at Uptown, change its Recipes.")).toBeVisible();
     await expect(samsPage.getByRole("button", { name: "Edit the Recipe" })).toHaveCount(0);
-    await expect(samsPage.getByRole("button", { name: "Archive", exact: true })).toHaveCount(0);
+    // Its menu holds only the copy Sam may make of it, to the lab.
+    expect(await recipeActions(samsPage)).toEqual(["Copy to a Location"]);
     await samsPage.goto(`/locations/${cafe.id}`);
     await expect(samsPage.getByRole("table", { name: "Recipe Slots" })).toContainText("Uptown Espresso");
     await expect(samsPage.getByRole("button", { name: "New Recipe" })).toHaveCount(0);
@@ -141,21 +150,21 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
   await createRecipe(page, lab, 4, { name: "Slots Ethiopia", dose: 17 });
 
   await page.goto(`/library/recipes/${two.id}`);
-  await expect(page.getByText("Slot 2 at Slots lab")).toBeVisible();
+  await expectSlot(page, 2, "Slots lab");
   await page.getByRole("button", { name: "Move to a slot" }).click();
   const move = page.getByRole("form", { name: "Move the Recipe" });
   await move.getByLabel("Slot", { exact: true }).click();
   await page.getByRole("option", { name: "4", exact: true }).click();
   await expect(move.getByRole("list", { name: "About this slot" })).toContainText("Slot 4 holds Slots Ethiopia, which moves to slot 2.");
   await move.getByRole("button", { name: "Move" }).click();
-  await expect(page.getByText("Slot 4 at Slots lab")).toBeVisible();
+  await expectSlot(page, 4, "Slots lab");
   // The moved Recipe keeps its history: the move above its creation.
-  const history = rows(page.getByRole("table", { name: "History" }));
+  const history = rows((await openCard(page, "History")).getByRole("table", { name: "History" }));
   await expect(history.nth(0)).toContainText("Slot at Slots lab4");
   await expect(history.last()).toContainText("NameSlots Brazil");
 
   // Taken out of its slot, it is listed in no slot at the lab, and Slots Ethiopia stays in slot 2.
-  await page.getByRole("button", { name: "Take out of its slot" }).click();
+  await recipeAction(page, "Take out of its slot");
   await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
   await expect(page.getByText("In no slot at Slots lab")).toBeVisible();
   await page.getByRole("link", { name: "← Slots lab" }).click();
@@ -166,17 +175,17 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
 
   // Archived and restored, it stays in no slot.
   await page.getByRole("link", { name: "Slots Brazil" }).click();
-  await page.getByRole("button", { name: "Archive", exact: true }).click();
+  await recipeAction(page, "Archive");
   await page.getByRole("alertdialog").getByRole("button", { name: "Archive" }).click();
-  await expect(page.getByRole("heading", { name: "Slots Brazil", level: 1 })).toContainText("Archived");
-  await expect(page.getByRole("button", { name: "Move to a slot" })).toHaveCount(0);
-  await page.getByRole("button", { name: "Restore" }).click();
+  await expect(page.getByText("Archived, kept at Slots lab in no slot")).toBeVisible();
+  await expect(page.getByRole("button", { name: /^(Move to|Put in) a slot$/ })).toHaveCount(0);
+  await recipeAction(page, "Restore");
   await expect(page.getByText("In no slot at Slots lab")).toBeVisible();
   await page.getByRole("button", { name: "Put in a slot" }).click();
   await move.getByLabel("Move it to").click();
   await page.getByRole("option", { name: "The next free slot (1)" }).click();
   await move.getByRole("button", { name: "Move" }).click();
-  await expect(page.getByText("Slot 1 at Slots lab")).toBeVisible();
+  await expectSlot(page, 1, "Slots lab");
 });
 
 test("with every slot holding a Recipe, a new Recipe's next free slot says so and is none, and a move offers only a slot chosen", async ({ page }) => {
@@ -216,7 +225,7 @@ test("a Recipe is put in slot 7 from its page, swapping with the one there, a ne
   await expect(page.getByRole("option")).toHaveText(["1", "2", "3", "4", "5", "6", "7", "8", "9"]);
   await page.getByRole("option", { name: "7", exact: true }).click();
   await move.getByRole("button", { name: "Move" }).click();
-  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
+  await expectSlot(page, 7, "Seven lab");
   // The tablet's record of it holds stripSlot 7.
   await expect.poll(() => slotOn(tablet, 7)?.[GLOBAL_ID_KEY]).toBe(kenya.id);
 
@@ -227,7 +236,7 @@ test("a Recipe is put in slot 7 from its page, swapping with the one there, a ne
   await form.getByLabel("Name", { exact: true }).fill("Seven Brazil");
   await expect(form.getByLabel("Recipe Slot")).toHaveText("The next free slot (6)");
   await form.getByRole("button", { name: "Create" }).click();
-  await expect(page.getByText("Slot 6 at Seven lab")).toBeVisible();
+  await expectSlot(page, 6, "Seven lab");
   await expect.poll(() => slotOn(tablet, 6)?.name).toBe("Seven Brazil");
 
   // Moved to slot 7, it swaps with the Recipe there, as the form says, which takes slot 6.
@@ -236,7 +245,7 @@ test("a Recipe is put in slot 7 from its page, swapping with the one there, a ne
   await page.getByRole("option", { name: "7", exact: true }).click();
   await expect(move.getByRole("list", { name: "About this slot" })).toContainText("Slot 7 holds Seven Kenya, which moves to slot 6.");
   await move.getByRole("button", { name: "Move" }).click();
-  await expect(page.getByText("Slot 7 at Seven lab")).toBeVisible();
+  await expectSlot(page, 7, "Seven lab");
   await expect.poll(() => [slotOn(tablet, 6)?.name, slotOn(tablet, 7)?.name]).toEqual(["Seven Kenya", "Seven Brazil"]);
 
   // The Recipes card lists each in its slot.
@@ -261,10 +270,10 @@ test("a Recipe a tablet put in slot 8 is shown in its slot, and is taken out of 
   await page.goto(`/locations/${lab.id}`);
   await expect(rows(page.getByRole("table", { name: "Recipe Slots" }))).toHaveText([/^1Eight Kenya/, /^8Eight Brazil/]);
   await page.getByRole("link", { name: "Eight Brazil" }).click();
-  await expect(page.getByText("Slot 8 at Eight lab")).toBeVisible();
+  await expectSlot(page, 8, "Eight lab");
 
   // Taken out of its slot, it is kept in none, and the tablet's record leaves slot 8.
-  await page.getByRole("button", { name: "Take out of its slot" }).click();
+  await recipeAction(page, "Take out of its slot");
   await expect(page.getByRole("alertdialog")).toContainText("Take Eight Brazil out of slot 8?");
   await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
   await expect(page.getByText("In no slot at Eight lab")).toBeVisible();
@@ -338,9 +347,10 @@ test("a Recipe whose RPM a tablet's DYE2 saved as 0 shows no RPM, as a dose, gri
   expect(await content()).not.toHaveProperty("rpm");
 
   await page.goto(`/library/recipes/${recipe.id}`);
-  const details = page.getByLabel("Recipe", { exact: true });
+  const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Dose")).toHaveText("18 g");
-  await expect(field(details, "RPM")).toHaveText("-");
+  // It holds no RPM, so none is shown.
+  await expect(details.getByRole("term").filter({ hasText: /^RPM$/ })).toHaveCount(0);
   await expect(field(details, "Yield")).toHaveText("0 g");
   // Its form shows the RPM empty, and refuses a dose of 0.
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
@@ -377,7 +387,7 @@ test("the form keeps a Tool Archived since as one to uncheck, beside a new one, 
   // A new Tool joins the Archived one, which is kept; saved, the Recipe uses both.
   await form.getByLabel("Form New WDT").check();
   await form.getByRole("button", { name: "Save" }).click();
-  const details = page.getByLabel("Recipe", { exact: true });
+  const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Tools")).toContainText("Form New WDT");
   await expect(field(details, "Tools")).toContainText("Form Old WDT");
   // Unchecked, the Archived Tool is dropped, and cannot be checked again.
@@ -408,7 +418,7 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   );
 
   await page.goto(`/library/recipes/${recipe.id}`);
-  const details = page.getByLabel("Recipe", { exact: true });
+  const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Bean Batch")).toHaveText("Bean-only Sidamo, no batch");
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
   const form = page.getByRole("form", { name: "Edit Bean-only Espresso" });
@@ -416,26 +426,31 @@ test("the form clears a Recipe's Bean saved on a tablet with no batch of it at i
   await form.getByLabel("Bean Batch").click();
   await page.getByRole("option", { name: "None", exact: true }).click();
   await form.getByRole("button", { name: "Save" }).click();
-  await expect(field(details, "Bean Batch")).toHaveText("-");
+  await expect(details.getByRole("term").filter({ hasText: /^Bean Batch$/ })).toHaveCount(0);
   await expect.poll(() => slotOn(tablet, 1)?.beanId ?? null).toBeNull();
 });
 
-test("a Recipe's page shows its steam, hot water and flush settings, each it holds none of as the Machine's own, and the form sets and clears them", async ({ page }) => {
+test("a Recipe's page shows the steam, hot water and flush settings it holds, and on asking each it holds none of as the Machine's own, and the form sets and clears them", async ({ page }) => {
   const lab = await createLocation(page, "Settings lab");
   const recipe = await createRecipe(page, lab, 1, { name: "Settings Cappuccino", steamTemperature: 150, steamStopTemperature: 0, hotWaterVolume: 200 });
 
   await page.goto(`/library/recipes/${recipe.id}`);
-  const steam = page.getByLabel("Steam", { exact: true });
-  const hotWater = page.getByLabel("Hot water", { exact: true });
-  const flush = page.getByLabel("Flush", { exact: true });
-  const shown = async (scope: typeof steam, expected: Record<string, string>) => {
-    for (const [term, text] of Object.entries(expected)) await expect(field(scope, term), term).toHaveText(text);
+  const details = page.getByRole("region", { name: "Recipe", exact: true });
+  const shown = async (expected: Record<string, string>) => {
+    for (const [term, text] of Object.entries(expected)) await expect(field(details, term), term).toHaveText(text);
   };
-  await shown(steam, { "Steam temperature": "150 °C", "Steam time": "Machine's own", "Steam flow": "Machine's own", "Milk stop": "Off" });
-  await shown(hotWater, { "Hot water temperature": "Machine's own", "Hot water time": "Machine's own", "Hot water volume": "200 ml", "Hot water flow": "Machine's own" });
-  await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "Machine's own", "Flush flow": "Machine's own" });
+  // Only those it holds: nothing reads "Machine's own" until asked.
+  await expect(details.getByRole("term")).toHaveText(["Steam temperature", "Milk stop", "Hot water volume", "Joined"]);
+  await shown({ "Steam temperature": "150 °C", "Milk stop": "Off", "Hot water volume": "200 ml" });
+  await expect(details.getByText("Machine's own")).toHaveCount(0);
+  // The 20 it has not set, on asking: each setting as the Machine's own, in its place among the rest.
+  await details.getByRole("button", { name: "Show the 20 fields not set" }).click();
+  await expect(details.getByRole("term")).toHaveCount(24);
+  await shown({ "Steam temperature": "150 °C", "Steam time": "Machine's own", "Steam flow": "Machine's own", "Milk stop": "Off" });
+  await shown({ "Hot water temperature": "Machine's own", "Hot water time": "Machine's own", "Hot water volume": "200 ml", "Hot water flow": "Machine's own" });
+  await shown({ "Flush temperature": "Machine's own", "Flush time": "Machine's own", "Flush flow": "Machine's own", Dose: "-" });
   // DYE2's hot water mode is only what its stepper shows: not shown or edited here.
-  await expect(page.getByLabel("Recipe", { exact: true }).locator("dt", { hasText: /^Hot water by$/ })).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "Recipe", exact: true }).locator("dt", { hasText: /^Hot water by$/ })).toHaveCount(0);
 
   await page.getByRole("button", { name: "Edit the Recipe" }).click();
   const form = page.getByRole("form", { name: "Edit Settings Cappuccino" });
@@ -460,9 +475,12 @@ test("a Recipe's page shows its steam, hot water and flush settings, each it hol
   await form.getByRole("button", { name: "Save" }).click();
   await expect(form).toBeHidden();
 
-  await shown(steam, { "Steam temperature": "Machine's own", "Steam time": "45 s", "Milk stop": "Off" });
-  await shown(hotWater, { "Hot water time": "30 s", "Hot water volume": "200 ml" });
-  await shown(flush, { "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
+  // Still showing those not set, as before the edit.
+  await shown({ "Steam temperature": "Machine's own", "Steam time": "45 s", "Milk stop": "Off" });
+  await shown({ "Hot water time": "30 s", "Hot water volume": "200 ml" });
+  await shown({ "Flush temperature": "Machine's own", "Flush time": "10 s", "Flush flow": "4.5 ml/s" });
+  await details.getByRole("button", { name: "Hide the fields not set" }).click();
+  await expect(details.getByRole("term")).toHaveText(["Steam time", "Milk stop", "Hot water time", "Hot water volume", "Flush time", "Flush flow", "Joined"]);
   const { recipe: saved } = (await (await page.request.get(`/api/recipes/${recipe.id}`)).json()) as { recipe: { content: Record_ } };
   expect(saved.content).not.toHaveProperty("steamTemperature");
   expect(saved.content).toMatchObject({ steamDuration: 45, steamStopTemperature: 0, hotWaterDuration: 30, flushDuration: 10, flushFlow: 4.5, hotWaterMode: "vol" });
@@ -500,7 +518,7 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   const originalBefore = await (await page.request.get(`/api/recipes/${original.id}`)).json();
 
   await page.goto(`/library/recipes/${original.id}`);
-  await page.getByRole("button", { name: "Copy to a Location" }).click();
+  await recipeAction(page, "Copy to a Location");
   const form = page.getByRole("form", { name: "Copy the Recipe" });
   await form.getByLabel("Copy to").click();
   await page.getByRole("option", { name: "Copy Uptown" }).click();
@@ -523,14 +541,14 @@ test("an Admin copies a lab Recipe to Uptown's slot 1 with an Uptown Grinder: th
   await form.getByRole("button", { name: "Copy" }).click();
 
   // The copy's page: in slot 1 at Uptown, with the Mazzer, its history naming the original.
-  await expect(page.getByText("Slot 1 at Copy Uptown")).toBeVisible();
+  await expectSlot(page, 1, "Copy Uptown");
   const copyId = page.url().split("/").pop()!;
   expect(copyId).not.toBe(original.id);
-  const details = page.getByLabel("Recipe", { exact: true });
+  const details = page.getByRole("region", { name: "Recipe", exact: true });
   await expect(field(details, "Grinder")).toHaveText("Copy Mazzer");
   await expect(field(details, "Grind setting")).toHaveText("2.5");
   await expect(field(details, "Bean Batch")).toHaveText("Copy Guji, roasted 2026-10-01");
-  const history = rows(page.getByRole("table", { name: "History" }));
+  const history = rows((await openCard(page, "History")).getByRole("table", { name: "History" }));
   await expect(history.last()).toContainText("Copied from Copy Lab Guji at Copy lab");
   await expect(history.last().getByRole("link", { name: "Copy Lab Guji" })).toHaveAttribute("href", `/library/recipes/${original.id}`);
 
@@ -551,7 +569,7 @@ test("Staff copy a Recipe only to the Locations they work at", async ({ page, br
     await samsPage.goto(`/library/recipes/${recipe.id}`);
     await expect(samsPage.getByText("Only Admins, and Staff working at Copy Staff elsewhere, change its Recipes.")).toBeVisible();
     // Sam may copy it, but only to the Location Sam works at.
-    await samsPage.getByRole("button", { name: "Copy to a Location" }).click();
+    await recipeAction(samsPage, "Copy to a Location");
     const form = samsPage.getByRole("form", { name: "Copy the Recipe" });
     await form.getByLabel("Copy to").click();
     await expect(samsPage.getByRole("option")).toHaveText(["Copy Staff home"]);

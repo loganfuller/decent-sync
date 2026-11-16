@@ -1,13 +1,12 @@
 import { type FormEvent, useEffect, useId, useState } from "react";
 import { Link } from "react-router";
 import { useIsAdmin, useStaffLocationIds } from "@/auth";
-import { Field, Fields } from "@/components/fields";
+import { SmallCurve } from "@/components/curves";
 import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { ConfirmButton, useLocations } from "@/components/machines";
-import { profilePath } from "@/components/profiles";
-import { OrNone, recordTime, secondsText } from "@/components/records";
-import { gramsText } from "@/components/shots";
+import { recordTime, secondsText } from "@/components/records";
+import { Stars, gramsText } from "@/components/shots";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -16,12 +15,14 @@ import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, Di
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, type ListedShot, type Recipe, type Shot } from "@/lib/api";
+import { SHOT_CURVES, type Sample, type ShotCurve, shotSamples } from "@/lib/curves";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
 import { ratedShotsPath } from "@/lib/shot-list";
+import { signedText } from "@/lib/shot-summary";
 
 // A Recipe's Reference Shot (ADR-0029): the one Shot chosen to show how its
 // Shots should go, from any Machine or Location. Its card on the Recipe's
-// page, cleared there; the control on a Shot's page that makes the Shot one,
+// page, with its curves in small, cleared there; the control on a Shot's page that makes the Shot one,
 // offering the Shot's own Recipe first; and the Shots list's mark of one. It
 // is the server's alone, so choosing or clearing it changes nothing on
 // tablets. Whoever may edit the Recipe chooses and clears it.
@@ -63,11 +64,49 @@ export function ReferenceMark({ shot }: { shot: ListedShot }) {
   );
 }
 
+/** The curves a Reference Shot's card draws in small. */
+const CARD_CURVES = ["pressure", "flow", "weight"] as const satisfies readonly ShotCurve[];
+
 /**
- * The Recipe page's Reference Shot card: the Shot, linked, with its dose,
- * yield and duration and when and where it was pulled, a note where its
- * Profile is another than the Recipe's, and, for whoever may edit the
- * Recipe, a control to clear it.
+ * A Reference Shot's pressure, flow and weight curves in small, side by
+ * side, read once for each Shot: a Shot's curves never change.
+ */
+function ReferenceCurves({ shotId }: { shotId: string }) {
+  const [read, setRead] = useState<{ id: string; samples?: Sample<ShotCurve>[]; error?: string }>();
+  useEffect(() => {
+    let current = true;
+    api<{ measurements: unknown }>("GET", `/shots/${encodeURIComponent(shotId)}/measurements`).then(
+      ({ measurements }) => current && setRead({ id: shotId, samples: shotSamples(measurements) }),
+      (caught: unknown) => current && setRead({ id: shotId, error: failure(caught, "Its curves could not be loaded") }),
+    );
+    return () => {
+      current = false;
+    };
+  }, [shotId]);
+  const shown = read?.id === shotId ? read : undefined;
+  if (shown?.error) return <FormError error={shown.error} />;
+  return (
+    <div className="grid grid-cols-3 gap-2" aria-busy={!shown}>
+      {CARD_CURVES.map((curve) =>
+        shown?.samples ? (
+          <SmallCurve key={curve} curve={curve} info={SHOT_CURVES[curve]} samples={shown.samples} label={`${SHOT_CURVES[curve].label} curve of the Reference Shot`} />
+        ) : (
+          // As tall as a curve and its name, so the card keeps its height as they arrive.
+          <div key={curve} className="h-[4.75rem]" />
+        ),
+      )}
+    </div>
+  );
+}
+
+/**
+ * The Recipe page's Reference Shot card (#547): the Shot's pressure, flow
+ * and weight curves in small, its duration and its yield against its own
+ * target, its rating, when and where it was pulled and its grind setting,
+ * with a note where its Profile is another than the Recipe's, and a way to
+ * open it. Whoever may edit the Recipe is led to its rated Shots to choose
+ * another, and clears it here. A Recipe with none says so, and leads to
+ * its rated Shots too.
  */
 export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Recipe; mayChange: boolean; onChanged(): void }) {
   const shot = recipe.referenceShot ?? null;
@@ -83,6 +122,10 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
     }
   }
 
+  const againstTarget = shot && shot.actualYield !== null && shot.targetYield !== null ? `${signedText(shot.actualYield - shot.targetYield)} g vs target` : undefined;
+  const went = shot ? [secondsText(shot.duration), againstTarget ?? gramsText(shot.actualYield, shot.targetYield)].filter((part) => part !== undefined) : [];
+  const rated = shot?.enjoyment != null && shot.enjoyment !== 0;
+
   return (
     <Card role="region" aria-label="Reference Shot">
       <CardHeader>
@@ -93,9 +136,10 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
             Location draws it, and each of those tablets keeps a copy for when the server can't be reached, while the Recipe is in a Recipe Slot.
             A Skin may choose it on a tablet there too: the Recipe's history then names the Machine it was chosen on.
           </p>
+          <p>Its curves are its pressure, flow and weight from the start of its profile. Its yield is against its own target.</p>
         </CardTitleWithInfo>
       </CardHeader>
-      <CardContent className="grid gap-4">
+      <CardContent className="grid gap-3">
         {error && <FormError error={error} />}
         {shot === null ? (
           <p className="text-sm text-muted-foreground">
@@ -115,55 +159,46 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
                 </AlertDescription>
               </Alert>
             )}
-            <Fields label="Reference Shot">
-              <Field term="Pulled">
-                <Link to={`/shots/${encodeURIComponent(shot.id)}`} className="underline-offset-4 hover:underline">
-                  {recordTime(shot.pulledAt, shot)}
-                </Link>
-              </Field>
-              <Field term="Machine">
+            <ReferenceCurves shotId={shot.id} />
+            <div className="grid gap-1 text-sm">
+              <p className="font-semibold tabular-nums">{went.length > 0 ? went.join(" · ") : "No duration or yield recorded"}</p>
+              {/* The previous release's answer during a deploy gives no rating (ADR-0025): nothing is said of it. */}
+              {shot.enjoyment !== undefined && <p>{rated ? <Stars rating={shot.enjoyment} /> : <span className="text-muted-foreground">Not rated</span>}</p>}
+              <p className="text-muted-foreground">
+                Pulled {recordTime(shot.pulledAt, shot)} on{" "}
                 {shot.machine ? (
                   <Link to={`/machines/${shot.machine.id}`} className="underline-offset-4 hover:underline">
                     {shot.machine.name}
                   </Link>
                 ) : (
-                  <span className="text-muted-foreground">A Pending Machine</span>
+                  "a Pending Machine"
                 )}
-              </Field>
-              <Field term="Location">
-                <OrNone>{shot.location?.name}</OrNone>
-              </Field>
-              <Field term="Profile">
-                {shot.profile ? (
-                  <Link to={profilePath(shot.profile.id)} className="underline-offset-4 hover:underline">
-                    {shot.profileTitle ?? shot.profile.title ?? "Untitled Profile"}
-                  </Link>
-                ) : (
-                  <OrNone>{shot.profileTitle ?? undefined}</OrNone>
-                )}
-              </Field>
-              <Field term="Dose">
-                <OrNone>{gramsText(shot.actualDose, shot.targetDose)}</OrNone>
-              </Field>
-              <Field term="Yield">
-                <OrNone>{gramsText(shot.actualYield, shot.targetYield)}</OrNone>
-              </Field>
-              <Field term="Duration">
-                <OrNone>{secondsText(shot.duration)}</OrNone>
-              </Field>
-            </Fields>
-            {mayChange && (
-              <div>
-                <ConfirmButton
-                  label="Clear"
-                  ariaLabel="Clear its Reference Shot"
-                  title={`Clear ${recipeName(recipe)}'s Reference Shot?`}
-                  description="The Recipe has no Reference Shot until someone chooses another from a Shot's page. The Shot itself is kept. Tablets at the Recipe's Location stop drawing it."
-                  confirmLabel="Clear it"
-                  onConfirm={() => void clear()}
-                />
-              </div>
-            )}
+                {shot.location && ` at ${shot.location.name}`}
+                {shot.grinderSetting != null && ` · grind ${shot.grinderSetting}`}
+              </p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <Button asChild variant="outline">
+                <Link to={`/shots/${encodeURIComponent(shot.id)}`} aria-label="Open its Reference Shot">
+                  Open
+                </Link>
+              </Button>
+              {mayChange && (
+                <>
+                  <Button asChild variant="outline">
+                    <Link to={ratedShotsPath(recipe.id)}>Choose another</Link>
+                  </Button>
+                  <ConfirmButton
+                    label="Clear"
+                    ariaLabel="Clear its Reference Shot"
+                    title={`Clear ${recipeName(recipe)}'s Reference Shot?`}
+                    description="The Recipe has no Reference Shot until someone chooses another from a Shot's page. The Shot itself is kept. Tablets at the Recipe's Location stop drawing it."
+                    confirmLabel="Clear it"
+                    onConfirm={() => void clear()}
+                  />
+                </>
+              )}
+            </div>
           </>
         )}
       </CardContent>

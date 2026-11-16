@@ -22,7 +22,7 @@ import { baristaKey, numbersParam, shownNumbers } from "@/lib/shot-summary";
 import { bucketParam, trendBucket, trendNumber } from "@/lib/shot-trend";
 
 /** The list's query parameters, which are the REST API's: the page's address is a list anyone can share. */
-const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanBatchId", "grinderId", "recipeId", "basketId", "rating"] as const;
+const FILTERS = [...RECORD_FILTERS, "coffeeRoaster", "coffeeName", "barista", "profileTitle", "beanId", "profileId", "beanBatchId", "grinderId", "recipeId", "basketId", "rating"] as const;
 
 /**
  * Every Shot, newest first, across every Location (#544): its date presets
@@ -343,11 +343,35 @@ function linkValue(value: string | null, options: ({ id: string; name: string } 
 }
 
 /**
+ * What names the Library's Bean or Profile an address filters by (#547),
+ * read once for its chip: nothing while it is read, and that it is unknown
+ * for one that can't be.
+ */
+function useItemName(path: string, id: string | null, name: (item: Record<string, { name?: string | null; title?: string | null }>) => string): string | undefined {
+  const [read, setRead] = useState<{ id: string; name: string }>();
+  useEffect(() => {
+    if (id === null) return;
+    let current = true;
+    api<Record<string, { name?: string | null; title?: string | null }>>("GET", `${path}/${encodeURIComponent(id)}`).then(
+      (item) => current && setRead({ id, name: name(item) }),
+      () => current && setRead({ id, name: "Unknown" }),
+    );
+    return () => {
+      current = false;
+    };
+    // `name` reads the same of an item each time.
+  }, [path, id]);
+  return read?.id === id ? read.name : undefined;
+}
+
+/**
  * The Shots list's own filters, behind its Filters button beside those every
  * record list has: by the Recipe, Bean Batch, Grinder and Basket of the
  * Library a Shot is linked to, by what it recorded, its Bean, Barista and
  * profile, and by its rating; with what went wrong reading their choices,
- * if anything.
+ * if anything. The Library's Bean and Profile a Shot is linked to are filters
+ * too (#547), set only by the address a Bean's or a Profile's page opens the
+ * list with: each is a chip, which removes it, and has no control.
  */
 function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; error: string | undefined } {
   const id = useId();
@@ -378,6 +402,8 @@ function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; er
   const grinders = options?.grinders.map((grinder) => grinder && { id: grinder.id, name: `${grinderName(grinder)}${grinder.location ? `, ${grinder.location.name}` : ""}` });
   const recipes = options?.recipes.map((recipe) => recipe && { id: recipe.id, name: `${recipe.name ?? "Unnamed Recipe"}${recipe.location ? `, ${recipe.location.name}` : ""}` });
   const baskets = options?.baskets.map((basket) => basket && { id: basket.id, name: basket.name ?? "Unnamed Basket" });
+  const libraryBean = useItemName("/beans", params.get("beanId"), ({ bean }) => bean?.name ?? "Unnamed Bean");
+  const libraryProfile = useItemName("/profiles", params.get("profileId"), ({ profile }) => profile?.title ?? "Untitled Profile");
 
   const filters: ListFilter[] = [
     {
@@ -426,6 +452,7 @@ function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; er
         </Field>
       ),
     },
+    { label: "Library Bean", names: ["beanId"], value: libraryBean },
     {
       label: "Bean Batch",
       names: ["beanBatchId"],
@@ -490,6 +517,7 @@ function useShotFilters(list: RecordList<ShotPage>): { filters: ListFilter[]; er
         <TextFilter id={`${id}-profile`} label="Profile" any="Any profile" value={profile} options={options?.profiles} onChange={(profileTitle) => list.filter({ profileTitle })} />
       ),
     },
+    { label: "Library Profile", names: ["profileId"], value: libraryProfile },
     {
       label: "Rating",
       names: ["rating"],

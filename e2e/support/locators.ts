@@ -32,6 +32,31 @@ export async function openCard(page: Page, name: string): Promise<Locator> {
   return card;
 }
 
+/** That a Recipe's page says it is in this Recipe Slot at this Location: the badge beside its name, and the line under it. */
+export async function expectSlot(page: Page, slot: number, location: string): Promise<void> {
+  await expect(page.getByRole("main").getByRole("img", { name: `Slot ${slot}`, exact: true })).toBeVisible();
+  await expect(page.getByRole("main").getByText(`at ${location}`, { exact: true })).toBeVisible();
+}
+
+/**
+ * Chooses one of a Recipe's actions from the More menu beside its name on
+ * its page (#547), where all but Edit are, and, on a wide screen, moving it
+ * to a slot.
+ */
+export async function recipeAction(page: Page, name: string): Promise<void> {
+  await page.getByRole("main").getByRole("button", { name: "More", exact: true }).click();
+  await page.getByRole("menuitem", { name, exact: true }).click();
+}
+
+/** The actions a Recipe's More menu offers the account, read with the menu open and closed again after. */
+export async function recipeActions(page: Page): Promise<string[]> {
+  await page.getByRole("main").getByRole("button", { name: "More", exact: true }).click();
+  const items = await page.getByRole("menuitem").filter({ visible: true }).allTextContents();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  return items;
+}
+
 /** The table's rows, leaving out its header row and any row that only heads a group of rows, as a day's heading in the Shots list. */
 export function rows(table: Locator): Locator {
   return table.getByRole("row").filter({ hasNot: table.page().getByRole("columnheader") }).filter({ has: table.page().getByRole("cell") });

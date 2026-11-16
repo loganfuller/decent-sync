@@ -114,7 +114,16 @@ test("a Viewer's pages show what Staff's show, and no control that changes anyth
     { path: "/library/tools", loaded: (page) => rows(page.getByRole("table", { name: "Tools" })).first(), staffHave: "button New Tool", filters: EQUIPMENT_FILTERS },
     { path: "/locations", loaded: (page) => page.getByRole("list", { name: "Locations" }) },
     { path: `/locations/${location.id}`, loaded: (page) => page.getByRole("table", { name: "Recipe Slots" }), staffHave: "button New Recipe" },
-    { path: `/library/recipes/${recipe.recipe.id}`, loaded: (page) => page.getByRole("heading", { name: "History" }), staffHave: "button Edit the Recipe" },
+    {
+      path: `/library/recipes/${recipe.recipe.id}`,
+      loaded: (page) => page.getByRole("region", { name: "Recipe", exact: true }).getByRole("term").first(),
+      staffHave: "button Edit the Recipe",
+      closed: ["History"],
+      // What shows its History, and the fields it has not set, which a Viewer opens as anyone does.
+      filters: [/^button Hide History$/, /^button (Show|Hide) the (\d+ )?fields? not set$/],
+    },
+    // Every Location's Recipes (#547), with Archived ones on asking, which changes nothing.
+    { path: "/library/recipes", loaded: (page) => rows(page.getByRole("table", { name: "Recipes at Uptown" })).first(), filters: [/^checkbox Show archived/] },
   ];
 
   await asNew(page, browser, "staff", location.id, async (samsPage) => {

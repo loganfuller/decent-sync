@@ -2,7 +2,7 @@ import { Injectable, NotFoundException } from "@nestjs/common";
 import { RECIPE_NONE_AT_ZERO, isZero, steamTimeOf } from "@decent-sync/protocol";
 import { type LocationView, viewLocation } from "../locations/locations.service.js";
 import { PrismaService } from "../prisma.service.js";
-import { shownDuration } from "../shots/extraction.js";
+import { recordedText, shownDuration } from "../shots/extraction.js";
 import { referenceProfileDiffers, shotListedSql, shotProfileSql } from "../shots/links.js";
 import { isObject } from "./listed.js";
 
@@ -43,15 +43,12 @@ export interface RecipeView {
    * Archived, as a Recipe whose dial needs the next roast.
    */
   batchFinished: boolean;
-}
-
-/** A Recipe as its own read gives it: with its Reference Shot. */
-export interface RecipeDetailsView extends RecipeView {
   /**
    * Its Reference Shot (ADR-0029), the one Shot chosen to show how its Shots
    * should go, from any Machine or Location; null for none, as for one the
    * Shots list no longer lists, since its Pending Machine was dismissed,
-   * until that hardware is adopted.
+   * until that hardware is adopted. A Location's list gives it too (#547),
+   * for the lists of Recipes that show its duration.
    */
   referenceShot: ReferenceShotView | null;
 }
@@ -75,6 +72,10 @@ export interface ReferenceShotView {
   actualYield: number | null;
   /** How long its profile ran, leaving out its Preheat, in seconds, as the Shots list shows it. */
   duration: number | null;
+  /** Its rating, from 0 to 10, where 0 is unrated; null where it recorded none. */
+  enjoyment: number | null;
+  /** Its Grinder's setting, as its Workflow recorded it; null for none. */
+  grinderSetting: string | null;
   /**
    * Whether it was pulled on another Profile than the Recipe's: the Recipe
    * names a Profile, and the Shot's is another, or matches none in the
@@ -105,6 +106,29 @@ interface RecipeRow {
   slot: number | null;
   archived: boolean;
   createdAt: Date;
+  referenceShotId: string | null;
+}
+
+/** A Reference Shot as read, before it is set against a Recipe's content. */
+interface ReferenceShotRow {
+  id: string;
+  pulledAt: Date | null;
+  machineId: string | null;
+  machineName: string | null;
+  locationId: string | null;
+  locationName: string | null;
+  timeZone: string | null;
+  profileTitle: string | null;
+  profileId: string | null;
+  libraryTitle: string | null;
+  targetDose: number | null;
+  actualDose: number | null;
+  targetYield: number | null;
+  actualYield: number | null;
+  duration: number | null;
+  preheat: number | null;
+  enjoyment: number | null;
+  grinderSetting: unknown;
 }
 
 /** The Library's Recipes (ADR-0005), which Staff read as Admins do. They join it from tablets (`library/recipes.ts`). */
@@ -112,80 +136,50 @@ interface RecipeRow {
 export class RecipesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** The Location's Recipes: those in its slots, in slot order, then the rest, by name, ignoring case; 404 for no such Location. */
+  /** The Location's Recipes, each with its Reference Shot: those in its slots, in slot order, then the rest, by name, ignoring case; 404 for no such Location. */
   async atLocation(locationId: string): Promise<RecipeView[]> {
     const location = await this.prisma.location.findUnique({ where: { id: locationId } });
     if (!location) throw new NotFoundException("No such Location");
     const rows = await this.prisma.$queryRaw<RecipeRow[]>`
-      SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt"
+      SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt", reference_shot_id AS "referenceShotId"
       FROM recipes WHERE location_id = ${locationId}::uuid`;
     const here = viewLocation(location);
-    const uses = await this.uses(rows);
+    const [uses, shots] = await Promise.all([this.uses(rows), this.referenceShots(rows)]);
     return rows
-      .map((row) => view(row, here, uses))
+      .map((row) => view(row, here, uses, shots))
       .sort((a, b) => compareSlots(a.slot, b.slot) || compareText(a.name, b.name) || a.id.localeCompare(b.id));
   }
 
   /** A Recipe, with its Reference Shot; 404 for none. */
-  async get(id: string): Promise<RecipeDetailsView> {
-    const [row] = await this.prisma.$queryRaw<(RecipeRow & { referenceShotId: string | null })[]>`
+  async get(id: string): Promise<RecipeView> {
+    const [row] = await this.prisma.$queryRaw<RecipeRow[]>`
       SELECT id::text AS id, content, location_id::text AS "locationId", slot, archived, created_at AS "createdAt", reference_shot_id AS "referenceShotId"
       FROM recipes WHERE id = ${id}::uuid`;
     if (!row) throw notFound();
-    const [location, referenceShot] = await Promise.all([
+    const [location, uses, shots] = await Promise.all([
       row.locationId === null ? null : this.prisma.location.findUnique({ where: { id: row.locationId } }),
-      row.referenceShotId === null ? null : this.referenceShot(row.referenceShotId, row.content),
+      this.uses([row]),
+      this.referenceShots([row]),
     ]);
-    return { ...view(row, location ? viewLocation(location) : null, await this.uses([row])), referenceShot };
+    return view(row, location ? viewLocation(location) : null, uses, shots);
   }
 
-  /** The Recipe's Reference Shot, if the Shots list lists it, with whether its Profile is another than the one the Recipe's content names. */
-  private async referenceShot(shotId: string, content: unknown): Promise<ReferenceShotView | null> {
-    const [shot] = await this.prisma.$queryRaw<
-      {
-        id: string;
-        pulledAt: Date | null;
-        machineId: string | null;
-        machineName: string | null;
-        locationId: string | null;
-        locationName: string | null;
-        timeZone: string | null;
-        profileTitle: string | null;
-        profileId: string | null;
-        libraryTitle: string | null;
-        targetDose: number | null;
-        actualDose: number | null;
-        targetYield: number | null;
-        actualYield: number | null;
-        duration: number | null;
-        preheat: number | null;
-      }[]
-    >`
+  /** These Recipes' Reference Shots, by the Shot's id: those the Shots list lists. */
+  private async referenceShots(rows: readonly RecipeRow[]): Promise<ReadonlyMap<string, ReferenceShotRow>> {
+    const ids = [...new Set(rows.flatMap((row) => (row.referenceShotId === null ? [] : [row.referenceShotId])))];
+    if (ids.length === 0) return new Map();
+    const shots = await this.prisma.$queryRaw<ReferenceShotRow[]>`
       SELECT s.id, s.pulled_at AS "pulledAt", m.id::text AS "machineId", m.name AS "machineName",
         l.id::text AS "locationId", l.name AS "locationName", l.time_zone AS "timeZone", s.profile_title AS "profileTitle",
         p.id AS "profileId", p.content -> 'profile' ->> 'title' AS "libraryTitle",
         s.target_dose AS "targetDose", s.actual_dose AS "actualDose", s.target_yield AS "targetYield", s.actual_yield AS "actualYield",
-        s.duration, s.preheat
+        s.duration, s.preheat, s.enjoyment, s.record #> '{workflow,context,grinderSetting}' AS "grinderSetting"
       FROM shots AS s
       LEFT JOIN machines AS m ON m.id = s.machine_id
       LEFT JOIN locations AS l ON l.id = s.location_id
       LEFT JOIN profiles AS p ON p.id = ${shotProfileSql("s")}
-      WHERE s.id = ${shotId} AND ${shotListedSql("s")}`;
-    if (!shot) return null;
-    return {
-      id: shot.id,
-      pulledAt: shot.pulledAt?.toISOString() ?? null,
-      machine: shot.machineId === null ? null : { id: shot.machineId, name: shot.machineName! },
-      location: shot.locationId === null ? null : { id: shot.locationId, name: shot.locationName!, timeZone: shot.timeZone! },
-      profileTitle: shot.profileTitle,
-      profile: shot.profileId === null ? null : { id: shot.profileId, title: shot.libraryTitle },
-      targetDose: shot.targetDose,
-      actualDose: shot.actualDose,
-      targetYield: shot.targetYield,
-      actualYield: shot.actualYield,
-      duration: shownDuration(shot.duration, shot.preheat),
-      profileDiffers: referenceProfileDiffers(content, shot.profileId),
-    };
+      WHERE s.id = ANY(${ids}::text[]) AND ${shotListedSql("s")}`;
+    return new Map(shots.map((shot) => [shot.id, shot]));
   }
 
   /** What names each item these Recipes' content names, by kind and id, and whether each batch is at the Recipe's Location now. */
@@ -242,7 +236,28 @@ function notFound(): NotFoundException {
   return new NotFoundException("No such Recipe");
 }
 
-function view(row: RecipeRow, location: LocationView | null, { names, at }: Names): RecipeView {
+/** A Recipe's Reference Shot as read, with whether its Profile is another than the one the Recipe's content names. */
+function referenceShotView(shot: ReferenceShotRow, content: unknown): ReferenceShotView {
+  return {
+    id: shot.id,
+    pulledAt: shot.pulledAt?.toISOString() ?? null,
+    machine: shot.machineId === null ? null : { id: shot.machineId, name: shot.machineName! },
+    location: shot.locationId === null ? null : { id: shot.locationId, name: shot.locationName!, timeZone: shot.timeZone! },
+    profileTitle: shot.profileTitle,
+    profile: shot.profileId === null ? null : { id: shot.profileId, title: shot.libraryTitle },
+    targetDose: shot.targetDose,
+    actualDose: shot.actualDose,
+    targetYield: shot.targetYield,
+    actualYield: shot.actualYield,
+    duration: shownDuration(shot.duration, shot.preheat),
+    enjoyment: shot.enjoyment,
+    grinderSetting: recordedText(shot.grinderSetting),
+    profileDiffers: referenceProfileDiffers(content, shot.profileId),
+  };
+}
+
+function view(row: RecipeRow, location: LocationView | null, { names, at }: Names, shots: ReadonlyMap<string, ReferenceShotRow>): RecipeView {
+  const referenceShot = row.referenceShotId === null ? undefined : shots.get(row.referenceShotId);
   // A dose, grind setting or RPM of 0, as 1.10.0 may take one in, is none.
   const stored = Object.fromEntries(Object.entries(isObject(row.content) ? row.content : {}).filter(([field, value]) => !((RECIPE_NONE_AT_ZERO as readonly string[]).includes(field) && isZero(value))));
   const { steamDuration, ...rest } = stored;
@@ -280,6 +295,7 @@ function view(row: RecipeRow, location: LocationView | null, { names, at }: Name
     content,
     uses,
     batchFinished: !row.archived && beanBatch !== null && !beanBatch.atLocation,
+    referenceShot: referenceShot ? referenceShotView(referenceShot, row.content) : null,
   };
 }
 

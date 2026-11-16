@@ -43,6 +43,16 @@ test("a lab Profile is shown at cafes, and hidden at one of them again", async (
   await expect(shownAt("Belmont")).toBeChecked();
   await expect(shownAt("Roastery lab")).toBeChecked();
 
+  // No Shot was pulled with it, so its page has none to open (#547). The Shots list, opened by a Profile, as its page
+  // opens it once it has Shots, names it in a chip that removes it.
+  const shots = page.getByRole("region", { name: "Shots" });
+  await expect(shots).toHaveText("ShotsNo Shots yet");
+  await expect(shots.getByRole("link")).toHaveCount(0);
+  await page.goto(`/shots?profileId=${encodeURIComponent(id)}`);
+  await expect(page.getByRole("list", { name: "Filters set" }).getByRole("listitem")).toHaveText(["Library Profile:Lab Bloom"]);
+  await page.getByRole("button", { name: "Remove the Library Profile filter" }).click();
+  await expect(page).toHaveURL(/\/shots$/);
+
   // The list shows where it is shown now.
   await page.goto("/library/profiles");
   const row = page.getByRole("table", { name: "Profiles" }).getByRole("row").filter({ has: page.getByRole("link", { name: "Lab Bloom", exact: true }) });

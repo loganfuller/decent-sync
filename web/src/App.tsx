@@ -24,6 +24,7 @@ import { OverviewPage } from "@/pages/OverviewPage";
 import { ProfilePage } from "@/pages/ProfilePage";
 import { ProfilesPage } from "@/pages/ProfilesPage";
 import { RecipePage } from "@/pages/RecipePage";
+import { RecipesPage } from "@/pages/RecipesPage";
 import { ResetPasswordPage } from "@/pages/ResetPasswordPage";
 import { SetupPage } from "@/pages/SetupPage";
 import { Shell } from "@/pages/Shell";
@@ -60,7 +61,8 @@ export function App() {
               }
             />
             <Route path="/connected-apps" element={<ConnectedAppsPage />} />
-            <Route path="/library" element={<Navigate to="/library/beans" replace />} />
+            <Route path="/library" element={<Navigate to="/library/recipes" replace />} />
+            <Route path="/library/recipes" element={<RecipesPage />} />
             <Route path="/library/beans" element={<BeansPage />} />
             <Route path="/library/beans/:id" element={<BeanPage />} />
             <Route path="/library/bean-batches" element={<BeanBatchesPage />} />

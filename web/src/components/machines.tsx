@@ -242,18 +242,42 @@ export function ConfirmButton({
           {label}
         </Button>
       </AlertDialogTrigger>
-      <AlertDialogContent>
-        <AlertDialogHeader>
-          <AlertDialogTitle>{title}</AlertDialogTitle>
-          <AlertDialogDescription>{description}</AlertDialogDescription>
-        </AlertDialogHeader>
-        <AlertDialogFooter>
-          <AlertDialogCancel>Cancel</AlertDialogCancel>
-          <AlertDialogAction variant={variant === "destructive" ? "destructive" : "default"} onClick={onConfirm}>
-            {confirmLabel}
-          </AlertDialogAction>
-        </AlertDialogFooter>
-      </AlertDialogContent>
+      <ConfirmContent title={title} description={description} confirmLabel={confirmLabel} variant={variant} onConfirm={onConfirm} />
+    </AlertDialog>
+  );
+}
+
+/** What a confirmation asks, and what it is called once confirmed. */
+interface Confirmation {
+  title: string;
+  description: ReactNode;
+  confirmLabel: string;
+  variant?: "outline" | "destructive";
+  onConfirm(): void;
+}
+
+function ConfirmContent({ title, description, confirmLabel, variant = "outline", onConfirm }: Confirmation) {
+  return (
+    <AlertDialogContent>
+      <AlertDialogHeader>
+        <AlertDialogTitle>{title}</AlertDialogTitle>
+        <AlertDialogDescription>{description}</AlertDialogDescription>
+      </AlertDialogHeader>
+      <AlertDialogFooter>
+        <AlertDialogCancel>Cancel</AlertDialogCancel>
+        <AlertDialogAction variant={variant === "destructive" ? "destructive" : "default"} onClick={onConfirm}>
+          {confirmLabel}
+        </AlertDialogAction>
+      </AlertDialogFooter>
+    </AlertDialogContent>
+  );
+}
+
+/** A confirmation with no button of its own, opened by what holds `open`, as a menu's item does: `ConfirmButton`'s dialog. */
+export function ConfirmDialog({ open, onOpenChange, ...confirmation }: Confirmation & { open: boolean; onOpenChange(open: boolean): void }) {
+  return (
+    <AlertDialog open={open} onOpenChange={onOpenChange}>
+      <ConfirmContent {...confirmation} />
     </AlertDialog>
   );
 }

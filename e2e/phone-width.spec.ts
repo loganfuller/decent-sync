@@ -26,7 +26,8 @@ const PAGES: { link: string; heading: string; loaded: (page: Page) => Locator }[
   // On a phone its Shots are two-line rows, not a table (#544).
   { link: "Shots", heading: "Shots", loaded: (page) => page.getByRole("group", { name: "Shots" }) },
   { link: "Steam Records", heading: "Steam Records", loaded: (page) => page.getByRole("table", { name: "Steam Records" }) },
-  { link: "Library", heading: "Beans", loaded: (page) => page.getByRole("table", { name: "Beans" }) },
+  // The Library opens on its Recipes (#547): a table for each Location, or that it has none.
+  { link: "Library", heading: "Recipes", loaded: (page) => page.getByRole("region", { name: /^Recipes at / }).first() },
   { link: "Machines", heading: "Machines", loaded: (page) => page.getByRole("table", { name: "Machines" }) },
   { link: "Locations", heading: "Locations", loaded: (page) => page.getByRole("list", { name: "Locations" }) },
   { link: "Accounts", heading: "Accounts", loaded: (page) => page.getByRole("table", { name: "Accounts" }) },

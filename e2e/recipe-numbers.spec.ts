@@ -7,9 +7,11 @@ import { datesPreset, filterChip, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
-// A Recipe's page (#474), as an Admin: today's numbers on each Machine,
-// with its Reference Shot's beside them, and its trend over the last 30
-// days, a line for each Machine.
+// A Recipe's page (#474, #547), as an Admin: a period's numbers on each
+// Machine, set against its Reference Shot's, and its trend over the last 30
+// days, a line for each Machine. What the server judges out of spec, and
+// the rest of the page, are recipe-page.spec.ts's to cover: here no Machine
+// has the three Shots of a day that a judgement needs.
 //
 // Simulated tablets running the built plugin backfill eleven Shots on two
 // Machines at the Lab, each derived from one of two Shots Decaid recorded,
@@ -64,9 +66,6 @@ function at(days: number, hours: number, minutes = 0): string {
 /** A day at the Lab as an address names it, such as 2026-11-11. */
 const date = (days: number) => day(days).toISOString().slice(0, 10);
 
-/** A day at the Lab as the Shots list's date fields show it, such as "Nov 11, 2026". */
-const dateText = (days: number) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", dateStyle: "medium" }).format(day(days));
-
 /** A day at the Lab as a trend names it, such as "Wed, Nov 11, 2026". */
 const dayTitle = (days: number) => new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: "numeric" }).format(day(days));
 
@@ -102,18 +101,26 @@ let recipes: Record<"house" | "tea" | "idle", string>;
 
 test.beforeEach(({ page }) => signInAsAdmin(page));
 
-test("today's numbers are each Machine's, as the Shot Summary of its filters gives them, with the Reference Shot's under them where the Recipe has one", async ({ page }) => {
+test("a period's numbers are each Machine's, as the Shot Summary of its filters gives them, set against the Reference Shot's where the Recipe has one", async ({ page }) => {
   await seed(page);
 
   await page.goto(`/library/recipes/${recipes.house}`);
-  const today = page.getByRole("region", { name: "Today", exact: true });
-  await expectTip(today, "Today", /^How its Shots went today on each Machine that pulled it, today being its Location's day, in its time zone\./);
-  const table = today.getByRole("table", { name: "Today by Machine" });
-  await expect(table.getByRole("columnheader")).toHaveText(["Machine", "Shots", "Duration", "Yield against target", "Stopped on weight"]);
-  // The Left's two Shots, −0.1 g and −1.3 g, 23.549 s and 25.833 s, both stopped on weight, and one unfinished; the
-  // Right's one, 2.5 g over and ended by the Machine. The Shot it pulled with no Recipe, and the days before, are in neither.
-  await expect(rows(table)).toHaveText(["Lab Left2 Shots · 1 unfinished24.7 s (24.1–25.3)−0.7 g (−1.0 to −0.4)100%", "Lab Right1 Shot23.5 s (23.5–23.5)+2.5 g (+2.5 to +2.5)0%"]);
-  await expect(table.getByRole("link", { name: "Lab Left" })).toHaveAttribute("href", `/machines/${machines.left.id}`);
+  const byMachine = page.getByRole("region", { name: "By Machine", exact: true });
+  await expectTip(byMachine, "By Machine", /^How its Shots went on each Machine that pulled it, today, yesterday or in the last 7 days: its Location's days, in its time zone\./);
+  // Today, until another period is chosen.
+  await expect(page.getByRole("tablist", { name: "Period" }).getByRole("tab")).toHaveText(["Today", "Yesterday", "7 days"]);
+  await expect(page.getByRole("tab", { name: "Today" })).toHaveAttribute("aria-selected", "true");
+  const table = byMachine.getByRole("table", { name: "By Machine today" });
+  // It has no Reference Shot, and so no column against one.
+  await expect(table.getByRole("columnheader")).toHaveText(["Machine", "Shots", "Duration", "Yield against target", "Stopped at target"]);
+  // The Left's two Shots, −0.1 g and −1.3 g, 23.549 s and 25.833 s, both stopped at target, and one unfinished; the
+  // Right's one, 2.5 g over and ended by the Machine. The Shot it pulled with no Recipe, and the days before, are in
+  // neither. Fewer than three Shots are not judged, so nothing is marked: not the Right's yield or its stop, nor how
+  // far apart the two are, which is muted.
+  await expect(rows(table)).toHaveText(["Lab Left2 · 1 unfinished24.7 s (24.1–25.3)−0.7 g100%", "Lab Right123.5 s (23.5–23.5)+2.5 g0%", "Between Machines1.1 s apart"]);
+  await expect(table.getByText("1.1 s apart", { exact: true })).toHaveClass(/text-muted-foreground/);
+  await expect(byMachine.locator("[data-slot=spec-mark]")).toHaveCount(0);
+  await expect(table.getByRole("link", { name: "Lab Left", exact: true })).toHaveAttribute("href", `/machines/${machines.left.id}`);
 
   // Each is what the Shot Summary gives for the Recipe, the Machine and today.
   for (const [machine, counts, duration, against, share] of [
@@ -125,42 +132,69 @@ test("today's numbers are each Machine's, as the Shot Summary of its filters giv
     expect(summary.groups[0]!.counts).toMatchObject(counts);
     expect(summary.groups[0]!.numbers.duration!.median).toBeCloseTo(duration, 6);
     expect(summary.groups[0]!.numbers.yieldAgainstTarget!.median).toBeCloseTo(against, 6);
-    expect(summary.groups[0]!.numbers.stoppedOnWeight!.share).toBe(share);
+    expect(summary.groups[0]!.numbers.stoppedAtTarget!.share).toBe(share);
   }
-
-  // It has no Reference Shot, and so no row for one.
   await expect(page.getByRole("region", { name: "Reference Shot" }).getByText("None chosen.")).toBeVisible();
-  await expect(table.getByRole("row")).toHaveCount(3);
 
-  // Read against a Shot pulled two days ago, which ran 25.833 s and weighed 1.3 g under its target.
+  // Read against a Shot pulled two days ago, which ran 25.833 s: each Machine's median duration is set against it,
+  // unmarked, being of too few Shots to judge.
   expect((await page.request.put(`/api/recipes/${recipes.house}/reference-shot`, { data: { shotId: "left-2-days" } })).status()).toBe(200);
   await page.reload();
-  await expect(rows(table)).toHaveText([/^Lab Left2 Shots/, /^Lab Right1 Shot/, "Reference Shot25.8 s−1.3 g"]);
-  await expect(table.getByRole("link", { name: "Reference Shot" })).toHaveAttribute("href", "/shots/left-2-days");
+  await expect(table.getByRole("columnheader")).toHaveText(["Machine", "Shots", "Duration", "vs reference", "Yield against target", "Stopped at target"]);
+  await expect(rows(table)).toHaveText(["Lab Left2 · 1 unfinished24.7 s (24.1–25.3)−1.1 s−0.7 g100%", "Lab Right123.5 s (23.5–23.5)−2.3 s+2.5 g0%", "Between Machines1.1 s apart"]);
 
-  // Cleared on the page, it is gone from under the numbers at once.
+  // Yesterday, kept in the page's address: it was pulled with the Tea alone.
+  await page.getByRole("tab", { name: "Yesterday" }).click();
+  await expect(page).toHaveURL(new RegExp(`/library/recipes/${recipes.house}\\?period=yesterday$`));
+  await expect(byMachine.getByText("No Shots were pulled with it yesterday.")).toBeVisible();
+  await expect(byMachine.getByRole("table")).toHaveCount(0);
+
+  // The last 7 days: today's, the Left's of two days ago and the Right's two of five days ago, three Shots on each, so
+  // each is judged, and a last row says how far apart their medians are: 25.833 s and 23.549 s, within spec.
+  await page.getByRole("tab", { name: "7 days" }).click();
+  await expect(page).toHaveURL(new RegExp(`/library/recipes/${recipes.house}\\?period=week$`));
+  const week = byMachine.getByRole("table", { name: "By Machine in the last 7 days" });
+  await expect(rows(week)).toHaveText([/^Lab Left3 · 1 unfinished25\.8 s \([\d.]+–[\d.]+\)0\.0 s−1\.3 g100%$/, /^Lab Right323\.5 s \([\d.]+–[\d.]+\)−2\.3 s−0\.1 gOut of spec: 67%$/, "Between Machines2.3 s apart"]);
+  // Under 90% of the Right's stopped at target, which is out of spec; its duration is within 10% of the reference's.
+  await expect(week.locator("[data-slot=spec-mark]")).toHaveText(["Out of spec: 67%"]);
+  // The view is the address's, so a reloaded one is the same.
+  await page.reload();
+  await expect(page.getByRole("tab", { name: "7 days" })).toHaveAttribute("aria-selected", "true");
+  await expect(rows(week)).toHaveCount(3);
+
+  // Today again: the address holds no default.
+  await page.getByRole("tab", { name: "Today" }).click();
+  await expect(page).toHaveURL(new RegExp(`/library/recipes/${recipes.house}$`));
+  await expect(rows(table)).toHaveCount(3);
+
+  // Cleared on the page, it is gone from beside the numbers at once.
   await page.getByRole("button", { name: "Clear its Reference Shot" }).click();
   await page.getByRole("alertdialog").getByRole("button", { name: "Clear it" }).click();
   await expect(page.getByRole("region", { name: "Reference Shot" }).getByText("None chosen.")).toBeVisible();
-  await expect(rows(table)).toHaveText([/^Lab Left2 Shots/, /^Lab Right1 Shot/]);
+  await expect(table.getByRole("columnheader")).toHaveCount(5);
+  await expect(rows(table)).toHaveText([/^Lab Left2 · 1 unfinished/, /^Lab Right1/, /^Between Machines/]);
 });
 
-test("a Machine's count opens its Shots of the Recipe today in the Shots list, with the Recipe, the Machine and the day as filters", async ({ page }) => {
+test("a Machine's count opens its Shots of the Recipe in the period in the Shots list, with the Recipe, the Machine and the list's preset of the days as filters", async ({ page }) => {
   await page.goto(`/library/recipes/${recipes.house}`);
-  const count = page.getByRole("region", { name: "Today", exact: true }).getByRole("link", { name: "2 Shots" });
-  const filters = `recipeId=${recipes.house}&machineId=${machines.left.id}&from=${date(0)}&to=${date(0)}`;
+  const count = page.getByRole("region", { name: "By Machine", exact: true }).getByRole("link", { name: "2 Shots on Lab Left" });
+  const filters = `recipeId=${recipes.house}&machineId=${machines.left.id}&period=today`;
   await expect(count).toHaveAttribute("href", `/shots?${filters}`);
   await count.click();
   await expect(page).toHaveURL(new RegExp(`/shots\\?${filters}$`));
   // The two its numbers cover and the unfinished one.
   await expect(rows(page.getByRole("table", { name: "Shots" }))).toHaveCount(3);
-  const chosen = page.getByRole("region", { name: "Filters" });
   await expect(filterChip(page, "Machine")).toHaveText("Machine:Lab Left");
   await expect(filterChip(page, "Recipe")).toHaveText("Recipe:House, Lab");
-  // The day is the list's own dates, Custom's.
-  await expect(datesPreset(page, "Custom")).toBeChecked();
-  await expect(chosen.getByRole("button", { name: "From", exact: true })).toHaveText(dateText(0));
-  await expect(chosen.getByRole("button", { name: "To", exact: true })).toHaveText(dateText(0));
+  // The day is the list's own preset.
+  await expect(datesPreset(page, "Today")).toBeChecked();
+
+  // The last 7 days' count opens the list at its 7 days.
+  await page.goto(`/library/recipes/${recipes.house}?period=week`);
+  await expect(page.getByRole("region", { name: "By Machine", exact: true }).getByRole("link", { name: "3 Shots on Lab Right" })).toHaveAttribute(
+    "href",
+    `/shots?recipeId=${recipes.house}&machineId=${machines.right.id}&period=7days`,
+  );
 });
 
 test("the trend charts the last 30 days by day, a line for each Machine with its middle half's band, for duration, yield against target and grind setting, one at a time", async ({
@@ -233,18 +267,17 @@ test("the trend charts the last 30 days by day, a line for each Machine with its
 test("a Machine's name under the chart opens its Shots of the 30 days in the Shots list, whose own trend opens charting the same number", async ({ page }) => {
   await page.goto(`/library/recipes/${recipes.house}?trend=grindSetting`);
   const trend = page.getByRole("region", { name: "Trend", exact: true });
-  const filters = (machine: { id: string }) => `recipeId=${recipes.house}&machineId=${machine.id}&from=${date(-29)}&to=${date(0)}`;
+  const filters = (machine: { id: string }) => `recipeId=${recipes.house}&machineId=${machine.id}&period=30days`;
   const lines = trend.getByRole("list", { name: "Lines" });
   await expect(lines.getByRole("link", { name: "Lab Left" })).toHaveAttribute("href", `/shots?${filters(machines.left)}&trend=grindSetting`);
   await lines.getByRole("link", { name: "Lab Right" }).click();
   await expect(page).toHaveURL(new RegExp(`/shots\\?${filters(machines.right)}&trend=grindSetting$`));
   // The Right's Shots of the House: today's and the two of five days ago.
   await expect(rows(page.getByRole("table", { name: "Shots" }))).toHaveCount(3);
-  const chosen = page.getByRole("region", { name: "Filters" });
   await expect(filterChip(page, "Machine")).toHaveText("Machine:Lab Right");
   await expect(filterChip(page, "Recipe")).toHaveText("Recipe:House, Lab");
-  await expect(chosen.getByRole("button", { name: "From", exact: true })).toHaveText(dateText(-29));
-  await expect(chosen.getByRole("button", { name: "To", exact: true })).toHaveText(dateText(0));
+  // The days are the list's own preset of them.
+  await expect(datesPreset(page, "30 days")).toBeChecked();
   // The list's trend is open, as the address names its number.
   await expect(page.getByRole("region", { name: "Trend" }).getByRole("figure", { name: "Grind setting by day" }).locator(".recharts-line-dot")).toHaveCount(2);
 
@@ -258,7 +291,7 @@ test("a Machine's name under the chart opens its Shots of the 30 days in the Sho
 test("a Recipe with no Shots in the period says so, and one whose grind setting is text has no grind trend", async ({ page }) => {
   // The Tea, pulled once, yesterday, at a grind setting of 1.1.0.
   await page.goto(`/library/recipes/${recipes.tea}`);
-  const today = page.getByRole("region", { name: "Today", exact: true });
+  const today = page.getByRole("region", { name: "By Machine", exact: true });
   await expect(today.getByText("No Shots were pulled with it today.")).toBeVisible();
   await expect(today.getByRole("table")).toHaveCount(0);
   const trend = page.getByRole("region", { name: "Trend", exact: true });
@@ -280,7 +313,7 @@ test("a Recipe with no Shots in the period says so, and one whose grind setting 
 test("numbers that can't be read say so", async ({ page }) => {
   await page.route(/\/api\/shots\/summary\?/, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ statusCode: 500, message: "Internal server error" }) }));
   await page.goto(`/library/recipes/${recipes.house}`);
-  await expect(page.getByRole("region", { name: "Today", exact: true }).getByRole("alert")).toHaveText("Could not read today's numbers: Internal server error");
+  await expect(page.getByRole("region", { name: "By Machine", exact: true }).getByRole("alert")).toHaveText("Could not read the numbers: Internal server error");
   await expect(page.getByRole("region", { name: "Trend", exact: true }).getByRole("alert")).toHaveText("Could not read the trend: Internal server error");
   await expect(page.getByRole("region", { name: "Trend", exact: true }).getByRole("figure")).toHaveCount(0);
 });

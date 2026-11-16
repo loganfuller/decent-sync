@@ -259,3 +259,32 @@ function ShadeName({ value, viewBox }: LabelProps) {
     </Text>
   );
 }
+
+/**
+ * One curve of a record in small, as a Recipe's Reference Shot's card shows
+ * its pressure, flow and weight (#547): the line alone, from 0 s to its last
+ * sample, with no axes, in the color of the record a chart is compared
+ * with, which a Reference Shot's curves are drawn in wherever they are
+ * drawn. It is named for a screen reader by `label`, and says so where the
+ * record has no value of it.
+ */
+export function SmallCurve<C extends string>({ curve, info, samples, label }: { curve: C; info: CurveInfo; samples: Sample<C>[]; label: string }) {
+  const points = samples.filter((sample) => sample.seconds >= 0 && sample.shade === null).map((sample) => ({ seconds: sample.seconds, value: sample.values[curve] }));
+  const drawn = points.some((point) => point.value !== null);
+  return (
+    <figure role="img" aria-label={label} className="grid min-w-0 gap-1">
+      {drawn ? (
+        <ChartContainer config={{ value: { theme: PREVIOUS_RECORD } } satisfies ChartConfig} className="aspect-auto h-14 w-full rounded-md border bg-muted/30">
+          <LineChart data={points} margin={{ top: 4, right: 4, bottom: 4, left: 4 }} accessibilityLayer={false}>
+            <XAxis dataKey="seconds" type="number" domain={[0, "dataMax"]} hide />
+            <YAxis hide domain={info.fit ? ["dataMin", "dataMax"] : [0, "auto"]} />
+            <Line dataKey="value" type="linear" stroke="var(--color-value)" strokeWidth={1.5} dot={false} connectNulls isAnimationActive={false} />
+          </LineChart>
+        </ChartContainer>
+      ) : (
+        <p className="flex h-14 items-center justify-center rounded-md border bg-muted/30 text-xs text-muted-foreground">Not recorded</p>
+      )}
+      <figcaption className="text-xs text-muted-foreground">{info.label}</figcaption>
+    </figure>
+  );
+}

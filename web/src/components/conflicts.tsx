@@ -1,6 +1,7 @@
 import { type ReactNode, useCallback, useState } from "react";
 import { Link } from "react-router";
 import { useAuth, useMayChange } from "@/auth";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { ConfirmButton, formatTime } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
@@ -354,22 +355,41 @@ export function ItemConflictsCard({ kind, id, onResolved, names }: { kind: ItemK
 
 /**
  * The item's change history: each accepted edit, the latest taken in first, with where and when it was made. `names`
- * names the items values name by their ids.
+ * names the items values name by their ids. With `closed`, as on a Recipe's page (#547), it is a card closed until
+ * opened, which reads nothing while closed. `version` is what the item's page counts its changes by: the history is
+ * read afresh when it changes, the card staying as open as it was.
  */
-export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string> }) {
+export function ItemHistoryCard({ kind, id, names, closed = false, version = 0 }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string>; closed?: boolean; version?: number }) {
+  const info = (
+    <p>
+      Each change that was kept, the latest first, with the Machine or account it came from.{" "}
+      {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
+    </p>
+  );
+  const history = <ItemHistory key={version} kind={kind} id={id} names={names} />;
+  if (closed) {
+    return (
+      <CollapsibleCard title="History" info={info}>
+        {history}
+      </CollapsibleCard>
+    );
+  }
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitleWithInfo title="History">{info}</CardTitleWithInfo>
+      </CardHeader>
+      {history}
+    </Card>
+  );
+}
+
+/** A History card's content, which reads the item's history while it is shown. */
+function ItemHistory({ kind, id, names }: { kind: ItemKind; id: string; names?: ReadonlyMap<string, string> }) {
   const load = useCallback(async () => (await api<{ versions: ItemVersion[] }>("GET", `${itemApiPath(kind, id)}/history`)).versions, [kind, id]);
   const { data: versions, error } = usePolled(load, DETAILS_POLL_MS);
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitleWithInfo title="History">
-          <p>
-            Each change that was kept, the latest first, with the Machine or account it came from.{" "}
-            {`Its first is the ${kindName(kind)} joining the Library${kind === "recipe" ? ", or copied from another" : ""}.`}
-          </p>
-        </CardTitleWithInfo>
-      </CardHeader>
       <CardContent className="grid gap-3">
         {error && (
           <Alert variant="destructive">
@@ -423,6 +443,5 @@ export function ItemHistoryCard({ kind, id, names }: { kind: ItemKind; id: strin
           </Table>
         )}
       </CardContent>
-    </Card>
   );
 }
