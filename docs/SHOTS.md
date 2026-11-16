@@ -1967,55 +1967,108 @@ Machines over a month. Neither card gives a rating. One charted there
 would read in stars, as its chart is the Shots list's (`TrendChart`), and
 one added to Today would read through `ratingMedianText` (#532).
 
-`/shots/:id` shows a Shot's curves (pressure,
-flow, weight, weight flow and group temperature, as Streamline draws them,
-with the targets its Machine reported),
-from 0 s at the first sample after its Preheat, which is shaded and
-labelled before 0 s in every chart and marked in the measurements table,
-a dashed vertical line at each change of its Profile's step after Preheat
-(each sample's `profileFrame`, as Streamline marks them), the step named in
-the tooltip and the measurements table,
-the Shot it is compared with aligned at 0 s too,
-everything its record holds, the Basket's and Tools' names DYE2 stored
-and its Grinder's burrs, after the Grinder, among it, the scale's last
-weight recorded beside the yield weighed, with its time to first drip and
-its flow at the stop as stored, each left out where the Shot has none,
-its credit, the Library's Recipe, Bean Batch, Grinder, Basket
-and Profile it is linked to, each linking to its page, and a comparison
-with the Shot chosen under Compare with: nothing, the previous Shot on its
-Machine, or its Recipe's Reference Shot (#473), one at a time, its curves
-drawn behind the Shot's own and the same table beside them. The Reference
-Shot is the one the Recipe's read gives (`GET /api/recipes/:id`), read
-with the Shot, and again when the Shot becomes its own Recipe's Reference
-Shot or stops being it; it is not offered for a Shot pulled with no
-Recipe, a Recipe with none, or the Reference Shot itself
-(`e2e/reference-shots.spec.ts`). Its Rating and note card
-(`web/src/components/shot-edits.tsx`, #514) shows the two, the rating as
-up to five stars, as DYE2 shows it and the owner's Skin will, each star
-two points of the rating from 0 to 10 Decaid keeps (`web/src/lib/rating.ts`,
-with `web/test/rating.test.ts`: `starsOf` halves a rating as DYE2's
-`enjoymentToStars` does, without rounding it to a whole star, and
-`ratingOf` doubles whole stars as its `starsToEnjoyment` does), and a
-rating of 0 or none as Unrated. To whoever may edit them, an Admin, or
-Staff for a Shot at a Location they work at, it has an Edit button that
-opens a form in the card: five stars, a shadcn `ToggleGroup` of which one
-is pressed at a time, and pressing it again leaves the Shot unrated, and
-the note. How to clear them is behind the Rating label's info icon. A
-rating between two stars, as an assistant may set, reads as it is, such
-as 4.5 stars, and fills the stars DYE2 would, rounded. The form shows it
-so too, with no star pressed, until one is: it sends a rating only where
-the stars pressed are another rating than the Shot's, so such a rating
-saved untouched stays, and pressing the star it rounds to sets that. It sends `PATCH /api/shots/:id` with only what was changed, so
-a rating leaves the note alone, and shows the Shot as the answer gives
-it. Where
-the read's `editStanding` is not null the card says so in plain sight,
-Awaiting its tablet or No tablet to reach, with what that means behind
-its info icon, and while an edit awaits its tablet the page reads the
-Shot again 5 s after each answer, so the note goes once the tablet has
-the edit. A
-Viewer and Staff elsewhere see the rating, note and that state, and no
-button. The Annotations card leaves the two to it. Its Rating and note
-edits card, closed until opened, lists the read's `edits`, newest first:
+`/shots/:id` shows one Shot, in the order a reader asks (#546;
+`web/src/pages/ShotPage.tsx`, with its cards in
+`web/src/components/shot-page.tsx`): which Shot it is, how it went, its
+curves against its Recipe's Reference Shot, then everything else, once
+each, closed until opened.
+
+- **The title** names the Recipe it was pulled with and its Machine, each
+  linked to its page, over when it was pulled and its Location. A Shot
+  pulled with no Recipe loaded says "No Recipe loaded" in the Recipe's
+  place, and one a Pending Machine holds names its hardware, badged so.
+  Beside the title it says which Recipes it is the Reference Shot of, with
+  the control making it one, under the title and as wide as the page on a
+  narrow screen. An inferred credit is said in an alert under the title,
+  above everything else.
+- **How it went** is one card of figures: its duration, with its
+  difference from its Recipe's Reference Shot's; its yield, with its
+  difference from its own target; its dose weighed, with its target; how
+  it stopped, in words (`web/src/lib/stops.ts`); and its rating and note.
+  A difference is marked where the read's `spec` says it is out of spec,
+  and muted otherwise. Where its Recipe has no Reference Shot the duration
+  says "No reference", which opens that Recipe's rated Shots in the list,
+  and the Reference Shot itself says it is that. An Unfinished Shot and a
+  cleaning or calibration Shot say what they are beside the card's title,
+  with what that means behind an info icon, and carry no mark, as the
+  server judges neither. On a narrow screen the figures are two to a row,
+  the rating and note under them.
+- **Its rating and note** are that card's last figure
+  (`web/src/components/shot-edits.tsx`, #514): the rating as up to five
+  stars, as DYE2 shows it and the owner's Skin will, each star two points
+  of the rating from 0 to 10 Decaid keeps (`web/src/lib/rating.ts`, with
+  `web/test/rating.test.ts`: `starsOf` halves a rating as DYE2's
+  `enjoymentToStars` does, without rounding it to a whole star, and
+  `ratingOf` doubles whole stars as its `starsToEnjoyment` does), a rating
+  of 0 or none as Unrated, and the note under it. To whoever may edit
+  them, an Admin, or Staff for a Shot at a Location they work at, it has
+  an Edit button that opens a form across the card: five stars, a shadcn
+  `ToggleGroup` of which one is pressed at a time, and pressing it again
+  leaves the Shot unrated, and the note. How to clear them is behind the
+  Rating label's info icon. A rating between two stars, as an assistant
+  may set, reads as it is, such as 4.5 stars, and is drawn so, four stars
+  and a half, as the Shots list draws one. The form says it so too, with
+  the stars DYE2 would fill, rounded, and none pressed, until one is: it
+  sends a rating only where the stars pressed are another
+  rating than the Shot's, so such a rating saved untouched stays, and
+  pressing the star it rounds to sets that. It sends `PATCH
+  /api/shots/:id` with only what was changed, so a rating leaves the note
+  alone, and shows the Shot as the answer gives it. Where the read's
+  `editStanding` is not null the card says so in plain sight, Awaiting its
+  tablet or No tablet to reach, with what that means behind its info icon,
+  and while an edit awaits its tablet the page reads the Shot again 5 s
+  after each answer, so the note goes once the tablet has the edit. A
+  Viewer and Staff elsewhere see the rating, note and that state, and no
+  button.
+- **Its curves** come next: pressure, flow, weight, weight flow and group
+  temperature, as Streamline draws them, with the targets its Machine
+  reported, from 0 s at the first sample after its Preheat, which is
+  shaded and labelled before 0 s in every chart, and a dashed vertical
+  line at each change of its Profile's step after Preheat (each sample's
+  `profileFrame`, as Streamline marks them), the step named in the
+  tooltip. One control, Compare with, chooses the Shot whose curves are
+  drawn behind its own, aligned at 0 s too: its Recipe's Reference Shot
+  (#473), the previous Shot on its Machine, or nothing, offering only what
+  the Shot has. It opens on the Reference Shot, where its Recipe has one
+  and the Shot is not that Shot, and otherwise on nothing, until the
+  person chooses. The Reference Shot is the one the Recipe's read gives
+  (`GET /api/recipes/:id`), read with the Shot, and again when the Shot
+  becomes its own Recipe's Reference Shot or stops being it; it is not
+  offered for a Shot pulled with no Recipe, a Recipe with none, or the
+  Reference Shot itself. On a narrow screen the control scrolls within its
+  own row and the charts are one to a row.
+- **Under the curves,** while one is compared, the two Shots are side by
+  side: each one's duration, yield, time to first drip, peak pressure and
+  grind setting, the other's name linking to it. On a narrow screen each
+  Shot's numbers are a few lines under its name.
+- **Details,** one card, closed until opened, holds every other fact
+  once. What it was pulled with is always listed, with a dash for what it
+  recorded none of: its Recipe, with the Recipe Slot that Recipe is in
+  now, as its read gives it, its Profile, its Bean, its Bean Batch, its
+  Grinder with its grind setting, its Basket and its Barista. Each Library
+  item it is linked to links to its page; a Grinder or Basket the Library
+  has none for reads as the Shot recorded its name, and a Bean Batch its
+  tablet named by an id the Library has none for reads as "Not linked",
+  with no id. Then, each only where recorded: its Grinder's burrs, the
+  Tools' names DYE2 stored, who it was for, its brew temperature, its peak
+  pressure and flow, its time to first drip, the scale's last weight
+  recorded and its flow at the stop, as stored, its TDS and extraction
+  yield, and the steam, hot water and flush settings its Workflow held
+  (`workflowParts` in `web/src/components/workflow.tsx`). Last, the
+  machine as the Shot recorded it, in one line: its model, serial,
+  firmware and flow calibration, or that it recorded no machine hardware
+  (`shotRecordParts`); how Decaid knew it (`provenanceStatus`) is not
+  shown, as the inferred credit says what it means.
+- **Closed until opened,** as cards of their own
+  (`web/src/components/collapsible-card.tsx`): its Measurements, each
+  sample as a table, those in its Preheat marked and each one's step
+  named; its Rating and note edits; and its Record as sent. Each holds
+  what it shows only while it is open.
+
+`e2e/shot-page.spec.ts` covers the page at a desktop's width and at
+390 px, and `e2e/reference-shots.spec.ts` what its curves are compared
+with as its Recipe's Reference Shot is chosen, cleared and unreadable. Its
+Rating and note edits card lists the read's `edits`, newest first:
 when each was made, on the Shot's Location's clock, who made it, You for
 one's own, by name to an Admin and An account to anyone else, with the
 Connected App it was made through, or, for one made on a tablet (#515),
@@ -2026,9 +2079,9 @@ instance gives neither `edits` nor `editStanding`: a page loaded from it
 shows no state and an empty card until it is loaded again, a read of a
 page already showing them changes nothing, and a save that reaches that
 instance, which has no such route, is answered 404, which the form shows
-(`e2e/shot-edits.spec.ts` covers the page). The lists and the comparison name the
-rating Rating, where they said Enjoyment, and give it in stars too, such
-as "4 stars", with none for a Shot rated 0, as its card says Unrated.
+(`e2e/shot-edits.spec.ts` covers the edits). The lists name the rating
+Rating, where they said Enjoyment, and give it in stars too, such as
+"4 stars", with none for a Shot rated 0, as its page says Unrated.
 The Summary and Trend cards give it in stars too (#532, above). The REST
 API and the tools still give ratings from 0 to 10. Each Bean's, Bean Batch's,
 Grinder's, Profile's, Recipe's and Basket's page lists its Shots, ten at a time

@@ -14,7 +14,7 @@ import { expectTip } from "./support/tooltips.js";
 // the Shots list; shown on the Recipe's page with its numbers, a note where
 // its Profile is another than the Recipe's, and cleared there; read by a
 // Viewer, who has no control for it; and its curves drawn behind those of
-// another Shot of the Recipe, on that Shot's page (#473). A simulated
+// another Shot of the Recipe, on that Shot's page, as it opens (#473, #546). A simulated
 // tablet running the built plugin acts as DYE2 v0.1.33 does with the steps
 // recorded from it (server/test/fixtures/decaid/dye2-v0.1.26/ and later),
 // its eight recipes becoming Uptown's Recipes. Serials are made up, from
@@ -132,77 +132,82 @@ test("a Viewer reads a Recipe's Reference Shot and the Recipes a Shot is that of
   });
 });
 
-test("a Shot's page draws its Recipe's Reference Shot's curves behind its own, with the comparison beside them, but not for the Reference Shot itself, a Recipe with none or one it can't read", async ({ page }) => {
+test("a Shot's page draws its Recipe's Reference Shot's curves behind its own as it opens, with the comparison under them, but not for the Reference Shot itself, a Recipe with none or one it can't read", async ({ page }) => {
   // The Ethiopia's Reference Shot is the first Shot on its Machine: it has none before it, and is not compared with itself.
   await page.goto(`/shots/${SHOT}`);
   const curves = page.getByRole("region", { name: "Curves" });
   await expect(curves.getByText("There is no earlier Shot on Uptown 1 to compare it with.")).toBeVisible();
   await expect(curves.getByRole("radiogroup")).toHaveCount(0);
+  await expect(page.getByRole("region", { name: "How it went" }).getByText("Its Recipe's Reference Shot", { exact: true })).toBeVisible();
 
-  // A later Shot of the Ethiopia, which weighed 34.2 g, is compared with nothing, until one is chosen.
+  // A later Shot of the Ethiopia, which weighed 34.2 g, opens compared with its Recipe's Reference Shot: behind each
+  // curve, and under them, side by side.
   await pullWith(page, uptownTablet, ETHIOPIA, ethiopiaId, LATER_SHOT, 47501, { actualYield: 34.2 });
   await page.goto(`/shots/${LATER_SHOT}`);
   const choice = curves.getByRole("radiogroup", { name: "Compare with" });
-  await expect(choice.getByRole("radio")).toHaveCount(3);
-  await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
+  await expect(choice.getByRole("radio")).toHaveText(["Reference Shot", "Previous Shot on this Machine", "Nothing"]);
+  await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
   const comparison = curves.getByRole("table", { name: "Comparison with the Reference Shot" });
+  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
+    await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Reference Shot");
+  }
+  await expect(comparison.getByRole("rowheader")).toHaveText(["This Shot", "Reference Shot"]);
+  await expect(comparison.getByRole("row", { name: /^This Shot/ }).getByRole("cell").nth(1)).toHaveText("34.2 g");
+  await expect(comparison.getByRole("row", { name: /^Reference Shot/ }).getByRole("cell").nth(1)).toHaveText("35.9 g");
+  await expect(comparison.getByRole("link", { name: "Reference Shot" })).toHaveAttribute("href", `/shots/${SHOT}`);
+  await choice.getByRole("radio", { name: "Nothing" }).click();
   await expect(comparison).toHaveCount(0);
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
 
   // A Reference Shot that can't be loaded says so while it is the choice, and no longer once another is made.
   const measurements = `**/api/shots/${SHOT}/measurements`;
   await page.route(measurements, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
-  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  await page.reload();
+  await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
   await expect(curves.getByRole("alert")).toHaveText("Internal server error");
   await expect(comparison).toHaveCount(0);
-  await choice.getByRole("radio", { name: "Nothing" }).check();
+  await choice.getByRole("radio", { name: "Nothing" }).click();
   await expect(curves.getByRole("alert")).toHaveCount(0);
   await page.unroute(measurements);
-
-  // Its Recipe's Reference Shot, behind each curve, and beside them as the previous Shot is.
-  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
-  for (const name of ["Pressure", "Flow", "Weight", "Weight flow", "Temperature"]) {
-    await expect(curves.getByRole("figure", { name, exact: true })).toContainText("Reference Shot");
-  }
-  await expect(comparison.getByRole("columnheader")).toHaveText(["", "This Shot", "Reference Shot"]);
-  await expect(comparison.getByRole("row", { name: /^Yield/ }).getByRole("cell")).toHaveText(["34.2 g", "35.9 g"]);
-  await expect(comparison.getByRole("link", { name: "Reference Shot" })).toHaveAttribute("href", `/shots/${SHOT}`);
+  // Chosen again, it is read again.
+  await choice.getByRole("radio", { name: "Reference Shot" }).click();
+  await expect(comparison).toBeVisible();
+  await expect(curves.getByRole("alert")).toHaveCount(0);
 
   // The previous Shot instead, one at a time: here the same Shot, named as the previous one.
-  await choice.getByRole("radio", { name: "The previous Shot on Uptown 1" }).check();
+  await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).toContainText("Previous Shot");
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Reference Shot");
   await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
   await expect(comparison).toHaveCount(0);
-  await choice.getByRole("radio", { name: "Nothing" }).check();
+  await choice.getByRole("radio", { name: "Nothing" }).click();
   await expect(curves.getByRole("figure", { name: "Pressure", exact: true })).not.toContainText("Previous Shot");
 
   // Made its Recipe's Reference Shot itself, it has no other to compare with.
-  await choice.getByRole("radio", { name: "Its Recipe's Reference Shot" }).check();
+  await choice.getByRole("radio", { name: "Reference Shot" }).click();
   await expect(comparison).toBeVisible();
   await page.getByRole("button", { name: "Make it a Reference Shot" }).click();
   const dialog = page.getByRole("dialog", { name: "Make it a Reference Shot" });
   await expect(dialog.getByRole("combobox", { name: "Recipe" })).toHaveText("Fixture Ethiopia Espresso at Uptown");
   await dialog.getByRole("button", { name: "Make it the Reference Shot" }).click();
   await expect(dialog).toHaveCount(0);
-  await expect(choice.getByRole("radio")).toHaveCount(2);
-  await expect(choice.getByRole("radio", { name: "Its Recipe's Reference Shot" })).toHaveCount(0);
+  await expect(choice.getByRole("radio")).toHaveText(["Previous Shot on this Machine", "Nothing"]);
   await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
   await expect(comparison).toHaveCount(0);
 
-  // The Recipe's Reference Shot cleared, a Shot of it is offered only the previous one, once its Recipe is read.
+  // The Recipe's Reference Shot cleared, a Shot of it is offered only the previous one, once its Recipe is read, and
+  // says its Recipe has no reference.
   expect((await page.request.put(`/api/recipes/${ethiopiaId}/reference-shot`, { data: { shotId: null } })).status()).toBe(200);
-  const recipeRead = page.waitForResponse((response) => new URL(response.url()).pathname === `/api/recipes/${ethiopiaId}`);
   await page.reload();
-  await recipeRead;
-  await expect(choice.getByRole("radio", { name: "The previous Shot on Uptown 1" })).toBeVisible();
-  await expect(choice.getByRole("radio", { name: "Its Recipe's Reference Shot" })).toHaveCount(0);
+  await expect(choice.getByRole("radio")).toHaveText(["Previous Shot on this Machine", "Nothing"]);
+  await expect(choice.getByRole("radio", { name: "Nothing" })).toBeChecked();
+  await expect(page.getByRole("region", { name: "How it went" }).getByRole("link", { name: "No reference" })).toHaveAttribute("href", `/shots?recipeId=${ethiopiaId}&rating=rated`);
 
   // Its Recipe unreadable, the page says why its Reference Shot isn't offered, apart from the comparison it still makes.
   await page.route(`**/api/recipes/${ethiopiaId}`, (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ message: "Internal server error" }) }));
   await page.reload();
   await expect(curves.getByRole("alert")).toHaveText("Its Recipe's Reference Shot could not be read, so it is not offered here: Internal server error");
-  await choice.getByRole("radio", { name: "The previous Shot on Uptown 1" }).check();
+  await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
   await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
   await expect(curves.getByRole("alert")).toHaveCount(1);
 });

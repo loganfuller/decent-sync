@@ -79,20 +79,25 @@ export function Stars({ rating }: { rating: number | null }) {
   const stars = starsOf(rating);
   return (
     <span role="img" aria-label={text} title={text} className="inline-flex items-center gap-px align-middle">
-      {Array.from({ length: MAX_STARS }, (_, index) => {
-        // How much of this star the rating fills, from none to all of it.
-        const filled = Math.min(1, Math.max(0, stars - index));
-        return (
-          <span key={index} aria-hidden className="relative size-3">
-            <StarIcon className="size-3 text-muted-foreground" />
-            {filled > 0 && (
-              <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${filled * 100}%` }}>
-                <StarIcon className="size-3 fill-current" />
-              </span>
-            )}
-          </span>
-        );
-      })}
+      {Array.from({ length: MAX_STARS }, (_, index) => (
+        <RatingStar key={index} index={index} stars={stars} />
+      ))}
+    </span>
+  );
+}
+
+/** One star of a rating of `stars`, the star at `index`, from 0, filled as far as the rating reaches into it; `size` is its size, as a class. */
+export function RatingStar({ index, stars, size = "size-3" }: { index: number; stars: number; size?: string }) {
+  // How much of this star the rating fills, from none to all of it.
+  const filled = Math.min(1, Math.max(0, stars - index));
+  return (
+    <span aria-hidden className={`relative ${size}`}>
+      <StarIcon className={`${size} text-muted-foreground`} />
+      {filled > 0 && (
+        <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${filled * 100}%` }}>
+          <StarIcon className={`${size} fill-current`} />
+        </span>
+      )}
     </span>
   );
 }

@@ -211,9 +211,11 @@ Each server has one owner: a household, or a business with all of its sites.
   shows. A grind setting is charted where it is a number, so a Recipe whose
   setting is text has no grind trend. A Machine's count of today, and its
   name under the chart, open those Shots in the Shots list.
-- **Compared at a glance.** Open any Shot's curves beside the previous Shot on
-  its Machine, or beside its Recipe's Reference Shot. Steam Records show the
-  milk's temperature.
+- **Compared at a glance.** A Shot's page opens with how it went, its
+  duration and yield marked where out of spec, and its curves over its
+  Recipe's Reference Shot's, or the previous Shot's on its Machine.
+  Everything else it recorded is under them, once, closed until opened.
+  Steam Records show the milk's temperature.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/overview-dark.png">

@@ -1052,7 +1052,8 @@ counts and times, and Show the numbers gives them all as a table. It is
 loaded every 30 s.
 
 The Machines list shows each Machine's state and last Shot; the Machine page
-also shows its current Workflow, its fields as a Shot's page shows them, the
+also shows its current Workflow, its fields read as a Shot's page reads its
+own (`workflowParts`), the
 brew temperature read from its profile's first step as Streamline's Brew tile
 reads it (`web/src/components/workflow.tsx`, tested in
 `web/test/workflow.test.ts`), loaded every 30 s rather than every 5 s as the

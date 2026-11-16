@@ -2,31 +2,32 @@ import { StarIcon } from "lucide-react";
 import { type FormEvent, useId, useState } from "react";
 import { Link } from "react-router";
 import { CollapsibleCard } from "@/components/collapsible-card";
-import { Field, Fields } from "@/components/fields";
-import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
+import { InfoTip } from "@/components/info-tip";
 import { FormError, failure, useMayChangeAt } from "@/components/library-forms";
 import { recordTime } from "@/components/records";
+import { RatingStar } from "@/components/shots";
 import { MadeBy } from "@/components/settings-edit-log";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Textarea } from "@/components/ui/textarea";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { api, type Shot, type ShotEdit } from "@/lib/api";
 import { MAX_STARS, ratingOf, ratingText, starsOf } from "@/lib/rating";
+import { cn } from "@/lib/utils";
 import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
 // A Shot's rating and note on its page (#514, ADR-0031): shown to everyone,
-// and edited by whoever may edit them, an Admin, or Staff for a Shot at a
-// Location they work at. An edit is applied on the server at once and
-// written to the tablet that holds the Shot, now or when it next connects,
-// so the card says where the edits stand with that tablet, and a card of
-// its own, closed until opened, lists each edit with who made it: an
-// account, or the Machine whose tablet it was made on (#515), which is any
-// tablet at the Shot's Location that doesn't hold the Shot: nearly always
-// another Machine's.
+// in its How it went card (#546), and edited there by whoever may edit
+// them, an Admin, or Staff for a Shot at a Location they work at. An edit
+// is applied on the server at once and written to the tablet that holds the
+// Shot, now or when it next connects, so the card says where the edits
+// stand with that tablet, and a card of its own, closed until opened, lists
+// each edit with who made it: an account, or the Machine whose tablet it
+// was made on (#515), which is any tablet at the Shot's Location that
+// doesn't hold the Shot: nearly always another Machine's.
 
 /** A rating as the card and its form say it, in stars: 0, or none, is unrated. */
 function ratingOrUnrated(rating: number | null): string {
@@ -36,7 +37,7 @@ function ratingOrUnrated(rating: number | null): string {
 /** Each star, in order, from 1. */
 const STARS = Array.from({ length: MAX_STARS }, (_, index) => index + 1);
 
-/** A star, filled where it counts toward a rating of that many stars, rounded to a whole one as DYE2 rounds one to show it (`enjoymentToStars`). */
+/** One of the form's stars, filled where it counts toward a rating of that many stars, rounded to a whole one as DYE2 rounds one to show it (`enjoymentToStars`). */
 function Star({ star, of }: { star: number; of: number }) {
   return <StarIcon aria-hidden className={star <= Math.round(of) ? "fill-current" : "text-muted-foreground"} />;
 }
@@ -54,79 +55,88 @@ const STANDING = {
 } as const;
 
 /**
- * The Shot's rating and note, with where their edits stand with its tablet,
- * and, for whoever may edit them, a form that edits them: only what was
- * changed is sent, so an edit of the rating leaves the note alone, and the
- * reverse. `onEdited` is given the Shot as the server then reads it.
+ * The Shot's rating and note, as the last of the figures of its page's How
+ * it went card (a group of terms in its list): the rating in stars, the
+ * note under it, where their edits stand with its tablet, and, for whoever
+ * may edit them, a form that edits them, across the card while it is open:
+ * only what was changed is sent, so an edit of the rating leaves the note
+ * alone, and the reverse. `onEdited` is given the Shot as the server then
+ * reads it.
  */
-export function RatingAndNoteCard({ shot, onEdited }: { shot: Shot; onEdited(shot: Shot): void }) {
+export function RatingAndNote({ shot, onEdited }: { shot: Shot; onEdited(shot: Shot): void }) {
   const mayEdit = useMayChangeAt()(shot.location?.id ?? null);
   const [editing, setEditing] = useState(false);
   const standing = shot.editStanding ? STANDING[shot.editStanding] : undefined;
+  // Closed if the account may no longer edit it, as when an Admin made it a Viewer meanwhile.
+  const open = editing && mayEdit;
   return (
-    <Card role="region" aria-label="Rating and note">
-      <CardHeader>
-        <CardTitleWithInfo title="Rating and note">
-          <p>
-            How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
-            the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which the REST API and an assistant's tools give. Both are set on the
-            tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on a tablet at its
-            Location that doesn't hold the Shot.
-          </p>
-          <p>
-            An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
-            next connects. An Admin edits any Shot, and Staff those at the Locations they work at.
-          </p>
-        </CardTitleWithInfo>
-      </CardHeader>
-      <CardContent className="grid gap-4">
-        {standing && (
+    // Its parts wrap, so the Edit button goes under the stars where the two don't fit side by side.
+    <div className={cn("col-span-full flex flex-wrap content-start items-center gap-x-3 gap-y-1 border-t pt-3", !open && "lg:col-span-1 lg:border-t-0 lg:pt-0")}>
+      {open ? (
+        <>
+          <dt className="sr-only">Rating and note</dt>
+          <dd className="w-full">
+            <RatingAndNoteForm
+              shot={shot}
+              onCancel={() => setEditing(false)}
+              onSaved={(edited) => {
+                setEditing(false);
+                onEdited(edited);
+              }}
+            />
+          </dd>
+        </>
+      ) : (
+        <>
+          <dt className="flex w-full items-center gap-1.5 text-[0.8125rem] text-muted-foreground">
+            Rating
+            <InfoTip label="About Rating and note">
+              <p>
+                How the Shot was judged. The rating is up to {MAX_STARS} stars, as DYE2 and a Skin show it on a tablet: each star is two points of
+                the rating from 0 to {MAX_SHOT_RATING} that Decaid keeps, which the REST API and an assistant's tools give. Both are set on the
+                tablet that holds the Shot, or edited away from it: here, through a Connected App, such as an assistant, or on a tablet at its
+                Location that doesn't hold the Shot.
+              </p>
+              <p>
+                An edit made away from that tablet shows here at once, and is written to that tablet, now if it is connected and otherwise when it
+                next connects. An Admin edits any Shot, and Staff those at the Locations they work at.
+              </p>
+            </InfoTip>
+          </dt>
+          <dd className="flex min-h-8 items-center gap-2 text-base font-semibold">
+            {/* Filled as far as the rating reaches, as the Shots list draws one. */}
+            <span className="flex items-center gap-0.5">
+              {STARS.map((star) => (
+                <RatingStar key={star} index={star - 1} stars={starsOf(shot.enjoyment)} size="size-5" />
+              ))}
+            </span>
+            {ratingOrUnrated(shot.enjoyment)}
+          </dd>
+          {mayEdit && (
+            <dd>
+              <Button variant="link" className="h-auto p-0 text-foreground underline" onClick={() => setEditing(true)}>
+                Edit
+                <span className="sr-only"> its rating and note</span>
+              </Button>
+            </dd>
+          )}
+          <dt className="sr-only">Note</dt>
+          <dd className="w-full wrap-anywhere">
+            {shot.notes ? <span className="whitespace-pre-wrap">{shot.notes}</span> : <span className="text-muted-foreground">No note</span>}
+          </dd>
+        </>
+      )}
+      {standing && (
+        <dd className="w-full">
           <p role="status" aria-label="Edits and the tablet" className="flex items-center gap-1.5">
             <Badge variant="secondary">{standing.label}</Badge>
             <InfoTip label={`About ${standing.label}`}>
               <p>{standing.tip}</p>
             </InfoTip>
           </p>
-        )}
-        {/* Closed if the account may no longer edit it, as when an Admin made it a Viewer meanwhile. */}
-        {editing && mayEdit ? (
-          <RatingAndNoteForm
-            shot={shot}
-            onCancel={() => setEditing(false)}
-            onSaved={(edited) => {
-              setEditing(false);
-              onEdited(edited);
-            }}
-          />
-        ) : (
-          <>
-            <Fields label="Rating and note">
-              <Field term="Rating">
-                <span className="flex items-center gap-2">
-                  <span className="flex [&_svg]:size-4">
-                    {STARS.map((star) => (
-                      <Star key={star} star={star} of={starsOf(shot.enjoyment)} />
-                    ))}
-                  </span>
-                  {ratingOrUnrated(shot.enjoyment)}
-                </span>
-              </Field>
-              <Field term="Note">
-                {shot.notes ? <span className="whitespace-pre-wrap">{shot.notes}</span> : <span className="text-muted-foreground">None</span>}
-              </Field>
-            </Fields>
-            {mayEdit && (
-              <div>
-                <Button variant="outline" onClick={() => setEditing(true)}>
-                  Edit
-                  <span className="sr-only"> its rating and note</span>
-                </Button>
-              </div>
-            )}
-          </>
-        )}
-      </CardContent>
-    </Card>
+        </dd>
+      )}
+    </div>
   );
 }
 

@@ -229,7 +229,8 @@ export function ReferenceShotControl({ shot, onChanged }: { shot: Shot; onChange
   const references = shot.referenceOf ?? [];
   if (references.length === 0 && !mayChange) return null;
   return (
-    <div className="flex flex-wrap items-center gap-2">
+    // Beside the Shot's title, and under it, as wide as the page, on a narrow screen.
+    <div className="flex flex-wrap items-center gap-2 max-sm:w-full">
       {references.length > 0 && (
         <p className="text-sm">
           <Badge variant="secondary">Reference Shot</Badge> of <ReferenceOfLinks recipes={references} />
@@ -291,7 +292,9 @@ function ChooseReferenceDialog({ shot, onChosen }: { shot: Shot; onChosen(): voi
       }}
     >
       <DialogTrigger asChild>
-        <Button variant="outline">Make it a Reference Shot</Button>
+        <Button variant="outline" className="max-sm:w-full">
+          Make it a Reference Shot
+        </Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>
