@@ -1774,7 +1774,8 @@ give an assistant what it shows.
   say ("+3.5 s", "0 of 3 at target"), which a screen reader still hears,
   and how far apart the Machines are under the Recipe's name, in place of
   the last column. With three or more Machines the table is wider than the
-  block and scrolls within it, the Recipe column staying in place.
+  block and scrolls within it, the Recipe column staying in place, of one
+  width however many Machines there are (`tableWidths`).
 - **The shared parts** the milestone's other tickets use: the mark
   (`SpecMark` in `web/src/components/spec-mark.tsx`), which never rests on
   colour alone, having a triangle, semibold text and "Out of spec" for a

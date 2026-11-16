@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback } from "react";
+import { type CSSProperties, type ReactNode, useCallback } from "react";
 import { Link, useSearchParams } from "react-router";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { CaptureOnlyBadge } from "@/components/machine-sharing";
@@ -247,14 +247,19 @@ export function HomeOverviewBlock({ location, machines, period }: { location: Lo
 }
 
 /**
- * The least a block's table is wide, in rem, for its Machines: room for the
- * Recipe column and a cell each. Two Machines fit a phone (390 px), so the
- * table is as wide as the block; with three or more it is wider than a
- * phone, and scrolls in its own container under the Recipe column, which
- * stays in place.
+ * How a block's table shares its width, by how many Machines it has. Two
+ * fit a phone (390 px), so the table is as wide as the block, the Recipe
+ * column a share of it. With three or more it has a least width, 6.5rem for
+ * each Machine beside its other columns, so on a phone it is wider than the
+ * block and scrolls in its own container under the Recipe column, which
+ * stays in place: that column is then of a fixed width, 8rem on a phone,
+ * however many Machines there are, as a share of a table that grows with
+ * them would come to cover the cells it scrolls over.
  */
-function tableMinWidth(machines: number): string | undefined {
-  return machines > 2 ? `${8 + machines * 6.5}rem` : undefined;
+function tableWidths(machines: number): { table: string; recipe: string } {
+  return machines > 2
+    ? { table: "min-w-[calc(8rem+var(--machines)*6.5rem)] sm:min-w-[calc(23rem+var(--machines)*6.5rem)]", recipe: "w-32 sm:w-56" }
+    : { table: "", recipe: "w-[36%] sm:w-[30%]" };
 }
 
 /** What stays in place as a wide table scrolls sideways: the Recipe column, over the cells. */
@@ -266,6 +271,7 @@ function OverviewNumbers({ location, machines, period, data, error }: { location
   const columns = overviewColumns(data?.groups ?? [], machines, id);
   const rows = data ? overviewRows(data.groups, data.recipes, id) : [];
   const pulled = PERIODS.find((each) => each.period === period)!.pulled;
+  const widths = tableWidths(columns.length);
 
   return (
     <div className="grid grid-cols-1 gap-3">
@@ -286,10 +292,10 @@ function OverviewNumbers({ location, machines, period, data, error }: { location
           {rows.length > 0 && data && (
             <div className="min-w-0 overflow-hidden rounded-lg border">
               {/* Its columns share the width left by the Recipe's, so two Machines' cells are as wide as each other at any width. */}
-              <Table aria-label={`Recipes by Machine at ${location.name}`} className="table-fixed" style={{ minWidth: tableMinWidth(columns.length) }}>
+              <Table aria-label={`Recipes by Machine at ${location.name}`} className={cn("table-fixed", widths.table)} style={{ "--machines": columns.length } as CSSProperties}>
                 <TableHeader>
                   <TableRow className="bg-muted hover:bg-muted">
-                    <TableHead scope="col" className={cn(STICKY, "h-auto w-[36%] bg-muted py-2 text-[13px] text-muted-foreground sm:w-[30%] sm:px-3")}>
+                    <TableHead scope="col" className={cn(STICKY, widths.recipe, "h-auto bg-muted py-2 text-[13px] text-muted-foreground sm:px-3")}>
                       Recipe
                     </TableHead>
                     {columns.map((column) => (

@@ -549,7 +549,7 @@ test("the Machines' status is read again every 5 seconds, and the numbers every 
   await expect.poll(() => summariesRead).toBeGreaterThan(0);
 });
 
-test("on a phone, with three Machines the page still fits: the table scrolls within its block, and the Recipe column stays in place", async ({ browser, page }) => {
+test("on a phone, with three Machines or more the page still fits: the table scrolls within its block, and the Recipe column stays in place, no wider for more Machines", async ({ browser, page }) => {
   // A third Machine at the Harbor, beside its own and the one moved there, with a name of one long word, which wraps
   // within its card and its column rather than widening them.
   const created = await page.request.post("/api/machines", { data: { name: LONG_NAME } });
@@ -585,6 +585,25 @@ test("on a phone, with three Machines the page still fits: the table scrolls wit
     await heading.scrollIntoViewIfNeeded();
     await expect(heading).toBeInViewport({ ratio: 1 });
     await expectFits(phone);
+    const recipeWidth = before.heading!.width;
+
+    // Five more Machines, eight in all: the Recipe column is as wide as it was, so scrolled to the end the last
+    // Machine's column is whole beside it, not under it.
+    for (const name of ["Harbor 4", "Harbor 5", "Harbor 6", "Harbor 7", "Harbor 8"]) {
+      const more = await page.request.post("/api/machines", { data: { name } });
+      expect(more.status()).toBe(201);
+      const added = (await more.json()) as { machine: { id: string } };
+      expect((await page.request.post(`/api/machines/${added.machine.id}/location-history`, { data: { locationId: harbor.id } })).status()).toBe(201);
+    }
+    await phone.reload();
+    await expect(harborTable.getByRole("columnheader")).toHaveCount(9);
+    await expectFits(phone);
+    await scroller.evaluate((element) => element.scrollTo({ left: element.scrollWidth }));
+    const [pinned, last] = await Promise.all([heading.boundingBox(), harborTable.getByRole("columnheader").last().boundingBox()]);
+    expect(pinned!.width).toBe(recipeWidth);
+    expect(last!.x).toBeGreaterThanOrEqual(pinned!.x + pinned!.width);
+    await harborTable.getByRole("columnheader").last().scrollIntoViewIfNeeded();
+    await expect(harborTable.getByRole("columnheader").last()).toBeInViewport({ ratio: 1 });
   } finally {
     await context.close();
   }

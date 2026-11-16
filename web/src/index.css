@@ -66,7 +66,7 @@
     --accent: oklch(0.97 0 0);
     --accent-foreground: oklch(0.205 0 0);
     --destructive: oklch(0.577 0.245 27.325);
-    /* What marks something out of spec (spec-mark.tsx): its text on its ground at 6.5:1 here and 8:1 in the dark
+    /* What marks something out of spec (spec-mark.tsx): its text on its ground at 6:1 here and 7:1 in the dark
        theme, in sRGB so a test can read them back (e2e/overview.spec.ts). */
     --spec-mark: #b42318;
     --spec-mark-ground: #fef3f2;
