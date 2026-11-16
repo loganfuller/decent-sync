@@ -21,7 +21,7 @@ export interface MachineView {
   takeover: TakeoverView | null;
   online: boolean;
   lastSeenAt: string | null;
-  lastShot: { id: string; pulledAt: string | null } | null;
+  lastShot: { id: string; pulledAt: string | null; recipe: { id: string; name: string | null } | null; duration: number | null; spec: Record<string, unknown> } | null;
   machineState: { state: string; substate: string; observedAt: string } | null;
   location: LocationView | null;
   locationHistory: { id: string; location: LocationView; effectiveFrom: string }[];

@@ -8,6 +8,7 @@ import type { LocationView } from "../locations/locations.service.js";
 import { type LoadedRecipeView, currentLoadedRecipes } from "../machine-events/loaded-recipes.js";
 import { PrismaService } from "../prisma.service.js";
 import { hashSecret, newSecret } from "../secrets.js";
+import { type JudgedShot, shotSpecs } from "../shots/shot-specs.js";
 import { type Hardware, type Identity, isRealSerial, realHardware, resolveIdentity, sameHardware } from "../sync/identity.js";
 import { notifyAccessChanged } from "./access-changes.js";
 import type { LiveConnection } from "./connections.js";
@@ -73,7 +74,13 @@ export interface MachineView {
    * Whether it is online is judged by the former alone.
    */
   lastSeenAt: string | null;
-  lastShot: { id: string; pulledAt: string | null } | null;
+  /**
+   * The Shot it pulled last, with the Recipe it was pulled with, its
+   * duration as the Shots list shows it, and how it stands against the
+   * margins, as the Shot's own read gives them (#543, `shotSpecs`), so a
+   * status line needs no second read.
+   */
+  lastShot: ({ id: string; pulledAt: string | null } & JudgedShot) | null;
   /** What it is doing: the latest machine state stored for it, or null before any. */
   machineState: MachineStateView | null;
   /** The Recipe its Workflow has loaded (ADR-0022), since when, or null for none. */
@@ -545,7 +552,9 @@ export class MachinesService {
       takeoversOf(this.prisma, machines.map((machine) => machine.id)),
       currentLoadedRecipes(this.prisma, machines.map((machine) => machine.id)),
     ]);
-    const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null }]));
+    const judged = await shotSpecs(this.prisma, lastShots.map((shot) => shot.id));
+    // No Shot is ever deleted, so each is there to judge.
+    const lastByMachine = new Map(lastShots.map((shot) => [shot.machineId, { id: shot.id, pulledAt: shot.pulledAt?.toISOString() ?? null, ...judged.get(shot.id)! }]));
     const deliveredAt = new Map(deliveries.map(({ machineId, receivedAt }) => [machineId, receivedAt]));
     const stateByMachine = new Map(
       states.map(({ machineId, state, substate, observedAt }) => [machineId, { state, substate, observedAt: observedAt.toISOString() }]),

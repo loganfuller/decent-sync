@@ -415,7 +415,7 @@ describe("Shot Summaries by day and week", () => {
       [1, 2.027778],
     ]);
     // By week, with every other number: each bucket's are of its own Shots.
-    const every = "yieldAgainstTarget,duration,stoppedOnWeight,ratio,peakPressure,peakFlow,rating,grindSetting,tds,extractionYield,timeToFirstDrip,lastStep";
+    const every = "yieldAgainstTarget,duration,stoppedOnWeight,stoppedAtTarget,ratio,peakPressure,peakFlow,rating,grindSetting,tds,extractionYield,timeToFirstDrip,lastStep";
     const weeks = (await api.get<{ groups: { buckets: { start: string; numbers: Record<string, { shots: number }> }[] }[] }>(`/shots/summary?${new URLSearchParams({ bucket: "week", locationId: lab.id, numbers: every })}`))
       .groups[0]!.buckets;
     expect(weeks.map(({ start, numbers }) => [start, Object.keys(numbers).join(), numbers.grindSetting!.shots, numbers.timeToFirstDrip!.shots, numbers.lastStep!.shots])).toEqual([
@@ -443,7 +443,7 @@ describe("Shot Summaries by day and week", () => {
     // Before its buckets, as the REST API gives it.
     expect(Object.keys((await api.get<{ groups: Fields[] }>("/shots/summary?bucket=day&groupBy=recipe")).groups[0]!)).toEqual(["by", "reference", "buckets"]);
     // Its own values of the numbers asked for, the default three, whichever bucket it is in.
-    expect(house!.reference).toEqual({ id: "lab-monday", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: true } });
+    expect(house!.reference).toEqual({ id: "lab-monday", numbers: { yieldAgainstTarget: -1.3, duration: 25.833, stoppedOnWeight: true, stoppedAtTarget: true } });
     expect(house!.buckets.map((bucket) => Object.keys(bucket))).toEqual(Array.from({ length: 4 }, () => ["start", "counts", "numbers"]));
     expect(house!.buckets.map(({ start }) => start)).toEqual(["2026-02-10", "2026-02-15", "2026-02-16", "2026-02-19"]);
     // The Shots pulled with no Recipe have none.
@@ -460,6 +460,6 @@ describe("Shot Summaries by day and week", () => {
     }
     expect(await api.send("GET", "/shots/summary?bucket=day&bucket=week", undefined, 400)).toMatchObject({ message: ["Give bucket once"] });
     const [group] = (await api.get<{ groups: Fields[] }>("/shots/summary")).groups;
-    expect(Object.keys(group!)).toEqual(["by", "counts", "numbers"]);
+    expect(Object.keys(group!)).toEqual(["by", "counts", "numbers", "spec"]);
   });
 });

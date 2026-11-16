@@ -73,7 +73,7 @@ interface Changes {
 
 const LAB_SERIAL = "46901";
 const STEPS_SERIAL = "46902";
-const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+const EVERY_NUMBER = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
 
 /** Its pouring samples reported in preinfusion. */
 const neverReportedPouring = (samples: Fields[]) =>
@@ -210,6 +210,8 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
       duration: number(6, 23.549),
       // Of the six, all but the one its Machine ended.
       stoppedOnWeight: { shots: 6, share: 0.833333 },
+      // The same five, as none stopped at a target volume, and the one its Machine ended.
+      stoppedAtTarget: { shots: 6, share: 0.833333, atTarget: 5, byHand: 0, machineEnded: 1, error: 0, other: 0 },
       // 1.5, 2, 2.5 and 2.5: none where the dose is 0 or missing.
       ratio: number(4, 2.25, 1.875, 2.5),
       // 2.8093124168495587, 8.01220703125, and 9.004638671875 four times: the 25th percentile a quarter of the way from the second to the third.
@@ -244,9 +246,9 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
     expect(await listTotal(atLab1())).toBe(8);
     // Asked for in any order, the numbers come in one, and only those asked for.
     expect((await summary({ ...atLab1(), numbers: "lastStep,ratio" })).numbers).toEqual({ ratio: LAB_1.numbers.ratio, lastStep: LAB_1.numbers.lastStep });
-    // With none named, the default four: the count, yield against target, duration and stopped on weight.
-    const { yieldAgainstTarget, duration, stoppedOnWeight } = LAB_1.numbers;
-    expect(await summary(atLab1())).toEqual({ counts: LAB_1.counts, numbers: { yieldAgainstTarget, duration, stoppedOnWeight } });
+    // With none named, the defaults: with the count, yield against target, duration, stopped on weight and stopped at target.
+    const { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget } = LAB_1.numbers;
+    expect(await summary(atLab1())).toEqual({ counts: LAB_1.counts, numbers: { yieldAgainstTarget, duration, stoppedOnWeight, stoppedAtTarget } });
   });
 
   it("counts an Unfinished Shot alone as unfinished, with no number, and a Shot that never reported pouring but whose scale read a gram as poured", async () => {
@@ -258,6 +260,7 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
         yieldAgainstTarget: NONE,
         duration: NONE,
         stoppedOnWeight: { shots: 0, share: null },
+        stoppedAtTarget: { shots: 0, share: null, atTarget: 0, byHand: 0, machineEnded: 0, error: 0, other: 0 },
         ratio: NONE,
         peakPressure: NONE,
         peakFlow: NONE,
@@ -337,6 +340,7 @@ describe("A Shot Summary's other numbers, and its Unfinished Shots", () => {
         duration: number(7, 23.549, 13.822, 23.549),
         // Of the seven, all but the two its Machine ended.
         stoppedOnWeight: { shots: 7, share: 0.714286 },
+        stoppedAtTarget: { shots: 7, share: 0.714286, atTarget: 5, byHand: 0, machineEnded: 2, error: 0, other: 0 },
         // 1.5, 2, 2.5, 2.5 and 3.59.
         ratio: number(5, 2.5, 2, 2.5),
         // 0.449462890625, 2.8093124168495587, 8.01220703125, and 9.004638671875 four times.

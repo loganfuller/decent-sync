@@ -12,6 +12,7 @@ import { type ShotFilters, baristaNamesSql, shotFilterSql } from "./filters.js";
 import { claimListed, resolveLinks, shotProfileSql, shotRecipeSql } from "./links.js";
 import { announceReferenceShots } from "./reference-announcements.js";
 import { type ShotEditFields, type ShotEditView, editStanding, listShotEdits, settleShotEdits, settleStoredVersion, undecidedSql } from "./shot-edits.js";
+import { shotSpecs } from "./shot-specs.js";
 import { type Bucket, type BucketedGroup, DEFAULT_NUMBERS, type Grouping, type NumberName, type ShotSummary, type SummaryGroup, summarise } from "./summary.js";
 
 /** Advisory lock class for one Shot id; distinct from the server's other lock classes. */
@@ -167,8 +168,9 @@ export class ShotsService {
         const rows = ids.length === 0
           ? []
           : await withLinks(tx, await tx.shot.findMany({ where: { id: { in: ids.map((row) => row.id) } }, omit: listOmitted, include: creditView }));
-        const details = await recordedDetailsOf(tx, rows.map((row) => row.id));
-        const byId = new Map(rows.map((row) => [row.id, { ...row, ...details.get(row.id)! }]));
+        const [details, specs] = await Promise.all([recordedDetailsOf(tx, rows.map((row) => row.id)), shotSpecs(tx, rows.map((row) => row.id))]);
+        // Each row with what it recorded beyond its columns, and how it stands against the margins (#543).
+        const byId = new Map(rows.map((row) => [row.id, { ...row, ...details.get(row.id)!, spec: specs.get(row.id)!.spec }]));
         return { page: ids.flatMap((row) => byId.get(row.id) ?? []), total: count!.total };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -292,18 +294,20 @@ export class ShotsService {
    * in and the scale's last weight are read from those samples, so a Shot
    * has them before its stored values are worked out (`measuredValues`);
    * its time to first drip and its flow at the stop are the stored ones,
-   * null until then.
+   * null until then. `spec` is how it stands against the margins (#543,
+   * `shotSpecs`), as a row of the list gives it.
    */
   async read(id: string) {
     const found = await this.prisma.shot.findFirst({ where: { id, ...visible }, omit: readOmitted, include: creditView });
     if (!found) throw shotNotFound();
     const [shot] = await withLinks(this.prisma, [found]);
-    const [measurements, previousShot] = await Promise.all([
+    const [measurements, previousShot, specs] = await Promise.all([
       this.prisma.shotMeasurements.findUnique({ where: { shotId: id }, select: { data: true } }),
       this.previous(shot!),
+      shotSpecs(this.prisma, [id]),
     ]);
     const samples = shotSamples(measurements?.data ?? null, object(object(found.record).workflow).profile);
-    return { shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), previousShot }, samples };
+    return { shot: { ...shownShot(shot!), ...recordedDetails(found.record), ...measuredDetails(samples), spec: specs.get(id)!.spec, previousShot }, samples };
   }
 
   async measurements(id: string) {

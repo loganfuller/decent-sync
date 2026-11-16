@@ -64,6 +64,8 @@ interface RestShot {
   peakPressure: number | null;
   peakFlow: number | null;
   stopReason: string | null;
+  /** How it stands against the margins (#543). */
+  spec: { unfinished: boolean; cleaningOrCalibration: boolean; duration: Fields | null; yield: Fields | null; stopped: string | null };
   tds: number | null;
   extractionYield: number | null;
   notes: string | null;
@@ -189,6 +191,8 @@ function shotRow(shot: RestShot): Fields {
     peakPressure: hundredths(shot.peakPressure),
     peakFlow: hundredths(shot.peakFlow),
     stopReason: shot.stopReason,
+    // Each part of its judgement that has a value, its two flags only when true, its differences to hundredths.
+    spec: asTools(present({ ...shot.spec, unfinished: shot.spec.unfinished || null, cleaningOrCalibration: shot.spec.cleaningOrCalibration || null })),
     lastStep: shot.lastStep,
     enjoyment: shot.enjoyment,
     barista: recorded(shot.barista),
@@ -556,7 +560,9 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await findShotsAsRest(april, april)).toEqual(["assistant-inferred", "assistant-measured", "assistant-aborted"]);
     const { shots } = await assistant.call<{ shots: Fields[] }>("find_shots", april);
     const [inferredRow, measuredRow, abortedRow] = shots as [Fields, Fields, Fields];
-    expect(abortedRow).toMatchObject({ stopReason: "machineEnded", grinderSetting: "8" });
+    // Unweighed and pulled with no Recipe, it has no yield or duration to judge: only how it stopped.
+    expect(abortedRow).toMatchObject({ stopReason: "machineEnded", grinderSetting: "8", spec: { stopped: "machineEnded" } });
+    expect(Object.keys(abortedRow.spec as Fields)).toEqual(["stopped"]);
     // Unweighed, untasted and unmeasured, it gives no yield, notes or readings.
     for (const none of ["actualYield", "notes", "tds", "extractionYield", "enjoyment", "recipe"]) expect(abortedRow, none).not.toHaveProperty(none);
     expect(measuredRow).toMatchObject({
@@ -576,9 +582,11 @@ describe("reading Shots and Steam Records through an assistant", () => {
     // where inferred; it was pulled with no Recipe loaded and rated with no enjoyment, so neither is given.
     expect(Object.keys(measuredRow)).toEqual([
       "id", "pulledAt", "machine", "location", "profile", "beanBatch", "grinder", "grinderSetting", "basket", "targetDose", "actualDose",
-      "targetYield", "actualYield", "duration", "timeToFirstDrip", "peakPressure", "peakFlow", "stopReason", "lastStep", "barista", "tds",
+      "targetYield", "actualYield", "duration", "timeToFirstDrip", "peakPressure", "peakFlow", "stopReason", "spec", "lastStep", "barista", "tds",
       "extractionYield", "notes",
     ]);
+    // 0.1 g under its target of 36, within the margin, and stopped at its target weight; pulled with no Recipe, it has no Reference Shot to be timed against.
+    expect(measuredRow.spec).toEqual({ yield: { againstTarget: -0.1, outOfSpec: false }, stopped: "targetWeight" });
     // Its scale first read 1 g or more 21.45 s into its profile, which ended in its fifth step.
     expect(measuredRow).toMatchObject({ timeToFirstDrip: 21.45, lastStep: { frame: 4, name: "Pressure Decline" } });
     expect(Object.keys(measuredRow.beanBatch as Fields)).toEqual(["id", "roaster", "name"]);
@@ -628,8 +636,11 @@ describe("reading Shots and Steam Records through an assistant", () => {
 
     const read = await assistant.call<ToolShot>("get_shot", { id: "assistant-preheat" });
     expect(read).not.toHaveProperty("curves");
-    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, editStanding, stopReason, steps, lastStep, timeToFirstDrip: firstDrip, flowAtStop: flow, ...summary } = read;
+    const { pulledAt, previousShot, grinderModel, basketName, grinderSetting, grinderBurrs, tds, extractionYield, notes, editStanding, stopReason, spec, steps, lastStep, timeToFirstDrip: firstDrip, flowAtStop: flow, ...summary } = read;
     expect(summary).toEqual(shotSummary(rest));
+    // Its judgement whole, as the REST API gives it, its differences to hundredths.
+    expect(spec).toEqual(asTools(rest.spec));
+    expect(spec).toMatchObject({ unfinished: false, cleaningOrCalibration: false, duration: null, stopped: "targetWeight" });
     // Never edited through the server, as the REST API says too.
     expect([editStanding, rest.editStanding]).toEqual([null, null]);
     expect({ grinderModel, basketName }).toEqual({ grinderModel: rest.grinderModel, basketName: rest.basketName });
@@ -982,7 +993,10 @@ describe("reading Shots and Steam Records through an assistant", () => {
         yieldAgainstTarget: { shots: 2, median: 1.2, p25: 0.55, p75: 1.85 },
         duration: { shots: 2, median: 23.55, p25: 23.55, p75: 23.55 },
         stoppedOnWeight: { shots: 2, share: 0.5 },
+        stoppedAtTarget: { shots: 2, share: 0.5, atTarget: 1, byHand: 0, machineEnded: 1, error: 0, other: 0 },
       },
+      // Two Shots are too few to judge: their yields' median, 1.2 g over 36, is within the margin, and half stopped at target.
+      spec: { yield: { judgement: "notJudged", beyondMargin: false }, stoppedAtTarget: { judgement: "notJudged", beyondMargin: true } },
     });
     // Every filter find_shots takes, as it takes it. The Shot stopped in its Preheat, earlier, is unfinished.
     const all = (await summarisedAsRest({}, {})).counts;
@@ -1001,7 +1015,13 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(await summarisedAsRest({ recipeId: nothing }, { recipeId: nothing })).toEqual({
       by: {},
       counts: { shots: 0, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0 },
-      numbers: { yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null }, duration: { shots: 0, median: null, p25: null, p75: null }, stoppedOnWeight: { shots: 0, share: null } },
+      numbers: {
+        yieldAgainstTarget: { shots: 0, median: null, p25: null, p75: null },
+        duration: { shots: 0, median: null, p25: null, p75: null },
+        stoppedOnWeight: { shots: 0, share: null },
+        stoppedAtTarget: { shots: 0, share: null, atTarget: 0, byHand: 0, machineEnded: 0, error: 0, other: 0 },
+      },
+      spec: { yield: { judgement: "notJudged", beyondMargin: null }, stoppedAtTarget: { judgement: "notJudged", beyondMargin: null } },
     });
     // A time with its offset is that moment: from 12:30 UTC the Shot at 13:00 and the cleaning one, up to 14:00 the first alone.
     const summarised = async (input: Fields) => (await assistant.call<{ groups: Group[] }>("summarise_shots", { machineId: roaming.machine.id, ...input })).groups[0]!.counts;
@@ -1113,7 +1133,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
   });
 
   it("gives the numbers asked for as the REST API does, whole and by group", async () => {
-    const every = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
+    const every = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip", "lastStep"];
     for (const groupBy of [[], ["machine"], ["recipe", "barista"]]) {
       for (const numbers of [every, ["lastStep", "ratio"]]) {
         const summarised = await assistant.call<{ groups: SummaryGroup[] } & Page>("summarise_shots", { groupBy, numbers, limit: 50 });
@@ -1132,7 +1152,7 @@ describe("reading Shots and Steam Records through an assistant", () => {
     expect(whole!.numbers.lastStep!.shots).toBe(whole!.counts.shots);
     expect(whole!.numbers.timeToFirstDrip!.shots).toBe(whole!.counts.shots - 1);
     // The default: yield against target, duration and stopped on weight.
-    expect(Object.keys((await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", {})).groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight"]);
+    expect(Object.keys((await assistant.call<{ groups: SummaryGroup[] }>("summarise_shots", {})).groups[0]!.numbers)).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"]);
 
     expect(await toolError("summarise_shots", { numbers: ["ratio", "ratio"] })).toBe("Give each number once");
     expect(await toolError("summarise_shots", { numbers: [] })).toContain("numbers");

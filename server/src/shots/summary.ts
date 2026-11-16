@@ -3,13 +3,16 @@ import { Prisma } from "../generated/prisma/client.js";
 import { queryValue } from "../record-filters.js";
 import { BLANK, baristaKeySql, baristaNamesSql } from "./filters.js";
 import { shotListedSql, shotRecipeSql } from "./links.js";
+import { AT_TARGET_REASONS, type BetweenMachines, type DurationJudgement, type Judgement, MARGINS, type MachineSpread, STOP_KINDS, judgeBetweenMachines, judgeDuration, judgeStopping, judgeYield } from "./spec.js";
 
 // A Shot Summary (#466, #468, #469, #470, #473; #465, Which Shots a summary
 // counts, The numbers, Groupings, The summary's contract): what the Shots a
 // list's filters find have in common, by group, and within a group by day or
 // week, worked out as it is read, in one statement, from each Shot's columns
 // and its record, with the Reference Shot of each Recipe they are grouped
-// by. Nothing is stored for it, so a Shot edit shows in the next one.
+// by. Nothing is stored for it, so a Shot edit shows in the next one. Without
+// a bucket, each group is judged within spec or out of spec against the
+// margins (#543; spec.ts, GLOSSARY.md).
 
 /**
  * A number of a summary: the median of the Shots that had a value for it,
@@ -29,6 +32,23 @@ export interface SummaryNumber {
 export interface SummaryShare {
   shots: number;
   share: number | null;
+}
+
+/**
+ * Stopped at target (GLOSSARY.md): of the Shots that recorded what stopped
+ * them, `shots`, the `atTarget` that Decaid stopped at their target weight
+ * or, with no scale, their target volume, with `share`, that part of them,
+ * and how the rest stopped (`STOP_KINDS` in spec.ts): `byHand`, by the Stop
+ * button in Decaid's app or through its API; `machineEnded`, by the Machine
+ * itself; `error`, by an error or a dropped connection; and `other`, by
+ * anything else. The five add up to `shots`.
+ */
+export interface StoppedAtTarget extends SummaryShare {
+  atTarget: number;
+  byHand: number;
+  machineEnded: number;
+  error: number;
+  other: number;
 }
 
 /** A rating: the median of the ratings given, and `rated`, the part of the group's Shots that were rated, from 0 to 1, null where it has none. */
@@ -65,6 +85,8 @@ export interface SummaryNumbers {
   duration: SummaryNumber;
   /** Among the Shots that recorded a stop reason, those Decaid stopped at the target weight (`targetWeight`). */
   stoppedOnWeight: SummaryShare;
+  /** Among the Shots that recorded a stop reason, those Decaid stopped at their target, its weight or its volume, and how the rest stopped. */
+  stoppedAtTarget: StoppedAtTarget;
   /** Yield weighed over dose weighed; a Shot whose dose is 0 or missing, or that weighed no yield, has no value. */
   ratio: SummaryNumber;
   /** As the Shots keep them, leaving out the Preheat: in bar, and in ml/s. */
@@ -87,11 +109,12 @@ export interface SummaryNumbers {
  * What one Shot has of each number, as a Recipe's Reference Shot gives them
  * (`SummaryReference`): its own value, null where it has none, as a Shot
  * with no value of a number is not counted in a group's. Whether it stopped
- * on weight is true or false, null where it recorded no stop reason, and its
- * last step the step of its Profile it ended in.
+ * on weight, and at its target, are each true or false, null where it
+ * recorded no stop reason, and its last step the step of its Profile it
+ * ended in.
  */
 export type ShotNumbers = {
-  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
+  [Name in keyof SummaryNumbers]: (Name extends "stoppedOnWeight" | "stoppedAtTarget" ? boolean : Name extends "lastStep" ? { frame: number; name: string | null } : number) | null;
 };
 
 /** The numbers a summary can give, in the order a group gives them. */
@@ -99,6 +122,7 @@ export const NUMBERS = [
   "yieldAgainstTarget",
   "duration",
   "stoppedOnWeight",
+  "stoppedAtTarget",
   "ratio",
   "peakPressure",
   "peakFlow",
@@ -111,8 +135,12 @@ export const NUMBERS = [
 ] as const satisfies readonly (keyof SummaryNumbers)[];
 export type NumberName = (typeof NUMBERS)[number];
 
-/** The numbers a summary gives where none are named: with the count, the Overview's four (#465). */
-export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight"];
+/**
+ * The numbers a summary gives where none are named: with the count, what the
+ * Overview reads (#465, #543). `stoppedOnWeight` stays among them for the
+ * latest release's pages, which read it (ADR-0025), until #556 removes it.
+ */
+export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"];
 
 /**
  * What a summary's Shots are grouped by (#465, Groupings), each by what the
@@ -207,8 +235,35 @@ interface Grouped {
   reference?: SummaryReference;
 }
 
-/** A group of a summary with no bucket: what its Shots have in common. */
-export interface SummaryGroup extends Grouped, SummaryFigures {}
+/**
+ * A group's Shots against the margins (#543; spec.ts): whether they are
+ * within spec, out of spec or not judged, for each of what a group is
+ * judged by. Each is of the Shots the group's numbers cover, whichever
+ * numbers were asked for.
+ */
+export interface GroupSpec {
+  /**
+   * With a grouping by Recipe, where the group's Recipe has a Reference Shot
+   * with a duration: the group's median duration against it, with the
+   * difference in seconds. No group has one otherwise.
+   */
+  duration?: DurationJudgement;
+  /** The median of each Shot's yield less its own target, as a share of that target, against the margin either way. */
+  yield: Judgement;
+  /** The share of the Shots that recorded what stopped them that stopped at their target. */
+  stoppedAtTarget: Judgement;
+  /**
+   * Grouped by Recipe and Machine, for a group with a Recipe: that Recipe
+   * between its Machines, among the Shots the filters find, the same on
+   * each of the Recipe's groups, whichever page they fall on.
+   */
+  betweenMachines?: BetweenMachines;
+}
+
+/** A group of a summary with no bucket: what its Shots have in common, and how they stand against the margins. */
+export interface SummaryGroup extends Grouped, SummaryFigures {
+  spec: GroupSpec;
+}
 
 /**
  * A group of a summary with a bucket: in place of its own counts and
@@ -223,9 +278,8 @@ export interface BucketedGroup extends Grouped {
 /**
  * A Recipe's Reference Shot beside a group of the Recipe's Shots: its id,
  * and its own value of each number asked for, in the order of `NUMBERS`,
- * whatever kind of Shot it is, a cleaning or an Unfinished Shot too. Nothing
- * is worked out of the two: no score, and no judgement of the group's Shots
- * against it (#465, Out of Scope).
+ * whatever kind of Shot it is, a cleaning or an Unfinished Shot too. The
+ * group's `spec` judges its median duration against this Shot's (#543).
  */
 export interface SummaryReference {
   id: string;
@@ -321,10 +375,35 @@ function annotatedNumberSql(field: "drinkTds" | "drinkEy"): Prisma.Sql {
   return Prisma.sql`jsonb_path_query_first(s.record, ${`strict $.annotations.${field} ? (@.type() == "number")`}::jsonpath, '{}', true)::float8`;
 }
 
+/**
+ * What a Shot of `shots` aliased `s` gives for the numbers a judgement is
+ * of, which a summary's numbers and one Shot's judgement (shot-specs.ts)
+ * both read, so the two agree. Each is worked out in decimal, as its columns
+ * print, so 35.9 less 36 is -0.1.
+ */
+export const SHOT_VALUES = {
+  /** Its yield weighed less its target, in grams: none where the target is 0 or missing, or either is beyond any weight (`MAX_GRAMS`). */
+  yieldAgainstTarget: Prisma.sql`CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
+    THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END`,
+  /** That difference as a share of the target, to millionths, signed as the difference is: none where the yield against target is, or the share is beyond what a float8 holds (`MAX_RATIO`). */
+  yieldShare: Prisma.sql`CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
+      AND abs(s.actual_yield::numeric - s.target_yield::numeric) < abs(s.target_yield::numeric) * ${MAX_RATIO}::numeric
+    THEN round((s.actual_yield::numeric - s.target_yield::numeric) / abs(s.target_yield::numeric), 6)::float8 END`,
+  /** How long its profile ran, in seconds to the millisecond: the recording less its Preheat, as the Shots list shows it (`shownDuration`). */
+  duration: Prisma.sql`round((s.duration - coalesce(s.preheat, 0))::numeric, 3)::float8`,
+  /** The stop reason it recorded, null for none or blanks alone (`BLANK`). */
+  stopReason: Prisma.sql`nullif(btrim(s.record ->> 'stopReason', ${BLANK}), '')`,
+} as const;
+
+/** How many of the Shots covered recorded one of the stop reasons `reasons`. */
+function stoppedSql(reasons: readonly string[], covered: Prisma.Sql): Prisma.Sql {
+  return Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot."stopReason" IN (${Prisma.join([...reasons])}))::int`;
+}
+
 /** What a number reads of a summary's statement. */
 interface NumberSql {
-  /** What each Shot of `shots` aliased `s` gives for it: columns of the Shots' query, each with its name. */
-  columns: Prisma.Sql[];
+  /** What each Shot of `shots` aliased `s` gives for it: columns of the Shots' query, by name. Two numbers naming one column read it once. */
+  columns: Record<string, Prisma.Sql>;
   /** What a group puts together of them, as columns of the groups' query, of `shot`, with `covered` the condition its Shots meet. */
   aggregates(covered: Prisma.Sql): Prisma.Sql[];
   /** The number, from a group's row, of a group of `shots` Shots its numbers cover. */
@@ -356,7 +435,7 @@ function numberOf(shots: number, quartiles: number[] | null): SummaryNumber {
 /** A median number of each Shot's `value`, null where it has none, or one too large to count (`MAX_VALUE`), named `name` in the statement. */
 function medianSql(name: string, value: Prisma.Sql): NumberSql {
   return {
-    columns: [Prisma.sql`${value} AS ${quoted(name)}`],
+    columns: { [name]: value },
     aggregates: (covered) => [
       Prisma.sql`count(*) FILTER (WHERE ${countedSql(name, covered)})::int AS ${quoted(`${name}Shots`)}`,
       Prisma.sql`${quartilesSql(name, covered)} AS ${quoted(`${name}Quartiles`)}`,
@@ -380,16 +459,12 @@ function medianSql(name: string, value: Prisma.Sql): NumberSql {
 function numberSql(name: NumberName): NumberSql {
   switch (name) {
     case "yieldAgainstTarget":
-      return medianSql(
-        name,
-        Prisma.sql`CASE WHEN s.target_yield <> 0 AND greatest(abs(s.actual_yield), abs(s.target_yield)) < ${MAX_GRAMS}::float8
-          THEN (s.actual_yield::numeric - s.target_yield::numeric)::float8 END`,
-      );
+      return medianSql(name, SHOT_VALUES.yieldAgainstTarget);
     case "duration":
-      return medianSql(name, Prisma.sql`round((s.duration - coalesce(s.preheat, 0))::numeric, 3)::float8`);
+      return medianSql(name, SHOT_VALUES.duration);
     case "stoppedOnWeight":
       return {
-        columns: [Prisma.sql`nullif(btrim(s.record ->> 'stopReason', ${BLANK}), '') AS "stopReason"`],
+        columns: { stopReason: SHOT_VALUES.stopReason },
         aggregates: (covered) => [
           Prisma.sql`count(shot."stopReason") FILTER (WHERE ${covered})::int AS "stopShots"`,
           Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot."stopReason" = 'targetWeight')::int AS "stoppedOnWeight"`,
@@ -400,6 +475,23 @@ function numberSql(name: NumberName): NumberSql {
         },
         own: (shot) => (shot.stopReason === null ? null : shot.stopReason === "targetWeight"),
       };
+    case "stoppedAtTarget": {
+      // Each kind's Shots under its own name, and the rest as what is left of those that recorded a reason.
+      const kinds = { AtTarget: AT_TARGET_REASONS, ByHand: STOP_KINDS.byHand, MachineEnded: STOP_KINDS.machineEnded, Error: STOP_KINDS.error };
+      return {
+        columns: { stopReason: SHOT_VALUES.stopReason },
+        aggregates: (covered) => [
+          Prisma.sql`count(shot."stopReason") FILTER (WHERE ${covered})::int AS "stoppedShots"`,
+          ...Object.entries(kinds).map(([kind, reasons]) => Prisma.sql`${stoppedSql(reasons, covered)} AS ${quoted(`stopped${kind}`)}`),
+        ],
+        read: (row) => {
+          const shots = row.stoppedShots as number;
+          const [atTarget, byHand, machineEnded, error] = ["AtTarget", "ByHand", "MachineEnded", "Error"].map((kind) => row[`stopped${kind}`] as number) as [number, number, number, number];
+          return { shots, share: shots === 0 ? null : atTarget / shots, atTarget, byHand, machineEnded, error, other: shots - atTarget - byHand - machineEnded - error } satisfies StoppedAtTarget;
+        },
+        own: (shot) => (shot.stopReason === null ? null : AT_TARGET_REASONS.includes(shot.stopReason as string)),
+      };
+    }
     case "ratio":
       return medianSql(
         name,
@@ -442,7 +534,7 @@ function numberSql(name: NumberName): NumberSql {
       return medianSql(name, Prisma.sql`s.time_to_first_drip`);
     case "lastStep":
       return {
-        columns: [Prisma.sql`s.last_step_frame AS "stepFrame"`, Prisma.sql`s.last_step_name AS "stepName"`],
+        columns: { stepFrame: Prisma.sql`s.last_step_frame`, stepName: Prisma.sql`s.last_step_name` },
         aggregates: (covered) => [Prisma.sql`count(shot."stepFrame") FILTER (WHERE ${covered})::int AS "lastStepShots"`],
         // Each step's fields in one order, whichever way it was read: a bucket's come through jsonb, which orders an object's keys its own way.
         read: (row) =>
@@ -453,6 +545,62 @@ function numberSql(name: NumberName): NumberSql {
         own: (shot) => (shot.stepFrame === null ? null : { frame: shot.stepFrame as number, name: shot.stepName as string | null }),
       };
   }
+}
+
+/** The columns of each Shot a group's judgement is of (`SHOT_VALUES`), read whichever numbers a summary names. */
+const SPEC_COLUMNS = { yieldShare: SHOT_VALUES.yieldShare, duration: SHOT_VALUES.duration, stopReason: SHOT_VALUES.stopReason };
+
+/** What a group puts together for its judgement, of the Shots covered: the Shots with a yield's share of its target and with a duration, each one's median, and those that recorded what stopped them, with how many stopped at their target. */
+function specAggregates(covered: Prisma.Sql): Prisma.Sql[] {
+  const median = (name: string) => Prisma.sql`percentile_cont(0.5) WITHIN GROUP (ORDER BY shot.${quoted(name)}) FILTER (WHERE ${countedSql(name, covered)})`;
+  const shots = (name: string) => Prisma.sql`count(*) FILTER (WHERE ${countedSql(name, covered)})::int`;
+  return [
+    Prisma.sql`${shots("yieldShare")} AS "specYieldShots"`,
+    Prisma.sql`${median("yieldShare")} AS "specYield"`,
+    Prisma.sql`${shots("duration")} AS "specDurationShots"`,
+    Prisma.sql`${median("duration")} AS "specDuration"`,
+    Prisma.sql`count(shot."stopReason") FILTER (WHERE ${covered})::int AS "specStopShots"`,
+    Prisma.sql`${stoppedSql(AT_TARGET_REASONS, covered)} AS "specAtTarget"`,
+  ];
+}
+
+/**
+ * Each Recipe's Machines' median durations, of a summary's `grouped` by
+ * Recipe and Machine, every group of it and not a page's: how many Machines
+ * pulled the Recipe, with the fastest and slowest of their medians, among
+ * those with at least `MARGINS.shots` Shots with a duration (`counted`) and
+ * among them all (`every`). A Pending Machine's Shots are no Machine's.
+ */
+const MACHINE_SPREAD = Prisma.sql`machine_spread AS (
+  SELECT g.recipe_id,
+    json_build_object(
+      'machines', count(*) FILTER (WHERE g."specDurationShots" >= ${MARGINS.shots}),
+      'fastest', min(g."specDuration") FILTER (WHERE g."specDurationShots" >= ${MARGINS.shots}),
+      'slowest', max(g."specDuration") FILTER (WHERE g."specDurationShots" >= ${MARGINS.shots})) AS counted,
+    json_build_object('machines', count(*), 'fastest', min(g."specDuration"), 'slowest', max(g."specDuration")) AS every
+  FROM grouped g WHERE g.recipe_id IS NOT NULL AND g.machine_id IS NOT NULL AND g."specDuration" IS NOT NULL
+  GROUP BY g.recipe_id
+),`;
+
+/** A Shot's own duration, as a group's judgement reads its Recipe's Reference Shot's. */
+const SPEC_DURATION = medianSql("duration", SHOT_VALUES.duration);
+
+/** No Machine: a Recipe whose Shots the filters find are all a Pending Machine's, or have no duration. */
+const NO_MACHINES: MachineSpread = { machines: 0, fastest: null, slowest: null };
+
+/**
+ * A group's judgement, from its row: `referenceDuration` its Recipe's
+ * Reference Shot's duration, undefined for a group with no such Shot, and
+ * `betweenMachines` whether the summary is grouped by Recipe and Machine.
+ */
+function specOf(row: Record<string, unknown>, referenceDuration: number | null | undefined, betweenMachines: boolean): GroupSpec {
+  const spread = row.spread as { counted: MachineSpread; every: MachineSpread } | null | undefined;
+  return {
+    ...(referenceDuration != null && { duration: judgeDuration(row.specDurationShots as number, row.specDuration as number | null, referenceDuration) }),
+    yield: judgeYield(row.specYieldShots as number, row.specYield as number | null),
+    stoppedAtTarget: judgeStopping(row.specStopShots as number, row.specAtTarget as number),
+    ...(betweenMachines && row.recipe_id != null && { betweenMachines: judgeBetweenMachines(spread?.counted ?? NO_MACHINES, spread?.every ?? NO_MACHINES) }),
+  };
 }
 
 /** Reads a summary's numbers from its query's `numbers`: one or more separated by a comma, such as `ratio,rating`, or the default four. */
@@ -666,7 +814,15 @@ function joined(parts: Prisma.Sql[], separator: string): Prisma.Sql {
  * read as each Shot's are, in the same statement, so the two are of one
  * moment.
  *
- * With a `bucket`, a group gives in their place its buckets (`BucketedGroup`):
+ * Each group is judged against the margins too (`GroupSpec`, spec.ts), from
+ * medians and counts of its own read in the same statement, whichever
+ * numbers are named: its yield and its stopping, and, grouped by Recipe, its
+ * duration against the Reference Shot's. Grouped by Recipe and Machine, each
+ * Recipe is judged between its Machines from every group of it the filters
+ * find (`MACHINE_SPREAD`), not the page's alone, so a Recipe whose groups
+ * fall on two pages is judged the same on both.
+ *
+ * With a `bucket`, nothing is judged, and a group gives in their place its buckets (`BucketedGroup`):
  * its counts and numbers for each day or week it has Shots of (`bucketSql`),
  * oldest first, a day or week with none having no bucket. The Shots are put
  * together by group and bucket at once, and a page is still a number of
@@ -714,6 +870,13 @@ export async function summarise(
   // Shot again for each, as a join on each key would (`IS NOT DISTINCT FROM`, for a group of none, can't be hashed). A
   // group's buckets are found by its keys as one value likewise.
   const steps = asked.some(([name]) => name === "lastStep");
+  // A group is judged against the margins (spec.ts), and its buckets are not: what a judgement reads of each Shot is
+  // read whichever numbers are named, once where a number reads it too.
+  const judged = !bucket;
+  const betweenMachines = judged && groupBy.includes("recipe") && groupBy.includes("machine");
+  const columns = Object.entries({ ...Object.fromEntries(asked.flatMap(([, number]) => Object.entries(number.columns))), ...(judged && SPEC_COLUMNS) }).map(
+    ([name, value]) => Prisma.sql`${value} AS ${quoted(name)}`,
+  );
   const referenceShotId = groupings.find((grouping) => grouping.referenceShotId)?.referenceShotId;
   const groupKey = Prisma.sql`jsonb_build_array(${joined(keyNames, ", ")})`;
   const cellKey = Prisma.sql`jsonb_build_array(${joined(cellNames, ", ")})`;
@@ -727,7 +890,7 @@ export async function summarise(
           Prisma.sql`${LEFT_OUT} AS left_out`,
           Prisma.sql`${UNFINISHED} AS unfinished`,
           Prisma.sql`${AWAITING} AS awaiting`,
-          ...asked.flatMap(([, number]) => number.columns),
+          ...columns,
         ],
         ", ",
       )}
@@ -742,6 +905,7 @@ export async function summarise(
           Prisma.sql`count(*) FILTER (WHERE shot.left_out)::int AS "leftOut"`,
           Prisma.sql`count(*) FILTER (WHERE ${covered} AND shot.awaiting)::int AS awaiting`,
           ...asked.flatMap(([, number]) => number.aggregates(covered)),
+          ...(judged ? specAggregates(covered) : []),
           ...(steps ? [Prisma.sql`${cellKey} AS cell_key`] : []),
           ...(bucket ? [Prisma.sql`${groupKey} AS group_key`] : []),
         ],
@@ -754,6 +918,7 @@ export async function summarise(
       // aggregate without one gives.
       bucket ? Prisma.sql`groups AS (SELECT ${Prisma.join([...keyNames, Prisma.sql`${groupKey} AS group_key`, Prisma.sql`count(*) AS found`], ", ")} FROM shot ${groupedBy(keyNames)}),` : Prisma.empty
     }
+    ${betweenMachines ? MACHINE_SPREAD : Prisma.empty}
     ${
       steps
         ? Prisma.sql`ended AS (
@@ -788,17 +953,19 @@ export async function summarise(
     SELECT (SELECT count(*)::int FROM ${bucket ? Prisma.sql`groups` : Prisma.sql`grouped`}) AS total, page.*
       ${bucket ? Prisma.sql`, bucketed.buckets` : steps ? Prisma.sql`, steps."lastSteps"` : Prisma.empty}
       ${referenceShotId ? Prisma.sql`, CASE WHEN reference_shot.id IS NOT NULL THEN to_json(reference_shot) END AS reference` : Prisma.empty}
+      ${betweenMachines ? Prisma.sql`, CASE WHEN machine_spread.recipe_id IS NOT NULL THEN json_build_object('counted', machine_spread.counted, 'every', machine_spread.every) END AS spread` : Prisma.empty}
     FROM (SELECT 1) AS whole LEFT JOIN page ON TRUE
     ${bucket ? Prisma.sql`LEFT JOIN bucketed ON bucketed.group_key = page.group_key` : steps ? Prisma.sql`LEFT JOIN steps ON steps.cell_key = page.cell_key` : Prisma.empty}
     ${
       // Read for the groups on the page alone, each by its id.
       referenceShotId
         ? Prisma.sql`LEFT JOIN LATERAL (
-      SELECT ${Prisma.join([Prisma.sql`s.id`, ...asked.flatMap(([, number]) => number.columns)], ", ")}
+      SELECT ${Prisma.join([Prisma.sql`s.id`, ...columns], ", ")}
       FROM shots s WHERE s.id = page.reference_shot_id AND ${shotListedSql("s")}
     ) AS reference_shot ON TRUE`
         : Prisma.empty
     }
+    ${betweenMachines ? Prisma.sql`LEFT JOIN machine_spread ON machine_spread.recipe_id = page.recipe_id` : Prisma.empty}
     ORDER BY page.position`;
   /** What the Shots of a row have in common: a group's, or a bucket's, which is a group's row as JSON. */
   const figuresOf = (row: Record<string, unknown>): SummaryFigures => {
@@ -814,7 +981,8 @@ export async function summarise(
       const by = row.by as GroupedBy;
       const own = (row.reference ?? null) as Record<string, unknown> | null;
       const reference = own && { reference: { id: own.id as string, numbers: Object.fromEntries(asked.map(([name, number]) => [name, number.own(own)])) as Partial<ShotNumbers> } };
-      if (!bucket) return [{ by, ...figuresOf(row), ...reference }];
+      // Judged against its Recipe's Reference Shot's duration, as a group's own is counted (`MAX_VALUE`).
+      if (!bucket) return [{ by, ...figuresOf(row), spec: specOf(row, own && (SPEC_DURATION.own(own) as number | null), betweenMachines), ...reference }];
       // A group with no Shots, the one group of no grouping, has no bucket.
       const cells = (row.buckets ?? []) as Record<string, unknown>[];
       // The reference before the buckets, which may be many.
