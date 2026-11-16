@@ -7,7 +7,6 @@ import { useFreshServer } from "./support/fresh-server.js";
 import { CHECK_MS, afterStatusPolls } from "./support/polling.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { field, openCard, rows } from "./support/locators.js";
-import { expectTip } from "./support/tooltips.js";
 
 // Each Machine's Loaded Recipe in the management interface (tickets #145 and
 // #216): a recipe applied in DYE2 on a simulated tablet running the built
@@ -54,12 +53,12 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   await expect(rows(history).first()).toContainText("Still loaded");
 
   await page.goto(`/locations/${location.id}`);
-  const machines = page.getByRole("table", { name: "Loaded Recipes here" });
-  await expectTip(page.getByRole("region", { name: "Machines" }), "Machines", "The Machines here now, each flagged if it is capture-only, and the Recipe each has loaded.");
-  await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("Fixture Brazil Espresso");
-  await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("Slot 2");
-  await expect(rows(machines).filter({ hasText: "Bar 2" })).toContainText("None");
-  await rows(machines).filter({ hasText: "Bar 1" }).getByRole("link", { name: "Fixture Brazil Espresso" }).click();
+  // Its Overview's status cards are its Machines, each with the Recipe it has loaded (#543).
+  const machines = page.getByRole("list", { name: /^Machines at / }).getByRole("listitem");
+  await expect(machines.filter({ hasText: "Bar 1" })).toContainText("Loaded: Fixture Brazil Espresso (slot 2)");
+  await expect(machines.filter({ hasText: "Bar 2" })).toContainText("No Recipe loaded");
+  await expect(page.getByRole("region", { name: "Machines" })).toHaveCount(0);
+  await machines.filter({ hasText: "Bar 1" }).getByRole("link", { name: "Fixture Brazil Espresso" }).click();
   await expect(page.getByRole("heading", { name: "Fixture Brazil Espresso", level: 1 })).toBeVisible();
 
   // The Ethiopia's recipe, in no slot, applied from DYE2's Select Recipe page.
@@ -81,7 +80,7 @@ test("a recipe applied in DYE2 shows as its Machine's Loaded Recipe on the Machi
   // When it was unloaded, today, as a time at Uptown, with Uptown's zone.
   await expect(rows(history).first().getByRole("cell").nth(2)).toHaveText(new RegExp(`^\\d+:\\d\\d:\\d\\d [AP]M ${zoneName.replace("+", "\\+")}$`));
   await page.goto(`/locations/${location.id}`);
-  await expect(rows(machines).filter({ hasText: "Bar 1" })).toContainText("None");
+  await expect(machines.filter({ hasText: "Bar 1" })).toContainText("No Recipe loaded");
 });
 
 test("a grind changed on one Machine reaches the Recipe's page, and the Workflow of the other Machine with it loaded, whose sharing status shows it", async ({ page }) => {

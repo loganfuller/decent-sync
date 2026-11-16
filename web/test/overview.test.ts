@@ -1,9 +1,10 @@
 import { describe, expect, it } from "vitest";
-import type { Machine, Recipe, SummaryGroup } from "../src/lib/api";
-import { cellFilters, daysSinceRoast, overviewColumns, overviewRows, periodDays, periodOf } from "../src/lib/overview";
+import type { GroupSpec, Judgement, Machine, Recipe, ShotSpec, SummaryGroup } from "../src/lib/api";
+import { betweenMachinesLine, cellFilters, cellLines, coveredText, daysSinceRoast, lastShotMarks, offlineKind, overviewColumns, overviewRows, periodDays, periodOf } from "../src/lib/overview";
 
-// The Overview's pure parts (#471): a period's days at a Location, and a
-// Shot Summary grouped by Recipe and Machine as a block's rows and columns.
+// The Overview's pure parts (#471, #543): a period's days at a Location, a
+// Shot Summary grouped by Recipe and Machine as a block's rows and columns,
+// and what a cell, a row and a status card say of the server's judgement.
 
 const LAB = { id: "lab", name: "Lab", timeZone: "America/Denver" };
 const HARBOR = { id: "harbor", name: "Harbor", timeZone: "Asia/Tokyo" };
@@ -105,6 +106,19 @@ describe("a Location's block", () => {
     expect(rows[4]!.details).toBeUndefined();
   });
 
+  it("gives a row its Recipe's Reference Shot and its judgement between Machines, as any of its groups gives them", () => {
+    const reference = { id: "reference", numbers: { duration: 30 } };
+    const betweenMachines = { judgement: "outOfSpec" as const, beyondMargin: true, apart: 4 };
+    const spec = { yield: NOTHING, stoppedAtTarget: NOTHING, betweenMachines };
+    const rows = overviewRows([{ ...group(house, "left"), reference, spec }, { ...group(house, "right"), reference, spec }, group(decaf, "left"), group(null, "left")], recipes, LAB.id);
+    expect(rows.map((row) => [row.recipe?.id ?? null, row.reference, row.betweenMachines])).toEqual([
+      // As the previous release answers during a deploy: with neither.
+      ["Decaf", undefined, undefined],
+      ["House", reference, betweenMachines],
+      [null, undefined, undefined],
+    ]);
+  });
+
   it("has no row where nothing was pulled", () => {
     expect(overviewRows([], recipes, LAB.id)).toEqual([]);
   });
@@ -113,5 +127,94 @@ describe("a Location's block", () => {
     const days = { from: "2026-11-05", to: "2026-11-11" };
     expect(cellFilters("lab", "left", "house", days)).toBe("locationId=lab&machineId=left&recipeId=house&from=2026-11-05&to=2026-11-11");
     expect(cellFilters("lab", "left", null, days)).toBe("locationId=lab&machineId=left&recipeId=none&from=2026-11-05&to=2026-11-11");
+  });
+});
+
+const WITHIN: Judgement = { judgement: "withinSpec", beyondMargin: false };
+const OUT: Judgement = { judgement: "outOfSpec", beyondMargin: true };
+const FEW_BEYOND: Judgement = { judgement: "notJudged", beyondMargin: true };
+const FEW_WITHIN: Judgement = { judgement: "notJudged", beyondMargin: false };
+const NOTHING: Judgement = { judgement: "notJudged", beyondMargin: null };
+
+describe("what a block says of the server's judgement", () => {
+  /** A cell of `shots` Shots, 1.8 g under their target, of which `atTarget` stopped at it, judged as given. */
+  const cell = (shots: number, atTarget: number, spec: GroupSpec, counts: Partial<SummaryGroup["counts"]> = {}): SummaryGroup => ({
+    by: {},
+    counts: { shots, unfinished: 0, cleaningAndCalibration: 0, awaitingValues: 0, ...counts },
+    numbers: {
+      yieldAgainstTarget: { shots, median: -1.84, p25: -2, p75: -1 },
+      duration: { shots, median: 29.4, p25: 27, p75: 33 },
+      stoppedAtTarget: { shots, share: atTarget / shots, atTarget, byHand: shots - atTarget, machineEnded: 0, error: 0, other: 0 },
+    },
+    spec,
+  });
+
+  it("says how many Shots a period's numbers cover, with the Unfinished Shots beside them", () => {
+    const groups = [cell(299, 299, { yield: WITHIN, stoppedAtTarget: WITHIN }, { unfinished: 2 }), cell(1, 1, { yield: WITHIN, stoppedAtTarget: WITHIN }, { unfinished: 1, cleaningAndCalibration: 4 })];
+    expect(coveredText(groups, "week")).toBe("300 Shots in the last 7 days · 3 unfinished");
+    expect(coveredText(groups.slice(1), "today")).toBe("1 Shot today · 1 unfinished");
+    expect(coveredText([cell(12, 12, { yield: WITHIN, stoppedAtTarget: WITHIN })], "yesterday")).toBe("12 Shots yesterday");
+    expect(coveredText([], "today")).toBe("No Shots today");
+  });
+
+  it("always gives a cell's difference from the reference, marked when out of spec and muted otherwise", () => {
+    const judged = (duration: GroupSpec["duration"]) => cellLines(cell(299, 299, { duration, yield: WITHIN, stoppedAtTarget: WITHIN }));
+    expect(judged({ ...OUT, difference: -6.2 })).toEqual({ duration: { text: "−6.2 s vs reference", short: "−6.2 s", marked: true }, leftOut: [] });
+    expect(judged({ ...WITHIN, difference: -2.31 })).toEqual({ duration: { text: "−2.3 s vs reference", short: "−2.3 s", marked: false }, leftOut: [] });
+    // Too few Shots to judge, though they are beyond the margin.
+    expect(judged({ ...FEW_BEYOND, difference: 9 })).toEqual({ duration: { text: "+9.0 s vs reference", short: "+9.0 s", marked: false }, leftOut: [] });
+    // A Recipe with no Reference Shot, and Shots with no duration.
+    expect(judged(undefined)).toEqual({ leftOut: [] });
+    expect(judged({ ...NOTHING, difference: null })).toEqual({ leftOut: [] });
+  });
+
+  it("gives a cell's yield and stopping only when out of spec, marked, or beyond a margin with too few Shots to judge, muted", () => {
+    expect(cellLines(cell(7, 0, { yield: OUT, stoppedAtTarget: OUT }))).toEqual({
+      yield: { text: "−1.8 g vs target", short: "−1.8 g", marked: true },
+      stopping: { text: "0 of 7 stopped at target", short: "0 of 7 at target", marked: true },
+      leftOut: [],
+    });
+    expect(cellLines(cell(1, 0, { yield: FEW_BEYOND, stoppedAtTarget: FEW_BEYOND }))).toEqual({
+      yield: { text: "−1.8 g vs target", short: "−1.8 g", marked: false },
+      stopping: { text: "0 of 1 stopped at target", short: "0 of 1 at target", marked: false },
+      leftOut: [],
+    });
+    // Within spec, and too few within the margin, say nothing; each is shown apart from the other.
+    expect(cellLines(cell(299, 293, { yield: WITHIN, stoppedAtTarget: WITHIN }))).toEqual({ leftOut: [] });
+    expect(cellLines(cell(2, 2, { yield: FEW_WITHIN, stoppedAtTarget: NOTHING }))).toEqual({ leftOut: [] });
+    expect(Object.keys(cellLines(cell(40, 30, { yield: WITHIN, stoppedAtTarget: OUT })))).toEqual(["stopping", "leftOut"]);
+  });
+
+  it("keeps a cell's Unfinished Shots and its cleaning and calibration Shots, and says no more of the previous release's answer", () => {
+    expect(cellLines(cell(56, 56, { yield: WITHIN, stoppedAtTarget: WITHIN }, { unfinished: 1, cleaningAndCalibration: 2 })).leftOut).toEqual(["1 unfinished", "2 cleaning or calibration"]);
+    const { spec: _judged, ...unjudged } = cell(7, 0, { yield: OUT, stoppedAtTarget: OUT }, { unfinished: 1 });
+    expect(cellLines(unjudged)).toEqual({ leftOut: ["1 unfinished"] });
+  });
+
+  it("says how far apart a Recipe's Machines are, marked when out of spec between them", () => {
+    expect(betweenMachinesLine({ ...OUT, apart: 4 })).toEqual({ text: "4.0 s apart", short: "4.0 s apart", marked: true });
+    expect(betweenMachinesLine({ ...WITHIN, apart: 0.46 })).toEqual({ text: "0.5 s apart", short: "0.5 s apart", marked: false });
+    expect(betweenMachinesLine({ ...FEW_BEYOND, apart: 10 })).toMatchObject({ text: "10.0 s apart", marked: false });
+    // One Machine pulled it, and the Shots pulled with no Recipe.
+    expect(betweenMachinesLine({ ...NOTHING, apart: null })).toBeUndefined();
+    expect(betweenMachinesLine(undefined)).toBeUndefined();
+  });
+
+  it("marks what of a Machine's last Shot is out of spec, and nothing of one within spec or not judged", () => {
+    const spec = (parts: Partial<ShotSpec>): ShotSpec => ({ unfinished: false, cleaningOrCalibration: false, duration: null, yield: null, stopped: "targetWeight", ...parts });
+    expect(lastShotMarks(spec({ duration: { difference: -6.44, outOfSpec: true }, yield: { againstTarget: -88.9, outOfSpec: true } }))).toEqual(["−6.4 s vs reference", "−88.9 g vs target"]);
+    expect(lastShotMarks(spec({ duration: { difference: 1, outOfSpec: false }, yield: { againstTarget: 2.4, outOfSpec: true } }))).toEqual(["+2.4 g vs target"]);
+    expect(lastShotMarks(spec({ unfinished: true }))).toEqual([]);
+    // The previous release's answer.
+    expect(lastShotMarks(undefined)).toEqual([]);
+  });
+
+  it("reads a Machine offline as asleep where its last Machine State was, as awake otherwise, and as never connected", () => {
+    const state = (name: string) => ({ state: name, substate: "idle", observedAt: "2026-11-15T12:00:00Z" });
+    expect(offlineKind({ lastSeenAt: "2026-11-15T12:50:00Z", machineState: state("sleeping") })).toBe("asleep");
+    expect(offlineKind({ lastSeenAt: "2026-11-15T12:50:00Z", machineState: state("idle") })).toBe("awake");
+    // Seen, though its tablet reported no Machine State.
+    expect(offlineKind({ lastSeenAt: "2026-11-15T12:50:00Z", machineState: null })).toBe("awake");
+    expect(offlineKind({ lastSeenAt: null, machineState: null })).toBe("never");
   });
 });

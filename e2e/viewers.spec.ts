@@ -50,7 +50,7 @@ test("an Admin invites a Viewer, choosing no Locations, who is told what a Viewe
     const banner = valsPage.getByRole("banner");
     await expect(banner.getByText("Viewer", { exact: true })).toBeVisible();
     await expectTip(banner, "Viewers", VIEWER_TIP);
-    await expect(banner.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText(["Shots", "Steam Records", "Library", "Machines", "Locations"]);
+    await expect(banner.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText(["Overview", "Shots", "Steam Records", "Library", "Machines", "Locations"]);
   } finally {
     await context.close();
   }

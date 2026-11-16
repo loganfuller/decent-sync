@@ -26,6 +26,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { ApiError, api, type Recipe, type Shot } from "@/lib/api";
 import { SHOT_CURVES, type Sample, type ShotCurve, lastRecordedWeight, shotSamples } from "@/lib/curves";
 import { ratingText } from "@/lib/rating";
+import { stoppedText } from "@/lib/stops";
 import { STATUS_POLL_MS } from "@/lib/use-polled";
 
 interface ShotData {
@@ -394,7 +395,8 @@ function annotationFields(shot: Shot, lastWeight: { weight: number; seconds: num
     ["Flow at the stop", numberText(shot.flowAtStop ?? null, "g/s")],
     ["TDS", amount(annotations?.drinkTds, "%")],
     ["Extraction yield", amount(annotations?.drinkEy, "%")],
-    ["Stopped by", text(shot.record.stopReason)],
+    // In words, by the kind the server gives it (#543); as recorded for a reason of no kind, and from the previous release.
+    ["Stopped", stoppedText(shot.spec?.stopped, text(shot.record.stopReason) ?? null)],
   ]);
 }
 

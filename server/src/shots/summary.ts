@@ -138,7 +138,8 @@ export type NumberName = (typeof NUMBERS)[number];
 /**
  * The numbers a summary gives where none are named: with the count, what the
  * Overview reads (#465, #543). `stoppedOnWeight` stays among them for the
- * latest release's pages, which read it (ADR-0025), until #556 removes it.
+ * latest release's pages, which read it (ADR-0025), until a later release
+ * removes it.
  */
 export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight", "stoppedAtTarget"];
 

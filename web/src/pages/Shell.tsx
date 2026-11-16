@@ -44,7 +44,7 @@ export function Shell() {
           <Link to="/" className="shrink-0">
             <Logo className="h-7" />
           </Link>
-          {/* With an Admin's links, a short name and the theme button the row needs about 810 px, so below lg (1024),
+          {/* With an Admin's links, a short name and the theme button the row needs about 890 px, so below lg (1024),
               an iPad held upright included, it is in a menu. Its links don't wrap: a longer name truncates instead. */}
           <div className="hidden min-w-0 flex-1 items-center gap-4 lg:flex">
             <MainNav className="flex flex-1 items-center gap-4 text-sm whitespace-nowrap" />
@@ -168,6 +168,10 @@ function MainNav({ className, onNavigate }: { className: string; onNavigate?: ()
   const isAdmin = useIsAdmin();
   return (
     <nav aria-label="Main" className={className}>
+      {/* The home page, first (#543): `end`, so it is the current page only there, every other path being under it. */}
+      <NavLink to="/" end className={navLinkClass} onClick={onNavigate}>
+        Overview
+      </NavLink>
       <NavLink to="/shots" className={navLinkClass} onClick={onNavigate}>
         Shots
       </NavLink>

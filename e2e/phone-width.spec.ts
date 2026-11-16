@@ -19,7 +19,7 @@ const PHONE: BrowserContextOptions = { viewport: { width: 393, height: 852 }, is
 test.use(PHONE);
 
 const sam = { name: "Sam Staff", email: "sam@example.com", password: "staff password 1" };
-const MAIN_LINKS = ["Shots", "Steam Records", "Library", "Machines", "Locations"];
+const MAIN_LINKS = ["Overview", "Shots", "Steam Records", "Library", "Machines", "Locations"];
 
 /** Each page the main navigation leads to, and what shows once its content has loaded. */
 const PAGES: { link: string; heading: string; loaded: (page: Page) => Locator }[] = [
@@ -112,8 +112,9 @@ test("on a wider screen, the top bar is one row with no menu", async ({ browser 
 async function visitEachPage(page: Page, account: { name: string; links: string[] }) {
   await page.goto("/");
   await expect(page.getByRole("heading", { name: "Overview", level: 1 })).toBeVisible();
-  // With Uptown's block, whose table of its Machine scrolls within it, once its numbers have arrived.
-  await expect(page.getByRole("table", { name: "Recipes by Machine at Uptown" })).toBeVisible();
+  // With Uptown's block, its Machine's status card, once its numbers have arrived: e2e/overview.spec.ts covers a block
+  // with a table on a phone.
+  await expect(page.getByRole("list", { name: "Machines at Uptown" }).getByRole("listitem")).toHaveCount(1);
   await expect(page.getByText("No Shots were pulled here today.")).toBeVisible();
   await expect(page.getByRole("banner").getByRole("navigation", { name: "Main" })).toBeHidden();
   await expectFits(page);
@@ -137,7 +138,7 @@ async function visitEachPage(page: Page, account: { name: string; links: string[
       // The Location's page, whose Overview block has its choice of period beside its title.
       await page.getByRole("list", { name: "Locations" }).getByRole("link", { name: "Uptown" }).click();
       await expect(page.getByRole("heading", { name: "Uptown", level: 1 })).toBeVisible();
-      await expect(page.getByRole("table", { name: "Recipes by Machine at Uptown" })).toBeVisible();
+      await expect(page.getByRole("list", { name: "Machines at Uptown" }).getByRole("listitem")).toHaveCount(1);
       await expect(page.getByText("No Shots were pulled here today.")).toBeVisible();
       await expectFits(page);
     }
@@ -155,7 +156,7 @@ async function openMenu(page: Page, account: { name: string; links: string[] }) 
   const menu = page.getByRole("dialog", { name: "Decent Sync" });
   await expect(menu.getByRole("navigation", { name: "Main" }).getByRole("link")).toHaveText(account.links);
   // Focus starts at the first link, not Sign out, which Enter would press.
-  await expect(menu.getByRole("link", { name: "Shots" })).toBeFocused();
+  await expect(menu.getByRole("link", { name: "Overview" })).toBeFocused();
   await expect(menu.getByText(`Signed in as ${account.name}`)).toBeVisible();
   await expect(menu.getByRole("navigation", { name: "Account" }).getByRole("link")).toHaveText(["Connected Apps"]);
   await expect(menu.getByRole("button", { name: "Sign out" })).toBeVisible();
