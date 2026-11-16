@@ -310,8 +310,9 @@ function NowTab({ machine, askedAt, changed }: { machine: Machine; askedAt: numb
   return (
     <>
       <LiveViewCard machine={machine} askedAt={askedAt} profile={workflow?.workflow.profile} />
-      {/* Shown once loaded: the Live View does not wait for it. */}
-      {workflow === undefined ? <Reading error={error} /> : <MachineWorkflow machine={machine} current={workflow} />}
+      {/* Shown once loaded: the Live View does not wait for it. A read that fails says so, over the Workflow read before it. */}
+      {(error || workflow === undefined) && <Reading error={error} />}
+      {workflow !== undefined && <MachineWorkflow machine={machine} current={workflow} />}
       <MachineShotsCard machine={machine} />
     </>
   );

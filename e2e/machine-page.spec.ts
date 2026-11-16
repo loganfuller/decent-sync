@@ -3,6 +3,7 @@ import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { type JudgedShots, dateText, emptyLibrary, seedJudgedShots } from "./support/judged-shots.js";
 import { datesPreset, field, filterChip, machineRow, openMachineTab, rows } from "./support/locators.js";
+import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
 // A Machine's page in four tabs, and the Machines list that leads with the
@@ -245,6 +246,22 @@ test("Now's Workflow card names the Loaded Recipe it was loaded from, with its R
   await page.goto(`/machines/${spareId}`);
   await expect(region(page, "Workflow").getByRole("group", { name: "Loaded Recipe" })).toHaveText("No Recipe is loaded.");
   await expect(region(page, "Workflow").getByText("Its tablet has not reported it yet.")).toBeVisible();
+});
+
+test("a Workflow that can't be read again says so, over the one read before", async ({ page }) => {
+  // The page's clock runs as usual until the test moves it on.
+  await page.clock.install();
+  await page.goto(`/machines/${machines.left.id}`);
+  const workflow = region(page, "Workflow");
+  await expect(field(workflow, "Profile")).not.toBeEmpty();
+  await expect(page.getByRole("main").getByRole("alert")).toHaveCount(0);
+  const reads = (url: URL) => url.pathname === `/api/machines/${machines.left.id}/workflow`;
+  await page.route(reads, (route) => route.fulfill({ status: 500, json: { message: "Out of order" } }));
+  await afterDetailsPolls(page, () => expect(page.getByRole("main").getByRole("alert")).toBeVisible({ timeout: CHECK_MS }));
+  await expect(field(workflow, "Profile")).not.toBeEmpty();
+  // And no longer once it is read again.
+  await page.unroute(reads);
+  await afterDetailsPolls(page, () => expect(page.getByRole("main").getByRole("alert")).toHaveCount(0, { timeout: CHECK_MS }));
 });
 
 test("Now's Shots card gives the Machine's Shots by Recipe over a period, marked where out of spec, each count opening those Shots", async ({ page }) => {

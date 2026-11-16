@@ -4,7 +4,7 @@ import { InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Segmented, SegmentedItem } from "@/components/segmented";
-import { MadeBy, labelOf, outcomeText, shownValue, valuesText } from "@/components/settings-edits";
+import { MadeBy, labelOf, outcomeText, shownValue } from "@/components/settings-edits";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
@@ -229,10 +229,14 @@ function entryRows({ collection, change, settingsEdit }: SettingsHistoryEntry): 
   if (!settingsEdit) return changed.map((field) => ({ key: field.field, field: fieldLabel(collection, field), change: changeText(collection, field) }));
   const { fields, expected, schedule } = settingsEdit;
   if (schedule) {
-    // A wake schedule's fields in their order, as the server stores an edit's fields as jsonb, which does not keep it.
-    const set = Object.fromEntries(WAKE_SCHEDULE_FIELDS.map((field) => field.path).filter((path) => path in fields).map((path) => [path, fields[path]]));
+    // A wake schedule's fields in their order, as the server stores an edit's fields as jsonb, which does not keep it:
+    // each as asked, a change's from its value in the schedule as reported.
+    const shown = (path: string, value: unknown) => shownValue(collection, path, value, null, true);
+    const parts = WAKE_SCHEDULE_FIELDS.map((field) => field.path)
+      .filter((path) => path in fields)
+      .map((path) => `${labelOf(collection, path, true)}: ${schedule.action === "change" ? `${shown(path, expected[path])} to ` : ""}${shown(path, fields[path])}`);
     const time = typeof expected.time === "string" ? expected.time : undefined;
-    const asked = schedule.action === "delete" ? "Asked to delete it" : `Asked to ${schedule.action === "add" ? "add it" : "change it to"}: ${valuesText(collection, set, null, true)}`;
+    const asked = schedule.action === "delete" ? "Asked to delete it" : `Asked to ${schedule.action === "add" ? "add it" : "change it"}: ${parts.join("; ")}`;
     return [
       ...changed.map((field) => ({ key: field.field, field: fieldLabel(collection, field), change: changeText(collection, field) })),
       // An applied edit's change is what it asked.

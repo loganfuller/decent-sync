@@ -431,7 +431,7 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   field it set, with the value asked for and the value in the report it was
   made over, and its outcome. A wake schedule's is one row, named by its
   time as reported, with what it asked: to add it, with each field it set,
-  to change it, with each field changed, or to delete it. The section's
+  to change it, with each field changed, from what to what, or to delete it. The section's
   status names a wake schedule's edit as asked while pending, such as
   "Change the wake schedule at 06:30", and as done, such as "Wake schedule at
   06:30 changed", once applied. The card is shown closed, since most who read

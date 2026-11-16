@@ -42,6 +42,13 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
   // Changes on the Tablet: a wake schedule added, the refill kit on automatic as the machine reconnects and back, the
   // scale left out while it connects and back, and a plugin updated.
   await report("presenceSettings", { ...PRESENCE, schedules: [{ id: "sched-morning", time: "06:30", daysOfWeek: [1, 2, 3, 4, 5], enabled: true }] });
+  // A Settings Edit of that wake schedule that the Tablet never answers: it changes nothing.
+  const morning = { id: "sched-morning", time: "06:30", daysOfWeek: [1, 2, 3, 4, 5], enabled: true };
+  const unanswered = await page.request.post(`/api/machines/${id}/settings-edits`, {
+    data: { collection: "presenceSettings", schedule: { action: "change", id: morning.id }, fields: { time: "07:00", enabled: false }, expected: morning },
+  });
+  expect(unanswered.status(), await unanswered.text()).toBe(201);
+  const unansweredId = ((await unanswered.json()) as { settingsEdit: { id: string } }).settingsEdit.id;
   await report("advancedSettings", { ...ADVANCED, heaterPh1Flow: 3, refillKitSetting: 2 });
   await report("advancedSettings", { ...ADVANCED, heaterPh1Flow: 3 });
   await report("pairedDevices", []);
@@ -57,6 +64,8 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
        WHERE settings_history.id = timeline.id`,
       [id],
     );
+    // The unanswered edit was made at 09:25, between the wake schedule's being added and the refill kit's brief change.
+    await database.query("UPDATE settings_edits SET made_at = '2026-11-08T09:25:00Z' WHERE id = $1", [unansweredId]);
   } finally {
     await database.end();
   }
@@ -68,6 +77,7 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
   await expect(history.getByRole("columnheader")).toHaveText(["When", "Section", "Field", "Change", "Made by", "Outcome"]);
   await expectRows(history, [
     ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:25:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Asked to change it: Time: 06:30 to 07:00; On: On to Off", "You", "Not confirmed"],
     ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync", "-"],
     ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
   ]);
@@ -77,6 +87,7 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
     ["Nov 8, 2026, 4:40:00 AM", "Plugins", "Visualizer", "version: 1.5.11 to 1.6.0", "Outside Decent Sync", "-"],
     ["Nov 8, 2026, 4:35:00 AM", "Paired devices", "Mock Scale", "Briefly removed, back at Nov 8, 2026, 4:35:15 AM", "Outside Decent Sync", "-"],
     ["Nov 8, 2026, 4:30:00 AM", "Machine Settings: Advanced", "Refill kit", "Briefly Force Off to Auto-Detect, back at Nov 8, 2026, 4:30:30 AM", "Outside Decent Sync", "-"],
+    ["Nov 8, 2026, 4:25:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Asked to change it: Time: 06:30 to 07:00; On: On to Off", "You", "Not confirmed"],
     ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync", "-"],
     ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
   ]);
@@ -98,10 +109,14 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
   await expect(history.getByText("Loading", { exact: true })).toBeVisible();
   await expect(table).toHaveCount(0);
   release();
-  await expectRows(history, [["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"]]);
+  await expectRows(history, [
+    // An edit that changed nothing says what it asked for, from what, and what came of it.
+    ["Nov 8, 2026, 4:25:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Asked to change it: Time: 06:30 to 07:00; On: On to Off", "You", "Not confirmed"],
+    ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
+  ]);
   await page.unroute(narrowed);
   await history.getByRole("radio", { name: "All changes" }).click();
-  await expect(rows(table)).toHaveCount(5);
+  await expect(rows(table)).toHaveCount(6);
 });
 
 async function expectRows(region: Locator, expected: string[][]): Promise<void> {

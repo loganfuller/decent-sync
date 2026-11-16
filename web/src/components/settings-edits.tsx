@@ -106,7 +106,7 @@ export function shownValue(name: string, path: string, value: unknown, utcOffset
  * Each field's value, as "Label: value", joined. A wake schedule's, where
  * `scheduled`, are its fields in their order, leaving out its id.
  */
-export function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null, scheduled = false): string {
+function valuesText(name: string, values: Record<string, unknown>, utcOffsetMinutes: number | null = null, scheduled = false): string {
   const paths = scheduled ? WAKE_SCHEDULE_FIELDS.map((field) => field.path).filter((path) => path in values) : Object.keys(values);
   return paths.map((path) => `${labelOf(name, path, scheduled)}: ${shownValue(name, path, values[path], utcOffsetMinutes, scheduled)}`).join("; ");
 }
