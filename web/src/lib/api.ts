@@ -471,14 +471,18 @@ export type TabletDye2 =
   /** Loaded, or installed but disabled or failed to load; `branch` names the branch of a branch install. */
   | { status: "installed"; version: string | null; loaded: boolean; branch: string | null };
 
-/** Streamline on a Machine's tablet, if it is the Skin Decaid serves, from its Skins as last reported. */
+/** Streamline, or Streamline Cafe built on it, on a Machine's tablet, if it is the Skin Decaid serves, from its Skins as last reported. */
 export type TabletStreamline =
   | { status: "notReported" }
   | { status: "notInstalled" }
   /** Installed, but another Skin is the one served, or none is. */
   | { status: "notActive"; activeSkin: { name: string | null; version: string | null } | null }
-  /** A release (`streamline.js`) or a build of `main` (`streamline.js-dist`). */
-  | { status: "active"; version: string | null; build: "release" | "main" };
+  /**
+   * A release (`streamline.js`, `streamline-cafe.js`) or a build of `main` (`streamline.js-dist`,
+   * `streamline-cafe.js-dist`), with the Streamline version it is or contains. `skin` and `streamlineVersion` are
+   * absent from the previous release's answer during a deploy (ADR-0025), which knows only Streamline.
+   */
+  | { status: "active"; skin?: "streamline" | "streamlineCafe"; version: string | null; build: "release" | "main"; streamlineVersion?: string | null };
 
 export interface TabletVersions {
   dye2: TabletDye2;

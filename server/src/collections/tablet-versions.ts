@@ -7,9 +7,26 @@
 import { DYE2_NAMESPACE } from "@decent-sync/protocol";
 import type { Report } from "./paired-devices.js";
 
-/** Streamline's Skin ids: a release, and a build of `main` (its `dist` branch). */
-const STREAMLINE_BUILDS: Readonly<Record<string, StreamlineBuild>> = { "streamline.js": "release", "streamline.js-dist": "main" };
+/**
+ * The Skin ids of Streamline and of Streamline Cafe, a Skin forked from it
+ * that loads a recipe through Streamline's own apply: each a release, and a
+ * build of `main` (its `dist` branch).
+ */
+const STREAMLINE_SKINS: Readonly<Record<string, { skin: StreamlineSkin; build: StreamlineBuild }>> = {
+  "streamline.js": { skin: "streamline", build: "release" },
+  "streamline.js-dist": { skin: "streamline", build: "main" },
+  "streamline-cafe.js": { skin: "streamlineCafe", build: "release" },
+  "streamline-cafe.js-dist": { skin: "streamlineCafe", build: "main" },
+};
 
+/**
+ * Streamline Cafe's version: the Streamline version it contains, `-cafe.` and
+ * a counter, and for a build of `main`, `.dev.`, the number of the run that
+ * built it and its commit, such as `0.2.27-cafe.1.dev.12.a1b2c3d`.
+ */
+const CAFE_VERSION = /^(\d+\.\d+\.\d+)-cafe\.\d+(?:\.dev\.\d+\.[0-9a-f]+)?$/;
+
+export type StreamlineSkin = "streamline" | "streamlineCafe";
 export type StreamlineBuild = "release" | "main";
 
 /** DYE2, as Decaid's plugin list names it, by its id. */
@@ -26,7 +43,7 @@ export type Dye2View =
       branch: string | null;
     };
 
-/** Streamline, if it is the Skin Decaid is serving. */
+/** Streamline, or a Skin built on it, if it is the Skin Decaid is serving. */
 export type StreamlineView =
   | { status: "notReported" }
   | { status: "notInstalled" }
@@ -35,7 +52,19 @@ export type StreamlineView =
       /** The Skin that is, or null if none is. */
       activeSkin: { name: string | null; version: string | null } | null;
     }
-  | { status: "active"; version: string | null; build: StreamlineBuild };
+  | {
+      status: "active";
+      skin: StreamlineSkin;
+      /** The Skin's own version. */
+      version: string | null;
+      build: StreamlineBuild;
+      /**
+       * The Streamline version it is or contains: Streamline's own version, or
+       * the part of Streamline Cafe's before `-cafe.`; null for a version of
+       * neither form.
+       */
+      streamlineVersion: string | null;
+    };
 
 export interface TabletVersionsView {
   dye2: Dye2View;
@@ -67,24 +96,26 @@ export function dye2View(plugins: unknown): Dye2View {
  * Decaid is serving, whose `path` is the WebUI server's, or else, as when it
  * serves none or a folder no Skin holds, its default Skin. Quick Settings can
  * serve a Skin other than the default. Only the active Streamline counts,
- * even if both builds are installed.
+ * even if both builds, or Streamline and Streamline Cafe, are installed.
  */
 export function streamlineView(skins: unknown): StreamlineView {
   if (!isRecord(skins) || !Array.isArray(skins.skins)) return { status: "notReported" };
   const installed = skins.skins.filter(isRecord);
-  if (!installed.some((skin) => streamlineBuild(skin.id) !== undefined)) return { status: "notInstalled" };
+  if (!installed.some((skin) => streamlineSkin(skin.id) !== undefined)) return { status: "notInstalled" };
   const servedPath = isRecord(skins.server) ? text(skins.server.path) : null;
   const served = servedPath === null ? undefined : installed.find((skin) => skin.path === servedPath);
   const active = served ?? (isRecord(skins.default) ? skins.default : null);
   if (active === null) return { status: "notActive", activeSkin: null };
-  const build = streamlineBuild(active.id);
-  if (build === undefined) return { status: "notActive", activeSkin: { name: text(active.name), version: text(active.version) } };
-  return { status: "active", version: text(active.version), build };
+  const which = streamlineSkin(active.id);
+  if (which === undefined) return { status: "notActive", activeSkin: { name: text(active.name), version: text(active.version) } };
+  const version = text(active.version);
+  const streamlineVersion = which.skin === "streamline" ? version : (version?.match(CAFE_VERSION)?.[1] ?? null);
+  return { status: "active", skin: which.skin, version, build: which.build, streamlineVersion };
 }
 
 /** Which Streamline a Skin of that id is, if it is one. */
-function streamlineBuild(id: unknown): StreamlineBuild | undefined {
-  return typeof id === "string" && Object.hasOwn(STREAMLINE_BUILDS, id) ? STREAMLINE_BUILDS[id] : undefined;
+function streamlineSkin(id: unknown): { skin: StreamlineSkin; build: StreamlineBuild } | undefined {
+  return typeof id === "string" && Object.hasOwn(STREAMLINE_SKINS, id) ? STREAMLINE_SKINS[id] : undefined;
 }
 
 /** The latest value its tablet reported, kept while a later read was unavailable; undefined if it never reported one. */

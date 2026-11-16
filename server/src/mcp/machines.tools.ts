@@ -179,7 +179,16 @@ const machineOutput = z.object({
       z.object({ status: z.literal("notReported") }),
       z.object({ status: z.literal("notInstalled") }),
       z.object({ status: z.literal("notActive"), activeSkin: z.object({ name: z.string().nullable(), version: z.string().nullable() }).nullable() }),
-      z.object({ status: z.literal("active"), version: z.string().nullable(), build: z.enum(["release", "main"]) }),
+      z.object({
+        status: z.literal("active"),
+        skin: z.enum(["streamline", "streamlineCafe"]).describe("Streamline, or Streamline Cafe, a Skin built on it."),
+        version: z.string().nullable().describe("The Skin's own version."),
+        build: z.enum(["release", "main"]),
+        streamlineVersion: z
+          .string()
+          .nullable()
+          .describe("The Streamline version it is or contains: Streamline's own, or Streamline Cafe's before -cafe.; null for a version of neither form."),
+      }),
     ]),
   }),
 });
