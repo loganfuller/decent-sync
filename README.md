@@ -120,6 +120,18 @@ Each server has one owner: a household, or a business with all of its sites.
   Profile, Recipe and Basket. Filter Shots by those, and by Location, Machine
   and date. Each item's page lists its Shots. A Barista whose name was typed
   "jules" and "Jules" is one choice in the Barista filter, which finds both.
+- **A list that leads with the Shots.** The Shots list keeps its date
+  presets in view: Today, Yesterday, 7 days and 30 days, each Location's own
+  days, and Custom for any dates. Its other filters open from one Filters
+  button, in a sheet on a phone, and each one set is a chip above the list
+  that names it and removes it. Filter by rating too: rated, not rated, or
+  a least number of stars. Its Shots are under a heading for each day, and
+  each row gives its Recipe, grind setting and dose, its yield with its
+  difference from its own target, its duration with its difference from its
+  Recipe's Reference Shot's, how it stopped where that was not at its
+  target, and its rating in stars, with what is out of spec marked. On a
+  phone each Shot is two lines, and nothing scrolls sideways. The Steam
+  Records list has the same presets, button and chips.
 - **Rated away from its tablet.** A Shot's rating, up to five stars as
   DYE2 shows it, and its note can be edited on its page, or by an
   assistant, by an Admin, or by Staff for Shots at the Locations they
@@ -136,21 +148,26 @@ Each server has one owner: a household, or a business with all of its sites.
 - **Summed up as you filter.** Above the Shots list, a summary of the Shots
   its filters find: how many there are, their median duration and yield
   against target, each with the range the middle half of them fall in, and
-  the share that stopped on weight. Choose others to show too: the ratio,
+  the share that stopped at target, each marked where it is out of spec,
+  the duration against the Reference Shot of the one Recipe the filters
+  name. Choose others to show too: the ratio,
   peak pressure and flow, rating (in stars, such as "4 stars (3.5–4.5)"),
   grind setting, TDS, extraction yield, time to first drip, and the profile
   steps Shots ended in. Cleaning and
   calibration Shots are left out, and counted, as are Unfinished Shots, in
   which nothing poured: the Machine never reached pouring and the scale
   never read a gram, as when a Shot is stopped at once.
-- **Trends.** Under that summary, a chart of one of its numbers by day or by
+- **Trends.** Under that summary, closed until opened, a chart of one of its
+  numbers by day or by
   week, to see a coffee drift or a change take effect: each day's or week's
   median as a line, with a band for the range the middle half of its Shots
-  fall in, or, for the share that stopped on weight, a line alone. A rating
-  is charted in stars, from 0 to 5. A day is
+  fall in, or, for the share that stopped at target, a line alone. A rating
+  is charted in stars, from 0 to 5. Filtered to one Recipe, it draws a line
+  for each Machine that pulled it, and, charting duration, the Recipe's
+  Reference Shot's as a dashed line. A day is
   each Shot's Location's own, in its time zone, or UTC's for a Shot with no
-  Location, and a week starts on Monday. The number and the day or week
-  chosen are kept in the page's address, with the filters.
+  Location, and a week starts on Monday. Whether it is open, the number and
+  the day or week chosen are kept in the page's address, with the filters.
 - **What is out of spec, marked.** The server judges a Machine's Shots of a
   Recipe over a period, and each Shot, against three margins: a duration
   more than 10% from the Recipe's Reference Shot's, a yield more than 5%
@@ -375,7 +392,9 @@ their activity, each dial-in change included, and how much each was used by
 day or by hour, each Machine's scale,
 sensors, paired devices, plugins and Skins, Settings Edits and Settings
 History, Shots with their curves, the profile steps they ran, their time to
-first drip and their flow at the stop, a summary of the Shots any filter
+first drip and their flow at the stop, found by any of the Shots list's
+filters, its rating filter and its periods of each Location's own days
+among them, a summary of the Shots any filter
 finds, with the numbers it asks for, as one group or grouped by Machine,
 Recipe, Bean, Bean Batch, Profile, Grinder, Basket, Barista or Location,
 two at once, such as two Machines on the same Recipe side by side, and by

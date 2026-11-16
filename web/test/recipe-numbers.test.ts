@@ -40,8 +40,8 @@ describe("a Machine's Shots of a Recipe in the Shots list", () => {
     expect(machineShotsPath("recipe-1", "machine-1", { from: "2026-11-11", to: "2026-11-11" })).toBe("/shots?recipeId=recipe-1&machineId=machine-1&from=2026-11-11&to=2026-11-11");
   });
 
-  it("have the list's trend chart the number given, none named for its default", () => {
+  it("have the list's trend open, charting the number given", () => {
     expect(machineShotsPath("recipe-1", "machine-1", days, "grindSetting")).toBe("/shots?recipeId=recipe-1&machineId=machine-1&from=2026-10-13&to=2026-11-11&trend=grindSetting");
-    expect(machineShotsPath("recipe-1", "machine-1", days, "duration")).toBe("/shots?recipeId=recipe-1&machineId=machine-1&from=2026-10-13&to=2026-11-11");
+    expect(machineShotsPath("recipe-1", "machine-1", days, "duration")).toBe("/shots?recipeId=recipe-1&machineId=machine-1&from=2026-10-13&to=2026-11-11&trend=duration");
   });
 });

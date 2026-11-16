@@ -1,3 +1,4 @@
+import { StarIcon } from "lucide-react";
 import { Link } from "react-router";
 import { batchName } from "@/components/bean-batches";
 import { grinderName } from "@/components/grinders";
@@ -5,6 +6,7 @@ import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
 import type { ListedShot } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { MAX_STARS, ratingText, starsOf } from "@/lib/rating";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
 
@@ -61,5 +63,23 @@ export function ShotProfile({ shot }: { shot: Pick<ListedShot, "profile" | "prof
   if (shot.profile === null) return <OrNone>{shot.profileTitle ?? undefined}</OrNone>;
   return (
     <LibraryLink to={profilePath(shot.profile.id)}>{shot.profileTitle ?? shot.profile.title ?? "Untitled Profile"}</LibraryLink>
+  );
+}
+
+/**
+ * A Shot's rating as stars (#544): five, filled up to the rating, rounded
+ * to a whole star as DYE2 rounds one to show it, and named by the rating as
+ * it is, such as "4.5 stars"; a dash for a Shot not rated.
+ */
+export function Stars({ rating }: { rating: number | null }) {
+  const text = ratingText(rating);
+  if (text === undefined) return <OrNone>{undefined}</OrNone>;
+  const filled = Math.round(starsOf(rating));
+  return (
+    <span role="img" aria-label={text} title={text} className="inline-flex items-center gap-px align-middle">
+      {Array.from({ length: MAX_STARS }, (_, index) => (
+        <StarIcon key={index} aria-hidden className={index < filled ? "size-3 fill-current" : "size-3 text-muted-foreground"} />
+      ))}
+    </span>
   );
 }

@@ -252,8 +252,12 @@ Viewers read every Steam Record an Admin does.
   `SHOTS.md` describes them): `machineId`, `pendingMachineId`, `locationId`
   (`none` for Steam Records with no Location), and `from` and `to`, a local
   date or date and time read on each Steam Record's own Location's wall
-  clock, or UTC for one with no Location. A malformed id is a 404, and an
-  unreadable date or a repeated parameter a 400.
+  clock, or UTC for one with no Location; or, in their place, `period`
+  (`today`, `yesterday`, `7days` or `30days`), each Steam Record's own
+  Location's days counted back from its own today (#544; `SHOTS.md`). A
+  malformed id is a 404, and an unreadable date or period, a period given
+  beside a date, or a repeated parameter a 400. The MCP endpoint's
+  `find_steam_records` takes `period` too.
 - `GET /api/steam-records/:id` returns `{ steamRecord }`, the same fields
   and the Decaid record without measurements in `steamRecord.record`.
 - `GET /api/steam-records/:id/measurements` returns `{ measurements }` as
@@ -285,7 +289,11 @@ Pending Machines and their dismissal and adoption, and ignored records and their
 `/steam-records` lists Steam Records with the REST filters in its address, as
 `/shots` lists Shots (`web/src/components/record-lists.tsx`), with times in
 each Steam Record's Location's time zone, or UTC, labelled, for one with no
-Location. `/steam-records/:id` shows a Steam Record's peak and final milk
+Location. Above its rows it has what the Shots list has (#544; `SHOTS.md`,
+Management interface): the date presets, with Custom's From and To, the
+Filters button, behind which are its filters by Location and Machine, and a
+chip for each that is set. It has no rating filter, and its rows are a
+table at every width (`e2e/steam-records.spec.ts`). `/steam-records/:id` shows a Steam Record's peak and final milk
 temperature, its credit, the steam settings its Workflow recorded, and its
 curves, drawn as a Shot's are (`web/src/lib/curves.ts`): the milk
 temperature, with the temperature its Workflow stops steaming at

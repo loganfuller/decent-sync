@@ -9,10 +9,26 @@ import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/component
  * A card for what most who read a page do not need: shown closed, but for
  * its title and what explains it in a tooltip, until it is opened. What it
  * holds is mounted only while it is open, so it loads nothing while closed,
- * and starts over each time it is opened.
+ * and starts over each time it is opened. It keeps whether it is open
+ * itself, unless given `open` and `onOpenChange`, as by a page that keeps
+ * it in its address.
  */
-export function CollapsibleCard({ title, info, children }: { title: string; info: ReactNode; children: ReactNode }) {
-  const [open, setOpen] = useState(false);
+export function CollapsibleCard({
+  title,
+  info,
+  open: given,
+  onOpenChange,
+  children,
+}: {
+  title: string;
+  info: ReactNode;
+  open?: boolean;
+  onOpenChange?(open: boolean): void;
+  children: ReactNode;
+}) {
+  const [own, setOwn] = useState(false);
+  const open = given ?? own;
+  const setOpen = onOpenChange ?? setOwn;
   return (
     <Collapsible asChild open={open} onOpenChange={setOpen}>
       <Card role="region" aria-label={title}>

@@ -1,5 +1,5 @@
 import { dateIn } from "./machine-activity";
-import { type TrendNumber, dateOf, dayNumber, trendParam } from "./shot-trend";
+import { type TrendNumber, dateOf, dayNumber } from "./shot-trend";
 
 // A Recipe's numbers on its page (#474): the pure parts, which work out
 // today and the trend's days at its Location, read the number its address
@@ -31,12 +31,11 @@ export function recipeDays(timeZone: string | undefined, now = Date.now()): { to
 /**
  * The Shots list's address for a Machine's Shots of a Recipe over days: the
  * Recipe, the Machine and the days as its filters, so the Shots it finds
- * are those the numbers are of. With `trend`, the list's own trend charts
- * that number of them.
+ * are those the numbers are of. With `trend`, the list's own trend is open,
+ * charting that number of them.
  */
 export function machineShotsPath(recipeId: string, machineId: string, days: { from: string; to: string }, trend?: TrendNumber): string {
   const query = new URLSearchParams({ recipeId, machineId, from: days.from, to: days.to });
-  const charted = trend && trendParam(trend);
-  if (charted) query.set("trend", charted);
+  if (trend) query.set("trend", trend);
   return `/shots?${query}`;
 }

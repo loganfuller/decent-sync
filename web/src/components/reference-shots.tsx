@@ -17,6 +17,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectGroup, SelectItem, SelectLabel, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { api, type ListedShot, type Recipe, type Shot } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { ratedShotsPath } from "@/lib/shot-list";
 
 // A Recipe's Reference Shot (ADR-0029): the one Shot chosen to show how its
 // Shots should go, from any Machine or Location. Its card on the Recipe's
@@ -97,7 +98,12 @@ export function ReferenceShotCard({ recipe, mayChange, onChanged }: { recipe: Re
       <CardContent className="grid gap-4">
         {error && <FormError error={error} />}
         {shot === null ? (
-          <p className="text-sm text-muted-foreground">None chosen.</p>
+          <p className="text-sm text-muted-foreground">
+            None chosen.{" "}
+            <Link to={ratedShotsPath(recipe.id)} className="underline decoration-dotted underline-offset-4">
+              Its rated Shots
+            </Link>
+          </p>
         ) : (
           <>
             {shot.profileDiffers && (

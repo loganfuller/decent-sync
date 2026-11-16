@@ -106,11 +106,14 @@ describe("the numbers the Shots list shows", () => {
     // A number a later release gives, in an address shared from it, is left out.
     expect(shownNumbers("ratio,brewTemperature")).toEqual(["ratio"]);
     expect(shownNumbers("brewTemperature")).toEqual(DEFAULT_NUMBERS);
+    // So is stopped on weight, which stopped at target took the place of (#544), in an address kept from before.
+    expect(shownNumbers("ratio,stoppedOnWeight")).toEqual(["ratio"]);
+    expect(DEFAULT_NUMBERS).toEqual(["yieldAgainstTarget", "duration", "stoppedAtTarget"]);
   });
 
   it("keeps them in the address in their own order, and nothing for the default", () => {
     expect(numbersParam(["lastStep", "ratio"])).toBe("ratio,lastStep");
-    expect(numbersParam(["stoppedOnWeight", "yieldAgainstTarget", "duration"])).toBeNull();
+    expect(numbersParam(["stoppedAtTarget", "yieldAgainstTarget", "duration"])).toBeNull();
     expect(numbersParam(["yieldAgainstTarget", "duration"])).toBe("yieldAgainstTarget,duration");
     expect(numbersParam([])).toBeNull();
   });

@@ -44,3 +44,43 @@ export function machineRow(page: Page, name: string): Locator {
     .getByRole("row")
     .filter({ has: page.getByRole("link", { name, exact: true }) });
 }
+
+/**
+ * Opens a record list's filters, from its Filters button, unless they are
+ * open, and returns them: a popover on a wide screen and a sheet on a
+ * narrow one, a dialog named Filters either way.
+ */
+export async function openFilters(page: Page): Promise<Locator> {
+  const filters = page.getByRole("dialog", { name: "Filters" });
+  if (!(await filters.isVisible())) await page.getByRole("region", { name: "Filters" }).getByRole("button", { name: /^Filters/ }).click();
+  await expect(filters).toBeVisible();
+  return filters;
+}
+
+/** Closes a record list's filters, if they are open. */
+export async function closeFilters(page: Page): Promise<void> {
+  const filters = page.getByRole("dialog", { name: "Filters" });
+  if (await filters.isVisible()) await page.keyboard.press("Escape");
+  await expect(filters).toHaveCount(0);
+}
+
+/** Sets one of a record list's filters to the option of that name, opening the filters first and closing them after. */
+export async function chooseFilter(page: Page, filter: string, option: string): Promise<void> {
+  const filters = await openFilters(page);
+  await filters.getByRole("combobox", { name: filter, exact: true }).click();
+  await page.getByRole("option", { name: option, exact: true }).click();
+  await closeFilters(page);
+}
+
+/** The chip above a record list of a filter that is set, which names it and what it is set to. */
+export function filterChip(page: Page, filter: string): Locator {
+  return page
+    .getByRole("list", { name: "Filters set" })
+    .getByRole("listitem")
+    .filter({ has: page.getByRole("button", { name: `Remove the ${filter} filter`, exact: true }) });
+}
+
+/** One of a record list's date presets: Today, Yesterday, 7 days, 30 days or Custom. */
+export function datesPreset(page: Page, name: string): Locator {
+  return page.getByRole("radiogroup", { name: "Dates" }).getByRole("radio", { name, exact: true });
+}

@@ -3,7 +3,7 @@ import { preheatShotFixture, shotFixture, withShots } from "../server/test/suppo
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { farFromMidnight } from "./support/calendar.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { datesPreset, filterChip, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -155,8 +155,10 @@ test("a Machine's count opens its Shots of the Recipe today in the Shots list, w
   // The two its numbers cover and the unfinished one.
   await expect(rows(page.getByRole("table", { name: "Shots" }))).toHaveCount(3);
   const chosen = page.getByRole("region", { name: "Filters" });
-  await expect(chosen.getByRole("combobox", { name: "Machine", exact: true })).toHaveText("Lab Left");
-  await expect(chosen.getByRole("combobox", { name: "Recipe", exact: true })).toHaveText("House, Lab");
+  await expect(filterChip(page, "Machine")).toHaveText("Machine:Lab Left");
+  await expect(filterChip(page, "Recipe")).toHaveText("Recipe:House, Lab");
+  // The day is the list's own dates, Custom's.
+  await expect(datesPreset(page, "Custom")).toBeChecked();
   await expect(chosen.getByRole("button", { name: "From", exact: true })).toHaveText(dateText(0));
   await expect(chosen.getByRole("button", { name: "To", exact: true })).toHaveText(dateText(0));
 });
@@ -228,7 +230,7 @@ test("the trend charts the last 30 days by day, a line for each Machine with its
   await expect(duration.locator(".recharts-line-dot")).toHaveCount(5);
 });
 
-test("a Machine's name under the chart opens its Shots of the 30 days in the Shots list, whose own trend charts the same number", async ({ page }) => {
+test("a Machine's name under the chart opens its Shots of the 30 days in the Shots list, whose own trend opens charting the same number", async ({ page }) => {
   await page.goto(`/library/recipes/${recipes.house}?trend=grindSetting`);
   const trend = page.getByRole("region", { name: "Trend", exact: true });
   const filters = (machine: { id: string }) => `recipeId=${recipes.house}&machineId=${machine.id}&from=${date(-29)}&to=${date(0)}`;
@@ -239,17 +241,18 @@ test("a Machine's name under the chart opens its Shots of the 30 days in the Sho
   // The Right's Shots of the House: today's and the two of five days ago.
   await expect(rows(page.getByRole("table", { name: "Shots" }))).toHaveCount(3);
   const chosen = page.getByRole("region", { name: "Filters" });
-  await expect(chosen.getByRole("combobox", { name: "Machine", exact: true })).toHaveText("Lab Right");
-  await expect(chosen.getByRole("combobox", { name: "Recipe", exact: true })).toHaveText("House, Lab");
+  await expect(filterChip(page, "Machine")).toHaveText("Machine:Lab Right");
+  await expect(filterChip(page, "Recipe")).toHaveText("Recipe:House, Lab");
   await expect(chosen.getByRole("button", { name: "From", exact: true })).toHaveText(dateText(-29));
   await expect(chosen.getByRole("button", { name: "To", exact: true })).toHaveText(dateText(0));
+  // The list's trend is open, as the address names its number.
   await expect(page.getByRole("region", { name: "Trend" }).getByRole("figure", { name: "Grind setting by day" }).locator(".recharts-line-dot")).toHaveCount(2);
 
-  // Back on the Recipe's page the number is as it was. Charting duration, the link names no number, the list's default.
+  // Back on the Recipe's page the number is as it was. Charting duration, the link names that.
   await page.goBack();
   await expect(trend.getByRole("tab", { name: "Grind setting" })).toHaveAttribute("aria-selected", "true");
   await trend.getByRole("tab", { name: "Duration" }).click();
-  await expect(lines.getByRole("link", { name: "Lab Left" })).toHaveAttribute("href", `/shots?${filters(machines.left)}`);
+  await expect(lines.getByRole("link", { name: "Lab Left" })).toHaveAttribute("href", `/shots?${filters(machines.left)}&trend=duration`);
 });
 
 test("a Recipe with no Shots in the period says so, and one whose grind setting is text has no grind trend", async ({ page }) => {

@@ -1,11 +1,11 @@
 import { ChevronDownIcon } from "lucide-react";
 import { Fragment, useCallback, useId, useState } from "react";
 import { Link } from "react-router";
-import { Area, CartesianGrid, ComposedChart, Line, XAxis, YAxis } from "recharts";
-import { CardTitleWithInfo } from "@/components/info-tip";
+import { Area, CartesianGrid, ComposedChart, Line, ReferenceLine, XAxis, YAxis } from "recharts";
+import { CollapsibleCard } from "@/components/collapsible-card";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { CardContent } from "@/components/ui/card";
 import { type ChartConfig, ChartContainer, ChartTooltip } from "@/components/ui/chart";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Field, FieldLabel } from "@/components/ui/field";
@@ -27,6 +27,7 @@ import {
   axisTicks,
   dateOf,
   dayNumber,
+  isShare,
   pointText,
   pointTitle,
   trendPoints,
@@ -71,11 +72,14 @@ const STARS_AXIS = { domain: [0, MAX_STARS] satisfies [number, number], ticks: A
  * How one number of the Shots a list's filters find moved (#470), under
  * their summary: by day or week, its median as a line, with a band for the
  * range the middle half of each day's or week's Shots fall in, or, for a
- * share, such as stopped on weight, the line alone. A rating is charted in
+ * share, such as stopped at target, the line alone. A rating is charted in
  * stars, from 0 to 5 (#532). A day or week is each
  * Shot's Location's own, as the server counts them, so the days charted are
  * calendar days, the browser's own time zone playing no part; one with no
  * Shots, or none with a value, has no point, and the line runs past it.
+ *
+ * It starts closed (#544), and reads nothing until opened: `open` is
+ * whether it is, which `onOpen` changes, as the list's address keeps it.
  *
  * `filterQuery` is the list's filters as the REST API's query, and `number`
  * and `bucket` those its address keeps, which `onNumber` and `onBucket`
@@ -83,79 +87,142 @@ const STARS_AXIS = { domain: [0, MAX_STARS] satisfies [number, number], ticks: A
  * number, bucket or filter is chosen, what was read last stays, faded, under
  * its own title, until the new one's arrives, and goes if that can't be
  * read.
+ *
+ * Where the filters name one Recipe, `recipe`, the trend is read grouped by
+ * it, which brings its Reference Shot: charting duration, that Shot's is a
+ * dashed line across the chart. With no Machine named beside it,
+ * `recipe.byMachine`, each Machine that pulled the Recipe is a line of its
+ * own, named beside its color, its name opening the list at that Machine
+ * (`recipe.machinePath`).
  */
 export function ShotTrendCard({
   filterQuery,
+  recipe,
+  open,
+  onOpen,
   number,
   bucket,
   onNumber,
   onBucket,
 }: {
   filterQuery: string;
+  recipe?: { byMachine: boolean; machinePath(machineId: string): string };
+  open: boolean;
+  onOpen(open: boolean): void;
   number: TrendNumber;
   bucket: Bucket;
   onNumber(number: TrendNumber): void;
   onBucket(bucket: Bucket): void;
 }) {
-  const id = useId();
-  const query = new URLSearchParams([...new URLSearchParams(filterQuery), ["bucket", bucket], ["numbers", number]]).toString();
-  // Each trend loaded remembers what it answers, and so what it is to be drawn as.
-  const load = useCallback(async () => ({ query, number, bucket, summary: await api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`) }), [query, number, bucket]);
-  const { data: loaded, error } = usePolled(load, DETAILS_POLL_MS);
-  const current = loaded?.query === query;
-  // The previous release's instance, answering during a deploy, knows no bucket and gives none: nothing is drawn of it.
-  const buckets = loaded && (current || !error) ? loaded.summary.groups[0]?.buckets : undefined;
-
   return (
-    <Card role="region" aria-label="Trend">
-      <CardHeader>
-        <CardTitleWithInfo title="Trend">
+    <CollapsibleCard
+      title="Trend"
+      open={open}
+      onOpenChange={onOpen}
+      info={
+        <>
           <p>How one number of the Shots these filters find moved, by day or by week. Cleaning, calibration and Unfinished Shots are left out, as in the summary.</p>
-          <p>The line is each day's or week's median, and the band around it the range the middle half of its Shots fall in. A share, such as stopped on weight, is a line alone.</p>
+          <p>The line is each day's or week's median, and the band around it the range the middle half of its Shots fall in. A share, such as stopped at target, is a line alone.</p>
+          <p>
+            Filtered to one Recipe and no Machine, each Machine that pulled it is a line of its own. Charting duration, the dashed line is its
+            Reference Shot's.
+          </p>
           <p>A day or week is that of each Shot's Location, in its time zone, or UTC for a Shot with no Location. A week starts on Monday.</p>
           <p>A day or week with no Shots, or none with a value, has no point: the line runs past it to the next.</p>
-        </CardTitleWithInfo>
-      </CardHeader>
-      <CardContent>
-        <Tabs value={bucket} onValueChange={(chosen) => onBucket(chosen === "week" ? "week" : "day")} className="gap-4">
-          <div className="flex flex-wrap items-end gap-3">
-            <TabsList>
-              <TabsTrigger value="day">By day</TabsTrigger>
-              <TabsTrigger value="week">By week</TabsTrigger>
-            </TabsList>
-            <Field className="w-auto">
-              <FieldLabel htmlFor={`${id}-number`} className="sr-only">
-                Number
-              </FieldLabel>
-              <Select value={number} onValueChange={(chosen) => onNumber(chosen as TrendNumber)}>
-                <SelectTrigger id={`${id}-number`} className="w-48">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {TREND_NUMBERS.map((name) => (
-                    <SelectItem key={name} value={name}>
-                      {NUMBER_NAMES[name]}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </Field>
-          </div>
-          <TabsContent value={bucket} className="grid gap-4">
-            {error && (
-              <Alert variant="destructive">
-                <AlertDescription>Could not read the trend: {error}</AlertDescription>
-              </Alert>
-            )}
-            {loaded && buckets && (
-              <div className={current ? "grid gap-4" : "grid gap-4 opacity-50"} aria-busy={!current}>
-                <TrendChart lines={[{ id: "all", buckets }]} number={loaded.number} bucket={loaded.bucket} />
-              </div>
-            )}
-          </TabsContent>
-        </Tabs>
-      </CardContent>
-    </Card>
+        </>
+      }
+    >
+      <Trend filterQuery={filterQuery} recipe={recipe} number={number} bucket={bucket} onNumber={onNumber} onBucket={onBucket} />
+    </CollapsibleCard>
+  );
+}
+
+/** The open Trend card's content, which reads the trend while it is shown. */
+function Trend({ filterQuery, recipe, number, bucket, onNumber, onBucket }: Omit<Parameters<typeof ShotTrendCard>[0], "open" | "onOpen">) {
+  const id = useId();
+  const byMachine = recipe?.byMachine === true;
+  const query = new URLSearchParams([
+    ...new URLSearchParams(filterQuery),
+    ["bucket", bucket],
+    ["numbers", number],
+    // As many Machines as the chart draws lines of.
+    ...(recipe ? [["groupBy", byMachine ? "recipe,machine" : "recipe"], ["limit", String(MOST_LINES)]] : []),
+  ]).toString();
+  // Each trend loaded remembers what it answers, and so what it is to be drawn as.
+  const load = useCallback(
+    async () => ({ query, number, bucket, byMachine, summary: await api<ShotSummary<BucketedGroup>>("GET", `/shots/summary?${query}`) }),
+    [query, number, bucket, byMachine],
+  );
+  const { data: loaded, error } = usePolled(load, DETAILS_POLL_MS);
+  const current = loaded?.query === query;
+  const groups = loaded && (current || !error) ? loaded.summary.groups : undefined;
+  // The previous release's instance, answering during a deploy, knows no bucket and gives none: nothing is drawn of it.
+  // Grouped by Recipe and no Shots found, there is no group, and so no line, which the chart says.
+  const lines: TrendLine[] | undefined = !groups
+    ? undefined
+    : loaded!.byMachine
+      ? groups.flatMap((group) => (group.by.machine && group.buckets ? [{ id: group.by.machine.id, name: group.by.machine.name, to: recipe?.machinePath(group.by.machine.id), buckets: group.buckets }] : []))
+      : groups[0]?.buckets
+        ? [{ id: "all", buckets: groups[0].buckets }]
+        : recipe && groups.length === 0
+          ? [{ id: "all", buckets: [] }]
+          : undefined;
+  // Each group of a Recipe gives the same Reference Shot, with its own value of the number charted.
+  const reference = groups?.[0]?.reference;
+  const referenceDuration = loaded?.number === "duration" ? reference?.numbers.duration : undefined;
+
+  return (
+    <CardContent>
+      <Tabs value={bucket} onValueChange={(chosen) => onBucket(chosen === "week" ? "week" : "day")} className="gap-4">
+        <div className="flex flex-wrap items-end gap-3">
+          <TabsList>
+            <TabsTrigger value="day">By day</TabsTrigger>
+            <TabsTrigger value="week">By week</TabsTrigger>
+          </TabsList>
+          <Field className="w-auto">
+            <FieldLabel htmlFor={`${id}-number`} className="sr-only">
+              Number
+            </FieldLabel>
+            <Select value={number} onValueChange={(chosen) => onNumber(chosen as TrendNumber)}>
+              <SelectTrigger id={`${id}-number`} className="w-48">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {TREND_NUMBERS.map((name) => (
+                  <SelectItem key={name} value={name}>
+                    {NUMBER_NAMES[name]}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+        <TabsContent value={bucket} className="grid gap-4">
+          {error && (
+            <Alert variant="destructive">
+              <AlertDescription>Could not read the trend: {error}</AlertDescription>
+            </Alert>
+          )}
+          {!loaded && !error && <p className="text-sm text-muted-foreground">Loading</p>}
+          {loaded && lines && (
+            <div className={current ? "grid gap-4" : "grid gap-4 opacity-50"} aria-busy={!current}>
+              <TrendChart
+                lines={lines}
+                of={loaded.byMachine ? "Machine" : undefined}
+                number={loaded.number}
+                bucket={loaded.bucket}
+                reference={reference && typeof referenceDuration === "number" ? { id: reference.id, value: referenceDuration } : undefined}
+              />
+              {loaded.byMachine && loaded.summary.total > lines.length && (
+                <p className="text-xs text-muted-foreground">
+                  The lines are of the first {lines.length} Machines by name, of {loaded.summary.total} that pulled it.
+                </p>
+              )}
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
+    </CardContent>
   );
 }
 
@@ -180,7 +247,9 @@ export interface TrendLine {
  * named beside its color under the chart, in its tooltips and in the table,
  * the first `MOST_LINES` of them drawn. The time axis runs from the first
  * day or week with a point to the last, or over `days`, where given, as the
- * days the Shots were asked for.
+ * days the Shots were asked for. `reference` is a Recipe's Reference Shot's
+ * own value of the number, drawn as a dashed line across the chart with its
+ * value beside it, and named under the chart, where it leads to that Shot.
  */
 export function TrendChart({
   lines: given,
@@ -188,19 +257,22 @@ export function TrendChart({
   number,
   bucket,
   days,
+  reference,
 }: {
   lines: readonly TrendLine[];
   of?: string;
   number: TrendNumber;
   bucket: Bucket;
   days?: { from: string; to: string };
+  reference?: { id: string; value: number };
 }) {
   const lines = given.slice(0, MOST_LINES);
   const rows = trendRows(lines.map((line) => trendPoints(line.buckets, number)));
   const untimed = lines.reduce((shots, line) => shots + untimedShots(line.buckets), 0);
   const name = NUMBER_NAMES[number];
   const unit = TREND_UNITS[number];
-  const share = number === "stoppedOnWeight";
+  const share = isShare(number);
+  const referenceText = reference && pointText({ value: reference.value, band: [reference.value, reference.value] }, number).value;
   const span = days ? ([dayNumber(days.from), dayNumber(days.to)] satisfies [number, number]) : axisSpan(rows, bucket);
 
   return (
@@ -256,6 +328,17 @@ export function TrendChart({
                     isAnimationActive={false}
                   />
                 ))}
+              {/* Under the lines, which cross it; the value axis grows to hold it. */}
+              {reference && (
+                <ReferenceLine
+                  y={reference.value}
+                  ifOverflow="extendDomain"
+                  stroke="var(--muted-foreground)"
+                  strokeWidth={1.5}
+                  strokeDasharray="5 4"
+                  label={{ value: `Reference ${referenceText}`, position: "insideBottomRight", fill: "var(--muted-foreground)", fontSize: 12 }}
+                />
+              )}
               {lines.map((line, index) => (
                 <Line
                   key={line.id}
@@ -274,20 +357,30 @@ export function TrendChart({
           </ChartContainer>
         )}
       </figure>
-      {of !== undefined && (
+      {(of !== undefined || reference) && (
         <ul aria-label="Lines" className="flex flex-wrap gap-x-4 gap-y-1 text-sm">
-          {lines.map((line, index) => (
-            <li key={line.id} className="flex items-center gap-1.5">
-              <Swatch line={index} />
-              {line.to === undefined ? (
-                line.name
-              ) : (
-                <Link to={line.to} className="underline underline-offset-4">
-                  {line.name}
-                </Link>
-              )}
+          {of !== undefined &&
+            lines.map((line, index) => (
+              <li key={line.id} className="flex items-center gap-1.5">
+                <Swatch line={index} />
+                {line.to === undefined ? (
+                  line.name
+                ) : (
+                  <Link to={line.to} className="underline underline-offset-4">
+                    {line.name}
+                  </Link>
+                )}
+              </li>
+            ))}
+          {reference && (
+            <li className="flex items-center gap-1.5 text-muted-foreground">
+              <span aria-hidden className="w-3.5 shrink-0 border-t-2 border-dashed border-muted-foreground" />
+              <Link to={`/shots/${encodeURIComponent(reference.id)}`} className="underline underline-offset-4">
+                Reference Shot
+              </Link>
+              <span className="tabular-nums">{referenceText}</span>
             </li>
-          ))}
+          )}
         </ul>
       )}
       {untimed > 0 && (
@@ -365,7 +458,7 @@ function PointTip({ row, lines, of, number, bucket }: { row: TrendRow; lines: re
 function Numbers({ rows, lines, of, number, bucket }: { rows: readonly TrendRow[]; lines: readonly TrendLine[]; of: string | undefined; number: TrendNumber; bucket: Bucket }) {
   const [open, setOpen] = useState(false);
   const name = NUMBER_NAMES[number];
-  const share = number === "stoppedOnWeight";
+  const share = isShare(number);
   return (
     <Collapsible open={open} onOpenChange={setOpen} className="grid min-w-0 gap-2">
       <div>

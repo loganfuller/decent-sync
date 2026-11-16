@@ -5,7 +5,7 @@ import { SimulatedDye2, dye2List, openDye2Dashboard, recordedDye2MainTablet, sel
 import { NO_DYE2_LISTS, SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field, rows } from "./support/locators.js";
+import { chooseFilter, field, filterChip, rows } from "./support/locators.js";
 
 // Shots linked to their Recipe and Basket (tickets #147 and #216): each
 // Recipe's and Basket's page lists its Shots, linked by the `recipeId` their
@@ -46,15 +46,13 @@ test("each Recipe's and Basket's page lists its Shots, and the Shots list filter
   await expect(page).toHaveURL(new RegExp(`/shots\\?recipeId=${two}$`));
   const list = page.getByRole("table", { name: "Shots" });
   await expect(rows(list)).toHaveCount(1);
-  await expect(page.getByLabel("Recipe", { exact: true })).toHaveText("Fixture Brazil Espresso, Uptown");
-  await page.getByLabel("Recipe", { exact: true }).click();
-  await page.getByRole("option", { name: "Any Recipe" }).click();
+  await expect(filterChip(page, "Recipe")).toHaveText("Recipe:Fixture Brazil Espresso, Uptown");
+  await chooseFilter(page, "Recipe", "Any Recipe");
   await expect(rows(list)).toHaveCount(2);
 
   // By its Basket, which its page lists it under too.
-  await page.getByLabel("Basket", { exact: true }).click();
   const basketName = (await page.request.get(`/api/baskets/${basket}`).then((response) => response.json()) as { basket: { name: string } }).basket.name;
-  await page.getByRole("option", { name: basketName, exact: true }).click();
+  await chooseFilter(page, "Basket", basketName);
   await expect(page).toHaveURL(new RegExp(`basketId=${basket}`));
   await expect(list.getByRole("link", { name: /./ }).first()).toBeVisible();
   await page.goto(`/shots/uptown-brazil`);

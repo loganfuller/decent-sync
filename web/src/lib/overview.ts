@@ -7,11 +7,11 @@ import { shotsText, signedText, yieldAgainstTargetText } from "./shot-summary";
 // a Location, put a Shot Summary grouped by Recipe and Machine into a
 // block's rows and columns, and word what the server judged out of spec.
 
-/** The periods the Overview offers, as its address names them, in the order it offers them. */
+/** The periods the Overview offers, as its address names them, in the order it offers them, each with the Shots list's date preset of the same days (`shots`). */
 export const PERIODS = [
-  { period: "today", label: "Today", pulled: "today" },
-  { period: "yesterday", label: "Yesterday", pulled: "yesterday" },
-  { period: "week", label: "7 days", pulled: "in the last 7 days" },
+  { period: "today", label: "Today", pulled: "today", shots: "today" },
+  { period: "yesterday", label: "Yesterday", pulled: "yesterday", shots: "yesterday" },
+  { period: "week", label: "7 days", pulled: "in the last 7 days", shots: "7days" },
 ] as const;
 
 export type Period = (typeof PERIODS)[number]["period"];
@@ -128,9 +128,13 @@ export function overviewRows(groups: readonly SummaryGroup[], recipes: readonly 
   return [...rows.values()].sort((a, b) => tier(a) - tier(b) || (a.slot ?? 0) - (b.slot ?? 0));
 }
 
-/** The Shots list's filters for a cell: its Location, Machine, Recipe, or none, and the period's days, so the Shots it finds are the cell's. */
-export function cellFilters(locationId: string, machineId: string, recipeId: string | null, days: { from: string; to: string }): string {
-  return new URLSearchParams({ locationId, machineId, recipeId: recipeId ?? "none", from: days.from, to: days.to }).toString();
+/**
+ * The Shots list's filters for a cell: its Location, Machine, Recipe, or
+ * none, and the period as the list's date preset of the same days, which
+ * are that Location's own there too, so the Shots it finds are the cell's.
+ */
+export function cellFilters(locationId: string, machineId: string, recipeId: string | null, period: Period): string {
+  return new URLSearchParams({ locationId, machineId, recipeId: recipeId ?? "none", period: PERIODS.find((each) => each.period === period)!.shots }).toString();
 }
 
 /** What a block's heading says its period's numbers cover: how many Shots, with the Unfinished Shots left out of them beside it. */

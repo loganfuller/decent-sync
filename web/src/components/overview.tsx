@@ -29,6 +29,7 @@ import {
   periodDays,
   periodOf,
 } from "@/lib/overview";
+import { ratedShotsPath } from "@/lib/shot-list";
 import { durationText } from "@/lib/shot-summary";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 import { cn } from "@/lib/utils";
@@ -322,7 +323,7 @@ function OverviewNumbers({ location, machines, period, data, error }: { location
                           const group = row.cells.get(column.id);
                           return (
                             <TableCell key={column.id} className="border-l px-2 py-3 align-top whitespace-normal sm:px-3">
-                              {group && <ShotsCell group={group} to={`/shots?${cellFilters(id, column.id, row.recipe?.id ?? null, data)}`} />}
+                              {group && <ShotsCell group={group} to={`/shots?${cellFilters(id, column.id, row.recipe?.id ?? null, data.period)}`} />}
                             </TableCell>
                           );
                         })}
@@ -499,7 +500,7 @@ function RecipeHeading({ row, locationId, today, between }: { row: OverviewRow; 
             Reference{duration !== null && ` ${duration.toFixed(1)} s`}
           </Link>
         ) : (
-          <Link to={`/shots?${new URLSearchParams({ recipeId: recipe.id })}`} className="underline decoration-dotted underline-offset-4">
+          <Link to={ratedShotsPath(recipe.id)} className="underline decoration-dotted underline-offset-4">
             No reference
           </Link>
         )}

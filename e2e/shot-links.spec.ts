@@ -5,7 +5,7 @@ import { SimulatedTablet } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { tabletAt } from "./support/tablets.js";
 import { signInAsAdmin } from "./support/seed.js";
-import { field } from "./support/locators.js";
+import { chooseFilter, field, filterChip, rows } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Shots linked to the Library (ticket #92): each Library item's page lists
@@ -59,28 +59,25 @@ test("a batch's page lists its Shots from both Locations, and the Shots list fil
   await page.getByRole("link", { name: "Filter the Shots list by it" }).click();
   await expect(page).toHaveURL(new RegExp(`/shots\\?beanBatchId=${batch.id}$`));
   const list = page.getByRole("table", { name: "Shots" });
-  await expect(list.getByRole("row")).toHaveCount(3);
-  await expect(page.getByLabel("Bean Batch", { exact: true })).toHaveText("Linked Sidra, roasted 2026-10-04");
+  await expect(rows(list)).toHaveCount(2);
+  await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Linked Sidra, roasted 2026-10-04");
 
   // By Grinder, each Location's own.
-  await page.getByLabel("Bean Batch", { exact: true }).click();
-  await page.getByRole("option", { name: "Any Bean Batch" }).click();
-  await expect(list.getByRole("row")).toHaveCount(4);
-  await page.getByLabel("Grinder", { exact: true }).click();
-  await page.getByRole("option", { name: "Belmont Mythos, Belmont" }).click();
+  await chooseFilter(page, "Bean Batch", "Any Bean Batch");
+  await expect(rows(list)).toHaveCount(3);
+  await chooseFilter(page, "Grinder", "Belmont Mythos, Belmont");
   await expect(page).toHaveURL(new RegExp(`grinderId=${cafeGrinder.id}`));
-  await expect(list.getByRole("row")).toHaveCount(2);
+  await expect(rows(list)).toHaveCount(1);
   await expect(list.getByRole("row", { name: /Belmont 1/ })).toBeVisible();
 
   // Shots linked to no batch.
-  await page.getByLabel("Grinder", { exact: true }).click();
-  await page.getByRole("option", { name: "Any Grinder" }).click();
-  await page.getByLabel("Bean Batch", { exact: true }).click();
-  await page.getByRole("option", { name: "Not linked to a Bean Batch" }).click();
+  await chooseFilter(page, "Grinder", "Any Grinder");
+  await chooseFilter(page, "Bean Batch", "Not linked to a Bean Batch");
+  await expect(filterChip(page, "Bean Batch")).toHaveText("Bean Batch:Not linked");
   // The list filtered by Grinder also had one Shot, so wait for this one's row before counting.
   const unlinked = list.getByRole("row", { name: /Lab group .* 3 stars Fixture Barista$/ });
   await expect(unlinked).toBeVisible();
-  await expect(list.getByRole("row")).toHaveCount(2);
+  await expect(rows(list)).toHaveCount(1);
   await unlinked.getByRole("link").first().click();
   await expect(field(page.getByLabel("Shot", { exact: true }), "Bean Batch")).toHaveText("Not in the Library");
 

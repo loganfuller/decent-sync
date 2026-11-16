@@ -3,7 +3,7 @@ import { derivedShot, preheatShotFixture, shotFixture, withShots } from "../serv
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
-import { field } from "./support/locators.js";
+import { chooseFilter, datesPreset, field } from "./support/locators.js";
 import { expectTip, tap } from "./support/tooltips.js";
 
 // Shots in the management interface, as an Admin whose browser is in Tokyo
@@ -57,50 +57,59 @@ test("Shots from every Location are listed newest first, at their Location's tim
   await page.getByRole("navigation", { name: "Main" }).getByRole("link", { name: "Shots" }).click();
   await expect(rows(page)).toHaveCount(6);
   await expectTip(page.getByRole("main"), "Shots", /^Every Shot pulled at every Location, newest first\. Times are shown in each Shot's Location's time zone/);
-  await expect(column(page, 1)).toHaveText([
+  // Each Shot's link reads as its time of day and is named by its whole time, in its own Location's time zone.
+  await expect.poll(() => times(page)).toEqual([
     "Feb 11, 2026, 9:00 AM CST",
     "Feb 10, 2026, 6:30 AM MST",
     "Feb 10, 2026, 6:00 AM MST",
     "Feb 10, 2026, 6:30 AM CST",
     "Feb 10, 2026, 6:30 AM UTC",
     "Jan 20, 2026, 3:00 PM UTC",
-  ].map((time) => new RegExp(`^${time}`)));
+  ]);
+  await expect(column(page, 1)).toHaveText([/^9:00 AM/, /^6:30 AM/, /^6:00 AM/, /^6:30 AM/, /^6:30 AM/, /^3:00 PM/]);
+  // Under a heading for each day, each Shot's own Location's.
+  await expect(page.getByRole("table", { name: "Shots" }).locator("tbody th")).toHaveText(["Wed Feb 11", "Tue Feb 10", "Tue Jan 20"]);
   await expect(page.getByText("Shots 1–6 of 6")).toBeVisible();
 
+  // It was pulled with no Recipe loaded, 0.1 g under its target of 36 g, which is within spec.
   const labRow = row(page, "Feb 10, 2026, 6:30 AM MST");
-  await expect(labRow.getByRole("cell")).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Lab 1", "Lab", "Londonium", "Roux Bakehouse · Ethiopia Guji", "18 g", "35.9 g", "23.5 s", "-", "Ann"]);
+  await expect(labRow.getByRole("cell")).toHaveText(["6:30 AM", "Lab 1", "No RecipeLondonium · Ethiopia Guji · Lab", "7.5", "18 g", "35.9 g−0.1 g", "23.5 s", "-", "Ann"]);
   // An inferred Machine credit, and the Location it brings, are marked.
   const inferred = row(page, "Feb 11, 2026, 9:00 AM CST");
   await expect(inferred.getByRole("cell").nth(1)).toHaveText("Uptown 1Inferred");
-  await expect(inferred.getByRole("cell").nth(2)).toHaveText("UptownInferred");
+  await expect(inferred.getByRole("cell").nth(2)).toHaveText("No RecipeBlooming · Ethiopia Guji · UptownInferred");
   await expect(row(page, "Feb 10, 2026, 6:30 AM CST").getByText("Inferred")).toHaveCount(0);
   // Without a Location, times are in UTC, and say so.
-  await expect(row(page, "Feb 10, 2026, 6:30 AM UTC").getByRole("cell").nth(2)).toHaveText("No Location, times in UTC");
+  await expect(row(page, "Feb 10, 2026, 6:30 AM UTC").getByRole("cell").nth(2)).toHaveText("No RecipeLondonium · Ethiopia Generic 100g Sample · No Location, times in UTC");
   await expect(row(page, "Jan 20, 2026, 3:00 PM UTC").getByRole("cell").nth(1)).toHaveText("Bengle serial 10029Pending Machine");
 });
 
 test("filters narrow the list alone and together, with dates read in each Shot's Location's time zone", async ({ page }) => {
   await page.goto("/shots");
   await expect(rows(page)).toHaveCount(6);
-  await expectTip(page.getByRole("region", { name: "Filters" }), "dates and times", /^Dates and times are read in each Shot's Location's time zone, so 7:00 means 7:00 wherever it was pulled\./);
+  await expectTip(
+    page.getByRole("region", { name: "Filters" }),
+    "dates and times",
+    /^Today, Yesterday, 7 days and 30 days are each Shot's Location's own days, .*Dates and times are read in each Shot's Location's time zone, so 7:00 means 7:00 wherever it was pulled\./,
+  );
 
-  await choose(page, "Location", "Uptown");
+  await chooseFilter(page, "Location", "Uptown");
   await expect(rows(page)).toHaveCount(2);
-  await choose(page, "Location", "No Location (UTC)");
+  await chooseFilter(page, "Location", "No Location (UTC)");
   await expect(rows(page)).toHaveCount(2);
   await expect(rows(page).first()).toContainText("Roaming");
-  await choose(page, "Location", "Any Location");
+  await chooseFilter(page, "Location", "Any Location");
 
   // The same Bean across Machines, but not the same name from another roaster.
-  await choose(page, "Bean", "Roux Bakehouse · Ethiopia Guji");
+  await chooseFilter(page, "Bean", "Roux Bakehouse · Ethiopia Guji");
   await expect(rows(page)).toHaveCount(3);
   await expect(column(page, 2)).toHaveText(["Lab 1", "Lab 1", "Uptown 1"]);
-  await choose(page, "Barista", "Cat");
+  await chooseFilter(page, "Barista", "Cat");
   await expect(rows(page)).toHaveCount(1);
   await expect(rows(page).first()).toContainText("Uptown 1");
-  await choose(page, "Profile", "Londonium");
+  await chooseFilter(page, "Profile", "Londonium");
   await expect(page.getByText("No Shots match these filters.")).toBeVisible();
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("region", { name: "Filters" }).getByRole("button", { name: "Clear", exact: true }).click();
   await expect(rows(page)).toHaveCount(6);
 
   // A page past the end, as an old link may name, moves to the last page.
@@ -109,26 +118,29 @@ test("filters narrow the list alone and together, with dates read in each Shot's
   await expect(page).toHaveURL(/\/shots$/);
 
   // A Pending Machine's Shots can be reviewed before an Admin adopts or dismisses it.
-  await choose(page, "Machine", "Bengle serial 10029");
+  await chooseFilter(page, "Machine", "Bengle serial 10029");
   await expect(rows(page)).toHaveCount(1);
-  await choose(page, "Machine", "Lab 1");
+  await chooseFilter(page, "Machine", "Lab 1");
   await expect(rows(page)).toHaveCount(2);
-  await choose(page, "Machine", "Any Machine");
+  await chooseFilter(page, "Machine", "Any Machine");
 
-  // 6:00 to 9:00 on February 10, which is a different moment at each Location.
+  // 6:00 to 9:00 on February 10, which is a different moment at each Location: Custom opens the From and To fields.
+  await expect(page.getByRole("button", { name: "From", exact: true })).toHaveCount(0);
+  await datesPreset(page, "Custom").click();
   await chooseDate(page, "From", 2026, "Feb", 10);
   await page.getByLabel("From time").fill("06:00");
   await chooseDate(page, "To", 2026, "Feb", 10);
   await page.getByLabel("To time").fill("09:00");
   await expect(page).toHaveURL(/from=2026-02-10T06%3A00&to=2026-02-10T09%3A00|from=2026-02-10T06:00&to=2026-02-10T09:00/);
-  await expect(column(page, 1)).toHaveText([/^Feb 10, 2026, 6:30 AM MST/, /^Feb 10, 2026, 6:00 AM MST/, /^Feb 10, 2026, 6:30 AM CST/, /^Feb 10, 2026, 6:30 AM UTC/]);
+  await expect.poll(() => times(page)).toEqual(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST", "Feb 10, 2026, 6:30 AM CST", "Feb 10, 2026, 6:30 AM UTC"]);
   // Until 6:15 leaves out the Shots pulled at 6:30 by their own Location's clock.
   await page.getByLabel("To time").fill("06:15");
-  await expect(column(page, 1)).toHaveText([/^Feb 10, 2026, 6:00 AM MST/]);
+  await expect.poll(() => times(page)).toEqual(["Feb 10, 2026, 6:00 AM MST"]);
 
   // The filters are in the page's address, so reloading or sharing it keeps them.
   await page.reload();
   await expect(rows(page)).toHaveCount(1);
+  await expect(datesPreset(page, "Custom")).toBeChecked();
   await expect(page.getByRole("button", { name: "From" })).toHaveText("Feb 10, 2026");
 });
 
@@ -381,7 +393,7 @@ test("going back to a later page keeps it, though the filters left meanwhile mat
   await expect(page.getByText("Shots 26–30 of 30")).toBeVisible();
   const later = page.url();
 
-  await choose(page, "Barista", "Cat");
+  await chooseFilter(page, "Barista", "Cat");
   await expect(page.getByText("No Shots match these filters.")).toBeVisible();
   await page.goBack();
   await expect(page.getByText("Shots 26–30 of 30")).toBeVisible();
@@ -455,9 +467,11 @@ function row(page: Page, time: string): Locator {
   return rows(page).filter({ has: page.getByRole("link", { name: time, exact: true }) });
 }
 
-async function choose(page: Page, filter: string, option: string) {
-  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter, exact: true }).click();
-  await page.getByRole("option", { name: option, exact: true }).click();
+/** Each listed Shot's whole time, as its link is named, in the list's order. */
+function times(page: Page): Promise<(string | null)[]> {
+  return column(page, 1)
+    .getByRole("link")
+    .evaluateAll((links) => links.map((link) => link.getAttribute("aria-label")));
 }
 
 /** Picks a day in a date filter's calendar, going to its month and year first. */
