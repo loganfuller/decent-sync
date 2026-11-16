@@ -97,7 +97,8 @@ export function RecipeTodayCard({ recipe }: { recipe: Recipe }) {
                   <TableHead>Shots</TableHead>
                   <TableHead>{NUMBER_NAMES.duration}</TableHead>
                   <TableHead>{NUMBER_NAMES.yieldAgainstTarget}</TableHead>
-                  <TableHead>{NUMBER_NAMES.stoppedOnWeight}</TableHead>
+                  {/* Until the page reads stopped at target (#547), as the Shots list's summary does. */}
+                  <TableHead>Stopped on weight</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>

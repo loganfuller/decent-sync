@@ -1,3 +1,4 @@
+import { StarIcon } from "lucide-react";
 import { Link } from "react-router";
 import { batchName } from "@/components/bean-batches";
 import { grinderName } from "@/components/grinders";
@@ -5,6 +6,7 @@ import { profilePath } from "@/components/profiles";
 import { OrNone, recordTime, round } from "@/components/records";
 import type { ListedShot } from "@/lib/api";
 import { LIBRARY_KINDS } from "@/lib/library-kinds";
+import { MAX_STARS, ratingText, starsOf } from "@/lib/rating";
 
 // Pieces the Shots list and Shot page share; `records.tsx` has those Steam Records share too.
 
@@ -61,5 +63,36 @@ export function ShotProfile({ shot }: { shot: Pick<ListedShot, "profile" | "prof
   if (shot.profile === null) return <OrNone>{shot.profileTitle ?? undefined}</OrNone>;
   return (
     <LibraryLink to={profilePath(shot.profile.id)}>{shot.profileTitle ?? shot.profile.title ?? "Untitled Profile"}</LibraryLink>
+  );
+}
+
+/**
+ * A Shot's rating as stars (#544): five, filled as far as the rating
+ * reaches, so one of 3.5 stars has three and a half, and what is drawn agrees
+ * with the rating filter, which counts the rating itself: a Shot drawn with
+ * fewer than four is not among "4 stars or more". Named by the rating, such
+ * as "3.5 stars"; a dash for a Shot not rated.
+ */
+export function Stars({ rating }: { rating: number | null }) {
+  const text = ratingText(rating);
+  if (text === undefined) return <OrNone>{undefined}</OrNone>;
+  const stars = starsOf(rating);
+  return (
+    <span role="img" aria-label={text} title={text} className="inline-flex items-center gap-px align-middle">
+      {Array.from({ length: MAX_STARS }, (_, index) => {
+        // How much of this star the rating fills, from none to all of it.
+        const filled = Math.min(1, Math.max(0, stars - index));
+        return (
+          <span key={index} aria-hidden className="relative size-3">
+            <StarIcon className="size-3 text-muted-foreground" />
+            {filled > 0 && (
+              <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${filled * 100}%` }}>
+                <StarIcon className="size-3 fill-current" />
+              </span>
+            )}
+          </span>
+        );
+      })}
+    </span>
   );
 }

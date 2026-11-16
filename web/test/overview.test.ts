@@ -123,10 +123,10 @@ describe("a Location's block", () => {
     expect(overviewRows([], recipes, LAB.id)).toEqual([]);
   });
 
-  it("opens a cell as the Shots list's filters: its Location, Machine, Recipe or none, and the period's days", () => {
-    const days = { from: "2026-11-05", to: "2026-11-11" };
-    expect(cellFilters("lab", "left", "house", days)).toBe("locationId=lab&machineId=left&recipeId=house&from=2026-11-05&to=2026-11-11");
-    expect(cellFilters("lab", "left", null, days)).toBe("locationId=lab&machineId=left&recipeId=none&from=2026-11-05&to=2026-11-11");
+  it("opens a cell as the Shots list's filters: its Location, Machine, Recipe or none, and the period as the list's date preset", () => {
+    expect(cellFilters("lab", "left", "house", "week")).toBe("locationId=lab&machineId=left&recipeId=house&period=7days");
+    expect(cellFilters("lab", "left", null, "today")).toBe("locationId=lab&machineId=left&recipeId=none&period=today");
+    expect(cellFilters("lab", "left", null, "yesterday")).toBe("locationId=lab&machineId=left&recipeId=none&period=yesterday");
   });
 });
 

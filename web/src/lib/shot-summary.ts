@@ -7,11 +7,17 @@ import { starCountText, starsOf, starsText } from "./rating";
 // list shows, as its address keeps them; and who a Barista's name names
 // (#468), for the Barista filter's choice.
 
-/** The numbers a summary can give, as the REST API names them, in the order the Shots list shows them. */
+/**
+ * The numbers the Shots list offers of a summary, as the REST API names
+ * them, in the order it shows them. Stopped at target stands where stopped
+ * on weight did (#544), which the REST API still gives until #559 removes
+ * it: an address that names it is read as one naming a number this build
+ * doesn't know.
+ */
 export const NUMBERS = [
   "yieldAgainstTarget",
   "duration",
-  "stoppedOnWeight",
+  "stoppedAtTarget",
   "ratio",
   "peakPressure",
   "peakFlow",
@@ -24,14 +30,14 @@ export const NUMBERS = [
 ] as const satisfies readonly (keyof SummaryNumbers)[];
 export type NumberName = (typeof NUMBERS)[number];
 
-/** Those the Shots list shows until others are chosen, as the REST API gives where none are named. */
-export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedOnWeight"];
+/** Those the Shots list shows until others are chosen. */
+export const DEFAULT_NUMBERS: readonly NumberName[] = ["yieldAgainstTarget", "duration", "stoppedAtTarget"];
 
 /** Each number as the Shots list names it. */
 export const NUMBER_NAMES: Record<NumberName, string> = {
   yieldAgainstTarget: "Yield against target",
   duration: "Duration",
-  stoppedOnWeight: "Stopped on weight",
+  stoppedAtTarget: "Stopped at target",
   ratio: "Ratio",
   peakPressure: "Peak pressure",
   peakFlow: "Peak flow",
@@ -169,6 +175,22 @@ export function countNotes({ unfinished, cleaningAndCalibration, awaitingValues 
     ...(cleaningAndCalibration > 0 ? [`${cleaningAndCalibration} cleaning ${cleaningAndCalibration === 1 ? "or calibration Shot" : "and calibration Shots"} left out`] : []),
     ...(awaitingValues > 0 ? [`${awaitingValues} still ${awaitingValues === 1 ? "awaits its" : "await their"} first drip and last step`] : []),
   ];
+}
+
+/**
+ * How the Shots that didn't stop at their target stopped, each kind where
+ * there are any, as a note under the share that did: "2 by hand · 1 ended by
+ * the Machine".
+ */
+export function otherStopsText({ byHand, machineEnded, error, other }: SummaryNumbers["stoppedAtTarget"]): string | undefined {
+  const kinds = [
+    [byHand, "by hand"],
+    [machineEnded, "ended by the Machine"],
+    [error, "by an error"],
+    [other, "another way"],
+  ] as const;
+  const said = kinds.filter(([shots]) => shots > 0).map(([shots, how]) => `${shots} ${how}`);
+  return said.length > 0 ? said.join(" · ") : undefined;
 }
 
 /** A count of Shots, as "1 Shot" or "12 Shots". */

@@ -1,24 +1,26 @@
 import { Link } from "react-router";
 import { PageTitleWithInfo } from "@/components/info-tip";
-import { ListPagination, type ListState, RECORD_FILTERS, RecordFilters, useRecordList } from "@/components/record-lists";
+import { ListPagination, type ListState, RECORD_FILTERS, RecordFilterBar, useRecordFilters, useRecordList } from "@/components/record-lists";
 import { LocationCredit, MachineCredit, OrNone, numberText, recordTime, secondsText } from "@/components/records";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import type { SteamRecordPage } from "@/lib/api";
 
 /**
- * Every Steam Record, newest first, across every Location, with filters by
- * Location, Machine and date. Times are each Steam Record's Location's, and
- * dates are read in each one's own Location's time zone; Steam Records with
- * no Location use UTC. Staff see all of it.
+ * Every Steam Record, newest first, across every Location, with the date
+ * presets and filters the Shots list has (#544), by Location and Machine.
+ * Times are each Steam Record's Location's, and dates are read in each
+ * one's own Location's time zone; Steam Records with no Location use UTC.
+ * Staff see all of it.
  */
 export function SteamRecordsPage() {
   const list = useRecordList<SteamRecordPage>("/steam-records", RECORD_FILTERS, (page) => page.steamRecords);
   const { data, error } = list;
+  const { filters, error: filtersError } = useRecordFilters(list);
 
   return (
     // One column no wider than the page, so a wide table scrolls rather than widening it.
-    <section className="grid grid-cols-1 gap-6">
+    <section className="grid grid-cols-1 gap-4">
       <div className="grid gap-1">
         <PageTitleWithInfo title="Steam Records">
           <p>
@@ -28,8 +30,11 @@ export function SteamRecordsPage() {
         </PageTitleWithInfo>
       </div>
 
-      <RecordFilters
+      <RecordFilterBar
         list={list}
+        noun="Steam Record"
+        filters={filters}
+        error={filtersError}
         description="Dates and times are read in each Steam Record's Location's time zone, so 7:00 means 7:00 wherever it was recorded. To includes the whole of its day unless a time is given."
       />
 

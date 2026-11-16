@@ -12,7 +12,6 @@ import {
   pointTitle,
   trendBucket,
   trendNumber,
-  trendParam,
   trendPoints,
   trendRows,
   untimedShots,
@@ -28,22 +27,23 @@ const counts = (shots: number, cleaning = 0) => ({ shots, unfinished: 0, cleanin
 const number = (shots: number, median: number | null, p25 = median, p75 = median) => ({ shots, median, p25, p75 });
 
 describe("the trend's number and bucket in the address", () => {
-  it("charts duration by day where the address names neither, and holds neither then", () => {
+  it("charts duration by day where the address names neither, and holds no bucket for by day", () => {
     expect(trendNumber(null)).toBe("duration");
     expect(trendBucket(null)).toBe("day");
-    expect(trendParam("duration")).toBeNull();
     expect(bucketParam("day")).toBeNull();
   });
 
   it("reads and holds each number a trend can chart, every one a summary gives but the last step", () => {
-    expect(TREND_NUMBERS).toEqual(["yieldAgainstTarget", "duration", "stoppedOnWeight", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip"]);
-    for (const name of TREND_NUMBERS.filter((each) => each !== "duration")) expect(trendNumber(trendParam(name))).toBe(name);
+    expect(TREND_NUMBERS).toEqual(["yieldAgainstTarget", "duration", "stoppedAtTarget", "ratio", "peakPressure", "peakFlow", "rating", "grindSetting", "tds", "extractionYield", "timeToFirstDrip"]);
+    for (const name of TREND_NUMBERS) expect(trendNumber(name)).toBe(name);
     expect(trendBucket(bucketParam("week"))).toBe("week");
   });
 
   it("falls back to the defaults for what it doesn't know, as of a later release's address", () => {
     expect(trendNumber("lastStep")).toBe("duration");
     expect(trendNumber("crema")).toBe("duration");
+    // Stopped on weight, which stopped at target took the place of (#544), as an address kept from before names it.
+    expect(trendNumber("stoppedOnWeight")).toBe("duration");
     expect(trendBucket("month")).toBe("day");
     expect(trendBucket("")).toBe("day");
   });
@@ -51,12 +51,12 @@ describe("the trend's number and bucket in the address", () => {
 
 describe("a group's buckets as a trend's points", () => {
   const buckets: SummaryBucket[] = [
-    { start: "2026-02-10", counts: counts(2), numbers: { duration: number(2, 24.691, 24.12, 25.262), rating: { ...number(0, null), rated: 0 }, stoppedOnWeight: { shots: 2, share: 1 } } },
+    { start: "2026-02-10", counts: counts(2), numbers: { duration: number(2, 24.691, 24.12, 25.262), rating: { ...number(0, null), rated: 0 }, stoppedAtTarget: { shots: 2, share: 1, atTarget: 2, byHand: 0, machineEnded: 0, error: 0, other: 0 } } },
     // Rated by one of its three, and none recorded what stopped it.
-    { start: "2026-02-12", counts: counts(3, 1), numbers: { duration: number(3, 23.549), rating: { ...number(1, 8), rated: 1 / 3 }, stoppedOnWeight: { shots: 0, share: null } } },
-    { start: "2026-03-01", counts: counts(4), numbers: { duration: number(4, 25.833, 23.549, 25.833), rating: { ...number(0, null), rated: 0 }, stoppedOnWeight: { shots: 3, share: 2 / 3 } } },
+    { start: "2026-02-12", counts: counts(3, 1), numbers: { duration: number(3, 23.549), rating: { ...number(1, 8), rated: 1 / 3 }, stoppedAtTarget: { shots: 0, share: null, atTarget: 0, byHand: 0, machineEnded: 0, error: 0, other: 0 } } },
+    { start: "2026-03-01", counts: counts(4), numbers: { duration: number(4, 25.833, 23.549, 25.833), rating: { ...number(0, null), rated: 0 }, stoppedAtTarget: { shots: 3, share: 2 / 3, atTarget: 2, byHand: 1, machineEnded: 0, error: 0, other: 0 } } },
     // The Shots whose time is unknown.
-    { start: null, counts: { ...counts(1, 1), unfinished: 2 }, numbers: { duration: number(1, 30), rating: { ...number(0, null), rated: 0 }, stoppedOnWeight: { shots: 1, share: 1 } } },
+    { start: null, counts: { ...counts(1, 1), unfinished: 2 }, numbers: { duration: number(1, 30), rating: { ...number(0, null), rated: 0 }, stoppedAtTarget: { shots: 1, share: 1, atTarget: 1, byHand: 0, machineEnded: 0, error: 0, other: 0 } } },
   ];
 
   it("gives a median's point for each day with a value, at its date as a count of days, with the middle half's band", () => {
@@ -90,7 +90,7 @@ describe("a group's buckets as a trend's points", () => {
   });
 
   it("gives a share as a percentage with no band, and no point where no Shot either did or didn't", () => {
-    expect(trendPoints(buckets, "stoppedOnWeight")).toEqual([
+    expect(trendPoints(buckets, "stoppedAtTarget")).toEqual([
       { start: "2026-02-10", at: 20494, value: 100, shots: 2, covered: 2 },
       { start: "2026-03-01", at: 20513, value: (2 / 3) * 100, shots: 3, covered: 4 },
     ]);
@@ -185,7 +185,7 @@ describe("a trend's point in words", () => {
   });
 
   it("reads a share as a whole percentage, with no range", () => {
-    expect(pointText({ value: (2 / 3) * 100 }, "stoppedOnWeight")).toEqual({ value: "67%" });
-    expect(pointText({ value: 0 }, "stoppedOnWeight")).toEqual({ value: "0%" });
+    expect(pointText({ value: (2 / 3) * 100 }, "stoppedAtTarget")).toEqual({ value: "67%" });
+    expect(pointText({ value: 0 }, "stoppedAtTarget")).toEqual({ value: "0%" });
   });
 });

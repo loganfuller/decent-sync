@@ -97,7 +97,7 @@ test("an Admin rates a Shot and edits its note on its page, which says the edit 
   await expect(listed.getByRole("columnheader", { name: "Rating", exact: true })).toBeVisible();
   const ratings = (await listed.getByRole("columnheader").allTextContents()).indexOf("Rating");
   const ratingOf = (id: string) => rows(listed).filter({ has: page.locator(`a[href$="/shots/${id}"]`) }).getByRole("cell").nth(ratings);
-  await expect(ratingOf(SHOT)).toHaveText("4 stars");
+  await expect(ratingOf(SHOT).getByRole("img", { name: "4 stars", exact: true })).toBeVisible();
   // And none for a Shot unrated, as its page says Unrated.
   await expect(ratingOf(GONE)).toHaveText("-");
 

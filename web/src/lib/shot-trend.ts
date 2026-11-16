@@ -24,9 +24,9 @@ export function trendNumber(param: string | null): TrendNumber {
   return TREND_NUMBERS.find((name) => name === param) ?? DEFAULT_TREND;
 }
 
-/** The `trend` an address holds for the number charted: none for the default. */
-export function trendParam(number: TrendNumber): string | null {
-  return number === DEFAULT_TREND ? null : number;
+/** Whether a number is a share of the Shots, charted as a line alone from none of them to all, rather than a median with its band. */
+export function isShare(number: TrendNumber): number is "stoppedAtTarget" {
+  return number === "stoppedAtTarget";
 }
 
 /** The bucket an address's `bucket` names: by day unless it names the week. */
@@ -43,7 +43,7 @@ export function bucketParam(bucket: Bucket): string | null {
 export const TREND_UNITS: Record<TrendNumber, string | undefined> = {
   yieldAgainstTarget: "g",
   duration: "s",
-  stoppedOnWeight: "%",
+  stoppedAtTarget: "%",
   ratio: undefined,
   peakPressure: "bar",
   peakFlow: "ml/s",
@@ -94,8 +94,8 @@ export function trendPoints(buckets: readonly SummaryBucket[], number: TrendNumb
   return buckets.flatMap((bucket): TrendPoint[] => {
     if (bucket.start === null) return [];
     const point = { start: bucket.start, at: dayNumber(bucket.start), covered: bucket.counts.shots };
-    if (number === "stoppedOnWeight") {
-      const share = bucket.numbers.stoppedOnWeight;
+    if (isShare(number)) {
+      const share = bucket.numbers[number];
       return share && share.share !== null ? [{ ...point, value: share.share * 100, shots: share.shots }] : [];
     }
     const { shots, median, p25, p75 } = bucket.numbers[number] ?? ({ shots: 0, median: null, p25: null, p75: null } satisfies SummaryNumber);
@@ -175,7 +175,7 @@ export function pointTitle(start: string, bucket: Bucket): string {
  * point holds it, or a share as a whole percentage, which has no range.
  */
 export function pointText(point: Pick<TrendPoint, "value" | "band">, number: TrendNumber): { value: string; range?: string } {
-  if (number === "stoppedOnWeight" || !point.band) return { value: shareText(point.value / 100)! };
+  if (isShare(number) || !point.band) return { value: shareText(point.value / 100)! };
   const text = number === "rating" ? starsMedianText(point.value, point.band) : MEDIAN_TEXT[number]({ shots: 1, median: point.value, p25: point.band[0], p75: point.band[1] })!;
   return { value: text.median, range: text.range };
 }

@@ -6,7 +6,7 @@ import type { Scope } from "../accounts/scope.js";
 import { READ } from "../connected-apps/oauth.js";
 import { readRecordFilters } from "../record-filters.js";
 import { recordedText } from "../shots/extraction.js";
-import { MAX_WORDS, type ShotFilters, readShotFilters } from "../shots/filters.js";
+import { MAX_WORDS, RATINGS, type ShotFilters, readShotFilters } from "../shots/filters.js";
 import { MAX_LISTED_EDITS, type ShotEditView, editStanding } from "../shots/shot-edits.js";
 import { ShotsService } from "../shots/shots.service.js";
 import { BUCKETS, DEFAULT_NUMBERS, GROUPINGS, LAST_STEPS, MAX_GROUPINGS, NUMBERS, groupingsOf, numbersOf } from "../shots/summary.js";
@@ -15,7 +15,7 @@ import { type Budget, BudgetedTool, CUT_MARK, MIN_CUT, cut, cutNoteOf, overBudge
 import { askedCurves, curveSchema, curvesInput, shadedSchema, thinnedToSchema, withCurves } from "./curves.js";
 import { MAX_PAGE, PAGED, page, pageOf, pageOutput } from "./paging.js";
 import { GROUP_SPEC, SHOT_SPEC, STOPPED_AT_TARGET, STOPPED_BRIEFLY, groupSpec, shotRowSpec, shotSpec } from "./spec.js";
-import { timeBound, timeRange, zonedTime } from "./times.js";
+import { periodBound, timeBound, timeRange, zonedTime } from "./times.js";
 import { callerOf } from "./token-verifier.js";
 
 // Shots and Steam Records, found and read through an assistant as the REST
@@ -296,8 +296,13 @@ const shotFilters = {
     .describe(
       "How barista, beanRoaster, beanName and profileTitle match: words, each of their words anywhere, ignoring case; or exact, the whole of what each Shot recorded, case included, to pick one value list_shot_values gives alone, but that barista still ignores case and the spaces around the name.",
     ),
+  rating: z
+    .enum(RATINGS)
+    .optional()
+    .describe("Shots by rating: rated, above 0; unrated, 0 or none; or 2 to 5, those of at least that many stars of five, two points of the rating each."),
   from: timeBound("Shots pulled from this time on."),
   to: timeBound("Shots pulled up to this time, through the end of a day given as a date."),
+  period: periodBound("Shots pulled"),
 };
 const shotFiltersInput = z.object(shotFilters);
 const findShotsInput = z.object({ ...shotFilters, ...page });
@@ -515,6 +520,7 @@ const findSteamRecordsInput = z.object({
   machineId: id.optional().describe("Steam Records credited to this Machine."),
   from: timeBound("Steam Records from this time on."),
   to: timeBound("Steam Records up to this time, through the end of a day given as a date."),
+  period: periodBound("Steam Records steamed"),
   ...page,
 });
 const findSteamRecordsOutput = z.object({ ...pageOutput, steamRecords: z.array(steamSummary) });
@@ -538,7 +544,7 @@ export class RecordsTools {
   @BudgetedTool({
     name: "find_shots",
     title: "Find Shots",
-    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} ${SHOT_SPEC} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS} ${PAGED} ${timeZoneNote}`,
+    description: `Finds Shots, newest first, a page at a time, by Location, Machine, Library item, the Bean, profile and Barista each recorded, rating and time, each with how it went. ${SHOT_ROW} ${STOP_REASONS} ${SHOT_SPEC} Each filter's id is one these Shots give, or one get_shot, list_shot_values or find_library_items gives, such as a Bean's. ${SHOT_FILTERS} ${PAGED} ${timeZoneNote}`,
     inputSchema: findShotsInput,
     outputSchema: findShotsOutput,
     annotations: { readOnlyHint: true },
@@ -676,8 +682,8 @@ export class RecordsTools {
     budget: { rest: "get_steam_record reads one Steam Record with more of it." },
   })
   async findSteamRecords(input: z.infer<typeof findSteamRecordsInput>): Promise<z.infer<typeof findSteamRecordsOutput>> {
-    const { from, to, limit, offset, ...named } = input;
-    const times = timeRange(from, to);
+    const { from, to, period, limit, offset, ...named } = input;
+    const times = timeRange(from, to, period);
     const problems: string[] = [];
     const filters = { ...readRecordFilters({ ...named, ...times.query }, problems), ...times.filters };
     if (problems.length > 0) throw new BadRequestException(problems);
@@ -711,9 +717,9 @@ export class RecordsTools {
  * itself (`timeRange`). A name a find_shots row cut is refused, as no Shot
  * recorded one.
  */
-function shotFiltersOf({ from, to, beanRoaster, beanName, ...named }: z.infer<typeof shotFiltersInput>): ShotFilters {
+function shotFiltersOf({ from, to, period, beanRoaster, beanName, ...named }: z.infer<typeof shotFiltersInput>): ShotFilters {
   refuseCutText({ beanRoaster, beanName, ...named }, "matching words, a few of its words find its Shots, get_shot reads a Shot's names whole, and a linked item's Shots are found by its id");
-  const times = timeRange(from, to);
+  const times = timeRange(from, to, period);
   return { ...readShotFilters({ ...named, coffeeRoaster: beanRoaster, coffeeName: beanName, ...times.query }), ...times.filters };
 }
 

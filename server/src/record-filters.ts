@@ -21,7 +21,28 @@ export interface RecordFilters {
   fromAt?: string;
   /** Recorded before this moment, as ISO 8601 with an offset. */
   untilAt?: string;
+  /** Recorded in these days, each record's own Location's, counted back from its today (`PERIODS`). */
+  period?: Period;
 }
+
+/**
+ * The periods a record list is narrowed to by name (#544), each as how many
+ * days back from today it starts and ends: today, yesterday, and the 7 and
+ * the 30 days that end with today. Today is each record's own Location's,
+ * on its wall clock as the list is read, or UTC's for a record without one,
+ * so a list across Locations in different time zones holds each one's own
+ * days, which no one date for `from` and `to` names.
+ */
+export const PERIODS = {
+  today: { from: 0, to: 0 },
+  yesterday: { from: 1, to: 1 },
+  "7days": { from: 6, to: 0 },
+  "30days": { from: 29, to: 0 },
+} as const;
+export type Period = keyof typeof PERIODS;
+
+/** The periods' names, in the order they are offered. */
+export const PERIOD_NAMES = Object.keys(PERIODS) as [Period, ...Period[]];
 
 const LOCAL_TIME = /^(\d{4})-(\d\d)-(\d\d)(?:T(\d\d):(\d\d)(?::(\d\d))?)?$/;
 
@@ -41,7 +62,8 @@ export function queryValue(query: Record<string, unknown>, name: string, problem
  * path. `from` and `to` are a local date (`2026-10-05`) or date and time
  * (`2026-10-05T06:00`), without an offset: `from` is the first moment listed,
  * and `to` the first moment after them, except that a date alone lists the
- * whole of that day.
+ * whole of that day. `period` names days in their place (`PERIODS`), and is
+ * refused beside either.
  */
 export function readRecordFilters(query: Record<string, unknown>, problems: string[]): RecordFilters {
   const filters: RecordFilters = {};
@@ -68,8 +90,17 @@ export function readRecordFilters(query: Record<string, unknown>, problems: stri
   if (filters.from !== undefined && filters.until !== undefined && filters.until <= filters.from) {
     problems.push("Choose an end after the start");
   }
+  const period = queryValue(query, "period", problems);
+  if (period !== undefined) {
+    if (!(PERIOD_NAMES as readonly string[]).includes(period)) problems.push(`Enter period as ${PERIOD_NAMES.slice(0, -1).join(", ")} or ${PERIOD_NAMES.at(-1)}`);
+    else if (from !== undefined || to !== undefined) problems.push(PERIOD_OR_TIMES);
+    else filters.period = period as Period;
+  }
   return filters;
 }
+
+/** What refuses a period given beside a time: the two name the same thing. */
+export const PERIOD_OR_TIMES = "Give a period, or from and to, not both";
 
 /**
  * The conditions for the filters, on a record table aliased `alias` whose
@@ -78,8 +109,9 @@ export function readRecordFilters(query: Record<string, unknown>, problems: stri
  * compare the record's time on its Location's wall clock with the times
  * given, so a day is that Location's day, 23 or 25 hours long across a
  * daylight-saving change, and an hour the clocks repeat is listed twice;
- * moments compare the record's time itself. A record whose time is unknown
- * matches no time.
+ * moments compare the record's time itself. A period's days are counted
+ * back from today on the same wall clock, as the database's clock has it. A
+ * record whose time is unknown matches no time.
  */
 export function recordFilterSql(filters: RecordFilters, alias: string, time: string): Prisma.Sql {
   const column = (name: string) => Prisma.raw(`${alias}.${name}`);
@@ -101,6 +133,13 @@ export function recordFilterSql(filters: RecordFilters, alias: string, time: str
   if (filters.until !== undefined) {
     conditions.push(Prisma.sql`${at} < (${filters.until}::timestamp AT TIME ZONE 'UTC') + interval '24 hours'`);
     conditions.push(Prisma.sql`${local} < ${filters.until}::timestamp`);
+  }
+  if (filters.period !== undefined) {
+    const { from, to } = PERIODS[filters.period];
+    const today = Prisma.sql`(now() AT TIME ZONE coalesce(l.time_zone, 'UTC'))::date`;
+    // Its first day started that many days before today did, which was at most 25 hours ago, as the clocks go back.
+    conditions.push(Prisma.sql`${at} >= now() - make_interval(days => ${from + 2}::int)`);
+    conditions.push(Prisma.sql`${local}::date BETWEEN ${today} - ${from}::int AND ${today} - ${to}::int`);
   }
   if (filters.fromAt !== undefined) conditions.push(Prisma.sql`${at} >= ${filters.fromAt}::timestamptz`);
   if (filters.untilAt !== undefined) conditions.push(Prisma.sql`${at} < ${filters.untilAt}::timestamptz`);

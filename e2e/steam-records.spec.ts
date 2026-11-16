@@ -3,7 +3,8 @@ import { derivedSteam, liveSteamFixture, nextMilkProbeSteamFixture, steamFixture
 import { RawConnection, SimulatedTablet, derivedDe1Pro, helloWith, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { createLocation, createMachine, signInAsAdmin } from "./support/seed.js";
-import { field } from "./support/locators.js";
+import { farFromMidnight } from "./support/calendar.js";
+import { chooseFilter, closeFilters, datesPreset, field, filterChip, openFilters } from "./support/locators.js";
 import { expectTip } from "./support/tooltips.js";
 
 // Steam Records in the management interface, as an Admin whose browser is in
@@ -66,21 +67,25 @@ test("Steam Records from every Location are listed newest first, at their Locati
 test("filters by Location, Machine and date narrow the list, with dates read in each Steam Record's Location's time zone", async ({ page }) => {
   await page.goto("/steam-records");
   await expect(rows(page)).toHaveCount(6);
-  await expectTip(page.getByRole("region", { name: "Filters" }), "dates and times", /^Dates and times are read in each Steam Record's Location's time zone/);
+  await expectTip(
+    page.getByRole("region", { name: "Filters" }),
+    "dates and times",
+    /^Today, Yesterday, 7 days and 30 days are each Steam Record's Location's own days, .*Dates and times are read in each Steam Record's Location's time zone/,
+  );
 
-  await choose(page, "Location", "Uptown");
+  await chooseFilter(page, "Location", "Uptown");
   await expect(column(page, 2)).toHaveText(["Uptown 1", "Uptown 1"]);
-  await choose(page, "Location", "No Location (UTC)");
+  await chooseFilter(page, "Location", "No Location (UTC)");
   await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:30 AM UTC", "Jan 20, 2026, 3:00 PM UTC"]);
   // A Pending Machine's Steam Records can be reviewed before an Admin adopts or dismisses it.
-  await choose(page, "Machine", "Bengle serial 10049");
+  await chooseFilter(page, "Machine", "Bengle serial 10049");
   await expect(column(page, 1)).toHaveText(["Jan 20, 2026, 3:00 PM UTC"]);
-  await choose(page, "Location", "Any Location");
-  await choose(page, "Machine", "Lab 1");
+  await chooseFilter(page, "Location", "Any Location");
+  await chooseFilter(page, "Machine", "Lab 1");
   await expect(column(page, 1)).toHaveText(["Feb 10, 2026, 6:30 AM MST", "Feb 10, 2026, 6:00 AM MST"]);
-  await choose(page, "Location", "Uptown");
+  await chooseFilter(page, "Location", "Uptown");
   await expect(page.getByText("No Steam Records match these filters.")).toBeVisible();
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("region", { name: "Filters" }).getByRole("button", { name: "Clear", exact: true }).click();
   await expect(rows(page)).toHaveCount(6);
 
   // A page past the end, as an old link may name, moves to the last page.
@@ -88,7 +93,8 @@ test("filters by Location, Machine and date narrow the list, with dates read in 
   await expect(rows(page)).toHaveCount(6);
   await expect(page).toHaveURL(/\/steam-records$/);
 
-  // 6:00 to 9:00 on February 10, which is a different moment at each Location.
+  // 6:00 to 9:00 on February 10, which is a different moment at each Location: Custom opens the From and To fields.
+  await datesPreset(page, "Custom").click();
   await chooseDate(page, "From", 2026, "Feb", 10);
   await page.getByLabel("From time").fill("06:00");
   await chooseDate(page, "To", 2026, "Feb", 10);
@@ -220,6 +226,69 @@ test("a Steam Record's lead-in, pauses, puffs and purge are shaded and named, le
   for (const phase of ["Preparing", "Paused", "Purge"]) await expect(flow.getByText(phase, { exact: true })).toHaveCount(0);
 });
 
+test("the date presets, the Filters button and the chips narrow the list as the Shots list's do, at a desktop's width and on a phone, with no rating filter", async ({ page }) => {
+  // One more, recorded now, at a Location where no day begins while this runs, so it is today's there.
+  const depot = await createLocation(page, "Depot", farFromMidnight().zone);
+  await adopt(page, "Depot 1", { model: "DE1Pro", serial: "10046" }, depot.id, [steamAt("depot-now", new Date().toISOString())]);
+
+  // How many the REST API lists for a query: every one, with the tests before this one's.
+  const listed = async (query = "") => ((await (await page.request.get(`/api/steam-records?limit=1&${query}`)).json()) as { total: number }).total;
+  const [all, uptown] = [await listed(), await listed(`locationId=${await locationId(page, "Uptown")}`)];
+  expect(uptown).toBeGreaterThan(0);
+  expect(all).toBeGreaterThan(uptown + 1);
+
+  await page.goto("/steam-records");
+  await expect(rows(page)).toHaveCount(all);
+  // No preset is chosen until one is pressed. Today's is the one recorded now, as are the last 30 days'.
+  await expect(page.getByRole("radiogroup", { name: "Dates" }).getByRole("radio")).toHaveText(["Today", "Yesterday", "7 days", "30 days", "Custom"]);
+  await expect(page.getByRole("radiogroup", { name: "Dates" }).getByRole("radio", { checked: true })).toHaveCount(0);
+  await datesPreset(page, "Today").click();
+  await expect(page).toHaveURL(/\/steam-records\?period=today$/);
+  await expect(rows(page)).toHaveCount(1);
+  await expect(rows(page).first()).toContainText("Depot 1");
+  await datesPreset(page, "Yesterday").click();
+  await expect(page.getByText("No Steam Records match these filters.")).toBeVisible();
+  await datesPreset(page, "30 days").click();
+  await expect(page).toHaveURL(/\/steam-records\?period=30days$/);
+  await expect(rows(page)).toHaveCount(1);
+  // The preset is in the address, so a reloaded or shared list is of the same days; pressed again, it is cleared.
+  await page.reload();
+  await expect(datesPreset(page, "30 days")).toBeChecked();
+  await expect(rows(page)).toHaveCount(1);
+  await datesPreset(page, "30 days").click();
+  await expect(page).toHaveURL(/\/steam-records$/);
+  await expect(rows(page)).toHaveCount(all);
+
+  // The other filters open from one button, which says how many are set: by Location and Machine, and not by rating.
+  const button = page.getByRole("region", { name: "Filters" }).getByRole("button", { name: /^Filters/ });
+  await expect(button).toHaveText("Filters");
+  await expect((await openFilters(page)).getByRole("combobox")).toHaveCount(2);
+  await closeFilters(page);
+  await chooseFilter(page, "Location", "Uptown");
+  await expect(button).toHaveText("Filters1, 1 set");
+  await expect(rows(page)).toHaveCount(uptown);
+  // A filter set shows as a chip that names it, and removes it.
+  await expect(filterChip(page, "Location")).toHaveText("Location:Uptown");
+  await filterChip(page, "Location").getByRole("button", { name: "Remove the Location filter" }).click();
+  await expect(page.getByRole("list", { name: "Filters set" })).toHaveCount(0);
+  await expect(rows(page)).toHaveCount(all);
+
+  // On a phone the filters open in a sheet, whose button closes it, saying how many it found, and nothing but the table
+  // scrolls sideways.
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto(`/steam-records?period=today&locationId=${depot.id}`);
+  await expect(filterChip(page, "Location")).toHaveText("Location:Depot");
+  const sheet = await openFilters(page);
+  await expect(sheet.getByRole("combobox", { name: "Location", exact: true })).toHaveText("Depot");
+  await sheet.getByRole("button", { name: "Show 1 Steam Record", exact: true }).click();
+  await expect(sheet).toHaveCount(0);
+  await (await openFilters(page)).getByRole("button", { name: "Clear all" }).click();
+  await closeFilters(page);
+  await expect(page.getByRole("list", { name: "Filters set" })).toHaveCount(0);
+  await expect(datesPreset(page, "Today")).toBeChecked();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= document.documentElement.clientWidth)).toBe(true);
+});
+
 /**
  * A Steam Record recorded at a UTC time, derived from one Decaid produced. Its
  * `timestamp` is that time on the tablet's clock, as Decaid writes it: local
@@ -264,6 +333,11 @@ async function load(page: Page, token: string, hardware: { model: string; serial
     .toBe(true);
 }
 
+async function locationId(page: Page, name: string): Promise<string> {
+  const { locations } = (await (await page.request.get("/api/locations")).json()) as { locations: { id: string; name: string }[] };
+  return locations.find((location) => location.name === name)!.id;
+}
+
 async function machineId(page: Page, name: string): Promise<string> {
   const { machines } = (await (await page.request.get("/api/machines")).json()) as { machines: { id: string; name: string }[] };
   return machines.find((machine) => machine.name === name)!.id;
@@ -281,11 +355,6 @@ function column(page: Page, n: number): Locator {
 /** The list's row for the Steam Record recorded at that time, as the list shows it. */
 function row(page: Page, time: string): Locator {
   return rows(page).filter({ has: page.getByRole("link", { name: time, exact: true }) });
-}
-
-async function choose(page: Page, filter: string, option: string) {
-  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter }).click();
-  await page.getByRole("option", { name: option, exact: true }).click();
 }
 
 /** Picks a day in a date filter's calendar, going to its month and year first. */

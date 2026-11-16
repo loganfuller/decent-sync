@@ -2,7 +2,7 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { field } from "./support/locators.js";
+import { chooseFilter, closeFilters, field, filterChip, openFilters } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
@@ -14,8 +14,8 @@ import { expectTip } from "./support/tooltips.js";
 // id, time, recorded hardware, Barista and what each line names, and the
 // last two tests two more each, on Machines of their own. The real Shots
 // weighed 0.1 g and 1.3 g under their targets, ran 23.549 s and 25.833 s
-// after their Preheat, and stopped on weight. Baristas and hardware ids are
-// made up.
+// after their Preheat, and stopped at their target weight. Baristas and
+// hardware ids are made up.
 const server = useFreshServer({ env: { SYNC_HEARTBEAT_SECONDS: "1" } });
 
 const HARDWARE = { model: "DE1Pro", serial: "10041" };
@@ -47,8 +47,10 @@ test("the summary of the Shots the filters find sits above the rows, each number
   await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–24.1)");
   // −1.3, −0.1 and 2.5: a number says how many Shots it rests on where some had no value.
   await expect(field(summary, "Yield against target")).toHaveText("−0.1 g (−0.7 to +1.2)3 of 4 Shots had a target and a yield");
-  // Two of the three that recorded what stopped them.
-  await expect(field(summary, "Stopped on weight")).toHaveText("67%3 of 4 Shots recorded what stopped them");
+  // Two of the three that recorded what stopped them, under 90% of them: out of spec, and marked, with how the other
+  // stopped. Their yields' median is within 5% of target, so it is not.
+  await expect(field(summary, "Stopped at target")).toHaveText("Out of spec: 67%1 ended by the Machine3 of 4 Shots recorded what stopped them");
+  await expect(summary.locator('[data-slot="spec-mark"]')).toHaveText(["Out of spec: 67%"]);
 });
 
 test("the summary follows the filters, says when only cleaning Shots match, and is gone when none do", async ({ page }) => {
@@ -57,18 +59,20 @@ test("the summary follows the filters, says when only cleaning Shots match, and 
   await expect(field(summary, "Shots")).toHaveText("41 cleaning or calibration Shot left out");
 
   // The two real Shots: −1.3 and −0.1, and 23.549 s and 25.833 s.
-  await choose(page, "Barista", "Ann");
+  await chooseFilter(page, "Barista", "Ann");
   await expect(rows(page)).toHaveCount(2);
   await expect(field(summary, "Shots")).toHaveText("2");
   await expect(field(summary, "Duration")).toHaveText("24.7 s (24.1–25.3)");
   await expect(field(summary, "Yield against target")).toHaveText("−0.7 g (−1.0 to −0.4)");
-  await expect(field(summary, "Stopped on weight")).toHaveText("100%");
+  await expect(field(summary, "Stopped at target")).toHaveText("100%");
 
-  await choose(page, "Barista", "Ben");
+  await chooseFilter(page, "Barista", "Ben");
   await expect(field(summary, "Shots")).toHaveText("1");
   await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–23.5)");
   await expect(field(summary, "Yield against target")).toHaveText("+2.5 g (+2.5 to +2.5)");
-  await expect(field(summary, "Stopped on weight")).toHaveText("0%");
+  // One Shot is too few to judge, so nothing of it is marked.
+  await expect(field(summary, "Stopped at target")).toHaveText("0%1 ended by the Machine");
+  await expect(summary.locator('[data-slot="spec-mark"]')).toHaveCount(0);
 
   // The filters are in the page's address, so the summary of a reloaded or shared list is the same.
   await page.reload();
@@ -76,12 +80,12 @@ test("the summary follows the filters, says when only cleaning Shots match, and 
   await expect(field(summary, "Yield against target")).toHaveText("+2.5 g (+2.5 to +2.5)");
 
   // Only a cleaning Shot: it is counted, and there is no number.
-  await choose(page, "Barista", "Dee");
+  await chooseFilter(page, "Barista", "Dee");
   await expect(rows(page)).toHaveCount(1);
   await expect(field(summary, "Shots")).toHaveText("01 cleaning or calibration Shot left out");
-  for (const number of ["Duration", "Yield against target", "Stopped on weight"]) await expect(field(summary, number)).toHaveText("-");
+  for (const number of ["Duration", "Yield against target", "Stopped at target"]) await expect(field(summary, number)).toHaveText("-");
 
-  await choose(page, "Profile", "Adaptive v3");
+  await chooseFilter(page, "Profile", "Adaptive v3");
   await expect(page.getByText("No Shots match these filters.")).toBeVisible();
   await expect(summary).toHaveCount(0);
 });
@@ -97,13 +101,13 @@ test("a summary that fails to load for the filters chosen gives no numbers, rath
     (route) => route.fulfill({ status: 404, contentType: "application/json", body: JSON.stringify({ statusCode: 404, message: "Shot not found" }) }),
     { times: 1 },
   );
-  await choose(page, "Barista", "Ann");
+  await chooseFilter(page, "Barista", "Ann");
   await expect(rows(page)).toHaveCount(2);
   await expect(summary.getByRole("alert")).toHaveText("Could not read the summary: Shot not found");
-  for (const number of ["Shots", "Duration", "Yield against target", "Stopped on weight"]) await expect(field(summary, number)).toHaveText("-");
+  for (const number of ["Shots", "Duration", "Yield against target", "Stopped at target"]) await expect(field(summary, number)).toHaveText("-");
 
   // The next filters' summary loads as usual.
-  await choose(page, "Barista", "Ben");
+  await chooseFilter(page, "Barista", "Ben");
   await expect(field(summary, "Shots")).toHaveText("1");
   await expect(summary.getByRole("alert")).toHaveCount(0);
 });
@@ -121,12 +125,12 @@ test("the Barista filter offers each Barista once, by the latest spelling, and f
 
   await page.goto("/shots");
   await expect(rows(page)).toHaveCount(7);
-  const filters = page.getByRole("region", { name: "Filters" });
   const summary = page.getByRole("region", { name: "Summary" });
-  await filters.getByRole("combobox", { name: "Barista", exact: true }).click();
+  await (await openFilters(page)).getByRole("combobox", { name: "Barista", exact: true }).click();
   // Ann once, as last spelled, without the space after it.
   await expect(page.getByRole("option")).toHaveText(["Any Barista", "ANN", "Ben", "Cat", "Dee"]);
   await page.getByRole("option", { name: "ANN", exact: true }).click();
+  await closeFilters(page);
   // Both Machines' Shots, however each spelled the name, and their summary: 23.549 s and 25.833 s twice each.
   await expect(rows(page)).toHaveCount(4);
   await expect(field(summary, "Shots")).toHaveText("4");
@@ -135,7 +139,9 @@ test("the Barista filter offers each Barista once, by the latest spelling, and f
   // An address holding another spelling, as one shared before this, finds the same Shots, and shows the Barista's choice.
   await page.goto("/shots?barista=%20ann");
   await expect(rows(page)).toHaveCount(4);
-  await expect(filters.getByRole("combobox", { name: "Barista", exact: true })).toHaveText("ANN");
+  await expect(filterChip(page, "Barista")).toHaveText("Barista:ANN");
+  await expect((await openFilters(page)).getByRole("combobox", { name: "Barista", exact: true })).toHaveText("ANN");
+  await closeFilters(page);
   await expect(field(summary, "Shots")).toHaveText("4");
 });
 
@@ -153,9 +159,9 @@ test("other numbers chosen show beside the count, which says how many Unfinished
   await expect(field(summary, "Shots")).toHaveText("11 Unfinished Shot left out");
   await expect(field(summary, "Duration")).toHaveText("23.5 s (23.5–23.5)");
 
-  // The ratio, rating and last step chosen, and stopped on weight no longer, the menu staying open meanwhile.
+  // The ratio, rating and last step chosen, and stopped at target no longer, the menu staying open meanwhile.
   await summary.getByRole("button", { name: "Numbers" }).click();
-  for (const name of ["Ratio", "Rating", "Last step", "Stopped on weight"]) await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
+  for (const name of ["Ratio", "Rating", "Last step", "Stopped at target"]) await page.getByRole("menuitemcheckbox", { name, exact: true }).click();
   await expect(page.getByRole("menuitemcheckbox", { checked: true })).toHaveText(["Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
   await page.keyboard.press("Escape");
   await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
@@ -171,7 +177,7 @@ test("other numbers chosen show beside the count, which says how many Unfinished
   await page.reload();
   await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
   await expect(field(summary, "Ratio")).toHaveText("1:1.99 (1.99–1.99)");
-  await page.getByRole("button", { name: "Clear filters" }).click();
+  await page.getByRole("region", { name: "Filters" }).getByRole("button", { name: "Clear", exact: true }).click();
   await expect(rows(page)).toHaveCount(9);
   await expect(field(summary, "Shots")).toHaveText("71 Unfinished Shot left out1 cleaning or calibration Shot left out");
   await expect(summary.locator("dt")).toHaveText(["Shots", "Yield against target", "Duration", "Ratio", "Rating", "Last step"]);
@@ -230,9 +236,4 @@ async function adopt(page: Page, name: string, locationId: string, shots: Fields
 
 function rows(page: Page): Locator {
   return page.getByRole("table", { name: "Shots" }).getByRole("row").filter({ has: page.getByRole("cell") });
-}
-
-async function choose(page: Page, filter: string, option: string) {
-  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: filter, exact: true }).click();
-  await page.getByRole("option", { name: option, exact: true }).click();
 }

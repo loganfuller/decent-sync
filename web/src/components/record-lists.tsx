@@ -1,15 +1,18 @@
-import { CalendarIcon } from "lucide-react";
-import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useState } from "react";
+import { CalendarIcon, ListFilterIcon, XIcon } from "lucide-react";
+import { type MouseEvent, type ReactNode, useCallback, useEffect, useId, useState, useSyncExternalStore } from "react";
 import { useLocation, useSearchParams } from "react-router";
 import { InfoTip } from "@/components/info-tip";
 import { describeHardware, useLocations } from "@/components/machines";
 import { Alert, AlertDescription } from "@/components/ui/alert";
+import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
 import { Field, FieldLabel } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Pagination, PaginationContent, PaginationItem, PaginationNext, PaginationPrevious } from "@/components/ui/pagination";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { Sheet, SheetClose, SheetContent, SheetFooter, SheetHeader, SheetTitle, SheetTrigger } from "@/components/ui/sheet";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import {
   Select,
   SelectContent,
@@ -30,7 +33,19 @@ import { usePolled } from "@/lib/use-polled";
 const PAGE_SIZE = 25;
 
 /** The filters every record list has; a list may add its own. */
-export const RECORD_FILTERS = ["locationId", "machineId", "pendingMachineId", "from", "to"] as const;
+export const RECORD_FILTERS = ["locationId", "machineId", "pendingMachineId", "from", "to", "period"] as const;
+
+/**
+ * The date presets a record list offers (#544), as the REST API names its
+ * periods: each is each record's own Location's days, counted back from its
+ * own today, so they are the server's to work out.
+ */
+export const PERIODS = [
+  { period: "today", label: "Today" },
+  { period: "yesterday", label: "Yesterday" },
+  { period: "7days", label: "7 days" },
+  { period: "30days", label: "30 days" },
+] as const;
 
 /** What a record's page keeps of the list it was opened from, for its link back: the list's filters and page. */
 export interface ListState {
@@ -55,10 +70,8 @@ export interface RecordList<Page extends ListPage> {
   shown: number;
   offset: number;
   filtered: boolean;
-  /** Changes filters, and goes back to the first page. */
+  /** Changes filters, and goes back to the first page; what else the address holds, as the numbers a summary shows, stays. */
   filter(changes: Record<string, string | null>): void;
-  /** Clears every filter, and goes back to the first page; what else the address holds, as the numbers a summary shows, stays. */
-  clear(): void;
   /** The address of the page starting at `at`. */
   pageHref(at: number): string;
   /** Goes to the page starting at `at`, for a link to `pageHref(at)`. */
@@ -121,11 +134,6 @@ export function useRecordList<Page extends ListPage>(path: string, filters: read
     offset,
     filtered: filters.some((name) => params.has(name)),
     filter,
-    clear: () => {
-      const next = new URLSearchParams(params);
-      for (const name of ["offset", ...filters]) next.delete(name);
-      setParams(next);
-    },
     pageHref,
     goTo: (at) => (event) => {
       event.preventDefault();
@@ -184,22 +192,24 @@ interface Machines {
 }
 
 /**
- * The filters every record list has: by Location, by Machine or Pending
- * Machine, and by dates and times, with `children` for a list's own.
- * `description` says how dates are read, in a tooltip beside them.
+ * One of a list's filters behind its Filters button (#544): what it is
+ * `label`led, the address's parameters it holds, what it is set to, as its
+ * chip above the list says it, and its control. It is set where the address
+ * has any of its `names`; `value` may be missing while what names it loads.
  */
-export function RecordFilters({
-  list,
-  error,
-  description,
-  children,
-}: {
-  list: RecordList<ListPage>;
-  /** A list's own filters' problem, such as their choices failing to load. */
-  error?: string;
-  description: string;
-  children?: ReactNode;
-}) {
+export interface ListFilter {
+  label: string;
+  names: readonly string[];
+  value?: string;
+  control: ReactNode;
+}
+
+/**
+ * The filters every record list has behind its Filters button, by Location
+ * and by Machine or Pending Machine, and what went wrong reading their
+ * choices, if anything.
+ */
+export function useRecordFilters(list: RecordList<ListPage>): { filters: ListFilter[]; error: string | undefined } {
   const id = useId();
   const { locations, error: locationsError } = useLocations();
   const [choices, setChoices] = useState<Machines>();
@@ -221,91 +231,255 @@ export function RecordFilters({
   const pendingMachineId = params.get("pendingMachineId");
   // A dismissed Pending Machine's records are not listed, so it is no choice.
   const pendingMachines = choices?.pendingMachines.filter((pending) => !pending.dismissed) ?? [];
-  const problem = machinesError ?? locationsError ?? error;
+  const pending = pendingMachines.find((each) => each.id === pendingMachineId);
+
+  const location: ListFilter = {
+    label: "Location",
+    names: ["locationId"],
+    value: locationId === NONE ? "None (UTC)" : locations && (locations.find((each) => each.id === locationId)?.name ?? "Unknown"),
+    control: (
+      <Field>
+        <FieldLabel htmlFor={`${id}-location`}>Location</FieldLabel>
+        <Select value={locationId === null ? ANY : locationId} onValueChange={(choice) => list.filter({ locationId: choice === ANY ? null : choice })}>
+          <SelectTrigger id={`${id}-location`} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any Location</SelectItem>
+            {locations?.map((each) => (
+              <SelectItem key={each.id} value={each.id}>
+                {each.name}
+              </SelectItem>
+            ))}
+            <SelectSeparator />
+            <SelectItem value={NONE}>No Location (UTC)</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+    ),
+  };
+  const machine: ListFilter = {
+    label: "Machine",
+    names: ["machineId", "pendingMachineId"],
+    value: choices && (machineId !== null ? (choices.machines.find((each) => each.id === machineId)?.name ?? "Unknown") : pending ? describeHardware(pending) : "Unknown"),
+    control: (
+      <Field>
+        <FieldLabel htmlFor={`${id}-machine`}>Machine</FieldLabel>
+        <Select
+          value={machineId !== null ? `machine:${machineId}` : pendingMachineId !== null ? `pending:${pendingMachineId}` : ANY}
+          onValueChange={(choice) => {
+            const [kind, chosen] = choice.split(":");
+            list.filter({ machineId: kind === "machine" ? chosen! : null, pendingMachineId: kind === "pending" ? chosen! : null });
+          }}
+        >
+          <SelectTrigger id={`${id}-machine`} className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value={ANY}>Any Machine</SelectItem>
+            {choices && choices.machines.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Machines</SelectLabel>
+                {choices.machines.map((each) => (
+                  <SelectItem key={each.id} value={`machine:${each.id}`}>
+                    {each.name}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+            {pendingMachines.length > 0 && (
+              <SelectGroup>
+                <SelectLabel>Pending Machines</SelectLabel>
+                {pendingMachines.map((each) => (
+                  <SelectItem key={each.id} value={`pending:${each.id}`}>
+                    {describeHardware(each)}
+                  </SelectItem>
+                ))}
+              </SelectGroup>
+            )}
+          </SelectContent>
+        </Select>
+      </Field>
+    ),
+  };
+  return { filters: [location, machine], error: machinesError ?? locationsError };
+}
+
+/** Tailwind's `sm` breakpoint. */
+const WIDE_SCREEN = "(min-width: 640px)";
+
+/** Hears of the screen crossing that width, until the function it returns is called. */
+function onScreenWidth(changed: () => void): () => void {
+  const media = window.matchMedia(WIDE_SCREEN);
+  media.addEventListener("change", changed);
+  return () => media.removeEventListener("change", changed);
+}
+
+/** Whether the screen is wide enough for the filters to open beside the list, in a popover, rather than over it, in a sheet. */
+function useWideScreen(): boolean {
+  return useSyncExternalStore(onScreenWidth, () => window.matchMedia(WIDE_SCREEN).matches);
+}
+
+/** The date preset standing for dates chosen by hand. */
+const CUSTOM = "custom";
+
+/**
+ * What narrows a record list (#544), above it: its date presets, always in
+ * view, of which Custom opens the From and To fields; a chip for each of
+ * its other `filters` that is set, which names it and removes it, with a
+ * way to clear them all; and the Filters button, which says how many are
+ * set and opens them, in a sheet on a narrow screen and a popover on a wide
+ * one. Each change is made at once, in the page's address. `noun` names
+ * one of the list's records, and `description` says how dates are read, in
+ * a tooltip beside the presets. `error` is what went wrong reading the
+ * filters' choices, if anything.
+ */
+export function RecordFilterBar({
+  list,
+  noun,
+  filters,
+  error,
+  description,
+}: {
+  list: RecordList<ListPage>;
+  noun: "Shot" | "Steam Record";
+  filters: readonly ListFilter[];
+  error?: string;
+  description: string;
+}) {
+  const id = useId();
+  const wide = useWideScreen();
+  const [open, setOpen] = useState(false);
+  const { params } = list;
+  const set = filters.filter((filter) => filter.names.some((name) => params.has(name)));
+  const clear = () => list.filter(Object.fromEntries(filters.flatMap((filter) => filter.names.map((name) => [name, null]))));
+
+  // Custom is chosen while the address holds a date, and from when it is pressed until a preset is.
+  const [customOpen, setCustomOpen] = useState(false);
+  const period = PERIODS.find((each) => each.period === params.get("period"))?.period;
+  const dates = period ?? (params.has("from") || params.has("to") || customOpen ? CUSTOM : "");
+  function chooseDates(chosen: string) {
+    setCustomOpen(chosen === CUSTOM);
+    // A preset takes the dates' place, and pressing the one chosen again clears it.
+    if (chosen === CUSTOM) list.filter({ period: null });
+    else list.filter({ period: chosen === "" ? null : chosen, from: null, to: null });
+  }
+
+  const trigger = (
+    <Button variant="outline" className="max-sm:ml-auto">
+      <ListFilterIcon data-icon="inline-start" />
+      Filters
+      {set.length > 0 && (
+        <>
+          <Badge aria-hidden="true" className="h-4.5 min-w-4.5 px-1 tabular-nums">
+            {set.length}
+          </Badge>
+          <span className="sr-only">, {set.length} set</span>
+        </>
+      )}
+    </Button>
+  );
+  const controls = filters.map((filter) => <div key={filter.label}>{filter.control}</div>);
 
   return (
-    <section aria-label="Filters" className="grid gap-4 rounded-lg border p-4">
-      {problem && (
+    <section aria-label="Filters" className="grid gap-3">
+      {error && (
         <Alert variant="destructive">
-          <AlertDescription>{problem}</AlertDescription>
+          <AlertDescription>{error}</AlertDescription>
         </Alert>
       )}
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-        <Field>
-          <FieldLabel htmlFor={`${id}-location`}>Location</FieldLabel>
-          <Select value={locationId === null ? ANY : locationId} onValueChange={(choice) => list.filter({ locationId: choice === ANY ? null : choice })}>
-            <SelectTrigger id={`${id}-location`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY}>Any Location</SelectItem>
-              {locations?.map((location) => (
-                <SelectItem key={location.id} value={location.id}>
-                  {location.name}
-                </SelectItem>
-              ))}
-              <SelectSeparator />
-              <SelectItem value={NONE}>No Location (UTC)</SelectItem>
-            </SelectContent>
-          </Select>
-        </Field>
-
-        <Field>
-          <FieldLabel htmlFor={`${id}-machine`}>Machine</FieldLabel>
-          <Select
-            value={machineId !== null ? `machine:${machineId}` : pendingMachineId !== null ? `pending:${pendingMachineId}` : ANY}
-            onValueChange={(choice) => {
-              const [kind, chosen] = choice.split(":");
-              list.filter({ machineId: kind === "machine" ? chosen! : null, pendingMachineId: kind === "pending" ? chosen! : null });
-            }}
-          >
-            <SelectTrigger id={`${id}-machine`} className="w-full">
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value={ANY}>Any Machine</SelectItem>
-              {choices && choices.machines.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Machines</SelectLabel>
-                  {choices.machines.map((machine) => (
-                    <SelectItem key={machine.id} value={`machine:${machine.id}`}>
-                      {machine.name}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
-              {pendingMachines.length > 0 && (
-                <SelectGroup>
-                  <SelectLabel>Pending Machines</SelectLabel>
-                  {pendingMachines.map((pending) => (
-                    <SelectItem key={pending.id} value={`pending:${pending.id}`}>
-                      {describeHardware(pending)}
-                    </SelectItem>
-                  ))}
-                </SelectGroup>
-              )}
-            </SelectContent>
-          </Select>
-        </Field>
-
-        {children}
-      </div>
-
-      <div className="flex flex-wrap items-end gap-4">
-        <DateFilter id={`${id}-from`} label="From" value={params.get("from")} onChange={(from) => list.filter({ from })} />
-        <DateFilter id={`${id}-to`} label="To" value={params.get("to")} onChange={(to) => list.filter({ to })} />
-        <div className="flex h-9 items-center">
+      <div className="flex flex-wrap items-center gap-2">
+        <div className="flex items-center gap-2 max-sm:w-full">
+          <ToggleGroup type="single" aria-label="Dates" value={dates} onValueChange={chooseDates} spacing={0} className="h-8 gap-0.5 rounded-lg bg-muted p-[3px] max-sm:flex-1">
+            {PERIODS.map((each) => (
+              <DatesItem key={each.period} value={each.period}>
+                {each.label}
+              </DatesItem>
+            ))}
+            <DatesItem value={CUSTOM} className="max-sm:flex-none">
+              <CalendarIcon className="sm:hidden" />
+              <span className="max-sm:sr-only">Custom</span>
+            </DatesItem>
+          </ToggleGroup>
           <InfoTip label="About dates and times">
+            <p>
+              Today, Yesterday, 7 days and 30 days are each {noun}'s Location's own days, counted back from its own today, or UTC's for a {noun} with
+              no Location. Custom chooses the dates.
+            </p>
             <p>{description}</p>
           </InfoTip>
         </div>
-        {list.filtered && (
-          <Button variant="outline" onClick={list.clear}>
-            Clear filters
+        {set.length > 0 && (
+          <ul aria-label="Filters set" className="flex min-w-0 flex-wrap items-center gap-2">
+            {set.map((filter) => (
+              <li key={filter.label} className="inline-flex h-8 max-w-full items-center gap-1 rounded-full border bg-muted/50 py-0 pr-1 pl-3 text-sm">
+                {/* A phone has room for what it is set to alone, once that is known. */}
+                <span className={filter.value === undefined ? "text-muted-foreground" : "text-muted-foreground max-sm:sr-only"}>{filter.value === undefined ? filter.label : `${filter.label}:`}</span>
+                {filter.value !== undefined && <span className="truncate font-medium">{filter.value}</span>}
+                <Button variant="ghost" size="icon-xs" className="shrink-0 rounded-full text-muted-foreground" aria-label={`Remove the ${filter.label} filter`} onClick={() => list.filter(Object.fromEntries(filter.names.map((name) => [name, null])))}>
+                  <XIcon />
+                </Button>
+              </li>
+            ))}
+          </ul>
+        )}
+        {wide ? (
+          <Popover open={open} onOpenChange={setOpen}>
+            <PopoverTrigger asChild>{trigger}</PopoverTrigger>
+            <PopoverContent align="start" aria-label="Filters" className="w-[min(40rem,calc(100vw-2rem))] gap-4 p-4">
+              <div className="grid grid-cols-2 gap-4">{controls}</div>
+              <div>
+                <Button variant="outline" onClick={clear} disabled={set.length === 0}>
+                  Clear all
+                </Button>
+              </div>
+            </PopoverContent>
+          </Popover>
+        ) : (
+          <Sheet open={open} onOpenChange={setOpen}>
+            <SheetTrigger asChild>{trigger}</SheetTrigger>
+            <SheetContent side="bottom" aria-describedby={undefined} className="max-h-[85dvh] gap-0 rounded-t-xl">
+              <SheetHeader>
+                <SheetTitle>Filters</SheetTitle>
+              </SheetHeader>
+              <div className="grid gap-3 overflow-y-auto px-4 pb-4">{controls}</div>
+              <SheetFooter className="flex-row border-t">
+                <Button variant="outline" onClick={clear} disabled={set.length === 0}>
+                  Clear all
+                </Button>
+                <SheetClose asChild>
+                  <Button className="flex-1 tabular-nums">{list.data ? `Show ${list.data.total} ${list.data.total === 1 ? noun : `${noun}s`}` : "Done"}</Button>
+                </SheetClose>
+              </SheetFooter>
+            </SheetContent>
+          </Sheet>
+        )}
+        {/* On a narrow screen the sheet clears them. */}
+        {set.length > 0 && (
+          <Button variant="ghost" onClick={clear} className="max-sm:hidden">
+            Clear
           </Button>
         )}
       </div>
+      {dates === CUSTOM && (
+        <div className="flex flex-wrap items-end gap-4">
+          <DateFilter id={`${id}-from`} label="From" value={params.get("from")} onChange={(from) => list.filter({ from })} />
+          <DateFilter id={`${id}-to`} label="To" value={params.get("to")} onChange={(to) => list.filter({ to })} />
+        </div>
+      )}
     </section>
+  );
+}
+
+/** One of the date presets, in the segmented control they make. */
+function DatesItem({ value, className, children }: { value: string; className?: string; children: ReactNode }) {
+  return (
+    <ToggleGroupItem
+      value={value}
+      className={`h-full min-w-0 rounded-md! px-2.5 text-foreground/60 hover:bg-transparent hover:text-foreground data-[state=on]:bg-background data-[state=on]:text-foreground data-[state=on]:shadow-sm max-sm:flex-1 max-sm:px-1 dark:data-[state=on]:bg-input/30 ${className ?? ""}`}
+    >
+      {children}
+    </ToggleGroupItem>
   );
 }
 

@@ -2,16 +2,16 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { preheatShotFixture, shotFixture, withShots } from "../server/test/support/shot-fixtures.js";
 import { SimulatedTablet, derivedDe1Pro, settingsFor } from "../server/test/support/simulated-tablet.js";
 import { useFreshServer } from "./support/fresh-server.js";
-import { rows } from "./support/locators.js";
+import { chooseFilter, openCard, rows } from "./support/locators.js";
 import { createLocation, signInAsAdmin } from "./support/seed.js";
 import { expectTip } from "./support/tooltips.js";
 
 // The Shots list's trend of one number of the Shots its filters find, by
-// day or week (#470), as an Admin. A simulated tablet running the built
+// day or week (#470), closed until opened (#544), as an Admin. A simulated tablet running the built
 // plugin backfills six Shots derived from two real records, changing only
 // their id, time, recorded hardware, Barista and what each line names. The
-// real Shots ran 23.549 s and 25.833 s after their Preheat and stopped on
-// weight. The Lab is in Denver, seven hours behind UTC that February, and 9
+// real Shots ran 23.549 s and 25.833 s after their Preheat and stopped at
+// their target weight. The Lab is in Denver, seven hours behind UTC that February, and 9
 // and 16 February 2026 are Mondays. Baristas and hardware ids are made up.
 //
 // | Shot | Pulled, UTC | At the Lab | Duration | Stopped by | Barista | Rated |
@@ -42,9 +42,22 @@ test("the trend charts the Shots the filters find by day, each day's median with
     shotOf("cleaning", "2026-02-16T16:00:00Z", "Ann", { type: "cleaning" }),
   ]);
 
+  // It starts closed, and reads nothing until it is opened.
+  const read: string[] = [];
+  page.on("request", (request) => {
+    if (request.url().includes("bucket=")) read.push(request.url());
+  });
   await page.goto("/shots");
   const trend = page.getByRole("region", { name: "Trend" });
   await expectTip(trend, "Trend", /^How one number of the Shots these filters find moved, by day or by week\./);
+  await expect(page.getByRole("region", { name: "Summary" }).locator("dd").first()).toHaveText(/^5/);
+  await expect(trend.getByRole("tab")).toHaveCount(0);
+  await expect(trend.getByRole("figure")).toHaveCount(0);
+  expect(read).toEqual([]);
+  await openCard(page, "Trend");
+  expect(read).toHaveLength(1);
+  // Open, it is in the address, with the number it charts.
+  await expect(page).toHaveURL(/\/shots\?trend=duration$/);
   // Duration by day, until another is chosen.
   await expect(trend.getByRole("tab", { name: "By day" })).toHaveAttribute("aria-selected", "true");
   await expect(trend.getByRole("combobox", { name: "Number" })).toHaveText("Duration");
@@ -68,55 +81,64 @@ test("the trend charts the Shots the filters find by day, each day's median with
   await expect(chart.locator(".recharts-tooltip-wrapper")).toHaveText("Tue, Feb 10, 2026Duration24.7 sMiddle half24.1–25.3Shots2");
 });
 
-test("another number and the week are chosen, kept in the page's address, and a share draws as a line with no band", async ({ page }) => {
-  await page.goto("/shots");
+test("another number and the week are chosen, kept in the page's address, which opens the trend where it names a number, and a share draws as a line with no band", async ({ page }) => {
+  // An address that names the trend's number, as one shared, opens it.
+  await page.goto("/shots?trend=duration");
   const trend = page.getByRole("region", { name: "Trend" });
   await expect(trend.getByRole("figure", { name: "Duration by day" })).toBeVisible();
 
-  // A share: of the Shots that recorded what stopped them, those stopped on weight, with no band.
-  await chooseNumber(trend, "Stopped on weight");
-  await expect(page).toHaveURL(/\/shots\?trend=stoppedOnWeight$/);
-  const share = trend.getByRole("figure", { name: "Stopped on weight by day" });
-  await expect(share.locator("figcaption")).toHaveText("Stopped on weight (%)");
+  // A share: of the Shots that recorded what stopped them, those stopped at their target, with no band.
+  await chooseNumber(trend, "Stopped at target");
+  await expect(page).toHaveURL(/\/shots\?trend=stoppedAtTarget$/);
+  const share = trend.getByRole("figure", { name: "Stopped at target by day" });
+  await expect(share.locator("figcaption")).toHaveText("Stopped at target (%)");
   await expect(share.locator(".recharts-line-dot")).toHaveCount(4);
   await expect(share.locator(".recharts-area-area")).toHaveCount(0);
-  await expect(await numbers(trend, "Stopped on weight by day")).toHaveText(["Tue, Feb 10, 20262100%", "Wed, Feb 11, 202610%", "Sun, Feb 15, 20261100%", "Mon, Feb 16, 20261100%"]);
-  await expect(trend.getByRole("columnheader")).toHaveText(["Day", "Shots", "Stopped on weight"]);
+  await expect(await numbers(trend, "Stopped at target by day")).toHaveText(["Tue, Feb 10, 20262100%", "Wed, Feb 11, 202610%", "Sun, Feb 15, 20261100%", "Mon, Feb 16, 20261100%"]);
+  await expect(trend.getByRole("columnheader")).toHaveText(["Day", "Shots", "Stopped at target"]);
 
   // By week, from the Lab's Mondays: its Sunday's Shot is the week of the 9th's, and its Monday's the 16th's.
   await trend.getByRole("tab", { name: "By week" }).click();
-  await expect(page).toHaveURL(/\/shots\?trend=stoppedOnWeight&bucket=week$/);
-  await expect(trend.getByRole("figure", { name: "Stopped on weight by week" }).locator(".recharts-line-dot")).toHaveCount(2);
-  await expect(await numbers(trend, "Stopped on weight by week")).toHaveText(["Mon, Feb 9, 2026475%", "Mon, Feb 16, 20261100%"]);
-  await expect(trend.getByRole("columnheader")).toHaveText(["Week of", "Shots", "Stopped on weight"]);
+  await expect(page).toHaveURL(/\/shots\?trend=stoppedAtTarget&bucket=week$/);
+  await expect(trend.getByRole("figure", { name: "Stopped at target by week" }).locator(".recharts-line-dot")).toHaveCount(2);
+  await expect(await numbers(trend, "Stopped at target by week")).toHaveText(["Mon, Feb 9, 2026475%", "Mon, Feb 16, 20261100%"]);
+  await expect(trend.getByRole("columnheader")).toHaveText(["Week of", "Shots", "Stopped at target"]);
 
   // The view is the address's, so a reloaded or shared one is the same.
   await page.reload();
   await expect(trend.getByRole("tab", { name: "By week" })).toHaveAttribute("aria-selected", "true");
-  await expect(trend.getByRole("combobox", { name: "Number" })).toHaveText("Stopped on weight");
-  await expect(await numbers(trend, "Stopped on weight by week")).toHaveText(["Mon, Feb 9, 2026475%", "Mon, Feb 16, 20261100%"]);
+  await expect(trend.getByRole("combobox", { name: "Number" })).toHaveText("Stopped at target");
+  await expect(await numbers(trend, "Stopped at target by week")).toHaveText(["Mon, Feb 9, 2026475%", "Mon, Feb 16, 20261100%"]);
 
-  // The week's durations: two of 23.549 s and two of 25.833 s. The address holds neither default.
+  // The week's durations: two of 23.549 s and two of 25.833 s.
   await chooseNumber(trend, "Duration");
-  await expect(page).toHaveURL(/\/shots\?bucket=week$/);
+  await expect(page).toHaveURL(/\/shots\?trend=duration&bucket=week$/);
   await expect(await numbers(trend, "Duration by week")).toHaveText(["Mon, Feb 9, 2026424.7 s23.5–25.8", "Mon, Feb 16, 2026123.5 s23.5–23.5"]);
+  // By day is held as no bucket.
   await trend.getByRole("tab", { name: "By day" }).click();
-  await expect(page).toHaveURL(/\/shots$/);
+  await expect(page).toHaveURL(/\/shots\?trend=duration$/);
   await expect(trend.getByRole("figure", { name: "Duration by day" }).locator(".recharts-line-dot")).toHaveCount(4);
+
+  // Hidden, it is gone from the address, and a reload leaves it closed.
+  await trend.getByRole("button", { name: "Hide Trend" }).click();
+  await expect(page).toHaveURL(/\/shots$/);
+  await expect(trend.getByRole("figure")).toHaveCount(0);
+  await page.reload();
+  await expect(trend.getByRole("button", { name: "Show Trend" })).toBeVisible();
+  await expect(trend.getByRole("figure")).toHaveCount(0);
 });
 
 test("the trend follows the filters and the summary's numbers stay, a number few Shots have says how many it rests on, and one none has says so", async ({ page }) => {
-  await page.goto("/shots?numbers=ratio");
+  await page.goto("/shots?numbers=ratio&trend=duration");
   const trend = page.getByRole("region", { name: "Trend" });
   // Ann's Shots: one on each of three days, her cleaning Shot left out.
-  await page.getByRole("region", { name: "Filters" }).getByRole("combobox", { name: "Barista", exact: true }).click();
-  await page.getByRole("option", { name: "Ann", exact: true }).click();
+  await chooseFilter(page, "Barista", "Ann");
   await expect(shotRows(page)).toHaveCount(4);
   await expect(await numbers(trend, "Duration by day")).toHaveText(["Tue, Feb 10, 2026123.5 s23.5–23.5", "Wed, Feb 11, 2026123.5 s23.5–23.5", "Sun, Feb 15, 2026125.8 s25.8–25.8"]);
 
   // One of her Shots is rated: the one day with a value, of the one Shot.
   await chooseNumber(trend, "Rating");
-  await expect(page).toHaveURL(/\/shots\?numbers=ratio&barista=Ann&trend=rating$/);
+  await expect(page).toHaveURL(/\/shots\?numbers=ratio&trend=rating&barista=Ann$/);
   const rating = trend.getByRole("figure", { name: "Rating by day" });
   // In stars (#532): rated 8 of Decaid's 10, four stars, on an axis from none to five.
   await expect(rating.locator("figcaption")).toHaveText("Rating (stars)");
@@ -139,7 +161,7 @@ test("the trend follows the filters and the summary's numbers stay, a number few
 });
 
 test("a trend that can't be read says so, and the previous release's answer, which has no buckets, draws nothing", async ({ page }) => {
-  await page.goto("/shots");
+  await page.goto("/shots?trend=duration");
   const trend = page.getByRole("region", { name: "Trend" });
   await expect(trend.getByRole("figure", { name: "Duration by day" })).toBeVisible();
 

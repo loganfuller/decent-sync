@@ -7,7 +7,8 @@ import { Card, CardAction, CardContent, CardHeader } from "@/components/ui/card"
 import { DropdownMenu, DropdownMenuCheckboxItem, DropdownMenuContent, DropdownMenuTrigger } from "@/components/ui/dropdown-menu";
 import { type LastSteps, api, type ShotSummary, type SummaryGroup } from "@/lib/api";
 import { MAX_STARS } from "@/lib/rating";
-import { MEDIAN_TEXT, type MedianText, NUMBERS, NUMBER_NAMES, type NumberName, countNotes, settingText, shareText, shotsText } from "@/lib/shot-summary";
+import { SpecMark } from "@/components/spec-mark";
+import { MEDIAN_TEXT, type MedianText, NUMBERS, NUMBER_NAMES, type NumberName, countNotes, otherStopsText, settingText, shareText, shotsText, signedText } from "@/lib/shot-summary";
 import { DETAILS_POLL_MS, usePolled } from "@/lib/use-polled";
 import { MAX_SHOT_RATING } from "@decent-sync/protocol";
 
@@ -29,9 +30,17 @@ const RESTS_ON: Record<keyof typeof MEDIAN_TEXT, string> = {
  * The Shot Summary of the Shots a list's filters find (#466, #469), above
  * its rows: how many there are and the `numbers` chosen, by default their
  * duration and yield against target, each as a median with the range the
- * middle half fall in, and the share that stopped on weight. The Shots
- * count says how many cleaning, calibration and Unfinished Shots were left
- * out where there are any, and how many still await their stored numbers.
+ * middle half fall in, and the share that stopped at their target. The
+ * Shots count says how many cleaning, calibration and Unfinished Shots were
+ * left out where there are any, and how many still await their stored
+ * numbers.
+ *
+ * What the server judges out of spec is marked (#543, #544): the yield
+ * against target and the share stopped at target themselves, and, where the
+ * filters name one Recipe, `recipeId`, which has a Reference Shot, the
+ * duration's difference from that Shot's, under it, muted where it is
+ * within spec or the Shots are too few to judge. That difference is read
+ * from the summary grouped by Recipe, whose one group is the Shots found.
  *
  * `filterQuery` is the list's filters as the REST API's query, so the
  * summary follows them, and `numbers` those its address keeps, which
@@ -43,8 +52,19 @@ const RESTS_ON: Record<keyof typeof MEDIAN_TEXT, string> = {
  * theirs until the next load, 30 s on. So filters changed after a failed
  * load show dashes until theirs arrives.
  */
-export function ShotSummaryCard({ filterQuery, numbers, onNumbers }: { filterQuery: string; numbers: NumberName[]; onNumbers(numbers: NumberName[]): void }) {
-  const query = new URLSearchParams([...new URLSearchParams(filterQuery), ["numbers", numbers.join(",")]]).toString();
+export function ShotSummaryCard({
+  filterQuery,
+  recipeId,
+  numbers,
+  onNumbers,
+}: {
+  filterQuery: string;
+  /** The one Recipe the filters name, if they name one. */
+  recipeId?: string;
+  numbers: NumberName[];
+  onNumbers(numbers: NumberName[]): void;
+}) {
+  const query = new URLSearchParams([...new URLSearchParams(filterQuery), ["numbers", numbers.join(",")], ...(recipeId === undefined ? [] : [["groupBy", "recipe"]])]).toString();
   // Each summary loaded remembers the query it answers.
   const load = useCallback(async () => ({ query, summary: await api<ShotSummary>("GET", `/shots/summary?${query}`) }), [query]);
   const { data: loaded, error } = usePolled(load, DETAILS_POLL_MS);
@@ -60,7 +80,14 @@ export function ShotSummaryCard({ filterQuery, numbers, onNumbers }: { filterQue
           </p>
           <p>Each number is a median, with the range the middle half of the Shots fall in. Choose which to show with Numbers.</p>
           <p>Yield against target is the yield weighed less the Shot's own target, for Shots with both. The ratio is the yield weighed over the dose weighed.</p>
-          <p>Stopped on weight is the share, of the Shots that recorded what stopped them, that stopped at their target weight.</p>
+          <p>
+            Stopped at target is the share, of the Shots that recorded what stopped them, that Decaid stopped at their target weight or, with no
+            scale, their target volume.
+          </p>
+          <p>
+            A number is marked where it is out of spec: the median yield more than 5% from target, under 90% stopped at target, or, for one
+            Recipe with a Reference Shot, the median duration more than 10% from that Shot's. Fewer than 3 Shots are not judged.
+          </p>
           <p>
             A rating reads in stars, up to {MAX_STARS}, as DYE2 shows it on a tablet: a star is two points of the rating from 0 to {MAX_SHOT_RATING}{" "}
             that Decaid keeps. A rating of 0 is no rating, as DYE2 records one with no stars.
@@ -128,9 +155,31 @@ function NumberFigure({ name, group }: { name: NumberName; group: SummaryGroup |
   const restsOn = (shots: number | undefined, which: string) => (shots === undefined || covered === undefined || shots === covered ? undefined : `${shots} of ${shotsText(covered)} ${which}`);
   const term = NUMBER_NAMES[name];
   switch (name) {
-    case "stoppedOnWeight": {
-      const number = group?.numbers.stoppedOnWeight;
-      return <Figure term={term} value={number && shareText(number.share)} notes={[restsOn(number?.shots, "recorded what stopped them")]} />;
+    case "stoppedAtTarget": {
+      const number = group?.numbers.stoppedAtTarget;
+      return (
+        <Figure
+          term={term}
+          value={number && shareText(number.share)}
+          marked={group?.spec?.stoppedAtTarget.judgement === "outOfSpec"}
+          notes={[number && otherStopsText(number), restsOn(number?.shots, "recorded what stopped them")]}
+        />
+      );
+    }
+    case "duration": {
+      const number = group?.numbers.duration;
+      return <Figure term={term} number={number && MEDIAN_TEXT.duration(number)} notes={[restsOn(number?.shots, RESTS_ON.duration)]} against={durationAgainst(group)} />;
+    }
+    case "yieldAgainstTarget": {
+      const number = group?.numbers.yieldAgainstTarget;
+      return (
+        <Figure
+          term={term}
+          number={number && MEDIAN_TEXT.yieldAgainstTarget(number)}
+          marked={group?.spec?.yield.judgement === "outOfSpec"}
+          notes={[restsOn(number?.shots, RESTS_ON.yieldAgainstTarget)]}
+        />
+      );
     }
     case "lastStep": {
       const number = group?.numbers.lastStep;
@@ -174,8 +223,35 @@ function LastStepFigure({ lastStep, restsOn }: { lastStep: LastSteps | undefined
   );
 }
 
-/** One of a summary's numbers: its value, or its median with the middle half's range beside it, a dash for none, and notes under it. */
-function Figure({ term, value, number, notes }: { term: string; value?: string; number?: MedianText; notes?: (string | undefined)[] }) {
+/** A group's median duration against its Recipe's Reference Shot's, as the line under its duration says it: none for a group with no such Shot. */
+function durationAgainst(group: SummaryGroup | undefined): { text: string; marked: boolean } | undefined {
+  const judged = group?.spec?.duration;
+  if (!judged || judged.difference === null) return undefined;
+  return { text: `${signedText(judged.difference)} s vs reference`, marked: judged.judgement === "outOfSpec" };
+}
+
+/**
+ * One of a summary's numbers: its value, or its median with the middle
+ * half's range beside it, a dash for none, and notes under it. `marked`, it
+ * is out of spec, and its value carries the mark. `against` is how far it
+ * is from what it is measured against, on a line of its own, marked or
+ * muted.
+ */
+function Figure({
+  term,
+  value,
+  number,
+  marked = false,
+  against,
+  notes,
+}: {
+  term: string;
+  value?: string;
+  number?: MedianText;
+  marked?: boolean;
+  against?: { text: string; marked: boolean };
+  notes?: (string | undefined)[];
+}) {
   const shown = number?.median ?? value;
   return (
     <div className="grid content-start gap-0.5">
@@ -185,10 +261,11 @@ function Figure({ term, value, number, notes }: { term: string; value?: string; 
           <span className="text-muted-foreground">-</span>
         ) : (
           <>
-            <span className="text-lg font-semibold">{shown}</span>
+            {marked ? <SpecMark className="text-lg">{shown}</SpecMark> : <span className="text-lg font-semibold">{shown}</span>}
             {number && <span className="text-muted-foreground"> ({number.range})</span>}
           </>
         )}
+        {against && <p>{against.marked ? <SpecMark>{against.text}</SpecMark> : <span className="text-muted-foreground">{against.text}</span>}</p>}
         {notes?.map(
           (note) =>
             note && (

@@ -466,6 +466,27 @@ All endpoints require a signed-in account: Admin, Staff or Viewer.
     date alone includes the whole of that day. So a day is 23 or 25 hours
     across a daylight-saving change, and an hour the clocks repeat is listed
     twice. Shots whose time is unknown match no time filter.
+  - `period` (#544), in place of `from` and `to`: `today`, `yesterday`,
+    `7days` or `30days`, the seven or thirty days that end with today. The
+    days are each Shot's own Location's, counted back from its own today on
+    that Location's wall clock as the database's clock has it, or UTC's for
+    a Shot with no Location (`PERIODS` in `server/src/record-filters.ts`).
+    So a list across Locations in different time zones holds each one's own
+    today, which no one date for `from` and `to` names, and an address that
+    holds a period reads as that period whenever it is opened. A period
+    given beside `from` or `to` is a 400, as is one of any other name. The
+    management interface's date presets are these. `find_shots`,
+    `summarise_shots` and `find_steam_records` take `period` too, refused
+    beside their `from` or `to`, a date or a moment.
+  - `rating` (#544): `rated`, Shots rated above 0; `unrated`, the rest,
+    those rated 0, as DYE2 writes no stars, or recording no rating; or a
+    least number of stars of five, `2`, `3`, `4` or `5`, each two points of
+    Decaid's rating from 0 to 10, as a Shot Summary's rating reads one, so
+    `4` finds ratings of 8 and over. It reads the Shot's rating as its row
+    gives it, so an edit made through the server (below) is followed at
+    once. Any other value is a 400. `find_shots` and `summarise_shots` take
+    it too (`server/test/ratings-and-periods.test.ts` covers both filters,
+    through the REST API and an assistant).
 - `GET /api/shots/filters` returns `{ beans, baristas, profiles,
   beanBatches, grinders, recipes, baskets }`: the distinct Beans (`{
   coffeeRoaster, coffeeName }`), Baristas and profile titles listed Shots
@@ -1661,7 +1682,78 @@ simulated tablets, two at one Location and one at another.
 
 `/shots` lists Shots with the REST filters in its address, so a filtered
 list can be shared or reloaded, the Bean Batch, Grinder, Recipe and Basket
-among them. Above its rows, its Summary card
+among them. What narrows it is in one bar above everything else (#544;
+`RecordFilterBar` in `web/src/components/record-lists.tsx`, which the Steam
+Records list shares):
+
+- **Date presets**, always in view: Today, Yesterday, 7 days and 30 days,
+  each the REST API's `period` of that name, so the days are each Shot's
+  Location's own and the address holds the preset, not its dates; and
+  Custom, which opens the From and To fields, the REST API's `from` and
+  `to`. Custom is the one chosen while the address holds either date. None
+  is chosen until one is pressed, and pressing the one chosen clears it. A
+  preset takes the dates' place, and Custom the preset's.
+- **The Filters button**, which says how many of the other filters are set
+  and opens them: in a sheet from the bottom of a narrow screen, whose
+  button says how many Shots they find and closes it, and in a popover on a
+  wide one (from 640 px). Each change is made at once, in the address.
+  They are by Location, Machine or Pending Machine, Recipe, Bean, Bean
+  Batch, Grinder, Basket, Barista, profile and rating: any rating, rated,
+  not rated, 5 stars, or 4, 3 or 2 stars or more, the REST API's `rating`.
+- **A chip for each filter that is set**, naming it and what it is set to,
+  such as "Recipe: House, Lab", with a button that removes it; on a narrow
+  screen a chip shows what it is set to alone. Clear, and the sheet's Clear
+  all, remove every chip's filter and leave the dates.
+
+"No reference", on the Overview, and "Its rated Shots" on the Reference
+Shot card of a Recipe with none, open the list at that Recipe's rated
+Shots (`ratedShotsPath` in `web/src/lib/shot-list.ts`), those a Reference
+Shot is chosen from. A cell of the Overview opens the list with its period
+as the preset of the same days.
+
+Under the Summary and the Trend, the page's Shots are under a heading for
+each day, each Shot's own Location's, by that Location's wall clock, with
+today and yesterday named so by its own today, as "Today, Sun Nov 15"
+(`dayGroups` in `web/src/lib/shot-list.ts`, with
+`web/test/shot-list.test.ts`). The list stays in the order the Shots were
+pulled, so where Locations on different dates pulled Shots in turn a
+heading comes again rather than a Shot moving out of its place. From 1024
+px a Shot is a row of a table:
+
+- when it was pulled, as a time of day, linked to the Shot and named by its
+  whole time, with its zone, for a screen reader and on hover; with a
+  Reference badge where it is a Recipe's Reference Shot, and an Unfinished
+  or a Cleaning or calibration badge where the server says it is one
+  (`spec.unfinished`, `spec.cleaningOrCalibration`);
+- its Machine, and its Recipe, linked, or "No Recipe", over a muted second
+  line of its profile's title, its Bean's name, and, where the list isn't
+  filtered to one Location, its Location;
+- its grind setting, as recorded, and its dose;
+- its yield, with its difference from its own target beside it, and its
+  duration, with its difference from its Recipe's Reference Shot's, each as
+  the row's `spec` gives it (Shot Summaries, Out of spec): marked, with the
+  triangle, where out of spec, and muted otherwise; a Shot whose Recipe has
+  no Reference Shot has nothing beside its duration;
+- under its duration, how it stopped, in words, only where it was not at
+  its target: "stopped by hand", "ended by the Machine", "stopped by an
+  error", or the reason recorded (`stopNote`);
+- its rating as five stars, filled as far as the rating reaches, so 3.5
+  stars draw as three and a half, as the rating filter counts them, with
+  the rating as their name; and its Barista.
+
+An Unfinished Shot's row is muted, and carries no mark, as the server
+judges none of it. Below 1024 px each Shot is two lines, the whole of it
+leading to the Shot, and neither line wraps, so nothing scrolls sideways:
+its time and Machine, its badges, and its duration with the duration's
+difference; then its grind setting, its yield with its difference, how it
+stopped where not at its target, and its Recipe, where the list isn't
+filtered to one, with its rating across from them. What a line has no
+room for is cut short. `e2e/shots-list.spec.ts` covers the bar, the rows,
+and the Summary's and Trend's parts below, at a desktop's width and at 390
+px, on the Shots of `e2e/support/judged-shots.ts`, which the Overview's
+spec shares.
+
+Above the rows, its Summary card
 (`web/src/components/shot-summary.tsx`) gives the Shot Summary of the Shots
 those filters find: how many its numbers cover, with how many Unfinished
 Shots and cleaning and calibration Shots were left out where there are any,
@@ -1669,14 +1761,23 @@ and how many still await their first drip and last step; and the numbers
 chosen, by default the duration and the yield against target, each as its
 median with the middle half's range, such as "26.0 s (25.6–26.6)" and
 "−0.1 g (−0.8 to +0.4)" (`web/src/lib/shot-summary.ts`), and the share that
-stopped on weight. Its Numbers menu chooses others, at least one, in the
+stopped at target (#544), with how the rest stopped under it, such as "2 by
+hand · 1 ended by the Machine". Stopped on weight, which it took the place
+of, is offered no longer, and an address that names it is read as one
+naming a number the page doesn't know; the REST API gives it until #559.
+What the server judges out of spec is marked, with the triangle (Shot
+Summaries, Out of spec): the yield against target and the share stopped at
+target themselves, and, where the filters name one Recipe that has a
+Reference Shot, the median duration's difference from that Shot's, on a
+line under the duration, such as "+3.5 s vs reference", muted where it is
+within spec or the Shots are too few to judge. Its Numbers menu chooses others, at least one, in the
 order the REST API gives them: the ratio, as "1:2.10", peak pressure and
 flow, the rating (in stars), the grind setting, with its lowest and highest
 where they differ, TDS, extraction yield, time to first drip, and the steps
 most Shots ended in, each with how many. The choice is kept in the page's
 address as
 `numbers`, apart from the filters, so it survives a reload and a shared
-address, and Clear filters leaves it; the default is kept as none, and a
+address, and Clear leaves it; the default is kept as none, and a
 name the page doesn't know, as from a later release, is left out. A
 number says how many Shots it rests on where some of those covered had no
 value for it, and reads as a dash where none had, as one just chosen does
@@ -1684,8 +1785,11 @@ until it loads. The card follows the filters, loads again every 30 s, and is
 not shown while no Shot matches. The last filters' numbers stay while the
 next ones' load, as the rows do, but give way to dashes while a load has
 failed since the last that succeeded, so that they never stand under a
-failure as the next filters'. It is never grouped: the page asks for no
-`groupBy`. The Barista filter offers each
+failure as the next filters'. It is one group, of the Shots the filters
+find: the page asks for no `groupBy` but, where the filters name one
+Recipe, `groupBy=recipe`, whose one group is those same Shots, with the
+Recipe's Reference Shot and the judgement of their duration against it.
+The Barista filter offers each
 Barista once, as the REST API gives them, finds every spelling of the name,
 and shows that choice for any spelling an address holds, as one shared
 before the choices were folded (`baristaKey` in `web/src/lib/shot-summary.ts`).
@@ -1703,20 +1807,25 @@ beside it is as the summary gives it. The card's info text says a star is
 two points of Decaid's rating, and that a rating of 0 is no rating.
 
 Under the Summary card, the Trend card (`web/src/components/shot-trend.tsx`)
+starts closed (#544), as a `CollapsibleCard`, and reads nothing until it is
+opened. Open, it
 charts one number of the same Shots by day or by week, from the summary
 asked for by `bucket` with that number alone: its median as a line, each
 day or week marked while there are no more than 31 of them, with a band
 for the range the middle half of its Shots fall in, on the chart
-components the Shot page's curves use. A share, stopped on weight, is a
+components the Shot page's curves use. A share, stopped at target, is a
 line alone, from 0 to 100%. A rating is charted in stars (#532): its line
 and band, on an axis from 0 to 5 marked at each star, its tooltip and its
 table, under the title "Rating (stars)". `trendPoints` halves the
 summary's median and range, so a point holds stars, and `pointText` reads
 them as the Summary card does. Any number the summary gives but the last
-step can be charted; duration by day is the default. The number and the
-bucket are kept in the page's address as `trend` and `bucket`, apart from
-the filters, each default as none, so the view survives a reload and a
-shared address. The time axis runs on the dates the server gives, so the
+step can be charted; duration by day is the default. Whether it is open,
+the number and the bucket are kept in the page's address, apart from the
+filters: `trend` is the number charted, there only while the card is open,
+so an address that names it opens the card, as a Recipe's page's link to a
+Machine's Shots does, and hiding the card takes it out; and `bucket` is
+`week`, by day being none. So the view survives a reload and a shared
+address. The time axis runs on the dates the server gives, so the
 days are each Shot's Location's and the browser's time zone plays no part
 (`web/src/lib/shot-trend.ts`, with `web/test/shot-trend.test.ts`). A day or
 week with no Shots, or none with a value, has no point, and the line runs
@@ -1725,12 +1834,20 @@ how many Shots they rest on, and Show the numbers gives them all as a
 table. Shots whose time is unknown are on no chart, and a line under it
 says how many there are. The card follows the filters and loads again
 every 30 s; what was read last stays, faded, until the next arrives. It is
-one line, of the Shots the filters find: the list has no grouping, as the
-owner chose for the Summary card on 2026-11-10, so a line for each group
-is drawn only by a page that has groups, the Recipe page's trend by
-Machine (#474, below). During a deploy the previous release's instance
+one line, of the Shots the filters find, and the list has no grouping
+control, as the owner chose for the Summary card on 2026-11-10. But where
+the filters name exactly one Recipe (#544), the trend is read grouped by
+it, which brings its Reference Shot: charting duration, that Shot's is a
+dashed line across the chart, labelled with it, and named under the chart,
+where it leads to that Shot. With no Machine among the filters it is read
+by `recipe,machine`, and draws a line and band for each Machine that
+pulled the Recipe, the first eight by name, each named beside its colour
+under the chart, in its tooltips and in its table, on the chart the Recipe
+page's trend uses (#474, below); a Machine's name opens the list at that
+Machine, whose one line is still read against the reference. During a deploy the previous release's instance
 knows no `bucket` and gives no buckets, of which nothing is drawn.
-`e2e/shot-trend.spec.ts` covers it.
+`e2e/shot-trend.spec.ts` covers it, and `e2e/shots-list.spec.ts` its lines
+by Machine and its reference line.
 
 The Overview (`/`, and each Location's page; `web/src/components/overview.tsx`,
 #471, #543) is drawn from `GET /api/machines`, read every 5 s, and `GET
@@ -1756,8 +1873,8 @@ give an assistant what it shows.
   what it showed.
 - **A row** is a Recipe pulled in the period, as before: its Recipe Slot,
   its name, its Reference Shot's duration, linked to that Shot, or "No
-  reference", linked to the Recipe's Shots in the Shots list, to choose
-  one from, and its Bean Batch's days since roast.
+  reference", linked to the Recipe's rated Shots in the Shots list (#544),
+  to choose one from, and its Bean Batch's days since roast.
 - **A cell** gives the count and the median duration, and under them what
   the group's `spec` has it say (`cellLines`): the duration's difference
   from the reference, marked when out of spec and muted when within spec or
@@ -1824,7 +1941,7 @@ Recipe (`recipeId`), loaded again every 30 s. No read was added for them.
   rows). The time axis spans the 30 days whatever days have Shots. A
   Machine's name under the chart opens the Shots list with the Recipe, the
   Machine and the 30 days as filters, and `trend` the number charted, so
-  the list's own trend shows the same. The read asks for eight groups, as
+  the list's own trend opens charting the same. The read asks for eight groups, as
   many as the chart has colors; a line under the chart says so where more
   Machines pulled the Recipe, as one under Today's table does past the 100
   groups a page holds.

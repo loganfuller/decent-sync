@@ -23,7 +23,8 @@ const MAIN_LINKS = ["Overview", "Shots", "Steam Records", "Library", "Machines",
 
 /** Each page the main navigation leads to, and what shows once its content has loaded. */
 const PAGES: { link: string; heading: string; loaded: (page: Page) => Locator }[] = [
-  { link: "Shots", heading: "Shots", loaded: (page) => page.getByRole("table", { name: "Shots" }) },
+  // On a phone its Shots are two-line rows, not a table (#544).
+  { link: "Shots", heading: "Shots", loaded: (page) => page.getByRole("group", { name: "Shots" }) },
   { link: "Steam Records", heading: "Steam Records", loaded: (page) => page.getByRole("table", { name: "Steam Records" }) },
   { link: "Library", heading: "Beans", loaded: (page) => page.getByRole("table", { name: "Beans" }) },
   { link: "Machines", heading: "Machines", loaded: (page) => page.getByRole("table", { name: "Machines" }) },
