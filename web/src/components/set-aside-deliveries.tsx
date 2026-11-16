@@ -1,6 +1,7 @@
 import { useCallback, useState } from "react";
 import { CardTitleWithInfo } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader } from "@/components/ui/card";
@@ -69,6 +70,7 @@ export function SetAsideDeliveriesCard({ machineId }: { machineId: string }) {
         </CardDescription>
       </CardHeader>
       <CardContent className="grid gap-3">
+        <ScrollsSideways />
         <Table aria-label="Deliveries set aside">
           <TableHeader>
             <TableRow>

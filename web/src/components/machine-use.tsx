@@ -2,6 +2,7 @@ import { CalendarIcon, ChevronDownIcon } from "lucide-react";
 import { Fragment, useCallback, useRef, useState } from "react";
 import { Bar, BarChart, type BarShapeProps, CartesianGrid, DefaultZIndexes, Rectangle, XAxis, YAxis, ZIndexLayer, usePlotArea } from "recharts";
 import { CardTitleWithInfo } from "@/components/info-tip";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Calendar } from "@/components/ui/calendar";
@@ -326,7 +327,8 @@ function Numbers({ use, day, onDay }: { use: MachineUse; day: string | undefined
           </Button>
         </CollapsibleTrigger>
       </div>
-      <CollapsibleContent>
+      <CollapsibleContent className="grid gap-2">
+        <ScrollsSideways />
         <Table aria-label={`Use by ${unit.toLowerCase()}`}>
           <TableHeader>
             <TableRow>

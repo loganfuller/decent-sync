@@ -2,7 +2,7 @@ import { type BrowserContextOptions, expect, type Locator, type Page, test } fro
 import { syncingTablet } from "../server/test/support/loaded-tablets.js";
 import { useFreshServer } from "./support/fresh-server.js";
 import { type JudgedShots, dateText, emptyLibrary, seedJudgedShots } from "./support/judged-shots.js";
-import { datesPreset, field, filterChip, machineRow, openMachineTab, rows } from "./support/locators.js";
+import { datesPreset, field, filterChip, machineRow, openCard, openMachineTab, rows } from "./support/locators.js";
 import { CHECK_MS, afterDetailsPolls } from "./support/polling.js";
 import { signInAsAdmin } from "./support/seed.js";
 
@@ -384,6 +384,15 @@ test.describe("on a phone", () => {
     expect(widths, `${page.url()} fits the screen`).toEqual({ scrollWidth: 390, clientWidth: 390 });
   }
 
+  /**
+   * A table wider than its card scrolls sideways within it, and the card then says so above it; a card whose tables
+   * fit says nothing.
+   */
+  async function expectSaysIfItScrolls(card: Locator) {
+    const wider = await card.getByRole("table").evaluateAll((tables) => tables.some((table) => table.parentElement!.scrollWidth > table.parentElement!.clientWidth));
+    await expect(card.getByText("This table scrolls sideways."), `${await card.getAttribute("aria-label")} ${wider ? "scrolls" : "fits"}`).toHaveCount(wider ? 1 : 0);
+  }
+
   /** Each element's left edge and top, to the pixel. */
   const corners = async (elements: Locator) => (await elements.all()).reduce(async (found, each) => [...(await found), await each.boundingBox().then((box) => ({ x: Math.round(box!.x), y: Math.round(box!.y) }))], Promise.resolve([] as { x: number; y: number }[]));
 
@@ -410,7 +419,29 @@ test.describe("on a phone", () => {
       await expect(page.getByRole("main").getByText("Loading", { exact: true })).toHaveCount(0);
       expect(new Set((await corners(tabs(page))).map((corner) => corner.y)).size).toBe(1);
       await expectFits(page);
+      await expectSaysIfItScrolls(region(page, card));
+      if (tab !== "Activity") continue;
+      // Each of the day's lists, the Bench's tablet having reported a Workflow and a Machine State today.
+      for (const list of ["Loaded Recipes", "Machine States"]) {
+        await region(page, card).getByRole("tab", { name: list }).click();
+        await expect(region(page, card).getByText("Loading", { exact: true })).toHaveCount(0);
+        await expectFits(page);
+        await expectSaysIfItScrolls(region(page, card));
+      }
     }
+    // The Dial-in trail and the Paired devices are wider than a phone, so each says it scrolls sideways.
+    await openMachineTab(page, "Settings");
+    await expect(region(page, "Paired devices").getByText("This table scrolls sideways.")).toBeVisible();
+    await (await openCard(page, "Settings History")).getByText("Loading", { exact: true }).waitFor({ state: "detached" });
+    await expectSaysIfItScrolls(region(page, "Settings History"));
+    await expectFits(page);
+
+    // The Right's Loaded Recipes today, a list with rows.
+    await page.goto(`/machines/${machines.right.id}?tab=activity`);
+    await region(page, "On one day").getByRole("tab", { name: "Loaded Recipes" }).click();
+    await expect(rows(region(page, "On one day").getByRole("table", { name: "Loaded Recipes that day" }))).toHaveCount(2);
+    await expectSaysIfItScrolls(region(page, "On one day"));
+    await expectFits(page);
 
     // The Left's Shots, a block for each Recipe in place of the table, with what is out of spec marked.
     await page.goto(`/machines/${machines.left.id}`);
@@ -429,6 +460,7 @@ test.describe("on a phone", () => {
     // The Machines list's table scrolls within the page, which stays as wide as the screen.
     await page.goto("/machines");
     await expect(page.getByRole("table", { name: "Machines" })).toBeVisible();
+    await expect(page.getByRole("main").getByText("This table scrolls sideways.")).toBeVisible();
     await expectFits(page);
   });
 });

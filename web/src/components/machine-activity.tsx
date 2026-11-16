@@ -4,6 +4,7 @@ import { CardTitleWithInfo } from "@/components/info-tip";
 import { LoadedRecipeLink } from "@/components/loaded-recipes";
 import { DayField } from "@/components/machine-use";
 import { describeMachineState } from "@/components/machines";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
@@ -142,52 +143,55 @@ function ActivityList({ machineId, kind, day, when }: { machineId: string; kind:
 /** The dial-in trail: when each entry began, what it is, what changed, from what to what, the Recipe loaded then, and who made it. */
 function Trail({ entries, when }: { entries: TrailEntry[]; when: When }) {
   return (
-    <Table aria-label="Dial-in trail">
-      <TableHeader>
-        <TableRow>
-          <TableHead>When</TableHead>
-          <TableHead>What</TableHead>
-          <TableHead>Changes</TableHead>
-          <TableHead>Loaded Recipe</TableHead>
-          <TableHead>Made by</TableHead>
-        </TableRow>
-      </TableHeader>
-      <TableBody>
-        {entries.map((entry, n) => (
-          // Each cell from the top, as the Workflow in effect runs to many lines.
-          <TableRow key={`${entry.observedAt} ${n}`}>
-            <TableCell className="align-top">{when(entry.observedAt)}</TableCell>
-            <TableCell className="align-top whitespace-normal">
-              {TRAIL_KINDS[entry.kind]}
-              {entry.replaced && (
-                <>
-                  , replacing <RecipeLink recipe={entry.replaced} />
-                </>
-              )}
-            </TableCell>
-            <TableCell className="min-w-56 align-top whitespace-normal">
-              <ul className="grid gap-0.5">
-                {trailLines(entry).map(({ label, before, after }) => (
-                  <li key={label}>
-                    <span className="text-muted-foreground">{label}:</span>{" "}
-                    {before && (
-                      <>
-                        <Value value={before} /> to{" "}
-                      </>
-                    )}
-                    <Value value={after} />
-                  </li>
-                ))}
-              </ul>
-            </TableCell>
-            <TableCell className="align-top whitespace-normal">
-              {entry.loadedRecipe ? <RecipeLink recipe={entry.loadedRecipe} /> : <span className="text-muted-foreground">None</span>}
-            </TableCell>
-            <TableCell className="align-top whitespace-normal">{madeBy(entry)}</TableCell>
+    <div className="grid gap-2">
+      <ScrollsSideways />
+      <Table aria-label="Dial-in trail">
+        <TableHeader>
+          <TableRow>
+            <TableHead>When</TableHead>
+            <TableHead>What</TableHead>
+            <TableHead>Changes</TableHead>
+            <TableHead>Loaded Recipe</TableHead>
+            <TableHead>Made by</TableHead>
           </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+        </TableHeader>
+        <TableBody>
+          {entries.map((entry, n) => (
+            // Each cell from the top, as the Workflow in effect runs to many lines.
+            <TableRow key={`${entry.observedAt} ${n}`}>
+              <TableCell className="align-top">{when(entry.observedAt)}</TableCell>
+              <TableCell className="align-top whitespace-normal">
+                {TRAIL_KINDS[entry.kind]}
+                {entry.replaced && (
+                  <>
+                    , replacing <RecipeLink recipe={entry.replaced} />
+                  </>
+                )}
+              </TableCell>
+              <TableCell className="min-w-56 align-top whitespace-normal">
+                <ul className="grid gap-0.5">
+                  {trailLines(entry).map(({ label, before, after }) => (
+                    <li key={label}>
+                      <span className="text-muted-foreground">{label}:</span>{" "}
+                      {before && (
+                        <>
+                          <Value value={before} /> to{" "}
+                        </>
+                      )}
+                      <Value value={after} />
+                    </li>
+                  ))}
+                </ul>
+              </TableCell>
+              <TableCell className="align-top whitespace-normal">
+                {entry.loadedRecipe ? <RecipeLink recipe={entry.loadedRecipe} /> : <span className="text-muted-foreground">None</span>}
+              </TableCell>
+              <TableCell className="align-top whitespace-normal">{madeBy(entry)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </div>
   );
 }
 
@@ -222,12 +226,13 @@ function LoadedRecipes({ entries, when }: { entries: LoadedRecipe[]; when: When 
       </TableHeader>
       <TableBody>
         {entries.map((entry) => (
+          // Its times wrap, so its three columns fit a phone.
           <TableRow key={entry.id}>
-            <TableCell>
+            <TableCell className="whitespace-normal">
               <LoadedRecipeLink loaded={entry} />
             </TableCell>
-            <TableCell>{when(entry.loadedAt)}</TableCell>
-            <TableCell>{entry.unloadedAt ? when(entry.unloadedAt) : "Still loaded"}</TableCell>
+            <TableCell className="whitespace-normal">{when(entry.loadedAt)}</TableCell>
+            <TableCell className="whitespace-normal">{entry.unloadedAt ? when(entry.unloadedAt) : "Still loaded"}</TableCell>
           </TableRow>
         ))}
       </TableBody>
@@ -249,7 +254,7 @@ function MachineStates({ entries, when }: { entries: MachineStateEvent[]; when: 
         {entries.map((entry) => (
           <TableRow key={entry.id}>
             <TableCell>{when(entry.observedAt)}</TableCell>
-            <TableCell>{describeMachineState(entry)}</TableCell>
+            <TableCell className="whitespace-normal">{describeMachineState(entry)}</TableCell>
           </TableRow>
         ))}
       </TableBody>

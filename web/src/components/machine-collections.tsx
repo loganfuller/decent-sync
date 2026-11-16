@@ -6,6 +6,7 @@ import { CardTitleWithInfo, InfoTip } from "@/components/info-tip";
 import { useMayChangeAt } from "@/components/library-forms";
 import { formatTime } from "@/components/machines";
 import { SettingsEditStatus, SettingsForm, editBlocked, useOfferedFields } from "@/components/settings-edits";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -86,7 +87,8 @@ export function PairedDevicesCard({ devices }: { devices: PairedDevices }) {
         {pairedDevicesState(devices) && <CardDescription>{pairedDevicesState(devices)}</CardDescription>}
       </CardHeader>
       {devices.receivedAt && (
-        <CardContent>
+        <CardContent className="grid gap-2">
+          <ScrollsSideways />
           <Table aria-label="Paired devices">
             <TableHeader>
               <TableRow>
@@ -387,10 +389,11 @@ export function LibraryCard({ collections }: { collections: CollectionSummary[] 
               const reported = collections.find((collection) => collection.name === name);
               return (
                 <TableRow key={name}>
-                  <TableCell>{title}</TableCell>
+                  {/* Its names and times wrap, so its three columns fit a phone. */}
+                  <TableCell className="whitespace-normal">{title}</TableCell>
                   <TableCell>{reported?.items ?? "None"}</TableCell>
                   {/* Under its "Reported" heading, a current report needs only its time. */}
-                  <TableCell>{reported?.available ? formatTime(reported.receivedAt ?? reported.reportedAt) : reportText(reported ?? null)}</TableCell>
+                  <TableCell className="whitespace-normal">{reported?.available ? formatTime(reported.receivedAt ?? reported.reportedAt) : reportText(reported ?? null)}</TableCell>
                 </TableRow>
               );
             })}

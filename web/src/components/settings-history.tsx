@@ -5,6 +5,7 @@ import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Segmented, SegmentedItem } from "@/components/segmented";
 import { MadeBy, labelOf, outcomeText, shownValue } from "@/components/settings-edits";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { CardContent } from "@/components/ui/card";
@@ -145,6 +146,7 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
           <AlertDescription>Could not read the Settings History: {error}</AlertDescription>
         </Alert>
       )}
+      {data && data.page.entries.length > 0 && <ScrollsSideways />}
       {data && data.page.entries.length > 0 && (
         <Table aria-label="Settings History">
           <TableHeader>

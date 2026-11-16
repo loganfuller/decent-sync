@@ -16,6 +16,7 @@ import {
 } from "@/components/machines";
 import { TokenNotice } from "@/components/TokenNotice";
 import { InfoTip, PageTitleWithInfo } from "@/components/info-tip";
+import { ScrollsSideways } from "@/components/scrolls-sideways";
 import { Alert, AlertDescription } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -142,79 +143,82 @@ export function MachinesPage() {
  */
 function MachineTable({ machines }: { machines: Machine[] }) {
   return (
-    <div className="min-w-0 rounded-lg border">
-      <Table aria-label="Machines">
-        <TableHeader>
-          <TableRow>
-            <TableHead>Name</TableHead>
-            <TableHead>Location</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Machine State</TableHead>
-            <TableHead>Last Shot</TableHead>
-            <TableHead>Loaded Recipe</TableHead>
-            <TableHead>Attention</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {machines.map((machine) => {
-            const timeZone = machine.location?.timeZone;
-            const state = machine.machineState && describeMachineState(machine.machineState);
-            const loaded = machine.loadedRecipe?.recipe;
-            return (
-              <TableRow key={machine.id}>
-                <TableCell className="font-medium">
-                  <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
-                    {machine.name}
-                  </Link>
-                </TableCell>
-                <TableCell>
-                  {machine.location ? (
-                    <Link to={`/locations/${encodeURIComponent(machine.location.id)}`} className="underline-offset-4 hover:underline">
-                      {machine.location.name}
+    <div className="grid min-w-0 gap-2">
+      <ScrollsSideways wide />
+      <div className="min-w-0 rounded-lg border">
+        <Table aria-label="Machines">
+          <TableHeader>
+            <TableRow>
+              <TableHead>Name</TableHead>
+              <TableHead>Location</TableHead>
+              <TableHead>Status</TableHead>
+              <TableHead>Machine State</TableHead>
+              <TableHead>Last Shot</TableHead>
+              <TableHead>Loaded Recipe</TableHead>
+              <TableHead>Attention</TableHead>
+            </TableRow>
+          </TableHeader>
+          <TableBody>
+            {machines.map((machine) => {
+              const timeZone = machine.location?.timeZone;
+              const state = machine.machineState && describeMachineState(machine.machineState);
+              const loaded = machine.loadedRecipe?.recipe;
+              return (
+                <TableRow key={machine.id}>
+                  <TableCell className="font-medium">
+                    <Link to={`/machines/${machine.id}`} className="underline-offset-4 hover:underline">
+                      {machine.name}
                     </Link>
-                  ) : (
-                    <span className="text-muted-foreground">No Location</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="grid justify-items-start gap-1">
-                    <StatusBadge machine={machine} />
-                    {!machine.online && (
-                      <span className="text-xs text-muted-foreground">
-                        <LastSeen machine={machine} timeZone={timeZone} />
-                      </span>
-                    )}
-                  </div>
-                </TableCell>
-                <TableCell>
-                  {state ? machine.online ? state : <span className="text-muted-foreground">{state} when last seen</span> : <span className="text-muted-foreground">Not reported</span>}
-                </TableCell>
-                <TableCell>
-                  <LastShot machine={machine} timeZone={timeZone} />
-                </TableCell>
-                <TableCell>
-                  {loaded ? (
-                    <span className="inline-flex items-center gap-2">
-                      {loaded.archived ? <Badge variant="secondary">Archived</Badge> : loaded.slot !== null && <SlotBadge slot={loaded.slot} />}
-                      <Link to={`/library/recipes/${encodeURIComponent(loaded.id)}`} className="underline-offset-4 hover:underline">
-                        {loaded.name ?? "Unnamed Recipe"}
+                  </TableCell>
+                  <TableCell>
+                    {machine.location ? (
+                      <Link to={`/locations/${encodeURIComponent(machine.location.id)}`} className="underline-offset-4 hover:underline">
+                        {machine.location.name}
                       </Link>
-                    </span>
-                  ) : (
-                    <span className="text-muted-foreground">None</span>
-                  )}
-                </TableCell>
-                <TableCell>
-                  <div className="flex flex-wrap gap-1">
-                    <IdentificationBadge identification={machine.identification} />
-                    {machine.lastRefusal && <Badge variant="destructive">Refused</Badge>}
-                  </div>
-                </TableCell>
-              </TableRow>
-            );
-          })}
-        </TableBody>
-      </Table>
+                    ) : (
+                      <span className="text-muted-foreground">No Location</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="grid justify-items-start gap-1">
+                      <StatusBadge machine={machine} />
+                      {!machine.online && (
+                        <span className="text-xs text-muted-foreground">
+                          <LastSeen machine={machine} timeZone={timeZone} />
+                        </span>
+                      )}
+                    </div>
+                  </TableCell>
+                  <TableCell>
+                    {state ? machine.online ? state : <span className="text-muted-foreground">{state} when last seen</span> : <span className="text-muted-foreground">Not reported</span>}
+                  </TableCell>
+                  <TableCell>
+                    <LastShot machine={machine} timeZone={timeZone} />
+                  </TableCell>
+                  <TableCell>
+                    {loaded ? (
+                      <span className="inline-flex items-center gap-2">
+                        {loaded.archived ? <Badge variant="secondary">Archived</Badge> : loaded.slot !== null && <SlotBadge slot={loaded.slot} />}
+                        <Link to={`/library/recipes/${encodeURIComponent(loaded.id)}`} className="underline-offset-4 hover:underline">
+                          {loaded.name ?? "Unnamed Recipe"}
+                        </Link>
+                      </span>
+                    ) : (
+                      <span className="text-muted-foreground">None</span>
+                    )}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex flex-wrap gap-1">
+                      <IdentificationBadge identification={machine.identification} />
+                      {machine.lastRefusal && <Badge variant="destructive">Refused</Badge>}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
+          </TableBody>
+        </Table>
+      </div>
     </div>
   );
 }
