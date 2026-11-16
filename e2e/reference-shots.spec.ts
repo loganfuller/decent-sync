@@ -179,17 +179,23 @@ test("a Shot's page draws its Recipe's Reference Shot's curves behind its own as
   await expect(comparison).toBeVisible();
   await expect(curves.getByRole("alert")).toHaveCount(0);
 
-  // Chosen as the Shot before it while its read is still under way, it is not read a second time.
+  // Chosen as the Shot before it while its read is still under way, it is not read a second time: its measurements
+  // are held back until the choice is made, and then let through.
   let reads = 0;
+  let release = () => {};
+  const held = new Promise<void>((resolve) => (release = resolve));
   await page.route(measurements, async (route) => {
     reads++;
-    await new Promise((resolve) => setTimeout(resolve, 500));
+    await held;
     await route.continue();
   });
   await page.reload();
   await expect(choice.getByRole("radio", { name: "Reference Shot" })).toBeChecked();
   await expect.poll(() => reads).toBe(1);
+  await expect(comparison).toHaveCount(0);
   await choice.getByRole("radio", { name: "Previous Shot on this Machine" }).click();
+  await expect(choice.getByRole("radio", { name: "Previous Shot on this Machine" })).toBeChecked();
+  release();
   await expect(curves.getByRole("table", { name: "Comparison with the previous Shot" })).toBeVisible();
   expect(reads).toBe(1);
   await page.unroute(measurements);
