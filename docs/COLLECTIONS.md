@@ -423,7 +423,9 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   that made a change is that change's row, with who made it ("You" for the
   account's own, the account's name to Admins, and otherwise "An account", as
   the Library's history shows Staff, followed by ", through <app>" for one
-  made through a Connected App) and its outcome, a late answer marked so. An
+  made through a Connected App) and its outcome, a late answer marked so.
+  Such a row is timed when the change was received, and a tooltip beside who
+  made it says when the edit was made. An
   edit that changed nothing, being pending, refused, not confirmed or put
   back by the Machine, is listed at the time it was made, a row for each
   field it set, with the value asked for and the value in the report it was
@@ -434,7 +436,10 @@ collection in `EDITABLE_SETTINGS_COLLECTIONS`.
   "Change the wake schedule at 06:30", and as done, such as "Wake schedule at
   06:30 changed", once applied. The card is shown closed, since most who read
   the page do not need it, and loads nothing until opened. Open, it loads
-  every 30 s, and again as an edit made on the page is answered. A time of
+  every 30 s, and again as an edit made on the page is answered. A page read
+  for one choice of what to list is never shown under another, so nothing
+  made outside Decent Sync stands under "Settings Edits" while that list
+  loads. A time of
   day there is the Tablet's own, written without its offset, as an edit
   does not keep the offset it was made in. `GET
   /api/machines/:id/settings-edits` stays for the REST API's other clients,

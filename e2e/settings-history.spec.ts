@@ -20,7 +20,7 @@ const PRESENCE = { userPresenceEnabled: true, sleepTimeoutMinutes: 30, schedules
 const SCALE = { name: "Mock Scale", id: "MockScale", state: "connected", type: "scale", available: true, connectionRole: "primary" };
 const PLUGIN = { id: "visualizer.reaplugin", name: "Visualizer", version: "1.5.11", loaded: true, source: null };
 
-test("the Machine page lists each change of what its Tablet reported, newest first, with what made it, and brief changes only on asking", async ({ page }) => {
+test("the Machine page lists each change of what its Tablet reported, newest first, with what made it, brief changes only on asking, and only its Settings Edits on asking", async ({ page }) => {
   const { machine: { id }, token } = await createMachine(page, "Bar 6");
   const raw = await RawConnection.welcomed(server.url(), helloWith(token, { machine: { model: "DE1Pro", serial: "43301" }, tabletId: randomUUID() }));
   const report = (name: string, value: unknown, extra: Record<string, unknown> = {}) => raw.deliver({ type: "collection", id: randomUUID(), name, available: true, value, ...extra });
@@ -80,6 +80,28 @@ test("the Machine page lists each change of what its Tablet reported, newest fir
     ["Nov 8, 2026, 4:20:00 AM", "Tablet Settings: Presence", "Wake schedule at 06:30", "Added: Time: 06:30; Days: Mon, Tue, Wed, Thu, Fri; On: On; Keeps awake for: None", "Outside Decent Sync", "-"],
     ["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"],
   ]);
+
+  // The change a Settings Edit made is listed when it was received, and says when its edit was made beside who made it.
+  const table = history.getByRole("table", { name: "Settings History" });
+  await expectTip(rows(table).last(), "this Settings Edit", /^Made \w{3} \d+, \d{4}, \d+:\d\d:\d\d [AP]M\.$/);
+
+  // Narrowed to Settings Edits, it lists the edit alone. While that list is on its way, the changes made outside
+  // Decent Sync don't stand under its name.
+  let release!: () => void;
+  const held = new Promise<void>((resolve) => (release = resolve));
+  const narrowed = (url: URL) => url.pathname.endsWith("/settings-history/with-edits") && url.searchParams.get("editsOnly") === "true";
+  await page.route(narrowed, async (route) => {
+    await held;
+    await route.continue();
+  });
+  await history.getByRole("radio", { name: "Settings Edits" }).click();
+  await expect(history.getByText("Loading", { exact: true })).toBeVisible();
+  await expect(table).toHaveCount(0);
+  release();
+  await expectRows(history, [["Nov 8, 2026, 4:10:00 AM", "Machine Settings: Advanced", "Heater warmup flow", "2 ml/s to 3 ml/s", "You", "Applied"]]);
+  await page.unroute(narrowed);
+  await history.getByRole("radio", { name: "All changes" }).click();
+  await expect(rows(table)).toHaveCount(5);
 });
 
 async function expectRows(region: Locator, expected: string[][]): Promise<void> {

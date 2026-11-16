@@ -1,5 +1,6 @@
 import { useCallback, useId, useState } from "react";
 import { CollapsibleCard } from "@/components/collapsible-card";
+import { InfoTip } from "@/components/info-tip";
 import { formatTime } from "@/components/machines";
 import { OrNone } from "@/components/records";
 import { Segmented, SegmentedItem } from "@/components/segmented";
@@ -67,6 +68,7 @@ export function SettingsHistoryCard({ machineId, answered }: { machineId: string
           <p>
             A Settings Edit that changed nothing is listed too, at the time it was made, with what it asked for and what came of it: one still
             pending, refused or not confirmed, or one whose value the Machine put back. Settings Edits lists only what was made through one.
+            A change a Settings Edit made is listed when it was received, and says when its edit was made beside who made it.
           </p>
           <p>
             A change is received about 30 to 60 seconds after it is made, later while the Machine is busy, and a sensor calibration's within
@@ -94,12 +96,16 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
   const [which, setWhich] = useState<Which>("all");
   const [includeBrief, setIncludeBrief] = useState(false);
   const briefId = useId();
-  // Each page loaded remembers where it starts and what it was narrowed to: the last is shown while another loads.
+  // Each page loaded remembers where it starts and what it was narrowed to.
   const load = useCallback(async () => {
     const query = new URLSearchParams({ limit: String(PAGE_SIZE), offset: String(offset), includeBrief: String(includeBrief), editsOnly: String(which === "edits") });
-    return { offset, which, page: await api<SettingsHistoryEntryPage>("GET", `/machines/${encodeURIComponent(machineId)}/settings-history/with-edits?${query}`) };
+    return { offset, which, includeBrief, page: await api<SettingsHistoryEntryPage>("GET", `/machines/${encodeURIComponent(machineId)}/settings-history/with-edits?${query}`) };
   }, [machineId, offset, includeBrief, which]);
-  const { data, error, reload } = usePolled(load, DETAILS_POLL_MS);
+  const polled = usePolled(load, DETAILS_POLL_MS);
+  const { error, reload } = polled;
+  // The last page read is still shown while another loads, but never under a choice it was not read for: changes made
+  // outside Decent Sync don't stand under "Settings Edits" while that list is on its way, or if it can't be read.
+  const data = polled.data?.which === which && polled.data.includeBrief === includeBrief ? polled.data : undefined;
   useReloadOn(answered, reload);
 
   const first = data ? data.offset + 1 : 0;
@@ -161,7 +167,17 @@ function SettingsHistoryLog({ machineId, answered }: { machineId: string; answer
                   <TableCell className="min-w-48 align-top whitespace-normal">{row.change}</TableCell>
                   <TableCell className="align-top whitespace-normal">
                     {entry.settingsEdit ? (
-                      <MadeBy account={entry.settingsEdit.account} connectedApp={entry.settingsEdit.connectedApp ?? null} />
+                      <span className="inline-flex items-center gap-1.5">
+                        <span>
+                          <MadeBy account={entry.settingsEdit.account} connectedApp={entry.settingsEdit.connectedApp ?? null} />
+                        </span>
+                        {/* A change is listed at the time it was received: its edit was made a moment before, or longer where its answer came late. */}
+                        {entry.change && (
+                          <InfoTip label="About this Settings Edit">
+                            <p>Made {formatTime(entry.settingsEdit.madeAt)}.</p>
+                          </InfoTip>
+                        )}
+                      </span>
                     ) : (
                       <span className="text-muted-foreground">Outside Decent Sync</span>
                     )}
