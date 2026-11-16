@@ -256,9 +256,9 @@ interface Confirmation {
   onConfirm(): void;
 }
 
-function ConfirmContent({ title, description, confirmLabel, variant = "outline", onConfirm }: Confirmation) {
+function ConfirmContent({ title, description, confirmLabel, variant = "outline", onConfirm, onCloseAutoFocus }: Confirmation & { onCloseAutoFocus?(event: Event): void }) {
   return (
-    <AlertDialogContent>
+    <AlertDialogContent onCloseAutoFocus={onCloseAutoFocus}>
       <AlertDialogHeader>
         <AlertDialogTitle>{title}</AlertDialogTitle>
         <AlertDialogDescription>{description}</AlertDialogDescription>
@@ -273,11 +273,20 @@ function ConfirmContent({ title, description, confirmLabel, variant = "outline",
   );
 }
 
-/** A confirmation with no button of its own, opened by what holds `open`, as a menu's item does: `ConfirmButton`'s dialog. */
-export function ConfirmDialog({ open, onOpenChange, ...confirmation }: Confirmation & { open: boolean; onOpenChange(open: boolean): void }) {
+/**
+ * A confirmation with no button of its own, opened by what holds `open`, as a menu's item does: `ConfirmButton`'s
+ * dialog. With no trigger, the keyboard's focus has nowhere to go back to as it closes, so `onCloseAutoFocus` puts it
+ * somewhere.
+ */
+export function ConfirmDialog({
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
+  ...confirmation
+}: Confirmation & { open: boolean; onOpenChange(open: boolean): void; onCloseAutoFocus(event: Event): void }) {
   return (
     <AlertDialog open={open} onOpenChange={onOpenChange}>
-      <ConfirmContent {...confirmation} />
+      <ConfirmContent {...confirmation} onCloseAutoFocus={onCloseAutoFocus} />
     </AlertDialog>
   );
 }

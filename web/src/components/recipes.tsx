@@ -1052,9 +1052,22 @@ function ChoiceGroup({ label, items }: { label: string; items: [value: string, t
  * Moves a Recipe to a slot at its Location, swapping it with the Recipe
  * there, or to the lowest free slot, offered only where one is free; the
  * Recipe keeps its id and history. It is shown open, by the action that
- * asks for it, and `onClose` is called as it closes.
+ * asks for it, and `onClose` is called as it closes, `onCloseAutoFocus`
+ * then putting the keyboard's focus back, as it has no trigger of its own.
  */
-function MoveRecipeDialog({ recipe, recipes, onMoved, onClose }: { recipe: Recipe; recipes: Recipe[]; onMoved(): Promise<void> | void; onClose(): void }) {
+function MoveRecipeDialog({
+  recipe,
+  recipes,
+  onMoved,
+  onClose,
+  onCloseAutoFocus,
+}: {
+  recipe: Recipe;
+  recipes: Recipe[];
+  onMoved(): Promise<void> | void;
+  onClose(): void;
+  onCloseAutoFocus(event: Event): void;
+}) {
   const [picked, setPicked] = useState<"next" | "chosen">("chosen");
   const [slotText, setSlotText] = useState("");
   const [error, setError] = useState<string>();
@@ -1084,7 +1097,7 @@ function MoveRecipeDialog({ recipe, recipes, onMoved, onClose }: { recipe: Recip
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent>
+      <DialogContent onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{recipe.slot === null ? `Put ${recipeName(recipe)} in a slot` : `Move ${recipeName(recipe)} to a slot`}</DialogTitle>
           <DialogDescription>
@@ -1132,7 +1145,7 @@ const KEEP = "keep";
  * time afresh from the Recipe as it is then, and `onClose` is called as it
  * closes.
  */
-function CopyRecipeDialog({ recipe, choices, onClose }: { recipe: Recipe; choices: Choices | undefined; onClose(): void }) {
+function CopyRecipeDialog({ recipe, choices, onClose, onCloseAutoFocus }: { recipe: Recipe; choices: Choices | undefined; onClose(): void; onCloseAutoFocus(event: Event): void }) {
   const navigate = useNavigate();
   const mayChangeAt = useMayChangeAt();
   const { locations, error: locationsError } = useLocations();
@@ -1254,7 +1267,7 @@ function CopyRecipeDialog({ recipe, choices, onClose }: { recipe: Recipe; choice
 
   return (
     <Dialog open onOpenChange={(next) => !next && onClose()}>
-      <DialogContent className="max-h-[90vh] overflow-y-auto">
+      <DialogContent className="max-h-[90vh] overflow-y-auto" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>Copy {recipeName(recipe)} to a Location</DialogTitle>
           <DialogDescription>
@@ -1542,11 +1555,20 @@ function RecipeActions({
   const path = `/recipes/${encodeURIComponent(recipe.id)}`;
   const here = location?.name ?? "its Location";
   const close = () => setAction(undefined);
-  const open = (next: RecipeAction) => {
+  // A dialog opened from here has no trigger of its own for the keyboard's focus to go back to as it closes: it goes
+  // back to the button that opened it, or, for one opened from the menu, whose items are gone by then, to More.
+  const more = useRef<HTMLButtonElement>(null);
+  const opener = useRef<HTMLElement | null>(null);
+  const open = (next: RecipeAction, from?: HTMLElement) => {
     setError(undefined);
+    opener.current = from ?? more.current;
     setAction(next);
   };
-  const confirming = (which: RecipeAction) => ({ open: action === which, onOpenChange: (next: boolean) => !next && close() });
+  const onCloseAutoFocus = (event: Event) => {
+    event.preventDefault();
+    (opener.current?.isConnected ? opener.current : more.current)?.focus();
+  };
+  const confirming = (which: RecipeAction) => ({ open: action === which, onOpenChange: (next: boolean) => !next && close(), onCloseAutoFocus });
 
   /** Makes a change that has no form of its own, and says why where it is refused. */
   async function change(request: () => Promise<unknown>, refused: string, done: () => void = onChanged) {
@@ -1575,13 +1597,13 @@ function RecipeActions({
       <div className="flex flex-wrap items-center gap-2">
         {mayChange && location && <RecipeFormDialog location={location} recipes={recipes} recipe={recipe} onSaved={onChanged} />}
         {mayMove && (
-          <Button variant="outline" className="max-sm:hidden" onClick={() => open("move")}>
+          <Button variant="outline" className="max-sm:hidden" onClick={(event) => open("move", event.currentTarget)}>
             {moveLabel}
           </Button>
         )}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="outline">
+            <Button ref={more} variant="outline">
               More
               <ChevronDownIcon data-icon="inline-end" />
             </Button>
@@ -1610,8 +1632,8 @@ function RecipeActions({
       {error && <FormError error={error} />}
 
       {/* Each mounted while it is open, so it starts from the Recipe as it is then. */}
-      {action === "move" && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={onChanged} onClose={close} />}
-      {action === "copy" && <CopyRecipeDialog recipe={recipe} choices={choices} onClose={close} />}
+      {action === "move" && <MoveRecipeDialog recipe={recipe} recipes={recipes} onMoved={onChanged} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
+      {action === "copy" && <CopyRecipeDialog recipe={recipe} choices={choices} onClose={close} onCloseAutoFocus={onCloseAutoFocus} />}
       <ConfirmDialog
         {...confirming("takeOut")}
         title={`Take ${title} out of slot ${recipe.slot}?`}

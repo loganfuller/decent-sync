@@ -163,6 +163,22 @@ test("moving a Recipe from slot 2 to slot 4 swaps the two, keeping its history, 
   await expect(history.nth(0)).toContainText("Slot at Slots lab4");
   await expect(history.last()).toContainText("NameSlots Brazil");
 
+  // A dialog an action opens gives the keyboard's focus back as it closes: to the button that opened it, or to More
+  // for one opened from the menu.
+  await page.getByRole("button", { name: "Move to a slot" }).click();
+  await expect(move).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(move).toBeHidden();
+  await expect(page.getByRole("button", { name: "Move to a slot" })).toBeFocused();
+  await recipeAction(page, "Take out of its slot");
+  await page.getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+  await expect(page.getByRole("alertdialog")).toHaveCount(0);
+  await expect(page.getByRole("main").getByRole("button", { name: "More", exact: true })).toBeFocused();
+  await recipeAction(page, "Copy to a Location");
+  await expect(page.getByRole("form", { name: "Copy the Recipe" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("main").getByRole("button", { name: "More", exact: true })).toBeFocused();
+
   // Taken out of its slot, it is listed in no slot at the lab, and Slots Ethiopia stays in slot 2.
   await recipeAction(page, "Take out of its slot");
   await page.getByRole("alertdialog").getByRole("button", { name: "Take it out" }).click();
