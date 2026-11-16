@@ -247,7 +247,7 @@ describe("Library, settings and paired devices", () => {
     // The test tablet's: DYE2's release, and Streamline's release served, though its build of main is the default.
     expect(await tabletVersions(machine)).toEqual({
       dye2: { status: "installed", version: "0.1.33", loaded: true, branch: null },
-      streamline: { status: "active", version: "0.2.18", build: "release" },
+      streamline: { status: "active", skin: "streamline", version: "0.2.18", build: "release", streamlineVersion: "0.2.18" },
     });
     await allAcknowledged(tablet);
     await polls(tablet, 3);

@@ -215,6 +215,21 @@ test("the Versions card shows the DYE2 and Streamline on the tablet, follows the
     await expect(field(page, "Streamline")).toHaveText("Not the active skin (Passione 0.9.6)", { timeout: CHECK_MS });
   });
 
+  // Derived: Decaid serves Streamline Cafe's release, installed beside Streamline, which is shown as the Streamline its
+  // version names (#556).
+  const other = skinsAt("servedOther");
+  const cafe = { id: "streamline-cafe.js", name: "Streamline Cafe", path: "/root/.local/share/decaid/web-ui/streamline-cafe.js", version: "0.2.27-cafe.1" };
+  tablet.serve({
+    ...served,
+    ...other,
+    "/webui/skins": [...(other["/webui/skins"] as object[]), { ...cafe, description: "A recipe-first main page for cafes", isBundled: false, reaMetadata: null }],
+    "/webui/server/status": { ...(other["/webui/server/status"] as object), path: cafe.path },
+  });
+  await expect.poll(async () => (await reported()).streamline).toMatchObject({ status: "active", skin: "streamlineCafe" });
+  await afterDetailsPolls(page, async () => {
+    await expect(field(page, "Streamline")).toHaveText("Streamline Cafe 0.2.27-cafe.1 (release), built on Streamline 0.2.27", { timeout: CHECK_MS });
+  });
+
   // DYE2 is installed from its dist branch and Decaid serves Streamline's build of main, both builds of main, and the
   // Machine then goes offline.
   await dye2.install("branch");

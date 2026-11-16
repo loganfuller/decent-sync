@@ -678,13 +678,26 @@ module tests in `server/test/tablet-versions.test.ts`):
   Skin other than `defaultSkinId`, which is why the default alone is not
   enough. Streamline is the active Skin when its id is `streamline.js`, a
   release, or `streamline.js-dist`, a build of `main` (its `dist` branch),
-  whatever else is installed. The row gives its `version` and which it is;
+  whatever else is installed. So is
+  [Streamline Cafe](https://github.com/loganfuller/streamline-cafe-js), a
+  Skin forked from Streamline that loads a recipe through Streamline's own
+  apply, so that for everything Decent Sync follows it behaves as the
+  Streamline version it contains: `streamline-cafe.js`, a release, or
+  `streamline-cafe.js-dist`, a build of its `main`. The row gives its
+  `version`, which it is and the Streamline version it is or contains;
   otherwise the active Skin's name and version, or not installed when no
-  Skin is either id. A build of `main` reports a version of its own: the
-  latest release's, with `-dev`, its commit and the number of the run that
-  built it, such as `0.2.21-dev.c568255.686` for the deploy of v0.2.21 (from
-  streamline-js `800a521`, `server/test/fixtures/decaid/dye2-v0.1.33/skins.json`),
-  which the row shows as it is, with "main build".
+  Skin is any of the four ids. A build of Streamline's `main` reports a
+  version of its own: the latest release's, with `-dev`, its commit and the
+  number of the run that built it, such as `0.2.21-dev.c568255.686` for the
+  deploy of v0.2.21 (from streamline-js `800a521`,
+  `server/test/fixtures/decaid/dye2-v0.1.33/skins.json`), which the row shows
+  as it is, with "main build". Streamline Cafe's version is the Streamline
+  version it contains, `-cafe.` and a counter that restarts with each
+  Streamline release it adopts, such as `0.2.27-cafe.1`, and a build of its
+  `main` adds `.dev.`, the run's number and its commit, such as
+  `0.2.27-cafe.1.dev.12.a1b2c3d`. The row shows it as "Streamline Cafe
+  0.2.27-cafe.1 (release), built on Streamline 0.2.27"; a Streamline Cafe
+  version not of that form is shown as reported, with no Streamline version.
 
 Neither row is anything until its collection is reported. The recording in
 `server/test/fixtures/decaid/plugins-and-skins-v0.9.0/` shows Decaid's answers
@@ -903,9 +916,12 @@ Machine that takes their hardware over. Staff read them as Admins do.
   streamline } }` (Plugins and Skins, above), each with a `status`:
   `notReported` until its collection is reported, `notInstalled`, and for
   DYE2 `installed`, with its `version`, `loaded` and `branch` (null but for
-  a branch install); for Streamline `active`, with its `version` and `build`
-  (`release` or `main`), or `notActive`, with the `activeSkin`'s `name` and
-  `version`, or null if none is. Every field from Decaid's payload is null
+  a branch install); for Streamline `active`, with its `skin`
+  (`streamline` or `streamlineCafe`), `version`, `build` (`release` or
+  `main`) and `streamlineVersion` (Streamline's own version, or the part of
+  Streamline Cafe's before `-cafe.`, null for a version of neither form),
+  or `notActive`, with the `activeSkin`'s `name` and `version`, or null if
+  none is. Every field from Decaid's payload is null
   where it is missing or not a string.
 - `GET /api/machines/:id/paired-devices` returns `{ pairedDevices: { reportedAt,
   available, receivedAt, scale, auxiliaryScale, sensors, others } }`, each

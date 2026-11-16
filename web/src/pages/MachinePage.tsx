@@ -404,7 +404,11 @@ function dye2Text(dye2: TabletDye2): string {
   return notes.length > 0 ? `${version} (${notes.join(", ")})` : version;
 }
 
-/** Streamline's version and build if it is the Skin Decaid serves, or else the Skin that is, as "0.2.18 (main build)". */
+/**
+ * Streamline's version and build if it is the Skin Decaid serves, as "0.2.18 (main build)", or Streamline Cafe's with
+ * the Streamline it is built on, as "Streamline Cafe 0.2.27-cafe.1 (release), built on Streamline 0.2.27", or else
+ * the Skin that is.
+ */
 function streamlineText(streamline: TabletStreamline): string {
   switch (streamline.status) {
     case "notReported":
@@ -416,8 +420,12 @@ function streamlineText(streamline: TabletStreamline): string {
       const named = active ? [active.name, active.version].filter((part) => part !== null).join(" ") : "";
       return named === "" ? "Not the active skin" : `Not the active skin (${named})`;
     }
-    case "active":
-      return `${streamline.version ?? "Unknown version"} (${streamline.build === "main" ? "main build" : "release"})`;
+    case "active": {
+      const build = streamline.build === "main" ? "main build" : "release";
+      if (streamline.skin !== "streamlineCafe") return `${streamline.version ?? "Unknown version"} (${build})`;
+      const cafe = `Streamline Cafe ${streamline.version ?? "unknown version"} (${build})`;
+      return streamline.streamlineVersion ? `${cafe}, built on Streamline ${streamline.streamlineVersion}` : cafe;
+    }
   }
 }
 

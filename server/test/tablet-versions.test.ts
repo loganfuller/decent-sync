@@ -29,13 +29,13 @@ describe("The Streamline row", () => {
   it("is the release's version while Decaid serves the release", () => {
     const skins = skinsAt("streamlineRelease");
     expect(skins.server.path).toBe(skins.skins.find((skin) => skin.id === "streamline.js")!.path);
-    expect(streamlineView(skins)).toEqual({ status: "active", version: "0.2.18", build: "release" });
+    expect(streamlineView(skins)).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "release", streamlineVersion: "0.2.18" });
   });
 
   it("is a main build's version while Decaid serves its build of main, even with the release installed", () => {
     const skins = skinsAt("servedMain");
     expect(skins.skins.map((skin) => skin.id)).toEqual(expect.arrayContaining(["streamline.js", "streamline.js-dist"]));
-    expect(streamlineView(skins)).toEqual({ status: "active", version: "0.2.18", build: "main" });
+    expect(streamlineView(skins)).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "main", streamlineVersion: "0.2.18" });
   });
 
   it("is a main build's own -dev version, from streamline-js 800a521, as Decaid lists the dist deploy of v0.2.21", () => {
@@ -45,8 +45,10 @@ describe("The Streamline row", () => {
     // Derived: served as the tablets pinned to it serve it.
     expect(streamlineView({ skins: skins.response.body, default: { id: dist.id }, server: { serving: true, path: dist.path } })).toEqual({
       status: "active",
+      skin: "streamline",
       version: "0.2.21-dev.c568255.686",
       build: "main",
+      streamlineVersion: "0.2.21-dev.c568255.686",
     });
   });
 
@@ -54,16 +56,18 @@ describe("The Streamline row", () => {
     // The default switched to the main build, while Decaid still served the release until it served another folder.
     const switched = skinsAt("defaultSwitched");
     expect(switched.default!.id).toBe("streamline.js-dist");
-    expect(streamlineView(switched)).toEqual({ status: "active", version: "0.2.18", build: "release" });
+    expect(streamlineView(switched)).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "release", streamlineVersion: "0.2.18" });
     // Serving nothing, Decaid's status names no path.
     const stopped = skinsAt("serverStopped");
     expect(stopped.server).toMatchObject({ serving: false, path: null });
-    expect(streamlineView(stopped)).toEqual({ status: "active", version: "0.2.18", build: "main" });
+    expect(streamlineView(stopped)).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "main", streamlineVersion: "0.2.18" });
     // Derived: serving a folder no Skin holds, as Decaid's --skin-path can.
     expect(streamlineView({ ...switched, server: { ...switched.server, path: "/data/skins/mine" } })).toEqual({
       status: "active",
+      skin: "streamline",
       version: "0.2.18",
       build: "main",
+      streamlineVersion: "0.2.18",
     });
   });
 
@@ -93,9 +97,78 @@ describe("The Streamline row", () => {
       status: "notReported",
     });
     const kept = { available: false, reportedAt: at, value: skins, receivedAt: new Date(at.getTime() - 60_000) };
-    expect(tabletVersionsView({ plugins: null, skins: kept }).streamline).toEqual({ status: "active", version: "0.2.18", build: "main" });
+    expect(tabletVersionsView({ plugins: null, skins: kept }).streamline).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "main", streamlineVersion: "0.2.18" });
     // A value of another shape, as another Decaid version might send, reports nothing.
     expect(streamlineView({ skins: "none" })).toEqual({ status: "notReported" });
+  });
+});
+
+describe("The Streamline row, for Streamline Cafe (#556)", () => {
+  // Derived: Streamline Cafe's Skins listed beside the recorded ones, as Decaid lists an installed Skin, by the ids,
+  // names and versions its skin-manifest.json and release.yml give them (streamline-cafe-js#2).
+  const cafeSkin = (id: string, name: string, version: unknown): Record_ => ({
+    id,
+    name,
+    path: `/root/.local/share/decaid/web-ui/${id}`,
+    description: "A recipe-first main page for cafes",
+    version,
+    isBundled: false,
+    reaMetadata: null,
+  });
+  const RELEASE = cafeSkin("streamline-cafe.js", "Streamline Cafe", "0.2.27-cafe.1");
+  const MAIN = cafeSkin("streamline-cafe.js-dist", "Streamline Cafe Dev", "0.2.27-cafe.1.dev.12.a1b2c3d");
+  /** The Skins of a recording with Streamline Cafe's installed, and one of them served or, serving nothing, the default. */
+  function cafeActive(cafe: Record_, how: "served" | "default") {
+    const skins = skinsAt("servedOther");
+    const installed = [...skins.skins, RELEASE, MAIN].map((skin) => (skin.id === cafe.id ? cafe : skin));
+    return how === "served"
+      ? { ...skins, skins: installed, server: { ...skins.server, path: cafe.path } }
+      : { ...skins, skins: installed, default: cafe, server: { ...skins.server, serving: false, path: null } };
+  }
+
+  it.each(["served", "default"] as const)("is Streamline Cafe's release, built on the Streamline its version names, as the Skin %s", (how) => {
+    expect(streamlineView(cafeActive(RELEASE, how))).toEqual({
+      status: "active",
+      skin: "streamlineCafe",
+      version: "0.2.27-cafe.1",
+      build: "release",
+      streamlineVersion: "0.2.27",
+    });
+  });
+
+  it.each(["served", "default"] as const)("is a build of Streamline Cafe's main, with its own .dev version, as the Skin %s", (how) => {
+    expect(streamlineView(cafeActive(MAIN, how))).toEqual({
+      status: "active",
+      skin: "streamlineCafe",
+      version: "0.2.27-cafe.1.dev.12.a1b2c3d",
+      build: "main",
+      streamlineVersion: "0.2.27",
+    });
+  });
+
+  it("shows a version of another form as reported, with no Streamline version", () => {
+    for (const version of ["0.2.27", "0.2.27-cafe", "0.2.27-cafe.1-dev.12", "cafe-0.2.27-cafe.1"]) {
+      expect(streamlineView(cafeActive({ ...RELEASE, version }, "served"))).toMatchObject({ skin: "streamlineCafe", version, streamlineVersion: null });
+    }
+    expect(streamlineView(cafeActive({ ...MAIN, version: 27 }, "served"))).toEqual({
+      status: "active",
+      skin: "streamlineCafe",
+      version: null,
+      build: "main",
+      streamlineVersion: null,
+    });
+  });
+
+  it("counts only the Skin served, with Streamline and Streamline Cafe installed side by side", () => {
+    // The recording serves Streamline's release.
+    const recorded = skinsAt("streamlineRelease");
+    const sideBySide = { ...recorded, skins: [...recorded.skins, RELEASE, MAIN] };
+    expect(streamlineView(sideBySide)).toEqual({ status: "active", skin: "streamline", version: "0.2.18", build: "release", streamlineVersion: "0.2.18" });
+    expect(streamlineView({ ...sideBySide, server: { ...recorded.server, path: MAIN.path } })).toMatchObject({ skin: "streamlineCafe", build: "main" });
+    // Another Skin served, with only Streamline Cafe installed: installed, but not active.
+    const other = skinsAt("servedOther");
+    const onlyCafe = { ...other, skins: [...other.skins.filter((skin) => !String(skin.id).startsWith("streamline.js")), RELEASE] };
+    expect(streamlineView(onlyCafe)).toEqual({ status: "notActive", activeSkin: { name: "Passione", version: "0.9.6" } });
   });
 });
 
