@@ -67,19 +67,32 @@ export function ShotProfile({ shot }: { shot: Pick<ListedShot, "profile" | "prof
 }
 
 /**
- * A Shot's rating as stars (#544): five, filled up to the rating, rounded
- * to a whole star as DYE2 rounds one to show it, and named by the rating as
- * it is, such as "4.5 stars"; a dash for a Shot not rated.
+ * A Shot's rating as stars (#544): five, filled as far as the rating as it
+ * is, so one of 3.5 stars has three and a half, and what is drawn agrees
+ * with the rating filter, which counts the rating itself: a Shot drawn with
+ * fewer than four is not among "4 stars or more". Named by the rating, such
+ * as "3.5 stars"; a dash for a Shot not rated.
  */
 export function Stars({ rating }: { rating: number | null }) {
   const text = ratingText(rating);
   if (text === undefined) return <OrNone>{undefined}</OrNone>;
-  const filled = Math.round(starsOf(rating));
+  const stars = starsOf(rating);
   return (
     <span role="img" aria-label={text} title={text} className="inline-flex items-center gap-px align-middle">
-      {Array.from({ length: MAX_STARS }, (_, index) => (
-        <StarIcon key={index} aria-hidden className={index < filled ? "size-3 fill-current" : "size-3 text-muted-foreground"} />
-      ))}
+      {Array.from({ length: MAX_STARS }, (_, index) => {
+        // How much of this star the rating fills, from none to all of it.
+        const filled = Math.min(1, Math.max(0, stars - index));
+        return (
+          <span key={index} aria-hidden className="relative size-3">
+            <StarIcon className="size-3 text-muted-foreground" />
+            {filled > 0 && (
+              <span className="absolute inset-y-0 left-0 overflow-hidden" style={{ width: `${filled * 100}%` }}>
+                <StarIcon className="size-3 fill-current" />
+              </span>
+            )}
+          </span>
+        );
+      })}
     </span>
   );
 }

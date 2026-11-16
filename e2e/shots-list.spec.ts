@@ -192,6 +192,11 @@ test("rows are under a heading for each day, each with its Recipe, grind setting
   await expect(reference.getByRole("cell").first()).toHaveText("1:00 AMReference");
   await expect(reference.getByRole("cell").nth(6)).toHaveText("23.5 s0.0 s");
   await expect(reference.getByRole("img", { name: "5 stars", exact: true })).toBeVisible();
+  // A star and a half are drawn as that, one star filled and the next by half, as the rating filter counts them: under two.
+  const halves = shotRow(page, "right-house").getByRole("img", { name: "1.5 stars", exact: true }).locator("> span > span");
+  await expect(halves).toHaveCount(2);
+  await expect(halves.nth(0)).toHaveAttribute("style", "width: 100%;");
+  await expect(halves.nth(1)).toHaveAttribute("style", "width: 50%;");
   // An Unfinished Shot is badged and muted, and carries no mark; a cleaning Shot is badged, and none of its is judged.
   const unfinished = shotRow(page, "left-house-unfinished");
   await expect(unfinished.getByRole("cell").first()).toHaveText("1:20 AMUnfinished");

@@ -305,20 +305,20 @@ export function useRecordFilters(list: RecordList<ListPage>): { filters: ListFil
   return { filters: [location, machine], error: machinesError ?? locationsError };
 }
 
-/** Whether the screen is wide enough for the filters to open beside the list, in a popover, rather than over it, in a sheet. */
-function useWideScreen(): boolean {
-  return useSyncExternalStore(
-    (changed) => {
-      const media = window.matchMedia(WIDE_SCREEN);
-      media.addEventListener("change", changed);
-      return () => media.removeEventListener("change", changed);
-    },
-    () => window.matchMedia(WIDE_SCREEN).matches,
-  );
-}
-
 /** Tailwind's `sm` breakpoint. */
 const WIDE_SCREEN = "(min-width: 640px)";
+
+/** Hears of the screen crossing that width, until the function it returns is called. */
+function onScreenWidth(changed: () => void): () => void {
+  const media = window.matchMedia(WIDE_SCREEN);
+  media.addEventListener("change", changed);
+  return () => media.removeEventListener("change", changed);
+}
+
+/** Whether the screen is wide enough for the filters to open beside the list, in a popover, rather than over it, in a sheet. */
+function useWideScreen(): boolean {
+  return useSyncExternalStore(onScreenWidth, () => window.matchMedia(WIDE_SCREEN).matches);
+}
 
 /** The date preset standing for dates chosen by hand. */
 const CUSTOM = "custom";
