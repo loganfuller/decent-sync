@@ -250,11 +250,13 @@ export function HomeOverviewBlock({ location, machines, period }: { location: Lo
  * How a block's table shares its width, by how many Machines it has. Two
  * fit a phone (390 px), so the table is as wide as the block, the Recipe
  * column a share of it. With three or more it has a least width, 6.5rem for
- * each Machine beside its other columns, so on a phone it is wider than the
- * block and scrolls in its own container under the Recipe column, which
- * stays in place: that column is then of a fixed width, 8rem on a phone,
- * however many Machines there are, as a share of a table that grows with
- * them would come to cover the cells it scrolls over.
+ * each Machine beside its other columns: the Recipe's, 8rem on a phone and
+ * 14rem from 640 px, where Between Machines takes 9rem more. Where the
+ * block is narrower than that, on a phone, and at any width with enough
+ * Machines, as eight at 1280 px, the table scrolls in its own container
+ * under the Recipe column, which stays in place. That column is of a fixed
+ * width then, however many Machines there are, as a share of a table that
+ * grows with them would come to cover the cells it scrolls over.
  */
 function tableWidths(machines: number): { table: string; recipe: string } {
   return machines > 2
