@@ -101,6 +101,7 @@ Where things live, and what to read for each kind of task. Each file says what i
 
 - `e2e/`: Playwright specs (Seam 2); `e2e/support/` holds their seeding and helpers.
 - `scripts/`: repo checks, release packaging, the test PostgreSQL, stale builds, the latest release's build and suite; tests in `scripts/test/`.
+- `scripts/readme-images/`: the generator of the README's images in `docs/images/` (`npm run readme-images`), with its sample of recorded Shots.
 - `.github/workflows/ci.yml`: CI on pull requests and `main`.
 - `.github/workflows/release.yml`: the release on a `vX.Y.Z` tag.
 
@@ -133,7 +134,7 @@ Read the ADRs a row names before changing that area; ADR-0010 and ADR-0014 are s
 | MCP tools, Connected Apps, the authorization server | ADR-0026, ADR-0027, ADR-0028, ADR-0016, ADR-0025; `SELF-HOSTING.md`, Assistants; `server/test/support/assistants.ts`; milestone 6's spec |
 | What the plugin serves a Skin on its tablet | ADR-0030, ADR-0031; `AI_PROTOCOL_NOTES.md`, Requests for a Skin; `PLUGIN.md`, For a Skin's author; `AI_RUNTIME_NOTES.md`, Skins; milestone 8's spec |
 | The management interface's pages and components | ADR-0011; `AI_WEB_NOTES.md`; the topic doc of the data a page shows; `docs/agents/pull-requests.md`, Screenshots |
-| Docs people read to run and use Decent Sync | `README.md`; `SELF-HOSTING.md`; `PLUGIN.md`; `DEVELOPMENT.md`; `UPGRADING.md` |
+| Docs people read to run and use Decent Sync | `README.md`; `SELF-HOSTING.md`; `PLUGIN.md`; `DEVELOPMENT.md`; `UPGRADING.md`; for the README's images, `scripts/readme-images/README.md` |
 
 For upstream paths and checkout conventions, see `AGENTS.md`, External sources.
 
