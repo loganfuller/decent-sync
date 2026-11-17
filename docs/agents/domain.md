@@ -5,7 +5,7 @@ How the engineering skills should consume this repo's domain documentation when 
 ## Before exploring, read these
 
 - **`GLOSSARY.md`** at the repo root.
-- **`docs/adr/`**: read ADRs that touch the area you're about to work in.
+- **`docs/adr/`**: read the ADRs that the Task routing of `docs/AI_REPO_MAP.md` names for the area you're about to work in.
 
 `GLOSSARY.md` defines vocabulary; ADRs record decisions. ADR-0010 is superseded by ADR-0012, ADR-0014 is superseded, ADR-0005 and ADR-0022 are interim, and ADR-0015 extends ADR-0004. Read the milestone spec and ticket for implementation scope: an accepted later-milestone decision does not make its implementation part of the current milestone.
 
