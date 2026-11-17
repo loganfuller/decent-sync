@@ -5,6 +5,7 @@
 - [Commands](#commands)
 - [Tests](#tests)
 - [The committed plugin](#the-committed-plugin)
+- [README images](#readme-images)
 - [Releasing](#releasing)
 
 ## Layout
@@ -60,6 +61,7 @@ variable, and the paths the server serves.
 | `npm run test:latest-release-suite` | Run the latest release's Vitest suite on this checkout's schema, on a throwaway PostgreSQL in Docker. Run `npm run build:latest-release` first. |
 | `npm run check:plugin-build` | Fail if the committed `decent-sync.reaplugin/` differs from a fresh build |
 | `npm run package:plugin` | Write the release ZIP of the committed plugin to `dist/` |
+| `npm run readme-images` | Regenerate the README's images into `dist/readme-images` ([README images](#readme-images)) |
 | `docker compose up --build` | Build the server image from this checkout and run it with PostgreSQL |
 
 ## Tests
@@ -82,6 +84,16 @@ the rebuilt plugin with every change to `plugin/` or `protocol/`.
 CI checks that the committed plugin matches a fresh build. It also packages
 the plugin ZIP, runs the server image with Docker Compose, and builds the
 image for amd64 and arm64 as the release does, without publishing any of them.
+
+## README images
+
+The images in `docs/images/` that `README.md` shows are generated, from made-up
+data and real recorded curves, by `npm run readme-images`. It needs the test
+PostgreSQL (`TEST_DATABASE_URL`), a current build and ffmpeg, and takes about
+4 minutes. It writes them to `dist/readme-images`, for you to look at and copy
+over those a change redraws.
+[scripts/readme-images/README.md](../scripts/readme-images/README.md) has its
+options, what each image shows and how it is made.
 
 ## Releasing
 
