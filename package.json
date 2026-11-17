@@ -16,7 +16,7 @@
     "build": "npm run build -w protocol && npm run build -w plugin && npm run build -w web && npm run build -w server",
     "build:stale": "node scripts/build-stale.mjs",
     "build:latest-release": "node scripts/build-latest-release.mjs",
-    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json && tsc -p scripts/test/tsconfig.json",
+    "typecheck": "npm run typecheck --workspaces --if-present && tsc -p e2e/tsconfig.json && tsc -p scripts/test/tsconfig.json && tsc -p scripts/readme-images/tsconfig.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:latest-release-suite": "node scripts/latest-release-suite.mjs",
@@ -24,6 +24,7 @@
     "package:plugin": "node scripts/package-plugin.mjs",
     "db:up": "docker compose up -d --wait db",
     "db:test": "node scripts/db-test.mjs",
+    "readme-images": "node scripts/readme-images/run.mjs",
     "start": "npm run build && npm run start -w server",
     "dev:server": "npm run build -w protocol && npm run dev -w server",
     "dev:web": "npm run dev -w web"

@@ -99,7 +99,7 @@ Each server has one owner: a household, or a business with all of its sites.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/images/location-dark.png">
-  <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with a status card for each of its two Machines and today's Shots of each Recipe on each of them; and its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, and grinder setting">
+  <img src="docs/images/location-light.png" alt="A Location's page: its block of the Overview, with a status card for each of its two Machines and today's Shots of each Recipe on each of them; and its four Recipes in their Recipe Slots, each with its bean batch, profile, dose and yield, grinder setting and Reference Shot">
 </picture>
 
 <picture>

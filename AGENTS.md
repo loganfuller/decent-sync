@@ -35,6 +35,7 @@ Decent Sync is one repository containing the plugin, server and management inter
 - Keep capture handlers idempotent and acknowledge a logical message only after storage completes. A delivery set aside because storing it fails in a way that would repeat counts as stored (`docs/AI_PROTOCOL_NOTES.md`, Deliveries set aside). Follow the spec for chunking, reconnects and backfill.
 - Resolve Machine identity using the token, reported hardware and aliases as specified in ADR-0004, ADR-0015 and milestone 1. Credit Shots by their recorded hardware, with Pending Machines and the inferred fallback of ADR-0015; Steam Records carry no hardware identity and go to the reporting Machine.
 - Treat tokens as secrets: never log them or persist plaintext server-side. Store Machine token hashes; keep the plugin token in a secure setting.
+- A change that alters what `README.md` describes or shows updates it in the same change: its text, and each image in `docs/images/` whose page the change redraws, regenerated with `npm run readme-images` (`scripts/readme-images/README.md`). It is done when every README image has been compared with the page as it now renders.
 - Verify behavior through the spec's testing seams. For plugin integration, run the built plugin in a simulated or real Decaid host. Report the commands, results and any verification limits. See `docs/AI_BUILD_NOTES.md` before using the test tablet.
 - No emojis in comments or documentation.
 
@@ -66,4 +67,4 @@ References written `<name>:<path>` are relative to that checkout. Use an existin
 - Pull request descriptions, screenshots of management interface changes embedded in them, and a CI failure in a test the change doesn't touch: `docs/agents/pull-requests.md`.
 - Triage label meanings: `docs/agents/triage-labels.md`.
 - Glossary use and ADR conflicts: `docs/agents/domain.md`.
-- What people read to run and use Decent Sync, kept current with what a change does for them: `README.md`, `docs/SELF-HOSTING.md` (deploying, configuration, upgrading), `docs/PLUGIN.md` (the tablet plugin) and `docs/DEVELOPMENT.md` (commands, tests, releasing).
+- What people read to run and use Decent Sync, kept current with what a change does for them: `docs/SELF-HOSTING.md` (deploying, configuration, upgrading), `docs/PLUGIN.md` (the tablet plugin) and `docs/DEVELOPMENT.md` (commands, tests, releasing).
