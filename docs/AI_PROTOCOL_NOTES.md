@@ -22,6 +22,15 @@ The spec also requires unknown-field tolerance, opaque Decaid payloads, at-least
 - **Checks where something new is sent.** What a revision adds goes only to a peer at that revision: each check asks `peerHasWireRevision` with the peer's revision and the revision the addition arrived in. Once the wire has moved past that revision, every peer accepted has it, and asking throws, saying to delete the check, so tests find one left over. Asking about a revision above `WIRE_REVISION` throws too, saying to raise it.
 - **The window.** `acceptsWireRevision` accepts a peer no more than one revision behind, or any revision ahead, as each revision's wire holds the last's. The server checks a `hello`'s wire revision after its protocol version and before its shape: one more than one behind is refused with `plugin_too_old`, which its token's Machine shows, as for a protocol version, and one that isn't a whole number from 1 with `protocol_error`. A plugin welcomed by a server more than one behind logs, once per connection, that the server needs upgrading, and carries on.
 - **Unreleased builds.** `main` builds between releases share a revision, so a plugin and server from different `main` commits, as on staging, may differ and aren't held to this.
+- **Unreleased additions.** Only tagged releases count: a message, field or value added since the latest release may be changed or removed freely before the next one, needing no check of its own, and stays behind the revision that brought it.
+
+## Between releases
+
+What one release writes outside the wire, the other reads during an upgrade (ADR-0025).
+
+- Read what the latest release writes, and write nothing it misreads, in `NOTIFY` payloads and in rows one release writes for the other to read or relay.
+- The same holds for the plugin's storage on the tablet and the records it writes there, which one release leaves for the other after an update.
+- Keep the REST API serving the latest release's pages: add routes and fields, and change or remove one only in a later release, unless it was added since the latest release.
 
 ## Live frames
 
