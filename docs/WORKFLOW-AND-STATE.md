@@ -711,7 +711,9 @@ parts to the Recipe's content both ways.
   later, but for one onto the profile the tablet's record of the Recipe
   holds, which DYE2 keeps it named through (`recordHoldsProfile`, #570). A part recorded is taken as the Workflow having taken it (`base`),
   but one that lost to an edit the tablet had not seen, which is written
-  back. The Recipe's tablets are written the edit, and the Workflows of the
+  back; a batch recorded takes its Bean too (`BEAN_TAKEN`, #572), so a
+  later change of the Recipe's Bean, as its removal, reaches that Workflow
+  once its batch is cleared there. The Recipe's tablets are written the edit, and the Workflows of the
   other Machines that have it loaded.
 - **A Skin's write of the record.** A record a Skin writes before the
   Workflow is taken in as any edit of the record is (`LIBRARY.md`, Taking

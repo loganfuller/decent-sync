@@ -1101,11 +1101,14 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   };
   /** The batch, coffee and roaster the tablet's Workflow holds, none as null. */
   const coffee = (tablet: SimulatedTablet) => [context(tablet).beanBatchId ?? null, context(tablet).coffeeName ?? null, context(tablet).coffeeRoaster ?? null];
-  /** The Bean each tablet's Workflow naming the Recipe took, as the server keeps it (`BEAN_TAKEN`), sorted, none as null. */
+  /** The Bean each tablet's Workflow naming the Recipe took, as the server keeps it (`BEAN_TAKEN`), sorted, none as null, "missing" where it keeps none. */
   const beanTaken = async (recipeId: string) => {
     const database = await server.connectDatabase();
     try {
-      const { rows } = await database.query<{ bean: string | null }>(`SELECT base ->> 'bean' AS bean FROM tablet_loaded_recipes WHERE recipe_id = $1::uuid ORDER BY 1`, [recipeId]);
+      const { rows } = await database.query<{ bean: string | null }>(
+        `SELECT CASE WHEN base ? 'bean' THEN base ->> 'bean' ELSE 'missing' END AS bean FROM tablet_loaded_recipes WHERE recipe_id = $1::uuid ORDER BY 1`,
+        [recipeId],
+      );
       return rows.map((row) => row.bean);
     } finally {
       await database.end();
@@ -1255,6 +1258,36 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await quiet();
     expect(await beanTaken(one)).toEqual([kenya, kenya]);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("writes the removal of a Recipe's Bean into A's Workflow where A picked the batch that brought it, then cleared the batch and typed a coffee, its own until then (#572)", async () => {
+    const { here, a, c, one, quiet } = await lab("Picked bean", 48851);
+    const roaster = "Picked Bean Roasters";
+    // A Recipe naming no Bean, nor a batch.
+    await patch(one, { beanBatchId: null });
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    const peru = await newBean(roaster, "Picked Peru");
+    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: peru, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    let local: unknown;
+    await expect.poll(async () => (local = await localId(a, "/bean-batches", batch)), { timeout: 15_000 }).toEqual(expect.any(String));
+    await quiet();
+    // Picked on A, with its Bean's coffee: the Recipe's batch and Bean, written into C, and the Bean A's Workflow took.
+    await a.changeSettings({ context: { beanBatchId: local, coffeeName: "Picked Peru", coffeeRoaster: roaster } });
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ beanBatchId: batch, beanId: peru });
+    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await localId(c, "/bean-batches", batch), "Picked Peru", roaster]);
+    await quiet();
+    expect(await beanTaken(one)).toEqual([peru, peru]);
+    // A clears the batch and types a coffee, its own: the Recipe keeps both.
+    await a.changeSettings({ context: { beanBatchId: null, coffeeName: "Typed on A" } });
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ beanBatchId: batch, beanId: peru });
+    expect(coffee(a)).toEqual([null, "Typed on A", roaster]);
+    // The batch, and with it the Bean, cleared in the management interface: written into both, A's typed coffee too.
+    await patch(one, { beanBatchId: null });
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    expect(await beanTaken(one)).toEqual([null, null]);
   });
 
   it("writes the Recipe's Bean into C's Workflow where C applied an out-of-date copy of a Recipe naming no batch, holding the Bean it named before (#572)", async () => {
