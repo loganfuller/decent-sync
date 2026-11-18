@@ -766,7 +766,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect(recipeIdInWorkflow(tablet)).not.toBe(ETHIOPIA);
   });
 
-  it("keeps the Recipe loaded through another grinder, a batch of another Bean and a batch cleared, which DYE2 clears nothing on, a Shot pulled on another Bean's batch linked to it", async () => {
+  it("keeps the Recipe loaded through another grinder, a batch of another Bean, which becomes the Recipe's (#570), and a batch cleared, which DYE2 clears nothing on, a Shot pulled on another Bean's batch linked to it", async () => {
     const { machine, tablet, dye2, ethiopia, quiet } = await lab("Bean", 47081);
     await selectRecipeInDye2(tablet, ETHIOPIA);
     await loads(machine, ethiopia);
@@ -782,7 +782,7 @@ describe("Each Machine's Loaded Recipe", { timeout: 120_000 }, () => {
     expect((await loadedRecipe(machine))?.recipe.id).toBe(ethiopia);
     expect(dye2.cleared).toEqual([]);
     expect((await history(machine)).total).toBe(1);
-    // The Machine's own batch of another Bean stays.
+    // The batch of another Bean, now the Recipe's, stays.
     expect(context(tablet).beanBatchId).toBe(RECORDED_BRAZIL_BATCH);
     tablet.pullShot(shotOf(tablet, "loaded-recipe-shot-47081", 47081));
     await expect.poll(async () => (await api.call("GET", "/shots/loaded-recipe-shot-47081")).status, { timeout: 15_000 }).toBe(200);

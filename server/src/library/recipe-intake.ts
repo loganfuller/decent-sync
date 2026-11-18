@@ -256,10 +256,53 @@ export interface IntakeContext {
   grinders: ReadonlySet<string>;
   /** Each Bean Batch's Bean, for the Recipe's batch now and the batch a record holds. */
   batchBeans: ReadonlyMap<string, string>;
+  /** Of those batches, the ones the Library retired for the Recipe: each Archived, of an Archived Bean, or not at its Location, as one never added there or finished there. */
+  retiredBatches: ReadonlySet<string>;
+  /** Of the Beans the records name, the Archived ones. */
+  archivedBeans: ReadonlySet<string>;
+  /** Of the `profileId`s the records name, those of the Library's Profiles. */
+  profiles: ReadonlySet<string>;
   /** Each Bean's batch most recently added at the Recipe's Location, still there, or null where none is. */
   latestBatches: ReadonlyMap<string, string | null>;
   /** The Library Profile the record's `profileSnapshot` is (`profileOfSql` in shots/links.ts), for a record naming no `profileId`; null for none. */
   snapshotProfile: string | null;
+}
+
+/**
+ * The Bean and Bean Batch a record names, in the Library's terms, by the
+ * tablet's map: the batch it holds (`picked`), and its Bean, as `beanId`
+ * names it, or, for a record naming a batch and no Bean, as DYE2's
+ * `save-recipe` saves one from the Workflow, the batch's (`fromBatch`).
+ */
+function beanPick(view: Readonly<RecipeView>, context: IntakeContext): { picked: string | null; fromBatch: string | null; beanId: string | null } {
+  const { ids } = context;
+  const picked = typeof view.beanBatchId === "string" ? (ids.item("beanBatch", view.beanBatchId) ?? null) : null;
+  const fromBatch = typeof view.beanId !== "string" && picked !== null ? (context.batchBeans.get(picked) ?? null) : null;
+  const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : fromBatch;
+  return { picked, fromBatch, beanId };
+}
+
+/**
+ * The paths of a tablet's record, of those a barista changed (`fields`),
+ * whose values are not taken into its Recipe as they name what the Library
+ * does not offer it (#570): its `beanId` and `beanBatchId`, where the Bean
+ * is Archived, or the batch held with it, the one a change of either takes
+ * (`libraryValues`), is retired (`IntakeContext.retiredBatches`); and its
+ * `profileId`, where it is none of the Library's Profiles. The Recipe keeps
+ * its own, which is written back over them, as over steam turned off
+ * (`steamOffPaths`), and nothing is offered or added at its Location.
+ */
+export function refusedPaths(view: Readonly<RecipeView>, fields: Iterable<string>, context: IntakeContext): string[] {
+  const changed = new Set(fields);
+  const refused: string[] = [];
+  if (changed.has("beanId") || changed.has("beanBatchId")) {
+    const { picked, beanId } = beanPick(view, context);
+    const heldWithBean = picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId;
+    if ((beanId !== null && context.archivedBeans.has(beanId)) || (heldWithBean && context.retiredBatches.has(picked))) refused.push("beanId", "beanBatchId");
+  }
+  const profileId = view.profileId;
+  if (changed.has("profileId") && typeof profileId === "string" && profileId !== "" && !context.profiles.has(profileId)) refused.push("profileId");
+  return refused;
 }
 
 /**
@@ -272,10 +315,14 @@ export interface IntakeContext {
  *   none, as its `save-recipe` saves one from the Workflow; or, for a record
  *   holding none, or one of another Bean, the Recipe's kept where
  *   it is of that Bean, and otherwise that Bean's batch most recently added
- *   at the Location, or none (ADR-0005);
- * - its Profile, by `profileId`, or else the Library Profile its
- *   `profileSnapshot` is, as DYE2 saves one read from the Workflow, a
- *   snapshot that is none of the Library's changing none;
+ *   at the Location, or none (ADR-0005); but neither where the Bean is
+ *   Archived or the batch taken is retired (`refusedPaths`), and a
+ *   `beanBatchId` changed under a `beanId` that names another Bean changes
+ *   nothing, as `beanId` wins;
+ * - its Profile, by `profileId`, but one that is none of the Library's
+ *   (`refusedPaths`), or else the Library Profile its `profileSnapshot` is,
+ *   as DYE2 saves one read from the Workflow, a snapshot that is none of the
+ *   Library's changing none;
  * - its Grinder, only one of its Location's, a change to any other being
  *   none; its Basket, keeping the Recipe's where the tablet holds no record
  *   of it and names none; and its Tools with their attributes, keeping those
@@ -298,19 +345,30 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
   const { ids } = context;
   const values: Record<string, unknown> = {};
   const changed = new Set(fields);
+  // What names an item the Library does not offer the Recipe is no edit: the Recipe's own is written back (#570).
+  const refused = new Set(refusedPaths(view, changed, context));
   for (const [path, field] of Object.entries(EDITED)) if (changed.has(path)) values[field] = view[path] ?? null;
-  if (changed.has("beanId") || changed.has("beanBatchId")) {
-    // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27).
-    const picked = typeof view.beanBatchId === "string" ? (ids.item("beanBatch", view.beanBatchId) ?? null) : null;
-    // A record naming a batch and no Bean, as DYE2's `save-recipe` saves one from the Workflow, names the batch's Bean.
-    const fromBatch = typeof view.beanId !== "string" && picked !== null ? (context.batchBeans.get(picked) ?? null) : null;
-    const beanId = typeof view.beanId === "string" ? (ids.item("bean", view.beanId) ?? null) : fromBatch;
-    if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
-    const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
-    if (picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId) values.beanBatchId = picked;
-    else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
+  if ((changed.has("beanId") || changed.has("beanBatchId")) && !refused.has("beanId")) {
+    // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27); a record naming a batch
+    // and no Bean, as DYE2's `save-recipe` saves one from the Workflow, names the batch's Bean.
+    const { picked, fromBatch, beanId } = beanPick(view, context);
+    const heldWithBean = picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId;
+    if (!changed.has("beanId") && typeof view.beanId === "string") {
+      // `beanId` wins: a batch changed under the Bean the record names is taken only where it is of that Bean, and then with
+      // it where the Recipe names another since, as one pick decided with its Bean (`together` in kinds.ts); otherwise
+      // it changes nothing.
+      if (heldWithBean) {
+        values.beanBatchId = picked;
+        if (current.beanId !== beanId) values.beanId = beanId;
+      }
+    } else {
+      if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
+      const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
+      if (heldWithBean) values.beanBatchId = picked;
+      else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
+    }
   }
-  if (changed.has("profileId") || (changed.has("profileSnapshot") && typeof view.profileId !== "string")) {
+  if ((changed.has("profileId") && !refused.has("profileId")) || (changed.has("profileSnapshot") && typeof view.profileId !== "string")) {
     const named = typeof view.profileId === "string" && view.profileId !== "" ? view.profileId : context.snapshotProfile;
     // A profile read from the Workflow that is no Library Profile names none the Library knows: the Recipe's stays.
     if (named !== null || !isObject(view.profileSnapshot)) values.profileId = named;

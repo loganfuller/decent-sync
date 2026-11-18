@@ -180,7 +180,7 @@ export async function editContent(tx: Prisma.TransactionClient, item: ItemRef, e
   const current = await readItem(tx, item);
   if (!current) return { writesDue: false, lost: false };
   const seenAt = edit.seenAt === "everything" ? latestDecision(current.fieldEdits) : edit.seenAt;
-  const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, seenAt, tabletId: source.tabletId });
+  const merged = mergeEdit(mergedValues(item.kind, current), current.fieldEdits, { ...edit, seenAt, tabletId: source.tabletId }, KINDS[item.kind].together ?? []);
   for (const [field, value] of Object.entries(merged.lost)) await recordConflict(tx, item, null, field, value, source, edit.at);
   for (const { field, value, versionId } of merged.overwritten) await recordReplaced(tx, item, null, field, value, versionId);
   const lost = Object.keys(merged.lost).length > 0;

@@ -1,12 +1,15 @@
 import {
   DYE2_RECIPE_FIELD,
+  LOADED_RECIPE_PARTS,
   type LoadedRecipePart,
   RECIPE_SETTINGS,
   RECIPE_SETTING_NAMES,
   STEAM_ON_FROM,
   WORKFLOW_YIELD_OFF,
+  dye2Fingerprint,
   dye2GlobalIdOf,
   noneAtZero,
+  sameValue,
   sameGrindSetting,
   steamOff,
   steamTimeOf,
@@ -64,6 +67,18 @@ function stableJson(value: unknown): string {
   if (Array.isArray(value)) return `[${value.map(stableJson).join(",")}]`;
   if (isObject(value)) return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableJson(value[key])}`).join(",")}}`;
   return JSON.stringify(value ?? null);
+}
+
+/**
+ * Whether a change of the Workflow, from `previous` to `workflow`, moved what
+ * a Skin edits a Loaded Recipe by writing its DYE2 record before the
+ * Workflow (#570): its profile, as DYE2 fingerprints one, or its bean, any
+ * field of the batch part (LOADED_RECIPE_PARTS) differing. Neither its
+ * dial, nor its steam, hot water or flush settings.
+ */
+export function movedBeanOrProfile(previous: Record<string, unknown>, workflow: Record<string, unknown>): boolean {
+  if (dye2Fingerprint(previous.profile) !== dye2Fingerprint(workflow.profile)) return true;
+  return LOADED_RECIPE_PARTS.batch.some((field) => !sameValue(workflowValueAt(previous, field) ?? null, workflowValueAt(workflow, field) ?? null));
 }
 
 /** A write clearing the recipe the Workflow names (DYE2_RECIPE_FIELD), as DYE2 clears it. */

@@ -34,10 +34,12 @@ import {
   readBase,
   readParts,
   recipeParts,
+  recordProfile,
   samePart,
   valuesFromWorkflow,
   workflowParts,
 } from "../library/loaded-recipe-intake.js";
+import { batchRetiredSql } from "../library/kinds.js";
 import { lockLocation } from "../library/location-state.js";
 import { latestDecision, readFieldEdits } from "../library/merge.js";
 import type { PrismaService } from "../prisma.service.js";
@@ -61,8 +63,9 @@ import { profileOfSql } from "../shots/links.js";
 // server as the tablet's change of the record (`recordedByDye2`, recipes.ts),
 // and the server records itself what DYE2 saves none of
 // (`valuesFromWorkflow`): a Grinder, with the grind setting and RPM its pick
-// left, a Bean Batch of the Recipe's Bean, and a dose, yield, grind setting,
-// RPM or feed rate the Recipe holds none of. A Recipe is the whole Shot, so a
+// left, a Bean Batch, with its Bean where it is another Bean's, but one the
+// Library retired, and a dose, yield, grind setting, RPM or feed rate the
+// Recipe holds none of. A Recipe is the whole Shot, so a
 // load takes nothing into it: the Workflow is brought to it instead, what
 // the Recipe holds none of cleared from it, but for its steam, hot water and
 // flush settings, which the Machine keeps its own of. An edit of
@@ -70,8 +73,8 @@ import { profileOfSql } from "../shots/links.js";
 // that has it loaded (`loadedRecipeDue`), each part that changed since the
 // Workflow took it, one cleared from the Recipe cleared there, so the
 // plugin's own write is never read as the tablet's edit, and what stays the
-// Machine's own, as a batch of another Bean, a value cleared or steam turned
-// off, is never written back. A Workflow
+// Machine's own, as a batch the Library retired, a value cleared or steam
+// turned off, is never written back. A Workflow
 // naming a Recipe its Machine does not have loaded, as one Archived, or of
 // a Location it left, or the one the server last had as its Loaded Recipe
 // as it was made capture-only, has the recipe cleared from it; one loaded
@@ -258,14 +261,19 @@ async function followMachine(
   }
   if (continued && known !== null && known.recipeId === recipe.id) {
     const base = { ...known.base };
-    if (!(await profileChanged(tx, tablet.machineId, workflow))) {
-      for (const part of await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt)) base[part] = now[part];
-    }
+    // A change of profile DYE2 clears the recipe on a moment later is no edit of it; one onto the profile the tablet's record
+    // holds, as a Skin writes the record first, DYE2 keeps the recipe named through, so the rest of it is taken (#570).
+    const unloading = (await profileChanged(tx, tablet.machineId, workflow)) && !(await recordHoldsProfile(tx, tablet.tabletId, recipe.id, workflow));
+    const { recorded, lost } = unloading ? { recorded: [], lost: [] } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
+    for (const part of recorded) base[part] = now[part];
     // A part the Workflow holds, or held before this change, as the Recipe does has taken it, however it came there, as
     // DYE2's editor applies a save of the Recipe again, which may reach the server before the save: a change of it on the
-    // Machine since, as a value cleared, is the Machine's own, not written back.
+    // Machine since, as a value cleared, is the Machine's own, not written back. But not one whose change lost to an edit
+    // the tablet had not seen, though that edit left the Recipe as the Workflow held it before: the Recipe's is written
+    // back over it (#570).
     const target = await targetParts(tx, tablet.tabletId, recipe.id);
     if (target !== null) Object.assign(base, heldAlready(target, known.held), heldAlready(target, now));
+    for (const part of lost) delete base[part];
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -294,13 +302,28 @@ async function profileChanged(tx: Prisma.TransactionClient, machineId: string, w
 }
 
 /**
+ * Whether the tablet's record of the Recipe holds the Workflow's profile, as
+ * DYE2 fingerprints one (`dye2Fingerprint`): its embedded Workflow's, or
+ * else its `profileSnapshot` (`recordProfile`), which DYE2 keeps the
+ * Workflow's recipe named through a change of profile onto
+ * (decentespresso/dye2#38).
+ */
+async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string, recipeId: string, workflow: unknown): Promise<boolean> {
+  const [row] = await tx.$queryRaw<{ record: unknown }[]>`
+    SELECT record FROM tablet_recipes WHERE tablet_id = ${tabletId}::uuid AND recipe_id = ${recipeId}::uuid`;
+  const held = recordProfile(isObject(row?.record) ? row.record : null);
+  return isObject(held) && isObject(workflow) && dye2Fingerprint(held) === dye2Fingerprint(workflow.profile);
+}
+
+/**
  * Records into the Recipe what Decent Sync takes into it from its
  * Machine's Workflow (`valuesFromWorkflow`), from `held`, as the Workflow
  * last held its parts, as the tablet's edit, timed as the plugin observed the Workflow, merged
  * per field with Conflicts (ADR-0020), judged by what the tablet's record of
- * the Recipe has seen. Returns the parts recorded. The Recipe's tablets are
- * written the edit, and so are the Workflows of the Machines that have it
- * loaded.
+ * the Recipe has seen. Returns the parts recorded, and those that lost to an
+ * edit the tablet had not seen, which the Recipe's value is written back
+ * over. The Recipe's tablets are written the edit, and so are the Workflows
+ * of the Machines that have it loaded.
  */
 async function recordFromWorkflow(
   tx: Prisma.TransactionClient,
@@ -309,20 +332,26 @@ async function recordFromWorkflow(
   held: WorkflowParts,
   now: WorkflowParts,
   observedAt: string,
-): Promise<LoadedRecipePart[]> {
+): Promise<{ recorded: LoadedRecipePart[]; lost: LoadedRecipePart[] }> {
   const local = await tabletLocals(tx, tablet.tabletId);
   const target = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
   const grinders = await tx.$queryRaw<{ id: string }[]>`
     SELECT id::text AS id FROM grinders WHERE location_id = ${recipe.locationId}::uuid AND NOT archived`;
   const batch = now.batch === null ? undefined : local.item("beanBatch", now.batch as string);
-  const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string }[]>`
-    SELECT id::text AS id, bean_id::text AS "beanId" FROM bean_batches WHERE id = ${batch}::uuid`;
+  // The batch picked, with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or not at
+  // the Recipe's Location, as one never added there or finished there: the Location offers none of these.
+  const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
+    SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
+      ${batchRetiredSql(recipe.locationId)} AS retired
+    FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
+    WHERE batch.id = ${batch}::uuid`;
   const { values, parts } = valuesFromWorkflow(recipe.content, target, held, now, {
     item: (kind, localId) => local.item(kind, localId),
     grinders: new Set(grinders.map((row) => row.id)),
     batchBeans: new Map(beans.map((row) => [row.id, row.beanId])),
+    retired: new Set(beans.flatMap((row) => (row.retired ? [row.id] : []))),
   });
-  if (parts.length === 0) return [];
+  if (parts.length === 0) return { recorded: [], lost: [] };
   const [seen] = await tx.$queryRaw<{ contentSeenAt: Date | null }[]>`
     SELECT content_seen_at AS "contentSeenAt" FROM tablet_recipes WHERE tablet_id = ${tablet.tabletId}::uuid AND recipe_id = ${recipe.id}::uuid`;
   const edited = await editContent(tx, { kind: "recipe", id: recipe.id }, { values, at: new Date(observedAt), seenAt: seen?.contentSeenAt ?? null }, tabletSource(tablet));
@@ -331,7 +360,8 @@ async function recordFromWorkflow(
   if (after && isObject(after.content)) recipe.content = after.content;
   // Only those the Recipe holds now as the Workflow does: one that lost to an edit the tablet had not seen is written back.
   const nowTarget = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
-  return parts.filter((part) => samePart(part, nowTarget[part], now[part]));
+  const recorded = parts.filter((part) => samePart(part, nowTarget[part], now[part]));
+  return { recorded, lost: parts.filter((part) => !recorded.includes(part)) };
 }
 
 /** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */

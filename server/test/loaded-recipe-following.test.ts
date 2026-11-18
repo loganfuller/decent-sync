@@ -16,25 +16,28 @@ import {
 import { quiesced } from "./support/quiet.js";
 import { shotFixture } from "./support/shot-fixtures.js";
 import { type SimulatedStreamline, startStreamline } from "./support/simulated-streamline.js";
-import type { SimulatedTablet } from "./support/simulated-tablet.js";
+import { type SimulatedTablet, derivedProfile } from "./support/simulated-tablet.js";
 import { type TestServer, startTestServer } from "./support/test-server.js";
 
-// Seam 1 for tickets #146, #173, #177, #187, #188, #189, #216 and #389: a
-// Machine follows its Loaded Recipe both ways (ADR-0022), and every change
-// on it is saved into the Recipe. The plugin has DYE2 save each change of
-// the Workflow into the Recipe's record (`record`): its dose, yield, grind
+// Seam 1 for tickets #146, #173, #177, #187, #188, #189, #216, #389 and
+// #570: a Machine follows its Loaded Recipe both ways (ADR-0022), and every
+// change on it is saved into the Recipe. The plugin has DYE2 save each change
+// of the Workflow into the Recipe's record (`record`): its dose, yield, grind
 // setting, RPM, Basket and brew temperature where the record holds one, a
 // Basket picked since the apply where it holds none, and a steam, hot water
 // or flush setting it holds, or holds none of once it moves
 // (recipe-settings.test.ts has the settings), an edit of the Recipe from
 // that Machine's tablet, once. Decent Sync records itself what DYE2 saves
-// none of: a grinder, with the grind setting and RPM its pick left, a batch
-// of the Recipe's Bean, and a dose, yield, grind setting or RPM the Recipe
-// holds none of. A load takes nothing into the Recipe, which is the whole
-// Shot (#550; recipe-whole-shot.test.ts). A change made while the plugin writes into the
-// Workflow is saved too. A batch of another Bean and a value cleared
-// stay the Machine's own, and nothing unloads it but a change of profile,
-// which saves nothing into it. An edit of the Recipe from anywhere is written
+// none of: a grinder, with the grind setting and RPM its pick left, a batch,
+// with its Bean where it is another Bean's, and a dose, yield, grind setting
+// or RPM the Recipe holds none of. A load takes nothing into the Recipe,
+// which is the whole Shot (#550; recipe-whole-shot.test.ts). A change made
+// while the plugin writes into the Workflow is saved too. A Skin's write of
+// the record before the Workflow is the Recipe's edit, read as the Workflow
+// moves the bean or the profile, but a pick the Library retired or a Profile
+// it does not have. A batch the Library retired and a value cleared stay the
+// Machine's own, and nothing unloads it but a change of profile, which saves
+// nothing into it. An edit of the Recipe from anywhere is written
 // into the Workflow of every Machine that has it loaded, but the one it was
 // made on, its brew temperature as on a load, and a Profile in one write,
 // through which DYE2 keeps it loaded as the Machine's record of it holds that
@@ -132,6 +135,13 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     (tablet.received.slice(from).filter((frame) => (frame as Record_).type === "write" && (frame as Record_).kind === "loadedRecipe") as { fields: Record_ }[]).map(({ fields }) => fields);
   /** How many times the plugin had DYE2 save into the recipe the Workflow names. */
   const saves = (tablet: SimulatedTablet) => tablet.writes.filter((write) => write === `POST /plugins/${DYE2_NAMESPACE}/record`).length;
+  /** How many times the plugin read DYE2's recipes from Decaid's store. */
+  const recipeReads = (tablet: SimulatedTablet) => tablet.requests.filter((route) => route === `/store/${DYE2_NAMESPACE}/recipes`).length;
+  /** Writes the tablet's record of a recipe into DYE2's list in Decaid's store, as a Skin does, the rest of the list as it is. */
+  const writeRecord = async (tablet: SimulatedTablet, id: string, change: (entry: Record_) => Record_) => {
+    const list = records(tablet).map((entry) => (entry.id === id ? change(structuredClone(entry)) : entry));
+    expect((await tablet.callApi("POST", `/store/${DYE2_NAMESPACE}/recipes`, list)).status).toBe(200);
+  };
   /** The plugin's writes into the tablet's Workflow from now on, as it sent them. */
   const workflowWrites = (tablet: SimulatedTablet) => {
     const writes: Record_[] = [];
@@ -158,14 +168,15 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
    * `apiDelayMs` slows the answers A's Decaid gives the plugin, as the
    * simulated tablet's option of that name does. `quiet()` resolves once
    * every tablet and Machine of the lab, and the Streamlines given, have
-   * nothing left under way (`quiesced`), so a wrong write a step set off has
+   * nothing left under way (`quiesced`), waiting for a whole poll unless A
+   * polls too seldom for it (`pollSeconds`), so a wrong write a step set off has
    * landed before a check after it that it did not happen, and the writes
    * the loads set off before a count of writes begins.
    */
   async function lab<WithD extends boolean = false>(
     scenario: string,
     serial: number,
-    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; d?: WithD } = {},
+    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean; d?: WithD } = {},
   ) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
@@ -174,7 +185,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       d: options.d ? await api.createMachine(`${scenario} lab D`, here.id) : undefined,
     };
     const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: options.d ? new SimulatedDye2() : undefined };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
+    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs, answerOnArrival: options.answerOnArrival });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
@@ -200,7 +211,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     a.connectMachine();
     const tablets: Record<string, SimulatedTablet> = d ? { a, c, d } : { a, c };
     const followed: Record<string, CreatedMachine> = machines.d ? { a: machines.a, c: machines.c, d: machines.d } : { a: machines.a, c: machines.c };
-    const quiet = (streamlines: Record<string, SimulatedStreamline> = {}) => quiesced(api, { tablets, machines: followed, streamlines });
+    // A polling too seldom to wait for, as at a `pollSeconds` of 3600, waits for no whole poll.
+    const polls = (options.pollSeconds ?? 5) < 60;
+    const quiet = (streamlines: Record<string, SimulatedStreamline> = {}) => quiesced(api, { tablets, machines: followed, streamlines, polls });
     return {
       here,
       machines: machines as typeof machines & { d: WithD extends true ? CreatedMachine : undefined },
@@ -388,6 +401,68 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => (await recipe(one)).content.grindSetting, { timeout: 15_000 }).toBe(9.9);
     expect(dye2.a.recorded.map((recorded) => recorded.patch)).toContainEqual(expect.objectContaining({ grind: 9.9 }));
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
+  });
+
+  it("reads A's recipes, and takes in a Skin's record edit of the Recipe's Profile, when the Skin changes the Workflow's profile alone while the plugin's write of a Recipe edit into A's Workflow waits for Decaid (#570)", async () => {
+    let slow = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here. A polls too seldom to read the
+    // recipes in this test.
+    const { a, c, one, quiet } = await lab("Skin during write", 48401, { pollSeconds: 3600, apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    // As in the Skin's write test below: DYE2's save answers as one that found nothing new, and an RPM change keeps the
+    // Workflow off the recipe, so no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    // The Skin's profile keeps the Workflow's brew temperature, so nothing but the profile moves around the plugin's write.
+    const listed = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    const temperature = (profile(a).steps as Record_[])[0]!.temperature;
+    const classic: Record_ = { ...listed, steps: (listed.steps as Record_[]).map((step, index) => (index === 0 ? { ...step, temperature } : step)) };
+    const reads = a.requests.filter((route) => route === "/workflow").length;
+    slow = true;
+    await patch(one, { hotWaterVolume: 130 });
+    // The plugin reads the Workflow, then its write of the hot water waits; the Skin writes the record, then the Workflow's
+    // profile, meanwhile, and Decaid merges the write over it, answering with both.
+    await expect.poll(() => a.requests.filter((route) => route === "/workflow").length, { timeout: 15_000 }).toBeGreaterThan(reads);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const recipeReadsBefore = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: CLASSIC, profileTitle: classic.title, profileSnapshot: classic, workflow: { ...(entry.workflow as Record_), profile: classic } }));
+    expect((await a.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
+    await expect.poll(() => hotWater(a).volume, { timeout: 15_000 }).toBe(130);
+    slow = false;
+    expect(profile(a).title).toBe(classic.title);
+    await expect.poll(async () => (await recipe(one)).content.profileId, { timeout: 15_000 }).toBe(CLASSIC);
+    expect(recipeReads(a)).toBeGreaterThan(recipeReadsBefore);
+    await expect.poll(() => record(c, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(CLASSIC);
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+  });
+
+  it("takes in a Skin's record edit of the Recipe's batch and name made while the plugin's write of the Recipe's new batch into A's Workflow waits for its answer, as the Workflow's batch put back is the Recipe's edit, which the server writes into A's record, reading its recipes (#570)", async () => {
+    // Decaid carries the plugin's write out as it arrives, and its answer is held below.
+    const { here, a, c, one, quiet } = await lab("Skin bean during write", 48411, { pollSeconds: 3600, answerOnArrival: true });
+    // As in the Skin's write test below: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    const bean = (await recipe(one)).content.beanId as string;
+    const first = (await recipe(one)).content.beanBatchId as string;
+    const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    const nextLocal = await expect.poll(() => localId(a, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String)).then(() => localId(a, "/bean-batches", next));
+    await quiet();
+    const firstLocal = context(a).beanBatchId;
+    // The server's write of the new batch into A's record, then into its Workflow, whose answer is held: within Decaid's
+    // 30 s fetch timeout, 600 ms here, the Skin writes the record with the first batch and a name, then the Workflow's batch.
+    const held = a.holdRequests("PUT", "/workflow");
+    await patch(one, { beanBatchId: next });
+    await expect.poll(() => [record(a, ETHIOPIA)?.beanBatchId, held.arrived], { timeout: 15_000 }).toEqual([nextLocal, 1]);
+    expect(context(a).beanBatchId).toBe(nextLocal);
+    const reads = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, name: "Fixture First Bag", beanBatchId: firstLocal }));
+    await a.changeSettings({ context: { beanBatchId: firstLocal } });
+    // Judged from the Workflow before the write, the batch did not move, so the plugin does not read the recipes for it
+    // (`readSoon`); the server's write of the batch back into A's record reads them, name and all.
+    held.release();
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ name: "Fixture First Bag", beanBatchId: first });
+    expect(recipeReads(a)).toBeGreaterThan(reads);
+    await expect.poll(() => record(c, ETHIOPIA)?.name, { timeout: 15_000 }).toBe("Fixture First Bag");
   });
 
   it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
@@ -626,9 +701,9 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect([context(a).grinderSetting ?? null, extras(a).rpm ?? null]).toEqual([null, null]);
   });
 
-  it("takes another batch of the Recipe's Bean picked on A as its batch, writing it into C's, and keeps a batch of another Bean and a grind cleared as A's own, the Recipe loaded", async () => {
+  it("takes another batch of the Recipe's Bean picked on A as its batch, and a batch of another Bean as its Bean and batch, writing each into C's Workflow and both tablets' records, the Recipe loaded on both, and keeps a grind cleared as A's own (#570)", async () => {
     const { here, machines, dye2, a, c, one, quiet } = await lab("Next bag", 48141);
-    const bean = (await recipe(one)).content.beanId as string;
+    const { name, beanId: bean } = (await recipe(one)).content as { name: string; beanId: string };
     const created = await api.call("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] });
     expect(created.status).toBe(201);
     const next = ((await created.json()) as { batch: { id: string } }).batch.id;
@@ -641,25 +716,155 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", next));
     await loads(machines.a, one);
 
-    // A batch of the Brazil, and a grind cleared, on A: neither is the Recipe's, nor written back, and it stays loaded.
+    // A batch of the Brazil on A: the Recipe's Bean and batch, which DYE2 saves none of, written into C's Workflow and both
+    // tablets' records, its name kept, as the owner chose on 2026-11-18 (#570).
     const received = a.received.length;
-    const versionsBefore = (await versions(one)).length;
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
     await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
-    await a.changeSettings({ context: { grinderSetting: null } });
-    // Once A's reports of the batch and the grind cleared have been taken in.
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
+    const brazil = (await recipe(one)).content.beanId as string;
+    expect(brazil).not.toBe(bean);
+    expect((await recipe(one)).content.name).toBe(name);
+    for (const tablet of [a, c]) {
+      const held = [await localId(tablet, "/beans", brazil), await localId(tablet, "/bean-batches", brazilBatch)];
+      expect(held).not.toContain(undefined);
+      await expect.poll(() => [record(tablet, ETHIOPIA)?.beanId, record(tablet, ETHIOPIA)?.beanBatchId], { timeout: 15_000 }).toEqual(held);
+    }
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
     await quiet();
-    expect((await recipe(one)).content.beanBatchId).toBe(next);
+
+    // A grind cleared on A: not the Recipe's, nor written back, and it stays loaded.
+    const versionsBefore = (await versions(one)).length;
+    await a.changeSettings({ context: { grinderSetting: null } });
+    // Once A's report of the grind cleared has been taken in.
+    await quiet();
     expect((await recipe(one)).content.grindSetting).toEqual(expect.any(Number));
     expect((await versions(one)).length).toBe(versionsBefore);
     expect([context(a).beanBatchId, context(a).grinderSetting ?? null]).toEqual([RECORDED_BRAZIL_BATCH, null]);
     expect(loadedRecipeWrites(a, received)).toEqual([]);
-    expect(context(c).beanBatchId).toBe(await localId(c, "/bean-batches", next));
     expect(dye2.a.cleared).toEqual([]);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
     // A Shot pulled on the Brazil's batch is linked to the Recipe.
     a.pullShot(shotOf(a, "next-bag-brazil-48141", 48141));
     await expect.poll(async () => (await api.call("GET", "/shots/next-bag-brazil-48141")).status, { timeout: 15_000 }).toBe(200);
     expect((await api.get<{ shot: { recipe: { id: string } | null } }>("/shots/next-bag-brazil-48141")).shot.recipe?.id).toBe(one);
+  });
+
+  it("keeps a batch of another Bean picked on A as the Recipe's over C's pick of its Bean's next bag made just before it and taken in just after, which is kept as a Conflict, A's Workflow keeping its pick (#570)", async () => {
+    const { here, machines, a, c, one, quiet } = await lab("Crossed picks", 48351);
+    const bean = (await recipe(one)).content.beanId as string;
+    const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
+    await quiet();
+    // C picks the next bag, and Decaid is slow to answer the read of the Workflow the plugin's save into the Recipe makes:
+    // C's change is held back meanwhile, and so is any write of the server's to C.
+    const releaseC = c.holdWorkflowReads();
+    const requested = c.requests.length;
+    await c.changeSettings({ context: { beanBatchId: await localId(c, "/bean-batches", next) } });
+    // Once the plugin has observed it, and its save waits for Decaid.
+    await expect.poll(() => c.requests.slice(requested).includes("/workflow"), { timeout: 15_000 }).toBe(true);
+    // Then A picks a batch of the Brazil, which the server takes at once. It once kept it as A's own, so C's change, taken
+    // in after it, was written into A's Workflow, setting A back to the Recipe's Bean.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const received = a.received.length;
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(brazilBatch);
+    // C's change, made first, reaches the server after A's, made without having seen it: it loses, kept as a Conflict.
+    releaseC();
+    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
+    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: next }));
+    await quiet();
+    expect((await recipe(one)).content.beanBatchId).toBe(brazilBatch);
+    // A keeps its pick, and C is brought to it.
+    expect(context(a).beanBatchId).toBe(RECORDED_BRAZIL_BATCH);
+    expect(loadedRecipeWrites(a, received).filter((fields) => "context.beanBatchId" in fields)).toEqual([]);
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("keeps C's pick of the Bean's next bag as the Recipe's over a batch of another Bean picked on A just before it and taken in just after, A's Bean and batch both kept as Conflicts, so the Recipe never names one Bean and another's batch (#570)", async () => {
+    const { here, machines, a, c, one, quiet } = await lab("Crossed picks reversed", 48391);
+    const bean = (await recipe(one)).content.beanId as string;
+    const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
+    await quiet();
+    // A picks a batch of the Brazil, and Decaid is slow to answer the read of the Workflow the plugin's save into the Recipe
+    // makes: A's change is held back meanwhile.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const releaseA = a.holdWorkflowReads();
+    const requested = a.requests.length;
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    await expect.poll(() => a.requests.slice(requested).includes("/workflow"), { timeout: 15_000 }).toBe(true);
+    // Then C picks the next bag, which the server takes at once: a change of the batch alone, as the Recipe names its Bean.
+    await c.changeSettings({ context: { beanBatchId: await localId(c, "/bean-batches", next) } });
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
+    // A's pick, made first, reaches the server after C's, made without having seen it: its batch loses, and its Bean, though
+    // no edit since set the Bean, loses with it.
+    releaseA();
+    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
+    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    expect(await conflicts()).toContainEqual(expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))! }));
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ beanId: bean, beanBatchId: next });
+    // A is brought to C's pick.
+    await expect.poll(async () => context(a).beanBatchId, { timeout: 15_000 }).toBe(await localId(a, "/bean-batches", next));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("writes the Recipe's batch back into A's Workflow over a batch of another Bean picked on A that lost to C's pick of the Recipe's own batch again, made just after it and taken in first, though that left the Recipe as A's Workflow held it before (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Lost pick", 48431);
+    const { beanBatchId: first } = (await recipe(one)).content as { beanBatchId: string };
+    const firstOnA = context(a).beanBatchId;
+    const firstOnC = context(c).beanBatchId;
+    // C's batch cleared: the Machine's own, the Recipe unchanged.
+    await c.changeSettings({ context: { beanBatchId: null } });
+    await quiet();
+    expect((await recipe(one)).content.beanBatchId).toBe(first);
+    // A picks a batch of the Brazil, its change held back as in the crossed picks above.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const releaseA = a.holdWorkflowReads();
+    const requested = a.requests.length;
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    await expect.poll(() => a.requests.slice(requested).includes("/workflow"), { timeout: 15_000 }).toBe(true);
+    // Then C picks the Recipe's batch again, which the server takes as an edit leaving it as it was.
+    const versionsBefore = (await versions(one)).length;
+    await c.changeSettings({ context: { beanBatchId: firstOnC } });
+    await expect.poll(async () => (await versions(one)).length, { timeout: 15_000 }).toBeGreaterThan(versionsBefore);
+    // A's pick, made first, loses, and A is written the Recipe's batch, as it would be had C's edit changed it.
+    releaseA();
+    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
+    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    await expect.poll(() => context(a).beanBatchId, { timeout: 15_000 }).toBe(firstOnA);
+    expect((await recipe(one)).content.beanBatchId).toBe(first);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("writes the Recipe's Profile back over a `profileId` none of the Library's that a Skin wrote into A's record, read as the plugin writes an edit of the Recipe into the record, and not only at the poll (#570)", async () => {
+    const { a, one, quiet } = await lab("Unknown profile answered", 48441, { pollSeconds: 3600 });
+    const { profileId, dose } = (await recipe(one)).content as { profileId: string; dose: number };
+    await quiet();
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: "profile:000000000000000000fe" }));
+    // An edit of the dose, which the server writes into A's record: the plugin reads the record as it writes it, so the
+    // server hears of the Skin's profileId then, refuses it, and writes the record again, with no poll for an hour.
+    await patch(one, { dose: dose + 1 });
+    await expect.poll(() => record(a, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(profileId);
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ profileId, dose: dose + 1 });
+  });
+
+  it("takes no `profileId` a Skin writes into A's record that is none of the Library's Profiles, writing the Recipe's back into the record, the Recipe unchanged and loaded (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Unknown profile", 48421);
+    const { profileId } = (await recipe(one)).content as { profileId: string };
+    await quiet();
+    const versionsBefore = (await versions(one)).length;
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: "profile:000000000000000000ff" }));
+    // Read at A's next poll, refused, and written back.
+    await expect.poll(() => record(a, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(profileId);
+    await quiet();
+    expect((await recipe(one)).content.profileId).toBe(profileId);
+    expect((await versions(one)).length).toBe(versionsBefore);
+    expect(record(c, ETHIOPIA)?.profileId).toBe(profileId);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
   it("takes a batch picked on A as a Recipe naming no Bean's, with its Bean, as any change, writing it into C's, the Recipe loaded", async () => {
@@ -678,6 +883,195 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect((await recipe(one)).content.beanId).toEqual(expect.any(String));
     await expect.poll(() => record(c, ETHIOPIA)?.beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
     await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("takes a Skin's write of A's record of the Recipe before its Workflow, of its Profile and then of its Bean with a name, as the Recipe's edits, read as the Workflow changes and not at the poll, writing them into C's record and Workflow, the Recipe loaded on both (#570)", async () => {
+    const { machines, dye2, a, c, one, quiet } = await lab("Skin record", 48361, { pollSeconds: 3600 });
+    // DYE2 pushes as the Workflow moves off the recipe it applied, or back onto it (its selection's `modified`), which has
+    // the plugin read the recipes. So its save answers as one that found nothing new, and an RPM change it saves none of
+    // keeps the Workflow off the recipe: no push of DYE2's reports the Skin's writes below, only the plugin's own reads.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    // The Profile, as the Streamline Cafe Skin writes it (loganfuller/streamline-cafe-js#50): the record's, whole, its
+    // embedded Workflow's too, which DYE2 keeps the Workflow's recipe named through a change of profile onto, then the
+    // Workflow's.
+    const classic = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    let reads = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: CLASSIC, profileTitle: classic.title, profileSnapshot: classic, workflow: { ...(entry.workflow as Record_), profile: classic } }));
+    const pushes = dye2.a.pushes.length;
+    expect((await a.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content.profileId, { timeout: 15_000 }).toBe(CLASSIC);
+    expect(recipeReads(a)).toBeGreaterThan(reads);
+    await expect.poll(() => [record(c, ETHIOPIA)?.profileId, profile(c).title], { timeout: 15_000 }).toEqual([CLASSIC, "Classic Italian espresso"]);
+    await quiet();
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    expect(dye2.a.cleared).toEqual([]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+
+    // The Brazil, with its batch, and the name the Skin gives a Recipe still under the name DYE2 generated, then the
+    // Workflow's batch, whose coffee and roaster DYE2 copies beside it.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const brazilRecord = record(a, BRAZIL)!;
+    reads = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({
+      ...entry,
+      name: "Fixture Brazil Classic",
+      beanId: brazilRecord.beanId,
+      beanName: brazilRecord.beanName,
+      beanRoaster: brazilRecord.beanRoaster,
+      beanBatchId: RECORDED_BRAZIL_BATCH,
+    }));
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: brazilRecord.beanName, coffeeRoaster: brazilRecord.beanRoaster } });
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ name: "Fixture Brazil Classic", beanBatchId: brazilBatch });
+    expect(recipeReads(a)).toBeGreaterThan(reads);
+    const brazil = (await recipe(one)).content.beanId as string;
+    expect(brazil).toBe(await globalOf(a, "/beans", String(brazilRecord.beanId)));
+    await expect.poll(() => [record(c, ETHIOPIA)?.name, record(c, ETHIOPIA)?.beanId], { timeout: 15_000 }).toEqual(["Fixture Brazil Classic", await localId(c, "/beans", brazil)]);
+    await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    await quiet();
+    // No push of DYE2's read the Skin's writes: the plugin's own reads did.
+    expect(dye2.a.pushes.length).toBe(pushes);
+    expect(context(a).beanBatchId).toBe(RECORDED_BRAZIL_BATCH);
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("reads A's recipes as a change moves the bean or the profile under its Loaded Recipe, and not for a dose, yield or grind change, nor with no Recipe loaded (#570)", async () => {
+    const { machines, dye2, a, quiet } = await lab("Narrow read", 48371, { pollSeconds: 3600 });
+    await quiet();
+    // DYE2's save answers each change as one that found nothing new, and the server takes nothing from these changes, so
+    // writes nothing: a read of the recipes is the change's own.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    // DYE2 pushes as the Workflow first moves off the recipe it applied (its selection's `modified`), which has the plugin
+    // read the recipes: an RPM change first, so that read is done.
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    const reads = recipeReads(a);
+    const saved = saves(a);
+    for (const change of [{ targetDoseWeight: 19.5 }, { targetYield: 41 }, { grinderSetting: "3.1" }]) await a.changeSettings({ context: change });
+    await quiet();
+    expect(saves(a)).toBeGreaterThan(saved);
+    expect(recipeReads(a)).toBe(reads);
+    // The bean's coffee and roaster.
+    await a.changeSettings({ context: { coffeeName: "Fixture Kenya", coffeeRoaster: "Fixture Roasters" } });
+    await quiet();
+    expect(recipeReads(a)).toBeGreaterThan(reads);
+    // The profile, picked as DYE2's profile picker does, which unloads the Recipe a moment later.
+    const afterBean = recipeReads(a);
+    const classic = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    expect((await a.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
+    await dye2.a.settled();
+    await loads(machines.a, null);
+    await quiet();
+    expect(recipeReads(a)).toBeGreaterThan(afterBean);
+    // With no Recipe loaded, nothing is read for the bean moving.
+    const unloaded = recipeReads(a);
+    await a.changeSettings({ context: { coffeeName: "Fixture Kenya AA" } });
+    await quiet();
+    expect(recipeReads(a)).toBe(unloaded);
+  });
+
+  it("takes a Profile saved on A just before a Skin writes it into A's record and Workflow as the Recipe's, the plugin reading A's profiles before its recipes, and writes it into C's Workflow, the Recipe loaded on both (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Profile just made", 48461, { pollSeconds: 3600 });
+    // As in the Skin's write test above: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    // Saved on A, as in Streamline, which the plugin reports at its poll, an hour away: the Library has no such Profile yet.
+    const made = await a.addProfile(derivedProfile("Lab Just Made", 7.5));
+    const id = made.id as string;
+    expect((await api.call("GET", `/profiles/${encodeURIComponent(id)}`)).status).toBe(404);
+    const madeProfile = made.profile as Record_;
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: id, profileTitle: madeProfile.title, profileSnapshot: madeProfile, workflow: { ...(entry.workflow as Record_), profile: madeProfile } }));
+    expect((await a.callApi("PUT", "/workflow", { profile: madeProfile })).status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content.profileId, { timeout: 15_000 }).toBe(id);
+    await expect.poll(() => profile(c).title, { timeout: 15_000 }).toBe("Lab Just Made");
+    await quiet();
+    expect(record(a, ETHIOPIA)?.profileId).toBe(id);
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("takes a batch of another Bean that a Skin puts into A's Workflow with the profile its record holds already, in one write, as the Recipe's, with the Profile, writing both into C's Workflow, the Recipe loaded on both (#570)", async () => {
+    const { machines, dye2, a, c, one, quiet } = await lab("Profile and bag", 48451, { pollSeconds: 3600 });
+    // As in the Skin's write test above: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    const classic = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const brazilRecord = record(a, BRAZIL)!;
+    // The record holds the new profile, and not the batch; the Workflow is written both at once. DYE2 keeps the recipe named,
+    // as the record holds the profile, so the batch is a pick of the Workflow's, as any.
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: CLASSIC, profileTitle: classic.title, profileSnapshot: classic, workflow: { ...(entry.workflow as Record_), profile: classic } }));
+    const written = await a.callApi("PUT", "/workflow", { profile: classic, context: { beanBatchId: RECORDED_BRAZIL_BATCH, coffeeName: brazilRecord.beanName, coffeeRoaster: brazilRecord.beanRoaster } });
+    expect(written.status).toBe(200);
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ profileId: CLASSIC, beanBatchId: brazilBatch });
+    await expect.poll(async () => [profile(c).title, context(c).beanBatchId], { timeout: 15_000 }).toEqual(["Classic Italian espresso", await localId(c, "/bean-batches", brazilBatch)]);
+    await quiet();
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+    expect(dye2.a.cleared).toEqual([]);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("takes no batch of an Archived Bean, Archived batch or batch finished at the Location picked on A, in its Workflow or written into its record, the Recipe keeping its Bean and batch, which are written back into the record, A's Workflow keeping its pick with the Recipe loaded, and nothing offered or added at the Location (#570)", async () => {
+    const { here, machines, a, c, one, quiet } = await lab("Retired", 48381);
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const brazil = (await api.get<{ batch: { bean: { id: string } } }>(`/bean-batches/${brazilBatch}`)).batch.bean.id;
+    const retiredBean = (await api.send<{ bean: { id: string } }>("POST", "/beans", { content: { roaster: "Fixture Roasters", name: "Retired lab Bean" } }, 201)).bean.id;
+    const batchOf = async (beanId: string) =>
+      (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    const ofArchivedBean = await batchOf(retiredBean);
+    const archivedBatch = await batchOf(brazil);
+    for (const batch of [ofArchivedBean, archivedBatch]) await expect.poll(() => localId(a, "/bean-batches", batch), { timeout: 15_000 }).toEqual(expect.any(String));
+    // A keeps its records of them, marked archived: its map still holds them.
+    await api.send("PUT", `/beans/${retiredBean}/archived`, { archived: true });
+    await api.send("PUT", `/bean-batches/${archivedBatch}/archived`, { archived: true });
+    await api.send("PUT", `/bean-batches/${brazilBatch}/locations/${here.id}`, { atLocation: false });
+    await quiet();
+    const picks = [
+      { batch: ofArchivedBean, bean: retiredBean },
+      { batch: archivedBatch, bean: brazil },
+      { batch: brazilBatch, bean: brazil },
+    ];
+    const content = (await recipe(one)).content;
+    const versionsBefore = (await versions(one)).length;
+    /** Where each batch is, and each Bean is offered. */
+    const placed = async () => ({
+      batches: await Promise.all(
+        picks.map(async ({ batch }) => {
+          const { archived, locations } = (await api.get<{ batch: { archived: boolean; locations: unknown[] } }>(`/bean-batches/${batch}`)).batch;
+          return { archived, locations };
+        }),
+      ),
+      beans: await Promise.all([retiredBean, brazil].map(async (bean) => (await api.get<{ bean: { offeredAt: unknown[] } }>(`/beans/${bean}`)).bean.offeredAt)),
+    });
+    const before = await placed();
+    const held = [record(a, ETHIOPIA)?.beanId, record(a, ETHIOPIA)?.beanBatchId];
+    const heldOnC = [record(c, ETHIOPIA)?.beanId, record(c, ETHIOPIA)?.beanBatchId, context(c).beanBatchId];
+    const received = a.received.length;
+    for (const pick of picks) {
+      const localBatch = (await localId(a, "/bean-batches", pick.batch))!;
+      const localBean = (await localId(a, "/beans", pick.bean))!;
+      expect([localBatch, localBean]).not.toContain(undefined);
+      // In the Workflow: A's own, the Recipe loaded.
+      await a.changeSettings({ context: { beanBatchId: localBatch } });
+      await quiet();
+      expect((await recipe(one)).content).toEqual(content);
+      expect(context(a).beanBatchId).toBe(localBatch);
+      // Written into A's record, as a Skin does: no edit, and the Recipe's own is written back over it.
+      await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, beanId: localBean, beanBatchId: localBatch }));
+      await expect.poll(() => [record(a, ETHIOPIA)?.beanId, record(a, ETHIOPIA)?.beanBatchId], { timeout: 15_000 }).toEqual(held);
+      await quiet();
+      expect((await recipe(one)).content).toEqual(content);
+      expect(context(a).beanBatchId).toBe(localBatch);
+    }
+    expect((await versions(one)).length).toBe(versionsBefore);
+    expect(loadedRecipeWrites(a, received).filter((fields) => "context.beanBatchId" in fields)).toEqual([]);
+    expect([record(c, ETHIOPIA)?.beanId, record(c, ETHIOPIA)?.beanBatchId, context(c).beanBatchId]).toEqual(heldOnC);
+    expect(await placed()).toEqual(before);
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 

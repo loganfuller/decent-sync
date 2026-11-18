@@ -20,7 +20,7 @@ import type { FieldEdits } from "../src/library/merge.js";
 import { withoutOwnEdits } from "../src/library/recipe-intake.js";
 
 // How the parts of a Workflow that follow its Loaded Recipe map to the
-// Recipe's content, both ways (ADR-0022, tickets #146, #173, #216 and #550):
+// Recipe's content, both ways (ADR-0022, tickets #146, #173, #216, #550 and #570):
 // which DYE2 saves into the Recipe's record, which Decent Sync takes in
 // itself, and what is written into a Workflow that has it loaded, or cleared
 // from it, of what changed since it took the Recipe. Ids are made up.
@@ -143,16 +143,25 @@ describe("What Decent Sync takes into a Recipe from its Machine's Workflow", () 
       [NEXT_BAG, BEAN],
       [OTHER_BEANS_BATCH, "55555555-5555-4555-8555-555555555555"],
     ]),
+    retired: new Set<string>(),
   };
   const locals: Record<string, string> = { [`grinder:${GRINDER}`]: "g1", [`basket:${BASKET}`]: "k1", [`beanBatch:${BATCH}`]: "b1" };
   const local = (kind: string, itemId: string) => locals[`${kind}:${itemId}`];
 
-  it("is a Grinder of the Location, and a batch of the Recipe's Bean, changed on the Machine, but not a batch of another Bean or a value cleared", () => {
+  it("is a Grinder of the Location, and a batch, changed on the Machine, with its Bean where it is another Bean's (#570), but not a batch the Library retired, a Grinder of no Location's or a value cleared", () => {
     const target = recipeParts(CONTENT, local);
     const changed = { ...HELD, grinder: "g2", batch: "b2" };
     expect(valuesFromWorkflow(CONTENT, target, HELD, changed, context)).toEqual({ values: { grinderId: OTHER_GRINDER, beanBatchId: NEXT_BAG }, parts: ["grinder", "batch"] });
-    // A batch of another Bean, a Grinder of no Location's, a value cleared: the Machine's own.
-    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch: "b3", grinder: "g9", basket: null, dose: null }, context)).toEqual({ values: {}, parts: [] });
+    // A batch of another Bean: the Recipe's batch, and its Bean.
+    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch: "b3" }, context)).toEqual({
+      values: { beanBatchId: OTHER_BEANS_BATCH, beanId: "55555555-5555-4555-8555-555555555555" },
+      parts: ["batch"],
+    });
+    // A batch the Library retired, Archived, of an Archived Bean or finished at the Location, of the Recipe's Bean or
+    // another, a Grinder of no Location's, a value cleared: the Machine's own.
+    const retired = { ...context, retired: new Set([NEXT_BAG, OTHER_BEANS_BATCH]) };
+    for (const batch of ["b2", "b3"]) expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, batch }, retired)).toEqual({ values: {}, parts: [] });
+    expect(valuesFromWorkflow(CONTENT, target, HELD, { ...HELD, grinder: "g9", basket: null, dose: null, batch: null }, context)).toEqual({ values: {}, parts: [] });
     // A Recipe naming no Bean takes a batch picked while it is loaded with its Bean, as any change.
     const { beanId: _, beanBatchId: __, ...beanless } = CONTENT;
     expect(valuesFromWorkflow(beanless, recipeParts(beanless, local), HELD, { ...HELD, batch: "b3" }, context).values).toEqual({
@@ -226,7 +235,7 @@ describe("The parts of its Loaded Recipe a Workflow is due", () => {
     expect(Object.values(dueParts(target, HELD, { ...base, dose: 18.5 })).every((part) => part === undefined)).toBe(true);
   });
 
-  it("are not the Machine's own since, a batch of another Bean, a value cleared or steam off, until the Recipe changes them", () => {
+  it("are not the Machine's own since, a batch the Library retired, a value cleared or steam off, until the Recipe changes them", () => {
     const target = recipeParts(CONTENT, local);
     const base = heldAlready(target, HELD);
     const own = { ...HELD, batch: "b9", dose: null, steamTemperature: 0 };

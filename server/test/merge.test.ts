@@ -80,6 +80,22 @@ describe("mergeEdit", () => {
     });
   });
 
+  it("decides fields that name one choice together as one where the edit holds them all: losing either, it loses both (#570)", () => {
+    // A Recipe's Bean last set at 09:00, and its batch, of that Bean, picked on Uptown at 10:00. Belmont picked another
+    // Bean's batch at 09:30, with its Bean, without having seen either.
+    const recipe = { beanId: "ethiopia", beanBatchId: "ethiopia-2" };
+    const recipeEdits: FieldEdits = { beanId: edits.roaster!, beanBatchId: edits.notes! };
+    const pick = { values: { beanId: "brazil", beanBatchId: "brazil-1" }, at: at("09:30:00.000"), tabletId: BELMONT, seenAt: null };
+    const together = [["beanId", "beanBatchId"]];
+    expect(mergeEdit(recipe, recipeEdits, pick)).toEqual({ applied: { beanId: "brazil" }, lost: { beanBatchId: "brazil-1" }, overwritten: [expect.objectContaining({ field: "beanId" })] });
+    expect(mergeEdit(recipe, recipeEdits, pick, together)).toEqual({ applied: {}, lost: { beanId: "brazil", beanBatchId: "brazil-1" }, overwritten: [] });
+    // One made after both wins both; one holding only the batch is decided as any field.
+    expect(mergeEdit(recipe, recipeEdits, { ...pick, at: at("10:05:00.000") }, together).applied).toEqual({ beanId: "brazil", beanBatchId: "brazil-1" });
+    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanBatchId: "ethiopia-3" } }, together)).toEqual({ applied: {}, lost: { beanBatchId: "ethiopia-3" }, overwritten: [] });
+    // A field of the choice that the edit leaves as it is loses with it and is kept as no Conflict.
+    expect(mergeEdit(recipe, recipeEdits, { ...pick, values: { beanId: "ethiopia", beanBatchId: "ethiopia-3" } }, together)).toEqual({ applied: {}, lost: { beanBatchId: "ethiopia-3" }, overwritten: [] });
+  });
+
   it("lets an edit made at the same time as the field's latest win, as the later to arrive", () => {
     const merged = mergeEdit(current, edits, { values: { notes: "Jasmine" }, at: at("10:00:00.000"), tabletId: BELMONT, seenAt: null });
     expect(merged.applied).toEqual({ notes: "Jasmine" });

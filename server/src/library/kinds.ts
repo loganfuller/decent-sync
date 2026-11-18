@@ -189,6 +189,8 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   editedIn: string | null;
   /** The values edits merge, from its content as the Library keeps it. */
   values(content: Record<string, unknown>): Record<string, unknown>;
+  /** Fields of those values that name one choice together, decided as one by an edit holding them all (`mergeEdit`); none where left out. */
+  together?: readonly (readonly string[])[];
   /** The values edits merge, from a tablet's record of it, as Decaid sends it. */
   recordValues(record: Record<string, unknown>): Record<string, unknown>;
   /** Columns kept from its content, set as an edit changes it, such as a Bean's roaster and name as Beans are matched; empty for none. */
@@ -346,6 +348,20 @@ const RECIPE_FIELDS: Readonly<Record<string, FieldType>> = {
   flushDuration: { min: 0, whole: true },
   flushFlow: { min: 1, max: 8 },
 };
+
+/**
+ * Whether the Bean Batch aliased `batch`, of the Bean aliased `bean`, is one
+ * the Location does not offer, so a Tablet's pick of it is not taken into a
+ * Recipe there (#570): Archived, of an Archived Bean, or not at the Location,
+ * never added there or finished there, as `holdings.offered` reads one; at
+ * no Location (null), every batch.
+ */
+export function batchRetiredSql(locationId: string | null): Prisma.Sql {
+  return Prisma.sql`(batch.archived OR bean.archived OR NOT EXISTS (
+    SELECT 1 FROM batch_locations AS here
+    WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
+  ))`;
+}
 
 /** Each kind of Library item, described once. */
 export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
@@ -672,6 +688,8 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     archivedIsContent: false,
     editedIn: null,
     values: (content) => content,
+    // Its Bean and Bean Batch are one pick: an edit that loses either loses both, so it never names one Bean and another's batch.
+    together: [["beanId", "beanBatchId"]],
     // A tablet's record names what it uses by the tablet's ids, so its content is written by the paths the server writes.
     recordValues: (record) => recipeView(record),
     keptColumns: () => Prisma.empty,

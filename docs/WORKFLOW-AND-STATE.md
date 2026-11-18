@@ -428,6 +428,24 @@ through `plugin/src/dye2.ts`, and writes what the pure
   profile, and DYE2 clears `recipeId` a moment later, so a save in between
   would write the new profile's brew temperature into the Recipe. A call
   that fails is logged, and the next change calls again.
+- **Reading a Skin's record write.** A change naming the Loaded Recipe that
+  moves its bean (`context.beanBatchId`, `coffeeName` or `coffeeRoaster`)
+  or its profile, by `dye2Fingerprint`, from the Workflow before it
+  (`movedBeanOrProfile` in `loaded-recipe-rules.ts`) has the plugin read
+  DYE2's recipes too (`readSoon`, #570): a Skin that edits the Loaded Recipe
+  writes its record before the Workflow, and Decaid's store announces no
+  write. The read takes its turn among the reads and writes of the tablet's
+  lists, so it follows a save of DYE2's under way rather than racing it,
+  queues the recipes connected or not (`recipesNow`), the tablet's Profiles
+  read and queued before them where a record names one not among those
+  last read, as on every read of the recipes, so a record naming a profile
+  just saved on the tablet names one the server has, and holds the change
+  back until then, so the server takes the
+  record's edit first. One read
+  waiting its turn covers the changes after it, and it reaches `decide` as
+  no change, so queues no save. A dose, yield, grind or steam change reads
+  nothing more than before: a stepper's change already has DYE2 save, and
+  where DYE2 saved, the plugin reads the recipes then.
 - **Steam turned back on.** Turning steam back on takes the Loaded
   Recipe's steam temperature and steam time, as turning it off is no edit
   (ADR-0022, Steam on and off, #374, #394). A change naming the Loaded
@@ -607,7 +625,7 @@ already (`base`). A Workflow naming nothing forgets it.
 ### Following the Recipe
 
 Tickets [#146](https://github.com/loganfuller/decent-sync/issues/146),
-#173, #177, #187 and #216 have a Machine follow its Loaded Recipe both ways
+#173, #177, #187, #216 and #570 have a Machine follow its Loaded Recipe both ways
 (ADR-0022). The parts of a Workflow that follow it are its Profile,
 Grinder, dose, yield, grind setting, RPM, feed rate (`context.extras.feedRate`,
 text as typed, from #395), Basket, Bean Batch, brew
@@ -682,16 +700,34 @@ parts to the Recipe's content both ways.
   the pick brings the grinder's defaults, or none where it declares neither
   (`grinderDefaultsPatch` in `dye2:dye2-plugin/src/utils/grinder-form.ts`,
   #550), so every Machine with the Recipe loaded ends on the same Grinder
-  and numbers; and a Bean Batch of the Recipe's own Bean, or any
-  batch, with its Bean, for a Recipe naming no Bean. A grind setting is taken as typed, a number where it reads as one
+  and numbers; and a Bean Batch, with its Bean where it is another Bean's,
+  which the owner decided on 2026-11-18 for every Skin (#570), but one the
+  Library retired: Archived, of an Archived Bean, or not at the Recipe's
+  Location, never added there or finished there
+  (`WorkflowValuesContext.retired`), which nothing adds there. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment
-  later. A part recorded is taken as the Workflow having taken it (`base`),
+  later, but for one onto the profile the tablet's record of the Recipe
+  holds, which DYE2 keeps it named through (`recordHoldsProfile`, #570). A part recorded is taken as the Workflow having taken it (`base`),
   but one that lost to an edit the tablet had not seen, which is written
   back. The Recipe's tablets are written the edit, and the Workflows of the
   other Machines that have it loaded.
-- **What stays the Machine's own.** A batch of another Bean, which keeps
+- **A Skin's write of the record.** A record a Skin writes before the
+  Workflow is taken in as any edit of the record is (`LIBRARY.md`, Taking
+  in a tablet's recipes; `PLUGIN.md`, Writing DYE2's recipes), the plugin
+  reading it as the Workflow change moves the bean or the profile (Reading
+  a Skin's record write, above), so the record's edit comes first. Where
+  the Workflow comes first, as from the previous release's plugin, the
+  record then holds the batch the server took from the Workflow already,
+  which is dropped as that tablet's own edit (`withoutOwnEdits`), and the
+  name it carries is still taken. A record naming an Archived Bean, a batch
+  held with its Bean that the Library retired, or a `profileId` that is none
+  of the Library's Profiles is not taken: the Recipe keeps its own of
+  those fields, written back over the record's (`refusedPaths`), in a
+  report and in a write's answer alike, while the record's other edits, as
+  its name, are taken as any are.
+- **What stays the Machine's own.** A batch the Library retired, which keeps
   the Recipe loaded, its Shots linked to it; a value cleared, but the grind
   setting and RPM a Grinder's pick left; steam turned
   off; and a steam setting changed while steam is off, which DYE2 does not
