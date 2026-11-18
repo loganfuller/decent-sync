@@ -811,6 +811,21 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 
+  it("takes no `profileId` a Skin writes into A's record that is none of the Library's Profiles, writing the Recipe's back into the record, the Recipe unchanged and loaded (#570)", async () => {
+    const { machines, a, c, one, quiet } = await lab("Unknown profile", 48421);
+    const { profileId } = (await recipe(one)).content as { profileId: string };
+    await quiet();
+    const versionsBefore = (await versions(one)).length;
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: "profile:000000000000000000ff" }));
+    // Read at A's next poll, refused, and written back.
+    await expect.poll(() => record(a, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(profileId);
+    await quiet();
+    expect((await recipe(one)).content.profileId).toBe(profileId);
+    expect((await versions(one)).length).toBe(versionsBefore);
+    expect(record(c, ETHIOPIA)?.profileId).toBe(profileId);
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
   it("takes a batch picked on A as a Recipe naming no Bean's, with its Bean, as any change, writing it into C's, the Recipe loaded", async () => {
     const { machines, a, c, one, quiet } = await lab("No bean bag", 48701);
     // The Recipe left with no Bean in the management interface: its records hold the nulls for one, and the Machines keep
