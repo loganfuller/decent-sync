@@ -718,9 +718,10 @@ parts to the Recipe's content both ways.
   which is dropped as that tablet's own edit (`withoutOwnEdits`), and the
   name it carries is still taken. A record naming an Archived Bean, a batch
   held with its Bean that the Library retired, or a `profileId` that is none
-  of the Library's Profiles changes no Recipe, and the Recipe's own is
-  written back over it (`refusedPaths`), in a report and in a write's
-  answer alike.
+  of the Library's Profiles is not taken: the Recipe keeps its own of
+  those fields, written back over the record's (`refusedPaths`), in a
+  report and in a write's answer alike, while the record's other edits, as
+  its name, are taken as any are.
 - **What stays the Machine's own.** A batch the Library retired, which keeps
   the Recipe loaded, its Shots linked to it; a value cleared, but the grind
   setting and RPM a Grinder's pick left; steam turned
