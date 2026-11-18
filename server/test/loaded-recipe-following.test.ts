@@ -1290,6 +1290,39 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(await beanTaken(one)).toEqual([null, null]);
   });
 
+  it("writes the removal of a Recipe's Bean into A's Workflow where A held the batch the Recipe then took, as its own, then cleared it and typed a coffee (#572)", async () => {
+    const { here, a, c, one, quiet } = await lab("Held bean", 48861);
+    const roaster = "Held Bean Roasters";
+    await patch(one, { beanBatchId: null });
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    const peru = await newBean(roaster, "Held Peru");
+    const batch = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: peru, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    let local: unknown;
+    await expect.poll(async () => (local = await localId(a, "/bean-batches", batch)), { timeout: 15_000 }).toEqual(expect.any(String));
+    // Archived, A keeps its record: picked on A, it stays A's own, and the Recipe names none.
+    await api.send("PUT", `/bean-batches/${batch}/archived`, { archived: true });
+    await quiet();
+    await a.changeSettings({ context: { beanBatchId: local, coffeeName: "Held Peru", coffeeRoaster: roaster } });
+    await quiet();
+    expect((await recipe(one)).content).not.toHaveProperty("beanBatchId");
+    // Offered again and set as the Recipe's: A holds it already, so it is written nothing.
+    await api.send("PUT", `/bean-batches/${batch}/archived`, { archived: false });
+    await patch(one, { beanBatchId: batch });
+    await expect.poll(async () => coffee(c), { timeout: 15_000 }).toEqual([await localId(c, "/bean-batches", batch), "Held Peru", roaster]);
+    await quiet();
+    // A clears the batch and types a coffee, its own: the Recipe keeps both.
+    await a.changeSettings({ context: { beanBatchId: null, coffeeName: "Typed on A" } });
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ beanBatchId: batch, beanId: peru });
+    expect(await beanTaken(one)).toEqual([peru, peru]);
+    // The batch, and with it the Bean, cleared in the management interface: written into both, A's typed coffee too.
+    await patch(one, { beanBatchId: null });
+    for (const tablet of [a, c]) await expect.poll(() => coffee(tablet), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    expect(await beanTaken(one)).toEqual([null, null]);
+  });
+
   it("writes the Recipe's Bean into C's Workflow where C applied an out-of-date copy of a Recipe naming no batch, holding the Bean it named before (#572)", async () => {
     const { machines, c, one, two, load, quiet } = await lab("Stale bean", 48841);
     const roaster = "Stale Bean Roasters";

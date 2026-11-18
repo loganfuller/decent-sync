@@ -302,6 +302,12 @@ describe("The parts of its Loaded Recipe a Workflow is due", () => {
     const base = { ...heldAlready(target, HELD), [BEAN_TAKEN]: BEAN };
     expect(dueParts(target, HELD, base, OTHER_BEAN)).toMatchObject({ batch: undefined });
     expect(dueParts(target, HELD, base, OTHER_BEAN).beanDue).toBeUndefined();
+    // One naming a batch the tablet holds no record of yet waits for it, a Workflow holding none included.
+    const unmapped = recipeParts(CONTENT, (kind, itemId) => (kind === "beanBatch" ? undefined : local(kind, itemId)));
+    expect(unmapped.batch).toBeUndefined();
+    const none = { ...HELD, batch: null };
+    expect(dueParts(unmapped, none, { ...heldAlready(unmapped, none), [BEAN_TAKEN]: BEAN }, OTHER_BEAN)).toMatchObject({ batch: undefined });
+    expect(dueParts(unmapped, none, { ...heldAlready(unmapped, none), [BEAN_TAKEN]: BEAN }, OTHER_BEAN).beanDue).toBeUndefined();
   });
 
   it("carry the Recipe's brew temperature with a Profile written whole", () => {

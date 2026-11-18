@@ -267,11 +267,8 @@ async function followMachine(
     // A change of profile DYE2 clears the recipe on a moment later is no edit of it; one onto the profile the tablet's record
     // holds, as a Skin writes the record first, DYE2 keeps the recipe named through, so the rest of it is taken (#570).
     const unloading = (await profileChanged(tx, tablet.machineId, workflow)) && !(await recordHoldsProfile(tx, tablet.tabletId, recipe.id, workflow));
-    const { recorded, lost, bean } = unloading ? { recorded: [], lost: [], bean: undefined } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
+    const { recorded, lost } = unloading ? { recorded: [], lost: [] } : await recordFromWorkflow(tx, tablet, recipe, known.held, now, observedAt);
     for (const part of recorded) base[part] = now[part];
-    // A batch picked on the Machine and taken into the Recipe brought its Bean's coffee into the Workflow: that Bean is
-    // the one it took, so a later change of the Recipe's Bean, as its removal, is written over it (#572).
-    if (bean !== undefined) base[BEAN_TAKEN] = bean;
     // A part the Workflow holds, or held before this change, as the Recipe does has taken it, however it came there, as
     // DYE2's editor applies a save of the Recipe again, which may reach the server before the save: a change of it on the
     // Machine since, as a value cleared, is the Machine's own, not written back. But not one whose change lost to an edit
@@ -280,6 +277,11 @@ async function followMachine(
     const target = await targetParts(tx, tablet.tabletId, recipe.id);
     if (target !== null) Object.assign(base, heldAlready(target, known.held), heldAlready(target, now));
     for (const part of lost) delete base[part];
+    // A Workflow holding the Recipe's batch, or holding it before this change, holds that batch's Bean's coffee, as one
+    // picked on the Machine and taken into the Recipe, or held already as the Recipe took it: the Recipe's Bean is the one
+    // it took, so a later change of it, as its removal, is written over a coffee typed there once the batch is cleared (#572).
+    const batch = target?.batch;
+    if (typeof batch === "string" && (samePart("batch", now.batch, batch) || samePart("batch", known.held.batch, batch))) base[BEAN_TAKEN] = recipeBean(recipe.content);
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -346,7 +348,7 @@ async function recordHoldsProfile(tx: Prisma.TransactionClient, tabletId: string
  * per field with Conflicts (ADR-0020), judged by what the tablet's record of
  * the Recipe has seen. Returns the parts recorded, and those that lost to an
  * edit the tablet had not seen, which the Recipe's value is written back
- * over, with the Bean of the batch recorded, if it was, by its global id. The Recipe's tablets are written the edit, and so are the Workflows
+ * over. The Recipe's tablets are written the edit, and so are the Workflows
  * of the Machines that have it loaded.
  */
 async function recordFromWorkflow(
@@ -356,7 +358,7 @@ async function recordFromWorkflow(
   held: WorkflowParts,
   now: WorkflowParts,
   observedAt: string,
-): Promise<{ recorded: LoadedRecipePart[]; lost: LoadedRecipePart[]; bean?: string }> {
+): Promise<{ recorded: LoadedRecipePart[]; lost: LoadedRecipePart[] }> {
   const local = await tabletLocals(tx, tablet.tabletId);
   const target = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
   const grinders = await tx.$queryRaw<{ id: string }[]>`
@@ -385,8 +387,7 @@ async function recordFromWorkflow(
   // Only those the Recipe holds now as the Workflow does: one that lost to an edit the tablet had not seen is written back.
   const nowTarget = recipeParts(recipe.content, (kind, itemId) => local.local(kind, itemId));
   const recorded = parts.filter((part) => samePart(part, nowTarget[part], now[part]));
-  const bean = recorded.includes("batch") ? beans[0]?.beanId.toLowerCase() : undefined;
-  return { recorded, lost: parts.filter((part) => !recorded.includes(part)), bean };
+  return { recorded, lost: parts.filter((part) => !recorded.includes(part)) };
 }
 
 /** The Library Profile a Workflow's profile is, found as a Shot's is (`profileOfSql`), or null. */
