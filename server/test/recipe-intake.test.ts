@@ -213,11 +213,19 @@ describe("DYE2's recipes as Recipes", () => {
     expect(libraryValues(withBatch(LOCAL.ethiopiaBatch), ["beanBatchId"], { beanId: GLOBAL.ethiopia, beanBatchId: GLOBAL.laterEthiopiaBatch }, intake())).toEqual({
       beanBatchId: GLOBAL.ethiopiaBatch,
     });
-    // A batch of another Bean than the record's, or one the map does not hold, is none: the Bean's rule stands.
+    // Picked on its own for the record's Bean where the Recipe names another Bean since: with that Bean, as one pick (#570).
+    expect(libraryValues(withBatch(LOCAL.ethiopiaBatch), ["beanBatchId"], { beanId: GLOBAL.brazil, beanBatchId: "brazil-batch" }, intake())).toEqual({
+      beanId: GLOBAL.ethiopia,
+      beanBatchId: GLOBAL.ethiopiaBatch,
+    });
+    // A batch of another Bean than the record's, or one the map does not hold, is none: the Bean's rule stands where the
+    // Bean changed, and nothing changes where it did not (`beanId` wins), whatever batch the Recipe holds (#570).
     expect(libraryValues(withBatch(LOCAL.ethiopiaBatch, LOCAL.brazil), ["beanId", "beanBatchId"], {}, intake())).toEqual({ beanId: GLOBAL.brazil, beanBatchId: null });
-    expect(libraryValues(withBatch("batch-of-its-own"), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({ beanBatchId: GLOBAL.ethiopiaBatch });
-    // A record holding no batch keeps the Recipe's of its Bean.
-    expect(libraryValues(withBatch(null), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({ beanBatchId: GLOBAL.ethiopiaBatch });
+    expect(libraryValues(withBatch("batch-of-its-own"), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({});
+    expect(libraryValues(withBatch(LOCAL.ethiopiaBatch, LOCAL.brazil), ["beanBatchId"], { beanId: GLOBAL.brazil }, intake())).toEqual({});
+    expect(libraryValues(withBatch("batch-of-its-own"), ["beanBatchId"], { beanId: GLOBAL.ethiopia }, intake())).toEqual({});
+    // A record holding no batch under its Bean changes nothing either: the Recipe keeps its own.
+    expect(libraryValues(withBatch(null), ["beanBatchId"], { beanBatchId: GLOBAL.ethiopiaBatch }, intake())).toEqual({});
   });
 
   it("keeps a Recipe's batch of the Bean picked, or takes that Bean's batch most recently added at the Location, or none", () => {

@@ -1411,7 +1411,8 @@ are never matched (ADR-0018).
   that Bean's batch most recently added at the Location, still there, or no
   batch where the Bean has none there. `beanId` wins: a `beanBatchId`
   changed under the Bean the record names already is taken where the batch
-  is of that Bean, and otherwise changes nothing. A record naming an
+  is of that Bean, with that Bean where the Recipe names another since, as
+  one pick (Merging, above), and otherwise changes nothing. A record naming an
   Archived Bean, or holding with its Bean a batch that is Archived, of an
   Archived Bean or not at the Recipe's Location (never added there, or
   finished there), changes neither: the Recipe keeps its Bean and batch, which are written

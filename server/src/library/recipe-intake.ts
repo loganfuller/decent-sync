@@ -352,10 +352,21 @@ export function libraryValues(view: Readonly<RecipeView>, fields: Iterable<strin
     // The batch DYE2 holds with its Bean, as its editor's picker chose it (decentespresso/dye2#27); a record naming a batch
     // and no Bean, as DYE2's `save-recipe` saves one from the Workflow, names the batch's Bean.
     const { picked, fromBatch, beanId } = beanPick(view, context);
-    if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
-    const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
-    if (picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId) values.beanBatchId = picked;
-    else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
+    const heldWithBean = picked !== null && beanId !== null && context.batchBeans.get(picked) === beanId;
+    if (!changed.has("beanId") && typeof view.beanId === "string") {
+      // `beanId` wins: a batch changed under the Bean the record names is taken only where it is of that Bean, and then with
+      // it where the Recipe names another since, as one pick decided with its Bean (`together` in kinds.ts); otherwise
+      // it changes nothing.
+      if (heldWithBean) {
+        values.beanBatchId = picked;
+        if (current.beanId !== beanId) values.beanId = beanId;
+      }
+    } else {
+      if (changed.has("beanId") || fromBatch !== null) values.beanId = beanId;
+      const kept = typeof current.beanBatchId === "string" && beanId !== null && context.batchBeans.get(current.beanBatchId) === beanId;
+      if (heldWithBean) values.beanBatchId = picked;
+      else values.beanBatchId = kept ? current.beanBatchId : beanId === null ? null : (context.latestBatches.get(beanId) ?? null);
+    }
   }
   if ((changed.has("profileId") && !refused.has("profileId")) || (changed.has("profileSnapshot") && typeof view.profileId !== "string")) {
     const named = typeof view.profileId === "string" && view.profileId !== "" ? view.profileId : context.snapshotProfile;

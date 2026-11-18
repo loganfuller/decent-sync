@@ -176,7 +176,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
   async function lab<WithD extends boolean = false>(
     scenario: string,
     serial: number,
-    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; d?: WithD } = {},
+    options: { pollSeconds?: number; apiDelayMs?: (method: string, path: string) => number; answerOnArrival?: boolean; d?: WithD } = {},
   ) {
     const here = await api.createLocation(`${scenario} lab`, "America/Chicago");
     const machines = {
@@ -185,7 +185,7 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
       d: options.d ? await api.createMachine(`${scenario} lab D`, here.id) : undefined,
     };
     const dye2 = { a: new SimulatedDye2(), c: new SimulatedDye2(), d: options.d ? new SimulatedDye2() : undefined };
-    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs });
+    const a = syncingTablet(machines.a, server, { api: recordedDye2MainTablet(String(serial), scenario), dye2: dye2.a, pollSeconds: options.pollSeconds, apiDelayMs: options.apiDelayMs, answerOnArrival: options.answerOnArrival });
     await api.waitForOnline(machines.a);
     await expect.poll(() => [ETHIOPIA, BRAZIL].map((id) => dye2GlobalIdOf(record(a, id))), { timeout: 15_000 }).not.toContain(null);
     const c = syncingTablet(machines.c, other, { api: dye2NeverUsed(String(serial + 1)), dye2: dye2.c });
@@ -434,6 +434,35 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(recipeReads(a)).toBeGreaterThan(recipeReadsBefore);
     await expect.poll(() => record(c, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(CLASSIC);
     expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+  });
+
+  it("takes in a Skin's record edit of the Recipe's batch and name made while the plugin's write of the Recipe's new batch into A's Workflow waits for its answer, as the Workflow's batch put back is the Recipe's edit, which the server writes into A's record, reading its recipes (#570)", async () => {
+    // Decaid carries the plugin's write out as it arrives, and its answer is held below.
+    const { here, a, c, one, quiet } = await lab("Skin bean during write", 48411, { pollSeconds: 3600, answerOnArrival: true });
+    // As in the Skin's write test below: no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    const bean = (await recipe(one)).content.beanId as string;
+    const first = (await recipe(one)).content.beanBatchId as string;
+    const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    const nextLocal = await expect.poll(() => localId(a, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String)).then(() => localId(a, "/bean-batches", next));
+    await quiet();
+    const firstLocal = context(a).beanBatchId;
+    // The server's write of the new batch into A's record, then into its Workflow, whose answer is held: within Decaid's
+    // 30 s fetch timeout, 600 ms here, the Skin writes the record with the first batch and a name, then the Workflow's batch.
+    const held = a.holdRequests("PUT", "/workflow");
+    await patch(one, { beanBatchId: next });
+    await expect.poll(() => [record(a, ETHIOPIA)?.beanBatchId, held.arrived], { timeout: 15_000 }).toEqual([nextLocal, 1]);
+    expect(context(a).beanBatchId).toBe(nextLocal);
+    const reads = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, name: "Fixture First Bag", beanBatchId: firstLocal }));
+    await a.changeSettings({ context: { beanBatchId: firstLocal } });
+    // Judged from the Workflow before the write, the batch did not move, so the plugin does not read the recipes for it
+    // (`readSoon`); the server's write of the batch back into A's record reads them, name and all.
+    held.release();
+    await expect.poll(async () => (await recipe(one)).content, { timeout: 15_000 }).toMatchObject({ name: "Fixture First Bag", beanBatchId: first });
+    expect(recipeReads(a)).toBeGreaterThan(reads);
+    await expect.poll(() => record(c, ETHIOPIA)?.name, { timeout: 15_000 }).toBe("Fixture First Bag");
   });
 
   it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
