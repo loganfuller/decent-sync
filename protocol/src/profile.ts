@@ -488,9 +488,16 @@ export function outOfRange(profile: Profile): HeldValue[] {
 export function holdToLimits(profile: Profile): { profile: Profile; held: HeldValue[] } {
   const held = outOfRange(profile);
   if (held.length === 0) return { profile, held };
-  const copy = JSON.parse(JSON.stringify(profile)) as Profile;
+  const copy = copied(profile) as Profile;
   for (const { path, to } of held) setPath(copy, path, to);
   return { profile: copy, held };
+}
+
+/** A deep copy of plain data, keeping each number as it is, as JSON would not a -0, which Decaid hashes as written. */
+function copied(value: unknown): unknown {
+  if (Array.isArray(value)) return value.map(copied);
+  if (isObject(value)) return Object.fromEntries(Object.entries(value).map(([key, entry]) => [key, copied(entry)]));
+  return value;
 }
 
 function setPath(target: unknown, path: string, value: number): void {

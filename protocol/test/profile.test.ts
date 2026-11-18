@@ -217,6 +217,14 @@ describe("the limits", () => {
     expect(holdToLimits(flowExit).profile.steps[0]!.exit).toEqual({ type: "flow", condition: "under", value: 8 });
   });
 
+  it("hold only what is out of range, keeping a tank temperature of -0.0, which Decaid hashes as written", () => {
+    const profile = plain();
+    const signed: Profile = { ...profile, tank_temperature: -0, steps: [{ ...profile.steps[0]!, pump: "pressure", pressure: 13 }, ...profile.steps.slice(1)] };
+    const { profile: held, held: report } = holdToLimits(signed);
+    expect(report).toEqual([{ step: 0, path: "steps.0.pressure", from: 13, to: 12 }]);
+    expect(Object.is(held.tank_temperature, -0)).toBe(true);
+  });
+
   it("leave a profile within them as it is", () => {
     const profile = plain();
     const { profile: held, held: report } = holdToLimits(profile);

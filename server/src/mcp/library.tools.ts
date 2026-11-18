@@ -356,13 +356,13 @@ export type ItemOutput = z.infer<typeof itemOutput>;
 export type ConflictOutput = z.infer<typeof conflict>;
 
 /**
- * What the machine executes of a Profile, in its record and in its profile
- * as Decaid reads it, given as it is (`Budget.whole`): its numbers rounded
- * would be another profile, with another id. Its title, author and notes
- * are free text still.
+ * What Decaid hashes of a Profile for its id (`profileId`), in its record
+ * and in its profile as Decaid reads it, given as it is (`Budget.whole`):
+ * rounded or cut, it would be another profile, with another id. Its title,
+ * author and notes are free text still.
  */
 export const PROFILE_WHOLE = ["/profile/content/profile", "/profile/profile"].flatMap((profile) =>
-  ["steps", "tank_temperature", "target_weight", "target_volume"].map((field) => `${profile}/${field}`),
+  ["version", "beverage_type", "steps", "tank_temperature", "target_weight", "target_volume", "target_volume_count_start"].map((field) => `${profile}/${field}`),
 );
 
 /**
