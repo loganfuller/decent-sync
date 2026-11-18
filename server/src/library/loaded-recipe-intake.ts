@@ -205,7 +205,7 @@ export interface WorkflowValuesContext {
   grinders: ReadonlySet<string>;
   /** Each Bean Batch's Bean, by their global ids. */
   batchBeans: ReadonlyMap<string, string>;
-  /** The Bean Batches the Library retired for the Recipe: each Archived, of an Archived Bean, or finished at its Location. */
+  /** The Bean Batches the Library retired for the Recipe: each Archived, of an Archived Bean, or not at its Location, as one never added there or finished there. */
   retired: ReadonlySet<string>;
 }
 
@@ -231,7 +231,7 @@ const PICKED_WITH_GRINDER = { grind: "grindSetting", rpm: "rpm" } as const satis
  * dye2:dye2-plugin/src/utils/grinder-form.ts), a dial position belonging to
  * the grinder it was read off; and a Bean Batch, with its Bean where it is
  * another Bean's (#570), but one the Library retired (`retired`): Archived,
- * of an Archived Bean, or finished at the Recipe's Location. Nothing is
+ * of an Archived Bean, or not at the Recipe's Location. Nothing is
  * taken on a load: this reads only a Workflow that goes on naming the
  * Recipe. A retired batch, a value cleared, and anything the map does not
  * hold stay the Machine's own. With the parts they record.

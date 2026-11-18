@@ -189,6 +189,8 @@ export interface LibraryKindDescription extends VersionedKindDescription {
   editedIn: string | null;
   /** The values edits merge, from its content as the Library keeps it. */
   values(content: Record<string, unknown>): Record<string, unknown>;
+  /** Fields of those values that name one choice together, decided as one by an edit holding them all (`mergeEdit`); none where left out. */
+  together?: readonly (readonly string[])[];
   /** The values edits merge, from a tablet's record of it, as Decaid sends it. */
   recordValues(record: Record<string, unknown>): Record<string, unknown>;
   /** Columns kept from its content, set as an edit changes it, such as a Bean's roaster and name as Beans are matched; empty for none. */
@@ -672,6 +674,8 @@ export const KINDS: { readonly [K in LibraryKind]: LibraryKindDescription } = {
     archivedIsContent: false,
     editedIn: null,
     values: (content) => content,
+    // Its Bean and Bean Batch are one pick: an edit that loses either loses both, so it never names one Bean and another's batch.
+    together: [["beanId", "beanBatchId"]],
     // A tablet's record names what it uses by the tablet's ids, so its content is written by the paths the server writes.
     recordValues: (record) => recipeView(record),
     keptColumns: () => Prisma.empty,

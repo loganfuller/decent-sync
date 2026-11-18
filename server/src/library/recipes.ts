@@ -167,12 +167,13 @@ async function intakeContext(
   // The Recipes' batches, and those the records hold, as DYE2's editor picks one with its Bean.
   const picked = views.flatMap((view) => (typeof view.beanBatchId === "string" ? [ids.item("beanBatch", view.beanBatchId)] : [])).filter((id): id is string => id !== undefined);
   const batches = [...current.flatMap((content) => (typeof content.beanBatchId === "string" ? [content.beanBatchId] : [])), ...picked];
-  // Each with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or finished at the Location.
+  // Each with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or not at the
+  // Location, as one never added there or finished there: the Location offers none of these.
   const batchBeans = await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
     SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
-      batch.archived OR bean.archived OR EXISTS (
+      batch.archived OR bean.archived OR NOT EXISTS (
         SELECT 1 FROM batch_locations AS here
-        WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.finished_at IS NOT NULL
+        WHERE here.batch_id = batch.id AND here.location_id = ${locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
       ) AS retired
     FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
     WHERE batch.id = ANY(${uuids(batches)}::uuid[])`;

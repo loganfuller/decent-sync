@@ -71,6 +71,11 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
  * another, is kept as a Conflict; one made earlier loses, and its value, if
  * another, is kept as a Conflict.
  *
+ * Fields that name one choice together (`together`), as a Recipe's Bean and
+ * its Bean Batch, are decided as one where the edit holds all of them: if it
+ * loses any, it loses each, so the item never holds one edit's value of one
+ * beside another's of the other.
+ *
  * Among edits made out of each other's sight, the order they arrive in
  * changes neither the value the field ends with nor that every other
  * tablet's last value is kept. It does change whether a tablet's own earlier
@@ -78,7 +83,12 @@ export function changedFields(known: Readonly<Record<string, unknown>>, now: Rea
  * next arrived stays a Conflict, though its tablet has since replaced it,
  * where its tablet's next arriving first would have replaced it unkept.
  */
-export function mergeEdit(current: Readonly<Record<string, unknown>>, edits: FieldEdits, edit: ContentEdit): Merged {
+export function mergeEdit(
+  current: Readonly<Record<string, unknown>>,
+  edits: FieldEdits,
+  edit: ContentEdit,
+  together: readonly (readonly string[])[] = [],
+): Merged {
   const merged: Merged = { applied: {}, lost: {}, overwritten: [] };
   for (const [field, value] of Object.entries(edit.values)) {
     const latest = Object.prototype.hasOwnProperty.call(edits, field) ? edits[field] : undefined;
@@ -91,6 +101,16 @@ export function mergeEdit(current: Readonly<Record<string, unknown>>, edits: Fie
     } else if (!same) {
       merged.lost[field] = value;
     }
+  }
+  for (const fields of together) {
+    if (!fields.every((field) => Object.prototype.hasOwnProperty.call(edit.values, field))) continue;
+    if (!fields.some((field) => Object.prototype.hasOwnProperty.call(merged.lost, field))) continue;
+    for (const field of fields) {
+      if (!Object.prototype.hasOwnProperty.call(merged.applied, field)) continue;
+      delete merged.applied[field];
+      if (!sameValue(current[field], edit.values[field])) merged.lost[field] = edit.values[field];
+    }
+    merged.overwritten = merged.overwritten.filter((replaced) => !fields.includes(replaced.field));
   }
   return merged;
 }

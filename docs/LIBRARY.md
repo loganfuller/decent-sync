@@ -389,7 +389,12 @@ Profile's are never edits, and never written.
   made earlier loses, and its value, if another, is kept as a Conflict, and
   the Library's value is written back to its tablet. An edit that decides a
   field is its latest edit even when it leaves it as it was, so an earlier
-  edit that arrives later cannot undo it. Each edit that decides a field is
+  edit that arrives later cannot undo it. A Recipe's Bean and Bean Batch
+  are one pick, decided as one by an edit holding both: losing either, it
+  loses both, each kept as a Conflict where it differs, so a Recipe never
+  names one edit's Bean beside another's batch, as when a batch of another
+  Bean picked on one Machine reaches the server after the Bean's next bag
+  picked on another (`together` in `kinds.ts`, #570). Each edit that decides a field is
   kept as a version, with the fields it decided. A Bean whose roaster or name
   is edited keeps its match key to them, so another Bean of the same roaster
   and name lists it as a likely duplicate; they are not merged (ADR-0018).
@@ -1405,10 +1410,11 @@ are never matched (ADR-0018).
   keeps the Recipe's batch if it is of that Bean; otherwise the Recipe takes
   that Bean's batch most recently added at the Location, still there, or no
   batch where the Bean has none there. `beanId` wins: a `beanBatchId`
-  changed under the Bean the record names already changes nothing. A record
-  naming an Archived Bean, or holding with its Bean a batch that is
-  Archived, of an Archived Bean or finished at the Recipe's Location,
-  changes neither: the Recipe keeps its Bean and batch, which are written
+  changed under the Bean the record names already is taken where the batch
+  is of that Bean, and otherwise changes nothing. A record naming an
+  Archived Bean, or holding with its Bean a batch that is Archived, of an
+  Archived Bean or not at the Recipe's Location (never added there, or
+  finished there), changes neither: the Recipe keeps its Bean and batch, which are written
   back over the record's, and nothing is offered or added at the Location
   (`refusedPaths`, #570). DYE2 never saves a batch picked on a Machine into
   the recipe, so Decent Sync records it: a batch picked on a Machine with

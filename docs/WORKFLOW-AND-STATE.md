@@ -698,9 +698,9 @@ parts to the Recipe's content both ways.
   #550), so every Machine with the Recipe loaded ends on the same Grinder
   and numbers; and a Bean Batch, with its Bean where it is another Bean's,
   which the owner decided on 2026-11-18 for every Skin (#570), but one the
-  Library retired: Archived, of an Archived Bean, or finished at the
-  Recipe's Location (`WorkflowValuesContext.retired`), which nothing adds
-  there again. A grind setting is taken as typed, a number where it reads as one
+  Library retired: Archived, of an Archived Bean, or not at the Recipe's
+  Location, never added there or finished there
+  (`WorkflowValuesContext.retired`), which nothing adds there. A grind setting is taken as typed, a number where it reads as one
   (`grindSettingOf`). It skips a Workflow
   whose profile, by `dye2Fingerprint`, differs from the Machine's Workflow
   stored before it (`profileChanged`), as DYE2 clears `recipeId` a moment

@@ -403,6 +403,39 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     await expect.poll(() => context(c).grinderSetting, { timeout: 15_000 }).toBe("9.9");
   });
 
+  it("reads A's recipes, and takes in a Skin's record edit of the Recipe's Profile, when the Skin changes the Workflow's profile alone while the plugin's write of a Recipe edit into A's Workflow waits for Decaid (#570)", async () => {
+    let slow = false;
+    // 25 s at the tablet's pace, within Decaid's 30 s fetch timeout: half a second here. A polls too seldom to read the
+    // recipes in this test.
+    const { a, c, one, quiet } = await lab("Skin during write", 48401, { pollSeconds: 3600, apiDelayMs: (method, path) => (slow && method === "PUT" && path === "/workflow" ? 25_000 : 0) });
+    // As in the Skin's write test below: DYE2's save answers as one that found nothing new, and an RPM change keeps the
+    // Workflow off the recipe, so no push of DYE2's reads the recipes.
+    a.refuseWrites = ({ method, route }) => (method === "POST" && route === `/plugins/${DYE2_NAMESPACE}/record` ? { status: 200, body: { saved: false } } : undefined);
+    await a.changeSettings({ context: { extras: { rpm: 950 } } });
+    await quiet();
+    // The Skin's profile keeps the Workflow's brew temperature, so nothing but the profile moves around the plugin's write.
+    const listed = (((await a.callApi("GET", "/profiles?includeHidden=true")).body as Record_[]).find((entry) => entry.id === CLASSIC)!).profile as Record_;
+    const temperature = (profile(a).steps as Record_[])[0]!.temperature;
+    const classic = { ...listed, steps: (listed.steps as Record_[]).map((step, index) => (index === 0 ? { ...step, temperature } : step)) };
+    const reads = a.requests.filter((route) => route === "/workflow").length;
+    slow = true;
+    await patch(one, { hotWaterVolume: 130 });
+    // The plugin reads the Workflow, then its write of the hot water waits; the Skin writes the record, then the Workflow's
+    // profile, meanwhile, and Decaid merges the write over it, answering with both.
+    await expect.poll(() => a.requests.filter((route) => route === "/workflow").length, { timeout: 15_000 }).toBeGreaterThan(reads);
+    await new Promise((resolve) => setTimeout(resolve, 150));
+    const recipeReadsBefore = recipeReads(a);
+    await writeRecord(a, ETHIOPIA, (entry) => ({ ...entry, profileId: CLASSIC, profileTitle: classic.title, profileSnapshot: classic, workflow: { ...(entry.workflow as Record_), profile: classic } }));
+    expect((await a.callApi("PUT", "/workflow", { profile: classic })).status).toBe(200);
+    await expect.poll(() => hotWater(a).volume, { timeout: 15_000 }).toBe(130);
+    slow = false;
+    expect(profile(a).title).toBe(classic.title);
+    await expect.poll(async () => (await recipe(one)).content.profileId, { timeout: 15_000 }).toBe(CLASSIC);
+    expect(recipeReads(a)).toBeGreaterThan(recipeReadsBefore);
+    await expect.poll(() => record(c, ETHIOPIA)?.profileId, { timeout: 15_000 }).toBe(CLASSIC);
+    expect([recipeIdInWorkflow(a), recipeIdInWorkflow(c)]).toEqual([ETHIOPIA, ETHIOPIA]);
+  });
+
   it("keeps a grind edit that DYE2 saves A's Workflow's `.5` over before the edit's write into it lands, `.5` being 0.5", async () => {
     const { dye2, a, c, one, quiet } = await lab("Typed grind", 48711);
     // Typed on A as `.5`, which DYE2 saves into the record as 0.5 (`grindValue`).
@@ -717,6 +750,35 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(context(a).beanBatchId).toBe(RECORDED_BRAZIL_BATCH);
     expect(loadedRecipeWrites(a, received).filter((fields) => "context.beanBatchId" in fields)).toEqual([]);
     await expect.poll(async () => context(c).beanBatchId, { timeout: 15_000 }).toBe(await localId(c, "/bean-batches", brazilBatch));
+    for (const machine of [machines.a, machines.c]) await loads(machine, one);
+  });
+
+  it("keeps C's pick of the Bean's next bag as the Recipe's over a batch of another Bean picked on A just before it and taken in just after, A's Bean and batch both kept as Conflicts, so the Recipe never names one Bean and another's batch (#570)", async () => {
+    const { here, machines, a, c, one, quiet } = await lab("Crossed picks reversed", 48391);
+    const bean = (await recipe(one)).content.beanId as string;
+    const next = (await api.send<{ batch: { id: string } }>("POST", "/bean-batches", { beanId: bean, content: { roastDate: "2026-10-12" }, locations: [{ locationId: here.id }] }, 201)).batch.id;
+    await expect.poll(() => localId(c, "/bean-batches", next), { timeout: 15_000 }).toEqual(expect.any(String));
+    await quiet();
+    // A picks a batch of the Brazil, and Decaid is slow to answer the read of the Workflow the plugin's save into the Recipe
+    // makes: A's change is held back meanwhile.
+    const brazilBatch = (await globalOf(a, "/bean-batches", RECORDED_BRAZIL_BATCH))!;
+    const releaseA = a.holdWorkflowReads();
+    const requested = a.requests.length;
+    await a.changeSettings({ context: { beanBatchId: RECORDED_BRAZIL_BATCH } });
+    await expect.poll(() => a.requests.slice(requested).includes("/workflow"), { timeout: 15_000 }).toBe(true);
+    // Then C picks the next bag, which the server takes at once: a change of the batch alone, as the Recipe names its Bean.
+    await c.changeSettings({ context: { beanBatchId: await localId(c, "/bean-batches", next) } });
+    await expect.poll(async () => (await recipe(one)).content.beanBatchId, { timeout: 15_000 }).toBe(next);
+    // A's pick, made first, reaches the server after C's, made without having seen it: its batch loses, and its Bean, though
+    // no edit since set the Bean, loses with it.
+    releaseA();
+    const conflicts = async () => (await api.get<{ conflicts: { field: string; value: unknown }[] }>(`/recipes/${one}/conflicts`)).conflicts;
+    await expect.poll(conflicts, { timeout: 15_000 }).toContainEqual(expect.objectContaining({ field: "beanBatchId", value: brazilBatch }));
+    expect(await conflicts()).toContainEqual(expect.objectContaining({ field: "beanId", value: (await globalOf(a, "/beans", record(a, BRAZIL)!.beanId as string))! }));
+    await quiet();
+    expect((await recipe(one)).content).toMatchObject({ beanId: bean, beanBatchId: next });
+    // A is brought to C's pick.
+    await expect.poll(async () => context(a).beanBatchId, { timeout: 15_000 }).toBe(await localId(a, "/bean-batches", next));
     for (const machine of [machines.a, machines.c]) await loads(machine, one);
   });
 

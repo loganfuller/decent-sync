@@ -699,10 +699,13 @@ const PART_FIELDS: readonly string[] = Object.values(LOADED_RECIPE_PARTS).flat()
  * Whether a field of a Workflow that follows its Loaded Recipe holds
  * otherwise in `after` than in `before`, of those the plugin's writes
  * between them did not set (`written`, by their paths): the brew
- * temperature but where they set the profile.
+ * temperature but where they set the profile, and the profile itself as
+ * DYE2 fingerprints one, so a Skin's change of it around a write of the
+ * plugin's still has DYE2's recipes read (`readSoon`, #570).
  */
 function changedBesides(before: Record<string, unknown>, after: Record<string, unknown>, written: ReadonlySet<string>): boolean {
   const set = (field: string) => [...written].some((path) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`));
+  if (!set("profile") && dye2Fingerprint(before.profile) !== dye2Fingerprint(after.profile)) return true;
   return PART_FIELDS.some((field) => field !== "profile" && !set(field) && !sameValue(workflowValueAt(before, field), workflowValueAt(after, field)));
 }
 

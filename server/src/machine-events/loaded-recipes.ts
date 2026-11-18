@@ -316,13 +316,13 @@ async function recordFromWorkflow(
   const grinders = await tx.$queryRaw<{ id: string }[]>`
     SELECT id::text AS id FROM grinders WHERE location_id = ${recipe.locationId}::uuid AND NOT archived`;
   const batch = now.batch === null ? undefined : local.item("beanBatch", now.batch as string);
-  // The batch picked, with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or finished at the
-  // Recipe's Location.
+  // The batch picked, with its Bean, and whether the Library retired it: Archived, of an Archived Bean, or not at
+  // the Recipe's Location, as one never added there or finished there: the Location offers none of these.
   const beans = batch === undefined ? [] : await tx.$queryRaw<{ id: string; beanId: string; retired: boolean }[]>`
     SELECT batch.id::text AS id, batch.bean_id::text AS "beanId",
-      batch.archived OR bean.archived OR EXISTS (
+      batch.archived OR bean.archived OR NOT EXISTS (
         SELECT 1 FROM batch_locations AS here
-        WHERE here.batch_id = batch.id AND here.location_id = ${recipe.locationId}::uuid AND here.finished_at IS NOT NULL
+        WHERE here.batch_id = batch.id AND here.location_id = ${recipe.locationId}::uuid AND here.added_at IS NOT NULL AND here.finished_at IS NULL
       ) AS retired
     FROM bean_batches AS batch JOIN beans AS bean ON bean.id = batch.bean_id
     WHERE batch.id = ${batch}::uuid`;

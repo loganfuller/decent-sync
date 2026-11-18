@@ -309,8 +309,8 @@ settings the Recipe holds none of are left as the Machine has them.
 
 A bean batch picked on a Machine with a Recipe loaded becomes the Recipe's
 Bean and batch, of another Bean too, on every Machine that has it loaded.
-One Archived, of an Archived Bean, or finished at the Recipe's Location
-stays that Machine's own.
+One Archived, of an Archived Bean, or not at the Recipe's Location (never
+added there, or finished there) stays that Machine's own.
 
 ## Tablet identity and backups
 
@@ -824,8 +824,8 @@ writes it to every tablet at the Location.
   It rewrites `title`, `subtitle`, the names DYE2 copies and the embedded
   `workflow` from the Recipe, so a Skin writes those for DYE2 alone.
 - **Write `beanId` and `beanBatchId` together.** `beanId` wins: a
-  `beanBatchId` changed under the Bean the record names already changes
-  nothing. A `beanId` with no batch of its own gives the Recipe its batch of
+  `beanBatchId` changed under the Bean the record names already is taken
+  where the batch is of that Bean, and otherwise changes nothing. A `beanId` with no batch of its own gives the Recipe its batch of
   that Bean, or else that Bean's batch most recently added at the Location,
   or none. A `beanId` this tablet holds no record of is none, and clears the
   Recipe's Bean on every Machine.
@@ -840,8 +840,8 @@ writes it to every tablet at the Location.
   embedded `workflow.profile`, or else its `profileSnapshot`, so write the
   new profile there too, whole.
 - **What is not taken.** An Archived Bean, or a batch held with its Bean
-  that is Archived, of an Archived Bean or finished at the Recipe's
-  Location, changes neither the Recipe's Bean nor its batch. A `profileId`
+  that is Archived, of an Archived Bean or not at the Recipe's Location
+  (never added there, or finished there), changes neither the Recipe's Bean nor its batch. A `profileId`
   that is none of the Library's Profiles changes none, as one made on this
   tablet that the plugin has not reported yet: it reports the tablet's
   profiles at its poll, 30 s by default. The Recipe's own is written back

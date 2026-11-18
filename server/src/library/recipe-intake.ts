@@ -256,7 +256,7 @@ export interface IntakeContext {
   grinders: ReadonlySet<string>;
   /** Each Bean Batch's Bean, for the Recipe's batch now and the batch a record holds. */
   batchBeans: ReadonlyMap<string, string>;
-  /** Of those batches, the ones the Library retired for the Recipe: each Archived, of an Archived Bean, or finished at its Location. */
+  /** Of those batches, the ones the Library retired for the Recipe: each Archived, of an Archived Bean, or not at its Location, as one never added there or finished there. */
   retiredBatches: ReadonlySet<string>;
   /** Of the Beans the records name, the Archived ones. */
   archivedBeans: ReadonlySet<string>;

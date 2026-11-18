@@ -2277,6 +2277,7 @@ var __decentSync = (() => {
   var PART_FIELDS = Object.values(LOADED_RECIPE_PARTS).flat();
   function changedBesides(before, after, written2) {
     const set = (field) => [...written2].some((path) => field === path || field.startsWith(`${path}.`) || path.startsWith(`${field}.`));
+    if (!set("profile") && dye2Fingerprint(before.profile) !== dye2Fingerprint(after.profile)) return true;
     return PART_FIELDS.some((field) => field !== "profile" && !set(field) && !sameValue(workflowValueAt(before, field), workflowValueAt(after, field)));
   }
   async function workflowNow() {
