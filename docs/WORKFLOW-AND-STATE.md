@@ -715,7 +715,9 @@ parts to the Recipe's content both ways.
   change, as one picked there and recorded or held already as the Recipe
   took it, takes the Recipe's Bean too (`BEAN_TAKEN`, #572), so a later
   change of the Recipe's Bean, as its removal, reaches that Workflow once
-  its batch is cleared there. The Recipe's tablets are written the edit, and the Workflows of the
+  its batch is cleared there; and so does one holding the Recipe's Bean's
+  coffee name and roaster, as once a write of it landed whose answer was
+  lost. The Recipe's tablets are written the edit, and the Workflows of the
   other Machines that have it loaded.
 - **A Skin's write of the record.** A record a Skin writes before the
   Workflow is taken in as any edit of the record is (`LIBRARY.md`, Taking
@@ -756,9 +758,12 @@ parts to the Recipe's content both ways.
   named forgotten, is taken as having taken the Recipe's parts as they
   stand, so nothing is written for them until they change. `base` takes
   the Recipe's Bean as it stands (`BEAN_TAKEN`, #572) where the Workflow
-  holds its coffee name and roaster, or none for no Bean, and otherwise
-  another (`OTHER_BEAN`), as after a load from an out-of-date copy of the
-  record, so the Recipe's Bean is written into it; the Workflow named again
+  holds its coffee name and roaster, or none for no Bean, or a coffee of no
+  Bean of the Library, as one typed, which stays the Machine's own, as when
+  DYE2 saves a recipe from a Workflow holding one (`coffeeHeld`); and
+  another (`OTHER_BEAN`) where it holds another Bean's, or none while the
+  Recipe names one, as after a load from an out-of-date copy of the record,
+  so the Recipe's Bean is written into it; the Workflow named again
   with the record of what it named forgotten takes it as it stands.
 - **Steam on and off.** Steam on and off stays each Machine's own
   (ADR-0022, Steam on and off). The server reads each delivered Workflow's
@@ -847,7 +852,8 @@ parts to the Recipe's content both ways.
   out of a Workflow whose steam is off, so none is written again until the
   Recipe changes; and, where it set the batch, the Recipe's Bean as taken
   (`BEAN_TAKEN`, #572) where the write carried the Recipe's latest edit of
-  its Bean, and otherwise another (`OTHER_BEAN`), so the Recipe's Bean is
+  its Bean or the Workflow returned holds its coffee, and otherwise another
+  (`OTHER_BEAN`), so the Recipe's Bean is
   due again, as where it was set back while the write was unanswered. Decaid refuses the steam, hot water and flush settings
   while no machine is connected: the rest is written, and those, still due,
   once the machine is back and the plugin reconnects. Once Decaid takes a write that

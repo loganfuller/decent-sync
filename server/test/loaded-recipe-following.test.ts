@@ -1323,6 +1323,28 @@ describe("A Machine follows its Loaded Recipe both ways", { timeout: 120_000 }, 
     expect(await beanTaken(one)).toEqual([null, null]);
   });
 
+  it("plans no write of the coffee into A's Workflow where DYE2 saves a recipe from it holding a coffee typed on A, no Bean's, which the Recipe takes no Bean from, the Bean taken none (#572)", async () => {
+    const { machines, a, one, quiet } = await lab("Saved coffee", 48871);
+    await patch(one, { beanBatchId: null });
+    await expect.poll(() => coffee(a), { timeout: 15_000 }).toEqual([null, null, null]);
+    await quiet();
+    await a.changeSettings({ context: { coffeeName: "Typed House", coffeeRoaster: "Typed Roaster" } });
+    await quiet();
+    const received = a.received.length;
+    expect((await a.callApi("POST", `/plugins/${DYE2_NAMESPACE}/save-recipe`, { slot: 7 })).status).toBe(200);
+    const savedId = recipeIdInWorkflow(a) as string;
+    expect(savedId).not.toBe(ETHIOPIA);
+    let saved: string | null = null;
+    await expect.poll(() => (saved = dye2GlobalIdOf(record(a, savedId))), { timeout: 15_000 }).toEqual(expect.any(String));
+    await loads(machines.a, saved!);
+    await quiet();
+    expect((await recipe(saved!)).content).not.toHaveProperty("beanId");
+    // The typed coffee is no Bean's, so the Workflow took the Recipe's none: nothing of the coffee is due into it. (The
+    // record written back to A names no coffee, as the Recipe holds none, as before #572.)
+    expect(await beanTaken(saved!)).toEqual([null]);
+    expect(loadedRecipeWrites(a, received)).toEqual([]);
+  });
+
   it("writes the Recipe's Bean into C's Workflow where C applied an out-of-date copy of a Recipe naming no batch, holding the Bean it named before (#572)", async () => {
     const { machines, c, one, two, load, quiet } = await lab("Stale bean", 48841);
     const roaster = "Stale Bean Roasters";

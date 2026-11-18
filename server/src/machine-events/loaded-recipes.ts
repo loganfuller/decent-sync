@@ -280,8 +280,10 @@ async function followMachine(
     // A Workflow holding the Recipe's batch, or holding it before this change, holds that batch's Bean's coffee, as one
     // picked on the Machine and taken into the Recipe, or held already as the Recipe took it: the Recipe's Bean is the one
     // it took, so a later change of it, as its removal, is written over a coffee typed there once the batch is cleared (#572).
+    // So does one holding the Recipe's Bean's coffee, as once a write of it landed whose answer was lost.
     const batch = target?.batch;
-    if (typeof batch === "string" && (samePart("batch", now.batch, batch) || samePart("batch", known.held.batch, batch))) base[BEAN_TAKEN] = recipeBean(recipe.content);
+    const holdsBatch = typeof batch === "string" && (samePart("batch", now.batch, batch) || samePart("batch", known.held.batch, batch));
+    if (target !== null && (holdsBatch || (await coffeeHeld(tx, recipe.content, workflow)) === "recipe")) base[BEAN_TAKEN] = recipeBean(recipe.content);
     await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
     return;
   }
@@ -291,24 +293,37 @@ async function followMachine(
   // Named again with its Machine still having it loaded, as after an upgrade forgot it: taken as it stood.
   const tookAll = continued && target !== null && known === null;
   const base: BaseParts = tookAll ? { ...target } : target === null ? {} : heldAlready(target, now);
-  // Its Bean is taken as it stands where the Workflow holds its coffee and roaster, as a load from the record brings them;
-  // one holding another's, as a load from an out-of-date copy of the record, took another, which is written over (#572).
-  if (target !== null) base[BEAN_TAKEN] = tookAll || (await holdsRecipeBean(tx, recipe.content, workflow)) ? recipeBean(recipe.content) : OTHER_BEAN;
+  // Its Bean is taken as it stands where the Workflow holds its coffee and roaster, as a load from the record brings them, or
+  // a coffee of no Bean, as one typed, which stays the Machine's own; one holding another Bean's, or none while the Recipe
+  // names one, as after a load from an out-of-date copy of the record, took another, which is written over (#572).
+  if (target !== null) base[BEAN_TAKEN] = tookAll || (await coffeeHeld(tx, recipe.content, workflow)) !== "other" ? recipeBean(recipe.content) : OTHER_BEAN;
   await saveNamed(tx, tablet.tabletId, { recordId, recipeId: recipe.id, namedAt, held: now, base });
 }
 
 /**
- * Whether the Workflow's coffee name and roaster are those of the Bean the
- * Recipe with this content names, as a write of it carries them
- * (`loadedRecipeDue`), or none where it names none.
+ * Whose coffee the Workflow holds, by its coffee name and roaster, against
+ * the Bean the Recipe with this content names (#572): "recipe" where they
+ * are that Bean's, as a write of it carries them (`loadedRecipeDue`), or
+ * none where it names none; "other" where they are another Bean's of the
+ * Library, or none while the Recipe names one, as after a load from an
+ * out-of-date copy of its record; "typed" where they are no Bean's, as a
+ * coffee typed on the Machine, which stays its own, as when DYE2 saves a
+ * recipe from a Workflow holding one, which the Recipe takes no Bean from.
  */
-async function holdsRecipeBean(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<boolean> {
+async function coffeeHeld(tx: Prisma.TransactionClient, content: Readonly<Record<string, unknown>>, workflow: unknown): Promise<"recipe" | "other" | "typed"> {
   const beanId = recipeBean(content);
   const [bean] = beanId === null ? [] : await tx.$queryRaw<{ name: unknown; roaster: unknown }[]>`
     SELECT content -> 'name' AS name, content -> 'roaster' AS roaster FROM beans WHERE id::text = ${beanId}`;
   const context = isObject(workflow) && isObject(workflow.context) ? workflow.context : {};
   const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
-  return text(context.coffeeName) === text(bean?.name) && text(context.coffeeRoaster) === text(bean?.roaster);
+  const [name, roaster] = [text(context.coffeeName), text(context.coffeeRoaster)];
+  if (name === text(bean?.name) && roaster === text(bean?.roaster)) return "recipe";
+  if (name === null && roaster === null) return "other";
+  const [another] = await tx.$queryRaw<{ found: boolean }[]>`
+    SELECT EXISTS (
+      SELECT 1 FROM beans WHERE NULLIF(content ->> 'name', '') IS NOT DISTINCT FROM ${name}::text AND NULLIF(content ->> 'roaster', '') IS NOT DISTINCT FROM ${roaster}::text
+    ) AS found`;
+  return another?.found ? "other" : "typed";
 }
 
 /**
@@ -654,12 +669,14 @@ export async function recordLoadedRecipeWritten(
       if (samePart(part, now[part], value) || !samePart(part, now[part], known.held[part]) || (STEAM_OFF_KEPT.has(part) && steamOff(record))) base[part] = value;
     }
     // A batch written carried the name and roaster of the Recipe's Bean as of the latest edit the write carried (#572): the
-    // Recipe's Bean now where that was its latest edit of it, and otherwise another, which may be the one it named before
-    // that edit, as when its Bean was set back meanwhile, so the Recipe's is due again.
+    // Recipe's Bean now where that was its latest edit of it, or where the Workflow returned holds its coffee, and otherwise
+    // another, which may be the one it named before that edit, as when its Bean was set back meanwhile, so the Recipe's is
+    // due again.
     const beanDecided = fieldEdits.beanId?.decidedAt;
     if (set.has("batch")) {
+      const content = isObject(row.content) ? row.content : {};
       const beanCarried = contentSeen !== null && (beanDecided === undefined || new Date(beanDecided).getTime() <= contentSeen.getTime());
-      base[BEAN_TAKEN] = beanCarried ? recipeBean(isObject(row.content) ? row.content : {}) : OTHER_BEAN;
+      base[BEAN_TAKEN] = beanCarried || (await coffeeHeld(tx, content, record)) === "recipe" ? recipeBean(content) : OTHER_BEAN;
     }
     await saveNamed(tx, tablet.tabletId, { ...known, held, base });
     return "recorded";
