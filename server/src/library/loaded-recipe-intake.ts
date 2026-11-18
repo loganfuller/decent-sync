@@ -139,6 +139,14 @@ export function samePart(part: LoadedRecipePart, a: unknown, b: unknown): boolea
 export const BEAN_TAKEN = "bean";
 
 /**
+ * The Bean taken (`BEAN_TAKEN`) by a Workflow holding the coffee of none the
+ * Recipe names now, as one loaded from an out-of-date copy of its record, or
+ * written as of an edit of its Bean a later one replaced: so the Recipe's
+ * Bean is due into it, whichever it is.
+ */
+export const OTHER_BEAN = "other";
+
+/**
  * The Recipe's parts as a tablet's Workflow last took them
  * (`tablet_loaded_recipes.base`), each as `WorkflowParts` holds it; a part
  * it does not name was never taken. With them, under `BEAN_TAKEN`, the
