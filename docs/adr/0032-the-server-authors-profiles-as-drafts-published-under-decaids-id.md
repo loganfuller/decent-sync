@@ -1,0 +1,29 @@
+---
+status: accepted
+---
+
+# The server authors Profiles, as Drafts published under Decaid's id
+
+Until now a Profile joined the Library only from a tablet, because Decaid computes a Profile's id from what the machine executes and the server had no way to make one. The only editor is Streamline's on the tablet, which is hard to use for shaping a Profile towards an extraction, and Decaid has said editors belong in skins and plugins, not in Decaid (decaid#879). So the management interface now writes Profiles too, and the MCP endpoint with it (ADR-0026). Tablets stay able to edit them, as ADR-0003 has it.
+
+Work in progress is a Draft, which the server alone holds and no tablet's profile list ever holds. Publishing a Draft makes it a Profile: the server computes the id with its own copy of Decaid's hash, and from there the Profile is shown at Locations and written to their tablets as any Library Profile is. A Draft that changes an existing Profile's steps publishes as a new Profile saved from the old one, Decaid's `parentId`, with the old one hidden wherever the new one is shown. That is what Streamline does when it saves a changed Profile, and the management interface presents the chain as the Profile's Profile Versions.
+
+## Considered Options
+
+- **A connected tablet mints the id.** The server would send the Draft to a tablet, which creates it in Decaid and reports it back through the Library's ordinary intake. It copies none of Decaid's logic. But nothing could be published while every tablet is off, and the server would have to tie the Profile that comes back to the Draft it sent. Rejected.
+- **The server's own ids for the Profiles it writes,** mapped to Decaid's on each tablet. A second identity for something Decaid already identifies, against ADR-0006. Rejected.
+- **No Draft: every save is a Profile.** Each change to a step is a new Profile to Decaid, so every adjustment would add one to every tablet at the Location. Rejected.
+- **Editing only on tablets, and asking upstream for a better editor.** Decaid has declined to own one, and authoring on the tablet is out of scope for now.
+
+## Consequences
+
+- **The server carries a copy of Decaid's hash,** checked against records made by Decaid itself. A Decaid release that changes the hash, or how it normalises a profile before hashing, stops publishing until the copy follows. It fails in the open: the plugin already refuses a Profile that Decaid answers under another id.
+- **The server defines the profile's shape and its limits.** Decaid checks no numbers, and a value over what the machine's wire format holds wraps to a different one, so the server refuses what is out of range. The ranges are Streamline's.
+- **A Draft with the steps of an existing Profile can't be published.** The two would have one id, so the server refuses and names the Profile.
+- **Publishing chooses where the Profile is shown.** ADR-0008 shows a new Profile only where it was created, and the management interface is at no Location. A new version starts with the Locations that showed the one before.
+- **Recipes don't follow a new version by themselves.** A Recipe names one Profile by id, so publishing offers to move the Recipes that name the old version, and a moved Recipe reaches the Machines it is loaded on as any edit of it does. The old version stays shown at a Location while a Recipe there still names it.
+- **Returning to an earlier version creates nothing.** The same steps are always the same Profile, so it is shown again where it was hidden.
+- **A chain can fork.** A Draft publishes as saved from the version it was started from, even when a newer one has appeared since, from a tablet or another Draft.
+- **A Machine can follow a Draft, through its Workflow alone.** Decaid's Workflow holds a copy of its profile, not a reference to one, so the plugin sets a Draft's steps as a Machine's Workflow's profile, as it already writes a Loaded Recipe's, and sets them again on each save. Only a Machine at a Location an Admin has marked for trying Drafts can follow one, and one Draft at a time. The Draft reaches the tablet under a title of its own, because Streamline finds a tablet's record of the Workflow's profile by its title and would otherwise take the Draft for the published Profile. Following ends the Machine's Loaded Recipe, as DYE2 clears it on any change of profile. It ends itself whenever the Workflow stops holding the Draft's steps, whatever changed them, a barista, a Recipe or Streamline's wake profile, since the plugin can't tell these apart and sending the Draft again would overwrite what someone at the tablet chose. A person starts it again.
+- **A Trial Shot is tied to the steps it ran.** A Shot pulled on a following Machine with the Draft's steps is the Draft's, so the Draft keeps each set of steps it was tried with for as long as it lives. Once it is published, Shots on the published steps are the new Profile's, as any Shot is by its steps, and the earlier ones name no Profile.
+- **A Draft is not Library content.** It is edited by whoever may change the Library, the later save winning, and makes no Conflict (ADR-0020).

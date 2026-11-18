@@ -137,6 +137,18 @@ _Avoid_: Adjustment, transaction
 A program the machine follows while pulling a shot, such as a pressure or flow curve. Each location shows or hides each profile.
 _Avoid_: Recipe (a recipe is more than a profile)
 
+**Profile Version**:
+One profile in a chain in which each was saved from the one before, shown as the versions of one profile. A change to a profile's steps makes a new version; a change to its title, author or notes does not.
+_Avoid_: Revision; version (for one accepted edit in an item's history)
+
+**Draft**:
+A profile being written or changed in the management interface, held by the server and offered on no tablet. Publishing it makes it a profile, or a new profile version, and it is gone once published or discarded. A machine at a location marked for it can follow a draft, taking its steps as they are saved, to try it.
+_Avoid_: Unsaved profile, working copy
+
+**Trial Shot**:
+A shot pulled with a draft's steps on a machine following it, kept with the steps it ran so it can be compared with what the draft was simulated to do.
+_Avoid_: Test shot, draft shot
+
 **Recipe**:
 A named, saved dial-in for a coffee, such as the day's recipe for one roast: its bean batch, profile, dose, yield, grinder and grind setting, basket and tools, and any steam, hot water and flush settings it holds. It is the whole shot: a machine that loads it is left with none of what the recipe names none of, such as a bean batch, grinder, grind setting, basket, dose or yield. Only for the steam, hot water and flush settings it holds none of does the machine keep its own. It belongs to one location, where any machine can load it, and baristas keep it current as they adjust the dial through the day.
 _Avoid_: Stored workflow, preset, favourite
